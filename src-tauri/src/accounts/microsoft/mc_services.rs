@@ -2,8 +2,9 @@
 //! then fetch the user's MC profile.
 
 use crate::error::{Error, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use specta::Type;
 
 pub const LOGIN_DEFAULT: &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
 pub const PROFILE_DEFAULT: &str = "https://api.minecraftservices.com/minecraft/profile";
@@ -28,6 +29,44 @@ pub struct ProfileResponse {
     /// MC UUID without dashes — we hyphenate it before storing in account.json.
     pub id: String,
     pub name: String,
+    /// Owned capes. Empty for accounts with none. Ignored by sign-in/refresh.
+    #[serde(default)]
+    pub capes: Vec<CapeEntry>,
+    /// Skin list; the ACTIVE entry's `variant` gives the current model.
+    #[serde(default)]
+    pub skins: Vec<SkinEntry>,
+}
+
+/// One entry in the profile `capes[]` array.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CapeEntry {
+    pub id: String,
+    /// "ACTIVE" | "INACTIVE" (compare case-insensitively).
+    pub state: String,
+    /// `textures.minecraft.net/texture/<hash>` PNG.
+    pub url: String,
+    #[serde(default)]
+    pub alias: Option<String>,
+}
+
+/// One entry in the profile `skins[]` array.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SkinEntry {
+    pub id: String,
+    pub state: String,
+    pub url: String,
+    /// "CLASSIC" | "SLIM" (case-insensitive); absent on some responses.
+    #[serde(default)]
+    pub variant: Option<String>,
+}
+
+/// Player model variant. Serializes to the lowercase strings the
+/// `POST /minecraft/profile/skins` form field expects and the UI toggle uses.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SkinVariant {
+    Classic,
+    Slim,
 }
 
 pub async fn login_with_xbox(userhash: &str, xsts_token: &str) -> Result<LoginResponse> {
@@ -223,6 +262,53 @@ mod tests {
 
         let result = fetch_profile("mc-tok").await;
         assert!(matches!(result, Err(Error::NoMinecraftProfile)));
+    }
+
+    #[tokio::test]
+    async fn fetch_profile_parses_capes_and_skins() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/minecraft/profile"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+              "id":"7e8d9c0a123456789abcdef012345678",
+              "name":"PlayerMC",
+              "skins":[{"id":"s1","state":"ACTIVE","url":"https://textures.minecraft.net/texture/skin1","variant":"SLIM"}],
+              "capes":[
+                {"id":"c1","state":"ACTIVE","url":"https://textures.minecraft.net/texture/cape1","alias":"Migrator"},
+                {"id":"c2","state":"INACTIVE","url":"https://textures.minecraft.net/texture/cape2","alias":"Vanilla"}
+              ]
+            }"#,
+            ))
+            .mount(&server)
+            .await;
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_MC_PROFILE_URL_OVERRIDE",
+                &format!("{}/minecraft/profile", server.uri()),
+            ),
+        ]);
+
+        let p = fetch_profile("mc-tok").await.unwrap();
+        assert_eq!(p.capes.len(), 2);
+        assert_eq!(p.capes[0].id, "c1");
+        assert_eq!(p.capes[0].state, "ACTIVE");
+        assert_eq!(p.capes[0].alias.as_deref(), Some("Migrator"));
+        assert_eq!(p.skins.len(), 1);
+        assert_eq!(p.skins[0].variant.as_deref(), Some("SLIM"));
+    }
+
+    #[test]
+    fn skin_variant_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&SkinVariant::Classic).unwrap(),
+            "\"classic\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SkinVariant::Slim).unwrap(),
+            "\"slim\""
+        );
     }
 }
 
