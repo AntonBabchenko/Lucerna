@@ -62,7 +62,7 @@
   <div class="group relative flex-none">
     <button
       type="button"
-      class="block rounded-xl focus-visible:outline focus-visible:outline-2
+      class="relative block rounded-xl focus-visible:outline focus-visible:outline-2
         focus-visible:outline-accent focus-visible:outline-offset-2"
       onclick={() => iconDialog.pick(instance.id)}
       use:tooltip={$t('instance.icon.editTooltip')}
@@ -70,6 +70,17 @@
       data-testid="overview-avatar"
     >
       <InstanceAvatar {instance} size={52} />
+      <!-- Change affordance: revealed together with the corner trash on
+           hover / keyboard focus. Radius matches InstanceAvatar's computed
+           rounding (size * 0.22). -->
+      <span
+        class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
+          transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        style="border-radius:{Math.round(52 * 0.22)}px"
+        aria-hidden="true"
+      >
+        <Icon name="edit" size={18} class="text-white" />
+      </span>
     </button>
     {#if instance.has_icon}
       <button
