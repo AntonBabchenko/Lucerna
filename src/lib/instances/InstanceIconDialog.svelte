@@ -31,6 +31,12 @@
   let startX = 0;
   let startY = 0;
 
+  // Blob URL for the currently-loaded source image. It must stay alive while
+  // the preview <img src={img.src}> is displayed; revoking it in the loader's
+  // onload (as before) left the displayed <img> pointing at a dead URL and
+  // showed a broken image. Revoked when replaced by a new pick, or on reset.
+  let objectUrl: string | null = null;
+
   function resetState() {
     img = null;
     imgW = 0;
@@ -41,6 +47,10 @@
     offsetY = 0;
     busy = false;
     error = null;
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
     if (fileInput) fileInput.value = '';
   }
 
@@ -62,7 +72,10 @@
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file) return;
     error = null;
+    // Replace any previously-loaded source; revoke its blob URL first.
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
     const url = URL.createObjectURL(file);
+    objectUrl = url;
     const image = new Image();
     image.onload = () => {
       imgW = image.naturalWidth;
@@ -72,11 +85,15 @@
       offsetX = (FRAME - imgW * scale) / 2;
       offsetY = (FRAME - imgH * scale) / 2;
       img = image;
-      URL.revokeObjectURL(url);
+      // Do NOT revoke here: the preview <img src={img.src}> still needs this
+      // blob URL. It is revoked on reset/close or when a new file replaces it.
     };
     image.onerror = () => {
       error = $t('instance.icon.errorDecode');
-      URL.revokeObjectURL(url);
+      if (objectUrl === url) {
+        URL.revokeObjectURL(url);
+        objectUrl = null;
+      }
     };
     image.src = url;
   }
