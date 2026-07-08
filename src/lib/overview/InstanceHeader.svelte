@@ -74,9 +74,8 @@
     {#if instance.has_icon}
       <button
         type="button"
-        class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 rounded-full
-          border border-border-subtle bg-surface/90 opacity-0 shadow-sm transition-opacity
-          group-hover:opacity-100 group-focus-within:opacity-100"
+        class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 opacity-0
+          transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         onclick={() => iconDialog.requestRemove(instance.id)}
         aria-label={$t('instance.icon.remove')}
         use:tooltip={$t('instance.icon.remove')}
