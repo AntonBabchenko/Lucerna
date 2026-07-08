@@ -16,6 +16,7 @@ const baseInst = {
   extra_jvm_args: '',
   created_unix_ms: Date.now() - 24 * 60 * 60 * 1000, // ~1 day ago
   ready: true,
+  has_icon: false,
   mrpack_name: 'Fabulously Optimized',
   mrpack_version: '5.9.0',
   mrpack_project_id: null,
@@ -114,6 +115,7 @@ const inst: InstanceWithStatus = {
   extra_jvm_args: '',
   created_unix_ms: 1_700_000_000_000,
   ready: true,
+  has_icon: false,
   mrpack_name: 'All The Mods 10',
   mrpack_version: '1.4.7',
   mrpack_project_id: 'p',

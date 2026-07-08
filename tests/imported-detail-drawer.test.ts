@@ -105,6 +105,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     extra_jvm_args: '',
     created_unix_ms: Date.now() - 86400000,
     ready: true,
+    has_icon: false,
     mrpack_name: 'Cool Pack',
     mrpack_version: '1.0',
     mrpack_project_id: 'ABC123',

@@ -59,6 +59,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     extra_jvm_args: '',
     created_unix_ms: null,
     ready: true,
+    has_icon: false,
     mrpack_name: null,
     mrpack_version: null,
     mrpack_project_id: null,
