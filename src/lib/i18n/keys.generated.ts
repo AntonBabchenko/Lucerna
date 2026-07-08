@@ -1109,7 +1109,6 @@ export type TranslationKey =
   | 'page.overview.attnModpackUpdate'
   | 'page.overview.attnPickVersion'
   | 'page.overview.attnServerLogFix'
-  | 'page.overview.avatarAlt'
   | 'page.overview.dismissError'
   | 'page.overview.errorRetry'
   | 'page.overview.exportModpack'
