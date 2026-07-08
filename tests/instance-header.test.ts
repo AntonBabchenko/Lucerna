@@ -31,7 +31,9 @@ describe('InstanceHeader', () => {
       props: { instance: inst, running: false, installing: false },
     });
     expect(getByText('Skyblock')).toBeTruthy();
-    expect(getByTestId('overview-avatar').textContent).toBe('S');
+    // trim(): the avatar button also contains the decorative hover-overlay
+    // span, whose markup contributes whitespace-only text nodes.
+    expect(getByTestId('overview-avatar').textContent?.trim()).toBe('S');
   });
 
   it('renders MC version, loader and memory badges', () => {
