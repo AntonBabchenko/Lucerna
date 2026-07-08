@@ -54,6 +54,8 @@ mod data_location;
 pub use data_location::*;
 mod screenshots;
 pub use screenshots::*;
+mod cosmetics;
+pub use cosmetics::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)

@@ -73,6 +73,7 @@ export type TranslationKey =
   | 'errors.authPendingApproval'
   | 'errors.backupCorrupt'
   | 'errors.backupNotFound'
+  | 'errors.cosmeticImageInvalid'
   | 'errors.dataLocationBusy'
   | 'errors.dataLocationInvalid'
   | 'errors.dataLocationInvalidReason.nested'
