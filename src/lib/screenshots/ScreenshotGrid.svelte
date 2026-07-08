@@ -25,6 +25,7 @@
     {shots}
     bind:index={lightboxIndex}
     onClose={() => (lightboxIndex = null)}
+    {onChanged}
     onDeleted={() => {
       lightboxIndex = null;
       onChanged();

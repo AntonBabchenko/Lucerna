@@ -11,11 +11,13 @@
     shots,
     index = $bindable(0),
     onClose,
+    onChanged = () => {},
     onDeleted,
   }: {
     shots: Screenshot[];
     index: number;
     onClose: () => void;
+    onChanged?: () => void;
     onDeleted: (s: Screenshot) => void;
   } = $props();
 
@@ -32,8 +34,21 @@
     | undefined
   >();
 
-  function saveCurrent() {
-    if (annotator) void saveAnnotated(current, annotator.overlayDataUrl(), annotator.cropRect());
+  // A save writes a new file into the screenshots folder; refresh the list once
+  // the lightbox closes (reloading while open would shift indices and jump to a
+  // different image).
+  let saved = $state(false);
+
+  async function saveCurrent() {
+    if (!annotator) return;
+    if (await saveAnnotated(current, annotator.overlayDataUrl(), annotator.cropRect())) {
+      saved = true;
+    }
+  }
+
+  function close() {
+    onClose();
+    if (saved) onChanged();
   }
 
   $effect(() => {
@@ -54,7 +69,7 @@
   function onKey(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
-    else if (e.key === 'Escape') onClose();
+    else if (e.key === 'Escape') close();
   }
   async function onDelete() {
     const s = current;
@@ -77,7 +92,7 @@
     type="button"
     class="absolute inset-0 cursor-default"
     aria-label={$t('screenshots.galleryClose')}
-    onclick={onClose}
+    onclick={close}
   ></button>
 
   <button
@@ -85,7 +100,7 @@
     class="btn-icon absolute right-4 top-4 z-10 bg-surface/80"
     aria-label={$t('screenshots.galleryClose')}
     use:tooltip={$t('screenshots.galleryClose')}
-    onclick={onClose}><Icon name="close" size={20} /></button
+    onclick={close}><Icon name="close" size={20} /></button
   >
 
   {#if url}
