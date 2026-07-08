@@ -49,16 +49,16 @@
   <img
     src={iconUrl}
     alt={$t('instance.avatarAlt')}
-    class="flex-none rounded-xl object-cover"
-    style="width:{size}px;height:{size}px"
+    class="flex-none object-cover"
+    style="width:{size}px;height:{size}px;border-radius:{Math.round(size * 0.22)}px"
     onerror={() => (iconUrl = null)}
   />
 {:else}
   <div
-    class="flex-none rounded-xl flex items-center justify-center font-extrabold {TONE_BG[
-      avatar.tone
-    ]}"
-    style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.42)}px"
+    class="flex-none flex items-center justify-center font-extrabold {TONE_BG[avatar.tone]}"
+    style="width:{size}px;height:{size}px;font-size:{Math.round(
+      size * 0.42,
+    )}px;border-radius:{Math.round(size * 0.22)}px"
     aria-hidden="true"
   >
     {avatar.letter}
