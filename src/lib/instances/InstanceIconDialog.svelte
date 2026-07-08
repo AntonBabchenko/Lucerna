@@ -3,18 +3,24 @@
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
   import Modal from '$lib/ui/Modal.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { computeCropRect } from './crop';
-  import { invalidateInstanceIcon } from './instance-icon-cache';
+  import { invalidateInstanceIcon, loadInstanceIcon } from './instance-icon-cache';
   import { iconDialog } from './instance-icon-dialog.svelte';
 
   let { onSaved = () => {} }: { onSaved?: () => void } = $props();
 
   const FRAME = 256; // on-screen crop frame edge (px)
   const OUT_EDGE = 512; // exported PNG edge; Rust normalizes to 256
+  const TITLE_ID = 'instance-icon-dialog-title';
 
   let fileInput = $state<HTMLInputElement>();
+  // The instance's currently-stored picture (data URL), shown as a preview when
+  // the dialog opens on an instance that already has one. `null` = none / not
+  // loaded yet. Distinct from `img`, which is a freshly-picked source to crop.
+  let existingUrl = $state<string | null>(null);
   let img: HTMLImageElement | null = $state(null);
   let imgW = $state(0);
   let imgH = $state(0);
@@ -57,15 +63,28 @@
   function close() {
     iconDialog.close();
     resetState();
+    existingUrl = null;
   }
 
-  // Switching the target instance (or reopening on a different one) must not
-  // leak the previous image/zoom/pan into the new session. `instanceId` only
-  // changes on show()/close() — not while the user is actively cropping — so
-  // this cannot wipe a freshly picked image mid-edit.
+  // On open (or target-instance change), start from a clean crop session and,
+  // if the instance already has a picture, load it for preview. `open` /
+  // `instanceId` / `hasIcon` only change on show()/close() — never while the
+  // user is actively cropping — so this cannot wipe a freshly picked image
+  // mid-edit.
   $effect(() => {
-    iconDialog.instanceId;
-    untrack(resetState);
+    const open = iconDialog.open;
+    const id = iconDialog.instanceId;
+    const has = iconDialog.hasIcon;
+    untrack(() => {
+      resetState();
+      existingUrl = null;
+      if (open && has && id) {
+        loadInstanceIcon(id).then((url) => {
+          // Ignore a stale resolve if the dialog closed or switched instance.
+          if (iconDialog.open && iconDialog.instanceId === id) existingUrl = url;
+        });
+      }
+    });
   });
 
   function onFile(e: Event) {
@@ -188,17 +207,17 @@
 </script>
 
 {#if iconDialog.open}
-  <Modal
-    onClose={close}
-    ariaLabel={$t('instance.icon.dialogTitle')}
-    panelClass="w-[22rem] max-w-[90vw] p-5"
-  >
-    <h3 class="mb-3 text-base font-semibold text-primary">{$t('instance.icon.dialogTitle')}</h3>
+  <Modal onClose={close} ariaLabelledby={TITLE_ID} panelClass="w-[22rem] max-w-[90vw] p-5">
+    <h3 id={TITLE_ID} class="text-base font-semibold text-primary">
+      {$t('instance.icon.dialogTitle')}
+    </h3>
+    <p class="mt-1 text-xs text-muted">{$t('instance.icon.subtitle')}</p>
 
     {#if img}
-      <div class="flex flex-col items-center gap-3">
+      <!-- Crop a freshly-picked source. -->
+      <div class="mt-4 flex flex-col items-center gap-3">
         <div
-          class="relative overflow-hidden rounded-xl border border-border-subtle bg-base"
+          class="relative overflow-hidden rounded-xl border border-border-emphasis bg-base"
           style="width:{FRAME}px;height:{FRAME}px;touch-action:none;cursor:grab"
           onwheel={onWheel}
           onpointerdown={onPointerDown}
@@ -216,29 +235,58 @@
               scale}px;transform:translate({offsetX}px,{offsetY}px)"
           />
         </div>
-        <input
-          type="range"
-          class="w-full"
-          min={minScale}
-          max={minScale * 8}
-          step="0.001"
-          value={scale}
-          aria-label={$t('instance.icon.zoom')}
-          oninput={(e) => zoomTo(Number((e.currentTarget as HTMLInputElement).value))}
+        <div class="flex w-full items-center gap-2">
+          <Icon name="zoomOut" size={16} class="shrink-0 text-muted" />
+          <input
+            type="range"
+            class="w-full"
+            min={minScale}
+            max={minScale * 8}
+            step="0.001"
+            value={scale}
+            aria-label={$t('instance.icon.zoom')}
+            oninput={(e) => zoomTo(Number((e.currentTarget as HTMLInputElement).value))}
+          />
+          <Icon name="zoomIn" size={16} class="shrink-0 text-muted" />
+        </div>
+        <p class="text-xs text-muted">{$t('instance.icon.hint')}</p>
+      </div>
+    {:else if existingUrl}
+      <!-- Show the current picture; offer to replace it. -->
+      <div class="mt-4 flex flex-col items-center gap-3">
+        <img
+          src={existingUrl}
+          alt={$t('instance.avatarAlt')}
+          class="h-44 w-44 rounded-2xl border border-border-subtle object-cover shadow-sm"
         />
-        <p class="text-xs text-secondary">{$t('instance.icon.hint')}</p>
+        <button type="button" class="btn-secondary btn-sm" onclick={() => fileInput?.click()}>
+          {$t('instance.icon.chooseAnother')}
+        </button>
       </div>
     {:else}
-      <button type="button" class="btn-secondary w-full" onclick={() => fileInput?.click()}>
-        {$t('instance.icon.chooseFile')}
+      <!-- Empty: click-to-browse drop zone. -->
+      <button
+        type="button"
+        class="mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
+          border-dashed border-border-emphasis px-4 py-10 text-center transition-colors
+          hover:border-accent"
+        onclick={() => fileInput?.click()}
+      >
+        <Icon name="upload" size={26} class="text-muted" />
+        <span class="text-sm font-medium text-secondary">{$t('instance.icon.chooseFile')}</span>
+        <span class="text-xs text-muted">PNG · JPG · WebP · GIF</span>
       </button>
     {/if}
 
-    <StatusMessage tone="danger" message={error} class="mt-3" />
+    <StatusMessage
+      tone="danger"
+      message={error}
+      class="mt-3 rounded border border-danger bg-danger-bg p-2"
+    />
 
     <div class="mt-4 flex items-center justify-between">
       <div>
-        {#if iconDialog.hasIcon}
+        {#if iconDialog.hasIcon && !img}
           <button type="button" class="btn-ghost-danger btn-sm" disabled={busy} onclick={remove}>
             {$t('instance.icon.remove')}
           </button>
@@ -248,9 +296,11 @@
         <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
           {$t('common.cancel')}
         </button>
-        <button type="button" class="btn-primary btn-sm" disabled={!img || busy} onclick={save}>
-          {$t('common.save')}
-        </button>
+        {#if img}
+          <button type="button" class="btn-primary btn-sm" disabled={busy} onclick={save}>
+            {$t('common.save')}
+          </button>
+        {/if}
       </div>
     </div>
 

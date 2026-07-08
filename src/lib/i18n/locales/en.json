@@ -251,7 +251,9 @@
     "avatarAlt": "Instance picture",
     "icon": {
       "dialogTitle": "Instance picture",
+      "subtitle": "Upload a picture and crop it to a square.",
       "chooseFile": "Choose image",
+      "chooseAnother": "Choose a different image",
       "hint": "Drag to reposition, scroll to zoom",
       "zoom": "Zoom",
       "remove": "Remove picture",
