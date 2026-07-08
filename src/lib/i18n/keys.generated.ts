@@ -1707,7 +1707,6 @@ export type TranslationKey =
   | 'sidebar.compactExpand'
   | 'sidebar.contextHide'
   | 'sidebar.contextMenuAria'
-  | 'sidebar.cosmeticsLabel'
   | 'sidebar.createInstance'
   | 'sidebar.gallery'
   | 'sidebar.hideConfirm.body'

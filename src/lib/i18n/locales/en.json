@@ -141,7 +141,6 @@
       "confirm": "Hide"
     },
     "manageInstanceLabel": "Manage {name}",
-    "cosmeticsLabel": "Skin and cape for {name}",
     "accountRequired": {
       "title": "Add an account first",
       "body": "You need an account to launch the game, so this button can't be hidden yet. Add an account, then you can hide it.",

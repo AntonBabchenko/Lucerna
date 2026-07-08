@@ -278,39 +278,20 @@
           {@const acc = accounts.find((a) => a.id === opt.value)}
           {#if acc}
             {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
-            <div class="flex items-center gap-0.5">
-              {#if acc.kind === 'microsoft'}
-                {@const cosLabel = $t('sidebar.cosmeticsLabel', { name: acc.name })}
-                <button
-                  type="button"
-                  tabindex="-1"
-                  class="btn-icon btn-icon-sm flex-shrink-0"
-                  aria-label={cosLabel}
-                  use:tooltip={{ text: cosLabel, describe: false }}
-                  onmousedown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                  }}
-                  onclick={() => onOpenCosmetics(acc)}
-                >
-                  <Icon name="shirt" size={14} />
-                </button>
-              {/if}
-              <button
-                type="button"
-                tabindex="-1"
-                class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
-                aria-label={removeLabel}
-                use:tooltip={{ text: removeLabel, describe: false }}
-                onmousedown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
-                onclick={() => onRemoveAccount(acc.id)}
-              >
-                <Icon name="trash" size={14} />
-              </button>
-            </div>
+            <button
+              type="button"
+              tabindex="-1"
+              class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
+              aria-label={removeLabel}
+              use:tooltip={{ text: removeLabel, describe: false }}
+              onmousedown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onclick={() => onRemoveAccount(acc.id)}
+            >
+              <Icon name="trash" size={14} />
+            </button>
           {/if}
         {/snippet}
         <Select
@@ -324,6 +305,22 @@
           optionTrailing={accountTrailing}
           onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
         />
+      {/if}
+      <!--
+        Skin & cape cosmetics — a labeled, always-visible entry point for the
+        ACTIVE Microsoft account (offline accounts have no server-side cosmetics
+        to edit). Sits in the account action cluster so it reads as an
+        account-scoped action, next to Add / Sign in.
+      -->
+      {#if activeAccount?.kind === 'microsoft'}
+        <button
+          type="button"
+          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+          onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
+        >
+          <Icon name="shirt" size={14} />
+          {$t('cosmetics.title')}
+        </button>
       {/if}
       <!--
         Force the account-add buttons visible when there are no accounts, even
