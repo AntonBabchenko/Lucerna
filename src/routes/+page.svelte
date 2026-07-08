@@ -22,6 +22,7 @@
     setCompact,
     toggleCompact,
   } from '$lib/layout/compact.svelte';
+  import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
@@ -430,6 +431,7 @@
       initLocale(settingsResult.data.general.language ?? 'system');
       explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
       void initCompact(settingsResult.data.general.compact_mode ?? false);
+      initSidebarButtons(settingsResult.data.general.hidden_sidebar_buttons ?? []);
       modpackSweepEnabled = settingsResult.data.general.check_updates_on_startup ?? true;
       sweepModpackUpdates();
     }
