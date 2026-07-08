@@ -102,8 +102,9 @@ pub async fn launcher_import_run(
     let versions_dir =
         crate::paths::versions_dir(&app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = crate::instances::status::ready_status(&versions_dir, &instance);
+    // A freshly imported instance directory cannot already contain icon.png.
     Ok(crate::instances::schema::InstanceWithStatus::from_file(
-        &instance, ready,
+        &instance, ready, false,
     ))
 }
 

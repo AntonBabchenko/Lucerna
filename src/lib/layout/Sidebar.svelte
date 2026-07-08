@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Account, InstanceWithStatus, WorldQuickEntry } from '$lib/ipc/bindings';
   import PlayWithWorlds from '$lib/layout/PlayWithWorlds.svelte';
+  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
@@ -377,6 +378,12 @@
             </button>
           {/if}
         {/snippet}
+        {#snippet instanceLeading(opt: SelectOption)}
+          {@const inst = instances.find((x) => x.id === opt.value)}
+          {#if inst}
+            <InstanceAvatar instance={inst} size={20} />
+          {/if}
+        {/snippet}
         <div data-tour="instance-picker">
           <Select
             class="w-full text-sm"
@@ -384,6 +391,8 @@
             options={instanceOptions}
             onChange={(v) => onSelectInstance(String(v))}
             ariaLabel={$t('sidebar.instance')}
+            optionLeading={instanceLeading}
+            valueLeading={instanceLeading}
             optionTrailing={instanceTrailing}
           />
         </div>

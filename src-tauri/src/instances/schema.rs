@@ -345,6 +345,9 @@ pub struct InstanceWithStatus {
     pub created_unix_ms: f64,
     /// True iff the effective version JAR is on disk. UI shows ✓/↓ icon.
     pub ready: bool,
+    /// True iff `<instance>/icon.png` exists (a custom picture). UI shows it in
+    /// place of the letter avatar. Cheap stat, computed like `ready`.
+    pub has_icon: bool,
     pub mrpack_name: Option<String>,
     pub mrpack_version: Option<String>,
     pub mrpack_project_id: Option<String>,
@@ -357,7 +360,7 @@ pub struct InstanceWithStatus {
 }
 
 impl InstanceWithStatus {
-    pub fn from_file(file: &InstanceFile, ready: bool) -> Self {
+    pub fn from_file(file: &InstanceFile, ready: bool, has_icon: bool) -> Self {
         Self {
             id: file.id.clone(),
             name: file.name.clone(),
@@ -369,6 +372,7 @@ impl InstanceWithStatus {
             extra_jvm_args: file.extra_jvm_args.clone(),
             created_unix_ms: file.created_unix_ms,
             ready,
+            has_icon,
             mrpack_name: file.mrpack_name.clone(),
             mrpack_version: file.mrpack_version.clone(),
             mrpack_project_id: file.mrpack_project_id.clone(),
@@ -548,11 +552,18 @@ mod tests {
     #[test]
     fn instance_with_status_from_file_preserves_fields() {
         let s = sample();
-        let w = InstanceWithStatus::from_file(&s, true);
+        let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.id, s.id);
         assert_eq!(w.mc_version, s.mc_version);
         assert_eq!(w.loader, s.loader);
         assert!(w.ready);
+    }
+
+    #[test]
+    fn instance_with_status_carries_has_icon() {
+        let s = sample();
+        assert!(InstanceWithStatus::from_file(&s, true, true).has_icon);
+        assert!(!InstanceWithStatus::from_file(&s, true, false).has_icon);
     }
 
     #[test]
@@ -643,7 +654,7 @@ mod tests {
         let mut s = sample();
         s.mrpack_name = Some("Fabulously Optimized".into());
         s.mrpack_version = Some("5.9.0".into());
-        let w = InstanceWithStatus::from_file(&s, true);
+        let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.mrpack_name.as_deref(), Some("Fabulously Optimized"));
         assert_eq!(w.mrpack_version.as_deref(), Some("5.9.0"));
     }
@@ -955,7 +966,7 @@ mod tests {
     fn instance_with_status_carries_integrity() {
         let mut s = sample();
         s.integrity = Some(sample_integrity());
-        let w = InstanceWithStatus::from_file(&s, true);
+        let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.integrity, Some(sample_integrity()));
     }
 
@@ -1039,7 +1050,7 @@ mod tests {
     fn instance_with_status_carries_created_from_server() {
         let mut s = sample();
         s.created_from_server = Some("srv-xyz".into());
-        let w = InstanceWithStatus::from_file(&s, true);
+        let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.created_from_server.as_deref(), Some("srv-xyz"));
     }
 }

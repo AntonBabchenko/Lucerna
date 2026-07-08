@@ -71,6 +71,7 @@ const inst = (
     extra_jvm_args: '',
     created_unix_ms: ms,
     ready: true,
+    has_icon: false,
     mrpack_name: mrpackName,
     mrpack_version: mrpackName ? '1.0' : null,
     mrpack_project_id: null,

@@ -1,5 +1,6 @@
 //! Multi-instance support.
 
+pub mod icon;
 pub mod ids;
 pub mod import;
 pub mod memory;
@@ -19,12 +20,14 @@ use std::time::SystemTime;
 pub fn list_instances_with_status(app: &tauri::AppHandle) -> Result<Vec<InstanceWithStatus>> {
     let app_root = paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    let files = scan::list_all(&app_root.join("instances"));
+    let instances_dir = app_root.join("instances");
+    let files = scan::list_all(&instances_dir);
     Ok(files
         .into_iter()
         .map(|f| {
             let ready = status::ready_status(&versions_dir, &f);
-            InstanceWithStatus::from_file(&f, ready)
+            let has_icon = icon::has_icon(&instances_dir.join(&f.id).join("icon.png"));
+            InstanceWithStatus::from_file(&f, ready, has_icon)
         })
         .collect())
 }
@@ -176,7 +179,8 @@ pub fn create_instance(
     let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = status::ready_status(&versions_dir, &inst);
     cleanup.keep();
-    Ok(InstanceWithStatus::from_file(&inst, ready))
+    // A freshly reserved instance directory cannot already contain icon.png.
+    Ok(InstanceWithStatus::from_file(&inst, ready, false))
 }
 
 fn mutate<F>(app: &tauri::AppHandle, id: &str, mutator: F) -> Result<InstanceWithStatus>
@@ -189,7 +193,11 @@ where
     store::write_instance_json(&path, &inst)?;
     let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = status::ready_status(&versions_dir, &inst);
-    Ok(InstanceWithStatus::from_file(&inst, ready))
+    // Re-stat icon.png so a settings edit doesn't clobber has_icon back to
+    // false for an instance that already has a custom picture.
+    let icon_path = paths::instance_icon_png(app, id).map_err(|e| Error::io("<icon_path>", e))?;
+    let has_icon = icon::has_icon(&icon_path);
+    Ok(InstanceWithStatus::from_file(&inst, ready, has_icon))
 }
 
 pub fn set_instance_name(

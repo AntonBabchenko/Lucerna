@@ -9,6 +9,7 @@
     type ModCompat,
   } from '$lib/ipc/bindings';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
+  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
@@ -761,6 +762,28 @@
             oninput={() => clearSaved('name')}
             onblur={commitName}
           />
+
+          <div class="mb-3 flex items-center gap-1">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={!selected}
+              onclick={() => selected && iconDialog.pick(selected.id)}
+            >
+              {$t('instance.icon.changeBtn')}
+            </button>
+            {#if selected?.has_icon}
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-danger"
+                onclick={() => selected && iconDialog.requestRemove(selected.id)}
+                aria-label={$t('instance.icon.remove')}
+                use:tooltip={$t('instance.icon.remove')}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            {/if}
+          </div>
 
           <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label

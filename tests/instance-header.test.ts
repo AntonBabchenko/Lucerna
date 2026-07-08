@@ -13,6 +13,7 @@ const inst = {
   extra_jvm_args: '',
   created_unix_ms: null,
   ready: true,
+  has_icon: false,
   mrpack_name: null,
   mrpack_version: null,
   mrpack_project_id: null,
@@ -30,7 +31,9 @@ describe('InstanceHeader', () => {
       props: { instance: inst, running: false, installing: false },
     });
     expect(getByText('Skyblock')).toBeTruthy();
-    expect(getByTestId('overview-avatar').textContent).toBe('S');
+    // trim(): the avatar button also contains the decorative hover-overlay
+    // span, whose markup contributes whitespace-only text nodes.
+    expect(getByTestId('overview-avatar').textContent?.trim()).toBe('S');
   });
 
   it('renders MC version, loader and memory badges', () => {

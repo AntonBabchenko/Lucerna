@@ -34,6 +34,7 @@ const modrinthInst = {
   extra_jvm_args: '',
   created_unix_ms: null,
   ready: true,
+  has_icon: false,
   mrpack_name: 'All the Mods 9',
   mrpack_version: '0.2.60',
   mrpack_project_id: 'p1',

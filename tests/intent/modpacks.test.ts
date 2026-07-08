@@ -152,6 +152,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     extra_jvm_args: '',
     created_unix_ms: Date.now(),
     ready: true,
+    has_icon: false,
     mrpack_name: 'Cool Pack',
     mrpack_version: '1.0.0',
     mrpack_project_id: 'proj-abc',

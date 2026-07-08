@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
+  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
-  import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
 
   let {
@@ -24,25 +25,11 @@
     onShowAttention?: () => void;
   } = $props();
 
-  const avatar = $derived(deriveAvatar(instance));
   const status = $derived(deriveStatus(instance, running, installing));
 
   // The restore affordance only makes sense when the panel is collapsed AND
   // there is actually something hidden behind it.
   const showRestore = $derived(attentionCollapsed && attentionCount > 0);
-
-  // Avatar tint per loader / source. Brand-ish accents, theme-agnostic.
-  const TONE_BG: Record<AvatarTone, string> = {
-    vanilla: 'bg-gradient-to-br from-emerald-500 to-emerald-700 text-emerald-50',
-    fabric: 'bg-gradient-to-br from-amber-400 to-amber-600 text-amber-950',
-    quilt: 'bg-gradient-to-br from-fuchsia-400 to-fuchsia-600 text-fuchsia-50',
-    forge: 'bg-gradient-to-br from-slate-400 to-slate-600 text-slate-50',
-    neoforge: 'bg-gradient-to-br from-orange-400 to-orange-600 text-orange-950',
-    modrinth: 'bg-gradient-to-br from-green-400 to-green-600 text-green-950',
-    curseforge: 'bg-gradient-to-br from-orange-500 to-red-600 text-orange-50',
-    ftb: 'bg-gradient-to-br from-sky-400 to-sky-600 text-sky-950',
-    atlauncher: 'bg-gradient-to-br from-indigo-400 to-indigo-600 text-indigo-50',
-  };
 
   const PILL_LABEL: Record<StatusKind, TranslationKey> = {
     running: 'page.overview.pillRunning',
@@ -68,16 +55,49 @@
 </script>
 
 <div class="flex items-center gap-4" data-testid="overview-instance-header">
-  <div
-    class="flex-none rounded-xl flex items-center justify-center text-2xl font-extrabold {TONE_BG[
-      avatar.tone
-    ]}"
-    style="width:3.25rem;height:3.25rem;"
-    role="img"
-    aria-label={$t('page.overview.avatarAlt')}
-    data-testid="overview-avatar"
-  >
-    {avatar.letter}
+  <!-- The avatar is the change affordance: click opens the OS file picker
+       directly (crop dialog appears once a file decodes). When a custom
+       picture exists, hovering (or keyboard focus) reveals a corner trash
+       badge — siblings, not nested, so both stay real buttons. -->
+  <div class="group relative flex-none">
+    <button
+      type="button"
+      class="relative block rounded-xl focus-visible:outline focus-visible:outline-2
+        focus-visible:outline-accent focus-visible:outline-offset-2"
+      onclick={() => iconDialog.pick(instance.id)}
+      use:tooltip={$t('instance.icon.editTooltip')}
+      aria-label={$t('instance.icon.editTooltip')}
+      data-testid="overview-avatar"
+    >
+      <InstanceAvatar {instance} size={52} />
+      <!-- Change affordance: revealed together with the corner trash on
+           hover / keyboard focus. Radius matches InstanceAvatar's computed
+           rounding (size * 0.22). -->
+      <!-- :focus-visible (not :focus-within) so a mouse click that leaves the
+           button focused — e.g. after cancelling the OS file picker — does not
+           pin the overlay; only keyboard focus reveals it. -->
+      <span
+        class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
+          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+        style="border-radius:{Math.round(52 * 0.22)}px"
+        aria-hidden="true"
+      >
+        <Icon name="edit" size={18} class="text-white" />
+      </span>
+    </button>
+    {#if instance.has_icon}
+      <button
+        type="button"
+        class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 opacity-0
+          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+        onclick={() => iconDialog.requestRemove(instance.id)}
+        aria-label={$t('instance.icon.remove')}
+        use:tooltip={$t('instance.icon.remove')}
+        data-testid="overview-avatar-remove"
+      >
+        <Icon name="trash" size={13} />
+      </button>
+    {/if}
   </div>
 
   <div class="min-w-0">
