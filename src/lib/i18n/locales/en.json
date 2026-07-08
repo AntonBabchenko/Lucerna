@@ -1448,7 +1448,20 @@
         "rainbowIcons": "Rainbow icon animation",
         "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting.",
         "iconZoom": "Icon hover zoom",
-        "iconZoomDescription": "Icons grow slightly when you point at them."
+        "iconZoomDescription": "Icons grow slightly when you point at them.",
+        "sidebarButtons": {
+          "title": "Sidebar buttons",
+          "description": "Hide buttons you don't use. Applies in both normal and compact mode.",
+          "accountActions": "Add account (offline and Microsoft)",
+          "manage": "Manage",
+          "mods": "Mods",
+          "quickJoin": "Quick join server",
+          "browseModpacks": "Browse modpacks",
+          "importLauncher": "Import from launcher",
+          "servers": "Servers",
+          "gallery": "Gallery",
+          "logs": "Logs"
+        }
       },
       "playing": {
         "title": "Playing",
