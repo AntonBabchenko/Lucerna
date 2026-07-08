@@ -231,7 +231,6 @@ export type TranslationKey =
   | 'instance.error.nameTooLong'
   | 'instance.error.pickMcFirst'
   | 'instance.icon.changeBtn'
-  | 'instance.icon.chooseFile'
   | 'instance.icon.dialogTitle'
   | 'instance.icon.editTooltip'
   | 'instance.icon.errorDecode'

@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Modal from '$lib/ui/Modal.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
-  import { tooltip } from '$lib/ui/tooltip';
   import { computeCropRect } from './crop';
-  import { invalidateInstanceIcon, loadInstanceIcon } from './instance-icon-cache';
+  import { invalidateInstanceIcon } from './instance-icon-cache';
   import { iconDialog } from './instance-icon-dialog.svelte';
 
   let { onSaved = () => {} }: { onSaved?: () => void } = $props();
@@ -18,10 +18,6 @@
   const TITLE_ID = 'instance-icon-dialog-title';
 
   let fileInput = $state<HTMLInputElement>();
-  // The instance's currently-stored picture (data URL), shown as a preview when
-  // the dialog opens on an instance that already has one. `null` = none / not
-  // loaded yet. Distinct from `img`, which is a freshly-picked source to crop.
-  let existingUrl = $state<string | null>(null);
   let img: HTMLImageElement | null = $state(null);
   let imgW = $state(0);
   let imgH = $state(0);
@@ -40,8 +36,8 @@
 
   // Blob URL for the currently-loaded source image. It must stay alive while
   // the preview <img src={img.src}> is displayed; revoking it in the loader's
-  // onload (as before) left the displayed <img> pointing at a dead URL and
-  // showed a broken image. Revoked when replaced by a new pick, or on reset.
+  // onload left the displayed <img> pointing at a dead URL and showed a broken
+  // image. Revoked when replaced by a new pick, or on reset.
   let objectUrl: string | null = null;
 
   function resetState() {
@@ -64,29 +60,33 @@
   function close() {
     iconDialog.close();
     resetState();
-    existingUrl = null;
   }
 
-  // On open (or target-instance change), start from a clean crop session and,
-  // if the instance already has a picture, load it for preview. `open` /
-  // `instanceId` / `hasIcon` only change on show()/close() — never while the
-  // user is actively cropping — so this cannot wipe a freshly picked image
-  // mid-edit.
-  $effect(() => {
-    const open = iconDialog.open;
-    const id = iconDialog.instanceId;
-    const has = iconDialog.hasIcon;
-    untrack(() => {
-      resetState();
-      existingUrl = null;
-      if (open && has && id) {
-        loadInstanceIcon(id).then((url) => {
-          // Ignore a stale resolve if the dialog closed or switched instance.
-          if (iconDialog.open && iconDialog.instanceId === id) existingUrl = url;
-        });
-      }
-    });
-  });
+  // This component owns the picture mutations; the entry points (Overview
+  // avatar, Manage modal) only call iconDialog.pick()/requestRemove(). The
+  // handler registration returns its cleanup so a (hypothetical) second mount
+  // cannot leave a stale file-input reference behind.
+  $effect(() =>
+    iconDialog.registerHandlers({
+      pick: () => {
+        resetState();
+        fileInput?.click();
+      },
+      remove: (id) => {
+        void removeIcon(id);
+      },
+    }),
+  );
+
+  async function removeIcon(id: string) {
+    const res = await commands.clearInstanceIcon(id);
+    if (res.status === 'ok') {
+      invalidateInstanceIcon(id);
+      onSaved();
+    } else {
+      pushWarning(formatError(res.error));
+    }
+  }
 
   function onFile(e: Event) {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
@@ -105,11 +105,14 @@
       offsetX = (FRAME - imgW * scale) / 2;
       offsetY = (FRAME - imgH * scale) / 2;
       img = image;
+      // The crop dialog appears only now that there is something to crop.
+      if (iconDialog.instanceId) iconDialog.show(iconDialog.instanceId);
       // Do NOT revoke here: the preview <img src={img.src}> still needs this
       // blob URL. It is revoked on reset/close or when a new file replaces it.
     };
     image.onerror = () => {
-      error = $t('instance.icon.errorDecode');
+      // No dialog is open at this point — surface the decode failure as a toast.
+      pushWarning($t('instance.icon.errorDecode'));
       if (objectUrl === url) {
         URL.revokeObjectURL(url);
         objectUrl = null;
@@ -189,33 +192,29 @@
       error = formatError(res.error);
     }
   }
-
-  async function remove() {
-    const id = iconDialog.instanceId;
-    if (!id) return;
-    busy = true;
-    error = null;
-    const res = await commands.clearInstanceIcon(id);
-    busy = false;
-    if (res.status === 'ok') {
-      invalidateInstanceIcon(id);
-      onSaved();
-      close();
-    } else {
-      error = formatError(res.error);
-    }
-  }
 </script>
 
+<!-- Always mounted (outside the Modal) so iconDialog.pick() can open the OS
+     file picker synchronously, before any dialog exists. -->
+<input
+  bind:this={fileInput}
+  type="file"
+  accept="image/png,image/jpeg,image/webp,image/gif"
+  class="hidden"
+  onchange={onFile}
+/>
+
 {#if iconDialog.open}
-  <Modal onClose={close} ariaLabelledby={TITLE_ID} panelClass="w-[22rem] max-w-[90vw] p-5">
-    <h3 id={TITLE_ID} class="text-base font-semibold text-primary">
-      {$t('instance.icon.dialogTitle')}
-    </h3>
+  <Modal onClose={close} ariaLabelledby={TITLE_ID} panelClass="w-[19rem] max-w-[90vw] p-4">
+    <div class="flex items-center justify-between">
+      <h3 id={TITLE_ID} class="text-base font-semibold text-primary">
+        {$t('instance.icon.dialogTitle')}
+      </h3>
+      <CloseButton onClick={close} class="-mr-1 -mt-1" />
+    </div>
 
     {#if img}
-      <!-- Crop a freshly-picked source. -->
-      <div class="mt-4 flex flex-col items-center gap-3">
+      <div class="mt-3 flex flex-col items-center gap-3">
         <div
           class="relative overflow-hidden rounded-xl border border-border-emphasis bg-base"
           style="width:{FRAME}px;height:{FRAME}px;touch-action:none;cursor:grab"
@@ -251,57 +250,6 @@
         </div>
         <p class="text-xs text-muted">{$t('instance.icon.hint')}</p>
       </div>
-    {:else if existingUrl}
-      <!-- The current picture. The image itself is the "change" affordance
-           (hover/focus reveals a scrim + camera glyph — Discord/Slack pattern);
-           the corner trash badge removes it. Siblings, not nested, so both stay
-           real buttons. -->
-      <div class="mt-4 flex justify-center">
-        <div class="relative">
-          <button
-            type="button"
-            class="group relative block overflow-hidden rounded-2xl border border-border-subtle
-              shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent
-              focus-visible:outline-offset-2"
-            onclick={() => fileInput?.click()}
-            aria-label={$t('instance.icon.editTooltip')}
-            use:tooltip={$t('instance.icon.editTooltip')}
-          >
-            <img src={existingUrl} alt="" draggable="false" class="h-44 w-44 object-cover" />
-            <span
-              class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
-                transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-              aria-hidden="true"
-            >
-              <Icon name="camera" size={26} class="text-white" />
-            </span>
-          </button>
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2.5 -top-2.5 z-10
-              rounded-full border border-border-subtle bg-surface/90 shadow-sm"
-            disabled={busy}
-            onclick={remove}
-            aria-label={$t('instance.icon.remove')}
-            use:tooltip={$t('instance.icon.remove')}
-          >
-            <Icon name="trash" size={14} />
-          </button>
-        </div>
-      </div>
-    {:else}
-      <!-- Empty: click-to-browse drop zone. -->
-      <button
-        type="button"
-        class="mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
-          border-dashed border-border-emphasis px-4 py-10 text-center transition-colors
-          hover:border-accent"
-        onclick={() => fileInput?.click()}
-      >
-        <Icon name="upload" size={26} class="text-muted" />
-        <span class="text-sm font-medium text-secondary">{$t('instance.icon.chooseFile')}</span>
-        <span class="text-xs text-muted">PNG · JPG · WebP · GIF</span>
-      </button>
     {/if}
 
     <StatusMessage
@@ -310,23 +258,12 @@
       class="mt-3 rounded border border-danger bg-danger-bg p-2"
     />
 
-    <div class="mt-4 flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
-        {img ? $t('common.cancel') : $t('common.close')}
-      </button>
-      {#if img}
+    {#if img}
+      <div class="mt-3 flex justify-end">
         <button type="button" class="btn-primary btn-sm" disabled={busy} onclick={save}>
           {$t('common.save')}
         </button>
-      {/if}
-    </div>
-
-    <input
-      bind:this={fileInput}
-      type="file"
-      accept="image/png,image/jpeg,image/webp,image/gif"
-      class="hidden"
-      onchange={onFile}
-    />
+      </div>
+    {/if}
   </Modal>
 {/if}

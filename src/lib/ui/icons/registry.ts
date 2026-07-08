@@ -8,7 +8,6 @@ import {
   ArrowUpRight,
   Ban,
   Blocks,
-  Camera,
   Check,
   ChevronDown,
   ChevronFirst,
@@ -126,7 +125,6 @@ export const ICONS = {
   wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
-  camera: Camera, // change-picture affordance (instance-icon hover overlay)
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)
   clear: Ban, // clear all annotations (distinct from trash = delete file)

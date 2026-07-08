@@ -251,7 +251,6 @@
     "avatarAlt": "Instance picture",
     "icon": {
       "dialogTitle": "Instance picture",
-      "chooseFile": "Choose image",
       "hint": "Drag to reposition, scroll to zoom",
       "zoom": "Zoom",
       "remove": "Remove picture",

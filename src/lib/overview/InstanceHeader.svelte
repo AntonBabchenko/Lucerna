@@ -55,17 +55,37 @@
 </script>
 
 <div class="flex items-center gap-4" data-testid="overview-instance-header">
-  <button
-    type="button"
-    class="flex-none rounded-xl focus-visible:outline focus-visible:outline-2
-      focus-visible:outline-accent focus-visible:outline-offset-2"
-    onclick={() => iconDialog.show(instance.id, instance.has_icon)}
-    use:tooltip={$t('instance.icon.editTooltip')}
-    aria-label={$t('instance.icon.editTooltip')}
-    data-testid="overview-avatar"
-  >
-    <InstanceAvatar {instance} size={52} />
-  </button>
+  <!-- The avatar is the change affordance: click opens the OS file picker
+       directly (crop dialog appears once a file decodes). When a custom
+       picture exists, hovering (or keyboard focus) reveals a corner trash
+       badge — siblings, not nested, so both stay real buttons. -->
+  <div class="group relative flex-none">
+    <button
+      type="button"
+      class="block rounded-xl focus-visible:outline focus-visible:outline-2
+        focus-visible:outline-accent focus-visible:outline-offset-2"
+      onclick={() => iconDialog.pick(instance.id)}
+      use:tooltip={$t('instance.icon.editTooltip')}
+      aria-label={$t('instance.icon.editTooltip')}
+      data-testid="overview-avatar"
+    >
+      <InstanceAvatar {instance} size={52} />
+    </button>
+    {#if instance.has_icon}
+      <button
+        type="button"
+        class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 rounded-full
+          border border-border-subtle bg-surface/90 opacity-0 shadow-sm transition-opacity
+          group-hover:opacity-100 group-focus-within:opacity-100"
+        onclick={() => iconDialog.requestRemove(instance.id)}
+        aria-label={$t('instance.icon.remove')}
+        use:tooltip={$t('instance.icon.remove')}
+        data-testid="overview-avatar-remove"
+      >
+        <Icon name="trash" size={13} />
+      </button>
+    {/if}
+  </div>
 
   <div class="min-w-0">
     <div

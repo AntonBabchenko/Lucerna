@@ -65,9 +65,9 @@ describe('InstanceIconDialog Modal-stack participation', () => {
       },
     });
 
-    // Open the icon dialog on top, exactly as ManageInstancesModal does via
-    // iconDialog.show(selected.id, selected.has_icon).
-    iconDialog.show('inst-1', false);
+    // Open the crop dialog on top — in production this happens after a picked
+    // file decodes (iconDialog.pick -> onFile -> show); show() is the seam.
+    iconDialog.show('inst-1');
     render(InstanceIconDialog);
 
     expect(iconDialog.open).toBe(true);
