@@ -33,7 +33,8 @@
   const activeCapeName = $derived(activeCape ? (activeCape.alias ?? activeCape.id) : null);
   const noCapeActive = $derived(activeCape === null);
 
-  const skinDataUrl = () => (currentSkinB64 !== null ? `data:image/png;base64,${currentSkinB64}` : null);
+  const skinDataUrl = () =>
+    currentSkinB64 !== null ? `data:image/png;base64,${currentSkinB64}` : null;
   const modelOf = (v: SkinVariant): 'default' | 'slim' => (v === 'slim' ? 'slim' : 'default');
 
   // Build the viewer once we have BOTH a mounted canvas and a skin. Callable
@@ -238,10 +239,16 @@
   });
 </script>
 
-<Modal ariaLabelledby="cosmetics-title" {onClose} panelClass="w-[560px] max-w-full p-0 flex flex-col">
+<Modal
+  ariaLabelledby="cosmetics-title"
+  {onClose}
+  panelClass="w-[560px] max-w-full p-0 flex flex-col"
+>
   <div class="flex items-center px-5 py-3.5 border-b border-border-subtle">
     <div>
-      <h3 id="cosmetics-title" class="font-medium text-primary text-base">{$t('cosmetics.title')}</h3>
+      <h3 id="cosmetics-title" class="font-medium text-primary text-base">
+        {$t('cosmetics.title')}
+      </h3>
       <p class="text-xs text-muted">{account.name}</p>
     </div>
     <button
@@ -260,7 +267,9 @@
     {:else if loadError}
       <div class="flex items-center gap-3">
         <p class="text-sm text-danger">{$t('cosmetics.loadError')}</p>
-        <button type="button" class="btn-secondary btn-xs" onclick={() => load()}>{$t('cosmetics.retry')}</button>
+        <button type="button" class="btn-secondary btn-xs" onclick={() => load()}
+          >{$t('cosmetics.retry')}</button
+        >
       </div>
     {:else}
       <div class="flex items-baseline gap-2.5 mb-3">
@@ -277,8 +286,14 @@
             onclick={() => pickCape(cape.id)}
             disabled={busy}
           >
-            <canvas use:renderCape={cape.texture_url} class="h-[70px]" style="image-rendering:pixelated"></canvas>
-            <span class="text-xs text-secondary truncate w-full text-center">{cape.alias ?? cape.id}</span>
+            <canvas
+              use:renderCape={cape.texture_url}
+              class="h-[70px]"
+              style="image-rendering:pixelated"
+            ></canvas>
+            <span class="text-xs text-secondary truncate w-full text-center"
+              >{cape.alias ?? cape.id}</span
+            >
           </button>
         {/each}
         <button
@@ -317,7 +332,12 @@
           <span class="text-xs text-muted">{$t('cosmetics.dragToRotate')}</span>
         </div>
         <div class="flex-1 min-w-[200px] flex flex-col gap-3.5">
-          <button type="button" class="btn-secondary btn-sm self-start" onclick={chooseSkinFile} disabled={busy}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm self-start"
+            onclick={chooseSkinFile}
+            disabled={busy}
+          >
             {$t('cosmetics.chooseFile')}
           </button>
           <div>
@@ -325,12 +345,16 @@
             <div class="inline-flex border border-border-subtle rounded overflow-hidden">
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'classic' ? 'bg-accent-soft text-accent' : 'text-secondary'}"
+                class="px-4 py-1.5 text-sm {variant === 'classic'
+                  ? 'bg-accent-soft text-accent'
+                  : 'text-secondary'}"
                 onclick={() => setVariant('classic')}>{$t('cosmetics.modelClassic')}</button
               >
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'slim' ? 'bg-accent-soft text-accent' : 'text-secondary'}"
+                class="px-4 py-1.5 text-sm {variant === 'slim'
+                  ? 'bg-accent-soft text-accent'
+                  : 'text-secondary'}"
                 onclick={() => setVariant('slim')}>{$t('cosmetics.modelSlim')}</button
               >
             </div>
@@ -339,16 +363,31 @@
             <div class="flex flex-col gap-2 rounded-[10px] border border-border-subtle p-3">
               <p class="text-xs text-secondary">{$t('cosmetics.resetConfirm')}</p>
               <div class="flex gap-2">
-                <button type="button" class="btn-secondary btn-xs" onclick={cancelReset} disabled={busy}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-xs"
+                  onclick={cancelReset}
+                  disabled={busy}
+                >
                   {$t('common.cancel')}
                 </button>
-                <button type="button" class="btn-danger btn-xs" onclick={confirmReset} disabled={busy}>
+                <button
+                  type="button"
+                  class="btn-danger btn-xs"
+                  onclick={confirmReset}
+                  disabled={busy}
+                >
                   {$t('cosmetics.resetConfirmYes')}
                 </button>
               </div>
             </div>
           {:else}
-            <button type="button" class="btn-secondary btn-sm self-start" onclick={requestReset} disabled={busy}>
+            <button
+              type="button"
+              class="btn-secondary btn-sm self-start"
+              onclick={requestReset}
+              disabled={busy}
+            >
               {$t('cosmetics.resetSkin')}
             </button>
           {/if}
