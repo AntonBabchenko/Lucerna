@@ -165,15 +165,31 @@ pub fn spawn_server(
     })
 }
 
-/// Launch the downloaded NSIS installer and return immediately. The
-/// caller exits the app right after so the installer can replace the
-/// locked launcher binary. The wizard runs visibly (transparency; and
-/// SmartScreen warns on the unsigned binary regardless). Windows-only —
-/// the launcher targets Windows; other targets return a typed error so
-/// non-Windows builds still compile.
+/// Build the command that runs the downloaded NSIS installer as a seamless
+/// self-update. The Tauri NSIS template already parses these flags:
+///   /UPDATE — in-place upgrade: skip the uninstall-old step, overwrite the
+///             binary, and preserve shortcuts + autostart + app data.
+///   /P      — passive: a progress bar, no wizard for the user to click through.
+///   /R      — relaunch Lucerna after install. INERT without /P or /S, so it
+///             must always ship alongside /P.
+/// Pure (builds, does not spawn) so the flag set is unit-testable via
+/// `Command::get_args()` without launching a process.
+#[cfg(target_os = "windows")]
+fn build_installer_command(installer: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(installer);
+    cmd.args(["/P", "/R", "/UPDATE"]);
+    cmd
+}
+
+/// Launch the downloaded NSIS installer with the update-contract flags and
+/// return immediately. The caller exits the app right after so the installer
+/// can replace the locked launcher binary; `/R` relaunches Lucerna on the new
+/// version, and `/P` shows a passive progress bar (no wizard to click
+/// through). SmartScreen may still warn on the unsigned binary. Windows-only —
+/// other targets return a typed error so non-Windows builds still compile.
 #[cfg(target_os = "windows")]
 pub fn spawn_installer(installer: &Path) -> Result<()> {
-    std::process::Command::new(installer)
+    build_installer_command(installer)
         .spawn()
         .map(|_child| ())
         .map_err(|e| Error::UpdateInstallFailed {
@@ -368,6 +384,34 @@ pub fn firewall_remove_rule_elevated(rule_name: &str) -> crate::error::Result<()
 #[cfg(not(target_os = "windows"))]
 pub fn firewall_remove_rule_elevated(_rule_name: &str) -> crate::error::Result<()> {
     Err(crate::error::Error::io("<firewall>", "Windows-only"))
+}
+
+/// Unit tests for the installer-invocation flag set. Windows-gated because
+/// `build_installer_command` is Windows-only; the whole module is compiled
+/// out on Linux/macOS, so the `OsStr` import raises no unused-import warning
+/// there.
+#[cfg(all(test, target_os = "windows"))]
+mod installer_flag_tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn installer_command_uses_passive_relaunch_update_flags() {
+        let cmd = build_installer_command(Path::new(r"C:\tmp\Lucerna_0.16.0_x64-setup.exe"));
+        let args: Vec<&OsStr> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            [OsStr::new("/P"), OsStr::new("/R"), OsStr::new("/UPDATE")],
+            "installer must be invoked passive (/P) + relaunch (/R) + in-place update (/UPDATE)"
+        );
+    }
+
+    #[test]
+    fn installer_command_targets_the_given_installer() {
+        let p = Path::new(r"C:\tmp\Lucerna_0.16.0_x64-setup.exe");
+        let cmd = build_installer_command(p);
+        assert_eq!(cmd.get_program(), p.as_os_str());
+    }
 }
 
 #[cfg(test)]
