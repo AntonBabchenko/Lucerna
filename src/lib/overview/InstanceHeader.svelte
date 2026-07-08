@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
+  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
-  import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
 
   let {
@@ -24,25 +25,11 @@
     onShowAttention?: () => void;
   } = $props();
 
-  const avatar = $derived(deriveAvatar(instance));
   const status = $derived(deriveStatus(instance, running, installing));
 
   // The restore affordance only makes sense when the panel is collapsed AND
   // there is actually something hidden behind it.
   const showRestore = $derived(attentionCollapsed && attentionCount > 0);
-
-  // Avatar tint per loader / source. Brand-ish accents, theme-agnostic.
-  const TONE_BG: Record<AvatarTone, string> = {
-    vanilla: 'bg-gradient-to-br from-emerald-500 to-emerald-700 text-emerald-50',
-    fabric: 'bg-gradient-to-br from-amber-400 to-amber-600 text-amber-950',
-    quilt: 'bg-gradient-to-br from-fuchsia-400 to-fuchsia-600 text-fuchsia-50',
-    forge: 'bg-gradient-to-br from-slate-400 to-slate-600 text-slate-50',
-    neoforge: 'bg-gradient-to-br from-orange-400 to-orange-600 text-orange-950',
-    modrinth: 'bg-gradient-to-br from-green-400 to-green-600 text-green-950',
-    curseforge: 'bg-gradient-to-br from-orange-500 to-red-600 text-orange-50',
-    ftb: 'bg-gradient-to-br from-sky-400 to-sky-600 text-sky-950',
-    atlauncher: 'bg-gradient-to-br from-indigo-400 to-indigo-600 text-indigo-50',
-  };
 
   const PILL_LABEL: Record<StatusKind, TranslationKey> = {
     running: 'page.overview.pillRunning',
@@ -68,17 +55,17 @@
 </script>
 
 <div class="flex items-center gap-4" data-testid="overview-instance-header">
-  <div
-    class="flex-none rounded-xl flex items-center justify-center text-2xl font-extrabold {TONE_BG[
-      avatar.tone
-    ]}"
-    style="width:3.25rem;height:3.25rem;"
-    role="img"
-    aria-label={$t('page.overview.avatarAlt')}
+  <button
+    type="button"
+    class="flex-none rounded-xl focus-visible:outline focus-visible:outline-2
+      focus-visible:outline-accent focus-visible:outline-offset-2"
+    onclick={() => iconDialog.show(instance.id, instance.has_icon)}
+    use:tooltip={$t('instance.icon.editTooltip')}
+    aria-label={$t('instance.icon.editTooltip')}
     data-testid="overview-avatar"
   >
-    {avatar.letter}
-  </div>
+    <InstanceAvatar {instance} size={52} />
+  </button>
 
   <div class="min-w-0">
     <div
