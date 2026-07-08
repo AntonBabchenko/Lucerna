@@ -71,6 +71,7 @@ export type TranslationKey =
   | 'cosmetics.capeHint'
   | 'cosmetics.chooseFile'
   | 'cosmetics.currentSkin'
+  | 'cosmetics.dragToRotate'
   | 'cosmetics.invalidImage'
   | 'cosmetics.loadError'
   | 'cosmetics.model'

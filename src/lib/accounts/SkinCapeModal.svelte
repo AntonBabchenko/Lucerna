@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
   import { commands, type Account, type CapeInfo, type SkinVariant } from '$lib/ipc/bindings';
   import { drawCapeFront } from '$lib/accounts/cape-render';
-  import { drawSkinFront } from '$lib/accounts/skin-render';
+  import type { SkinViewer } from 'skinview3d';
 
   let { account, onClose }: { account: Account; onClose: () => void } = $props();
 
@@ -14,8 +15,6 @@
   let busy = $state(false);
   let capes = $state<CapeInfo[]>([]);
   let variant = $state<SkinVariant>('classic');
-  let skinImg: HTMLImageElement | null = null;
-  let skinCanvas = $state<HTMLCanvasElement | null>(null);
   // Base64 of the currently-displayed skin, kept so a reset can snapshot it.
   let currentSkinB64: string | null = null;
   // Two-step guard for the destructive reset, plus an in-session undo snapshot
@@ -23,26 +22,97 @@
   let confirmingReset = $state(false);
   let undoSkin = $state<{ b64: string; variant: SkinVariant } | null>(null);
 
+  // 3D preview (skinview3d, lazily imported so Three.js stays out of the main
+  // bundle). WebGL is imperative, not reactive: we drive it via explicit calls
+  // and dispose it when the canvas unmounts.
+  let viewerCanvas: HTMLCanvasElement | null = null;
+  let viewer: SkinViewer | null = null;
+  let viewerBuilding = false;
+
   const activeCape = $derived(capes.find((c) => c.is_active) ?? null);
   const activeCapeName = $derived(activeCape ? (activeCape.alias ?? activeCape.id) : null);
   const noCapeActive = $derived(activeCape === null);
 
+  const skinDataUrl = () => (currentSkinB64 !== null ? `data:image/png;base64,${currentSkinB64}` : null);
+  const modelOf = (v: SkinVariant): 'default' | 'slim' => (v === 'slim' ? 'slim' : 'default');
+
+  // Build the viewer once we have BOTH a mounted canvas and a skin. Callable
+  // from either trigger (canvas-mount action or skin-fetch); idempotent via the
+  // `viewer`/`viewerBuilding` guards, so whichever arrives last wins the race.
+  async function ensureViewer() {
+    if (viewer || viewerBuilding || !viewerCanvas || currentSkinB64 === null) return;
+    viewerBuilding = true;
+    try {
+      const skinview3d = await import('skinview3d');
+      const url = skinDataUrl();
+      // The modal may have closed (canvas unmounted) during the async import.
+      if (!viewerCanvas || url === null) return;
+      viewer = new skinview3d.SkinViewer({
+        canvas: viewerCanvas,
+        width: 200,
+        height: 260,
+        skin: url,
+        model: modelOf(variant),
+      });
+      viewer.controls.enableZoom = false;
+      viewer.controls.enablePan = false;
+      viewer.autoRotate = true;
+      viewer.autoRotateSpeed = 0.5;
+      viewer.animation = new skinview3d.IdleAnimation();
+      await applyCapeToViewer();
+    } finally {
+      viewerBuilding = false;
+    }
+  }
+
+  async function applySkinToViewer() {
+    const url = skinDataUrl();
+    if (!viewer || url === null) return;
+    await viewer.loadSkin(url, { model: modelOf(variant) });
+  }
+
+  async function applyCapeToViewer() {
+    if (!viewer) return;
+    const cape = activeCape;
+    if (!cape) {
+      viewer.loadCape(null);
+      return;
+    }
+    const res = await commands.capeTexture(cape.texture_url);
+    if (!viewer) return;
+    if (res.status === 'ok' && res.data) {
+      await viewer.loadCape(`data:image/png;base64,${res.data}`);
+    } else {
+      viewer.loadCape(null);
+    }
+  }
+
+  function syncSkinPreview() {
+    if (viewer) void applySkinToViewer();
+    else void ensureViewer();
+  }
+
+  function mountViewer(node: HTMLCanvasElement) {
+    viewerCanvas = node;
+    void ensureViewer();
+    return {
+      destroy() {
+        viewer?.dispose();
+        viewer = null;
+        viewerCanvas = null;
+      },
+    };
+  }
+
+  onDestroy(() => {
+    viewer?.dispose();
+    viewer = null;
+  });
+
   async function refreshSkin() {
     const skinRes = await commands.accountSkin(account.uuid);
-    if (skinRes.status === 'ok' && skinRes.data) {
-      currentSkinB64 = skinRes.data.skin_png_base64;
-      const img = new Image();
-      img.onload = () => {
-        skinImg = img;
-        renderSkin();
-      };
-      img.src = `data:image/png;base64,${skinRes.data.skin_png_base64}`;
-    } else {
-      currentSkinB64 = null;
-      skinImg = null;
-      const ctx = skinCanvas?.getContext('2d');
-      if (skinCanvas && ctx) ctx.clearRect(0, 0, skinCanvas.width, skinCanvas.height);
-    }
+    currentSkinB64 = skinRes.status === 'ok' && skinRes.data ? skinRes.data.skin_png_base64 : null;
+    syncSkinPreview();
   }
 
   async function load(showLoading = true) {
@@ -58,10 +128,6 @@
     variant = res.data.active_variant;
     loading = false;
     await refreshSkin();
-  }
-
-  function renderSkin() {
-    if (skinCanvas && skinImg) drawSkinFront(skinCanvas, skinImg, variant);
   }
 
   function renderCape(node: HTMLCanvasElement, url: string) {
@@ -86,6 +152,7 @@
       saveError = $t('cosmetics.saveError');
     } else {
       capes = capes.map((c) => ({ ...c, is_active: c.id === id }));
+      void applyCapeToViewer();
     }
     busy = false;
   }
@@ -110,12 +177,7 @@
       } else {
         currentSkinB64 = b64;
         undoSkin = null;
-        const img = new Image();
-        img.onload = () => {
-          skinImg = img;
-          renderSkin();
-        };
-        img.src = `data:image/png;base64,${b64}`;
+        syncSkinPreview();
       }
       busy = false;
     };
@@ -162,18 +224,13 @@
     }
     variant = snap.variant;
     currentSkinB64 = snap.b64;
-    const img = new Image();
-    img.onload = () => {
-      skinImg = img;
-      renderSkin();
-    };
-    img.src = `data:image/png;base64,${snap.b64}`;
+    syncSkinPreview();
     undoSkin = null;
   }
 
   function setVariant(v: SkinVariant) {
     variant = v;
-    renderSkin();
+    void applySkinToViewer();
   }
 
   $effect(() => {
@@ -251,9 +308,13 @@
         <div class="text-xs text-muted">{$t('cosmetics.skinHint')}</div>
       </div>
       <div class="flex gap-[18px] items-start flex-wrap">
-        <div class="bg-subtle rounded-[10px] px-5 py-3 flex flex-col items-center gap-2">
-          <canvas bind:this={skinCanvas} class="h-[150px]" style="image-rendering:pixelated"></canvas>
-          <span class="text-xs text-muted">{$t('cosmetics.currentSkin')}</span>
+        <div class="bg-subtle rounded-[10px] px-3 py-3 flex flex-col items-center gap-2">
+          <canvas
+            use:mountViewer
+            class="w-[200px] h-[260px] cursor-grab active:cursor-grabbing"
+            aria-label={$t('cosmetics.currentSkin')}
+          ></canvas>
+          <span class="text-xs text-muted">{$t('cosmetics.dragToRotate')}</span>
         </div>
         <div class="flex-1 min-w-[200px] flex flex-col gap-3.5">
           <button type="button" class="btn-secondary btn-sm self-start" onclick={chooseSkinFile} disabled={busy}>

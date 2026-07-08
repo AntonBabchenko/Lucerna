@@ -60,6 +60,7 @@
     "resetConfirmYes": "Reset",
     "restorePrevious": "Restore previous skin",
     "currentSkin": "current skin",
+    "dragToRotate": "drag to rotate",
     "loadError": "Couldn't load your cosmetics.",
     "retry": "Retry",
     "saveError": "That didn't go through. Try again.",
