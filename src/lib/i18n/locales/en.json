@@ -113,7 +113,14 @@
     "serversFixAvailable": "A server fix is available",
     "serversUploading": "Uploading to hosting…",
     "importLauncher": "Import from launcher",
-    "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname."
+    "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname.",
+    "contextHide": "Hide button",
+    "contextMenuAria": "Button actions",
+    "hideConfirm": {
+      "title": "Hide button?",
+      "body": "{label} will be removed from the sidebar. You can restore it in Settings under Appearance.",
+      "confirm": "Hide"
+    }
   },
   "instance": {
     "manage": {
