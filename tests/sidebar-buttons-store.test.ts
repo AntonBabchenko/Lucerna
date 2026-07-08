@@ -69,4 +69,14 @@ describe('sidebar button visibility store', () => {
     await setHidden('logs', true);
     expect(isVisible('logs')).toBe(true); // rolled back
   });
+
+  it('rolls back and never writes when the settings read fails', async () => {
+    appSettingsGet.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', details: 'x' },
+    });
+    await setHidden('logs', true);
+    expect(isVisible('logs')).toBe(true); // rolled back before the write
+    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
+  });
 });
