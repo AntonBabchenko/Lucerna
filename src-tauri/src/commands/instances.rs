@@ -446,3 +446,42 @@ pub async fn open_mods_folder(
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
 }
+
+/// Store a custom picture for an instance. `png_base64` is a PNG produced by
+/// the crop UI; it is normalized to 256x256 before it is written.
+#[tauri::command]
+#[specta::specta]
+pub fn set_instance_icon(
+    app: tauri::AppHandle,
+    instance_id: String,
+    png_base64: String,
+) -> Result<(), crate::error::Error> {
+    let path = crate::paths::instance_icon_png(&app, &instance_id)
+        .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
+    crate::instances::icon::write_icon(&path, &png_base64)
+}
+
+/// Remove an instance's custom picture (back to the letter avatar). Idempotent.
+#[tauri::command]
+#[specta::specta]
+pub fn clear_instance_icon(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<(), crate::error::Error> {
+    let path = crate::paths::instance_icon_png(&app, &instance_id)
+        .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
+    crate::instances::icon::clear_icon(&path)
+}
+
+/// The instance's custom picture as a base64 PNG, or `None` when it has none.
+/// Cosmetic: mirrors `account_skin`.
+#[tauri::command]
+#[specta::specta]
+pub fn instance_icon(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<Option<crate::instances::icon::InstanceIcon>, crate::error::Error> {
+    let path = crate::paths::instance_icon_png(&app, &instance_id)
+        .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
+    crate::instances::icon::read_icon(&path)
+}

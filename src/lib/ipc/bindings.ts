@@ -338,6 +338,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
+	/**
+	 *  True iff `<instance>/icon.png` exists (a custom picture). UI shows it in
+	 *  place of the letter avatar. Cheap stat, computed like `ready`.
+	 */
+	has_icon: boolean,
 	mrpack_name: string | null,
 	mrpack_version: string | null,
 	mrpack_project_id: string | null,
@@ -398,6 +403,20 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  report. Blocked while a game is running.
 	 */
 	repairInstance: (instanceId: string) => typedError<VerifyReport, Error>(__TAURI_INVOKE("repair_instance", { instanceId })),
+	/**
+	 *  Store a custom picture for an instance. `png_base64` is a PNG produced by
+	 *  the crop UI; it is normalized to 256x256 before it is written.
+	 */
+	setInstanceIcon: (instanceId: string, pngBase64: string) => typedError<null, Error>(__TAURI_INVOKE("set_instance_icon", { instanceId, pngBase64 })),
+	/**  Remove an instance's custom picture (back to the letter avatar). Idempotent. */
+	clearInstanceIcon: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("clear_instance_icon", { instanceId })),
+	/**
+	 *  The instance's custom picture as a base64 PNG, or `None` when it has none.
+	 *  Cosmetic: mirrors `account_skin`.
+	 */
+	instanceIcon: (instanceId: string) => typedError<{
+	png_base64: string,
+} | null, Error>(__TAURI_INVOKE("instance_icon", { instanceId })),
 	/**
 	 *  Read accumulated playtime stats for `instance_id`.
 	 *  Returns zeros when no sessions have been recorded yet.
@@ -2102,6 +2121,11 @@ export type InstalledMod = {
 	requires?: string[],
 };
 
+/**  Base64 PNG returned to the UI (mirrors `accounts::skins::AccountSkin`). */
+export type InstanceIcon = {
+	png_base64: string,
+};
+
 /**  What the UI sees per row in the instance dropdown. */
 export type InstanceWithStatus = {
 	id: string,
@@ -2116,6 +2140,11 @@ export type InstanceWithStatus = {
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
+	/**
+	 *  True iff `<instance>/icon.png` exists (a custom picture). UI shows it in
+	 *  place of the letter avatar. Cheap stat, computed like `ready`.
+	 */
+	has_icon: boolean,
 	mrpack_name: string | null,
 	mrpack_version: string | null,
 	mrpack_project_id: string | null,
