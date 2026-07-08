@@ -21,6 +21,7 @@
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
+  import { isVisible } from '$lib/layout/sidebar-buttons.svelte';
 
   let {
     accounts,
@@ -260,21 +261,23 @@
           onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
         />
       {/if}
-      <button
-        type="button"
-        class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-        onclick={() => onAddOffline()}
-      >
-        <Icon name="userPlus" size={14} />
-        {$t('sidebar.addOffline')}
-      </button>
-      <div class="mt-2">
-        <MicrosoftSignInButton
-          bind:signingIn={msSigningIn}
-          onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
-          onError={(err) => onMicrosoftError?.(err)}
-        />
-      </div>
+      {#if isVisible('account_actions')}
+        <button
+          type="button"
+          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+          onclick={() => onAddOffline()}
+        >
+          <Icon name="userPlus" size={14} />
+          {$t('sidebar.addOffline')}
+        </button>
+        <div class="mt-2">
+          <MicrosoftSignInButton
+            bind:signingIn={msSigningIn}
+            onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+            onError={(err) => onMicrosoftError?.(err)}
+          />
+        </div>
+      {/if}
     </div>
 
     <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
@@ -305,25 +308,31 @@
             ariaLabel={$t('sidebar.instance')}
           />
         </div>
-        <div class="flex gap-1">
-          <button
-            type="button"
-            data-tour="manage-btn"
-            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-            onclick={onOpenManage}
-          >
-            <Icon name="sliders" size={14} />
-            {$t('sidebar.manage')}
-          </button>
-          <button
-            type="button"
-            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-            onclick={onOpenMods}
-          >
-            <Icon name="folderOpen" size={14} />
-            {$t('sidebar.mods')}
-          </button>
-        </div>
+        {#if isVisible('manage') || isVisible('mods')}
+          <div class="flex gap-1">
+            {#if isVisible('manage')}
+              <button
+                type="button"
+                data-tour="manage-btn"
+                class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                onclick={onOpenManage}
+              >
+                <Icon name="sliders" size={14} />
+                {$t('sidebar.manage')}
+              </button>
+            {/if}
+            {#if isVisible('mods')}
+              <button
+                type="button"
+                class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                onclick={onOpenMods}
+              >
+                <Icon name="folderOpen" size={14} />
+                {$t('sidebar.mods')}
+              </button>
+            {/if}
+          </div>
+        {/if}
 
         {#if activeInstance}
           {#if running}
@@ -401,15 +410,17 @@
                 label={$t('sidebar.play')}
                 menuLabel={$t('sidebar.playWorlds')}
               />
-              <button
-                type="button"
-                class="btn-success btn-lg px-3"
-                aria-label={$t('sidebar.servers')}
-                use:tooltip={$t('sidebar.servers')}
-                onclick={onOpenQuickJoin}
-              >
-                <Icon name="globe" size={18} />
-              </button>
+              {#if isVisible('quick_join')}
+                <button
+                  type="button"
+                  class="btn-success btn-lg px-3"
+                  aria-label={$t('sidebar.servers')}
+                  use:tooltip={$t('sidebar.servers')}
+                  onclick={onOpenQuickJoin}
+                >
+                  <Icon name="globe" size={18} />
+                </button>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -427,106 +438,118 @@
       because installing a pack creates a NEW instance, so there's nothing
       "current instance" about the action.
     -->
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-tour="open-modpacks"
-        data-testid="sidebar-open-modpacks"
-        onclick={onOpenModpacks}
-      >
-        <span class="relative inline-flex items-center gap-1.5">
-          <Icon name="package" size={16} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
-          {$t('sidebar.browseModpacks')}
-          {#if modpackUpdates.updateCount > 0}
-            <span
-              class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-              use:tooltip={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
-              data-testid="sidebar-modpack-updates-badge"
-            >
-              {modpackUpdates.updateCount}
-            </span>
-          {/if}
-        </span>
-      </button>
-      {#if launcherImportBlockedReason}
-        <span
-          class="inline-flex w-full"
-          use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+      {#if isVisible('browse_modpacks')}
+        <button
+          type="button"
+          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+          data-tour="open-modpacks"
+          data-testid="sidebar-open-modpacks"
+          onclick={onOpenModpacks}
         >
+          <span class="relative inline-flex items-center gap-1.5">
+            <Icon name="package" size={16} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
+            {$t('sidebar.browseModpacks')}
+            {#if modpackUpdates.updateCount > 0}
+              <span
+                class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+                use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+                  count: modpackUpdates.updateCount,
+                })}
+                data-testid="sidebar-modpack-updates-badge"
+              >
+                {modpackUpdates.updateCount}
+              </span>
+            {/if}
+          </span>
+        </button>
+      {/if}
+      {#if isVisible('import_launcher')}
+        {#if launcherImportBlockedReason}
+          <span
+            class="inline-flex w-full"
+            use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+          >
+            <button
+              type="button"
+              class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+              data-testid="sidebar-open-launcher-import"
+              disabled
+            >
+              <Icon name="download" size={16} />
+              {$t('sidebar.importLauncher')}
+            </button>
+          </span>
+        {:else}
           <button
             type="button"
-            class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
             data-testid="sidebar-open-launcher-import"
-            disabled
+            onclick={onOpenLauncherImport}
           >
             <Icon name="download" size={16} />
             {$t('sidebar.importLauncher')}
           </button>
-        </span>
-      {:else}
+        {/if}
+      {/if}
+      {#if isVisible('servers')}
         <button
           type="button"
           class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-          data-testid="sidebar-open-launcher-import"
-          onclick={onOpenLauncherImport}
-        >
-          <Icon name="download" size={16} />
-          {$t('sidebar.importLauncher')}
-        </button>
-      {/if}
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-testid="sidebar-open-servers"
-        onclick={onOpenServers}
-      >
-        <NavStatusIcon
-          name="server"
-          size={16}
-          iconClass={serversVisual.iconClass}
-          statusLabel={serversStatusLabel}
-        />
-        {$t('sidebar.servers')}
-        {#if serversVisual.wrench}
-          <NavFixWrench
-            label={$t('sidebar.serversFixAvailable')}
-            testid="sidebar-servers-fix-badge"
-          />
-        {/if}
-        {#if anyUploading}
-          <NavUploadBadge
-            label={$t('sidebar.serversUploading')}
-            testid="sidebar-servers-upload-badge"
-          />
-        {/if}
-      </button>
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-testid="sidebar-open-gallery"
-        onclick={onOpenGallery}
-      >
-        <Icon name="gallery" size={16} />
-        {$t('sidebar.gallery')}
-      </button>
-      <div class="flex gap-1">
-        <button
-          type="button"
-          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-          data-testid="sidebar-open-logs"
-          onclick={onOpenLogs}
+          data-testid="sidebar-open-servers"
+          onclick={onOpenServers}
         >
           <NavStatusIcon
-            name="scrollText"
-            size={14}
-            iconClass={logsVisual.iconClass}
-            statusLabel={logsStatusLabel}
+            name="server"
+            size={16}
+            iconClass={serversVisual.iconClass}
+            statusLabel={serversStatusLabel}
           />
-          {$t('sidebar.logs')}
-          {#if logsVisual.wrench}
-            <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
+          {$t('sidebar.servers')}
+          {#if serversVisual.wrench}
+            <NavFixWrench
+              label={$t('sidebar.serversFixAvailable')}
+              testid="sidebar-servers-fix-badge"
+            />
+          {/if}
+          {#if anyUploading}
+            <NavUploadBadge
+              label={$t('sidebar.serversUploading')}
+              testid="sidebar-servers-upload-badge"
+            />
           {/if}
         </button>
+      {/if}
+      {#if isVisible('gallery')}
+        <button
+          type="button"
+          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+          data-testid="sidebar-open-gallery"
+          onclick={onOpenGallery}
+        >
+          <Icon name="gallery" size={16} />
+          {$t('sidebar.gallery')}
+        </button>
+      {/if}
+      <div class="flex gap-1">
+        {#if isVisible('logs')}
+          <button
+            type="button"
+            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+            data-testid="sidebar-open-logs"
+            onclick={onOpenLogs}
+          >
+            <NavStatusIcon
+              name="scrollText"
+              size={14}
+              iconClass={logsVisual.iconClass}
+              statusLabel={logsStatusLabel}
+            />
+            {$t('sidebar.logs')}
+            {#if logsVisual.wrench}
+              <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
+            {/if}
+          </button>
+        {/if}
         <button
           type="button"
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
