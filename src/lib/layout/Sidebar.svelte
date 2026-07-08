@@ -24,6 +24,7 @@
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
+  import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
   import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
 
   let {
@@ -167,6 +168,21 @@
   const logsStatusLabel = $derived(logsNav === 'advisory' ? $t('sidebar.logsAdvisory') : null);
 
   let hideCandidate = $state<SidebarButtonId | null>(null);
+  // Set when the user tries to hide the account-add buttons with no account yet.
+  // Those buttons are force-shown while account-less (dead-end guard); hiding is
+  // refused here with an explanation instead of the usual hide-confirm.
+  let accountRequiredOpen = $state(false);
+
+  // Route a hide request from a button's right-click menu. Hiding the
+  // account-add buttons while there are no accounts would trap the user (no way
+  // to sign in, so no way to launch), so intercept that case and explain.
+  function requestHide(id: SidebarButtonId): void {
+    if (id === 'account_actions' && accounts.length === 0) {
+      accountRequiredOpen = true;
+    } else {
+      hideCandidate = id;
+    }
+  }
 
   function hideMenuItems(id: SidebarButtonId): ContextMenuItem[] {
     return [
@@ -174,7 +190,7 @@
         label: $t('sidebar.contextHide'),
         icon: 'eyeOff',
         testId: `sidebar-ctx-hide-${id}`,
-        onSelect: () => (hideCandidate = id),
+        onSelect: () => requestHide(id),
       },
     ];
   }
@@ -332,6 +348,29 @@
           </button>
         {/if}
       {:else}
+        <!-- Per-row Manage inside the profile dropdown. Unlike the account
+             trash (which stops its own mousedown so it does not commit the row),
+             this deliberately lets the mousedown bubble to the option row's
+             commit: clicking it selects that profile (making it active, which
+             ManageInstancesModal is bound to) AND closes the dropdown, then
+             opens Manage for it. -->
+        {#snippet instanceTrailing(opt: SelectOption)}
+          {@const inst = instances.find((x) => x.id === opt.value)}
+          {#if inst}
+            {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
+            <button
+              type="button"
+              tabindex="-1"
+              class="btn-icon btn-icon-sm flex-shrink-0"
+              data-testid="sidebar-manage-instance-{inst.id}"
+              aria-label={manageLabel}
+              use:tooltip={{ text: manageLabel, describe: false }}
+              onmousedown={() => onOpenManage()}
+            >
+              <Icon name="sliders" size={14} />
+            </button>
+          {/if}
+        {/snippet}
         <div data-tour="instance-picker">
           <Select
             class="w-full text-sm"
@@ -339,6 +378,7 @@
             options={instanceOptions}
             onChange={(v) => onSelectInstance(String(v))}
             ariaLabel={$t('sidebar.instance')}
+            optionTrailing={instanceTrailing}
           />
         </div>
         {#if isVisible('manage') || isVisible('mods')}
@@ -640,4 +680,8 @@
       hideCandidate = null;
     }}
   />
+{/if}
+
+{#if accountRequiredOpen}
+  <AccountRequiredDialog onClose={() => (accountRequiredOpen = false)} />
 {/if}

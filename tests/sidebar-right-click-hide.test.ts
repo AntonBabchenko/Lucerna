@@ -121,4 +121,15 @@ describe('Sidebar right-click hide', () => {
     expect(appSettingsSetGeneral).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-open-servers')).toBeTruthy();
   });
+
+  it('refuses to hide the account buttons with no accounts, explaining instead', async () => {
+    render(Sidebar, { props: { ...baseProps, accounts: [], activeAccount: null } });
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /add offline/i }));
+    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-account_actions'));
+    // The account-required explainer shows; the normal hide-confirm does not,
+    // and nothing is persisted (the buttons stay, so the user can still sign in).
+    expect(screen.getByTestId('account-required-ok')).toBeTruthy();
+    expect(screen.queryByTestId('hide-button-confirm')).toBeNull();
+    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
+  });
 });
