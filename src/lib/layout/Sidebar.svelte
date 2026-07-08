@@ -21,7 +21,10 @@
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
-  import { isVisible } from '$lib/layout/sidebar-buttons.svelte';
+  import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
+  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
+  import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
 
   let {
     accounts,
@@ -162,6 +165,24 @@
   );
   const logsVisual = $derived(navVisual(logsNav));
   const logsStatusLabel = $derived(logsNav === 'advisory' ? $t('sidebar.logsAdvisory') : null);
+
+  let hideCandidate = $state<SidebarButtonId | null>(null);
+
+  function hideMenuItems(id: SidebarButtonId): ContextMenuItem[] {
+    return [
+      {
+        label: $t('sidebar.contextHide'),
+        icon: 'eyeOff',
+        testId: `sidebar-ctx-hide-${id}`,
+        onSelect: () => (hideCandidate = id),
+      },
+    ];
+  }
+
+  function hideCandidateLabel(): string {
+    const b = SIDEBAR_BUTTONS.find((x) => x.id === hideCandidate);
+    return b ? $t(b.labelKey) : '';
+  }
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
@@ -262,21 +283,26 @@
         />
       {/if}
       {#if isVisible('account_actions')}
-        <button
-          type="button"
-          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-          onclick={() => onAddOffline()}
+        <ContextMenu
+          items={hideMenuItems('account_actions')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
         >
-          <Icon name="userPlus" size={14} />
-          {$t('sidebar.addOffline')}
-        </button>
-        <div class="mt-2">
-          <MicrosoftSignInButton
-            bind:signingIn={msSigningIn}
-            onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
-            onError={(err) => onMicrosoftError?.(err)}
-          />
-        </div>
+          <button
+            type="button"
+            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+            onclick={() => onAddOffline()}
+          >
+            <Icon name="userPlus" size={14} />
+            {$t('sidebar.addOffline')}
+          </button>
+          <div class="mt-2">
+            <MicrosoftSignInButton
+              bind:signingIn={msSigningIn}
+              onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+              onError={(err) => onMicrosoftError?.(err)}
+            />
+          </div>
+        </ContextMenu>
       {/if}
     </div>
 
@@ -311,25 +337,32 @@
         {#if isVisible('manage') || isVisible('mods')}
           <div class="flex gap-1">
             {#if isVisible('manage')}
-              <button
-                type="button"
-                data-tour="manage-btn"
-                class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-                onclick={onOpenManage}
+              <ContextMenu
+                items={hideMenuItems('manage')}
+                ariaLabel={$t('sidebar.contextMenuAria')}
               >
-                <Icon name="sliders" size={14} />
-                {$t('sidebar.manage')}
-              </button>
+                <button
+                  type="button"
+                  data-tour="manage-btn"
+                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                  onclick={onOpenManage}
+                >
+                  <Icon name="sliders" size={14} />
+                  {$t('sidebar.manage')}
+                </button>
+              </ContextMenu>
             {/if}
             {#if isVisible('mods')}
-              <button
-                type="button"
-                class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-                onclick={onOpenMods}
-              >
-                <Icon name="folderOpen" size={14} />
-                {$t('sidebar.mods')}
-              </button>
+              <ContextMenu items={hideMenuItems('mods')} ariaLabel={$t('sidebar.contextMenuAria')}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                  onclick={onOpenMods}
+                >
+                  <Icon name="folderOpen" size={14} />
+                  {$t('sidebar.mods')}
+                </button>
+              </ContextMenu>
             {/if}
           </div>
         {/if}
@@ -411,15 +444,20 @@
                 menuLabel={$t('sidebar.playWorlds')}
               />
               {#if isVisible('quick_join')}
-                <button
-                  type="button"
-                  class="btn-success btn-lg px-3"
-                  aria-label={$t('sidebar.servers')}
-                  use:tooltip={$t('sidebar.servers')}
-                  onclick={onOpenQuickJoin}
+                <ContextMenu
+                  items={hideMenuItems('quick_join')}
+                  ariaLabel={$t('sidebar.contextMenuAria')}
                 >
-                  <Icon name="globe" size={18} />
-                </button>
+                  <button
+                    type="button"
+                    class="btn-success btn-lg px-3"
+                    aria-label={$t('sidebar.servers')}
+                    use:tooltip={$t('sidebar.servers')}
+                    onclick={onOpenQuickJoin}
+                  >
+                    <Icon name="globe" size={18} />
+                  </button>
+                </ContextMenu>
               {/if}
             </div>
           {/if}
@@ -439,116 +477,139 @@
       "current instance" about the action.
     -->
       {#if isVisible('browse_modpacks')}
-        <button
-          type="button"
-          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-          data-tour="open-modpacks"
-          data-testid="sidebar-open-modpacks"
-          onclick={onOpenModpacks}
+        <ContextMenu
+          items={hideMenuItems('browse_modpacks')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
         >
-          <span class="relative inline-flex items-center gap-1.5">
-            <Icon name="package" size={16} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
-            {$t('sidebar.browseModpacks')}
-            {#if modpackUpdates.updateCount > 0}
-              <span
-                class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-                use:tooltip={$t('sidebar.modpackUpdatesBadge', {
-                  count: modpackUpdates.updateCount,
-                })}
-                data-testid="sidebar-modpack-updates-badge"
-              >
-                {modpackUpdates.updateCount}
-              </span>
-            {/if}
-          </span>
-        </button>
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            data-tour="open-modpacks"
+            data-testid="sidebar-open-modpacks"
+            onclick={onOpenModpacks}
+          >
+            <span class="relative inline-flex items-center gap-1.5">
+              <Icon
+                name="package"
+                size={16}
+                class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
+              />
+              {$t('sidebar.browseModpacks')}
+              {#if modpackUpdates.updateCount > 0}
+                <span
+                  class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+                  use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+                    count: modpackUpdates.updateCount,
+                  })}
+                  data-testid="sidebar-modpack-updates-badge"
+                >
+                  {modpackUpdates.updateCount}
+                </span>
+              {/if}
+            </span>
+          </button>
+        </ContextMenu>
       {/if}
       {#if isVisible('import_launcher')}
-        {#if launcherImportBlockedReason}
-          <span
-            class="inline-flex w-full"
-            use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
-          >
+        <ContextMenu
+          items={hideMenuItems('import_launcher')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
+        >
+          {#if launcherImportBlockedReason}
+            <span
+              class="inline-flex w-full"
+              use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+            >
+              <button
+                type="button"
+                class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+                data-testid="sidebar-open-launcher-import"
+                disabled
+              >
+                <Icon name="download" size={16} />
+                {$t('sidebar.importLauncher')}
+              </button>
+            </span>
+          {:else}
             <button
               type="button"
-              class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+              class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
               data-testid="sidebar-open-launcher-import"
-              disabled
+              onclick={onOpenLauncherImport}
             >
               <Icon name="download" size={16} />
               {$t('sidebar.importLauncher')}
             </button>
-          </span>
-        {:else}
+          {/if}
+        </ContextMenu>
+      {/if}
+      {#if isVisible('servers')}
+        <ContextMenu items={hideMenuItems('servers')} ariaLabel={$t('sidebar.contextMenuAria')}>
           <button
             type="button"
             class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-            data-testid="sidebar-open-launcher-import"
-            onclick={onOpenLauncherImport}
+            data-testid="sidebar-open-servers"
+            onclick={onOpenServers}
           >
-            <Icon name="download" size={16} />
-            {$t('sidebar.importLauncher')}
+            <NavStatusIcon
+              name="server"
+              size={16}
+              iconClass={serversVisual.iconClass}
+              statusLabel={serversStatusLabel}
+            />
+            {$t('sidebar.servers')}
+            {#if serversVisual.wrench}
+              <NavFixWrench
+                label={$t('sidebar.serversFixAvailable')}
+                testid="sidebar-servers-fix-badge"
+              />
+            {/if}
+            {#if anyUploading}
+              <NavUploadBadge
+                label={$t('sidebar.serversUploading')}
+                testid="sidebar-servers-upload-badge"
+              />
+            {/if}
           </button>
-        {/if}
-      {/if}
-      {#if isVisible('servers')}
-        <button
-          type="button"
-          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-          data-testid="sidebar-open-servers"
-          onclick={onOpenServers}
-        >
-          <NavStatusIcon
-            name="server"
-            size={16}
-            iconClass={serversVisual.iconClass}
-            statusLabel={serversStatusLabel}
-          />
-          {$t('sidebar.servers')}
-          {#if serversVisual.wrench}
-            <NavFixWrench
-              label={$t('sidebar.serversFixAvailable')}
-              testid="sidebar-servers-fix-badge"
-            />
-          {/if}
-          {#if anyUploading}
-            <NavUploadBadge
-              label={$t('sidebar.serversUploading')}
-              testid="sidebar-servers-upload-badge"
-            />
-          {/if}
-        </button>
+        </ContextMenu>
       {/if}
       {#if isVisible('gallery')}
-        <button
-          type="button"
-          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-          data-testid="sidebar-open-gallery"
-          onclick={onOpenGallery}
-        >
-          <Icon name="gallery" size={16} />
-          {$t('sidebar.gallery')}
-        </button>
+        <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            data-testid="sidebar-open-gallery"
+            onclick={onOpenGallery}
+          >
+            <Icon name="gallery" size={16} />
+            {$t('sidebar.gallery')}
+          </button>
+        </ContextMenu>
       {/if}
       <div class="flex gap-1">
         {#if isVisible('logs')}
-          <button
-            type="button"
-            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-            data-testid="sidebar-open-logs"
-            onclick={onOpenLogs}
-          >
-            <NavStatusIcon
-              name="scrollText"
-              size={14}
-              iconClass={logsVisual.iconClass}
-              statusLabel={logsStatusLabel}
-            />
-            {$t('sidebar.logs')}
-            {#if logsVisual.wrench}
-              <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
-            {/if}
-          </button>
+          <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
+            <button
+              type="button"
+              class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+              data-testid="sidebar-open-logs"
+              onclick={onOpenLogs}
+            >
+              <NavStatusIcon
+                name="scrollText"
+                size={14}
+                iconClass={logsVisual.iconClass}
+                statusLabel={logsStatusLabel}
+              />
+              {$t('sidebar.logs')}
+              {#if logsVisual.wrench}
+                <NavFixWrench
+                  label={$t('sidebar.logsFixAvailable')}
+                  testid="logs-button-fix-badge"
+                />
+              {/if}
+            </button>
+          </ContextMenu>
         {/if}
         <button
           type="button"
@@ -562,3 +623,14 @@
     </div>
   </div>
 </aside>
+
+{#if hideCandidate}
+  <HideButtonConfirmDialog
+    label={hideCandidateLabel()}
+    onCancel={() => (hideCandidate = null)}
+    onConfirm={() => {
+      if (hideCandidate) void setHidden(hideCandidate, true);
+      hideCandidate = null;
+    }}
+  />
+{/if}
