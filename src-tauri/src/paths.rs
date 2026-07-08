@@ -79,6 +79,12 @@ pub fn instance_json(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf>
     Ok(instance_dir(app, id)?.join("instance.json"))
 }
 
+/// `<app_data>/instances/<id>/icon.png` — the instance's optional custom
+/// picture. Presence of this file is the "has custom icon" state.
+pub fn instance_icon_png(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
+    Ok(instance_dir(app, id)?.join("icon.png"))
+}
+
 pub fn minecraft_dir(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
     Ok(instance_dir(app, id)?.join(".minecraft"))
 }
@@ -216,6 +222,19 @@ mod tests {
     }
     fn instance_logs_dir_from(root: PathBuf, id: &str) -> PathBuf {
         root.join("instances").join(id).join("logs")
+    }
+
+    fn instance_icon_png_from(root: PathBuf, id: &str) -> PathBuf {
+        root.join("instances").join(id).join("icon.png")
+    }
+
+    #[test]
+    fn instance_icon_png_is_under_instance_dir() {
+        let root = PathBuf::from("C:/fake/appdata");
+        assert_eq!(
+            instance_icon_png_from(root, "abc-123"),
+            PathBuf::from("C:/fake/appdata/instances/abc-123/icon.png"),
+        );
     }
 
     #[test]

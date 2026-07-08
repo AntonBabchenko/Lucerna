@@ -267,6 +267,17 @@
       "heading": "{count, plural, one {# mod may not be compatible} other {# mods may not be compatible}}",
       "skipBtn": "Skip these",
       "installAnywayBtn": "Install anyway"
+    },
+    "avatarAlt": "Instance picture",
+    "icon": {
+      "dialogTitle": "Instance picture",
+      "hint": "Drag to reposition, scroll to zoom",
+      "zoom": "Zoom",
+      "remove": "Remove picture",
+      "changeBtn": "Change picture",
+      "editTooltip": "Change instance picture",
+      "errorDecode": "That file is not a supported image.",
+      "errorSave": "Could not save the picture. Please try again."
     }
   },
   "instances": {
@@ -1731,7 +1742,6 @@
       "pillNeedsInstall": "Install required",
       "pillPickVersion": "Pick a version",
       "pillInstalling": "Installing…",
-      "avatarAlt": "Instance icon",
       "sectionModpack": "Modpack",
       "modpackOpen": "Open pack",
       "modpackUpdateBtn": "Update",

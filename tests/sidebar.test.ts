@@ -28,6 +28,7 @@ const sampleInstance: InstanceWithStatus = {
   loader: 'vanilla',
   loader_version: null,
   ready: true,
+  has_icon: false,
   max_heap_mb: 4096,
   min_heap_mb: null,
   extra_jvm_args: '',

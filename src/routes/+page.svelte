@@ -12,6 +12,7 @@
   import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
   import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
   import { repairCompletionTick } from '$lib/logs/repair-ops.svelte';
+  import InstanceIconDialog from '$lib/instances/InstanceIconDialog.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
@@ -964,6 +965,8 @@
     isRunning={running !== null}
     initialSelectedId={manageInitialId}
   />
+
+  <InstanceIconDialog onSaved={refreshInstances} />
 
   <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>
     <ModpacksTab
