@@ -38,6 +38,7 @@
     versions,
     onChanged,
     isRunning = false,
+    initialSelectedId = null,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
@@ -45,6 +46,12 @@
     versions: VersionEntry[];
     onChanged: () => void;
     isRunning?: boolean;
+    // When set (opened via a per-row "manage this profile" action), seed the
+    // detail selection from THIS id rather than the active instance. Switching
+    // the active instance is async (an IPC round-trip), so at open time
+    // `activeInstance` may still be the previously-active one — seeding from the
+    // explicitly-clicked id avoids opening Manage on the wrong profile.
+    initialSelectedId?: string | null;
   } = $props();
 
   let selectedId = $state<string | null>(null);
@@ -74,7 +81,7 @@
   // user expects to manage the instance they just had open.
   $effect(() => {
     if (open && selectedId === null) {
-      selectedId = activeInstance?.id ?? instances[0]?.id ?? null;
+      selectedId = initialSelectedId ?? activeInstance?.id ?? instances[0]?.id ?? null;
     }
   });
 

@@ -303,6 +303,13 @@ pub struct GeneralSettings {
     /// field deserializes to the 4-stream default. Clamped to 1..=16 at use.
     #[serde(default = "default_sftp_upload_concurrency")]
     pub sftp_upload_concurrency: u32,
+    /// IDs of sidebar buttons the user has hidden (opaque strings owned by the
+    /// frontend registry in `src/lib/layout/sidebar-buttons.ts`). Empty = all
+    /// visible — the default for app.json written before this field existed.
+    /// Unknown IDs are ignored on the frontend, so buttons added or removed in
+    /// later versions stay forward/backward compatible.
+    #[serde(default)]
+    pub hidden_sidebar_buttons: Vec<String>,
 }
 
 impl Default for GeneralSettings {
@@ -318,6 +325,7 @@ impl Default for GeneralSettings {
             log_retention: LogRetentionPolicy::default(),
             mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
             sftp_upload_concurrency: default_sftp_upload_concurrency(),
+            hidden_sidebar_buttons: Vec::new(),
         }
     }
 }
@@ -806,6 +814,38 @@ mod tests {
         }"#;
         let parsed: AppFile = serde_json::from_str(old_json).unwrap();
         assert!(!parsed.general.compact_mode);
+    }
+
+    #[test]
+    fn general_settings_default_hidden_sidebar_buttons_is_empty() {
+        let g = GeneralSettings::default();
+        assert!(g.hidden_sidebar_buttons.is_empty());
+    }
+
+    #[test]
+    fn app_file_round_trips_hidden_sidebar_buttons() {
+        let mut app = AppFile::default();
+        app.general.hidden_sidebar_buttons = vec!["servers".to_string(), "logs".to_string()];
+        let json = serde_json::to_string(&app).unwrap();
+        let back: AppFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.general.hidden_sidebar_buttons,
+            vec!["servers".to_string(), "logs".to_string()]
+        );
+        assert_eq!(back, app);
+    }
+
+    #[test]
+    fn old_app_json_without_hidden_sidebar_buttons_deserializes_to_empty() {
+        // Field added later -> existing app.json `general` blocks lack it.
+        // #[serde(default)] must fill it with an empty vec (all buttons visible).
+        let old_json = r#"{
+            "version": 1,
+            "active_instance": null,
+            "general": { "hide_to_tray_during_game": true }
+        }"#;
+        let parsed: AppFile = serde_json::from_str(old_json).unwrap();
+        assert!(parsed.general.hidden_sidebar_buttons.is_empty());
     }
 
     #[test]

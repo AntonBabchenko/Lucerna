@@ -1905,6 +1905,14 @@ export type GeneralSettings = {
 	 *  field deserializes to the 4-stream default. Clamped to 1..=16 at use.
 	 */
 	sftp_upload_concurrency?: number,
+	/**
+	 *  IDs of sidebar buttons the user has hidden (opaque strings owned by the
+	 *  frontend registry in `src/lib/layout/sidebar-buttons.ts`). Empty = all
+	 *  visible — the default for app.json written before this field existed.
+	 *  Unknown IDs are ignored on the frontend, so buttons added or removed in
+	 *  later versions stay forward/backward compatible.
+	 */
+	hidden_sidebar_buttons?: string[],
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */

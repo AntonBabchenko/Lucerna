@@ -22,6 +22,7 @@
     setCompact,
     toggleCompact,
   } from '$lib/layout/compact.svelte';
+  import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
@@ -118,6 +119,11 @@
   }
 
   let manageOpen = $state(false);
+  // Seeds ManageInstancesModal's detail selection. Set to a specific instance id
+  // when opened via a per-row "manage this profile" action (the active-instance
+  // switch is async, so the modal can't rely on `activeInstance` at open time);
+  // null when opened via the generic Manage button (defaults to the active one).
+  let manageInitialId = $state<string | null>(null);
   let msSigningIn = $state(false);
   let exportDialogOpen = $state(false);
 
@@ -430,6 +436,7 @@
       initLocale(settingsResult.data.general.language ?? 'system');
       explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
       void initCompact(settingsResult.data.general.compact_mode ?? false);
+      initSidebarButtons(settingsResult.data.general.hidden_sidebar_buttons ?? []);
       modpackSweepEnabled = settingsResult.data.general.check_updates_on_startup ?? true;
       sweepModpackUpdates();
     }
@@ -763,7 +770,14 @@
         addOfflineOpen = true;
       }}
       {onSelectInstance}
-      onOpenManage={() => (manageOpen = true)}
+      onOpenManage={() => {
+        manageInitialId = null;
+        manageOpen = true;
+      }}
+      onManageInstance={(id) => {
+        manageInitialId = id;
+        manageOpen = true;
+      }}
       {onOpenMods}
       onOpenLogs={() => {
         // Plain "Logs" open is not a deep-link — clear any stale crash path so
@@ -876,7 +890,10 @@
               instances: instancesError,
               versions: mcv.error,
             }}
-            onManage={() => (manageOpen = true)}
+            onManage={() => {
+              manageInitialId = null;
+              manageOpen = true;
+            }}
             onExport={() => (exportDialogOpen = true)}
             onOpenPackDrawer={() => {
               if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
@@ -940,6 +957,7 @@
     versions={mcv.value}
     onChanged={refreshInstances}
     isRunning={running !== null}
+    initialSelectedId={manageInitialId}
   />
 
   <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>

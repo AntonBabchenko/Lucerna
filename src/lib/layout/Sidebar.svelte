@@ -21,6 +21,11 @@
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
+  import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
+  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
+  import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
+  import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
 
   let {
     accounts,
@@ -32,6 +37,7 @@
     onAddOffline,
     onSelectInstance,
     onOpenManage,
+    onManageInstance = () => {},
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
@@ -69,6 +75,10 @@
     onAddOffline: () => void;
     onSelectInstance: (id: string) => void;
     onOpenManage: () => void;
+    // Manage a specific profile (the per-row icon in the profile dropdown):
+    // seeds the manage modal's detail selection to this id, independent of the
+    // async active-instance switch. Defaults to a no-op.
+    onManageInstance?: (instanceId: string) => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
     // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
@@ -161,6 +171,39 @@
   );
   const logsVisual = $derived(navVisual(logsNav));
   const logsStatusLabel = $derived(logsNav === 'advisory' ? $t('sidebar.logsAdvisory') : null);
+
+  let hideCandidate = $state<SidebarButtonId | null>(null);
+  // Set when the user tries to hide the account-add buttons with no account yet.
+  // Those buttons are force-shown while account-less (dead-end guard); hiding is
+  // refused here with an explanation instead of the usual hide-confirm.
+  let accountRequiredOpen = $state(false);
+
+  // Route a hide request from a button's right-click menu. Hiding the
+  // account-add buttons while there are no accounts would trap the user (no way
+  // to sign in, so no way to launch), so intercept that case and explain.
+  function requestHide(id: SidebarButtonId): void {
+    if (id === 'account_actions' && accounts.length === 0) {
+      accountRequiredOpen = true;
+    } else {
+      hideCandidate = id;
+    }
+  }
+
+  function hideMenuItems(id: SidebarButtonId): ContextMenuItem[] {
+    return [
+      {
+        label: $t('sidebar.contextHide'),
+        icon: 'eyeOff',
+        testId: `sidebar-ctx-hide-${id}`,
+        onSelect: () => requestHide(id),
+      },
+    ];
+  }
+
+  function hideCandidateLabel(): string {
+    const b = SIDEBAR_BUTTONS.find((x) => x.id === hideCandidate);
+    return b ? $t(b.labelKey) : '';
+  }
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
@@ -260,21 +303,35 @@
           onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
         />
       {/if}
-      <button
-        type="button"
-        class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-        onclick={() => onAddOffline()}
-      >
-        <Icon name="userPlus" size={14} />
-        {$t('sidebar.addOffline')}
-      </button>
-      <div class="mt-2">
-        <MicrosoftSignInButton
-          bind:signingIn={msSigningIn}
-          onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
-          onError={(err) => onMicrosoftError?.(err)}
-        />
-      </div>
+      <!--
+        Force the account-add buttons visible when there are no accounts, even
+        if the user hid `account_actions` in Settings — otherwise an
+        account-less launcher is a dead end: the empty-state text says "add one
+        below" but there is nothing to add with, and there is no way to sign in.
+        Once an account exists the hidden preference is honoured again.
+      -->
+      {#if isVisible('account_actions') || accounts.length === 0}
+        <ContextMenu
+          items={hideMenuItems('account_actions')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
+        >
+          <button
+            type="button"
+            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+            onclick={() => onAddOffline()}
+          >
+            <Icon name="userPlus" size={14} />
+            {$t('sidebar.addOffline')}
+          </button>
+          <div class="mt-2">
+            <MicrosoftSignInButton
+              bind:signingIn={msSigningIn}
+              onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+              onError={(err) => onMicrosoftError?.(err)}
+            />
+          </div>
+        </ContextMenu>
+      {/if}
     </div>
 
     <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
@@ -296,6 +353,30 @@
           </button>
         {/if}
       {:else}
+        <!-- Per-row Manage inside the profile dropdown. Unlike the account
+             trash (which stops its own mousedown so it does not commit the row),
+             this deliberately lets the mousedown bubble to the option row's
+             commit — selecting that profile (making it active) AND closing the
+             dropdown. It opens Manage via onManageInstance(id) with the clicked
+             id, so the modal seeds its detail to THIS profile directly rather
+             than racing the async active-instance switch. -->
+        {#snippet instanceTrailing(opt: SelectOption)}
+          {@const inst = instances.find((x) => x.id === opt.value)}
+          {#if inst}
+            {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
+            <button
+              type="button"
+              tabindex="-1"
+              class="btn-icon btn-icon-sm flex-shrink-0"
+              data-testid="sidebar-manage-instance-{inst.id}"
+              aria-label={manageLabel}
+              use:tooltip={{ text: manageLabel, describe: false }}
+              onmousedown={() => onManageInstance(inst.id)}
+            >
+              <Icon name="sliders" size={14} />
+            </button>
+          {/if}
+        {/snippet}
         <div data-tour="instance-picker">
           <Select
             class="w-full text-sm"
@@ -303,27 +384,41 @@
             options={instanceOptions}
             onChange={(v) => onSelectInstance(String(v))}
             ariaLabel={$t('sidebar.instance')}
+            optionTrailing={instanceTrailing}
           />
         </div>
-        <div class="flex gap-1">
-          <button
-            type="button"
-            data-tour="manage-btn"
-            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-            onclick={onOpenManage}
-          >
-            <Icon name="sliders" size={14} />
-            {$t('sidebar.manage')}
-          </button>
-          <button
-            type="button"
-            class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-            onclick={onOpenMods}
-          >
-            <Icon name="folderOpen" size={14} />
-            {$t('sidebar.mods')}
-          </button>
-        </div>
+        {#if isVisible('manage') || isVisible('mods')}
+          <div class="flex gap-1">
+            {#if isVisible('manage')}
+              <ContextMenu
+                items={hideMenuItems('manage')}
+                ariaLabel={$t('sidebar.contextMenuAria')}
+              >
+                <button
+                  type="button"
+                  data-tour="manage-btn"
+                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                  onclick={onOpenManage}
+                >
+                  <Icon name="sliders" size={14} />
+                  {$t('sidebar.manage')}
+                </button>
+              </ContextMenu>
+            {/if}
+            {#if isVisible('mods')}
+              <ContextMenu items={hideMenuItems('mods')} ariaLabel={$t('sidebar.contextMenuAria')}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                  onclick={onOpenMods}
+                >
+                  <Icon name="folderOpen" size={14} />
+                  {$t('sidebar.mods')}
+                </button>
+              </ContextMenu>
+            {/if}
+          </div>
+        {/if}
 
         {#if activeInstance}
           {#if running}
@@ -401,15 +496,22 @@
                 label={$t('sidebar.play')}
                 menuLabel={$t('sidebar.playWorlds')}
               />
-              <button
-                type="button"
-                class="btn-success btn-lg px-3"
-                aria-label={$t('sidebar.servers')}
-                use:tooltip={$t('sidebar.servers')}
-                onclick={onOpenQuickJoin}
-              >
-                <Icon name="globe" size={18} />
-              </button>
+              {#if isVisible('quick_join')}
+                <ContextMenu
+                  items={hideMenuItems('quick_join')}
+                  ariaLabel={$t('sidebar.contextMenuAria')}
+                >
+                  <button
+                    type="button"
+                    class="btn-success btn-lg px-3"
+                    aria-label={$t('sidebar.servers')}
+                    use:tooltip={$t('sidebar.servers')}
+                    onclick={onOpenQuickJoin}
+                  >
+                    <Icon name="globe" size={18} />
+                  </button>
+                </ContextMenu>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -427,106 +529,141 @@
       because installing a pack creates a NEW instance, so there's nothing
       "current instance" about the action.
     -->
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-tour="open-modpacks"
-        data-testid="sidebar-open-modpacks"
-        onclick={onOpenModpacks}
-      >
-        <span class="relative inline-flex items-center gap-1.5">
-          <Icon name="package" size={16} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
-          {$t('sidebar.browseModpacks')}
-          {#if modpackUpdates.updateCount > 0}
-            <span
-              class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-              use:tooltip={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
-              data-testid="sidebar-modpack-updates-badge"
-            >
-              {modpackUpdates.updateCount}
-            </span>
-          {/if}
-        </span>
-      </button>
-      {#if launcherImportBlockedReason}
-        <span
-          class="inline-flex w-full"
-          use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+      {#if isVisible('browse_modpacks')}
+        <ContextMenu
+          items={hideMenuItems('browse_modpacks')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
         >
           <button
             type="button"
-            class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
-            data-testid="sidebar-open-launcher-import"
-            disabled
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            data-tour="open-modpacks"
+            data-testid="sidebar-open-modpacks"
+            onclick={onOpenModpacks}
           >
-            <Icon name="download" size={16} />
-            {$t('sidebar.importLauncher')}
+            <span class="relative inline-flex items-center gap-1.5">
+              <Icon
+                name="package"
+                size={16}
+                class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
+              />
+              {$t('sidebar.browseModpacks')}
+              {#if modpackUpdates.updateCount > 0}
+                <span
+                  class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+                  use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+                    count: modpackUpdates.updateCount,
+                  })}
+                  data-testid="sidebar-modpack-updates-badge"
+                >
+                  {modpackUpdates.updateCount}
+                </span>
+              {/if}
+            </span>
           </button>
-        </span>
-      {:else}
-        <button
-          type="button"
-          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-          data-testid="sidebar-open-launcher-import"
-          onclick={onOpenLauncherImport}
-        >
-          <Icon name="download" size={16} />
-          {$t('sidebar.importLauncher')}
-        </button>
+        </ContextMenu>
       {/if}
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-testid="sidebar-open-servers"
-        onclick={onOpenServers}
-      >
-        <NavStatusIcon
-          name="server"
-          size={16}
-          iconClass={serversVisual.iconClass}
-          statusLabel={serversStatusLabel}
-        />
-        {$t('sidebar.servers')}
-        {#if serversVisual.wrench}
-          <NavFixWrench
-            label={$t('sidebar.serversFixAvailable')}
-            testid="sidebar-servers-fix-badge"
-          />
-        {/if}
-        {#if anyUploading}
-          <NavUploadBadge
-            label={$t('sidebar.serversUploading')}
-            testid="sidebar-servers-upload-badge"
-          />
-        {/if}
-      </button>
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-testid="sidebar-open-gallery"
-        onclick={onOpenGallery}
-      >
-        <Icon name="gallery" size={16} />
-        {$t('sidebar.gallery')}
-      </button>
-      <div class="flex gap-1">
-        <button
-          type="button"
-          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-          data-testid="sidebar-open-logs"
-          onclick={onOpenLogs}
+      {#if isVisible('import_launcher')}
+        <ContextMenu
+          items={hideMenuItems('import_launcher')}
+          ariaLabel={$t('sidebar.contextMenuAria')}
         >
-          <NavStatusIcon
-            name="scrollText"
-            size={14}
-            iconClass={logsVisual.iconClass}
-            statusLabel={logsStatusLabel}
-          />
-          {$t('sidebar.logs')}
-          {#if logsVisual.wrench}
-            <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
+          {#if launcherImportBlockedReason}
+            <span
+              class="inline-flex w-full"
+              use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+            >
+              <button
+                type="button"
+                class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+                data-testid="sidebar-open-launcher-import"
+                disabled
+              >
+                <Icon name="download" size={16} />
+                {$t('sidebar.importLauncher')}
+              </button>
+            </span>
+          {:else}
+            <button
+              type="button"
+              class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+              data-testid="sidebar-open-launcher-import"
+              onclick={onOpenLauncherImport}
+            >
+              <Icon name="download" size={16} />
+              {$t('sidebar.importLauncher')}
+            </button>
           {/if}
-        </button>
+        </ContextMenu>
+      {/if}
+      {#if isVisible('servers')}
+        <ContextMenu items={hideMenuItems('servers')} ariaLabel={$t('sidebar.contextMenuAria')}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            data-testid="sidebar-open-servers"
+            onclick={onOpenServers}
+          >
+            <NavStatusIcon
+              name="server"
+              size={16}
+              iconClass={serversVisual.iconClass}
+              statusLabel={serversStatusLabel}
+            />
+            {$t('sidebar.servers')}
+            {#if serversVisual.wrench}
+              <NavFixWrench
+                label={$t('sidebar.serversFixAvailable')}
+                testid="sidebar-servers-fix-badge"
+              />
+            {/if}
+            {#if anyUploading}
+              <NavUploadBadge
+                label={$t('sidebar.serversUploading')}
+                testid="sidebar-servers-upload-badge"
+              />
+            {/if}
+          </button>
+        </ContextMenu>
+      {/if}
+      {#if isVisible('gallery')}
+        <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            data-testid="sidebar-open-gallery"
+            onclick={onOpenGallery}
+          >
+            <Icon name="gallery" size={16} />
+            {$t('sidebar.gallery')}
+          </button>
+        </ContextMenu>
+      {/if}
+      <div class="flex gap-1">
+        {#if isVisible('logs')}
+          <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
+            <button
+              type="button"
+              class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+              data-testid="sidebar-open-logs"
+              onclick={onOpenLogs}
+            >
+              <NavStatusIcon
+                name="scrollText"
+                size={14}
+                iconClass={logsVisual.iconClass}
+                statusLabel={logsStatusLabel}
+              />
+              {$t('sidebar.logs')}
+              {#if logsVisual.wrench}
+                <NavFixWrench
+                  label={$t('sidebar.logsFixAvailable')}
+                  testid="logs-button-fix-badge"
+                />
+              {/if}
+            </button>
+          </ContextMenu>
+        {/if}
         <button
           type="button"
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
@@ -539,3 +676,18 @@
     </div>
   </div>
 </aside>
+
+{#if hideCandidate}
+  <HideButtonConfirmDialog
+    label={hideCandidateLabel()}
+    onCancel={() => (hideCandidate = null)}
+    onConfirm={() => {
+      if (hideCandidate) void setHidden(hideCandidate, true);
+      hideCandidate = null;
+    }}
+  />
+{/if}
+
+{#if accountRequiredOpen}
+  <AccountRequiredDialog onClose={() => (accountRequiredOpen = false)} />
+{/if}
