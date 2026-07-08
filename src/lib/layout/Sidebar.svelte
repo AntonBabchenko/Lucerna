@@ -34,6 +34,7 @@
     activeInstance,
     onSelectAccount,
     onRemoveAccount,
+    onOpenCosmetics,
     onAddOffline,
     onSelectInstance,
     onOpenManage,
@@ -69,6 +70,7 @@
     activeInstance: InstanceWithStatus | null;
     onSelectAccount: (id: string) => void;
     onRemoveAccount: (id: string) => void;
+    onOpenCosmetics: (account: Account) => void;
     // Open the add-offline-account dialog. The name entry + the actual
     // addOfflineAccount call live in that modal / the page handler, not here:
     // the inline field this used to reveal was too easy to miss.
@@ -275,20 +277,39 @@
           {@const acc = accounts.find((a) => a.id === opt.value)}
           {#if acc}
             {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
-            <button
-              type="button"
-              tabindex="-1"
-              class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
-              aria-label={removeLabel}
-              use:tooltip={{ text: removeLabel, describe: false }}
-              onmousedown={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-              }}
-              onclick={() => onRemoveAccount(acc.id)}
-            >
-              <Icon name="trash" size={14} />
-            </button>
+            <div class="flex items-center gap-0.5">
+              {#if acc.kind === 'microsoft'}
+                {@const cosLabel = $t('sidebar.cosmeticsLabel', { name: acc.name })}
+                <button
+                  type="button"
+                  tabindex="-1"
+                  class="btn-icon btn-icon-sm flex-shrink-0"
+                  aria-label={cosLabel}
+                  use:tooltip={{ text: cosLabel, describe: false }}
+                  onmousedown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
+                  onclick={() => onOpenCosmetics(acc)}
+                >
+                  <Icon name="shirt" size={14} />
+                </button>
+              {/if}
+              <button
+                type="button"
+                tabindex="-1"
+                class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
+                aria-label={removeLabel}
+                use:tooltip={{ text: removeLabel, describe: false }}
+                onmousedown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onclick={() => onRemoveAccount(acc.id)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
           {/if}
         {/snippet}
         <Select

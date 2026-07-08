@@ -34,6 +34,7 @@ function baseProps() {
     activeInstance: null,
     onSelectAccount: vi.fn(),
     onRemoveAccount: vi.fn(),
+    onOpenCosmetics: vi.fn(),
     onAddOffline: vi.fn(),
     onSelectInstance: vi.fn(),
     onOpenManage: vi.fn(),

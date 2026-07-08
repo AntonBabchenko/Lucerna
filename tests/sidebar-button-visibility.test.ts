@@ -58,6 +58,7 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
 const baseProps = {
   onSelectAccount: () => {},
   onRemoveAccount: () => {},
+  onOpenCosmetics: () => {},
   onAddOffline: () => {},
   onSelectInstance: () => {},
   onOpenManage: () => {},

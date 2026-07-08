@@ -42,6 +42,7 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
 const noopHandlers = {
   onSelectAccount: () => {},
   onRemoveAccount: () => {},
+  onOpenCosmetics: () => {},
   onAddOffline: () => {},
   onSelectInstance: () => {},
   onOpenManage: () => {},
