@@ -66,6 +66,27 @@
           {/each}
         </ul>
       {/if}
+      {#if t.progress !== undefined}
+        <!-- Determinate when a fraction is known; a calm pulse when the
+             server sent no Content-Length. Opacity/width only — compositor
+             friendly. -->
+        <div
+          class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-black/10"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={t.progress === null ? undefined : Math.round(t.progress * 100)}
+        >
+          {#if t.progress === null}
+            <div class="h-full w-1/3 animate-pulse rounded-full bg-accent"></div>
+          {:else}
+            <div
+              class="h-full rounded-full bg-accent"
+              style="width: {Math.round(Math.min(1, Math.max(0, t.progress)) * 100)}%"
+            ></div>
+          {/if}
+        </div>
+      {/if}
       {#if t.action}
         <button
           type="button"
