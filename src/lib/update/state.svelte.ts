@@ -2,9 +2,14 @@
 // rune-in-a-.svelte.ts idiom used by $lib/settings/state.svelte.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { commands, type UpdateInfo } from '$lib/ipc/bindings';
+import { commands, events, type UpdateInfo } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { dismiss, pushActionToast, pushInfo } from '$lib/toasts/toasts.svelte';
+import {
+  dismiss,
+  pushActionToast,
+  pushProgress,
+  updateToastProgress,
+} from '$lib/toasts/toasts.svelte';
 
 export const updateState = $state<{ value: UpdateInfo | null }>({ value: null });
 
@@ -37,11 +42,14 @@ export async function runUpdate(): Promise<void> {
 
   updateInstalling.value = true;
   const tr = get(t);
-  const progress = pushInfo(tr('page.update.downloading'));
-  const r = await commands.updateInstall();
-  dismiss(progress);
-  if (r.status !== 'ok') {
-    // Allow another attempt after a failure (on success the app exits).
+  const installerUrl = info?.installer?.url;
+  const toastId = pushProgress(tr('page.update.downloading'));
+
+  // Surface a failure identically whether the command returned an Err or
+  // something threw (e.g. the event listener failed to register): reset the
+  // in-flight flag and offer the release page. Never leave the Update button
+  // soft-locked or the progress toast leaked.
+  const showFailure = (detail: string) => {
     updateInstalling.value = false;
     const url = updateState.value?.release_url;
     pushActionToast(
@@ -53,8 +61,31 @@ export async function runUpdate(): Promise<void> {
           if (url) void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
         },
       },
-      [formatError(r.error)],
+      [detail],
     );
+  };
+
+  let un: (() => void) | undefined;
+  try {
+    // The installer download already emits DownloadProgress events; filter to
+    // the installer URL so mod/JRE downloads don't move this bar.
+    un = await events.downloadProgress.listen(({ payload }) => {
+      if (payload.url !== installerUrl) return;
+      const total = payload.bytes_total;
+      const done = payload.bytes_done ?? 0;
+      updateToastProgress(toastId, total && total > 0 ? Math.min(1, done / total) : null);
+    });
+    const r = await commands.updateInstall();
+    // On success the backend launched the installer and called app.exit(0), so
+    // this may not run; on a returned Err, surface it.
+    if (r.status !== 'ok') showFailure(formatError(r.error));
+  } catch (e) {
+    // A thrown error (e.g. listen() IPC rejecting) — clean up and report it,
+    // rather than leaving the flag stuck and the toast leaked.
+    showFailure(String(e));
+  } finally {
+    un?.();
+    dismiss(toastId);
   }
   // On success the backend launched the installer and called app.exit(0);
   // nothing to do here.
