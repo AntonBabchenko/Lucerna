@@ -22,6 +22,10 @@ export type Toast = {
   /** Optional callback fired when the toast is dismissed via the × button —
    *  e.g. persisting a per-version "don't nag again" flag. */
   onDismiss?: () => void;
+  /** Download/verify progress for a progress toast. `undefined` = not a
+   *  progress toast (no bar). `null` = indeterminate (bar shown, unknown
+   *  total). `0..1` = fraction complete. */
+  progress?: number | null;
 };
 
 /** A success toast auto-dismisses this many milliseconds after it appears. */
@@ -58,6 +62,20 @@ export function pushInfo(title: string, lines: string[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'info', title, lines }];
   return id;
+}
+
+/** Show a blue info toast carrying a progress bar; starts indeterminate
+ *  (`progress: null`). Stays until `dismiss` is called. */
+export function pushProgress(title: string, lines: string[] = []): number {
+  const id = nextId++;
+  store.toasts = [...store.toasts, { id, kind: 'info', title, lines, progress: null }];
+  return id;
+}
+
+/** Update the progress of a progress toast. `null` = indeterminate,
+ *  `0..1` = fraction. A no-op if `id` is not an active toast. */
+export function updateToastProgress(id: number, progress: number | null): void {
+  store.toasts = store.toasts.map((t) => (t.id === id ? { ...t, progress } : t));
 }
 
 /** Show a sticky toast (any kind) with an action button. */
