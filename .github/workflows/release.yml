@@ -135,6 +135,19 @@ jobs:
           }
           echo "macOS .app is ad-hoc signed: $app"
 
+      - name: Assert NSIS installer is per-user (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -e
+          nsi=src-tauri/target/release/nsis/x64/installer.nsi
+          test -f "$nsi" || { echo "ERROR: generated installer.nsi not found at $nsi"; exit 1; }
+          grep -q '!define INSTALLMODE "currentUser"' "$nsi" \
+            || { echo "ERROR: installer.nsi is not INSTALLMODE currentUser"; exit 1; }
+          grep -q 'RequestExecutionLevel user' "$nsi" \
+            || { echo "ERROR: installer.nsi does not RequestExecutionLevel user"; exit 1; }
+          echo "NSIS installer is per-user (no UAC on update)."
+
       - name: Stage installers (Windows)
         if: runner.os == 'Windows'
         shell: bash
