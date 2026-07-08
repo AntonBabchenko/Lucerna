@@ -16,6 +16,12 @@
   let variant = $state<SkinVariant>('classic');
   let skinImg: HTMLImageElement | null = null;
   let skinCanvas = $state<HTMLCanvasElement | null>(null);
+  // Base64 of the currently-displayed skin, kept so a reset can snapshot it.
+  let currentSkinB64: string | null = null;
+  // Two-step guard for the destructive reset, plus an in-session undo snapshot
+  // of the skin that was active before the reset (so it can be re-applied).
+  let confirmingReset = $state(false);
+  let undoSkin = $state<{ b64: string; variant: SkinVariant } | null>(null);
 
   const activeCape = $derived(capes.find((c) => c.is_active) ?? null);
   const activeCapeName = $derived(activeCape ? (activeCape.alias ?? activeCape.id) : null);
@@ -24,6 +30,7 @@
   async function refreshSkin() {
     const skinRes = await commands.accountSkin(account.uuid);
     if (skinRes.status === 'ok' && skinRes.data) {
+      currentSkinB64 = skinRes.data.skin_png_base64;
       const img = new Image();
       img.onload = () => {
         skinImg = img;
@@ -31,6 +38,7 @@
       };
       img.src = `data:image/png;base64,${skinRes.data.skin_png_base64}`;
     } else {
+      currentSkinB64 = null;
       skinImg = null;
       const ctx = skinCanvas?.getContext('2d');
       if (skinCanvas && ctx) ctx.clearRect(0, 0, skinCanvas.width, skinCanvas.height);
@@ -100,6 +108,8 @@
       if (res.status === 'error') {
         saveError = $t('cosmetics.invalidImage');
       } else {
+        currentSkinB64 = b64;
+        undoSkin = null;
         const img = new Image();
         img.onload = () => {
           skinImg = img;
@@ -112,18 +122,53 @@
     input.click();
   }
 
-  async function resetSkin() {
+  function requestReset() {
     if (busy) return;
+    saveError = null;
+    confirmingReset = true;
+  }
+
+  function cancelReset() {
+    confirmingReset = false;
+  }
+
+  async function confirmReset() {
+    if (busy) return;
+    // Snapshot the current skin BEFORE the reset so it can be restored.
+    const snapshot = currentSkinB64 !== null ? { b64: currentSkinB64, variant } : null;
     busy = true;
     saveError = null;
     const res = await commands.resetSkin(account.id);
+    busy = false;
     if (res.status === 'error') {
       saveError = $t('cosmetics.saveError');
-      busy = false;
       return;
     }
-    busy = false;
+    confirmingReset = false;
+    undoSkin = snapshot;
     await load(false);
+  }
+
+  async function restorePreviousSkin() {
+    if (busy || !undoSkin) return;
+    const snap = undoSkin;
+    busy = true;
+    saveError = null;
+    const res = await commands.uploadSkin(account.id, snap.b64, snap.variant);
+    busy = false;
+    if (res.status === 'error') {
+      saveError = $t('cosmetics.saveError');
+      return;
+    }
+    variant = snap.variant;
+    currentSkinB64 = snap.b64;
+    const img = new Image();
+    img.onload = () => {
+      skinImg = img;
+      renderSkin();
+    };
+    img.src = `data:image/png;base64,${snap.b64}`;
+    undoSkin = null;
   }
 
   function setVariant(v: SkinVariant) {
@@ -229,9 +274,34 @@
               >
             </div>
           </div>
-          <button type="button" class="btn-secondary btn-sm self-start" onclick={resetSkin} disabled={busy}>
-            {$t('cosmetics.resetSkin')}
-          </button>
+          {#if confirmingReset}
+            <div class="flex flex-col gap-2 rounded-[10px] border border-border-subtle p-3">
+              <p class="text-xs text-secondary">{$t('cosmetics.resetConfirm')}</p>
+              <div class="flex gap-2">
+                <button type="button" class="btn-secondary btn-xs" onclick={cancelReset} disabled={busy}>
+                  {$t('common.cancel')}
+                </button>
+                <button type="button" class="btn-danger btn-xs" onclick={confirmReset} disabled={busy}>
+                  {$t('cosmetics.resetConfirmYes')}
+                </button>
+              </div>
+            </div>
+          {:else}
+            <button type="button" class="btn-secondary btn-sm self-start" onclick={requestReset} disabled={busy}>
+              {$t('cosmetics.resetSkin')}
+            </button>
+          {/if}
+          {#if undoSkin}
+            <button
+              type="button"
+              class="btn-secondary btn-sm self-start flex items-center gap-1.5"
+              onclick={restorePreviousSkin}
+              disabled={busy}
+            >
+              <Icon name="refresh" size={14} />
+              {$t('cosmetics.restorePrevious')}
+            </button>
+          {/if}
         </div>
       </div>
 
