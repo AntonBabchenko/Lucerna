@@ -282,7 +282,14 @@
           onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
         />
       {/if}
-      {#if isVisible('account_actions')}
+      <!--
+        Force the account-add buttons visible when there are no accounts, even
+        if the user hid `account_actions` in Settings — otherwise an
+        account-less launcher is a dead end: the empty-state text says "add one
+        below" but there is nothing to add with, and there is no way to sign in.
+        Once an account exists the hidden preference is honoured again.
+      -->
+      {#if isVisible('account_actions') || accounts.length === 0}
         <ContextMenu
           items={hideMenuItems('account_actions')}
           ariaLabel={$t('sidebar.contextMenuAria')}

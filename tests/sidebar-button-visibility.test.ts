@@ -118,6 +118,14 @@ describe('Sidebar button visibility', () => {
     expect(screen.queryByRole('button', { name: /add offline/i })).toBeNull();
   });
 
+  it('forces the account-add buttons visible when there are no accounts, even if hidden', () => {
+    // Dead-end guard: with account_actions hidden AND no accounts, the user
+    // would otherwise have no way to sign in or add an offline account.
+    initSidebarButtons(['account_actions']);
+    render(Sidebar, { props: { ...baseProps, accounts: [], activeAccount: null } });
+    expect(screen.getByRole('button', { name: /add offline/i })).toBeTruthy();
+  });
+
   it('keeps core Settings even when every hideable button is hidden', () => {
     initSidebarButtons(ALL_IDS);
     render(Sidebar, { props: baseProps });
