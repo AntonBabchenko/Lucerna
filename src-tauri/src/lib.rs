@@ -97,6 +97,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_screenshots_folder,
             commands::copy_screenshot_to_clipboard,
             commands::save_annotated_screenshot,
+            commands::annotated_default_path,
             commands::list_saved_servers,
             commands::add_saved_server,
             commands::remove_saved_server,

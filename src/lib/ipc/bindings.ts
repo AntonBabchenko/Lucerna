@@ -255,6 +255,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	w: number | null,
 	h: number | null,
 } | null, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_annotated_screenshot", { instanceId, fileName, overlayPngBase64, crop, dest })),
+	annotatedDefaultPath: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("annotated_default_path", { instanceId, fileName })),
 	/**
 	 *  List the instance's saved multiplayer servers (from `servers.dat`).
 	 *  Empty Vec when the file does not exist yet.

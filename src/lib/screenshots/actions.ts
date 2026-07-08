@@ -41,9 +41,11 @@ export async function saveAnnotated(
   overlayDataUrl: string | null,
   crop: { x: number; y: number; w: number; h: number } | null,
 ): Promise<boolean> {
+  // Seed the dialog in the instance's screenshots folder (as <name>-annotated.png).
+  const dp = await commands.annotatedDefaultPath(s.instance_id, s.file_name);
   const dest = await save({
     title: get(t)('screenshots.saveDialogTitle'),
-    defaultPath: s.file_name,
+    defaultPath: dp.status === 'ok' ? dp.data : s.file_name,
   });
   if (!dest) return false;
   const overlay = overlayDataUrl ? overlayDataUrl.replace(/^data:image\/png;base64,/, '') : '';

@@ -129,3 +129,13 @@ pub fn save_annotated_screenshot(
         &dest,
     )
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn annotated_default_path(
+    app: tauri::AppHandle,
+    instance_id: String,
+    file_name: String,
+) -> Result<String, crate::error::Error> {
+    crate::screenshots::annotated_default_path(&app, &instance_id, &file_name)
+}

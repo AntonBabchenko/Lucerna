@@ -229,6 +229,26 @@ pub fn save_annotated(
         .map_err(|e| Error::io(dest.to_string(), e))
 }
 
+/// Suggested save path for an annotated copy: the instance's screenshots dir +
+/// `<stem>-annotated.png`. The frontend seeds the save dialog with this so it
+/// opens in the screenshots folder and does not overwrite the original.
+pub fn annotated_default_path(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    file_name: &str,
+) -> Result<String> {
+    fs::validate_segment(file_name)?;
+    let dir = screenshots_dir(app, instance_id)?;
+    let stem = std::path::Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_name);
+    Ok(dir
+        .join(format!("{stem}-annotated.png"))
+        .to_string_lossy()
+        .to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
