@@ -240,7 +240,7 @@ mod tests {
             handled_log_sig: None,
         };
         let res = ClientInstanceResult {
-            instance: InstanceWithStatus::from_file(&file, false),
+            instance: InstanceWithStatus::from_file(&file, false, false),
             multiplayer_added: true,
         };
         let json = serde_json::to_string(&res).unwrap();
