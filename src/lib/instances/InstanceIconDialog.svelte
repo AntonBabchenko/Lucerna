@@ -6,6 +6,7 @@
   import { Icon } from '$lib/ui/icons';
   import Modal from '$lib/ui/Modal.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import { computeCropRect } from './crop';
   import { invalidateInstanceIcon, loadInstanceIcon } from './instance-icon-cache';
   import { iconDialog } from './instance-icon-dialog.svelte';
@@ -211,7 +212,6 @@
     <h3 id={TITLE_ID} class="text-base font-semibold text-primary">
       {$t('instance.icon.dialogTitle')}
     </h3>
-    <p class="mt-1 text-xs text-muted">{$t('instance.icon.subtitle')}</p>
 
     {#if img}
       <!-- Crop a freshly-picked source. -->
@@ -252,16 +252,42 @@
         <p class="text-xs text-muted">{$t('instance.icon.hint')}</p>
       </div>
     {:else if existingUrl}
-      <!-- Show the current picture; offer to replace it. -->
-      <div class="mt-4 flex flex-col items-center gap-3">
-        <img
-          src={existingUrl}
-          alt={$t('instance.avatarAlt')}
-          class="h-44 w-44 rounded-2xl border border-border-subtle object-cover shadow-sm"
-        />
-        <button type="button" class="btn-secondary btn-sm" onclick={() => fileInput?.click()}>
-          {$t('instance.icon.chooseAnother')}
-        </button>
+      <!-- The current picture. The image itself is the "change" affordance
+           (hover/focus reveals a scrim + camera glyph — Discord/Slack pattern);
+           the corner trash badge removes it. Siblings, not nested, so both stay
+           real buttons. -->
+      <div class="mt-4 flex justify-center">
+        <div class="relative">
+          <button
+            type="button"
+            class="group relative block overflow-hidden rounded-2xl border border-border-subtle
+              shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent
+              focus-visible:outline-offset-2"
+            onclick={() => fileInput?.click()}
+            aria-label={$t('instance.icon.editTooltip')}
+            use:tooltip={$t('instance.icon.editTooltip')}
+          >
+            <img src={existingUrl} alt="" draggable="false" class="h-44 w-44 object-cover" />
+            <span
+              class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
+                transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+              aria-hidden="true"
+            >
+              <Icon name="camera" size={26} class="text-white" />
+            </span>
+          </button>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2.5 -top-2.5 z-10
+              rounded-full border border-border-subtle bg-surface/90 shadow-sm"
+            disabled={busy}
+            onclick={remove}
+            aria-label={$t('instance.icon.remove')}
+            use:tooltip={$t('instance.icon.remove')}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        </div>
       </div>
     {:else}
       <!-- Empty: click-to-browse drop zone. -->
@@ -284,24 +310,15 @@
       class="mt-3 rounded border border-danger bg-danger-bg p-2"
     />
 
-    <div class="mt-4 flex items-center justify-between">
-      <div>
-        {#if iconDialog.hasIcon && !img}
-          <button type="button" class="btn-ghost-danger btn-sm" disabled={busy} onclick={remove}>
-            {$t('instance.icon.remove')}
-          </button>
-        {/if}
-      </div>
-      <div class="flex gap-2">
-        <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
-          {$t('common.cancel')}
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
+        {img ? $t('common.cancel') : $t('common.close')}
+      </button>
+      {#if img}
+        <button type="button" class="btn-primary btn-sm" disabled={busy} onclick={save}>
+          {$t('common.save')}
         </button>
-        {#if img}
-          <button type="button" class="btn-primary btn-sm" disabled={busy} onclick={save}>
-            {$t('common.save')}
-          </button>
-        {/if}
-      </div>
+      {/if}
     </div>
 
     <input
