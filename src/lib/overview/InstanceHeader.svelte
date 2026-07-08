@@ -73,9 +73,12 @@
       <!-- Change affordance: revealed together with the corner trash on
            hover / keyboard focus. Radius matches InstanceAvatar's computed
            rounding (size * 0.22). -->
+      <!-- :focus-visible (not :focus-within) so a mouse click that leaves the
+           button focused — e.g. after cancelling the OS file picker — does not
+           pin the overlay; only keyboard focus reveals it. -->
       <span
         class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
-          transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
         style="border-radius:{Math.round(52 * 0.22)}px"
         aria-hidden="true"
       >
@@ -86,7 +89,7 @@
       <button
         type="button"
         class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 opacity-0
-          transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
         onclick={() => iconDialog.requestRemove(instance.id)}
         aria-label={$t('instance.icon.remove')}
         use:tooltip={$t('instance.icon.remove')}
