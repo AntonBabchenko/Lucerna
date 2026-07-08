@@ -1607,7 +1607,6 @@ export type TranslationKey =
   | 'settings.general.appearance.themeDark'
   | 'settings.general.appearance.themeLight'
   | 'settings.general.appearance.themeSystem'
-  | 'settings.general.appearance.title'
   | 'settings.general.gpu.appliedToast'
   | 'settings.general.gpu.auto'
   | 'settings.general.gpu.high'
