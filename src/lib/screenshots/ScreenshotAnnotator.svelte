@@ -23,7 +23,9 @@
     { key: 'screenshots.colorWhite', css: '#ffffff' },
   ] as const;
   let color = $state<string>(COLORS[0].css);
-  let thick = $state(false);
+  // Marker and eraser keep independent thickness.
+  let markerThick = $state(false);
+  let eraserThick = $state(false);
 
   const MIN_Z = 1;
   const MAX_Z = 8;
@@ -124,7 +126,8 @@
   // regardless of the screenshot's resolution.
   function strokeWidth(): number {
     if (!canvasEl) return 4;
-    return (thick ? 0.01 : 0.004) * Math.max(canvasEl.width, canvasEl.height);
+    const t = tool === 'eraser' ? eraserThick : markerThick;
+    return (t ? 0.01 : 0.004) * Math.max(canvasEl.width, canvasEl.height);
   }
 
   function onPointerDown(e: PointerEvent) {
@@ -270,16 +273,24 @@
     tool === 'pan' ? (panning ? 'grabbing' : zoom > 1 ? 'grab' : 'default') : 'crosshair',
   );
 
-  // Marker colour/thickness popover (opened from the marker button).
-  let paletteOpen = $state(false);
-  let paletteEl = $state<HTMLDivElement | null>(null);
+  // Marker / eraser settings popovers (one open at a time).
+  let openPopover = $state<'marker' | 'eraser' | null>(null);
   let markerBtnEl = $state<HTMLButtonElement | null>(null);
+  let markerPopEl = $state<HTMLDivElement | null>(null);
+  let eraserBtnEl = $state<HTMLButtonElement | null>(null);
+  let eraserPopEl = $state<HTMLDivElement | null>(null);
   $effect(() => {
-    if (!paletteOpen) return;
+    if (!openPopover) return;
     const onDown = (e: PointerEvent) => {
       const n = e.target as Node;
-      if (paletteEl?.contains(n) || markerBtnEl?.contains(n)) return;
-      paletteOpen = false;
+      if (
+        markerBtnEl?.contains(n) ||
+        markerPopEl?.contains(n) ||
+        eraserBtnEl?.contains(n) ||
+        eraserPopEl?.contains(n)
+      )
+        return;
+      openPopover = null;
     };
     window.addEventListener('pointerdown', onDown, true);
     return () => window.removeEventListener('pointerdown', onDown, true);
@@ -309,77 +320,109 @@
         style="color: {color};"
         aria-pressed={tool === 'marker'}
         aria-haspopup="true"
-        aria-expanded={paletteOpen}
+        aria-expanded={openPopover === 'marker'}
         aria-label={$t('screenshots.toolMarker')}
         use:tooltip={$t('screenshots.toolMarker')}
         onclick={() => {
           tool = 'marker';
-          paletteOpen = !paletteOpen;
+          openPopover = openPopover === 'marker' ? null : 'marker';
         }}><Icon name="marker" size={tool === 'marker' ? 20 : 16} /></button
       >
-      {#if paletteOpen}
+      {#if openPopover === 'marker'}
         <div
-          bind:this={paletteEl}
-          class="absolute left-1/2 top-full z-20 mt-2 flex -translate-x-1/2 flex-col gap-2 rounded-xl border border-border-subtle bg-surface p-2 shadow-xl"
+          bind:this={markerPopEl}
+          class="absolute left-1/2 top-full z-20 mt-2 flex -translate-x-1/2 items-center gap-1.5 rounded-xl border border-border-subtle bg-surface p-2 shadow-xl"
         >
-          <div class="flex gap-1.5">
-            {#each COLORS as c (c.css)}
-              <button
-                type="button"
-                class="h-6 w-6 shrink-0 rounded-full border border-border-subtle transition-transform hover:scale-110"
-                class:ring-2={color === c.css}
-                class:ring-accent={color === c.css}
-                style="background-color: {c.css};"
-                aria-pressed={color === c.css}
-                aria-label={$t(c.key)}
-                use:tooltip={$t(c.key)}
-                onclick={() => {
-                  color = c.css;
-                  tool = 'marker';
-                  paletteOpen = false;
-                }}
-              ></button>
-            {/each}
-          </div>
-          <div class="flex items-center justify-center gap-1 border-t border-border-subtle pt-2">
+          {#each COLORS as c (c.css)}
             <button
               type="button"
-              class="btn-icon btn-icon-sm"
-              class:text-accent={!thick}
-              aria-pressed={!thick}
-              aria-label={$t('screenshots.thin')}
-              use:tooltip={$t('screenshots.thin')}
-              onclick={() => (thick = false)}
-            >
-              <span class="inline-block rounded-full bg-current" style="width:6px;height:6px"
-              ></span>
-            </button>
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              class:text-accent={thick}
-              aria-pressed={thick}
-              aria-label={$t('screenshots.thick')}
-              use:tooltip={$t('screenshots.thick')}
-              onclick={() => (thick = true)}
-            >
-              <span class="inline-block rounded-full bg-current" style="width:12px;height:12px"
-              ></span>
-            </button>
-          </div>
+              class="h-6 w-6 shrink-0 rounded-full border border-border-subtle transition-transform hover:scale-110"
+              class:ring-2={color === c.css}
+              class:ring-accent={color === c.css}
+              style="background-color: {c.css};"
+              aria-pressed={color === c.css}
+              aria-label={$t(c.key)}
+              use:tooltip={$t(c.key)}
+              onclick={() => {
+                color = c.css;
+                tool = 'marker';
+              }}
+            ></button>
+          {/each}
+          <span class="mx-0.5 h-5 w-px bg-border-subtle"></span>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm"
+            class:text-accent={!markerThick}
+            aria-pressed={!markerThick}
+            aria-label={$t('screenshots.thin')}
+            use:tooltip={$t('screenshots.thin')}
+            onclick={() => (markerThick = false)}
+          >
+            <span class="inline-block rounded-full bg-current" style="width:6px;height:6px"></span>
+          </button>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm"
+            class:text-accent={markerThick}
+            aria-pressed={markerThick}
+            aria-label={$t('screenshots.thick')}
+            use:tooltip={$t('screenshots.thick')}
+            onclick={() => (markerThick = true)}
+          >
+            <span class="inline-block rounded-full bg-current" style="width:12px;height:12px"
+            ></span>
+          </button>
         </div>
       {/if}
     </div>
-    <button
-      type="button"
-      class="btn-icon btn-icon-sm"
-      class:text-accent={tool === 'eraser'}
-      aria-pressed={tool === 'eraser'}
-      aria-label={$t('screenshots.toolEraser')}
-      use:tooltip={$t('screenshots.toolEraser')}
-      onclick={() => (tool = 'eraser')}
-      ><Icon name="eraser" size={tool === 'eraser' ? 20 : 16} /></button
-    >
+    <div class="relative flex items-center">
+      <button
+        bind:this={eraserBtnEl}
+        type="button"
+        class="btn-icon btn-icon-sm"
+        class:text-accent={tool === 'eraser'}
+        aria-pressed={tool === 'eraser'}
+        aria-haspopup="true"
+        aria-expanded={openPopover === 'eraser'}
+        aria-label={$t('screenshots.toolEraser')}
+        use:tooltip={$t('screenshots.toolEraser')}
+        onclick={() => {
+          tool = 'eraser';
+          openPopover = openPopover === 'eraser' ? null : 'eraser';
+        }}><Icon name="eraser" size={tool === 'eraser' ? 20 : 16} /></button
+      >
+      {#if openPopover === 'eraser'}
+        <div
+          bind:this={eraserPopEl}
+          class="absolute left-1/2 top-full z-20 mt-2 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border-subtle bg-surface p-2 shadow-xl"
+        >
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm"
+            class:text-accent={!eraserThick}
+            aria-pressed={!eraserThick}
+            aria-label={$t('screenshots.thin')}
+            use:tooltip={$t('screenshots.thin')}
+            onclick={() => (eraserThick = false)}
+          >
+            <span class="inline-block rounded-full bg-current" style="width:6px;height:6px"></span>
+          </button>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm"
+            class:text-accent={eraserThick}
+            aria-pressed={eraserThick}
+            aria-label={$t('screenshots.thick')}
+            use:tooltip={$t('screenshots.thick')}
+            onclick={() => (eraserThick = true)}
+          >
+            <span class="inline-block rounded-full bg-current" style="width:12px;height:12px"
+            ></span>
+          </button>
+        </div>
+      {/if}
+    </div>
     <button
       type="button"
       class="btn-icon btn-icon-sm"
@@ -406,11 +449,11 @@
     >
     <button
       type="button"
-      class="btn-icon btn-icon-sm btn-icon-danger"
+      class="btn-icon btn-icon-sm"
       aria-label={$t('screenshots.clearAll')}
       use:tooltip={$t('screenshots.clearAll')}
       disabled={strokes.length === 0 && !crop && !cropApplied}
-      onclick={clearAll}><Icon name="trash" size={16} /></button
+      onclick={clearAll}><Icon name="clear" size={16} /></button
     >
 
     <span class="mx-0.5 h-4 w-px bg-border-subtle"></span>

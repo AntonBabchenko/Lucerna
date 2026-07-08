@@ -6,6 +6,7 @@ import {
   ArrowRightLeft,
   ArrowUp,
   ArrowUpRight,
+  Ban,
   Blocks,
   Check,
   ChevronDown,
@@ -126,6 +127,7 @@ export const ICONS = {
   eyeOff: EyeOff, // hide password / conceal secret
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)
+  clear: Ban, // clear all annotations (distinct from trash = delete file)
   crop: Crop, // crop tool (screenshot annotator)
   hand: Hand, // pan tool (screenshot annotator)
   marker: Highlighter, // freehand draw tool (screenshot annotator)
