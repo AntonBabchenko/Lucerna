@@ -14,6 +14,7 @@ pub mod paper;
 pub mod pid;
 pub mod preflight;
 pub mod properties;
+pub mod purpur;
 pub mod quarantine;
 pub mod runtime;
 pub mod schema;
