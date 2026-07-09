@@ -1990,7 +1990,8 @@
       "confirm": "Switch core",
       "switching": "Switching to {target}…",
       "switched": "Core switched to {target}",
-      "latestBuildHint": "The newest stable build is installed automatically."
+      "latestBuildHint": "The newest stable build is installed automatically.",
+      "stopToSwitch": "Stop the server to switch its core."
     },
     "hosting": {
       "tab": "Hosting",

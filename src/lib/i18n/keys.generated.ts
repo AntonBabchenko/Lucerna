@@ -1309,6 +1309,7 @@ export type TranslationKey =
   | 'servers.core.latestBuildHint'
   | 'servers.core.modalTitle'
   | 'servers.core.sectionTitle'
+  | 'servers.core.stopToSwitch'
   | 'servers.core.switchButton'
   | 'servers.core.switched'
   | 'servers.core.switching'

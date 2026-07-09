@@ -148,7 +148,7 @@
             {$t('servers.core.switchButton')}
           </button>
           {#if server.running}
-            <p class="text-xs text-muted mt-1">{$t('servers.mods.stopToManage')}</p>
+            <p class="text-xs text-muted mt-1">{$t('servers.core.stopToSwitch')}</p>
           {/if}
         </div>
       {/if}
