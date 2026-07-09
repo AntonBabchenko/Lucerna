@@ -10,6 +10,11 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Fixed
+
+- Tooltips triggered by keyboard focus now appear only on real keyboard focus
+  (`:focus-visible`), so they no longer flash when a modal opens or closes.
+
 ## [0.17.0] — 2026-07-09
 
 ### Added
@@ -21,6 +26,43 @@ release is **0.9.0**.
   preview shows your skin with the active cape; resetting the skin asks for
   confirmation and offers a one-click restore of the previous one. English and
   Russian.
+- **In-app screenshots.** A per-instance Screenshots tab and a global gallery
+  reachable from the sidebar show your captures as thumbnails. Open one in a
+  lightbox, copy it to the clipboard, save a copy elsewhere, reveal it in its
+  folder, or delete it to the recycle bin. A built-in annotator lets you zoom,
+  pan, draw markers, erase, and crop, then save the annotated copy.
+- **Custom instance pictures.** Upload your own image for an instance and frame
+  it with a square pan-and-zoom crop; it then appears as the instance's avatar
+  in the sidebar picker, the Overview header, and the manage dialog.
+- **Choose where launcher data lives.** A new "Data location" control (Settings
+  → Storage) moves your entire data folder to another place — a different drive,
+  for example — by copying, verifying, repointing, and restarting, with live
+  progress and a "Reset to default". If the chosen location later becomes
+  unavailable, the launcher falls back safely instead of losing your data.
+- **Hide sidebar buttons you don't use.** Toggle individual secondary sidebar
+  buttons in Settings → Appearance, or right-click a button and choose "I don't
+  need this" to hide it. You can also open Manage for any profile directly from
+  the account dropdown.
+
+### Changed
+
+- **Seamless Windows updates.** Updates now install passively — no UAC prompt —
+  and the launcher relaunches itself when they finish, keeping the per-user
+  install and leaving your data untouched. The self-update also shows a real,
+  determinate download progress bar instead of an indeterminate spinner.
+- **Branded, localized Windows installer.** The installer now carries Lucerna's
+  lantern artwork and an English / Russian language selector; the unpublished
+  MSI target was dropped in favor of the NSIS installer.
+- **Readable instance & server folders.** New instances and servers are now
+  stored in human-readable folders named after their display name (for example
+  `instances/All-The-Mods-10`) instead of an opaque identifier. Existing
+  directories are left exactly as they are.
+
+### Fixed
+
+- The Russian "hide this button" confirmation pointed users at a settings
+  section name that does not exist ("Внешний вид"); it now names the real one
+  ("Оформление").
 
 ## [0.16.0] — 2026-07-02
 
@@ -33,6 +75,9 @@ A broad quality, accessibility, and security hardening pass across the launcher.
 - Remaining hardcoded English strings (self-update, modpack export, server
   settings, file-dialog filters) are now translated, and several Russian terms
   and plural forms were corrected.
+- **Deleting an instance now asks you to type "Delete" to confirm.** Because
+  removing an instance destroys all of its worlds, mods, and configs, the
+  confirmation is now as strong as the single-world delete dialog.
 
 ### Fixed
 
@@ -87,6 +132,9 @@ A broad quality, accessibility, and security hardening pass across the launcher.
 ### Fixed
 
 - Orphaned onboarding tour anchors now attach to the correct UI elements.
+- The Logs view no longer prints the same crash diagnosis twice: the inline
+  per-file diagnosis card no longer repeats the title, explanation, and
+  recommendation already shown by the banner above it.
 - Corrected the package description shown in Linux software centers.
 - Bumped `crypto-bigint` off a yanked release (0.7.4 to 0.7.5).
 
@@ -122,6 +170,14 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   manifest with one-click install, version incompatibilities are remediated
   inline in the pre-flight panel, and the dependency resolver was reworked to be
   range-aware and to honor author-pinned versions.
+- **Wrong-loader jar detection on modpack import.** When a pack bundles a mod
+  jar built for a loader family your instance can't load (for example a Fabric
+  jar in a Forge instance), the importer now flags it: a completion toast lists
+  the affected files, and a "Files that won't load" note in the imported-pack
+  drawer keeps them visible after a restart.
+- **"Fix available" marker in Logs.** A log file with a diagnosable, fixable
+  problem now shows a wrench marker, so you can spot it without opening each
+  file in turn.
 - **Embedded CurseForge key.** Release builds ship with a CurseForge API key, so
   browsing CurseForge works without entering your own; a curated community fix
   mod can be suggested for known issues (e.g. the Create goggle-overlay spam).
@@ -230,6 +286,11 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   reorder.
 - **Confirm before removing an account.** Removing an account now asks first,
   with a per-row delete affordance in the account list.
+- **Rainbow icon hover.** The Browse-modpacks and Shaders-tab icons animate
+  through a rainbow on hover, with an opt-out toggle in Settings → Appearance.
+- **Loader-aware shader hint.** The Add-ons → Shaders hint now detects an
+  already-installed shader loader (Iris, Oculus, OptiFine) and hides itself once
+  one is present, and points Forge / NeoForge instances at Oculus.
 
 ### Changed
 
@@ -281,6 +342,9 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   likely don't match the instance's loader/version, then auto-confirms suspects
   against the live API.
 - **What's new in-app.** Settings → About now shows a collapsible changelog.
+- **Clearer dependency errors.** When a required dependency can't be resolved,
+  the install dialog now explains why — no version for this Minecraft version,
+  the wrong loader, or no published versions at all — instead of only naming it.
 
 ### Changed
 
@@ -390,11 +454,19 @@ A broad quality, accessibility, and security hardening pass across the launcher.
 - All native `<select>` dropdowns were replaced with a themeable Select
   component — consistent rendering across platforms and a fix for the dark-mode
   dropdown on Linux / WebKitGTK.
+- **New app icon.** The placeholder icon was replaced with a custom pixel-art
+  lantern matching the Lucerna name, shown in the taskbar, window, and installer.
 
 ### Fixed
 
 - Transitive mod dependency resolution now installs dependencies-of-dependencies,
   with a per-mod install toast.
+- **Cross-source dependency recognition.** A dependency already installed from
+  one platform (for example Balm from Modrinth) is now recognised when a mod on
+  the other platform (for example Waystones from CurseForge) requires it, instead
+  of attempting a duplicate install that failed with a misleading filename
+  conflict. The Installed tab also merges the "has dependencies" and "required
+  by" indicators into a single chip with a jump arrow.
 - Installing a mod built for the wrong loader is now prevented, and replaying
   onboarding re-arms the contextual tours.
 - Native form controls now match the active theme (`color-scheme` set per theme).
@@ -423,6 +495,23 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   background update. A Settings → General toggle ("Check for updates on startup",
   on by default) controls the check, and dismissing the notification suppresses it for
   that version until a newer release appears.
+
+### Changed
+
+- **Reworked mod & modpack browser filters.** Filtering moved into a compact
+  toolbar plus a right-side Filters drawer, with active filters shown as
+  removable chips, shared across the mod and modpack browsers.
+- **Browser polish.** A configurable page size, a grid / list layout toggle,
+  aligned toolbar controls, and loading spinners during searches and detail
+  loads bring the mod and modpack browsers to visual and functional parity.
+
+### Fixed
+
+- **Changing an instance's Minecraft version or loader now keeps it consistent.**
+  The loader version is re-resolved (self-correcting if it went stale), installed
+  mods are checked against the new Minecraft / loader combination with a summary,
+  an unsupported Forge build surfaces a clear error instead of failing silently,
+  and modpack provenance can be detached from the instance.
 
 ## [0.9.0] — 2026-05-31
 
@@ -464,7 +553,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.14.0...v0.15.0
