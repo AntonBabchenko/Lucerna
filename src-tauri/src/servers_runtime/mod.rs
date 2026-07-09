@@ -13,6 +13,7 @@ pub mod jar;
 pub mod mod_classify;
 pub mod paper;
 pub mod pid;
+pub mod plugins;
 pub mod preflight;
 pub mod properties;
 pub mod purpur;
