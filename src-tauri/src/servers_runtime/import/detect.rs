@@ -69,6 +69,26 @@ pub fn detect(root: &Path) -> Detected {
             loader_version: loader_version_under(root, "net/fabricmc/fabric-loader"),
         };
     }
+    // Bukkit-family cores. Purpur first (a Purpur tree also has Paper's
+    // config/, so the more specific marker wins). Checked before the vanilla
+    // server.jar fallback: a Paper tree has server.jar too, and labeling it
+    // vanilla would make "redownload jar" clobber the Paper jar with a
+    // vanilla one.
+    if root.join("purpur.yml").exists() {
+        return Detected {
+            loader: Some(ServerCore::Purpur),
+            mc_version: mc_from_version_history(root).or_else(|| mc_from_logs(root)),
+            loader_version: None,
+        };
+    }
+    if root.join("config").join("paper-global.yml").exists() || version_history_mentions_paper(root)
+    {
+        return Detected {
+            loader: Some(ServerCore::Paper),
+            mc_version: mc_from_version_history(root).or_else(|| mc_from_logs(root)),
+            loader_version: None,
+        };
+    }
     if root.join("server.jar").exists() || has_vanilla_named_jar(root) {
         return Detected {
             loader: Some(ServerCore::Vanilla),
@@ -197,6 +217,23 @@ fn mc_from_server_jar(root: &Path) -> Option<String> {
     std::io::Read::read_to_string(&mut entry, &mut s).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
     v.get("id").and_then(|x| x.as_str()).map(String::from)
+}
+
+/// Paper writes version_history.json with entries like
+/// {"currentVersion":"git-Paper-129 (MC: 1.21.4)"}. Extract the "(MC: x)" part.
+fn mc_from_version_history(root: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(root.join("version_history.json")).ok()?;
+    let idx = text.find("(MC: ")?;
+    let rest = &text[idx + 5..];
+    let end = rest.find(')')?;
+    let mc = rest[..end].trim();
+    (!mc.is_empty()).then(|| mc.to_string())
+}
+
+fn version_history_mentions_paper(root: &Path) -> bool {
+    std::fs::read_to_string(root.join("version_history.json"))
+        .map(|t| t.contains("Paper"))
+        .unwrap_or(false)
 }
 
 /// Fallback: parse "Starting minecraft server version X" from a log.
@@ -351,5 +388,99 @@ mod tests {
     fn parses_mc_from_log_line() {
         let log = "[12:00:00] [main/INFO]: Starting minecraft server version 1.20.4\n";
         assert_eq!(super::parse_mc_from_log(log).as_deref(), Some("1.20.4"));
+    }
+
+    #[test]
+    fn detects_purpur_tree_before_vanilla_fallback() {
+        let td = tempdir().unwrap();
+        std::fs::write(td.path().join("server.jar"), b"x").unwrap();
+        std::fs::write(td.path().join("purpur.yml"), b"config-version: 1").unwrap();
+        let d = detect(td.path());
+        assert_eq!(d.loader, Some(ServerCore::Purpur));
+    }
+
+    #[test]
+    fn detects_paper_tree_via_config_dir() {
+        let td = tempdir().unwrap();
+        std::fs::write(td.path().join("server.jar"), b"x").unwrap();
+        std::fs::create_dir_all(td.path().join("config")).unwrap();
+        std::fs::write(td.path().join("config/paper-global.yml"), b"_version: 29").unwrap();
+        let d = detect(td.path());
+        assert_eq!(d.loader, Some(ServerCore::Paper));
+    }
+
+    #[test]
+    fn paper_mc_version_parsed_from_version_history() {
+        let td = tempdir().unwrap();
+        std::fs::write(td.path().join("server.jar"), b"x").unwrap();
+        std::fs::create_dir_all(td.path().join("config")).unwrap();
+        std::fs::write(td.path().join("config/paper-global.yml"), b"_version: 29").unwrap();
+        std::fs::write(
+            td.path().join("version_history.json"),
+            br#"{"currentVersion":"git-Paper-129 (MC: 1.21.4)"}"#,
+        )
+        .unwrap();
+        let d = detect(td.path());
+        assert_eq!(d.loader, Some(ServerCore::Paper));
+        assert_eq!(d.mc_version.as_deref(), Some("1.21.4"));
+    }
+
+    #[test]
+    fn plain_vanilla_tree_still_detects_vanilla() {
+        let td = tempdir().unwrap();
+        std::fs::write(td.path().join("server.jar"), b"x").unwrap();
+        let d = detect(td.path());
+        assert_eq!(d.loader, Some(ServerCore::Vanilla));
+    }
+
+    #[test]
+    fn purpur_tree_without_purpur_yml_falls_back_to_vanilla() {
+        // A genuine Purpur server writes purpur.yml on first boot; before that
+        // boot (or if the file was stripped during import), a Purpur tree is
+        // indistinguishable from vanilla by these markers alone — acceptable,
+        // since purpur.yml is the authoritative, always-present-after-boot
+        // marker. version_history's "git-Purpur-*" string does NOT contain
+        // "Paper" (case-sensitive), so it also doesn't accidentally match the
+        // Paper arm.
+        let td = tempdir().unwrap();
+        std::fs::write(td.path().join("server.jar"), b"x").unwrap();
+        std::fs::write(
+            td.path().join("version_history.json"),
+            br#"{"currentVersion":"git-Purpur-2321 (MC: 1.21.4)"}"#,
+        )
+        .unwrap();
+        let d = detect(td.path());
+        assert_eq!(d.loader, Some(ServerCore::Vanilla));
+    }
+
+    #[test]
+    fn mc_from_version_history_parses_mc_field() {
+        let td = tempdir().unwrap();
+        std::fs::write(
+            td.path().join("version_history.json"),
+            br#"{"currentVersion":"git-Paper-129 (MC: 1.21.4)"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            mc_from_version_history(td.path()).as_deref(),
+            Some("1.21.4")
+        );
+    }
+
+    #[test]
+    fn mc_from_version_history_none_when_file_missing() {
+        let td = tempdir().unwrap();
+        assert_eq!(mc_from_version_history(td.path()), None);
+    }
+
+    #[test]
+    fn mc_from_version_history_none_when_marker_absent() {
+        let td = tempdir().unwrap();
+        std::fs::write(
+            td.path().join("version_history.json"),
+            br#"{"currentVersion":"git-Paper-129"}"#,
+        )
+        .unwrap();
+        assert_eq!(mc_from_version_history(td.path()), None);
     }
 }
