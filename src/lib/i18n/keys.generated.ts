@@ -1505,6 +1505,7 @@ export type TranslationKey =
   | 'servers.mods.delete'
   | 'servers.mods.deleteConfirm'
   | 'servers.mods.empty'
+  | 'servers.mods.externalDownload'
   | 'servers.mods.installLocal'
   | 'servers.mods.installedOne'
   | 'servers.mods.installedWithDeps'

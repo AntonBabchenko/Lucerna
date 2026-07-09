@@ -59,7 +59,24 @@ describe('ServerModBrowser', () => {
     mockSearch.mockResolvedValue({ status: 'ok', data: { hits: [hit('JEI', 'jei')], total: 1 } });
     mockVersions.mockResolvedValue({
       status: 'ok',
-      data: [{ version_id: 'v9', project_id: 'jei', source: 'modrinth' }],
+      data: [
+        {
+          version_id: 'v9',
+          project_id: 'jei',
+          source: 'modrinth',
+          name: '15.0.0',
+          version_number: '15.0.0',
+          mc_versions: ['1.20.1'],
+          loaders: ['forge'],
+          primary_file: {
+            filename: 'jei.jar',
+            url: 'https://cdn/jei.jar',
+            distribution_allowed: true,
+          },
+          deps: [],
+          published_at: null,
+        },
+      ],
     });
     mockInstallMod.mockResolvedValue({
       status: 'ok',
@@ -98,6 +115,38 @@ describe('ServerModBrowser', () => {
     );
     expect(mockPushSuccess).toHaveBeenCalled();
     expect(onInstalled).toHaveBeenCalled();
+  });
+
+  it('opens the project page instead of installing a restricted (non-distributable) mod', async () => {
+    mockVersions.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          version_id: 'v9',
+          project_id: 'jei',
+          source: 'modrinth',
+          name: '15.0.0',
+          version_number: '15.0.0',
+          mc_versions: ['1.20.1'],
+          loaders: ['forge'],
+          // Author disabled third-party downloads: no fetchable file.
+          primary_file: { filename: 'jei.jar', url: '', distribution_allowed: false },
+          deps: [],
+          published_at: null,
+        },
+      ],
+    });
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    const [installBtn] = await screen.findAllByLabelText('Install');
+    await fireEvent.click(installBtn);
+    await waitFor(() => expect(mockOpenUrl).toHaveBeenCalled());
+    expect(mockPushWarning).toHaveBeenCalled();
+    expect(mockInstallMod).not.toHaveBeenCalled();
   });
 
   it('opens the in-launcher detail card (not the website) when a card body is clicked', async () => {

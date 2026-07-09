@@ -5,6 +5,7 @@
     type LoaderKind,
     type ModSource,
     type ModSummary,
+    type ModVersion,
   } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
@@ -172,6 +173,13 @@
       }
       // modsVersions returns newest-first (same assumption the dep resolver uses).
       const newest = versions.data[0];
+      if (!newest.primary_file.distribution_allowed) {
+        // CurseForge "author disabled third-party downloads": never fetched
+        // in-app. Open the project page and point the user at the local-install path.
+        openExternalPage(card);
+        pushWarning(get(t)('servers.mods.externalDownload', { name: card.name }));
+        return;
+      }
       const res = await commands.serverInstallMod(
         serverId,
         card.source,
@@ -190,6 +198,17 @@
 
   function openUrl(url: string): void {
     void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+  }
+
+  function openExternalPage(card: ModSummary): void {
+    openUrl(modProjectUrl(card.source, card.slug ?? card.project_id, card.author));
+  }
+
+  // For the detail modal: a version whose file is not distributable must open
+  // the project page, never download.
+  function externalOf(card: ModSummary, v: ModVersion): string | null {
+    if (v.primary_file.distribution_allowed) return null;
+    return modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
   }
 </script>
 
@@ -239,14 +258,13 @@
     onClose={() => (detail = null)}
     loadVersions={() => commands.modsVersions(d.source, d.project_id, mcVersion, loader)}
     installVersion={(vid) => commands.serverInstallMod(serverId, d.source, d.project_id, vid)}
-    externalOf={() => null}
+    externalOf={(v) => externalOf(d, v)}
     openExternal={openUrl}
     projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}
     onInstalled={(report) => {
       // Toast copy keys on the PROJECT name ("Installed WorldEdit"); the
       // version label the modal passes is not surfaced in the toast.
       toastInstalled(d.name, report);
-      detail = null;
     }}
   />
 {/if}

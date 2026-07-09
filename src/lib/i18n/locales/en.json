@@ -1947,6 +1947,7 @@
       "installedOne": "Installed {name}",
       "installedWithDeps": "Installed {name} and {count, plural, one {# dependency} other {# dependencies}}",
       "someDepsUnresolved": "Some dependencies couldn't be resolved: {deps}. Install them manually if the server needs them.",
+      "externalDownload": "{name} can't be downloaded automatically (the author disabled third-party downloads). Open the project page to get it, then use Install .jar.",
       "pluginCoreHint": "This core does not load mods. Paper-family servers use plugins instead: see the Plugins tab.",
       "datapacksTitle": "Datapacks",
       "addDatapack": "Add datapack",

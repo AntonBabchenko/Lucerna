@@ -172,13 +172,9 @@
       <div class="flex justify-center py-8 text-secondary">
         <Spinner labelPlacement="below" label={$t('servers.contentDetail.loadingVersions')} />
       </div>
-    {:else if versions.length === 0}
+    {:else if versions.length === 0 && !error}
       <p class="py-6 text-center text-sm text-muted">
-        {#if error}
-          {$t('servers.contentDetail.versionsError')}
-        {:else}
-          {$t('servers.contentDetail.noVersions')}
-        {/if}
+        {$t('servers.contentDetail.noVersions')}
       </p>
     {:else}
       {#each versions as v (v.version_id)}

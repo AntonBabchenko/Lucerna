@@ -257,7 +257,6 @@
       // Toast copy keys on the PROJECT name; the version label the modal
       // passes is not surfaced in the toast.
       toastInstalled(d.name, report);
-      detail = null;
     }}
   />
 {/if}
