@@ -53,11 +53,15 @@ impl ModrinthClient {
     ) -> Result<Vec<ModVersion>, Error> {
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(slugs) = loaders {
-            let loaders_json = serde_json::to_string(slugs).unwrap();
+            // A slice of &str loader slugs always serializes to a JSON array.
+            let loaders_json =
+                serde_json::to_string(slugs).expect("a slice of &str always serializes");
             params.push(("loaders", urlencode(&loaders_json)));
         }
         if let Some(v) = mc {
-            let games = serde_json::to_string(&[v]).unwrap();
+            // A fixed one-element array of &str always serializes to a JSON array.
+            let games = serde_json::to_string(&[v])
+                .expect("a fixed one-element &str array always serializes");
             params.push(("game_versions", urlencode(&games)));
         }
         let query = if params.is_empty() {

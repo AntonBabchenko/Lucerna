@@ -52,4 +52,15 @@ impl ModPlatform for UnsupportedModPlatform {
             platform: self.source,
         })
     }
+
+    async fn plugin_versions(
+        &self,
+        _project_id: &str,
+        _mc_version: Option<&str>,
+        _plugin_loaders: &[&str],
+    ) -> Result<Vec<ModVersion>, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
+    }
 }
