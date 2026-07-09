@@ -34,12 +34,6 @@
   let startX = 0;
   let startY = 0;
 
-  // Blob URL for the currently-loaded source image. It must stay alive while
-  // the preview <img src={img.src}> is displayed; revoking it in the loader's
-  // onload left the displayed <img> pointing at a dead URL and showed a broken
-  // image. Revoked when replaced by a new pick, or on reset.
-  let objectUrl: string | null = null;
-
   function resetState() {
     img = null;
     imgW = 0;
@@ -50,10 +44,6 @@
     offsetY = 0;
     busy = false;
     error = null;
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
     if (fileInput) fileInput.value = '';
   }
 
@@ -92,33 +82,36 @@
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file) return;
     error = null;
-    // Replace any previously-loaded source; revoke its blob URL first.
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    const url = URL.createObjectURL(file);
-    objectUrl = url;
-    const image = new Image();
-    image.onload = () => {
-      imgW = image.naturalWidth;
-      imgH = image.naturalHeight;
-      minScale = FRAME / Math.min(imgW, imgH);
-      scale = minScale;
-      offsetX = (FRAME - imgW * scale) / 2;
-      offsetY = (FRAME - imgH * scale) / 2;
-      img = image;
-      // The crop dialog appears only now that there is something to crop.
-      if (iconDialog.instanceId) iconDialog.show(iconDialog.instanceId);
-      // Do NOT revoke here: the preview <img src={img.src}> still needs this
-      // blob URL. It is revoked on reset/close or when a new file replaces it.
+    // Read the picked file as a data: URL rather than a blob: URL. The
+    // production webview enforces the app CSP (img-src 'self' data: https:),
+    // which does not list blob: — a blob: <img src> is blocked there and only
+    // works under the dev server, which does not apply the CSP. data: URLs are
+    // allowed by the CSP and match the base64/data-URL convention used for
+    // every other image in the app (skins, capes, screenshots).
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        imgW = image.naturalWidth;
+        imgH = image.naturalHeight;
+        minScale = FRAME / Math.min(imgW, imgH);
+        scale = minScale;
+        offsetX = (FRAME - imgW * scale) / 2;
+        offsetY = (FRAME - imgH * scale) / 2;
+        img = image;
+        // The crop dialog appears only now that there is something to crop.
+        if (iconDialog.instanceId) iconDialog.show(iconDialog.instanceId);
+      };
+      image.onerror = () => {
+        // No dialog is open at this point — surface the decode failure as a toast.
+        pushWarning($t('instance.icon.errorDecode'));
+      };
+      image.src = reader.result as string;
     };
-    image.onerror = () => {
-      // No dialog is open at this point — surface the decode failure as a toast.
+    reader.onerror = () => {
       pushWarning($t('instance.icon.errorDecode'));
-      if (objectUrl === url) {
-        URL.revokeObjectURL(url);
-        objectUrl = null;
-      }
     };
-    image.src = url;
+    reader.readAsDataURL(file);
   }
 
   function clampOffsets() {
