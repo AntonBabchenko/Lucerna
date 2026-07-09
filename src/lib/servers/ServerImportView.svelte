@@ -266,24 +266,17 @@
       />
     </div>
 
-    <!-- Loader -->
+    <!-- Core / loader -->
     <div class="flex flex-col gap-1">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
-      {#if loaderUnknown && loader === 'vanilla'}
-        <p
-          class="rounded bg-warning-bg px-2 py-1 text-xs text-warning-text"
-          role="alert"
-          data-testid="import-loader-unknown-warn"
-        >
-          {$t('servers.import.loaderUnknownWarn')}
-        </p>
-      {/if}
       {#if loaderKind === null}
-        <!-- Plugin cores (Paper/Purpur) have no loader-version to pick, and
-             overriding a detected plugin-core import to a mod loader is out
-             of scope here (LoaderPicker is LoaderKind-only) — show the
-             detected core read-only, same treatment as vanilla. -->
+        <!-- Plugin cores (Paper/Purpur) are server CORES, not mod loaders, and
+             have no loader-version to pick; overriding a detected plugin-core
+             import to a mod loader is out of scope here (LoaderPicker is
+             LoaderKind-only) — show the detected core read-only, under a "Server
+             core" label (LoaderPicker's own "Loader" label doesn't render on
+             this branch, so this static <p> needs one). -->
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label class="text-sm font-medium">{$t('servers.core.sectionTitle')}</label>
         <p
           class="h-8 flex items-center rounded border border-border-subtle bg-surface px-3 text-sm text-primary"
         >
@@ -291,6 +284,20 @@
         </p>
         <p class="text-xs text-muted">{$t('servers.core.latestBuildHint')}</p>
       {:else}
+        <!-- Mod-loader cores (incl. vanilla): LoaderPicker renders its own
+             internal "Loader" group label, so no wrapping field label here
+             (mirrors ManageInstancesModal's single-label mount). The
+             unknown-vanilla warn belongs on this branch: coreToLoaderKind
+             ('vanilla') is 'vanilla' (non-null), so this is where it fires. -->
+        {#if loaderUnknown && loader === 'vanilla'}
+          <p
+            class="rounded bg-warning-bg px-2 py-1 text-xs text-warning-text"
+            role="alert"
+            data-testid="import-loader-unknown-warn"
+          >
+            {$t('servers.import.loaderUnknownWarn')}
+          </p>
+        {/if}
         <LoaderPicker
           mc={mcVersion}
           loader={loaderKind}
