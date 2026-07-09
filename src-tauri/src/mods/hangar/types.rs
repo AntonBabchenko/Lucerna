@@ -43,6 +43,8 @@ pub struct HangarProject {
     pub description: Option<String>,
     #[serde(default, rename = "avatarUrl")]
     pub avatar_url: Option<String>,
+    #[serde(default, rename = "lastUpdated")]
+    pub last_updated: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

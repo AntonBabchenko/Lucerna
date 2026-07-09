@@ -31,10 +31,12 @@ impl ProjectKey {
             ModSource::Ftb => ProjectKey::Modrinth(v.project_id.clone()),
             // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
             ModSource::Atlauncher => ProjectKey::Modrinth(v.project_id.clone()),
-            // TODO(hangar): placeholder — Hangar versions are dead in this path today (no
-            // Hangar client until Task 11). Borrows the Modrinth tag like the FTB/ATLauncher
-            // stubs above; introduce ProjectKey::Hangar before Hangar plugins can enter
-            // dedup/dep-graph keying, to avoid a numeric-id collision with real Modrinth ids.
+            // TODO(hangar): placeholder — the Hangar client ships no dependency links (its
+            // versions carry empty `deps` and resolve_deps returns an empty plan), so
+            // Hangar versions stay dead in this path. Borrows the Modrinth tag like the
+            // FTB/ATLauncher stubs above; introduce ProjectKey::Hangar before Hangar
+            // plugins can enter dedup/dep-graph keying, to avoid a collision with real
+            // Modrinth ids.
             ModSource::Hangar => ProjectKey::Modrinth(v.project_id.clone()),
         }
     }

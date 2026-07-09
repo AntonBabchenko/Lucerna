@@ -18,9 +18,8 @@ pub enum ModSource {
     Curseforge,
     Ftb,
     Atlauncher,
-    /// hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry. Client
-    /// wired in Task 11; this variant exists so the shared enum compiles and
-    /// round-trips ahead of that.
+    /// hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
+    /// by `mods::hangar::HangarClient`.
     Hangar,
 }
 
@@ -34,7 +33,7 @@ pub enum ContentKind {
     ResourcePack,
     Shader,
     /// A Bukkit-family server plugin (Paper/Purpur). Searched via Modrinth's
-    /// `project_type:plugin` facet (Hangar wiring lands in Task 11).
+    /// `project_type:plugin` facet and via Hangar (`mods::hangar`).
     Plugin,
 }
 

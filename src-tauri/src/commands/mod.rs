@@ -487,10 +487,11 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
                 version_id: Some(v.version_id.clone()),
             }
         }
-        // TODO(hangar): placeholder — Hangar versions are dead in this path today (no Hangar
-        // client until Task 11). Borrowing the Modrinth tag mirrors the FTB/ATLauncher stubs
-        // above; introduce DepProjectRef::Hangar before Hangar mods can reach dedup/dep-graph
-        // keying, to avoid a numeric-id collision with real Modrinth ids.
+        // TODO(hangar): placeholder — the Hangar client ships no dependency links (its
+        // versions carry empty `deps` and resolve_deps returns an empty plan), so Hangar
+        // versions stay dead in this path. Borrowing the Modrinth tag mirrors the
+        // FTB/ATLauncher stubs above; introduce DepProjectRef::Hangar before Hangar plugins
+        // can reach dedup/dep-graph keying, to avoid a collision with real Modrinth ids.
         crate::mods::platform::ModSource::Hangar => {
             crate::mods::platform::DepProjectRef::Modrinth {
                 project_id: v.project_id.clone(),
