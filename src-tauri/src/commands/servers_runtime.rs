@@ -2281,6 +2281,149 @@ pub fn server_remove_datapack(app: AppHandle, id: String, filename: String) -> R
     crate::servers_runtime::datapacks::remove_datapack(&dir, &filename)
 }
 
+/// One entry in `server_list_plugins`. Unlike mods there is no quarantine
+/// sidecar — plugins have no client/server ambiguity — so no reason field.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerPluginEntry {
+    pub filename: String,
+    pub disabled: bool,
+}
+
+/// List the `.jar` / `.jar.disabled` plugins installed for a server's
+/// `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_plugins(app: AppHandle, id: String) -> Result<Vec<ServerPluginEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    Ok(crate::servers_runtime::plugins::list_plugins(&dir)
+        .into_iter()
+        .map(|(filename, disabled)| ServerPluginEntry { filename, disabled })
+        .collect())
+}
+
+/// Install a local plugin `.jar` (chosen via the file picker) into the
+/// server's `runtime/plugins/`. Mirrors `server_install_local` (path-based —
+/// no heavy bytes over IPC). Validates the jar carries `plugin.yml` /
+/// `paper-plugin.yml` at its root. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_plugin_local(
+    app: AppHandle,
+    id: String,
+    jar_path: String,
+) -> Result<String> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    crate::servers_runtime::plugins::install_local_plugin(&dir, std::path::Path::new(&jar_path))
+}
+
+/// Re-enable a set-aside plugin: rename `<name>.jar.disabled` → `<name>.jar`.
+/// Inverse of `server_disable_plugin`. Idempotent (absent → `Ok`). Rejects
+/// unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_enable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let stripped = match filename.strip_suffix(".disabled") {
+        Some(s) => s.to_string(),
+        None => return Err(Error::io("<plugin>", "not a disabled plugin")),
+    };
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let src = dir.join(&filename);
+    let dst = dir.join(&stripped);
+    if !src.starts_with(&dir) || !dst.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
+}
+
+/// Disable (rename to `*.disabled`) a single plugin in the server's
+/// `runtime/plugins/`. Unlike `server_disable_mods` this is single-file: no
+/// bulk, no dependency guard (plugins have no dependency graph the launcher
+/// tracks). Rejects unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let src = dir.join(&filename);
+    if !src.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    let dst = dir.join(format!("{filename}.disabled"));
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
+}
+
+/// Delete a plugin from the server's `runtime/plugins/` by filename.
+/// Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
+/// traversal). Unlike `server_delete_mod` this HAS an is_running guard —
+/// deleting a live plugin's jar out from under a running Bukkit-family server
+/// is a class of foot-gun the mods twin doesn't need to worry about the same
+/// way (mods are only ever touched while stopped in practice); kept here
+/// deliberately rather than propagating the mods twin's gap.
+#[tauri::command]
+#[specta::specta]
+pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let path = dir.join(&filename);
+    if !path.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// Open the server's `runtime/plugins/` folder in the system file manager.
+/// Creates the folder if it doesn't exist yet. Mirrors `server_open_logs_folder`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

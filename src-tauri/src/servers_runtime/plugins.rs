@@ -46,7 +46,7 @@ pub fn install_local_plugin(dir: &Path, src_jar: &Path) -> Result<String> {
     if !jar_is_plugin(&bytes) {
         return Err(Error::io(
             "<plugin>",
-            "not a plugin jar (no plugin.yml at the jar root)",
+            "not a plugin jar (no plugin.yml / paper-plugin.yml at the jar root)",
         ));
     }
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
@@ -109,6 +109,9 @@ mod tests {
         assert!(!jar_is_plugin(&jar(&[("sub/plugin.yml", b"name: X\n")])));
         assert!(!jar_is_plugin(&jar(&[("fabric.mod.json", b"{}")])));
         assert!(!jar_is_plugin(b"not a zip"));
+        assert!(!jar_is_plugin(&jar(&[])));
+        // Bukkit's zip lookup is case-sensitive: `Plugin.yml` doesn't count.
+        assert!(!jar_is_plugin(&jar(&[("Plugin.yml", b"name: X\n")])));
     }
 
     #[test]
@@ -130,6 +133,15 @@ mod tests {
         let dir = td.path().join("plugins");
         assert!(install_local_plugin(&dir, &src).is_err());
         assert!(!dir.join("sodium.jar").exists());
+    }
+
+    #[test]
+    fn install_local_plugin_rejects_non_jar_extension() {
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("plugin.zip");
+        std::fs::write(&src, jar(&[("plugin.yml", b"name: X\n")])).unwrap();
+        let dir = td.path().join("plugins");
+        assert!(install_local_plugin(&dir, &src).is_err());
     }
 
     #[test]

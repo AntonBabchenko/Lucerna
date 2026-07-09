@@ -286,6 +286,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
+            // Own server (plugin management: Paper/Purpur runtime/plugins/):
+            commands::server_list_plugins,
+            commands::server_install_plugin_local,
+            commands::server_enable_plugin,
+            commands::server_disable_plugin,
+            commands::server_delete_plugin,
+            commands::server_open_plugins_folder,
             // Data-root location:
             commands::get_data_location,
             commands::set_data_location,
