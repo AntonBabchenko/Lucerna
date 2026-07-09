@@ -17,7 +17,13 @@ export function displayCore(c: ServerCore): string {
   return DISPLAY[c];
 }
 
-/** The equivalent client loader; null for plugin cores (a Paper server pairs with a vanilla client). */
+/**
+ * The equivalent client loader. Plugin cores (paper/purpur) map to null
+ * because they have no mod loader — there is nothing loader-shaped to hand
+ * to mod-browsing/install surfaces. Which client actually pairs with such a
+ * server (a vanilla one) is the server-to-instance flow's decision, not this
+ * map's.
+ */
 export function coreToLoaderKind(c: ServerCore): LoaderKind | null {
   return c === 'paper' || c === 'purpur' ? null : c;
 }

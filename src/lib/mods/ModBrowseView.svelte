@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     commands,
-    type ContentKind,
     events,
     type Error as IpcError,
     type InstalledAsset,
@@ -31,7 +30,7 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
-  import { canInstallContent } from './content-kind';
+  import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
@@ -92,7 +91,8 @@
     // Which content kind this browser is for. 'mod' keeps the historical
     // behaviour (loader facet + dependency-aware install). Resource packs
     // and shaders have no loader facet and install via assetInstall.
-    kind?: ContentKind;
+    // Instance-side kinds only — plugins browse through the server surfaces.
+    kind?: InstanceContentKind;
     // Cross-view seed: when the Installed pre-flight panel hands off a missing
     // dependency it couldn't auto-install, the Add-ons shell sets this to the
     // dep id and flips to Browse. We seed the search box once and run the

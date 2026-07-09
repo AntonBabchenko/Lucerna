@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { modCapable, pluginCapable, switchTargets } from '../src/lib/servers/core-display';
+import {
+  coreToLoaderKind,
+  displayCore,
+  modCapable,
+  pluginCapable,
+  switchTargets,
+} from '../src/lib/servers/core-display';
 
 describe('server core capability/switch matrix', () => {
   it('plugin cores are exactly paper+purpur', () => {
@@ -18,5 +24,18 @@ describe('server core capability/switch matrix', () => {
     expect(modCapable('vanilla')).toBe(false);
     expect(modCapable('paper')).toBe(false);
     expect(modCapable('neoforge')).toBe(true);
+  });
+  it('displayCore uses brand-canonical capitalisation', () => {
+    // ServersView renders core names through this map — pin the two most
+    // easily-broken spellings (NeoForge's intentional PascalCase, plus a
+    // plugin core absent from the client loader map).
+    expect(displayCore('neoforge')).toBe('NeoForge');
+    expect(displayCore('paper')).toBe('Paper');
+  });
+  it('coreToLoaderKind maps mod cores through and plugin cores to null', () => {
+    // ServerMods feeds ServerModBrowser's LoaderKind prop through this map —
+    // a plugin core must never leak a fake loader.
+    expect(coreToLoaderKind('paper')).toBe(null);
+    expect(coreToLoaderKind('fabric')).toBe('fabric');
   });
 });

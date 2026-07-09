@@ -198,8 +198,12 @@
       <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
     {/if}
 
-    <!-- Server-targeted mod browser (collapsible) -->
-    {#if showBrowser && canManageMods && server && modCapable(server.loader)}
+    <!-- Server-targeted mod browser (collapsible). The bare `server &&` is for
+       TS narrowing only — canManageMods already implies server is non-null AND
+       modCapable(server.loader), which is exactly why the coreToLoaderKind(...)!
+       assertion below is safe: mod-capable cores are never paper/purpur, so the
+       map cannot return null here. -->
+    {#if showBrowser && canManageMods && server}
       <div class="rounded border border-border-subtle p-2">
         <ServerModBrowser
           {serverId}
