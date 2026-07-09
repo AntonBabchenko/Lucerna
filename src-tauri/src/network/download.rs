@@ -46,7 +46,9 @@ pub enum Checksum {
     /// Lowercase sha256 hex (PaperMC Fill jars, Hangar-hosted plugin files).
     /// An empty expected string skips verification (shared legacy semantics);
     /// callers for integrity-relevant sources must never pass an empty digest
-    /// (the Paper client always fills a non-empty Fill sha256).
+    /// (the Paper client guarantees a non-empty sha256 before constructing
+    /// this — a STABLE build with an empty Fill sha256 is rejected during
+    /// build selection instead of being returned).
     Sha256(String),
 }
 

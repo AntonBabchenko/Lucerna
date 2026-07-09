@@ -74,14 +74,24 @@ impl PaperClient {
         Ok(p.versions.into_values().flatten().collect())
     }
 
-    /// Newest STABLE-channel build for `mc`. A version with only ALPHA/BETA
-    /// builds (fresh MC release) is a typed "no stable build yet" error —
-    /// the version stays selectable in the wizard, the copy explains why.
+    /// Newest STABLE-channel build for `mc` that also publishes a non-empty
+    /// sha256 for the server jar. A version with only ALPHA/BETA builds
+    /// (fresh MC release) is a typed "no stable build yet" error — the
+    /// version stays selectable in the wizard, the copy explains why.
+    ///
+    /// A STABLE build whose Fill-reported sha256 is empty is skipped rather
+    /// than returned: `network::download` treats an empty expected digest as
+    /// "skip verification", so trusting one here would silently disable
+    /// integrity checking for the jar. A real Fill response always carries a
+    /// non-empty sha256; this only fires on a malformed/degraded API
+    /// response, and failing closed (error) is correct — mirrors
+    /// `PurpurClient::is_usable`'s non-empty md5 guard.
     pub async fn latest_stable_build(&self, mc: &str) -> Result<ResolvedCoreJar> {
         let url = format!("{}/v3/projects/paper/versions/{mc}/builds", self.base);
         let builds: Vec<FillBuild> =
             crate::servers_runtime::core_api::get_core_json(&url, "paper", mc).await?;
-        // Fill returns newest-first; take the first STABLE with a server jar.
+        // Fill returns newest-first; take the first STABLE with a server jar
+        // and a usable (non-empty) checksum.
         builds
             .into_iter()
             .find_map(|b| {
@@ -89,6 +99,9 @@ impl PaperClient {
                     return None;
                 }
                 let d = b.downloads.get(SERVER_JAR_KEY)?;
+                if d.checksums.sha256.is_empty() {
+                    return None;
+                }
                 Some(ResolvedCoreJar {
                     checksum: crate::network::download::Checksum::Sha256(
                         d.checksums.sha256.clone(),
@@ -140,6 +153,33 @@ mod tests {
             crate::network::download::Checksum::Sha256("bb".into())
         );
         assert!(jar.url.ends_with("paper-1.21.4-129.jar"));
+    }
+
+    #[tokio::test]
+    async fn latest_stable_build_rejects_empty_sha256() {
+        let s = MockServer::start().await;
+        // The only STABLE build reports an empty sha256 — must not be
+        // trusted (an empty digest would silently skip download
+        // verification in `network::download`).
+        Mock::given(method("GET"))
+            .and(path("/v3/projects/paper/versions/1.21.4/builds"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":129,"channel":"STABLE","downloads":{"server:default":{"name":"paper-1.21.4-129.jar","checksums":{"sha256":""},"url":"https://fill-data.papermc.io/v1/objects/x/paper-1.21.4-129.jar"}}}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = PaperClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let err = c.latest_stable_build("1.21.4").await.unwrap_err();
+        match err {
+            crate::error::Error::ServerJarUnavailable { reason, .. } => {
+                assert!(reason.contains("no stable"), "reason was: {reason}");
+            }
+            other => panic!("expected ServerJarUnavailable, got {other:?}"),
+        }
     }
 
     #[tokio::test]
