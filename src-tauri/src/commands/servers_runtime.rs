@@ -2356,8 +2356,26 @@ pub async fn server_install_plugin_local(
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let dir = crate::paths::server_paths(&base, &id).plugins;
-    crate::servers_runtime::plugins::install_local_plugin(&dir, std::path::Path::new(&jar_path))
+    let p = crate::paths::server_paths(&base, &id);
+    // Defense-in-depth: reject a plugin install onto a non-plugin core BEFORE
+    // touching the fs, mirroring `require_mod_loader` for the mods path. Reads
+    // `server.json` first so a mod-core server never grows a `runtime/plugins/`.
+    let file = store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+    let dir = p.plugins;
+    let src = std::path::PathBuf::from(jar_path);
+    // `install_local_plugin` does whole-jar blocking std::fs read+write; run it
+    // off the async runtime so a large jar can't stall other tasks.
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::plugins::install_local_plugin(&dir, &src)
+    })
+    .await
+    .map_err(|e| Error::io("<plugin>", format!("join: {e}")))?
 }
 
 /// Re-enable a set-aside plugin: rename `<name>.jar.disabled` → `<name>.jar`.
