@@ -354,9 +354,11 @@ fn asset_dir(kind: crate::mods::platform::ContentKind) -> &'static str {
         ResourcePack => "resourcepacks",
         Shader => "shaderpacks",
         Mod => "mods", // assets path is rp/shader only; never used for Mod
-        // Plugins install into a server's runtime/plugins/ via the
-        // servers_runtime plugin fs module, never through this client
-        // .minecraft/ asset path; never used for Plugin.
+        // Unreachable in practice: `assets::require_asset_kind` rejects
+        // Plugin (server-only content) at the asset-command boundary, the
+        // same way it rejects Mod. Plugins live in a server's
+        // runtime/plugins/ (servers_runtime plugin fs module), never under
+        // a client instance's .minecraft/.
         Plugin => "plugins",
     }
 }
