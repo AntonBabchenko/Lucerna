@@ -1303,6 +1303,7 @@ export type TranslationKey =
   | 'servers.console.send'
   | 'servers.console.showLevels'
   | 'servers.create'
+  | 'servers.createdFromInstance'
   | 'servers.delete.confirm'
   | 'servers.delete.description'
   | 'servers.delete.question'

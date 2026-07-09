@@ -97,6 +97,13 @@
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);
   });
+
+  // Resolve a server's `created_from_instance` (a raw internal instance id) to
+  // the source instance's display name for the row subtitle. Mirrors the
+  // symmetric provenance line in ManageInstancesModal (created_from_server →
+  // server name). A since-deleted source instance is absent from the map, so
+  // the caller omits the segment rather than showing a meaningless id.
+  const instanceNameById = $derived(new Map(instances.map((i) => [i.id, i.name])));
 </script>
 
 {#if creating}
@@ -176,6 +183,9 @@
         <div class="overflow-hidden rounded-lg border border-border-subtle">
           {#each serverState.list as s (s.id)}
             {@const navKind = serverNavStatus(s)}
+            {@const sourceName = s.created_from_instance
+              ? instanceNameById.get(s.created_from_instance)
+              : undefined}
             <CardShell variant="row" accent={STATUS_ACCENT[navKind]}>
               <button
                 type="button"
@@ -194,8 +204,8 @@
                 <span class="flex-1">
                   <span class="block font-medium">{s.name}</span>
                   <span class="block text-xs text-muted"
-                    >{s.mc_version} · {displayLoader(s.loader)}{s.created_from_instance
-                      ? ' · ' + s.created_from_instance
+                    >{s.mc_version} · {displayLoader(s.loader)}{sourceName
+                      ? ' · ' + $t('servers.createdFromInstance', { name: sourceName })
                       : ''}</span
                   >
                 </span>
