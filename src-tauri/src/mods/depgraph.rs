@@ -33,6 +33,7 @@ fn key(source: ModSource, project_id: &str) -> String {
         ModSource::Curseforge => "curseforge",
         ModSource::Ftb => "ftb", // FTB: pack-managed; keyed by id for dedup purposes.
         ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed; keyed by id for dedup purposes.
+        ModSource::Hangar => "hangar",
     };
     format!("{s}:{project_id}")
 }

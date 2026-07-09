@@ -89,6 +89,17 @@ impl Default for CurseForgeClient {
 #[async_trait]
 impl ModPlatform for CurseForgeClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
+        // CurseForge hosts no plugin registry — the FE never offers CF as a
+        // plugin source, but guard defensively rather than sending a
+        // meaningless classId.
+        if q.kind == ContentKind::Plugin {
+            return Ok(ModSearchPage {
+                hits: Vec::new(),
+                total: 0,
+                offset: q.offset,
+                page_size: q.page_size,
+            });
+        }
         // Pre-validate auth so the missing-key path doesn't bother hitting
         // the network.
         let auth = self.auth()?;
@@ -460,6 +471,7 @@ fn convert_version(f: types::File, project_id: &str) -> Option<ModVersion> {
             sha1,
             size: f.file_length as f64,
             distribution_allowed,
+            sha256: None,
         },
         deps: f
             .dependencies
@@ -617,6 +629,7 @@ mod tests {
             sort: ModSort::Relevance,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let err = c.search(&q).await.unwrap_err();
         match err {
@@ -646,6 +659,7 @@ mod tests {
             sort: ModSort::Relevance,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -717,6 +731,7 @@ mod tests {
             sort: ModSort::Downloads,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -819,6 +834,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![ModDepLink {
                 kind: DepKind::Required,
@@ -876,6 +892,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![ModDepLink {
                 kind: DepKind::Required,
@@ -983,6 +1000,7 @@ mod tests {
             sort: ModSort::Downloads,
             page_size: 100,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -1018,6 +1036,7 @@ mod tests {
             sort: ModSort::Relevance,
             page_size: 100,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -1048,6 +1067,7 @@ mod tests {
             sort: ModSort::Relevance,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);

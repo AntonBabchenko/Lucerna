@@ -171,6 +171,7 @@ async fn author_pin_is_installed_over_newer_build() {
             sha1: Some("aa".into()),
             size: 1.0,
             distribution_allowed: true,
+            sha256: None,
         },
         deps: vec![ModDepLink {
             kind: DepKind::Required,

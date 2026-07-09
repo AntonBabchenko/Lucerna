@@ -31,6 +31,11 @@ impl ProjectKey {
             ModSource::Ftb => ProjectKey::Modrinth(v.project_id.clone()),
             // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
             ModSource::Atlauncher => ProjectKey::Modrinth(v.project_id.clone()),
+            // TODO(hangar): placeholder — Hangar versions are dead in this path today (no
+            // Hangar client until Task 11). Borrows the Modrinth tag like the FTB/ATLauncher
+            // stubs above; introduce ProjectKey::Hangar before Hangar plugins can enter
+            // dedup/dep-graph keying, to avoid a numeric-id collision with real Modrinth ids.
+            ModSource::Hangar => ProjectKey::Modrinth(v.project_id.clone()),
         }
     }
     pub fn of_ref(r: &DepProjectRef) -> ProjectKey {
@@ -206,6 +211,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: deps
                 .into_iter()

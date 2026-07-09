@@ -93,6 +93,9 @@ pub async fn resolve_download_url(
         ModSource::Ftb => Ok(None),
         // ATLauncher: pack-managed mods have no canonical download URL for export; bundle locally.
         ModSource::Atlauncher => Ok(None),
+        // Hangar plugins never reach modpack export (plugins are server-side, not part of a
+        // client modpack); bundle locally like the other pack-managed sources.
+        ModSource::Hangar => Ok(None),
     }
 }
 

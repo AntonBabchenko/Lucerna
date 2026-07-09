@@ -189,6 +189,11 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
         ModSource::Atlauncher => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Atlauncher,
         }),
+        // TEMPORARY: Hangar client lands in Task 11. Until then it has no
+        // per-mod browser either.
+        ModSource::Hangar => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Hangar,
+        }),
     }
 }
 
@@ -419,6 +424,7 @@ async fn find_version(
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
+                ModSource::Hangar => "hangar",
             }
             .into(),
         })
@@ -480,6 +486,16 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
         },
         // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
         crate::mods::platform::ModSource::Atlauncher => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
+        // TODO(hangar): placeholder — Hangar versions are dead in this path today (no Hangar
+        // client until Task 11). Borrowing the Modrinth tag mirrors the FTB/ATLauncher stubs
+        // above; introduce DepProjectRef::Hangar before Hangar mods can reach dedup/dep-graph
+        // keying, to avoid a numeric-id collision with real Modrinth ids.
+        crate::mods::platform::ModSource::Hangar => {
             crate::mods::platform::DepProjectRef::Modrinth {
                 project_id: v.project_id.clone(),
                 version_id: Some(v.version_id.clone()),

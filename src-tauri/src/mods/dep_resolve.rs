@@ -178,6 +178,7 @@ pub async fn modrinth_lookup(
         sort: crate::mods::platform::ModSort::Relevance,
         page_size: 20,
         offset: 0,
+        plugin_core: None,
     };
     if let Ok(page) = mr.search(&q).await {
         for hit in page.hits {
@@ -216,6 +217,7 @@ pub async fn curseforge_lookup(
         sort: crate::mods::platform::ModSort::Relevance,
         page_size: 20,
         offset: 0,
+        plugin_core: None,
     };
     let Ok(page) = cf.search(&q).await else {
         return Vec::new();
@@ -474,6 +476,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![],
             published_at: None,

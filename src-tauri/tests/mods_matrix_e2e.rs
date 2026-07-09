@@ -221,6 +221,7 @@ async fn fetch_pool(
             sort: ModSort::Downloads,
             page_size,
             offset,
+            plugin_core: None,
         };
         let page = client
             .search(&q)

@@ -69,6 +69,67 @@ pub fn modpack_source_for(source: ModSource) -> Box<dyn ModpackSource> {
         ModSource::Curseforge => Box::new(CurseforgeModpackSource),
         ModSource::Ftb => Box::new(FtbModpackSource),
         ModSource::Atlauncher => Box::new(AtlauncherModpackSource),
+        // Hangar is a per-plugin registry, not a modpack source — plugins are
+        // server-side and never travel inside a client modpack.
+        ModSource::Hangar => Box::new(UnsupportedModpackSource {
+            source: ModSource::Hangar,
+        }),
+    }
+}
+
+/// A no-op modpack source for `ModSource` values that have no modpack
+/// catalogue (currently only Hangar). Every trait method returns
+/// `Error::ModsPlatformUnsupported` so a caller gets a typed error rather
+/// than a panic. Twin of `mods::unsupported::UnsupportedModPlatform`.
+struct UnsupportedModpackSource {
+    source: ModSource,
+}
+
+#[async_trait]
+impl ModpackSource for UnsupportedModpackSource {
+    fn caps(&self) -> SourceCaps {
+        SourceCaps {
+            needs_api_key: false,
+            supports_server_filter: false,
+            can_export: false,
+        }
+    }
+
+    async fn search(
+        &self,
+        _query: &str,
+        _page: u32,
+        _mc_version: Option<&str>,
+        _loader: Option<LoaderKind>,
+        _sort: ModpackSort,
+        _page_size: u32,
+    ) -> Result<ModpackSearchPage, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
+    }
+
+    async fn get_versions(&self, _project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
+    }
+
+    async fn get_project(&self, _project_id: &str) -> Result<ModpackProject, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
+    }
+
+    async fn stage_version_to_temp(
+        &self,
+        _app: &tauri::AppHandle,
+        _project_id: &str,
+        _version_id: &str,
+    ) -> Result<String, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
     }
 }
 
