@@ -10,6 +10,7 @@ pub mod firewall;
 pub mod import;
 pub mod jar;
 pub mod mod_classify;
+pub mod paper;
 pub mod pid;
 pub mod preflight;
 pub mod properties;
