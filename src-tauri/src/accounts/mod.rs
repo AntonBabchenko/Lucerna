@@ -3,6 +3,7 @@
 //! flat file. Microsoft auth was implemented and then deferred — the work
 //! is preserved under git tag `v0.2.0-msauth-attempt` for future revival.
 
+pub mod cosmetics;
 pub mod keychain;
 pub mod microsoft;
 pub mod offline;

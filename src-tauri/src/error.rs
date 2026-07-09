@@ -65,6 +65,9 @@ pub enum Error {
     #[error("This Microsoft account does not own Minecraft")]
     NoMinecraftProfile,
 
+    #[error("Skin image is invalid: {details}")]
+    CosmeticImageInvalid { details: String },
+
     #[error("Microsoft has not yet approved this launcher's app registration")]
     AuthPendingApproval,
 

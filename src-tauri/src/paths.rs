@@ -107,6 +107,13 @@ pub fn skins_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("skins"))
 }
 
+/// Per-account cached cape PNGs, keyed by texture hash (`<hash>.png`). Cape
+/// texture URLs are content-addressed and immutable, so this cache needs no
+/// TTL. Cosmetic — safe to delete; repopulated on demand.
+pub fn capes_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("capes"))
+}
+
 /// Scratch directory for downloaded update installers + bundles.
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
