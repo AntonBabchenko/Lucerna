@@ -11,6 +11,7 @@ use futures_util::StreamExt;
 use md5::Md5;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
+use sha2::Digest as Sha2Digest;
 use specta::Type;
 use std::path::Path;
 use tauri_specta::Event;
@@ -31,12 +32,15 @@ pub struct DownloadProgress {
 
 /// What digest to verify a download against. The download always *also*
 /// computes sha1 (the universal identity anchor) and returns it; for
-/// `Md5` it additionally computes md5 to verify the vendor digest.
+/// `Md5` / `Sha256` it additionally computes that digest to verify the
+/// vendor-supplied checksum.
 pub enum Checksum {
     /// Lowercase sha1 hex. Empty string = skip verification (legacy behaviour).
     Sha1(String),
-    /// Lowercase md5 hex (ATLauncher server/direct mods).
+    /// Lowercase md5 hex (ATLauncher server/direct mods, Purpur core jars).
     Md5(String),
+    /// Lowercase sha256 hex (PaperMC Fill jars, Hangar-hosted plugin files).
+    Sha256(String),
 }
 
 /// Shared streaming-download core used by the `download_with_sha` /
@@ -151,6 +155,7 @@ async fn stream_to_part(
 
     let mut sha1_hasher = Sha1::new();
     let mut md5_hasher = Md5::new();
+    let mut sha256_hasher = sha2::Sha256::new();
     let mut bytes_done: f64 = 0.0;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -161,6 +166,9 @@ async fn stream_to_part(
         sha1_hasher.update(&chunk);
         if matches!(checksum, Checksum::Md5(_)) {
             md5_hasher.update(&chunk);
+        }
+        if matches!(checksum, Checksum::Sha256(_)) {
+            sha256_hasher.update(&chunk);
         }
         file.write_all(&chunk)
             .await
@@ -182,6 +190,7 @@ async fn stream_to_part(
     let (expected, got_for_compare) = match checksum {
         Checksum::Sha1(h) => (h.as_str(), got_sha1.clone()),
         Checksum::Md5(h) => (h.as_str(), hex::encode(md5_hasher.finalize())),
+        Checksum::Sha256(h) => (h.as_str(), hex::encode(sha256_hasher.finalize())),
     };
     if !expected.is_empty() && got_for_compare != expected.to_ascii_lowercase() {
         return Err(Error::HashMismatch {
@@ -240,6 +249,19 @@ pub async fn download_no_emit(
     )
     .await
     .map(|_| ())
+}
+
+/// `download_no_emit` with an explicit checksum kind (sha256/md5/sha1).
+/// Used by Paper/Purpur core provisioning and Hangar plugin installs.
+pub async fn download_no_emit_with(
+    url: &str,
+    dest: &Path,
+    checksum: Checksum,
+    initiator: &str,
+) -> Result<()> {
+    download_inner(url, dest, checksum, initiator, |_| {})
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -306,6 +328,47 @@ mod tests {
         .await;
         assert!(matches!(r, Err(Error::HashMismatch { .. })));
         assert!(!dest.exists(), "partial file must be deleted on mismatch");
+    }
+
+    // sha256 of b"hello world" (well-known vector)
+    const HELLO_SHA256: &str = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+
+    #[tokio::test]
+    async fn sha256_checksum_verifies_and_rejects() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/f.bin"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"hello world".to_vec()))
+            .mount(&s)
+            .await;
+        let td = tempdir().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        // Correct digest -> file lands on dest.
+        let good = td.path().join("good.bin");
+        download_no_emit_with(
+            &format!("{}/f.bin", s.uri()),
+            &good,
+            Checksum::Sha256(HELLO_SHA256.into()),
+            "servers",
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read(&good).unwrap(), b"hello world");
+
+        // Wrong digest -> HashMismatch and NO dest file (and no .part) left.
+        let bad = td.path().join("bad.bin");
+        let err = download_no_emit_with(
+            &format!("{}/f.bin", s.uri()),
+            &bad,
+            Checksum::Sha256("00".repeat(32)),
+            "servers",
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, Error::HashMismatch { .. }));
+        assert!(!bad.exists());
     }
 
     #[tokio::test]
