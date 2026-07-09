@@ -708,7 +708,10 @@ async fn download_plugin_sha256_into_dir(
         &v.primary_file.url,
         &out,
         crate::network::download::Checksum::Sha256(sha256.to_ascii_lowercase()),
-        "mods",
+        // "servers" — same diag label as the sha1 cache path
+        // (`copy_version_into_dir` → `fetch_to_cache`), so one server install's
+        // jars land under one initiator regardless of digest kind.
+        "servers",
     )
     .await?;
     Ok(v.primary_file.filename.clone())
@@ -719,12 +722,18 @@ async fn download_plugin_sha256_into_dir(
 /// closure is a visited-set BFS over declared REQUIRED deps (plugin dep chains
 /// are shallow; Hangar declares none — Modrinth-only in practice); files
 /// without a sha1 (Hangar) download directly with sha256 verification instead
-/// of the sha1 content-addressed cache. Fail-closed: a file with no verifiable
-/// digest is reported unresolved, never written.
+/// of the sha1 content-addressed cache.
+///
+/// Failure semantics mirror the twin: the CHOSEN version hard-fails (the user
+/// explicitly picked it — an undistributable file, a missing digest, or a
+/// download failure is a typed `Err`, never a fake-success report), while each
+/// dependency is best-effort (recorded in `unresolved`, the rest still
+/// install). Fail-closed throughout: a file with no verifiable digest is never
+/// written.
 ///
 /// Thin public wrapper — resolves the platform from `source` and delegates to
 /// [`install_plugin_into_dir_with`], the seam tests drive with a
-/// wiremock-backed `ModrinthClient::with_base`.
+/// wiremock-backed `ModrinthClient::with_base` or an in-test stub platform.
 pub(crate) async fn install_plugin_into_dir(
     data_dir: &std::path::Path,
     dest: &std::path::Path,
@@ -794,66 +803,58 @@ pub(crate) async fn install_plugin_into_dir_with(
         //    (missing dir → empty set; the mods twin's collector, reused).
         let mut installed_filenames = enabled_jar_filenames(dest);
 
-        // 3. Visited-set BFS over declared REQUIRED deps. `visited` keys on
-        //    project_id (plugin deps are Modrinth-only in practice); the cap is
-        //    a backstop above the visited-set termination guarantee.
+        // 3. The chosen primary. Already enabled → short-circuit to Ok with
+        //    installed=[]. This DIVERGES from the mods twin, which re-copies the
+        //    primary unconditionally (its instance registry can lag the disk);
+        //    servers have no registry, so an enabled jar with the same filename
+        //    IS the installed state, and its required closure — installed
+        //    alongside it — is presumed satisfied too.
+        let primary_low = chosen.primary_file.filename.to_ascii_lowercase();
+        if !primary_low.is_empty() && installed_filenames.contains(&primary_low) {
+            return Ok(report);
+        }
+
+        // The user explicitly picked this version, so its failures are HARD
+        // errors (`?`), mirroring the twin's unconditional `?` on the primary —
+        // an Ok report with the pick in `unresolved` would read as success.
+        let filename = install_one_plugin(data_dir, dest, &chosen, &nop).await?;
+        installed_filenames.insert(filename.to_ascii_lowercase());
+        report.installed.push(filename);
+
+        // 4. Visited-set BFS over declared REQUIRED deps, best-effort per dep
+        //    (failures land in `unresolved`, the rest still install). `visited`
+        //    keys on project_id (plugin deps are Modrinth-only in practice);
+        //    the cap is a backstop above the visited-set termination guarantee.
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
         visited.insert(chosen.project_id.clone());
         let mut queue: std::collections::VecDeque<ModVersion> = std::collections::VecDeque::new();
-        queue.push_back(chosen);
+        enqueue_required_plugin_deps(
+            platform,
+            &chosen,
+            mc,
+            slugs,
+            &mut visited,
+            &mut queue,
+            &mut report.unresolved,
+        )
+        .await;
 
         while let Some(v) = queue.pop_front() {
             if visited.len() > PLUGIN_DEP_VISIT_CAP {
                 break;
             }
-            let filename_low = v.primary_file.filename.to_ascii_lowercase();
 
             // Already-enabled jar → skip entirely (download AND its dep walk):
             // the node is satisfied, so its required closure is presumed
             // satisfied too. This mirrors the mods twin, where
             // `resolve_closure`'s `installed_filenames` prunes traversal into an
-            // already-present node — a second run over the same selection thus
-            // installs nothing and re-reports nothing.
+            // already-present node.
+            let filename_low = v.primary_file.filename.to_ascii_lowercase();
             if !filename_low.is_empty() && installed_filenames.contains(&filename_low) {
                 continue;
             }
 
-            // Fail-closed guards: undistributable / empty url or filename / unsafe
-            // filename → record unresolved and skip WITHOUT touching the fs.
-            if !v.primary_file.distribution_allowed
-                || v.primary_file.url.is_empty()
-                || v.primary_file.filename.is_empty()
-                || !crate::servers_runtime::runtime::is_safe_mod_name(&v.primary_file.filename)
-            {
-                report.unresolved.push(v.name.clone());
-                continue;
-            }
-
-            let sha1 = v
-                .primary_file
-                .sha1
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
-            let sha256 = v
-                .primary_file
-                .sha256
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
-
-            let written = if sha1.is_some() {
-                // sha1 present → the mods twin's content-addressed cache path.
-                copy_version_into_dir(data_dir, dest, &v, &nop).await
-            } else if let Some(s256) = sha256 {
-                // Hangar-hosted: no sha1, sha256 direct download instead.
-                download_plugin_sha256_into_dir(dest, &v, s256).await
-            } else {
-                // No verifiable digest → fail-closed, never written.
-                Err(crate::error::Error::ModsSha1Unavailable)
-            };
-
-            match written {
+            match install_one_plugin(data_dir, dest, &v, &nop).await {
                 Ok(filename) => {
                     installed_filenames.insert(filename.to_ascii_lowercase());
                     report.installed.push(filename);
@@ -877,6 +878,66 @@ pub(crate) async fn install_plugin_into_dir_with(
         Ok(report)
     })
     .await
+}
+
+/// Guard + fetch ONE plugin version into `dest`, returning the written
+/// filename. Fail-closed gates fire before any I/O: an undistributable or
+/// url-less file → [`Error::ModsDistributionDisabled`]; an unsafe filename →
+/// [`Error::ModsUnsafeFilename`]; no verifiable digest →
+/// [`Error::ModsSha1Unavailable`]. A sha1 file goes through the mods twin's
+/// content-addressed cache; a sha256-only file (Hangar-hosted) downloads
+/// directly with sha256 verification. The CALLER decides severity: hard `?`
+/// for the user-picked primary, soft `unresolved` for dependencies.
+async fn install_one_plugin(
+    data_dir: &std::path::Path,
+    dest: &std::path::Path,
+    v: &ModVersion,
+    progress: &crate::mods::install::ProgressFn,
+) -> crate::error::Result<String> {
+    // An empty url is folded into the distribution-disabled error: both mean
+    // "the platform did not give us a fetchable file" (Modrinth's missing-file
+    // fallback and Hangar's external-download versions set both together).
+    if !v.primary_file.distribution_allowed || v.primary_file.url.is_empty() {
+        return Err(crate::error::Error::ModsDistributionDisabled {
+            platform: match v.source {
+                ModSource::Modrinth => "modrinth",
+                ModSource::Curseforge => "curseforge",
+                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
+                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
+                ModSource::Hangar => "hangar",
+            }
+            .into(),
+            project_id: v.project_id.clone(),
+        });
+    }
+    // Rejects empty filenames too (no Normal component).
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&v.primary_file.filename) {
+        return Err(crate::error::Error::ModsUnsafeFilename {
+            filename: v.primary_file.filename.clone(),
+        });
+    }
+    let sha1 = v
+        .primary_file
+        .sha1
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let sha256 = v
+        .primary_file
+        .sha256
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if sha1.is_some() {
+        // sha1 present → the mods twin's content-addressed cache path.
+        copy_version_into_dir(data_dir, dest, v, progress).await
+    } else if let Some(s256) = sha256 {
+        // Hangar-hosted: no sha1, sha256 direct download instead.
+        download_plugin_sha256_into_dir(dest, v, s256).await
+    } else {
+        // No verifiable digest → fail-closed, never written.
+        Err(crate::error::Error::ModsSha1Unavailable)
+    }
 }
 
 /// Enqueue the newest plugin build of each declared REQUIRED dependency of `v`
@@ -2323,6 +2384,337 @@ mod tests {
         assert!(
             report2.installed.is_empty(),
             "already-installed plugins must not re-download: {report2:?}"
+        );
+    }
+
+    // =====================================================================
+    // Plugin install kernel — sha256 + fail-closed paths, via a stub platform.
+    // =====================================================================
+
+    /// In-test `ModPlatform` stub: `plugin_versions` serves crafted lists keyed
+    /// by project_id (unknown ids resolve to zero versions). The browse methods
+    /// mirror `UnsupportedModPlatform` — the kernel under test never calls them.
+    struct StubPluginPlatform {
+        versions: std::collections::HashMap<String, Vec<ModVersion>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::mods::platform::ModPlatform for StubPluginPlatform {
+        async fn search(&self, _q: &ModSearchQuery) -> Result<ModSearchPage, crate::error::Error> {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: ModSource::Modrinth,
+            })
+        }
+
+        async fn project(&self, _project_id: &str) -> Result<ModProject, crate::error::Error> {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: ModSource::Modrinth,
+            })
+        }
+
+        async fn versions(
+            &self,
+            _project_id: &str,
+            _mc_version: Option<&str>,
+            _loader: Option<LoaderKind>,
+        ) -> Result<Vec<ModVersion>, crate::error::Error> {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: ModSource::Modrinth,
+            })
+        }
+
+        async fn resolve_deps(
+            &self,
+            _version: &ModVersion,
+            _mc_version: &str,
+            _loader: LoaderKind,
+        ) -> Result<ResolvedDeps, crate::error::Error> {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: ModSource::Modrinth,
+            })
+        }
+
+        async fn plugin_versions(
+            &self,
+            project_id: &str,
+            _mc_version: Option<&str>,
+            _plugin_loaders: &[&str],
+        ) -> Result<Vec<ModVersion>, crate::error::Error> {
+            Ok(self.versions.get(project_id).cloned().unwrap_or_default())
+        }
+    }
+
+    /// A plugin-shaped `ModVersion` (no loader tags) with explicit digests.
+    fn plugin_v(
+        project_id: &str,
+        version_id: &str,
+        filename: &str,
+        url: &str,
+        sha1: Option<String>,
+        sha256: Option<String>,
+        deps: Vec<ModDepLink>,
+    ) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: project_id.into(),
+            version_id: version_id.into(),
+            name: format!("{project_id}-{version_id}"),
+            version_number: "1.0.0".into(),
+            mc_versions: vec!["1.21.4".into()],
+            loaders: vec![],
+            primary_file: ModFile {
+                filename: filename.into(),
+                url: url.into(),
+                sha1,
+                size: 1.0,
+                distribution_allowed: true,
+                sha256,
+            },
+            deps,
+            published_at: None,
+        }
+    }
+
+    fn required_dep(project_id: &str) -> ModDepLink {
+        ModDepLink {
+            kind: DepKind::Required,
+            project_ref: DepProjectRef::Modrinth {
+                project_id: project_id.into(),
+                version_id: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn install_plugin_sha256_only_file_verifies_and_lands() {
+        use sha2::{Digest, Sha256};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+        let bytes = b"hangar-hosted-plugin-bytes".to_vec();
+        let sha256_hex = hex::encode(Sha256::digest(&bytes));
+        Mock::given(method("GET"))
+            .and(path("/cdn/hplug.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes.clone()))
+            .mount(&s)
+            .await;
+
+        let mut versions = std::collections::HashMap::new();
+        versions.insert(
+            "hplug".to_string(),
+            vec![plugin_v(
+                "hplug",
+                "hv1",
+                "HPlug-1.0.jar",
+                &format!("{}/cdn/hplug.jar", s.uri()),
+                None, // Hangar-shaped: sha256 only
+                Some(sha256_hex),
+                vec![],
+            )],
+        );
+        let stub = StubPluginPlatform { versions };
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let data = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let report = install_plugin_into_dir_with(
+            &stub,
+            data.path(),
+            dest.path(),
+            "hplug",
+            "hv1",
+            "1.21.4",
+            crate::servers_runtime::schema::ServerCore::Paper,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(report.installed, vec!["HPlug-1.0.jar".to_string()]);
+        assert!(report.unresolved.is_empty(), "{report:?}");
+        assert!(
+            dest.path().join("HPlug-1.0.jar").exists(),
+            "sha256-verified jar must land in dest"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_plugin_sha256_mismatch_hard_fails_and_writes_nothing() {
+        use sha2::{Digest, Sha256};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+        let served = b"actual-served-bytes".to_vec();
+        // A valid-format digest of DIFFERENT bytes — verification must fail.
+        let wrong_sha256 = hex::encode(Sha256::digest(b"some-other-bytes"));
+        Mock::given(method("GET"))
+            .and(path("/cdn/tampered.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(served))
+            .mount(&s)
+            .await;
+
+        let mut versions = std::collections::HashMap::new();
+        versions.insert(
+            "tampered".to_string(),
+            vec![plugin_v(
+                "tampered",
+                "t1",
+                "Tampered-1.0.jar",
+                &format!("{}/cdn/tampered.jar", s.uri()),
+                None,
+                Some(wrong_sha256),
+                vec![],
+            )],
+        );
+        let stub = StubPluginPlatform { versions };
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let data = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let r = install_plugin_into_dir_with(
+            &stub,
+            data.path(),
+            dest.path(),
+            "tampered",
+            "t1",
+            "1.21.4",
+            crate::servers_runtime::schema::ServerCore::Paper,
+        )
+        .await;
+
+        assert!(
+            r.is_err(),
+            "a hash-mismatched PRIMARY must hard-fail, got {r:?}"
+        );
+        // The atomic download must leave neither the jar nor a partial behind.
+        let leftovers: Vec<_> = std::fs::read_dir(dest.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "no jar and no .part may remain after a mismatch: {leftovers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_plugin_digestless_primary_hard_fails() {
+        // No mock server: the fail-closed digest gate must fire before any I/O.
+        let mut versions = std::collections::HashMap::new();
+        versions.insert(
+            "nakedjar".to_string(),
+            vec![plugin_v(
+                "nakedjar",
+                "n1",
+                "Naked-1.0.jar",
+                "https://example.invalid/naked.jar",
+                None,
+                None, // no digest at all
+                vec![],
+            )],
+        );
+        let stub = StubPluginPlatform { versions };
+
+        let data = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let r = install_plugin_into_dir_with(
+            &stub,
+            data.path(),
+            dest.path(),
+            "nakedjar",
+            "n1",
+            "1.21.4",
+            crate::servers_runtime::schema::ServerCore::Paper,
+        )
+        .await;
+
+        assert!(
+            matches!(r, Err(crate::error::Error::ModsSha1Unavailable)),
+            "digestless PRIMARY must hard-fail with ModsSha1Unavailable, got {r:?}"
+        );
+        assert_eq!(
+            std::fs::read_dir(dest.path()).unwrap().count(),
+            0,
+            "nothing may be written for a digestless primary"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_plugin_digestless_dep_unresolved_primary_installs() {
+        use sha1::{Digest, Sha1};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+        let bytes = b"primary-plugin-bytes".to_vec();
+        let sha1_hex = hex::encode(Sha1::digest(&bytes));
+        Mock::given(method("GET"))
+            .and(path("/cdn/main.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes.clone()))
+            .mount(&s)
+            .await;
+
+        let mut versions = std::collections::HashMap::new();
+        versions.insert(
+            "mainplug".to_string(),
+            vec![plugin_v(
+                "mainplug",
+                "m1",
+                "Main-1.0.jar",
+                &format!("{}/cdn/main.jar", s.uri()),
+                Some(sha1_hex),
+                None,
+                vec![required_dep("digestless")],
+            )],
+        );
+        versions.insert(
+            "digestless".to_string(),
+            vec![plugin_v(
+                "digestless",
+                "d1",
+                "Digestless-1.0.jar",
+                "https://example.invalid/digestless.jar",
+                None,
+                None, // dep with no verifiable digest → soft unresolved
+                vec![],
+            )],
+        );
+        let stub = StubPluginPlatform { versions };
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let data = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let report = install_plugin_into_dir_with(
+            &stub,
+            data.path(),
+            dest.path(),
+            "mainplug",
+            "m1",
+            "1.21.4",
+            crate::servers_runtime::schema::ServerCore::Paper,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            report.installed,
+            vec!["Main-1.0.jar".to_string()],
+            "primary must install despite the digestless dep: {report:?}"
+        );
+        assert_eq!(
+            report.unresolved,
+            vec!["digestless-d1".to_string()],
+            "digestless DEP stays soft: named in unresolved: {report:?}"
+        );
+        assert!(dest.path().join("Main-1.0.jar").exists());
+        assert!(
+            !dest.path().join("Digestless-1.0.jar").exists(),
+            "the digestless dep must never be written"
         );
     }
 }
