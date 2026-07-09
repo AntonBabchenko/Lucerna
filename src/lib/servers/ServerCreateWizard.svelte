@@ -10,7 +10,7 @@
   import { t } from '$lib/i18n';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { modCapable } from '$lib/servers/core-display';
+  import { modCapable, pluginCapable } from '$lib/servers/core-display';
   import { formatHeapLabel } from '$lib/instances/heap';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import ServerCorePicker from '$lib/servers/ServerCorePicker.svelte';
@@ -97,6 +97,22 @@
     return allowed === null ? visibleVersions : visibleVersions.filter((v) => allowed.has(v.id));
   });
 
+  // When a plugin core's catalogue finishes loading and the currently-picked
+  // MC version isn't in its supported set, drop the dangling selection. This
+  // collapses an out-of-intersection pick back to the normal empty-mcVersion
+  // state (the dropdown now offers only supported versions, user re-picks) —
+  // so canCreate/disabledReason never has to reason about an "unsupported MC"
+  // state. Guarded to the loaded-without-error case: during loading/error the
+  // dropdown still shows every version and must not be cleared. Reads
+  // coreFilteredVersions + mcVersion, writes only mcVersion.
+  $effect(() => {
+    if (coreVersions === null || coreVersionsError !== null) return;
+    const current = mcVersion;
+    if (current !== '' && !coreFilteredVersions.some((v) => v.id === current)) {
+      mcVersion = '';
+    }
+  });
+
   const mcVersionOptions = $derived([
     { value: '', label: $t('instance.manage.chooseMcOption') },
     ...coreFilteredVersions.map((v) => ({ value: v.id, label: v.id })),
@@ -120,7 +136,7 @@
   const standaloneCoreReady = $derived(
     modCapable(core)
       ? coreVersion !== null
-      : core === 'paper' || core === 'purpur'
+      : pluginCapable(core)
         ? coreVersions !== null && coreVersionsError === null && coreVersions.has(mcVersion)
         : true,
   );
@@ -141,9 +157,23 @@
     if (mode === 'instance') {
       if (instanceId === null) return $t('servers.wizard.disabledReason.instance');
     } else {
-      if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
-      if (!standaloneCoreReady) {
-        return $t('servers.wizard.disabledReason.loader');
+      // Plugin cores (paper/purpur) have no loader-version field, so the
+      // generic "choose a loader version" reason would misdirect. Surface
+      // their distinct blocking states first: catalogue loading, catalogue
+      // error, then fall through to the standard empty-mcVersion prompt.
+      // (An out-of-intersection MC is auto-cleared to '' before it reaches
+      // here, so it collapses into the empty-mcVersion case — no separate
+      // "unsupported MC" reason is needed.)
+      if (pluginCapable(core)) {
+        if (coreVersionsLoading) return $t('servers.wizard.coreVersionsLoading');
+        if (coreVersionsError !== null) return coreVersionsError;
+        if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
+      } else {
+        if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
+        // Only the four mod-loader cores have a loader-version to choose.
+        if (!standaloneCoreReady) {
+          return $t('servers.wizard.disabledReason.loader');
+        }
       }
     }
     if (!eula) return $t('servers.wizard.disabledReason.eula');

@@ -7,7 +7,7 @@
     type ServerCore,
     type Error as IpcError,
   } from '$lib/ipc/bindings';
-  import { displayCore, coreToLoaderKind } from '$lib/servers/core-display';
+  import { displayCore, coreToLoaderKind, pluginCapable } from '$lib/servers/core-display';
   import { displayLoader } from '$lib/instances/loader-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
   import { formatError } from '$lib/ipc/format-error';
@@ -214,7 +214,7 @@
       onChange={(v) => pickVersion(String(v))}
     />
   {/if}
-{:else if core === 'paper' || core === 'purpur'}
+{:else if pluginCapable(core)}
   <p class="text-xs text-muted mb-3">{$t('servers.core.latestBuildHint')}</p>
 {/if}
 
