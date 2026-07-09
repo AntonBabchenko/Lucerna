@@ -1831,6 +1831,7 @@
     "loadError": "Couldn't load your servers.",
     "retry": "Retry",
     "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
+    "createdFromInstance": "from instance {name}",
     "status": {
       "running": "Running",
       "stopped": "Stopped",
