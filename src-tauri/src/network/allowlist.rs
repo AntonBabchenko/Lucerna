@@ -87,6 +87,22 @@ const ALLOWED_PATTERNS: &[&str] = &[
     // as plain text and sets no cookies; no request data beyond the bare GET is
     // sent. See docs/PRINCIPLES.md Part A item #2 and docs/SECURITY.md.
     "api.ipify.org",
+    // Server plugins feature — Paper/Purpur cores. fill.papermc.io = Fill v3
+    // build metadata; fill-data.papermc.io = the hash-addressed jar CDN the
+    // API's download URLs point at (taken from the API response, never
+    // constructed). The legacy api.papermc.io/v2 is shut down (HTTP 410 since
+    // 2026-07-01) and deliberately NOT listed.
+    "fill.papermc.io",
+    "fill-data.papermc.io",
+    // Purpur core builds (community-run infra; md5-verified downloads).
+    "api.purpurmc.org",
+    // Hangar plugin repository (PaperMC). hangar.papermc.io = api/v1 search +
+    // versions; hangarcdn.papermc.io = hosted plugin files (the API download
+    // endpoint 301s there; both ends are pinned here). Externally-hosted
+    // plugin files (externalUrl) are NEVER downloaded in-app — the UI opens
+    // the project page in the system browser instead.
+    "hangar.papermc.io",
+    "hangarcdn.papermc.io",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -222,8 +238,8 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"api.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"dist.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"api.ipify.org"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo).
-        assert_eq!(ALLOWED_PATTERNS.len(), 30);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo) + 3 Paper/Purpur core hosts + 2 Hangar hosts.
+        assert_eq!(ALLOWED_PATTERNS.len(), 35);
     }
 
     #[test]
@@ -280,6 +296,27 @@ mod tests {
         // Exact match — not wildcards.
         assert!(!is_host_allowed("evil.cdn.modrinth.com"));
         assert!(!is_host_allowed("evilmediafilez.forgecdn.net"));
+    }
+
+    #[test]
+    fn paper_purpur_core_hosts_are_allowed_exact_match_only() {
+        assert!(is_host_allowed("fill.papermc.io"));
+        assert!(is_host_allowed("fill-data.papermc.io"));
+        assert!(is_host_allowed("api.purpurmc.org"));
+        assert!(!is_host_allowed("evil.fill.papermc.io"));
+        assert!(!is_host_allowed("evilfill.papermc.io"));
+        assert!(!is_host_allowed("papermc.io")); // bare apex not allowed
+        assert!(!is_host_allowed("purpurmc.org"));
+        // The dead legacy API host must NOT be reachable (sunset 2026-07-01).
+        assert!(!is_host_allowed("api.papermc.io"));
+    }
+
+    #[test]
+    fn hangar_hosts_are_allowed_exact_match_only() {
+        assert!(is_host_allowed("hangar.papermc.io"));
+        assert!(is_host_allowed("hangarcdn.papermc.io"));
+        assert!(!is_host_allowed("evil.hangar.papermc.io"));
+        assert!(!is_host_allowed("evilhangar.papermc.io"));
     }
 
     #[test]

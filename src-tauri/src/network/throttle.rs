@@ -210,6 +210,11 @@ fn config_for(host: &str) -> HostConfig {
             rate: 5.0,
             burst: 20.0,
         },
+        // Hangar documents a 20 req / 5 s limit = 4/s.
+        "hangar.papermc.io" => HostConfig {
+            rate: 4.0,
+            burst: 10.0,
+        },
         _ => HostConfig {
             rate: 1.0e9,
             burst: 1.0e9,
