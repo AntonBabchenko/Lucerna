@@ -234,7 +234,9 @@ fn dep_project_ref(
                 file_id: None,
             }),
         // FTB and ATLauncher are pack-only sources with no per-mod browser.
-        ModSource::Ftb | ModSource::Atlauncher => None,
+        // Hangar plugins never reach this dep-violation path either (plugins have no Java
+        // dependency graph) — no per-mod browser link for it here.
+        ModSource::Ftb | ModSource::Atlauncher | ModSource::Hangar => None,
     }
 }
 

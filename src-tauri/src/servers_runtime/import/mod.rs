@@ -7,8 +7,7 @@ pub mod pack;
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
-use crate::instances::schema::LoaderKind;
-use crate::servers_runtime::schema::ServerFile;
+use crate::servers_runtime::schema::{ServerCore, ServerFile};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::{Path, PathBuf};
@@ -19,7 +18,7 @@ pub struct ServerImportPreview {
     pub token: String,
     pub detected_name: String,
     pub mc_version: Option<String>,
-    pub loader: Option<LoaderKind>,
+    pub loader: Option<ServerCore>,
     pub loader_version: Option<String>,
     pub can_launch_as_is: bool,
     pub mod_count: u32,
@@ -128,7 +127,7 @@ pub fn commit_preserve(
     token: &str,
     name: &str,
     mc_version: &str,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -227,7 +226,7 @@ pub(crate) fn build_file(
     id: &str,
     name: &str,
     mc_version: &str,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -392,7 +391,7 @@ mod tests {
             &prev.token,
             "My Imported",
             "1.20.4",
-            crate::instances::schema::LoaderKind::Vanilla,
+            crate::servers_runtime::schema::ServerCore::Vanilla,
             None,
             4096,
             true,

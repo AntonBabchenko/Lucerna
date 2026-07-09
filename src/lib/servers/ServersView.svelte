@@ -4,7 +4,7 @@
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
-  import { displayLoader } from '$lib/instances/loader-display';
+  import { displayCore } from '$lib/servers/core-display';
   import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
@@ -204,7 +204,7 @@
                 <span class="flex-1">
                   <span class="block font-medium">{s.name}</span>
                   <span class="block text-xs text-muted"
-                    >{s.mc_version} · {displayLoader(s.loader)}{sourceName
+                    >{s.mc_version} · {displayCore(s.loader)}{sourceName
                       ? ' · ' + $t('servers.createdFromInstance', { name: sourceName })
                       : ''}</span
                   >

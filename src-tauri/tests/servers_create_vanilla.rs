@@ -3,9 +3,8 @@
 //! Tests `create_vanilla_server` end-to-end: writes `server.json`,
 //! downloads the jar to `runtime/server.jar`, and writes `eula.txt`.
 
-use lucerna_lib::instances::schema::LoaderKind;
 use lucerna_lib::servers_runtime::create::create_vanilla_server;
-use lucerna_lib::servers_runtime::schema::ServerFile;
+use lucerna_lib::servers_runtime::schema::{ServerCore, ServerFile};
 use sha1::{Digest, Sha1};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
@@ -44,7 +43,7 @@ async fn vanilla_server_assembled_into_runtime() {
         id: "srv-1".into(),
         name: "Vanilla".into(),
         mc_version: "1.20.4".into(),
-        loader: LoaderKind::Vanilla,
+        loader: ServerCore::Vanilla,
         loader_version: None,
         max_heap_mb: 2048,
         extra_jvm_args: String::new(),
@@ -87,7 +86,7 @@ async fn vanilla_server_eula_gate_rejects_unaccepted() {
         id: "srv-2".into(),
         name: "No EULA".into(),
         mc_version: "1.20.4".into(),
-        loader: LoaderKind::Vanilla,
+        loader: ServerCore::Vanilla,
         loader_version: None,
         max_heap_mb: 2048,
         extra_jvm_args: String::new(),

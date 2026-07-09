@@ -21,8 +21,9 @@ use crate::mods::platform::{ContentKind, InstalledAsset};
 /// Validate that `bytes` is a readable zip suitable for `kind`. A resource
 /// pack must additionally contain a `pack.mcmeta` entry (Minecraft requires it
 /// at the archive root). A shader only needs to be a readable zip. `kind ==
-/// Mod` never reaches here (the command guards with `require_asset_kind`); it
-/// imposes no extra check.
+/// Mod` and `kind == Plugin` never reach here (the command guards with
+/// `require_asset_kind`, which rejects both — plugins are server-only
+/// content); neither imposes an extra check here.
 pub fn validate_asset_zip(bytes: &[u8], kind: ContentKind) -> Result<(), Error> {
     let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModsDecode {
         platform: "local asset zip".into(),

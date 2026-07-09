@@ -39,6 +39,61 @@ impl ModrinthClient {
         }
     }
 
+    /// Shared body of `versions()`/`plugin_versions()`: `GET
+    /// /v2/project/{id}/version` with optional `loaders`/`game_versions`
+    /// facet arrays, mapped to `ModVersion`. `loaders` is a list of raw
+    /// Modrinth loader slugs (Java loader slug for `versions()`, plugin-core
+    /// slugs for `plugin_versions()`) — the caller owns what those strings
+    /// mean; this helper only builds the query and parses the response.
+    async fn fetch_versions(
+        &self,
+        project_id: &str,
+        mc: Option<&str>,
+        loaders: Option<&[&str]>,
+    ) -> Result<Vec<ModVersion>, Error> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(slugs) = loaders {
+            // A slice of &str loader slugs always serializes to a JSON array.
+            let loaders_json =
+                serde_json::to_string(slugs).expect("a slice of &str always serializes");
+            params.push(("loaders", urlencode(&loaders_json)));
+        }
+        if let Some(v) = mc {
+            // A fixed one-element array of &str always serializes to a JSON array.
+            let games = serde_json::to_string(&[v])
+                .expect("a fixed one-element &str array always serializes");
+            params.push(("game_versions", urlencode(&games)));
+        }
+        let query = if params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "?{}",
+                params
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("&")
+            )
+        };
+        let url = format!("{}/v2/project/{}/version{}", self.base, project_id, query);
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
+        }
+        let raws: Vec<types::Version> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
+        Ok(raws.into_iter().map(convert_version).collect())
+    }
+
     /// Fetch each project's `server_side` support in bulk — mirrors `summaries`
     /// (`GET /v2/projects?ids=[...]`) but extracts only `id` + `server_side`.
     /// Unknown / unrecognized ids are simply absent from the returned map.
@@ -143,7 +198,7 @@ impl Default for ModrinthClient {
 #[async_trait]
 impl ModPlatform for ModrinthClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
-        let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader);
+        let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader, q.plugin_core);
         let facets_json = serde_json::to_string(&facets).unwrap();
         let url = format!(
             "{}/v2/search?query={}&limit={}&offset={}&index={}&facets={}",
@@ -250,43 +305,10 @@ impl ModPlatform for ModrinthClient {
         mc: Option<&str>,
         loader: Option<LoaderKind>,
     ) -> Result<Vec<ModVersion>, Error> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(l) = loader {
-            let loaders = serde_json::to_string(&[Self::loader_facet(l)]).unwrap();
-            params.push(("loaders", urlencode(&loaders)));
-        }
-        if let Some(v) = mc {
-            let games = serde_json::to_string(&[v]).unwrap();
-            params.push(("game_versions", urlencode(&games)));
-        }
-        let query = if params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "?{}",
-                params
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join("&")
-            )
-        };
-        let url = format!("{}/v2/project/{}/version{}", self.base, project_id, query);
-        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
-            .await
-            .map_err(|e| Error::mods_network(url.clone(), e))?;
-        if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
-        }
-        let raws: Vec<types::Version> =
-            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
-                platform: "modrinth".into(),
-                details: e.to_string(),
-            })?;
-        let versions: Vec<ModVersion> = raws.into_iter().map(convert_version).collect();
+        let loader_slugs = loader.map(|l| vec![Self::loader_facet(l)]);
+        let versions = self
+            .fetch_versions(project_id, mc, loader_slugs.as_deref())
+            .await?;
         // Defend against upstream loader mis-tagging (e.g. Xaero's Minimap
         // tags its NeoForge 1.20.4 builds with the `forge` loader). The
         // server-side `loaders` facet trusts that wrong tag; the filename
@@ -294,6 +316,30 @@ impl ModPlatform for ModrinthClient {
         Ok(crate::mods::platform::drop_filename_loader_mismatches(
             versions, loader,
         ))
+    }
+
+    async fn plugin_versions(
+        &self,
+        project_id: &str,
+        mc_version: Option<&str>,
+        plugin_loaders: &[&str],
+    ) -> Result<Vec<ModVersion>, Error> {
+        let want = if plugin_loaders.is_empty() {
+            None
+        } else {
+            Some(plugin_loaders)
+        };
+        let mut versions = self.fetch_versions(project_id, mc_version, want).await?;
+        // Plugin loader tags (bukkit/spigot/paper/purpur) have no `LoaderKind`
+        // mapping — clear whatever `convert_version` filtered in so callers
+        // never see a misleading Java-loader tag on a plugin build. The
+        // filename-loader-mismatch defense is Java-loader specific (forge vs
+        // neoforge tokens) and does not apply here, so it is intentionally
+        // skipped.
+        for v in &mut versions {
+            v.loaders.clear();
+        }
+        Ok(versions)
     }
 
     async fn resolve_deps(
@@ -473,6 +519,7 @@ fn convert_version(v: types::Version) -> ModVersion {
             sha1: Some(f.hashes.sha1),
             size: f.size as f64,
             distribution_allowed: true,
+            sha256: None,
         })
         .unwrap_or(ModFile {
             filename: "missing".into(),
@@ -480,6 +527,7 @@ fn convert_version(v: types::Version) -> ModVersion {
             sha1: None,
             size: 0.0,
             distribution_allowed: false,
+            sha256: None,
         });
     ModVersion {
         source: ModSource::Modrinth,
@@ -528,6 +576,7 @@ fn project_type_facet(kind: ContentKind) -> &'static str {
         ContentKind::Mod => "project_type:mod",
         ContentKind::ResourcePack => "project_type:resourcepack",
         ContentKind::Shader => "project_type:shader",
+        ContentKind::Plugin => "project_type:plugin",
     }
 }
 
@@ -535,21 +584,44 @@ fn build_facets(
     kind: ContentKind,
     mc_version: Option<&str>,
     loader: Option<LoaderKind>,
+    plugin_core: Option<crate::servers_runtime::schema::ServerCore>,
 ) -> Vec<Vec<String>> {
     let mut facets: Vec<Vec<String>> = vec![vec![project_type_facet(kind).into()]];
     if let Some(mc) = mc_version {
         facets.push(vec![format!("versions:{mc}")]);
     }
-    // The Java loader facet applies to mods ONLY. Resource packs have no
-    // loader, and Modrinth shader categories are iris/optifine/canvas — passing
-    // `categories:<loader>` to a shader search returns almost nothing.
-    if kind == ContentKind::Mod {
-        if let Some(l) = loader {
-            facets.push(vec![format!(
-                "categories:{}",
-                ModrinthClient::loader_facet(l)
-            )]);
+    match kind {
+        // The Java loader facet applies to mods ONLY. Resource packs have no
+        // loader, and Modrinth shader categories are iris/optifine/canvas —
+        // passing `categories:<loader>` to a shader search returns almost
+        // nothing.
+        ContentKind::Mod => {
+            if let Some(l) = loader {
+                facets.push(vec![format!(
+                    "categories:{}",
+                    ModrinthClient::loader_facet(l)
+                )]);
+            }
         }
+        // Plugin loader compatibility is an OR-group: a plugin tagged with
+        // ANY of the core's compatible slugs (e.g. Purpur accepts
+        // bukkit/spigot/paper/purpur-tagged plugins) is a match. Skipped
+        // entirely when the caller passed no core, or the core is somehow
+        // not plugin-capable (empty slug list).
+        ContentKind::Plugin => {
+            if let Some(core) = plugin_core {
+                let slugs = core.plugin_loader_slugs();
+                if !slugs.is_empty() {
+                    facets.push(
+                        slugs
+                            .iter()
+                            .map(|s| format!("categories:{s}"))
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            }
+        }
+        ContentKind::ResourcePack | ContentKind::Shader => {}
     }
     facets
 }
@@ -566,7 +638,12 @@ mod tests {
 
     #[test]
     fn facets_use_project_type_per_kind_and_skip_loader_for_resourcepack() {
-        let f = build_facets(ContentKind::Mod, Some("1.20.4"), Some(LoaderKind::Fabric));
+        let f = build_facets(
+            ContentKind::Mod,
+            Some("1.20.4"),
+            Some(LoaderKind::Fabric),
+            None,
+        );
         assert!(f.contains(&vec!["project_type:mod".to_string()]));
         assert!(f
             .iter()
@@ -577,6 +654,7 @@ mod tests {
             ContentKind::ResourcePack,
             Some("1.20.4"),
             Some(LoaderKind::Fabric),
+            None,
         );
         assert!(f.contains(&vec!["project_type:resourcepack".to_string()]));
         assert!(!f
@@ -586,11 +664,60 @@ mod tests {
         // Shaders use iris/optifine/canvas categories, NOT the Java loader.
         // Passing `categories:fabric` to a shader search returns almost nothing,
         // so the loader facet must be omitted for shaders (mods only).
-        let f = build_facets(ContentKind::Shader, None, Some(LoaderKind::Fabric));
+        let f = build_facets(ContentKind::Shader, None, Some(LoaderKind::Fabric), None);
         assert!(f.contains(&vec!["project_type:shader".to_string()]));
         assert!(!f
             .iter()
             .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
+    }
+
+    #[test]
+    fn plugin_facets_use_plugin_project_type_and_core_or_group() {
+        use crate::servers_runtime::schema::ServerCore;
+        let f = build_facets(
+            ContentKind::Plugin,
+            Some("1.21.4"),
+            None,
+            Some(ServerCore::Paper),
+        );
+        assert_eq!(
+            f,
+            vec![
+                vec!["project_type:plugin".to_string()],
+                vec!["versions:1.21.4".to_string()],
+                vec![
+                    "categories:bukkit".to_string(),
+                    "categories:spigot".to_string(),
+                    "categories:paper".to_string(),
+                ],
+            ]
+        );
+        let f = build_facets(
+            ContentKind::Plugin,
+            Some("1.21.4"),
+            None,
+            Some(ServerCore::Purpur),
+        );
+        assert_eq!(f[2].len(), 4);
+        assert!(f[2].contains(&"categories:purpur".to_string()));
+    }
+
+    #[test]
+    fn mod_facets_unchanged_by_plugin_core_param() {
+        let f = build_facets(
+            ContentKind::Mod,
+            Some("1.20.1"),
+            Some(LoaderKind::Fabric),
+            None,
+        );
+        assert_eq!(
+            f,
+            vec![
+                vec!["project_type:mod".to_string()],
+                vec!["versions:1.20.1".to_string()],
+                vec!["categories:fabric".to_string()],
+            ]
+        );
     }
 
     async fn server() -> MockServer {
@@ -686,6 +813,7 @@ mod tests {
             sort: ModSort::Downloads,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -714,6 +842,7 @@ mod tests {
             sort: ModSort::Relevance,
             page_size: 20,
             offset: 0,
+            plugin_core: None,
         };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
@@ -865,6 +994,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![
                 ModDepLink {
@@ -939,6 +1069,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![ModDepLink {
                 kind: DepKind::Required,
@@ -1018,5 +1149,44 @@ mod tests {
         let m = c.project_ids_by_hash(&["AABBCC", "ddeeff"]).await.unwrap();
         assert_eq!(m.get("aabbcc"), Some(&"betterf3".to_string()));
         assert_eq!(m.get("ddeeff"), Some(&"jei".to_string()));
+    }
+
+    #[tokio::test]
+    async fn plugin_versions_queries_core_slugs() {
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/luckperms/version"))
+            .and(query_param(
+                "loaders",
+                r#"["bukkit","spigot","paper"]"#,
+            ))
+            .and(query_param("game_versions", r#"["1.21.4"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "id":"v1","project_id":"luckperms","name":"LuckPerms 5.5",
+                    "version_number":"5.5.0","game_versions":["1.21.4"],
+                    "loaders":["paper","bukkit"],"date_published":"2026-06-01T00:00:00Z",
+                    "dependencies":[],
+                    "files":[{"filename":"LuckPerms-5.5.0.jar","url":"https://cdn.modrinth.com/x.jar",
+                              "primary":true,"size":1000,
+                              "hashes":{"sha1":"aa","sha512":"bb"}}]
+                }]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let vs = c
+            .plugin_versions("luckperms", Some("1.21.4"), &["bukkit", "spigot", "paper"])
+            .await
+            .unwrap();
+        assert_eq!(vs.len(), 1);
+        assert_eq!(vs[0].version_id, "v1");
+        assert!(
+            vs[0].loaders.is_empty(),
+            "plugin loaders don't map to LoaderKind"
+        );
+        assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("aa"));
     }
 }

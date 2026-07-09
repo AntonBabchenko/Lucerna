@@ -7,8 +7,14 @@
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
   import { getProperty, setProperty } from './properties-edit';
+  import { serverState } from '$lib/servers/server-state.svelte';
+  import { displayCore, switchTargets } from '$lib/servers/core-display';
+  import SwitchCoreModal from './SwitchCoreModal.svelte';
 
   let { serverId }: { serverId: string } = $props();
+
+  const server = $derived(serverState.list.find((s) => s.id === serverId));
+  let showSwitchCore = $state(false);
 
   // ── raw file state ──────────────────────────────────────────────────────────
   let raw = $state('');
@@ -119,6 +125,34 @@
 <div class="flex flex-col gap-4">
   {#if loadError}
     <p class="text-sm text-danger">{loadError}</p>
+  {/if}
+
+  {#if server}
+    <!-- Server core -->
+    <div class="flex flex-col gap-2">
+      <h3 class="font-semibold mb-1">{$t('servers.core.sectionTitle')}</h3>
+      <p class="text-sm text-secondary">
+        {$t('servers.core.current')}: <span class="font-medium">{displayCore(server.loader)}</span>
+        {#if server.loader_version}
+          <span class="text-muted">({server.loader_version})</span>
+        {/if}
+      </p>
+      {#if switchTargets(server.loader).length > 0}
+        <div>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            disabled={server.running}
+            onclick={() => (showSwitchCore = true)}
+          >
+            {$t('servers.core.switchButton')}
+          </button>
+          {#if server.running}
+            <p class="text-xs text-muted mt-1">{$t('servers.core.stopToSwitch')}</p>
+          {/if}
+        </div>
+      {/if}
+    </div>
   {/if}
 
   <!-- Curated fields -->
@@ -244,3 +278,11 @@
     {/if}
   </div>
 </div>
+
+{#if showSwitchCore && server}
+  <SwitchCoreModal
+    serverId={server.id}
+    currentCore={server.loader}
+    onClose={() => (showSwitchCore = false)}
+  />
+{/if}

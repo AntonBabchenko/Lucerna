@@ -2,7 +2,7 @@
   import {
     commands,
     type InstanceWithStatus,
-    type LoaderKind,
+    type ServerCore,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import { get } from 'svelte/store';
@@ -10,12 +10,14 @@
   import { t } from '$lib/i18n';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { modCapable, pluginCapable } from '$lib/servers/core-display';
   import { formatHeapLabel } from '$lib/instances/heap';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
-  import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import ServerCorePicker from '$lib/servers/ServerCorePicker.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import ServerImportView from '$lib/servers/ServerImportView.svelte';
 
   let {
@@ -38,8 +40,8 @@
   // svelte-ignore state_referenced_locally
   let instanceId = $state<string | null>(instances.length > 0 ? instances[0].id : null);
   let mcVersion = $state('');
-  let loader = $state<LoaderKind>('vanilla');
-  let loaderVersion = $state<string | null>(null);
+  let core = $state<ServerCore>('vanilla');
+  let coreVersion = $state<string | null>(null);
   let eula = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -50,9 +52,71 @@
   const visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
   );
+
+  // Paper/Purpur publish builds for a subset of MC versions only. Fetch the
+  // core's version catalogue once per core selection (seq-guarded, mirrors
+  // ServerPluginBrowser's reload pattern) and filter the MC dropdown down to
+  // the intersection so the user can't pick a combo the backend would 404 on.
+  let coreVersions = $state<Set<string> | null>(null);
+  let coreVersionsError = $state<string | null>(null);
+  let coreVersionsLoading = $state(false);
+  let coreVerSeq = 0;
+
+  $effect(() => {
+    const c = core;
+    // Bump the seq on EVERY effect run (before the branch check) so any
+    // in-flight plugin-core fetch is invalidated the moment core changes.
+    // Without this, switching Paper→Fabric would take the early-return
+    // branch (seq unchanged) and let Paper's still-pending fetch resolve
+    // through the guard, wrongly narrowing the MC dropdown to Paper's set
+    // for a Fabric server. Mirrors ServerPluginBrowser's reqSeq (increment
+    // at the start of every run, no leave-branch gap).
+    const seq = ++coreVerSeq;
+    if (!pluginCapable(c)) {
+      coreVersions = null;
+      coreVersionsError = null;
+      coreVersionsLoading = false;
+      return;
+    }
+    coreVersionsLoading = true;
+    coreVersionsError = null;
+    void commands.serverCoreVersions(c).then((res) => {
+      if (seq !== coreVerSeq) return; // stale
+      coreVersionsLoading = false;
+      if (res.status === 'ok') {
+        coreVersions = new Set(res.data);
+      } else {
+        coreVersions = null;
+        coreVersionsError = formatError(res.error);
+      }
+    });
+  });
+
+  const coreFilteredVersions = $derived.by(() => {
+    const allowed = coreVersions;
+    return allowed === null ? visibleVersions : visibleVersions.filter((v) => allowed.has(v.id));
+  });
+
+  // When a plugin core's catalogue finishes loading and the currently-picked
+  // MC version isn't in its supported set, drop the dangling selection. This
+  // collapses an out-of-intersection pick back to the normal empty-mcVersion
+  // state (the dropdown now offers only supported versions, user re-picks) —
+  // so canCreate/disabledReason never has to reason about an "unsupported MC"
+  // state. Guarded to the loaded-without-error case: during loading/error the
+  // dropdown still shows every version and must not be cleared. Reads
+  // coreVersions + coreVersionsError + coreFilteredVersions + mcVersion,
+  // writes only mcVersion.
+  $effect(() => {
+    if (coreVersions === null || coreVersionsError !== null) return;
+    const current = mcVersion;
+    if (current !== '' && !coreFilteredVersions.some((v) => v.id === current)) {
+      mcVersion = '';
+    }
+  });
+
   const mcVersionOptions = $derived([
     { value: '', label: $t('instance.manage.chooseMcOption') },
-    ...visibleVersions.map((v) => ({ value: v.id, label: v.id })),
+    ...coreFilteredVersions.map((v) => ({ value: v.id, label: v.id })),
   ]);
 
   // Heap for the new server. The adaptive bounds live inside MemorySlider.
@@ -65,12 +129,25 @@
     })),
   );
 
+  // Standalone-mode core selection is valid once: a MC version is chosen,
+  // mod-loader cores (fabric/quilt/forge/neoforge) have a resolved loader
+  // version, and paper/purpur have successfully loaded their build
+  // catalogue with the chosen MC version inside the intersection (vanilla
+  // needs neither — coreVersion stays null throughout).
+  const standaloneCoreReady = $derived(
+    modCapable(core)
+      ? coreVersion !== null
+      : pluginCapable(core)
+        ? coreVersions !== null && coreVersionsError === null && coreVersions.has(mcVersion)
+        : true,
+  );
+
   const canCreate = $derived(
     name.trim().length > 0 &&
       eula &&
       (mode === 'instance'
         ? instanceId !== null
-        : mcVersion.trim().length > 0 && (loader === 'vanilla' || loaderVersion !== null)),
+        : mcVersion.trim().length > 0 && standaloneCoreReady),
   );
 
   // Tell the user WHY Create is disabled instead of leaving a dead button
@@ -81,9 +158,23 @@
     if (mode === 'instance') {
       if (instanceId === null) return $t('servers.wizard.disabledReason.instance');
     } else {
-      if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
-      if (loader !== 'vanilla' && loaderVersion === null) {
-        return $t('servers.wizard.disabledReason.loader');
+      // Plugin cores (paper/purpur) have no loader-version field, so the
+      // generic "choose a loader version" reason would misdirect. Surface
+      // their distinct blocking states first: catalogue loading, catalogue
+      // error, then fall through to the standard empty-mcVersion prompt.
+      // (An out-of-intersection MC is auto-cleared to '' before it reaches
+      // here, so it collapses into the empty-mcVersion case — no separate
+      // "unsupported MC" reason is needed.)
+      if (pluginCapable(core)) {
+        if (coreVersionsLoading) return $t('servers.wizard.coreVersionsLoading');
+        if (coreVersionsError !== null) return coreVersionsError;
+        if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
+      } else {
+        if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
+        // Only the four mod-loader cores have a loader-version to choose.
+        if (!standaloneCoreReady) {
+          return $t('servers.wizard.disabledReason.loader');
+        }
       }
     }
     if (!eula) return $t('servers.wizard.disabledReason.eula');
@@ -94,7 +185,7 @@
     if (!canCreate || busy) return;
 
     let effectiveMcVersion: string;
-    let effectiveLoader: LoaderKind;
+    let effectiveLoader: ServerCore;
     let effectiveLoaderVersion: string | null;
     let createdFromInstance: string | null;
 
@@ -107,8 +198,8 @@
       createdFromInstance = inst.id;
     } else {
       effectiveMcVersion = mcVersion.trim();
-      effectiveLoader = loader;
-      effectiveLoaderVersion = loaderVersion;
+      effectiveLoader = core;
+      effectiveLoaderVersion = coreVersion;
       createdFromInstance = null;
     }
 
@@ -233,17 +324,25 @@
           <input type="checkbox" bind:checked={showSnapshots} />
           {$t('instance.manage.showSnapshots')}
         </label>
+        {#if coreVersionsLoading}
+          <Spinner
+            size="sm"
+            labelPlacement="right"
+            label={$t('servers.wizard.coreVersionsLoading')}
+            delayMs={150}
+          />
+        {:else if coreVersionsError}
+          <p class="text-xs text-danger">{$t('servers.wizard.coreVersionsError')}</p>
+        {/if}
       </div>
       <div class="flex flex-col gap-1">
-        <!-- svelte-ignore a11y_label_has_associated_control -->
-        <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
-        <LoaderPicker
+        <ServerCorePicker
           mc={mcVersion}
-          {loader}
-          {loaderVersion}
-          onchange={(l, v) => {
-            loader = l;
-            loaderVersion = v;
+          {core}
+          {coreVersion}
+          onchange={(c, v) => {
+            core = c;
+            coreVersion = v;
           }}
         />
       </div>

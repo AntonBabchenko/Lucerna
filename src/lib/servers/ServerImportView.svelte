@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { type LoaderKind } from '$lib/ipc/bindings';
+  import { type ServerCore } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatHeapLabel } from '$lib/instances/heap';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import { displayCore, pluginCapable, coreToLoaderKind } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -27,7 +28,7 @@
   // Editable confirm-step fields, prefilled from the inspect preview.
   let name = $state('');
   let mcVersion = $state('');
-  let loader = $state<LoaderKind>('vanilla');
+  let loader = $state<ServerCore>('vanilla');
   let loaderVersion = $state<string | null>(null);
   let eula = $state(false);
   let canLaunchAsIs = $state(false);
@@ -107,7 +108,7 @@
         name = r.preview.detected_name;
         mcVersion = r.preview.mc_version ?? '';
         loaderUnknown = r.preview.loader === null;
-        loader = (r.preview.loader as LoaderKind | null) ?? 'vanilla';
+        loader = r.preview.loader ?? 'vanilla';
         loaderVersion = r.preview.loader_version ?? null;
         canLaunchAsIs = r.preview.can_launch_as_is;
         eula = r.preview.eula_in_source;
@@ -138,7 +139,10 @@
     busy = true;
     error = null;
     try {
-      const effectiveLoaderVersion = loader === 'vanilla' ? null : loaderVersion;
+      // Vanilla and plugin cores (paper/purpur) have no loader version to
+      // pick — the backend resolves paper/purpur builds server-side.
+      const effectiveLoaderVersion =
+        loader === 'vanilla' || pluginCapable(loader) ? null : loaderVersion;
       const r = await serverState.importCommit(
         token,
         name.trim(),
@@ -169,6 +173,13 @@
   }
 
   const canImport = $derived(name.trim().length > 0 && eula);
+
+  // LoaderPicker only understands the 5 mod-loader kinds; paper/purpur are
+  // shown read-only below instead (see the loader section markup). Deriving
+  // through the shared coreToLoaderKind map (rather than an inline cast)
+  // keeps this in sync with pluginCapable/modCapable's classification and
+  // narrows to LoaderKind for TypeScript.
+  const loaderKind = $derived(coreToLoaderKind(loader));
 </script>
 
 {#if phase === 'pick'}
@@ -255,28 +266,48 @@
       />
     </div>
 
-    <!-- Loader -->
+    <!-- Core / loader -->
     <div class="flex flex-col gap-1">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
-      {#if loaderUnknown && loader === 'vanilla'}
+      {#if loaderKind === null}
+        <!-- Plugin cores (Paper/Purpur) are server CORES, not mod loaders, and
+             have no loader-version to pick; overriding a detected plugin-core
+             import to a mod loader is out of scope here (LoaderPicker is
+             LoaderKind-only) — show the detected core read-only, under a "Server
+             core" label (LoaderPicker's own "Loader" label doesn't render on
+             this branch, so this static <p> needs one). -->
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label class="text-sm font-medium">{$t('servers.core.sectionTitle')}</label>
         <p
-          class="rounded bg-warning-bg px-2 py-1 text-xs text-warning-text"
-          role="alert"
-          data-testid="import-loader-unknown-warn"
+          class="h-8 flex items-center rounded border border-border-subtle bg-surface px-3 text-sm text-primary"
         >
-          {$t('servers.import.loaderUnknownWarn')}
+          {displayCore(loader)}
         </p>
+        <p class="text-xs text-muted">{$t('servers.core.latestBuildHint')}</p>
+      {:else}
+        <!-- Mod-loader cores (incl. vanilla): LoaderPicker renders its own
+             internal "Loader" group label, so no wrapping field label here
+             (mirrors ManageInstancesModal's single-label mount). The
+             unknown-vanilla warn belongs on this branch: coreToLoaderKind
+             ('vanilla') is 'vanilla' (non-null), so this is where it fires. -->
+        {#if loaderUnknown && loader === 'vanilla'}
+          <p
+            class="rounded bg-warning-bg px-2 py-1 text-xs text-warning-text"
+            role="alert"
+            data-testid="import-loader-unknown-warn"
+          >
+            {$t('servers.import.loaderUnknownWarn')}
+          </p>
+        {/if}
+        <LoaderPicker
+          mc={mcVersion}
+          loader={loaderKind}
+          {loaderVersion}
+          onchange={(l, v) => {
+            loader = l;
+            loaderVersion = v;
+          }}
+        />
       {/if}
-      <LoaderPicker
-        mc={mcVersion}
-        {loader}
-        {loaderVersion}
-        onchange={(l, v) => {
-          loader = l;
-          loaderVersion = v;
-        }}
-      />
     </div>
 
     <!-- Memory -->

@@ -5,6 +5,7 @@
   import { commands, type ServerModEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { coreToLoaderKind, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -29,12 +30,15 @@
   let pendingDelete = $state<string | null>(null);
 
   // The server's own metadata drives mod applicability. Mods only attach to a
-  // mod loader; a vanilla server gets datapacks only. Mutations require a stopped
-  // server (the backend enforces it; the UI gates to avoid pointless errors).
+  // mod loader; a vanilla server gets datapacks only. Plugin cores (paper/purpur)
+  // have no mod loader either — they get datapacks + plugins (Plugins tab), not
+  // mods. Mutations require a stopped server (the backend enforces it; the UI
+  // gates to avoid pointless errors).
   const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
-  const isVanilla = $derived(server?.loader === 'vanilla');
+  const isModCapable = $derived(server !== null && modCapable(server.loader));
+  const isPluginCore = $derived(server !== null && pluginCapable(server.loader));
   const isRunning = $derived(server?.running ?? false);
-  const canManageMods = $derived(server !== null && !isVanilla && !isRunning);
+  const canManageMods = $derived(server !== null && isModCapable && !isRunning);
 
   async function refresh() {
     const res = await commands.serverListMods(serverId);
@@ -150,11 +154,17 @@
   <div class="flex flex-col gap-3">
     <!-- Toolbar -->
     <div class="flex flex-wrap items-center gap-2">
-      <BusyButton class="btn-secondary btn-sm" busy={busyFolder} onclick={() => void openFolder()}>
-        <Icon name="folderOpen" size={14} />
-        {$t('servers.mods.openFolder')}
-      </BusyButton>
-      {#if !isVanilla}
+      {#if !isPluginCore}
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyFolder}
+          onclick={() => void openFolder()}
+        >
+          <Icon name="folderOpen" size={14} />
+          {$t('servers.mods.openFolder')}
+        </BusyButton>
+      {/if}
+      {#if isModCapable}
         <button
           type="button"
           class="btn-secondary btn-sm inline-flex items-center gap-1"
@@ -187,106 +197,114 @@
       {/if}
     </div>
 
-    {#if isRunning}
-      <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
-    {/if}
-
-    <!-- Server-targeted mod browser (collapsible) -->
-    {#if showBrowser && canManageMods && server}
-      <div class="rounded border border-border-subtle p-2">
-        <ServerModBrowser
-          {serverId}
-          mcVersion={server.mc_version}
-          loader={server.loader}
-          onInstalled={() => void refresh()}
-        />
-      </div>
-    {/if}
-
-    <!-- Note -->
-    <p class="text-xs text-secondary">{$t('servers.mods.note')}</p>
-
-    {#if loadError}
-      <p class="text-sm text-danger">{loadError}</p>
-    {/if}
-    {#if actionError}
-      <p class="text-sm text-danger">{actionError}</p>
-    {/if}
-
-    {#if mods.length === 0 && !loadError}
-      <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
+    {#if isPluginCore}
+      <p class="text-xs text-secondary">{$t('servers.mods.pluginCoreHint')}</p>
     {:else}
-      <div class="overflow-hidden rounded-lg border border-border-subtle">
-        {#each mods as entry (entry.filename)}
-          <CardShell variant="compact-row" dim={entry.disabled}>
-            <span class="flex-1 truncate font-mono text-xs text-primary">{entry.filename}</span>
+      {#if isRunning}
+        <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
+      {/if}
 
-            {#if entry.disabled}
-              <StatusBadge variant="muted">
-                {entry.reason === 'client_only'
-                  ? $t('servers.mods.setAsideClientOnly')
-                  : $t('servers.mods.setAside')}
-              </StatusBadge>
-            {/if}
+      <!-- Server-targeted mod browser (collapsible). The bare `server &&` is for
+         TS narrowing only — canManageMods already implies server is non-null AND
+         modCapable(server.loader), which is exactly why the coreToLoaderKind(...)!
+         assertion below is safe: mod-capable cores are never paper/purpur, so the
+         map cannot return null here. -->
+      {#if showBrowser && canManageMods && server}
+        <div class="rounded border border-border-subtle p-2">
+          <ServerModBrowser
+            {serverId}
+            mcVersion={server.mc_version}
+            loader={coreToLoaderKind(server.loader)!}
+            onInstalled={() => void refresh()}
+          />
+        </div>
+      {/if}
 
-            {#if pendingDelete === entry.filename}
-              <!-- Inline confirm row -->
-              <span class="text-xs text-secondary shrink-0">
-                {$t('servers.mods.deleteConfirm', { name: entry.filename })}
-              </span>
-              <BusyButton
-                class="btn-danger btn-xs"
-                busy={busyDelete === entry.filename}
-                onclick={() => void confirmDelete(entry.filename)}
-              >
-                {$t('servers.mods.delete')}
-              </BusyButton>
-              <button
-                type="button"
-                class="btn-ghost btn-xs"
-                disabled={busyDelete === entry.filename}
-                onclick={() => (pendingDelete = null)}
-              >
-                {$t('common.cancel')}
-              </button>
-            {:else}
-              {#if entry.disabled && canManageMods}
-                <BusyButton
-                  class="btn-ghost btn-xs inline-flex items-center gap-1"
-                  busy={busyRestore === entry.filename}
-                  onclick={() => void restore(entry.filename)}
-                  data-testid="server-mod-restore"
-                >
-                  <Icon name="restore" size={13} />
-                  {$t('servers.mods.restore')}
-                </BusyButton>
+      <!-- Note -->
+      <p class="text-xs text-secondary">{$t('servers.mods.note')}</p>
+
+      {#if loadError}
+        <p class="text-sm text-danger">{loadError}</p>
+      {/if}
+      {#if actionError}
+        <p class="text-sm text-danger">{actionError}</p>
+      {/if}
+
+      {#if mods.length === 0 && !loadError}
+        <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
+      {:else}
+        <div class="overflow-hidden rounded-lg border border-border-subtle">
+          {#each mods as entry (entry.filename)}
+            <CardShell variant="compact-row" dim={entry.disabled}>
+              <span class="flex-1 truncate font-mono text-xs text-primary">{entry.filename}</span>
+
+              {#if entry.disabled}
+                <StatusBadge variant="muted">
+                  {entry.reason === 'client_only'
+                    ? $t('servers.mods.setAsideClientOnly')
+                    : $t('servers.mods.setAside')}
+                </StatusBadge>
               {/if}
-              {#if isRunning}
-                <span use:tooltip={{ text: $t('servers.mods.stopToManage'), describe: false }}>
+
+              {#if pendingDelete === entry.filename}
+                <!-- Inline confirm row -->
+                <span class="text-xs text-secondary shrink-0">
+                  {$t('servers.mods.deleteConfirm', { name: entry.filename })}
+                </span>
+                <BusyButton
+                  class="btn-danger btn-xs"
+                  busy={busyDelete === entry.filename}
+                  onclick={() => void confirmDelete(entry.filename)}
+                >
+                  {$t('servers.mods.delete')}
+                </BusyButton>
+                <button
+                  type="button"
+                  class="btn-ghost btn-xs"
+                  disabled={busyDelete === entry.filename}
+                  onclick={() => (pendingDelete = null)}
+                >
+                  {$t('common.cancel')}
+                </button>
+              {:else}
+                {#if entry.disabled && canManageMods}
+                  <BusyButton
+                    class="btn-ghost btn-xs inline-flex items-center gap-1"
+                    busy={busyRestore === entry.filename}
+                    onclick={() => void restore(entry.filename)}
+                    data-testid="server-mod-restore"
+                  >
+                    <Icon name="restore" size={13} />
+                    {$t('servers.mods.restore')}
+                  </BusyButton>
+                {/if}
+                {#if isRunning}
+                  <span use:tooltip={{ text: $t('servers.mods.stopToManage'), describe: false }}>
+                    <button
+                      type="button"
+                      class="btn-icon btn-icon-sm btn-icon-danger"
+                      aria-label={$t('servers.mods.delete')}
+                      disabled
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </span>
+                {:else}
                   <button
                     type="button"
                     class="btn-icon btn-icon-sm btn-icon-danger"
                     aria-label={$t('servers.mods.delete')}
-                    disabled
+                    use:tooltip={$t('servers.mods.delete')}
+                    onclick={() => requestDelete(entry.filename)}
                   >
                     <Icon name="trash" size={13} />
                   </button>
-                </span>
-              {:else}
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm btn-icon-danger"
-                  aria-label={$t('servers.mods.delete')}
-                  use:tooltip={$t('servers.mods.delete')}
-                  onclick={() => requestDelete(entry.filename)}
-                >
-                  <Icon name="trash" size={13} />
-                </button>
+                {/if}
               {/if}
-            {/if}
-          </CardShell>
-        {/each}
-      </div>
+            </CardShell>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
 

@@ -127,6 +127,9 @@ pub struct ServerPaths {
     pub json: PathBuf,
     pub runtime: PathBuf,
     pub mods: PathBuf,
+    /// `runtime/plugins` — Bukkit-family (Paper/Purpur) plugin jars. Only
+    /// loaded when the server core is plugin-capable; absent/unused otherwise.
+    pub plugins: PathBuf,
     pub logs: PathBuf,
     /// `runtime/server.pid` — the running server's OS PID, persisted so
     /// `server_list` can reconcile live processes after a launcher restart.
@@ -146,6 +149,7 @@ pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
     ServerPaths {
         json: root.join("server.json"),
         mods: runtime.join("mods"),
+        plugins: runtime.join("plugins"),
         logs: runtime.join("logs"),
         pid: runtime.join("server.pid"),
         runtime,
@@ -277,6 +281,7 @@ mod server_path_tests {
         assert_eq!(p.json, Path::new("/data/servers/srv-1/server.json"));
         assert_eq!(p.runtime, Path::new("/data/servers/srv-1/runtime"));
         assert_eq!(p.mods, Path::new("/data/servers/srv-1/runtime/mods"));
+        assert_eq!(p.plugins, Path::new("/data/servers/srv-1/runtime/plugins"));
         assert_eq!(p.logs, Path::new("/data/servers/srv-1/runtime/logs"));
         assert_eq!(p.pid, Path::new("/data/servers/srv-1/runtime/server.pid"));
     }

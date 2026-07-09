@@ -331,6 +331,7 @@ async fn search_hits(
         sort: ModSort::Relevance,
         page_size: MAX_FUZZY as u32,
         offset: 0,
+        plugin_core: None,
     };
     plat.search(&q)
         .await
@@ -373,6 +374,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![],
             published_at: None,

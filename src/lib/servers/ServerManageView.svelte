@@ -13,6 +13,7 @@
   import ServerGeneralSettings from './ServerGeneralSettings.svelte';
   import ServerSettings from './ServerSettings.svelte';
   import ServerMods from './ServerMods.svelte';
+  import ServerPlugins from './ServerPlugins.svelte';
   import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
   import ServerHostingTab from './ServerHostingTab.svelte';
   import ServerConnectView from './ServerConnectView.svelte';
@@ -36,7 +37,15 @@
     onInstanceCreated: (instanceId: string) => void;
   } = $props();
 
-  type ServerTab = 'console' | 'connect' | 'general' | 'settings' | 'mods' | 'hosting' | 'backups';
+  type ServerTab =
+    | 'console'
+    | 'connect'
+    | 'general'
+    | 'settings'
+    | 'mods'
+    | 'plugins'
+    | 'hosting'
+    | 'backups';
 
   // serverList() always returns ServerWithStatus_Serialize[]; the store type
   // is the union for legacy reasons. Cast here so the dialog prop is satisfied.
@@ -77,6 +86,7 @@
     'general',
     'settings',
     'mods',
+    'plugins',
     'hosting',
     'backups',
   ];
@@ -249,10 +259,10 @@
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div
     role="tablist"
-    class="flex gap-1 border-b border-border-subtle px-4 bg-surface"
+    class="flex gap-1 overflow-x-auto border-b border-border-subtle px-4 bg-surface"
     onkeydown={onTablistKeydown}
   >
-    {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
+    {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['plugins', $t('servers.plugins.tab')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
       <button
         bind:this={tabEls[TAB_ORDER.indexOf(id)]}
         type="button"
@@ -285,6 +295,8 @@
       <ServerSettings {serverId} />
     {:else if tab === 'mods'}
       <ServerMods {serverId} />
+    {:else if tab === 'plugins'}
+      <ServerPlugins {serverId} />
     {:else if tab === 'hosting'}
       <ServerHostingTab {serverId} />
     {:else if tab === 'backups'}

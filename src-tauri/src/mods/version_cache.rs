@@ -82,6 +82,7 @@ mod tests {
                 sha1: Some("a".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![],
             published_at: None,

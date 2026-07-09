@@ -144,7 +144,7 @@ pub fn update_runtime_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instances::schema::LoaderKind;
+    use crate::servers_runtime::schema::ServerCore;
     use tempfile::tempdir;
 
     fn sample(id: &str) -> ServerFile {
@@ -152,7 +152,7 @@ mod tests {
             id: id.into(),
             name: "S".into(),
             mc_version: "1.20.4".into(),
-            loader: LoaderKind::Vanilla,
+            loader: ServerCore::Vanilla,
             loader_version: None,
             max_heap_mb: 2048,
             extra_jvm_args: String::new(),

@@ -191,6 +191,7 @@ pub async fn install_one(
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
+                ModSource::Hangar => "hangar",
             }
             .into(),
             project_id: version.project_id.clone(),
@@ -353,6 +354,12 @@ fn asset_dir(kind: crate::mods::platform::ContentKind) -> &'static str {
         ResourcePack => "resourcepacks",
         Shader => "shaderpacks",
         Mod => "mods", // assets path is rp/shader only; never used for Mod
+        // Unreachable in practice: `assets::require_asset_kind` rejects
+        // Plugin (server-only content) at the asset-command boundary, the
+        // same way it rejects Mod. Plugins live in a server's
+        // runtime/plugins/ (servers_runtime plugin fs module), never under
+        // a client instance's .minecraft/.
+        Plugin => "plugins",
     }
 }
 
@@ -599,6 +606,7 @@ pub async fn update_one(
                     ModSource::Curseforge => "curseforge",
                     ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                     ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
+                    ModSource::Hangar => "hangar",
                 }
                 .into(),
                 project_id: v.project_id.clone(),
@@ -672,6 +680,7 @@ mod tests {
                 sha1: Some(sha),
                 size: bytes_len as f64,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![],
             published_at: None,

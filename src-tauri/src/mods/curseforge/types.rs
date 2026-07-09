@@ -6,13 +6,17 @@ use serde::Deserialize;
 pub const GAME_MINECRAFT: u32 = 432;
 
 // CurseForge Minecraft class IDs (https://docs.curseforge.com — categories):
-// Mods=6, Resource Packs=12, Shaders=6552. (Datapacks=6945, Worlds=17 — unused.)
+// Mods=6, Resource Packs=12, Shaders=6552, Bukkit Plugins=5. (Datapacks=6945,
+// Worlds=17 — unused.) `search()` early-returns for `Plugin` before this is
+// ever called (CF is not offered as a plugin source) — the arm exists purely
+// so this defensive lookup stays exhaustive.
 pub fn class_id(kind: crate::mods::platform::ContentKind) -> u32 {
     use crate::mods::platform::ContentKind::*;
     match kind {
         Mod => 6,
         ResourcePack => 12,
         Shader => 6552,
+        Plugin => 5,
     }
 }
 

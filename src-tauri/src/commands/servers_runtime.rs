@@ -1,9 +1,8 @@
 //! Tauri-команды фичи «Свой сервер» (План 1: создание/список/удаление).
 
 use crate::error::{Error, Result};
-use crate::instances::schema::LoaderKind;
 use crate::mods::platform::ServerSideSupport;
-use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
+use crate::servers_runtime::schema::{ServerCore, ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{backup, create, import, store};
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -292,7 +291,7 @@ pub async fn server_create(
     app: AppHandle,
     name: String,
     mc_version: String,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -337,7 +336,7 @@ pub async fn server_create(
         crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
             .await
             .ok();
-    provision_loader(&app, &base, &file).await?;
+    provision_loader(&app, &base, &mut file).await?;
     let mut quarantined: Vec<String> = Vec::new();
     if let Some(inst_id) = &file.created_from_instance {
         let src = crate::paths::mods_dir(&app, inst_id)
@@ -979,8 +978,8 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    provision_loader(&app, &base, &file).await?;
+    let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    provision_loader(&app, &base, &mut file).await?;
     mark_current_log_handled(&p);
     Ok(())
 }
@@ -1034,6 +1033,18 @@ pub async fn server_disable_mods(
     Ok(())
 }
 
+/// The client `LoaderKind` the server's Java-mod machinery should use, or a
+/// fast typed error when this core has none. Contract: only mod-capable cores
+/// (Fabric/Quilt/Forge/NeoForge) pass; vanilla and the Bukkit plugin cores
+/// (Paper/Purpur) are rejected rather than silently installing into a `mods/`
+/// dir the server never reads (matches the UI's per-core gating).
+fn require_mod_loader(file: &ServerFile) -> Result<crate::instances::schema::LoaderKind> {
+    file.loader
+        .as_loader_kind()
+        .filter(|_| file.loader.mod_capable())
+        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))
+}
+
 /// Install missing dependency mods into the server's `mods/` (B9/B10 fix).
 /// `mod_ids` come from the diagnosis `conflict_mods`. Resolves each id to a
 /// concrete version via the shared dep resolver and downloads through `network::`.
@@ -1052,13 +1063,14 @@ pub async fn server_install_missing_dep(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     let report = crate::mods::dep_resolve::install_missing_into_dir(
         &base,
         &p.mods,
         &mod_ids,
         &file.mc_version,
-        file.loader,
+        loader,
         cf_key,
     )
     .await?;
@@ -1515,14 +1527,14 @@ pub async fn server_open_folder(app: AppHandle, id: String) -> Result<()> {
 async fn provision_loader(
     app: &AppHandle,
     base: &std::path::Path,
-    file: &ServerFile,
+    file: &mut ServerFile,
 ) -> Result<()> {
     match file.loader {
-        LoaderKind::Vanilla => {
+        ServerCore::Vanilla => {
             let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
             create::create_vanilla_server(base, file, &jar_url, &sha1).await?;
         }
-        LoaderKind::Fabric => {
+        ServerCore::Fabric => {
             let installer = create::latest_fabric_installer(&file.mc_version).await?;
             let lv = create::require_loader_version(file, "fabric")?;
             let url = crate::servers_runtime::jar::fabric_server_jar_url(
@@ -1532,7 +1544,7 @@ async fn provision_loader(
             );
             create::create_fabric_server(base, file, &url).await?;
         }
-        LoaderKind::Quilt => {
+        ServerCore::Quilt => {
             let installer = create::latest_quilt_installer(&file.mc_version).await?;
             let lv = create::require_loader_version(file, "quilt")?;
             let url = crate::servers_runtime::jar::quilt_server_jar_url(
@@ -1542,9 +1554,9 @@ async fn provision_loader(
             );
             create::create_quilt_server(base, file, &url).await?;
         }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
+        ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;
-            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
+            let (url, label) = if matches!(file.loader, ServerCore::Forge) {
                 (
                     crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
                     "forge",
@@ -1559,6 +1571,22 @@ async fn provision_loader(
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &url, &java_bin, label).await?;
+        }
+        ServerCore::Paper => {
+            let jar = crate::servers_runtime::paper::PaperClient::new()
+                .latest_stable_build(&file.mc_version)
+                .await?;
+            // Persist the resolved build BEFORE the prebuilt path writes
+            // server.json, so the stored loader_version is the real build.
+            file.loader_version = Some(jar.build.clone());
+            create::create_paper_family_server(base, file, &jar.url, jar.checksum).await?;
+        }
+        ServerCore::Purpur => {
+            let jar = crate::servers_runtime::purpur::PurpurClient::new()
+                .latest_successful_build(&file.mc_version)
+                .await?;
+            file.loader_version = Some(jar.build.clone());
+            create::create_paper_family_server(base, file, &jar.url, jar.checksum).await?;
         }
     }
     Ok(())
@@ -1586,7 +1614,7 @@ pub async fn server_import_commit(
     token: String,
     name: String,
     mc_version: String,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -1628,7 +1656,7 @@ pub async fn server_import_commit(
         // Remove the reserved directory if any step below fails (`?` / early
         // return), so a partial import never leaks the slug.
         let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
-        let file = import::build_file(
+        let mut file = import::build_file(
             &new_id,
             &name,
             &mc_version,
@@ -1637,7 +1665,7 @@ pub async fn server_import_commit(
             max_heap_mb,
             eula_accepted,
         );
-        provision_loader(&app, &base, &file).await?;
+        provision_loader(&app, &base, &mut file).await?;
         let p = crate::paths::server_paths(&base, &new_id);
         match import::pack::detect_pack(&root) {
             Some(import::pack::PackKind::Modrinth) => {
@@ -2118,9 +2146,49 @@ pub async fn server_install_mod(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?;
     crate::commands::install_version_into_dir(
         &base,
         &p.mods,
+        source,
+        &project_id,
+        &version_id,
+        &file.mc_version,
+        loader,
+    )
+    .await
+}
+
+/// Install a chosen plugin version + its required dependency closure into the
+/// server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
+/// resolves the server's mc_version + core from `server.json`, gates on the core
+/// being plugin-capable (Paper/Purpur), then reuses the shared plugin install
+/// kernel ([`crate::commands::install_plugin_into_dir`]). Server must be stopped.
+/// Returns the jars written + any dependency that could not be resolved.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_plugin(
+    app: AppHandle,
+    id: String,
+    source: crate::mods::platform::ModSource,
+    project_id: String,
+    version_id: String,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+    crate::commands::install_plugin_into_dir(
+        &base,
+        &p.plugins,
         source,
         &project_id,
         &version_id,
@@ -2250,6 +2318,281 @@ pub fn server_remove_datapack(app: AppHandle, id: String, filename: String) -> R
     let p = crate::paths::server_paths(&base, &id);
     let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
     crate::servers_runtime::datapacks::remove_datapack(&dir, &filename)
+}
+
+/// One entry in `server_list_plugins`. Unlike mods there is no quarantine
+/// sidecar — plugins have no client/server ambiguity — so no reason field.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerPluginEntry {
+    pub filename: String,
+    pub disabled: bool,
+}
+
+/// List the `.jar` / `.jar.disabled` plugins installed for a server's
+/// `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_plugins(app: AppHandle, id: String) -> Result<Vec<ServerPluginEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    Ok(crate::servers_runtime::plugins::list_plugins(&dir)
+        .into_iter()
+        .map(|(filename, disabled)| ServerPluginEntry { filename, disabled })
+        .collect())
+}
+
+/// Install a local plugin `.jar` (chosen via the file picker) into the
+/// server's `runtime/plugins/`. Mirrors `server_install_local` (path-based —
+/// no heavy bytes over IPC). Validates the jar carries `plugin.yml` /
+/// `paper-plugin.yml` at its root. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_plugin_local(
+    app: AppHandle,
+    id: String,
+    jar_path: String,
+) -> Result<String> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    // Defense-in-depth: reject a plugin install onto a non-plugin core BEFORE
+    // touching the fs, mirroring `require_mod_loader` for the mods path. Reads
+    // `server.json` first so a mod-core server never grows a `runtime/plugins/`.
+    let file = store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+    let dir = p.plugins;
+    let src = std::path::PathBuf::from(jar_path);
+    // `install_local_plugin` does whole-jar blocking std::fs read+write; run it
+    // off the async runtime so a large jar can't stall other tasks.
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::plugins::install_local_plugin(&dir, &src)
+    })
+    .await
+    .map_err(|e| Error::io("<plugin>", format!("join: {e}")))?
+}
+
+/// Re-enable a set-aside plugin: rename `<name>.jar.disabled` → `<name>.jar`.
+/// Inverse of `server_disable_plugin`. Idempotent (absent → `Ok`). Rejects
+/// unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_enable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let stripped = match filename.strip_suffix(".disabled") {
+        Some(s) => s.to_string(),
+        None => return Err(Error::io("<plugin>", "not a disabled plugin")),
+    };
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let src = dir.join(&filename);
+    let dst = dir.join(&stripped);
+    if !src.starts_with(&dir) || !dst.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
+}
+
+/// Disable (rename to `*.disabled`) a single plugin in the server's
+/// `runtime/plugins/`. Unlike `server_disable_mods` this is single-file: no
+/// bulk, no dependency guard (plugins have no dependency graph the launcher
+/// tracks). Rejects unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let src = dir.join(&filename);
+    if !src.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    let dst = dir.join(format!("{filename}.disabled"));
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
+}
+
+/// Delete a plugin from the server's `runtime/plugins/` by filename.
+/// Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
+/// traversal). Unlike `server_delete_mod` this HAS an is_running guard —
+/// deleting a live plugin's jar out from under a running Bukkit-family server
+/// is a class of foot-gun the mods twin doesn't need to worry about the same
+/// way (mods are only ever touched while stopped in practice); kept here
+/// deliberately rather than propagating the mods twin's gap.
+#[tauri::command]
+#[specta::specta]
+pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<plugin>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let path = dir.join(&filename);
+    if !path.starts_with(&dir) {
+        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// Open the server's `runtime/plugins/` folder in the system file manager.
+/// Creates the folder if it doesn't exist yet. Mirrors `server_open_logs_folder`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
+/// Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
+/// Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
+/// these). Sequence: guard running -> validate -> fresh backup -> resolve +
+/// download the new jar (atomic .part rename; a failed download leaves the
+/// old jar AND old server.json untouched) -> re-read + re-validate -> only
+/// then swap loader/loader_version. Worlds are never touched: Paper converts
+/// them itself on first boot. This command owns the pre-switch snapshot;
+/// callers must not create another.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_switch_core(
+    app: AppHandle,
+    id: String,
+    target: crate::servers_runtime::schema::ServerCore,
+) -> Result<()> {
+    use crate::servers_runtime::schema::{core_switch_allowed, ServerCore};
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !core_switch_allowed(file.loader, target) {
+        return Err(Error::io("<core>", "unsupported core switch"));
+    }
+    // Mandatory fresh backup before anything changes on disk.
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    backup::create_backup(&base, &id, &stamp)?;
+    // Resolve the target core's newest build, download over runtime/server.jar
+    // (atomic: .part + rename-after-verify, old jar survives any failure).
+    let jar = match target {
+        ServerCore::Paper => {
+            crate::servers_runtime::paper::PaperClient::new()
+                .latest_stable_build(&file.mc_version)
+                .await?
+        }
+        ServerCore::Purpur => {
+            crate::servers_runtime::purpur::PurpurClient::new()
+                .latest_successful_build(&file.mc_version)
+                .await?
+        }
+        // core_switch_allowed only ever admits Paper/Purpur as a target (both
+        // arms above cover it); every other variant can't reach this match
+        // given the guard above, but we reject explicitly rather than panic —
+        // the matrix/catalogue only covers plugin cores.
+        ServerCore::Vanilla
+        | ServerCore::Fabric
+        | ServerCore::Quilt
+        | ServerCore::Forge
+        | ServerCore::NeoForge => {
+            return Err(Error::io("<core>", "unsupported core switch"));
+        }
+    };
+    crate::network::download::download_no_emit_with(
+        &jar.url,
+        &p.runtime.join("server.jar"),
+        jar.checksum,
+        "servers",
+    )
+    .await?;
+    // TOCTOU re-check: the entry guard ran before a potentially long download,
+    // and a server started mid-switch must not have its label flipped under
+    // the running process. The downloaded jar HAS already overwritten
+    // runtime/server.jar at this point, but the old label stays authoritative
+    // and `server_redownload_jar` converges the jar back — the same
+    // recoverable torn state as a mid-download crash.
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    // Re-read server.json rather than reusing `file`: the download above can
+    // take a while, and a concurrent rename/heap edit must not be clobbered by
+    // writing back the pre-download snapshot. Re-validate the switch against
+    // the FRESH loader too — it may have changed while we were downloading.
+    let mut fresh = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !core_switch_allowed(fresh.loader, target) {
+        return Err(Error::io("<core>", "unsupported core switch"));
+    }
+    fresh.loader = target;
+    fresh.loader_version = Some(jar.build);
+    crate::servers_runtime::store::write_server_json(&p.json, &fresh)?;
+    Ok(())
+}
+
+/// MC versions the given plugin core publishes builds for. The wizard
+/// intersects this SET with the Mojang manifest list (which owns ordering).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_core_versions(
+    core: crate::servers_runtime::schema::ServerCore,
+) -> Result<Vec<String>> {
+    use crate::servers_runtime::schema::ServerCore;
+    match core {
+        ServerCore::Paper => {
+            crate::servers_runtime::paper::PaperClient::new()
+                .supported_versions()
+                .await
+        }
+        ServerCore::Purpur => {
+            crate::servers_runtime::purpur::PurpurClient::new()
+                .supported_versions()
+                .await
+        }
+        // Vanilla/mod cores have no build catalogue of their own here — MC
+        // versions for them come from the Mojang manifest directly, not this
+        // command. Explicit rejection (no wildcard) per the exhaustive-match
+        // convention on ServerCore.
+        ServerCore::Vanilla
+        | ServerCore::Fabric
+        | ServerCore::Quilt
+        | ServerCore::Forge
+        | ServerCore::NeoForge => Err(Error::io("<core>", "core has no version catalogue")),
+    }
 }
 
 #[cfg(test)]

@@ -13,25 +13,31 @@ fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
 }
 
-/// Guard the asset commands against `ContentKind::Mod`.
+/// Guard the asset commands against non-asset `ContentKind`s.
 ///
 /// The asset subsystem only manages resource packs and shaders. If `Mod`
 /// reached these commands, `asset_dir(Mod)` resolves to `mods` — so an
 /// uninstall would delete from `.minecraft/mods/` while the assets registry
 /// (which never tracks mods) finds nothing, silently orphaning the mods
-/// registry. We reject it at the boundary.
+/// registry. `Plugin` is server-only content (a server's `runtime/plugins/`,
+/// managed by the servers_runtime plugin fs module) — letting it through
+/// would read/write `.minecraft/plugins/` in a CLIENT instance. We reject
+/// both at the boundary.
 ///
 /// Reuses [`Error::ModpackOverridesPathEscape`] (no new variant per the
-/// bindings-freeze constraint): a `Mod` kind would route the asset write/delete
-/// into `.minecraft/mods/`, i.e. outside the resourcepacks/shaderpacks subtree
-/// the asset commands are allowed to touch.
+/// bindings-freeze constraint): a rejected kind would route the asset
+/// write/delete outside the resourcepacks/shaderpacks subtree the asset
+/// commands are allowed to touch.
 pub fn require_asset_kind(kind: ContentKind) -> Result<(), Error> {
-    if kind == ContentKind::Mod {
-        return Err(Error::ModpackOverridesPathEscape {
+    match kind {
+        ContentKind::Mod => Err(Error::ModpackOverridesPathEscape {
             entry: "mods (asset commands accept resource packs and shaders only)".to_string(),
-        });
+        }),
+        ContentKind::Plugin => Err(Error::ModpackOverridesPathEscape {
+            entry: "plugins (asset commands accept resource packs and shaders only)".to_string(),
+        }),
+        ContentKind::ResourcePack | ContentKind::Shader => Ok(()),
     }
-    Ok(())
 }
 
 fn io_err(path: &Path, e: std::io::Error) -> Error {
@@ -223,6 +229,18 @@ mod tests {
         ));
         assert!(require_asset_kind(ContentKind::ResourcePack).is_ok());
         assert!(require_asset_kind(ContentKind::Shader).is_ok());
+    }
+
+    #[test]
+    fn require_asset_kind_rejects_plugin() {
+        // Plugins are server-only content (a server's runtime/plugins/, via
+        // the servers_runtime plugin fs module) — a kind:"plugin" IPC payload
+        // must never route an asset write/delete into a CLIENT instance's
+        // .minecraft/plugins/.
+        assert!(matches!(
+            require_asset_kind(ContentKind::Plugin),
+            Err(Error::ModpackOverridesPathEscape { .. })
+        ));
     }
 
     #[tokio::test]

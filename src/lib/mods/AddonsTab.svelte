@@ -17,7 +17,7 @@
   import SourcePicker from './SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
-  import { CONTENT_KINDS, canInstallContent } from './content-kind';
+  import { CONTENT_KINDS, canInstallContent, type InstanceContentKind } from './content-kind';
   import {
     detectInstalledShaderLoaders,
     IRIS_MODRINTH_PROJECT_ID,
@@ -42,7 +42,7 @@
   // re-keys the Browse view (clean filters/results) and swaps the Installed
   // sub-view between the mods view and the assets view. The default is 'mod'
   // so the historical Mod-browser experience is unchanged.
-  let kind = $state<ContentKind>('mod');
+  let kind = $state<InstanceContentKind>('mod');
   let view = $state<View>('browse');
   let source = $state<ModSource>('modrinth');
 
@@ -97,13 +97,16 @@
     shaderModUnlisteners = [];
   });
 
-  // i18n labels for the kind switch — order mirrors CONTENT_KINDS.
-  const kindLabels: Record<ContentKind, TranslationKey> = {
+  // i18n labels for the kind switch — order mirrors CONTENT_KINDS. Instance
+  // Add-ons never surface the "plugin" ContentKind (plugins install to
+  // servers, not client instances — see servers/mods/ServerModBrowser +
+  // Task 16's plugin browser), so these maps exclude it explicitly.
+  const kindLabels: Record<InstanceContentKind, TranslationKey> = {
     mod: 'addons.kindMods',
     resource_pack: 'addons.kindResourcePacks',
     shader: 'addons.kindShaders',
   };
-  const kindIcons: Record<ContentKind, IconName> = {
+  const kindIcons: Record<InstanceContentKind, IconName> = {
     mod: 'blocks',
     resource_pack: 'resourcePack',
     shader: 'shader',
@@ -429,7 +432,7 @@
       active={kind}
       ariaLabel={$t('addons.kindSwitchAria')}
       testid="addons-kind-switch"
-      onChange={(id) => (kind = id as ContentKind)}
+      onChange={(id) => (kind = id as InstanceContentKind)}
     />
   </div>
 

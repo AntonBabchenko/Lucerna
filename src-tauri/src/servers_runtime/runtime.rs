@@ -13,7 +13,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::error::{Error, Result};
-use crate::instances::schema::LoaderKind;
+use crate::servers_runtime::schema::ServerCore;
 
 /// One line of server console output (stdout or stderr), streamed to the UI.
 #[derive(Debug, Clone, Serialize, Type, Event)]
@@ -208,7 +208,7 @@ pub(crate) fn java_component_or_legacy(component: Option<&str>) -> String {
 /// exactly as it does for a client instance. An empty/whitespace blob adds
 /// nothing.
 pub(crate) fn build_launch_argv(
-    loader: LoaderKind,
+    loader: ServerCore,
     runtime: &Path,
     heap_mb: u32,
     extra_jvm_args: &str,
@@ -216,13 +216,17 @@ pub(crate) fn build_launch_argv(
     let xmx = format!("-Xmx{heap_mb}m");
     let extra = crate::launch::args::sanitize_jvm_args(extra_jvm_args);
     match loader {
-        LoaderKind::Vanilla | LoaderKind::Fabric | LoaderKind::Quilt => {
+        ServerCore::Vanilla
+        | ServerCore::Fabric
+        | ServerCore::Quilt
+        | ServerCore::Paper
+        | ServerCore::Purpur => {
             let mut argv = vec![xmx];
             argv.extend(extra);
             argv.extend(["-jar".into(), "server.jar".into(), "nogui".into()]);
             Ok(argv)
         }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
+        ServerCore::Forge | ServerCore::NeoForge => {
             let args_rel =
                 find_loader_args_file(runtime).ok_or_else(|| Error::ServerSpawnFailed {
                     details: "installer args file not found under libraries/".into(),
@@ -609,14 +613,16 @@ mod tests {
     fn launch_argv_vanilla_uses_jar_nogui() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("server.jar"), b"x").unwrap();
-        let argv = build_launch_argv(
-            crate::instances::schema::LoaderKind::Vanilla,
-            dir.path(),
-            2048,
-            "",
-        )
-        .unwrap();
+        let argv = build_launch_argv(ServerCore::Vanilla, dir.path(), 2048, "").unwrap();
         assert_eq!(argv, vec!["-Xmx2048m", "-jar", "server.jar", "nogui"]);
+    }
+
+    #[test]
+    fn paper_and_purpur_launch_like_vanilla() {
+        for core in [ServerCore::Paper, ServerCore::Purpur] {
+            let argv = build_launch_argv(core, std::path::Path::new("."), 2048, "").unwrap();
+            assert_eq!(argv, vec!["-Xmx2048m", "-jar", "server.jar", "nogui"]);
+        }
     }
 
     #[test]
@@ -624,7 +630,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("server.jar"), b"x").unwrap();
         let argv = build_launch_argv(
-            crate::instances::schema::LoaderKind::Vanilla,
+            ServerCore::Vanilla,
             dir.path(),
             2048,
             "-XX:+UseG1GC -Xss512k",
@@ -650,13 +656,8 @@ mod tests {
         std::fs::create_dir_all(&af).unwrap();
         std::fs::write(af.join("win_args.txt"), b"@stuff\n").unwrap();
         std::fs::write(af.join("unix_args.txt"), b"@stuff\n").unwrap();
-        let argv = build_launch_argv(
-            crate::instances::schema::LoaderKind::NeoForge,
-            dir.path(),
-            3072,
-            "-XX:+UseG1GC",
-        )
-        .unwrap();
+        let argv =
+            build_launch_argv(ServerCore::NeoForge, dir.path(), 3072, "-XX:+UseG1GC").unwrap();
         assert_eq!(argv.first().map(String::as_str), Some("-Xmx3072m"));
         // The extra flag comes right after -Xmx and before the argfile refs.
         assert_eq!(argv.get(1).map(String::as_str), Some("-XX:+UseG1GC"));
@@ -670,13 +671,7 @@ mod tests {
         std::fs::write(dir.path().join("user_jvm_args.txt"), b"# jvm\n").unwrap();
         std::fs::write(af.join("win_args.txt"), b"@stuff\n").unwrap();
         std::fs::write(af.join("unix_args.txt"), b"@stuff\n").unwrap();
-        let argv = build_launch_argv(
-            crate::instances::schema::LoaderKind::NeoForge,
-            dir.path(),
-            3072,
-            "",
-        )
-        .unwrap();
+        let argv = build_launch_argv(ServerCore::NeoForge, dir.path(), 3072, "").unwrap();
         assert_eq!(argv.first().map(String::as_str), Some("-Xmx3072m"));
         assert!(
             argv.iter().any(|a| a == "@user_jvm_args.txt"),
@@ -692,12 +687,7 @@ mod tests {
     #[test]
     fn launch_argv_forge_errors_without_args_file() {
         let dir = tempfile::tempdir().unwrap();
-        let r = build_launch_argv(
-            crate::instances::schema::LoaderKind::Forge,
-            dir.path(),
-            1024,
-            "",
-        );
+        let r = build_launch_argv(ServerCore::Forge, dir.path(), 1024, "");
         assert!(matches!(
             r,
             Err(crate::error::Error::ServerSpawnFailed { .. })

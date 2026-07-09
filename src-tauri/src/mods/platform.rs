@@ -18,6 +18,9 @@ pub enum ModSource {
     Curseforge,
     Ftb,
     Atlauncher,
+    /// hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
+    /// by `mods::hangar::HangarClient`.
+    Hangar,
 }
 
 /// What kind of content a search/install targets. `Mod` is the historical
@@ -29,6 +32,9 @@ pub enum ContentKind {
     Mod,
     ResourcePack,
     Shader,
+    /// A Bukkit-family server plugin (Paper/Purpur). Searched via Modrinth's
+    /// `project_type:plugin` facet and via Hangar (`mods::hangar`).
+    Plugin,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -130,6 +136,10 @@ pub struct ModSearchQuery {
     pub sort: ModSort,
     pub page_size: u32,
     pub offset: u32,
+    /// Plugin-capable server core driving the plugin-loader facet OR-group
+    /// when `kind == Plugin`. Ignored for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_core: Option<crate::servers_runtime::schema::ServerCore>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -199,6 +209,11 @@ pub struct ModFile {
     // 2^53 bytes (~9 PiB) is far beyond any realistic mod jar size.
     pub size: f64,
     pub distribution_allowed: bool,
+    /// Lowercase sha256 hex when the platform publishes one (Hangar-hosted
+    /// files). Modrinth/CF fill `sha1` instead; installers prefer sha1 (the
+    /// content-addressed cache key) and fall back to sha256 direct download.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -465,6 +480,18 @@ pub trait ModPlatform: Send + Sync {
     async fn versions_by_ids(&self, _version_ids: &[&str]) -> Result<Vec<ModVersion>, Error> {
         Ok(Vec::new())
     }
+
+    /// Every release of `project_id` compatible with one of the given plugin
+    /// loader slugs (bukkit/spigot/paper/purpur), newest-first. Default:
+    /// the platform hosts no plugins.
+    async fn plugin_versions(
+        &self,
+        _project_id: &str,
+        _mc_version: Option<&str>,
+        _plugin_loaders: &[&str],
+    ) -> Result<Vec<ModVersion>, Error> {
+        Ok(Vec::new())
+    }
 }
 
 /// Upper bound on ids per batched `summaries` / `versions_by_ids` request.
@@ -498,6 +525,14 @@ mod tests {
         assert_eq!(j, r#""atlauncher""#);
         let back: ModSource = serde_json::from_str(r#""atlauncher""#).unwrap();
         assert_eq!(back, ModSource::Atlauncher);
+    }
+
+    #[test]
+    fn mod_source_hangar_round_trips_snake_case() {
+        let j = serde_json::to_string(&ModSource::Hangar).unwrap();
+        assert_eq!(j, r#""hangar""#);
+        let back: ModSource = serde_json::from_str(r#""hangar""#).unwrap();
+        assert_eq!(back, ModSource::Hangar);
     }
 
     #[test]
@@ -573,6 +608,7 @@ mod tests {
                 sha1: Some("aa".into()),
                 size: 1.0,
                 distribution_allowed: true,
+                sha256: None,
             },
             deps: vec![],
             published_at: None,
@@ -631,6 +667,16 @@ mod tests {
     }
 
     #[test]
+    fn content_kind_plugin_round_trips_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ContentKind::Plugin).unwrap(),
+            r#""plugin""#
+        );
+        let back: ContentKind = serde_json::from_str(r#""plugin""#).unwrap();
+        assert_eq!(back, ContentKind::Plugin);
+    }
+
+    #[test]
     fn content_kind_defaults_to_mod_when_absent() {
         let q: ModSearchQuery = serde_json::from_str(
             r#"{"source":"modrinth","query":"x","mc_version":null,"loader":null,
@@ -638,5 +684,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(q.kind, ContentKind::Mod);
+        assert_eq!(q.plugin_core, None);
     }
 }
