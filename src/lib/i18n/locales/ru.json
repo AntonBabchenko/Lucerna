@@ -1945,7 +1945,7 @@
       "noResults": "Ничего не найдено.",
       "noCompatibleVersion": "У «{name}» нет версии для Minecraft и загрузчика этого сервера.",
       "installedOne": "Установлен {name}",
-      "installedWithDeps": "Установлен {name} и зависимостей: {count}",
+      "installedWithDeps": "Установлен {name} и {count, plural, one {# зависимость} few {# зависимости} many {# зависимостей} other {# зависимости}}",
       "someDepsUnresolved": "Не удалось разрешить некоторые зависимости: {deps}. Установите их вручную, если они нужны серверу.",
       "pluginCoreHint": "Это ядро не загружает моды. Серверы семейства Paper используют плагины: см. вкладку «Плагины».",
       "datapacksTitle": "Датапаки",
