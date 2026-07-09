@@ -6,7 +6,6 @@ use crate::error::{Error, Result};
 use crate::servers_runtime::paper::ResolvedCoreJar;
 
 const BASE_DEFAULT: &str = "https://api.purpurmc.org";
-const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 /// How many builds to walk back over failed CI results before giving up.
 const MAX_BUILD_PROBES: usize = 5;
 
@@ -26,8 +25,6 @@ struct PurpurVersion {
 
 #[derive(serde::Deserialize)]
 struct PurpurBuilds {
-    #[allow(dead_code)]
-    latest: String,
     all: Vec<String>,
 }
 
@@ -52,35 +49,6 @@ impl PurpurClient {
         Self { base: base.into() }
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str, mc: &str) -> Result<T> {
-        let resp = crate::network::request::get(url, &[("user-agent", UA)], "servers")
-            .await
-            .map_err(|e| Error::ServerJarUnavailable {
-                loader: "purpur".into(),
-                mc_version: mc.to_string(),
-                reason: e.to_string(),
-            })?;
-        if resp.status == 404 {
-            return Err(Error::ServerJarUnavailable {
-                loader: "purpur".into(),
-                mc_version: mc.to_string(),
-                reason: "version not available".into(),
-            });
-        }
-        if !(200..300).contains(&resp.status) {
-            return Err(Error::ServerJarUnavailable {
-                loader: "purpur".into(),
-                mc_version: mc.to_string(),
-                reason: format!("HTTP {}", resp.status),
-            });
-        }
-        serde_json::from_slice(&resp.body).map_err(|e| Error::ServerJarUnavailable {
-            loader: "purpur".into(),
-            mc_version: mc.to_string(),
-            reason: format!("decode: {e}"),
-        })
-    }
-
     fn download_url(&self, mc: &str, build: &str) -> String {
         format!("{}/v2/purpur/{mc}/{build}/download", self.base)
     }
@@ -89,7 +57,8 @@ impl PurpurClient {
     /// returns them (not sorted — callers intersect with the Mojang manifest).
     pub async fn supported_versions(&self) -> Result<Vec<String>> {
         let url = format!("{}/v2/purpur", self.base);
-        let p: PurpurProject = self.get_json(&url, "*").await?;
+        let p: PurpurProject =
+            crate::servers_runtime::core_api::get_core_json(&url, "purpur", "*").await?;
         Ok(p.versions)
     }
 
@@ -114,12 +83,14 @@ impl PurpurClient {
     /// MAX_BUILD_PROBES build-info records.
     pub async fn latest_successful_build(&self, mc: &str) -> Result<ResolvedCoreJar> {
         let latest_url = format!("{}/v2/purpur/{mc}/latest", self.base);
-        let latest: PurpurBuild = self.get_json(&latest_url, mc).await?;
+        let latest: PurpurBuild =
+            crate::servers_runtime::core_api::get_core_json(&latest_url, "purpur", mc).await?;
         if Self::is_usable(&latest) {
             return Ok(self.to_resolved(mc, &latest));
         }
         let ver_url = format!("{}/v2/purpur/{mc}", self.base);
-        let ver: PurpurVersion = self.get_json(&ver_url, mc).await?;
+        let ver: PurpurVersion =
+            crate::servers_runtime::core_api::get_core_json(&ver_url, "purpur", mc).await?;
         for build in ver
             .builds
             .all
@@ -129,7 +100,8 @@ impl PurpurClient {
             .take(MAX_BUILD_PROBES)
         {
             let info_url = format!("{}/v2/purpur/{mc}/{build}", self.base);
-            let info: PurpurBuild = self.get_json(&info_url, mc).await?;
+            let info: PurpurBuild =
+                crate::servers_runtime::core_api::get_core_json(&info_url, "purpur", mc).await?;
             if Self::is_usable(&info) {
                 return Ok(self.to_resolved(mc, &info));
             }

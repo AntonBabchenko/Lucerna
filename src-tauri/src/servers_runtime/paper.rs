@@ -7,8 +7,6 @@
 use crate::error::{Error, Result};
 
 const BASE_DEFAULT: &str = "https://fill.papermc.io";
-/// PaperMC requires a UA identifying the software with a contact URL.
-const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 /// The download key for the plain server jar (as opposed to e.g. a mojmap
 /// or bundled-installer variant).
 const SERVER_JAR_KEY: &str = "server:default";
@@ -67,40 +65,12 @@ impl PaperClient {
         Self { base: base.into() }
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str, mc: &str) -> Result<T> {
-        let resp = crate::network::request::get(url, &[("user-agent", UA)], "servers")
-            .await
-            .map_err(|e| Error::ServerJarUnavailable {
-                loader: "paper".into(),
-                mc_version: mc.to_string(),
-                reason: e.to_string(),
-            })?;
-        if resp.status == 404 {
-            return Err(Error::ServerJarUnavailable {
-                loader: "paper".into(),
-                mc_version: mc.to_string(),
-                reason: "version not available".into(),
-            });
-        }
-        if !(200..300).contains(&resp.status) {
-            return Err(Error::ServerJarUnavailable {
-                loader: "paper".into(),
-                mc_version: mc.to_string(),
-                reason: format!("HTTP {}", resp.status),
-            });
-        }
-        serde_json::from_slice(&resp.body).map_err(|e| Error::ServerJarUnavailable {
-            loader: "paper".into(),
-            mc_version: mc.to_string(),
-            reason: format!("decode: {e}"),
-        })
-    }
-
     /// Every MC version Paper publishes builds for (family groups flattened;
     /// order not meaningful — callers intersect with the Mojang manifest).
     pub async fn supported_versions(&self) -> Result<Vec<String>> {
         let url = format!("{}/v3/projects/paper", self.base);
-        let p: FillProject = self.get_json(&url, "*").await?;
+        let p: FillProject =
+            crate::servers_runtime::core_api::get_core_json(&url, "paper", "*").await?;
         Ok(p.versions.into_values().flatten().collect())
     }
 
@@ -109,7 +79,8 @@ impl PaperClient {
     /// the version stays selectable in the wizard, the copy explains why.
     pub async fn latest_stable_build(&self, mc: &str) -> Result<ResolvedCoreJar> {
         let url = format!("{}/v3/projects/paper/versions/{mc}/builds", self.base);
-        let builds: Vec<FillBuild> = self.get_json(&url, mc).await?;
+        let builds: Vec<FillBuild> =
+            crate::servers_runtime::core_api::get_core_json(&url, "paper", mc).await?;
         // Fill returns newest-first; take the first STABLE with a server jar.
         builds
             .into_iter()

@@ -39,8 +39,14 @@ pub enum Checksum {
     /// Lowercase sha1 hex. Empty string = skip verification (legacy behaviour).
     Sha1(String),
     /// Lowercase md5 hex (ATLauncher server/direct mods, Purpur core jars).
+    /// An empty expected string skips verification (shared legacy semantics);
+    /// callers for integrity-relevant sources must never pass an empty digest
+    /// (the Purpur client guarantees a non-empty md5 before constructing this).
     Md5(String),
     /// Lowercase sha256 hex (PaperMC Fill jars, Hangar-hosted plugin files).
+    /// An empty expected string skips verification (shared legacy semantics);
+    /// callers for integrity-relevant sources must never pass an empty digest
+    /// (the Paper client always fills a non-empty Fill sha256).
     Sha256(String),
 }
 
@@ -370,6 +376,10 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, Error::HashMismatch { .. }));
         assert!(!bad.exists());
+        assert!(
+            !part_path(&bad).exists(),
+            "temp .part file must be cleaned up on mismatch"
+        );
     }
 
     #[tokio::test]

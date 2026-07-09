@@ -72,8 +72,7 @@ impl ServerCore {
 
     /// The equivalent client loader, when one exists. `None` for the
     /// plugin cores — a Paper server pairs with a *vanilla* client.
-    pub fn as_loader_kind(self) -> Option<crate::instances::schema::LoaderKind> {
-        use crate::instances::schema::LoaderKind;
+    pub fn as_loader_kind(self) -> Option<LoaderKind> {
         match self {
             ServerCore::Vanilla => Some(LoaderKind::Vanilla),
             ServerCore::Fabric => Some(LoaderKind::Fabric),
@@ -100,17 +99,21 @@ impl ServerCore {
     /// Modrinth loader slugs a plugin may declare and still run on this core.
     /// Compatibility widens down the Bukkit lineage: Paper runs bukkit/spigot
     /// plugins; Purpur additionally runs purpur-tagged ones. Folia and proxy
-    /// loaders are deliberately excluded (spec §3).
+    /// loaders are deliberately excluded.
     pub fn plugin_loader_slugs(self) -> &'static [&'static str] {
         match self {
             ServerCore::Paper => &["bukkit", "spigot", "paper"],
             ServerCore::Purpur => &["bukkit", "spigot", "paper", "purpur"],
-            _ => &[],
+            ServerCore::Vanilla
+            | ServerCore::Fabric
+            | ServerCore::Quilt
+            | ServerCore::Forge
+            | ServerCore::NeoForge => &[],
         }
     }
 }
 
-/// The core-switch transition matrix (spec §4.5). Vanilla worlds convert to
+/// The core-switch transition matrix. Vanilla worlds convert to
 /// Paper automatically on first boot; Paper<->Purpur is a drop-in swap.
 /// Everything else (mod cores, back-to-vanilla) is out of scope for v1.
 pub fn core_switch_allowed(from: ServerCore, to: ServerCore) -> bool {
@@ -425,11 +428,24 @@ mod tests {
             assert_eq!(serde_json::to_string(&core).unwrap(), s);
             assert_eq!(serde_json::from_str::<ServerCore>(s).unwrap(), core);
         }
+        // Pin the compatibility boundary directly: each shared variant serializes
+        // to the SAME bytes as its LoaderKind counterpart.
+        for (core, lk) in [
+            (ServerCore::Vanilla, LoaderKind::Vanilla),
+            (ServerCore::Fabric, LoaderKind::Fabric),
+            (ServerCore::Quilt, LoaderKind::Quilt),
+            (ServerCore::Forge, LoaderKind::Forge),
+            (ServerCore::NeoForge, LoaderKind::NeoForge),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&core).unwrap(),
+                serde_json::to_string(&lk).unwrap()
+            );
+        }
     }
 
     #[test]
     fn server_core_capability_partitions() {
-        use crate::instances::schema::LoaderKind;
         assert_eq!(ServerCore::Paper.as_loader_kind(), None);
         assert_eq!(ServerCore::Purpur.as_loader_kind(), None);
         assert_eq!(
@@ -467,12 +483,15 @@ mod tests {
     fn core_switch_matrix_is_exactly_the_allowed_set() {
         use ServerCore::*;
         let all = [Vanilla, Fabric, Quilt, Forge, NeoForge, Paper, Purpur];
+        let allowed = [
+            (Vanilla, Paper),
+            (Vanilla, Purpur),
+            (Paper, Purpur),
+            (Purpur, Paper),
+        ];
         for from in all {
             for to in all {
-                let expected = matches!(
-                    (from, to),
-                    (Vanilla, Paper) | (Vanilla, Purpur) | (Paper, Purpur) | (Purpur, Paper)
-                );
+                let expected = allowed.contains(&(from, to));
                 assert_eq!(
                     core_switch_allowed(from, to),
                     expected,

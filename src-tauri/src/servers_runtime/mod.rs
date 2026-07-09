@@ -2,6 +2,7 @@
 //! Сущность отдельная от инстанса; артефакты живут в `<app_data>/servers/<id>/`.
 
 pub mod backup;
+pub mod core_api;
 pub mod create;
 pub mod datapacks;
 pub mod eula;
