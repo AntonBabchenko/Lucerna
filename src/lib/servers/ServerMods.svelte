@@ -5,7 +5,7 @@
   import { commands, type ServerModEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import { coreToLoaderKind, modCapable } from '$lib/servers/core-display';
+  import { coreToLoaderKind, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -31,17 +31,14 @@
 
   // The server's own metadata drives mod applicability. Mods only attach to a
   // mod loader; a vanilla server gets datapacks only. Plugin cores (paper/purpur)
-  // have no mod loader either — they get datapacks + (future) plugins, not mods.
-  // Mutations require a stopped server (the backend enforces it; the UI gates to
-  // avoid pointless errors).
-  // TEMPORARY: keeps the existing isVanilla-driven layout; Task 16 rewires the
-  // full mod/plugin gating (a dedicated plugin management surface).
+  // have no mod loader either — they get datapacks + plugins (Plugins tab), not
+  // mods. Mutations require a stopped server (the backend enforces it; the UI
+  // gates to avoid pointless errors).
   const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
-  const isVanilla = $derived(server?.loader === 'vanilla');
+  const isModCapable = $derived(server !== null && modCapable(server.loader));
+  const isPluginCore = $derived(server !== null && pluginCapable(server.loader));
   const isRunning = $derived(server?.running ?? false);
-  const canManageMods = $derived(
-    server !== null && !isVanilla && modCapable(server.loader) && !isRunning,
-  );
+  const canManageMods = $derived(server !== null && isModCapable && !isRunning);
 
   async function refresh() {
     const res = await commands.serverListMods(serverId);
@@ -161,7 +158,7 @@
         <Icon name="folderOpen" size={14} />
         {$t('servers.mods.openFolder')}
       </BusyButton>
-      {#if !isVanilla && server && modCapable(server.loader)}
+      {#if isModCapable}
         <button
           type="button"
           class="btn-secondary btn-sm inline-flex items-center gap-1"
@@ -193,6 +190,10 @@
         </BusyButton>
       {/if}
     </div>
+
+    {#if isPluginCore}
+      <p class="text-xs text-secondary">{$t('servers.mods.pluginCoreHint')}</p>
+    {/if}
 
     {#if isRunning}
       <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
