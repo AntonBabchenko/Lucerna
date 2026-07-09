@@ -980,10 +980,6 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
     let p = crate::paths::server_paths(&base, &id);
     let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
     provision_loader(&app, &base, &mut file).await?;
-    // Persist the possibly-updated build (Paper/Purpur resolve the newest build
-    // on redownload). The prebuilt paths already wrote server.json; this extra
-    // atomic write is harmless and covers the Forge path too.
-    crate::servers_runtime::store::write_server_json(&p.json, &file)?;
     mark_current_log_handled(&p);
     Ok(())
 }
@@ -1037,6 +1033,18 @@ pub async fn server_disable_mods(
     Ok(())
 }
 
+/// The client `LoaderKind` the server's Java-mod machinery should use, or a
+/// fast typed error when this core has none. Contract: only mod-capable cores
+/// (Fabric/Quilt/Forge/NeoForge) pass; vanilla and the Bukkit plugin cores
+/// (Paper/Purpur) are rejected rather than silently installing into a `mods/`
+/// dir the server never reads (matches the UI's per-core gating).
+fn require_mod_loader(file: &ServerFile) -> Result<crate::instances::schema::LoaderKind> {
+    file.loader
+        .as_loader_kind()
+        .filter(|_| file.loader.mod_capable())
+        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))
+}
+
 /// Install missing dependency mods into the server's `mods/` (B9/B10 fix).
 /// `mod_ids` come from the diagnosis `conflict_mods`. Resolves each id to a
 /// concrete version via the shared dep resolver and downloads through `network::`.
@@ -1055,14 +1063,7 @@ pub async fn server_install_missing_dep(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    // Java mods only load on a mod-capable core; a Bukkit plugin core (Paper/
-    // Purpur) or vanilla has no mods/ machinery — reject rather than silently
-    // install into a dir the server never reads.
-    let loader = file
-        .loader
-        .as_loader_kind()
-        .filter(|_| file.loader.mod_capable())
-        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))?;
+    let loader = require_mod_loader(&file)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     let report = crate::mods::dep_resolve::install_missing_into_dir(
         &base,
@@ -2145,14 +2146,7 @@ pub async fn server_install_mod(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    // Java mods only load on a mod-capable core; a Bukkit plugin core (Paper/
-    // Purpur) or vanilla has no mods/ machinery. Reject rather than install into
-    // a dir the server never reads (matches the UI's per-core gating).
-    let loader = file
-        .loader
-        .as_loader_kind()
-        .filter(|_| file.loader.mod_capable())
-        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))?;
+    let loader = require_mod_loader(&file)?;
     crate::commands::install_version_into_dir(
         &base,
         &p.mods,
