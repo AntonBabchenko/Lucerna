@@ -9,6 +9,9 @@ use crate::error::{Error, Result};
 const BASE_DEFAULT: &str = "https://fill.papermc.io";
 /// PaperMC requires a UA identifying the software with a contact URL.
 const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
+/// The download key for the plain server jar (as opposed to e.g. a mojmap
+/// or bundled-installer variant).
+const SERVER_JAR_KEY: &str = "server:default";
 
 pub struct PaperClient {
     base: String,
@@ -35,13 +38,12 @@ struct FillProject {
 struct FillBuild {
     id: i64,
     channel: String,
+    #[serde(default)]
     downloads: std::collections::HashMap<String, FillDownload>,
 }
 
 #[derive(serde::Deserialize)]
 struct FillDownload {
-    #[allow(dead_code)]
-    name: String,
     checksums: FillChecksums,
     url: String,
 }
@@ -109,14 +111,16 @@ impl PaperClient {
         // Fill returns newest-first; take the first STABLE with a server jar.
         builds
             .into_iter()
-            .find(|b| b.channel == "STABLE" && b.downloads.contains_key("server:default"))
-            .map(|b| {
-                let d = &b.downloads["server:default"];
-                ResolvedCoreJar {
-                    build: b.id.to_string(),
+            .find_map(|b| {
+                if b.channel != "STABLE" {
+                    return None;
+                }
+                let d = b.downloads.get(SERVER_JAR_KEY)?;
+                Some(ResolvedCoreJar {
                     digest: d.checksums.sha256.clone(),
                     url: d.url.clone(),
-                }
+                    build: b.id.to_string(),
+                })
             })
             .ok_or_else(|| Error::ServerJarUnavailable {
                 loader: "paper".into(),
@@ -174,10 +178,12 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = c.latest_stable_build("26.3").await.unwrap_err();
-        assert!(matches!(
-            err,
-            crate::error::Error::ServerJarUnavailable { .. }
-        ));
+        match err {
+            crate::error::Error::ServerJarUnavailable { reason, .. } => {
+                assert!(reason.contains("no stable"), "reason was: {reason}");
+            }
+            other => panic!("expected ServerJarUnavailable, got {other:?}"),
+        }
     }
 
     #[tokio::test]
