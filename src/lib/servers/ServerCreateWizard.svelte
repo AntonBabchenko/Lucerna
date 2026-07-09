@@ -64,13 +64,20 @@
 
   $effect(() => {
     const c = core;
+    // Bump the seq on EVERY effect run (before the branch check) so any
+    // in-flight plugin-core fetch is invalidated the moment core changes.
+    // Without this, switching Paper→Fabric would take the early-return
+    // branch (seq unchanged) and let Paper's still-pending fetch resolve
+    // through the guard, wrongly narrowing the MC dropdown to Paper's set
+    // for a Fabric server. Mirrors ServerPluginBrowser's reqSeq (increment
+    // at the start of every run, no leave-branch gap).
+    const seq = ++coreVerSeq;
     if (c !== 'paper' && c !== 'purpur') {
       coreVersions = null;
       coreVersionsError = null;
       coreVersionsLoading = false;
       return;
     }
-    const seq = ++coreVerSeq;
     coreVersionsLoading = true;
     coreVersionsError = null;
     void commands.serverCoreVersions(c).then((res) => {

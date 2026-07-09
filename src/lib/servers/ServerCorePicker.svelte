@@ -147,9 +147,13 @@
     core = c;
     // The $effect handles the refetch + auto-pick for mod loaders, and
     // resets to null for vanilla/paper/purpur. We emit the user-initiated
-    // event immediately so the parent can commit; paper/purpur have no
-    // version control so the version is always null.
-    onchange?.(c, coreToLoaderKind(c) === null ? null : coreVersion);
+    // event immediately so the parent can commit. Only the 4 mod-loader
+    // cores carry a version — vanilla and the plugin cores (paper/purpur)
+    // have no version concept, so emit null rather than leaking the
+    // previous core's stale coreVersion (coreToLoaderKind('vanilla') is
+    // 'vanilla', not null, so it must be excluded explicitly).
+    const versionless = c === 'vanilla' || coreToLoaderKind(c) === null;
+    onchange?.(c, versionless ? null : coreVersion);
   }
 
   function pickVersion(v: string) {
