@@ -53,6 +53,22 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
   const isClipped = () => node.scrollWidth > node.clientWidth;
   const shouldShow = () => !!opts && (!opts.whenOverflowing || isClipped());
+  // Focus surfaces the tooltip only for genuine keyboard focus. Programmatic
+  // focus — a modal's focus trap landing on its close button when it opens, or
+  // focus restored to the trigger button when the modal closes — is not
+  // :focus-visible in Chromium, so it no longer pops a spurious tooltip the
+  // instant a dialog opens or closes. Real Tab navigation still matches
+  // :focus-visible, so the keyboard a11y hint is preserved. Hover is unaffected
+  // (it never consults this). Falls back to showing if the engine lacks
+  // :focus-visible support, preserving the prior behaviour rather than
+  // regressing the hint.
+  const isFocusVisible = () => {
+    try {
+      return node.matches(':focus-visible');
+    } catch {
+      return true;
+    }
+  };
   const shouldDescribe = () => {
     if (!opts) return false;
     if (opts.describe === false) return false;
@@ -79,7 +95,10 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
   const onEnter = () => open(false);
   const onLeave = () => close();
-  const onFocus = () => open(true);
+  const onFocus = () => {
+    if (!isFocusVisible()) return;
+    open(true);
+  };
   const onBlur = () => close();
 
   node.addEventListener('mouseenter', onEnter);
