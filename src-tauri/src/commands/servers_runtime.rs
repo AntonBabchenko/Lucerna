@@ -2487,7 +2487,8 @@ pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()
 /// download the new jar (atomic .part rename; a failed download leaves the
 /// old jar AND old server.json untouched) -> re-read + re-validate -> only
 /// then swap loader/loader_version. Worlds are never touched: Paper converts
-/// them itself on first boot.
+/// them itself on first boot. This command owns the pre-switch snapshot;
+/// callers must not create another.
 #[tauri::command]
 #[specta::specta]
 pub async fn server_switch_core(
@@ -2540,6 +2541,15 @@ pub async fn server_switch_core(
         "servers",
     )
     .await?;
+    // TOCTOU re-check: the entry guard ran before a potentially long download,
+    // and a server started mid-switch must not have its label flipped under
+    // the running process. The downloaded jar HAS already overwritten
+    // runtime/server.jar at this point, but the old label stays authoritative
+    // and `server_redownload_jar` converges the jar back — the same
+    // recoverable torn state as a mid-download crash.
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
     // Re-read server.json rather than reusing `file`: the download above can
     // take a while, and a concurrent rename/heap edit must not be clobbered by
     // writing back the pre-download snapshot. Re-validate the switch against
