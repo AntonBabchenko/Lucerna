@@ -12,19 +12,38 @@
     onChange,
     allowFtb = false,
     allowAtlauncher = false,
+    options: sourceOptions = undefined,
   }: {
     value: ModSource;
     onChange: (value: ModSource) => void;
     allowFtb?: boolean;
     allowAtlauncher?: boolean;
+    /**
+     * Explicit source list, overriding the default modrinth/curseforge(+ftb/
+     * +atlauncher) derivation entirely. Used by surfaces with a different
+     * catalogue pairing (e.g. the Plugins tab: modrinth + hangar).
+     */
+    options?: ModSource[];
   } = $props();
 
-  const options = $derived([
-    { value: 'modrinth', label: 'Modrinth' },
-    { value: 'curseforge', label: 'CurseForge' },
-    ...(allowFtb ? [{ value: 'ftb', label: 'FTB' }] : []),
-    ...(allowAtlauncher ? [{ value: 'atlauncher', label: 'ATLauncher' }] : []),
-  ]);
+  const SOURCE_LABEL: Record<ModSource, string> = {
+    modrinth: 'Modrinth',
+    curseforge: 'CurseForge',
+    ftb: 'FTB',
+    atlauncher: 'ATLauncher',
+    hangar: 'Hangar',
+  };
+
+  const options = $derived(
+    (
+      sourceOptions ?? [
+        'modrinth',
+        'curseforge',
+        ...(allowFtb ? (['ftb'] as const) : []),
+        ...(allowAtlauncher ? (['atlauncher'] as const) : []),
+      ]
+    ).map((source) => ({ value: source, label: SOURCE_LABEL[source] })),
+  );
 </script>
 
 <label class="text-sm text-secondary inline-flex items-center gap-1">
