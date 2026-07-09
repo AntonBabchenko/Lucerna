@@ -16,6 +16,7 @@ pub mod depgraph;
 pub mod deps;
 pub mod enrich;
 pub mod fix_resolve;
+pub mod hangar;
 pub mod install;
 pub mod installed;
 pub mod local;

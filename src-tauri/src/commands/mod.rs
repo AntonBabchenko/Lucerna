@@ -189,11 +189,7 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
         ModSource::Atlauncher => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Atlauncher,
         }),
-        // TEMPORARY: Hangar client lands in Task 11. Until then it has no
-        // per-mod browser either.
-        ModSource::Hangar => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
-            source: ModSource::Hangar,
-        }),
+        ModSource::Hangar => Box::new(crate::mods::hangar::HangarClient::new()),
     }
 }
 
