@@ -295,6 +295,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_disable_plugin,
             commands::server_delete_plugin,
             commands::server_open_plugins_folder,
+            // Own server (core switch: Vanilla->Paper/Purpur, Paper<->Purpur):
+            commands::server_switch_core,
+            commands::server_core_versions,
             // Data-root location:
             commands::get_data_location,
             commands::set_data_location,

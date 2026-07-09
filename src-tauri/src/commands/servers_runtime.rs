@@ -2481,6 +2481,110 @@ pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()
     Ok(())
 }
 
+/// Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
+/// Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
+/// these). Sequence: guard running -> validate -> fresh backup -> resolve +
+/// download the new jar (atomic .part rename; a failed download leaves the
+/// old jar AND old server.json untouched) -> re-read + re-validate -> only
+/// then swap loader/loader_version. Worlds are never touched: Paper converts
+/// them itself on first boot.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_switch_core(
+    app: AppHandle,
+    id: String,
+    target: crate::servers_runtime::schema::ServerCore,
+) -> Result<()> {
+    use crate::servers_runtime::schema::{core_switch_allowed, ServerCore};
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !core_switch_allowed(file.loader, target) {
+        return Err(Error::io("<core>", "unsupported core switch"));
+    }
+    // Mandatory fresh backup before anything changes on disk.
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    backup::create_backup(&base, &id, &stamp)?;
+    // Resolve the target core's newest build, download over runtime/server.jar
+    // (atomic: .part + rename-after-verify, old jar survives any failure).
+    let jar = match target {
+        ServerCore::Paper => {
+            crate::servers_runtime::paper::PaperClient::new()
+                .latest_stable_build(&file.mc_version)
+                .await?
+        }
+        ServerCore::Purpur => {
+            crate::servers_runtime::purpur::PurpurClient::new()
+                .latest_successful_build(&file.mc_version)
+                .await?
+        }
+        // core_switch_allowed only ever admits Paper/Purpur as a target (both
+        // arms above cover it); every other variant can't reach this match
+        // given the guard above, but we reject explicitly rather than panic —
+        // the matrix/catalogue only covers plugin cores.
+        ServerCore::Vanilla
+        | ServerCore::Fabric
+        | ServerCore::Quilt
+        | ServerCore::Forge
+        | ServerCore::NeoForge => {
+            return Err(Error::io("<core>", "unsupported core switch"));
+        }
+    };
+    crate::network::download::download_no_emit_with(
+        &jar.url,
+        &p.runtime.join("server.jar"),
+        jar.checksum,
+        "servers",
+    )
+    .await?;
+    // Re-read server.json rather than reusing `file`: the download above can
+    // take a while, and a concurrent rename/heap edit must not be clobbered by
+    // writing back the pre-download snapshot. Re-validate the switch against
+    // the FRESH loader too — it may have changed while we were downloading.
+    let mut fresh = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !core_switch_allowed(fresh.loader, target) {
+        return Err(Error::io("<core>", "unsupported core switch"));
+    }
+    fresh.loader = target;
+    fresh.loader_version = Some(jar.build);
+    crate::servers_runtime::store::write_server_json(&p.json, &fresh)?;
+    Ok(())
+}
+
+/// MC versions the given plugin core publishes builds for. The wizard
+/// intersects this SET with the Mojang manifest list (which owns ordering).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_core_versions(
+    core: crate::servers_runtime::schema::ServerCore,
+) -> Result<Vec<String>> {
+    use crate::servers_runtime::schema::ServerCore;
+    match core {
+        ServerCore::Paper => {
+            crate::servers_runtime::paper::PaperClient::new()
+                .supported_versions()
+                .await
+        }
+        ServerCore::Purpur => {
+            crate::servers_runtime::purpur::PurpurClient::new()
+                .supported_versions()
+                .await
+        }
+        // Vanilla/mod cores have no build catalogue of their own here — MC
+        // versions for them come from the Mojang manifest directly, not this
+        // command. Explicit rejection (no wildcard) per the exhaustive-match
+        // convention on ServerCore.
+        ServerCore::Vanilla
+        | ServerCore::Fabric
+        | ServerCore::Quilt
+        | ServerCore::Forge
+        | ServerCore::NeoForge => Err(Error::io("<core>", "core has no version catalogue")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
