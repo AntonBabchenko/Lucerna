@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import type { LoaderKind } from '$lib/ipc/bindings';
+import type { ServerCore } from '$lib/ipc/bindings';
 import ServerMods from '$lib/servers/ServerMods.svelte';
 
 // Shared mutable mock state + vi.fn handles, hoisted so the vi.mock factories
@@ -22,7 +22,7 @@ const {
     id: 'srv-1',
     name: 'My Server',
     mc_version: '1.20.1',
-    loader: 'forge' as LoaderKind,
+    loader: 'forge' as ServerCore,
     loader_version: '47.4.0' as string | null,
     max_heap_mb: 4096,
     extra_jvm_args: '',
@@ -158,6 +158,27 @@ describe('ServerMods', () => {
     expect(screen.queryByTestId('server-mods-add')).toBeNull();
     expect(screen.queryByTestId('server-mods-install-local')).toBeNull();
     // Datapacks remain available regardless of loader.
+    expect(screen.getByTestId('server-datapack-add')).toBeTruthy();
+  });
+
+  it('shows only the plugin-core hint on a plugin core (paper), not the mods chrome', async () => {
+    serverRow.loader = 'paper';
+    render(ServerMods, { serverId: 'srv-1' });
+    expect(
+      await screen.findByText(
+        'This core does not load mods. Paper-family servers use plugins instead: see the Plugins tab.',
+      ),
+    ).toBeTruthy();
+
+    // No mods-management chrome: no folder button, no note, no mods list/empty-state.
+    expect(screen.queryByText("Add or remove mods in the server's mods folder.")).toBeNull();
+    expect(screen.queryByText('jei.jar')).toBeNull();
+    expect(screen.queryByText('No mods')).toBeNull();
+    expect(screen.queryByRole('button', { name: /open folder/i })).toBeNull();
+    expect(screen.queryByTestId('server-mods-add')).toBeNull();
+    expect(screen.queryByTestId('server-mods-install-local')).toBeNull();
+
+    // Datapacks remain available on a plugin core.
     expect(screen.getByTestId('server-datapack-add')).toBeTruthy();
   });
 });
