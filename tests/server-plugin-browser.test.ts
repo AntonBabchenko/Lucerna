@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import ServerPluginBrowser from '$lib/servers/plugins/ServerPluginBrowser.svelte';
@@ -53,11 +53,17 @@ function version(versionId: string, opts?: { distributionAllowed?: boolean; url?
     source: 'modrinth' as const,
     project_id: 'we',
     version_id: versionId,
+    name: versionId,
+    version_number: versionId,
+    mc_versions: ['1.20.1'],
+    loaders: ['paper'],
     primary_file: {
       filename: `${versionId}.jar`,
       url: opts?.url ?? `https://cdn.example/${versionId}.jar`,
       distribution_allowed: opts?.distributionAllowed ?? true,
     },
+    deps: [],
+    published_at: null,
   };
 }
 
@@ -115,6 +121,35 @@ describe('ServerPluginBrowser', () => {
     );
     expect(mockPushSuccess).toHaveBeenCalledWith(expect.stringContaining('1 dependency'));
     expect(onInstalled).toHaveBeenCalled();
+  });
+
+  it('opens the in-launcher detail card (not the website) when a card body is clicked', async () => {
+    renderBrowser();
+    const cardBody = await screen.findByRole('button', { name: /WorldEdit/ });
+    await fireEvent.click(cardBody);
+    // The in-launcher detail modal mounts with its version picker.
+    expect(await screen.findByTestId('server-content-detail')).toBeTruthy();
+    expect(await screen.findByText('v9')).toBeTruthy();
+    // Clicking the body must NOT open the external site.
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it('installs the chosen version from the detail card into the server', async () => {
+    renderBrowser();
+    const cardBody = await screen.findByRole('button', { name: /WorldEdit/ });
+    await fireEvent.click(cardBody);
+    const modal = await screen.findByTestId('server-content-detail');
+    // Two versions listed (v9, v8) INSIDE the modal (the grid card behind it
+    // still has its own quick-install button — scope to the modal). Install
+    // the older one from the picker.
+    const modalUtils = within(modal);
+    const installButtons = await modalUtils.findAllByRole('button', { name: 'Install' });
+    expect(installButtons).toHaveLength(2);
+    await fireEvent.click(installButtons[1]);
+    await waitFor(() =>
+      expect(mockInstallPlugin).toHaveBeenCalledWith('srv-1', 'modrinth', 'we', 'v8'),
+    );
+    expect(mockPushSuccess).toHaveBeenCalled();
   });
 
   it('warns when the picked plugin has no compatible version', async () => {

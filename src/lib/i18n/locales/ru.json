@@ -1978,6 +1978,15 @@
       "deleteConfirm": "Удалить {name}?",
       "setAside": "отложен"
     },
+    "contentDetail": {
+      "versions": "Версии",
+      "loadingVersions": "Загрузка версий…",
+      "versionsError": "Не удалось загрузить версии.",
+      "noVersions": "Для этого сервера нет версий.",
+      "openProjectPage": "Открыть страницу проекта",
+      "openPage": "Открыть страницу",
+      "externalNote": "Распространяется вне Hangar."
+    },
     "core": {
       "sectionTitle": "Ядро сервера",
       "current": "Текущее ядро",

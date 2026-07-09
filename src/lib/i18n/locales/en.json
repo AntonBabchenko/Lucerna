@@ -1978,6 +1978,15 @@
       "deleteConfirm": "Remove {name}?",
       "setAside": "set aside"
     },
+    "contentDetail": {
+      "versions": "Versions",
+      "loadingVersions": "Loading versions…",
+      "versionsError": "Could not load versions.",
+      "noVersions": "No versions for this server.",
+      "openProjectPage": "Open project page",
+      "openPage": "Open page",
+      "externalNote": "Distributed outside Hangar."
+    },
     "core": {
       "sectionTitle": "Server core",
       "current": "Current core",

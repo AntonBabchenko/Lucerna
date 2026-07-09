@@ -1,6 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { commands, type ModSource, type ModSummary, type ServerCore } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type InstallMissingReport,
+    type ModSource,
+    type ModSummary,
+    type ModVersion,
+    type ServerCore,
+  } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
@@ -12,6 +19,7 @@
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
 
   // The plugin-flavoured sibling of ServerModBrowser: same seq-guarded
   // debounced reload effect, pagination, and result grid, but targets the
@@ -43,6 +51,8 @@
   // Projects whose install is in flight, keyed by project_id (a Set so two
   // installs can overlap without clobbering each other's busy state).
   const installing = new SvelteSet<string>();
+  // The project whose in-launcher detail card is open (null = closed).
+  let detail = $state<ModSummary | null>(null);
 
   const pageSize = $derived(browserPrefs.pageSize);
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
@@ -122,6 +132,24 @@
     void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(target));
   }
 
+  // Shared success/dependency/unresolved toast block. Both the card-install
+  // (install newest) and the detail-modal install (install chosen version)
+  // land here, so the toast copy lives in exactly one place (DRY).
+  function toastInstalled(name: string, report: InstallMissingReport): void {
+    const depCount = Math.max(0, report.installed.length - 1);
+    const msg =
+      depCount > 0
+        ? get(t)('servers.plugins.installedWithDeps', { name, count: depCount })
+        : get(t)('servers.plugins.installedOne', { name });
+    pushSuccess(msg);
+    if (report.unresolved.length > 0) {
+      pushWarning(
+        get(t)('servers.plugins.someDepsUnresolved', { deps: report.unresolved.join(', ') }),
+      );
+    }
+    onInstalled();
+  }
+
   async function install(card: ModSummary): Promise<void> {
     installing.add(card.project_id);
     error = null;
@@ -155,18 +183,7 @@
         newest.version_id,
       );
       if (res.status === 'ok') {
-        const depCount = Math.max(0, res.data.installed.length - 1);
-        const msg =
-          depCount > 0
-            ? get(t)('servers.plugins.installedWithDeps', { name: card.name, count: depCount })
-            : get(t)('servers.plugins.installedOne', { name: card.name });
-        pushSuccess(msg);
-        if (res.data.unresolved.length > 0) {
-          pushWarning(
-            get(t)('servers.plugins.someDepsUnresolved', { deps: res.data.unresolved.join(', ') }),
-          );
-        }
-        onInstalled();
+        toastInstalled(card.name, res.data);
       } else {
         error = formatError(res.error);
       }
@@ -175,8 +192,16 @@
     }
   }
 
-  function openProject(card: ModSummary): void {
-    const url = modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
+  // For the detail modal: a version whose file is externally hosted must open
+  // its page (or the project page if the file URL is empty), never download.
+  function externalOf(card: ModSummary, v: ModVersion): string | null {
+    if (v.primary_file.distribution_allowed) return null;
+    return v.primary_file.url.length > 0
+      ? v.primary_file.url
+      : modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
+  }
+
+  function openUrl(url: string): void {
     void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
   }
 </script>
@@ -210,10 +235,29 @@
       installedFor={() => null}
       isCardBusy={(id) => installing.has(id)}
       onInstall={(h) => void install(h)}
-      onOpenDetail={(h) => openProject(h)}
+      onOpenDetail={(h) => (detail = h)}
       onToggle={() => {}}
       onUninstall={() => {}}
     />
     <Pagination {page} {pageCount} disabled={loading} {onPage} />
   {/if}
 </div>
+
+{#if detail}
+  {@const d = detail}
+  <ServerContentDetail
+    project={d}
+    onClose={() => (detail = null)}
+    loadVersions={() => commands.modsPluginVersions(d.source, d.project_id, mcVersion, core)}
+    installVersion={(vid) => commands.serverInstallPlugin(serverId, d.source, d.project_id, vid)}
+    externalOf={(v) => externalOf(d, v)}
+    openExternal={openUrl}
+    projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}
+    onInstalled={(report) => {
+      // Toast copy keys on the PROJECT name; the version label the modal
+      // passes is not surfaced in the toast.
+      toastInstalled(d.name, report);
+      detail = null;
+    }}
+  />
+{/if}

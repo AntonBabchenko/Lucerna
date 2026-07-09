@@ -3,15 +3,23 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import ServerModBrowser from '$lib/servers/mods/ServerModBrowser.svelte';
 
-const { mockSearch, mockVersions, mockInstallMod, mockCfStatus, mockPushSuccess, mockPushWarning } =
-  vi.hoisted(() => ({
-    mockSearch: vi.fn(),
-    mockVersions: vi.fn(),
-    mockInstallMod: vi.fn(),
-    mockCfStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
-    mockPushSuccess: vi.fn(),
-    mockPushWarning: vi.fn(),
-  }));
+const {
+  mockSearch,
+  mockVersions,
+  mockInstallMod,
+  mockCfStatus,
+  mockOpenUrl,
+  mockPushSuccess,
+  mockPushWarning,
+} = vi.hoisted(() => ({
+  mockSearch: vi.fn(),
+  mockVersions: vi.fn(),
+  mockInstallMod: vi.fn(),
+  mockCfStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
+  mockOpenUrl: vi.fn().mockResolvedValue(undefined),
+  mockPushSuccess: vi.fn(),
+  mockPushWarning: vi.fn(),
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -21,6 +29,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus: mockCfStatus,
   },
 }));
+
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: mockOpenUrl }));
 
 vi.mock('$lib/toasts/toasts.svelte', () => ({
   pushSuccess: mockPushSuccess,
@@ -88,6 +98,44 @@ describe('ServerModBrowser', () => {
     );
     expect(mockPushSuccess).toHaveBeenCalled();
     expect(onInstalled).toHaveBeenCalled();
+  });
+
+  it('opens the in-launcher detail card (not the website) when a card body is clicked', async () => {
+    mockVersions.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          version_id: 'v9',
+          project_id: 'jei',
+          source: 'modrinth',
+          name: '15.0.0',
+          version_number: '15.0.0',
+          mc_versions: ['1.20.1'],
+          loaders: ['forge'],
+          primary_file: {
+            filename: 'jei.jar',
+            url: 'https://cdn/jei.jar',
+            distribution_allowed: true,
+          },
+          deps: [],
+          published_at: null,
+        },
+      ],
+    });
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    // The card body button carries the project name.
+    const cardBody = await screen.findByRole('button', { name: /JEI/ });
+    await fireEvent.click(cardBody);
+    // The in-launcher detail modal mounts…
+    expect(await screen.findByTestId('server-content-detail')).toBeTruthy();
+    // …and its version picker lists the fetched version.
+    expect(await screen.findByText('15.0.0')).toBeTruthy();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
   });
 
   it('warns when the picked mod has no compatible version', async () => {
