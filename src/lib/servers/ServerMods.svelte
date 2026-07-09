@@ -5,6 +5,7 @@
   import { commands, type ServerModEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { coreToLoaderKind, modCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -29,12 +30,18 @@
   let pendingDelete = $state<string | null>(null);
 
   // The server's own metadata drives mod applicability. Mods only attach to a
-  // mod loader; a vanilla server gets datapacks only. Mutations require a stopped
-  // server (the backend enforces it; the UI gates to avoid pointless errors).
+  // mod loader; a vanilla server gets datapacks only. Plugin cores (paper/purpur)
+  // have no mod loader either — they get datapacks + (future) plugins, not mods.
+  // Mutations require a stopped server (the backend enforces it; the UI gates to
+  // avoid pointless errors).
+  // TEMPORARY: keeps the existing isVanilla-driven layout; Task 16 rewires the
+  // full mod/plugin gating (a dedicated plugin management surface).
   const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
   const isVanilla = $derived(server?.loader === 'vanilla');
   const isRunning = $derived(server?.running ?? false);
-  const canManageMods = $derived(server !== null && !isVanilla && !isRunning);
+  const canManageMods = $derived(
+    server !== null && !isVanilla && modCapable(server.loader) && !isRunning,
+  );
 
   async function refresh() {
     const res = await commands.serverListMods(serverId);
@@ -154,7 +161,7 @@
         <Icon name="folderOpen" size={14} />
         {$t('servers.mods.openFolder')}
       </BusyButton>
-      {#if !isVanilla}
+      {#if !isVanilla && server && modCapable(server.loader)}
         <button
           type="button"
           class="btn-secondary btn-sm inline-flex items-center gap-1"
@@ -192,12 +199,12 @@
     {/if}
 
     <!-- Server-targeted mod browser (collapsible) -->
-    {#if showBrowser && canManageMods && server}
+    {#if showBrowser && canManageMods && server && modCapable(server.loader)}
       <div class="rounded border border-border-subtle p-2">
         <ServerModBrowser
           {serverId}
           mcVersion={server.mc_version}
-          loader={server.loader}
+          loader={coreToLoaderKind(server.loader)!}
           onInstalled={() => void refresh()}
         />
       </div>

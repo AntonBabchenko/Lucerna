@@ -68,6 +68,11 @@
     ftb: { needs_api_key: false, supports_server_filter: false, can_export: false },
     // Mirrors AtlauncherModpackSource::caps() in source/atlauncher.rs exactly.
     atlauncher: { needs_api_key: false, supports_server_filter: false, can_export: false },
+    // Hangar is a plugin registry, not a modpack source — SourcePicker here never
+    // offers it, so this entry is unreachable. Present only because ModSource is
+    // shared across the mod/modpack/plugin browsers and Record<ModSource, _> must
+    // be exhaustive.
+    hangar: { needs_api_key: false, supports_server_filter: false, can_export: false },
   };
   let caps = $state<SourceCaps>({
     needs_api_key: false,

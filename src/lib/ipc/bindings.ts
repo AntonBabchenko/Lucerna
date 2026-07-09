@@ -448,7 +448,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  applications pass false (grow only when buttons would clip).
 	 */
 	windowSetExpandedFloor: (height: number | null, hug: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_expanded_floor", { height, hug })),
-	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
+	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	/**
 	 *  Batch-fetch project summaries (name / slug / icon) for the installed list.
@@ -459,7 +459,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  degrades that row.
 	 */
 	modsProjects: (source: ModSource, projectIds: string[]) => typedError<ModSummary[], Error>(__TAURI_INVOKE("mods_projects", { source, projectIds })),
-	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion_Serialize[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	/**
+	 *  Every plugin build of `project_id` compatible with the given server core's
+	 *  plugin-loader lineage (bukkit/spigot/paper/purpur), newest-first. The plugin
+	 *  twin of [`mods_versions`]: it resolves the compatible loader slugs from the
+	 *  core rather than a `LoaderKind`.
+	 */
+	modsPluginVersions: (source: ModSource, projectId: string, mcVersion: string | null, core: ServerCore) => typedError<ModVersion_Serialize[], Error>(__TAURI_INVOKE("mods_plugin_versions", { source, projectId, mcVersion, core })),
 	/**
 	 *  Pure (no network): given version-number strings and a required range +
 	 *  family, return the indices that satisfy it (input order preserved, so the
@@ -468,7 +475,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  both smart-Update and the picker's satisfies badges.
 	 */
 	modsFilterSatisfying: (versions: string[], needed: string, family: RangeFamily) => __TAURI_INVOKE<number[]>("mods_filter_satisfying", { versions, needed, family }),
-	modsResolveDeps: (version: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
+	modsResolveDeps: (version: ModVersion_Deserialize, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps_Serialize, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
 	/**
 	 *  Resolve the full `InstallPlan` for `primary`:
 	 *  - `required`: primary's transitive required closure (all must be installed)
@@ -478,7 +485,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 * 
 	 *  Already-installed mods are pruned from all lists.
 	 */
-	modsResolveInstallPlan: (instanceId: string, primary: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<InstallPlan, Error>(__TAURI_INVOKE("mods_resolve_install_plan", { instanceId, primary, mcVersion, loader })),
+	modsResolveInstallPlan: (instanceId: string, primary: ModVersion_Deserialize, mcVersion: string, loader: LoaderKind) => typedError<InstallPlan_Serialize, Error>(__TAURI_INVOKE("mods_resolve_install_plan", { instanceId, primary, mcVersion, loader })),
 	/**
 	 *  Install `primary` plus the TRANSITIVE required closure of the primary and
 	 *  each chosen optional, deduped, installed deps-first, then primary, then
@@ -525,13 +532,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  registry unreadable). Modpack-origin and hand-dropped mods are
 	 *  absent from the result.
 	 */
-	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
+	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
 	/**
 	 *  Download + install a resource pack or shader version into an instance,
 	 *  recording it in the assets registry. No progress events yet (no UI
 	 *  callers), so a no-op progress sink is supplied.
 	 */
-	assetInstall: (instanceId: string, version: ModVersion, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
+	assetInstall: (instanceId: string, version: ModVersion_Deserialize, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
 	/**
 	 *  List installed resource packs or shaders for an instance, filtered by
 	 *  `kind`. Reads the per-instance assets registry; never touches mods.
@@ -559,7 +566,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  are silently omitted from the result — there is nothing to query an
 	 *  update against.
 	 */
-	assetsCheckUpdates: (instanceId: string, kind: ContentKind) => typedError<AssetUpdateCheck[], Error>(__TAURI_INVOKE("assets_check_updates", { instanceId, kind })),
+	assetsCheckUpdates: (instanceId: string, kind: ContentKind) => typedError<AssetUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("assets_check_updates", { instanceId, kind })),
 	/**
 	 *  For each installed mod in `id`, report whether any platform version
 	 *  exists for the given target `mc` + `loader`. Non-destructive — no
@@ -604,7 +611,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  on error. Optional dependencies are intentionally not installed —
 	 *  see the spec ("Dependencies on update").
 	 */
-	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
+	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
 	modsFindOrphans: (instanceId: string, removing: string[]) => typedError<OrphanRef[], Error>(__TAURI_INVOKE("mods_find_orphans", { instanceId, removing })),
 	/**
 	 *  Build a full nested dependency graph for all platform-identified mods in
@@ -714,7 +721,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  deserialised directly and the archive path is skipped entirely (no bytes
 	 *  to read, no overrides).
 	 */
-	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | "atlauncher" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
+	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | "atlauncher" | 
+/**
+ *  hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
+ *  by `mods::hangar::HangarClient`.
+ */
+"hangar" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
@@ -925,7 +937,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 	 *  записать `server.json` + `eula.txt`.
 	 */
-	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerCreated_Serialize, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
+	serverCreate: (name: string, mcVersion: string, loader: ServerCore, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerCreated_Serialize, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
 	/**
 	 *  Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
 	 *  (running / pid / port) из процессного менеджера.
@@ -1119,7 +1131,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
 	 *  reprovision (переустановить загрузчик + скопировать данные).
 	 */
-	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
+	serverImportCommit: (token: string, name: string, mcVersion: string, loader: ServerCore, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
 	/**  Отменить импорт: удалить staging. */
 	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
 	/**
@@ -1230,6 +1242,71 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Server must be stopped.
 	 */
 	serverRemoveDatapack: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_remove_datapack", { id, filename })),
+	/**
+	 *  List the `.jar` / `.jar.disabled` plugins installed for a server's
+	 *  `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
+	 */
+	serverListPlugins: (id: string) => typedError<ServerPluginEntry[], Error>(__TAURI_INVOKE("server_list_plugins", { id })),
+	/**
+	 *  Install a chosen plugin version + its required dependency closure into the
+	 *  server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
+	 *  resolves the server's mc_version + core from `server.json`, gates on the core
+	 *  being plugin-capable (Paper/Purpur), then reuses the shared plugin install
+	 *  kernel ([`crate::commands::install_plugin_into_dir`]). Server must be stopped.
+	 *  Returns the jars written + any dependency that could not be resolved.
+	 */
+	serverInstallPlugin: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_plugin", { id, source, projectId, versionId })),
+	/**
+	 *  Install a local plugin `.jar` (chosen via the file picker) into the
+	 *  server's `runtime/plugins/`. Mirrors `server_install_local` (path-based —
+	 *  no heavy bytes over IPC). Validates the jar carries `plugin.yml` /
+	 *  `paper-plugin.yml` at its root. Server must be stopped.
+	 */
+	serverInstallPluginLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_plugin_local", { id, jarPath })),
+	/**
+	 *  Re-enable a set-aside plugin: rename `<name>.jar.disabled` → `<name>.jar`.
+	 *  Inverse of `server_disable_plugin`. Idempotent (absent → `Ok`). Rejects
+	 *  unsafe filenames / path escapes. Server must be stopped.
+	 */
+	serverEnablePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_plugin", { id, filename })),
+	/**
+	 *  Disable (rename to `*.disabled`) a single plugin in the server's
+	 *  `runtime/plugins/`. Unlike `server_disable_mods` this is single-file: no
+	 *  bulk, no dependency guard (plugins have no dependency graph the launcher
+	 *  tracks). Rejects unsafe filenames / path escapes. Server must be stopped.
+	 */
+	serverDisablePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_disable_plugin", { id, filename })),
+	/**
+	 *  Delete a plugin from the server's `runtime/plugins/` by filename.
+	 *  Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
+	 *  traversal). Unlike `server_delete_mod` this HAS an is_running guard —
+	 *  deleting a live plugin's jar out from under a running Bukkit-family server
+	 *  is a class of foot-gun the mods twin doesn't need to worry about the same
+	 *  way (mods are only ever touched while stopped in practice); kept here
+	 *  deliberately rather than propagating the mods twin's gap.
+	 */
+	serverDeletePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete_plugin", { id, filename })),
+	/**
+	 *  Open the server's `runtime/plugins/` folder in the system file manager.
+	 *  Creates the folder if it doesn't exist yet. Mirrors `server_open_logs_folder`.
+	 */
+	serverOpenPluginsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_plugins_folder", { id })),
+	/**
+	 *  Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
+	 *  Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
+	 *  these). Sequence: guard running -> validate -> fresh backup -> resolve +
+	 *  download the new jar (atomic .part rename; a failed download leaves the
+	 *  old jar AND old server.json untouched) -> re-read + re-validate -> only
+	 *  then swap loader/loader_version. Worlds are never touched: Paper converts
+	 *  them itself on first boot. This command owns the pre-switch snapshot;
+	 *  callers must not create another.
+	 */
+	serverSwitchCore: (id: string, target: ServerCore) => typedError<null, Error>(__TAURI_INVOKE("server_switch_core", { id, target })),
+	/**
+	 *  MC versions the given plugin core publishes builds for. The wizard
+	 *  intersects this SET with the Mojang manifest list (which owns ordering).
+	 */
+	serverCoreVersions: (core: ServerCore) => typedError<string[], Error>(__TAURI_INVOKE("server_core_versions", { core })),
 	/**
 	 *  Current effective data-root location, its configured (possibly
 	 *  unavailable) target, and the size on disk.
@@ -1345,23 +1422,48 @@ export type ArtifactStatus = "ok" | "missing" |
 "corrupt";
 
 /**  One installed resource-pack/shader's update-check result. */
-export type AssetUpdateCheck = {
+export type AssetUpdateCheck = AssetUpdateCheck_Serialize | AssetUpdateCheck_Deserialize;
+
+/**  One installed resource-pack/shader's update-check result. */
+export type AssetUpdateCheck_Deserialize = {
 	filename: string,
 	name: string,
-	state: AssetUpdateState,
+	state: AssetUpdateState_Deserialize,
+};
+
+/**  One installed resource-pack/shader's update-check result. */
+export type AssetUpdateCheck_Serialize = {
+	filename: string,
+	name: string,
+	state: AssetUpdateState_Serialize,
 };
 
 /**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
-export type AssetUpdateState = 
+export type AssetUpdateState = AssetUpdateState_Serialize | AssetUpdateState_Deserialize;
+
+/**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
+export type AssetUpdateState_Deserialize = 
 /**  The installed version is the newest offered for this MC version. */
-{ kind: "up_to_date" } | 
+({ kind: "up_to_date" }) & { latest?: never; reason?: never } | 
 /**  A newer version exists; `latest` is the version to install. */
-{ kind: "update_available"; latest: ModVersion } | 
+({ kind: "update_available"; latest: ModVersion_Deserialize }) & { reason?: never } | 
 /**
  *  The platform query failed (network error, project delisted, etc.).
  *  Set by the command layer — never produced by `classify_asset_update`.
  */
-{ kind: "check_failed"; reason: string };
+({ kind: "check_failed"; reason: string }) & { latest?: never };
+
+/**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
+export type AssetUpdateState_Serialize = 
+/**  The installed version is the newest offered for this MC version. */
+({ kind: "up_to_date" }) & { latest?: never; reason?: never } | 
+/**  A newer version exists; `latest` is the version to install. */
+({ kind: "update_available"; latest: ModVersion_Serialize }) & { reason?: never } | 
+/**
+ *  The platform query failed (network error, project delisted, etc.).
+ *  Set by the command layer — never produced by `classify_asset_update`.
+ */
+({ kind: "check_failed"; reason: string }) & { latest?: never };
 
 /**  One on-disk backup zip for a world. */
 export type Backup = {
@@ -1552,7 +1654,12 @@ export type ContentEntry = {
  *  What kind of content a search/install targets. `Mod` is the historical
  *  default so payloads that omit it keep working (serde `default`).
  */
-export type ContentKind = "mod" | "resource_pack" | "shader";
+export type ContentKind = "mod" | "resource_pack" | "shader" | 
+/**
+ *  A Bukkit-family server plugin (Paper/Purpur). Searched via Modrinth's
+ *  `project_type:plugin` facet and via Hangar (`mods::hangar`).
+ */
+"plugin";
 
 /**  Cosmetics snapshot the modal loads on open. */
 export type Cosmetics = {
@@ -2071,9 +2178,31 @@ export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | 
  *  loader project refs (informational). `incompatible`/`unresolvable` carry
  *  refs for display.
  */
-export type InstallPlan = {
-	required: PlannedDep[],
-	optional: OptionalDep[],
+export type InstallPlan = InstallPlan_Serialize | InstallPlan_Deserialize;
+
+/**
+ *  The full plan the dependency dialog renders. `required` is the primary's
+ *  transitive required closure (always installed). `loader_requirements` are
+ *  loader project refs (informational). `incompatible`/`unresolvable` carry
+ *  refs for display.
+ */
+export type InstallPlan_Deserialize = {
+	required: PlannedDep_Deserialize[],
+	optional: OptionalDep_Deserialize[],
+	incompatible: DepProjectRef[],
+	unresolvable: DepProjectRef[],
+	loader_requirements: DepProjectRef[],
+};
+
+/**
+ *  The full plan the dependency dialog renders. `required` is the primary's
+ *  transitive required closure (always installed). `loader_requirements` are
+ *  loader project refs (informational). `incompatible`/`unresolvable` carry
+ *  refs for display.
+ */
+export type InstallPlan_Serialize = {
+	required: PlannedDep_Serialize[],
+	optional: OptionalDep_Serialize[],
 	incompatible: DepProjectRef[],
 	unresolvable: DepProjectRef[],
 	loader_requirements: DepProjectRef[],
@@ -2372,12 +2501,34 @@ export type ModDepLink = {
 	project_ref: DepProjectRef,
 };
 
-export type ModFile = {
+export type ModFile = ModFile_Serialize | ModFile_Deserialize;
+
+export type ModFile_Deserialize = {
 	filename: string,
 	url: string,
 	sha1: string | null,
 	size: number | null,
 	distribution_allowed: boolean,
+	/**
+	 *  Lowercase sha256 hex when the platform publishes one (Hangar-hosted
+	 *  files). Modrinth/CF fill `sha1` instead; installers prefer sha1 (the
+	 *  content-addressed cache key) and fall back to sha256 direct download.
+	 */
+	sha256?: string | null,
+};
+
+export type ModFile_Serialize = {
+	filename: string,
+	url: string,
+	sha1: string | null,
+	size: number | null,
+	distribution_allowed: boolean,
+	/**
+	 *  Lowercase sha256 hex when the platform publishes one (Hangar-hosted
+	 *  files). Modrinth/CF fill `sha1` instead; installers prefer sha1 (the
+	 *  content-addressed cache key) and fall back to sha256 direct download.
+	 */
+	sha256?: string | null,
 };
 
 export type ModInstallFailed = {
@@ -2455,7 +2606,9 @@ export type ModSearchPage = {
 	page_size: number,
 };
 
-export type ModSearchQuery = {
+export type ModSearchQuery = ModSearchQuery_Serialize | ModSearchQuery_Deserialize;
+
+export type ModSearchQuery_Deserialize = {
 	source: ModSource,
 	kind?: ContentKind,
 	query: string,
@@ -2464,11 +2617,37 @@ export type ModSearchQuery = {
 	sort: ModSort,
 	page_size: number,
 	offset: number,
+	/**
+	 *  Plugin-capable server core driving the plugin-loader facet OR-group
+	 *  when `kind == Plugin`. Ignored for every other kind.
+	 */
+	plugin_core?: ServerCore | null,
+};
+
+export type ModSearchQuery_Serialize = {
+	source: ModSource,
+	kind: ContentKind,
+	query: string,
+	mc_version: string | null,
+	loader: LoaderKind | null,
+	sort: ModSort,
+	page_size: number,
+	offset: number,
+	/**
+	 *  Plugin-capable server core driving the plugin-loader facet OR-group
+	 *  when `kind == Plugin`. Ignored for every other kind.
+	 */
+	plugin_core?: ServerCore | null,
 };
 
 export type ModSort = "relevance" | "downloads" | "updated";
 
-export type ModSource = "modrinth" | "curseforge" | "ftb" | "atlauncher";
+export type ModSource = "modrinth" | "curseforge" | "ftb" | "atlauncher" | 
+/**
+ *  hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
+ *  by `mods::hangar::HangarClient`.
+ */
+"hangar";
 
 export type ModSummary = {
 	source: ModSource,
@@ -2501,7 +2680,13 @@ export type ModUninstalled = {
  *  One installed user-mod's update-check result. One per *eligible*
  *  mod — see [`eligible_identity`]; ineligible mods are absent.
  */
-export type ModUpdateCheck = {
+export type ModUpdateCheck = ModUpdateCheck_Serialize | ModUpdateCheck_Deserialize;
+
+/**
+ *  One installed user-mod's update-check result. One per *eligible*
+ *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ */
+export type ModUpdateCheck_Deserialize = {
 	/**
 	 *  SHA-1 of the currently installed jar — identifies the row and is
 	 *  the handle `mods_update_one` uses to remove the old file.
@@ -2513,28 +2698,70 @@ export type ModUpdateCheck = {
 	project_id: string,
 	current_version_id: string,
 	current_version_number: string | null,
-	state: ModUpdateState,
+	state: ModUpdateState_Deserialize,
+};
+
+/**
+ *  One installed user-mod's update-check result. One per *eligible*
+ *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ */
+export type ModUpdateCheck_Serialize = {
+	/**
+	 *  SHA-1 of the currently installed jar — identifies the row and is
+	 *  the handle `mods_update_one` uses to remove the old file.
+	 */
+	sha1: string,
+	/**  Display name from the registry. */
+	name: string,
+	source: ModSource,
+	project_id: string,
+	current_version_id: string,
+	current_version_number: string | null,
+	state: ModUpdateState_Serialize,
 };
 
 /**  The per-mod classification. */
-export type ModUpdateState = 
+export type ModUpdateState = ModUpdateState_Serialize | ModUpdateState_Deserialize;
+
+/**  The per-mod classification. */
+export type ModUpdateState_Deserialize = 
 /**  The installed version is the newest for this MC + loader. */
-{ kind: "up_to_date" } | 
+({ kind: "up_to_date" }) & { reason?: never; target?: never } | 
 /**  A newer version exists; `target` is the version to install. */
-{ kind: "update_available"; target: ModVersion } | 
+({ kind: "update_available"; target: ModVersion_Deserialize }) & { reason?: never } | 
 /**
  *  Cannot determine — the installed version is not in the
  *  platform's current list, or the list is empty.
  */
-{ kind: "unknown" } | 
+({ kind: "unknown" }) & { reason?: never; target?: never } | 
 /**
  *  The platform query failed (network, missing CurseForge key,
  *  project delisted / 404). Set by `mods_check_updates` on a failed
  *  query — never produced by `classify_update`.
  */
-{ kind: "check_failed"; reason: string };
+({ kind: "check_failed"; reason: string }) & { target?: never };
 
-export type ModVersion = {
+/**  The per-mod classification. */
+export type ModUpdateState_Serialize = 
+/**  The installed version is the newest for this MC + loader. */
+({ kind: "up_to_date" }) & { reason?: never; target?: never } | 
+/**  A newer version exists; `target` is the version to install. */
+({ kind: "update_available"; target: ModVersion_Serialize }) & { reason?: never } | 
+/**
+ *  Cannot determine — the installed version is not in the
+ *  platform's current list, or the list is empty.
+ */
+({ kind: "unknown" }) & { reason?: never; target?: never } | 
+/**
+ *  The platform query failed (network, missing CurseForge key,
+ *  project delisted / 404). Set by `mods_check_updates` on a failed
+ *  query — never produced by `classify_update`.
+ */
+({ kind: "check_failed"; reason: string }) & { target?: never };
+
+export type ModVersion = ModVersion_Serialize | ModVersion_Deserialize;
+
+export type ModVersion_Deserialize = {
 	source: ModSource,
 	project_id: string,
 	version_id: string,
@@ -2542,7 +2769,20 @@ export type ModVersion = {
 	version_number: string,
 	mc_versions: string[],
 	loaders: LoaderKind[],
-	primary_file: ModFile,
+	primary_file: ModFile_Deserialize,
+	deps: ModDepLink[],
+	published_at: string | null,
+};
+
+export type ModVersion_Serialize = {
+	source: ModSource,
+	project_id: string,
+	version_id: string,
+	name: string,
+	version_number: string,
+	mc_versions: string[],
+	loaders: LoaderKind[],
+	primary_file: ModFile_Serialize,
 	deps: ModDepLink[],
 	published_at: string | null,
 };
@@ -2852,9 +3092,28 @@ export type OpEntry = {
  *  when the user opts in. `requires` already excludes the primary's own
  *  requireds, already-installed projects, and loaders.
  */
-export type OptionalDep = {
-	version: ModVersion,
-	requires: PlannedDep[],
+export type OptionalDep = OptionalDep_Serialize | OptionalDep_Deserialize;
+
+/**
+ *  A direct optional dependency of the primary, plus ITS own transitive
+ *  required closure (`requires`) — so the dialog can reveal sub-deps live
+ *  when the user opts in. `requires` already excludes the primary's own
+ *  requireds, already-installed projects, and loaders.
+ */
+export type OptionalDep_Deserialize = {
+	version: ModVersion_Deserialize,
+	requires: PlannedDep_Deserialize[],
+};
+
+/**
+ *  A direct optional dependency of the primary, plus ITS own transitive
+ *  required closure (`requires`) — so the dialog can reveal sub-deps live
+ *  when the user opts in. `requires` already excludes the primary's own
+ *  requireds, already-installed projects, and loaders.
+ */
+export type OptionalDep_Serialize = {
+	version: ModVersion_Serialize,
+	requires: PlannedDep_Serialize[],
 };
 
 /**  A mod that would no longer be required by anything after a removal. */
@@ -2932,8 +3191,17 @@ export type PackOriginSummary = {
 };
 
 /**  A dependency the launcher plans to install, plus why that build was chosen. */
-export type PlannedDep = {
-	version: ModVersion,
+export type PlannedDep = PlannedDep_Serialize | PlannedDep_Deserialize;
+
+/**  A dependency the launcher plans to install, plus why that build was chosen. */
+export type PlannedDep_Deserialize = {
+	version: ModVersion_Deserialize,
+	selection_reason: SelectionReason,
+};
+
+/**  A dependency the launcher plans to install, plus why that build was chosen. */
+export type PlannedDep_Serialize = {
+	version: ModVersion_Serialize,
 	selection_reason: SelectionReason,
 };
 
@@ -3095,15 +3363,32 @@ export type ResolvedCandidate = {
 	version_label: string,
 };
 
-export type ResolvedDep = {
+export type ResolvedDep = ResolvedDep_Serialize | ResolvedDep_Deserialize;
+
+export type ResolvedDep_Deserialize = {
 	project_ref: DepProjectRef,
-	version: ModVersion,
+	version: ModVersion_Deserialize,
 	selection_reason: SelectionReason,
 };
 
-export type ResolvedDeps = {
-	required: ResolvedDep[],
-	optional: ResolvedDep[],
+export type ResolvedDep_Serialize = {
+	project_ref: DepProjectRef,
+	version: ModVersion_Serialize,
+	selection_reason: SelectionReason,
+};
+
+export type ResolvedDeps = ResolvedDeps_Serialize | ResolvedDeps_Deserialize;
+
+export type ResolvedDeps_Deserialize = {
+	required: ResolvedDep_Deserialize[],
+	optional: ResolvedDep_Deserialize[],
+	incompatible: DepProjectRef[],
+	unresolvable: DepProjectRef[],
+};
+
+export type ResolvedDeps_Serialize = {
+	required: ResolvedDep_Serialize[],
+	optional: ResolvedDep_Serialize[],
 	incompatible: DepProjectRef[],
 	unresolvable: DepProjectRef[],
 };
@@ -3196,6 +3481,15 @@ export type ServerConnectivity = {
 };
 
 /**
+ *  A server's core software. Superset of the client `LoaderKind`: the five
+ *  mod-loader variants are wire-compatible with it (same snake_case strings),
+ *  while Paper/Purpur are Bukkit-family plugin cores that exist only for
+ *  servers. Never leak Paper/Purpur into client-instance surfaces — use
+ *  `as_loader_kind()` at every boundary into client machinery.
+ */
+export type ServerCore = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | "paper" | "purpur";
+
+/**
  *  Result of `server_create`: the new server plus the client-only mods that were
  *  automatically set aside (`*.disabled`) so a modpack server can start. The
  *  create wizard shows a summary from `quarantined`.
@@ -3274,7 +3568,7 @@ export type ServerImportPreview = {
 	token: string,
 	detected_name: string,
 	mc_version: string | null,
-	loader: LoaderKind | null,
+	loader: ServerCore | null,
 	loader_version: string | null,
 	can_launch_as_is: boolean,
 	mod_count: number,
@@ -3309,6 +3603,15 @@ export type ServerModEntry = {
 	disabled: boolean,
 	/**  Sidecar reason for a disabled jar (e.g. `client_only`); `None` otherwise. */
 	reason: string | null,
+};
+
+/**
+ *  One entry in `server_list_plugins`. Unlike mods there is no quarantine
+ *  sidecar — plugins have no client/server ambiguity — so no reason field.
+ */
+export type ServerPluginEntry = {
+	filename: string,
+	disabled: boolean,
 };
 
 /**
@@ -3366,7 +3669,7 @@ export type ServerWithStatus_Deserialize = {
 	id: string,
 	name: string,
 	mc_version: string,
-	loader: LoaderKind,
+	loader: ServerCore,
 	loader_version: string | null,
 	max_heap_mb: number,
 	extra_jvm_args: string,
@@ -3393,7 +3696,7 @@ export type ServerWithStatus_Serialize = {
 	id: string,
 	name: string,
 	mc_version: string,
-	loader: LoaderKind,
+	loader: ServerCore,
 	loader_version: string | null,
 	max_heap_mb: number,
 	extra_jvm_args: string,

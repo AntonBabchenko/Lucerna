@@ -97,13 +97,16 @@
     shaderModUnlisteners = [];
   });
 
-  // i18n labels for the kind switch — order mirrors CONTENT_KINDS.
-  const kindLabels: Record<ContentKind, TranslationKey> = {
+  // i18n labels for the kind switch — order mirrors CONTENT_KINDS. Instance
+  // Add-ons never surface the "plugin" ContentKind (plugins install to
+  // servers, not client instances — see servers/mods/ServerModBrowser +
+  // Task 16's plugin browser), so these maps exclude it explicitly.
+  const kindLabels: Record<Exclude<ContentKind, 'plugin'>, TranslationKey> = {
     mod: 'addons.kindMods',
     resource_pack: 'addons.kindResourcePacks',
     shader: 'addons.kindShaders',
   };
-  const kindIcons: Record<ContentKind, IconName> = {
+  const kindIcons: Record<Exclude<ContentKind, 'plugin'>, IconName> = {
     mod: 'blocks',
     resource_pack: 'resourcePack',
     shader: 'shader',

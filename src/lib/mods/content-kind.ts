@@ -3,7 +3,10 @@ import { canInstallMods } from './install-eligibility';
 
 type Loader = 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
 
-export const CONTENT_KINDS: ContentKind[] = ['mod', 'resource_pack', 'shader'];
+// Instance-installable kinds only — "plugin" (Bukkit/Paper/Purpur) attaches to
+// servers, not client instances, so it's deliberately excluded here (see
+// servers/mods/ServerModBrowser and the plugin management surface).
+export const CONTENT_KINDS: Exclude<ContentKind, 'plugin'>[] = ['mod', 'resource_pack', 'shader'];
 
 /** Mods need a non-vanilla instance; resource packs/shaders run on any
  *  selected instance (including vanilla). */

@@ -42,6 +42,12 @@
     curseforge: 'bg-gradient-to-br from-orange-500 to-red-600 text-orange-50',
     ftb: 'bg-gradient-to-br from-sky-400 to-sky-600 text-sky-950',
     atlauncher: 'bg-gradient-to-br from-indigo-400 to-indigo-600 text-indigo-50',
+    // Hangar is a server-plugin registry; a client instance's mrpack_source can
+    // never actually be "hangar" (plugins install to servers, not instances —
+    // see servers/mods/ServerModBrowser). Present only because AvatarTone
+    // derives from the shared ModSource union and Record<AvatarTone, _> must
+    // be exhaustive.
+    hangar: 'bg-gradient-to-br from-rose-400 to-rose-600 text-rose-50',
   };
 </script>
 
