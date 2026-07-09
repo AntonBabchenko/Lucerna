@@ -72,7 +72,7 @@
     // for a Fabric server. Mirrors ServerPluginBrowser's reqSeq (increment
     // at the start of every run, no leave-branch gap).
     const seq = ++coreVerSeq;
-    if (c !== 'paper' && c !== 'purpur') {
+    if (!pluginCapable(c)) {
       coreVersions = null;
       coreVersionsError = null;
       coreVersionsLoading = false;
@@ -104,7 +104,8 @@
   // so canCreate/disabledReason never has to reason about an "unsupported MC"
   // state. Guarded to the loaded-without-error case: during loading/error the
   // dropdown still shows every version and must not be cleared. Reads
-  // coreFilteredVersions + mcVersion, writes only mcVersion.
+  // coreVersions + coreVersionsError + coreFilteredVersions + mcVersion,
+  // writes only mcVersion.
   $effect(() => {
     if (coreVersions === null || coreVersionsError !== null) return;
     const current = mcVersion;

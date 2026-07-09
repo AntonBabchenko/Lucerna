@@ -28,6 +28,7 @@
 
   let target = $state<ServerCore | null>(null);
   $effect(() => {
+    // Runs once: once target is non-null the guard is false, so no loop.
     if (target === null && targets.length > 0) target = targets[0];
   });
 
