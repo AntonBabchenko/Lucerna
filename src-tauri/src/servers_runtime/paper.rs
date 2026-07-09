@@ -23,8 +23,10 @@ pub struct ResolvedCoreJar {
     /// Build id as a string (Paper: numeric id; kept as string to match
     /// `ServerFile.loader_version`).
     pub build: String,
-    /// Lowercase hex digest to verify the download with.
-    pub digest: String,
+    /// Checksum to verify the download with, carrying the algorithm so it can
+    /// never be mixed up: `PaperClient` fills `Checksum::Sha256`,
+    /// `PurpurClient` fills `Checksum::Md5`.
+    pub checksum: crate::network::download::Checksum,
     pub url: String,
 }
 
@@ -117,7 +119,9 @@ impl PaperClient {
                 }
                 let d = b.downloads.get(SERVER_JAR_KEY)?;
                 Some(ResolvedCoreJar {
-                    digest: d.checksums.sha256.clone(),
+                    checksum: crate::network::download::Checksum::Sha256(
+                        d.checksums.sha256.clone(),
+                    ),
                     url: d.url.clone(),
                     build: b.id.to_string(),
                 })
@@ -160,7 +164,10 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let jar = c.latest_stable_build("1.21.4").await.unwrap();
         assert_eq!(jar.build, "129");
-        assert_eq!(jar.digest, "bb");
+        assert_eq!(
+            jar.checksum,
+            crate::network::download::Checksum::Sha256("bb".into())
+        );
         assert!(jar.url.ends_with("paper-1.21.4-129.jar"));
     }
 

@@ -1,9 +1,8 @@
 //! Tauri-команды фичи «Свой сервер» (План 1: создание/список/удаление).
 
 use crate::error::{Error, Result};
-use crate::instances::schema::LoaderKind;
 use crate::mods::platform::ServerSideSupport;
-use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
+use crate::servers_runtime::schema::{ServerCore, ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{backup, create, import, store};
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -292,7 +291,7 @@ pub async fn server_create(
     app: AppHandle,
     name: String,
     mc_version: String,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -337,7 +336,7 @@ pub async fn server_create(
         crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
             .await
             .ok();
-    provision_loader(&app, &base, &file).await?;
+    provision_loader(&app, &base, &mut file).await?;
     let mut quarantined: Vec<String> = Vec::new();
     if let Some(inst_id) = &file.created_from_instance {
         let src = crate::paths::mods_dir(&app, inst_id)
@@ -979,8 +978,12 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    provision_loader(&app, &base, &file).await?;
+    let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    provision_loader(&app, &base, &mut file).await?;
+    // Persist the possibly-updated build (Paper/Purpur resolve the newest build
+    // on redownload). The prebuilt paths already wrote server.json; this extra
+    // atomic write is harmless and covers the Forge path too.
+    crate::servers_runtime::store::write_server_json(&p.json, &file)?;
     mark_current_log_handled(&p);
     Ok(())
 }
@@ -1052,13 +1055,21 @@ pub async fn server_install_missing_dep(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    // Java mods only load on a mod-capable core; a Bukkit plugin core (Paper/
+    // Purpur) or vanilla has no mods/ machinery — reject rather than silently
+    // install into a dir the server never reads.
+    let loader = file
+        .loader
+        .as_loader_kind()
+        .filter(|_| file.loader.mod_capable())
+        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     let report = crate::mods::dep_resolve::install_missing_into_dir(
         &base,
         &p.mods,
         &mod_ids,
         &file.mc_version,
-        file.loader,
+        loader,
         cf_key,
     )
     .await?;
@@ -1515,14 +1526,14 @@ pub async fn server_open_folder(app: AppHandle, id: String) -> Result<()> {
 async fn provision_loader(
     app: &AppHandle,
     base: &std::path::Path,
-    file: &ServerFile,
+    file: &mut ServerFile,
 ) -> Result<()> {
     match file.loader {
-        LoaderKind::Vanilla => {
+        ServerCore::Vanilla => {
             let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
             create::create_vanilla_server(base, file, &jar_url, &sha1).await?;
         }
-        LoaderKind::Fabric => {
+        ServerCore::Fabric => {
             let installer = create::latest_fabric_installer(&file.mc_version).await?;
             let lv = create::require_loader_version(file, "fabric")?;
             let url = crate::servers_runtime::jar::fabric_server_jar_url(
@@ -1532,7 +1543,7 @@ async fn provision_loader(
             );
             create::create_fabric_server(base, file, &url).await?;
         }
-        LoaderKind::Quilt => {
+        ServerCore::Quilt => {
             let installer = create::latest_quilt_installer(&file.mc_version).await?;
             let lv = create::require_loader_version(file, "quilt")?;
             let url = crate::servers_runtime::jar::quilt_server_jar_url(
@@ -1542,9 +1553,9 @@ async fn provision_loader(
             );
             create::create_quilt_server(base, file, &url).await?;
         }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
+        ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;
-            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
+            let (url, label) = if matches!(file.loader, ServerCore::Forge) {
                 (
                     crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
                     "forge",
@@ -1559,6 +1570,22 @@ async fn provision_loader(
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &url, &java_bin, label).await?;
+        }
+        ServerCore::Paper => {
+            let jar = crate::servers_runtime::paper::PaperClient::new()
+                .latest_stable_build(&file.mc_version)
+                .await?;
+            // Persist the resolved build BEFORE the prebuilt path writes
+            // server.json, so the stored loader_version is the real build.
+            file.loader_version = Some(jar.build.clone());
+            create::create_paper_family_server(base, file, &jar.url, jar.checksum).await?;
+        }
+        ServerCore::Purpur => {
+            let jar = crate::servers_runtime::purpur::PurpurClient::new()
+                .latest_successful_build(&file.mc_version)
+                .await?;
+            file.loader_version = Some(jar.build.clone());
+            create::create_paper_family_server(base, file, &jar.url, jar.checksum).await?;
         }
     }
     Ok(())
@@ -1586,7 +1613,7 @@ pub async fn server_import_commit(
     token: String,
     name: String,
     mc_version: String,
-    loader: LoaderKind,
+    loader: ServerCore,
     loader_version: Option<String>,
     max_heap_mb: u32,
     eula_accepted: bool,
@@ -1628,7 +1655,7 @@ pub async fn server_import_commit(
         // Remove the reserved directory if any step below fails (`?` / early
         // return), so a partial import never leaks the slug.
         let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
-        let file = import::build_file(
+        let mut file = import::build_file(
             &new_id,
             &name,
             &mc_version,
@@ -1637,7 +1664,7 @@ pub async fn server_import_commit(
             max_heap_mb,
             eula_accepted,
         );
-        provision_loader(&app, &base, &file).await?;
+        provision_loader(&app, &base, &mut file).await?;
         let p = crate::paths::server_paths(&base, &new_id);
         match import::pack::detect_pack(&root) {
             Some(import::pack::PackKind::Modrinth) => {
@@ -2118,6 +2145,14 @@ pub async fn server_install_mod(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    // Java mods only load on a mod-capable core; a Bukkit plugin core (Paper/
+    // Purpur) or vanilla has no mods/ machinery. Reject rather than install into
+    // a dir the server never reads (matches the UI's per-core gating).
+    let loader = file
+        .loader
+        .as_loader_kind()
+        .filter(|_| file.loader.mod_capable())
+        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))?;
     crate::commands::install_version_into_dir(
         &base,
         &p.mods,
@@ -2125,7 +2160,7 @@ pub async fn server_install_mod(
         &project_id,
         &version_id,
         &file.mc_version,
-        file.loader,
+        loader,
     )
     .await
 }

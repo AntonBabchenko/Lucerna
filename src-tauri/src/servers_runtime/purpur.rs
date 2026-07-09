@@ -104,7 +104,7 @@ impl PurpurClient {
         ResolvedCoreJar {
             url: self.download_url(mc, &build.build),
             build: build.build.clone(),
-            digest: build.md5.clone(),
+            checksum: crate::network::download::Checksum::Md5(build.md5.clone()),
         }
     }
 
@@ -169,7 +169,10 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let jar = c.latest_successful_build("1.21.4").await.unwrap();
         assert_eq!(jar.build, "2321");
-        assert_eq!(jar.digest, "c0ffee");
+        assert_eq!(
+            jar.checksum,
+            crate::network::download::Checksum::Md5("c0ffee".into())
+        );
         assert!(jar.url.ends_with("/v2/purpur/1.21.4/2321/download"));
     }
 
@@ -206,7 +209,10 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let jar = c.latest_successful_build("1.21.4").await.unwrap();
         assert_eq!(jar.build, "2320");
-        assert_eq!(jar.digest, "beef");
+        assert_eq!(
+            jar.checksum,
+            crate::network::download::Checksum::Md5("beef".into())
+        );
     }
 
     #[tokio::test]
@@ -313,6 +319,9 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let jar = c.latest_successful_build("1.21.4").await.unwrap();
         assert_eq!(jar.build, "2320");
-        assert_eq!(jar.digest, "beef");
+        assert_eq!(
+            jar.checksum,
+            crate::network::download::Checksum::Md5("beef".into())
+        );
     }
 }

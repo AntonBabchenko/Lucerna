@@ -1,8 +1,7 @@
 //! Fabric/Quilt prebuilt server-launcher download assembly.
-use lucerna_lib::instances::schema::LoaderKind;
 use lucerna_lib::servers_runtime::create::create_fabric_server;
 use lucerna_lib::servers_runtime::create::create_quilt_server;
-use lucerna_lib::servers_runtime::schema::ServerFile;
+use lucerna_lib::servers_runtime::schema::{ServerCore, ServerFile};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
 use wiremock::matchers::{method, path};
@@ -15,7 +14,7 @@ fn test_lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|p| p.into_inner())
 }
 
-fn sample(id: &str, loader: LoaderKind) -> ServerFile {
+fn sample(id: &str, loader: ServerCore) -> ServerFile {
     ServerFile {
         id: id.into(),
         name: "S".into(),
@@ -46,7 +45,7 @@ async fn fabric_server_downloads_launcher_jar() {
         lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
     let base = tempdir().unwrap();
-    let file = sample("srv-f", LoaderKind::Fabric);
+    let file = sample("srv-f", ServerCore::Fabric);
     let jar_url = format!("{}/server/jar", server.uri());
     create_fabric_server(base.path(), &file, &jar_url)
         .await
@@ -70,7 +69,7 @@ async fn quilt_server_downloads_launcher_jar() {
         lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
     let base = tempdir().unwrap();
-    let file = sample("srv-q", LoaderKind::Quilt);
+    let file = sample("srv-q", ServerCore::Quilt);
     let jar_url = format!("{}/server/jar", server.uri());
     create_quilt_server(base.path(), &file, &jar_url)
         .await

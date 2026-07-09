@@ -34,6 +34,7 @@ pub struct DownloadProgress {
 /// computes sha1 (the universal identity anchor) and returns it; for
 /// `Md5` / `Sha256` it additionally computes that digest to verify the
 /// vendor-supplied checksum.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Checksum {
     /// Lowercase sha1 hex. Empty string = skip verification (legacy behaviour).
     Sha1(String),

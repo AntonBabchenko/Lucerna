@@ -2,13 +2,13 @@
 //! сервера + `can_launch_as_is`. Несработавшее поле → `None`; юзер правит в
 //! визарде (Слайс 2b). Никогда не паникует на странном дереве.
 
-use crate::instances::schema::LoaderKind;
+use crate::servers_runtime::schema::ServerCore;
 use std::path::Path;
 
 /// Результат детекта. Любое поле может быть `None` (юзер уточнит).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Detected {
-    pub loader: Option<LoaderKind>,
+    pub loader: Option<ServerCore>,
     pub mc_version: Option<String>,
     pub loader_version: Option<String>,
 }
@@ -24,7 +24,7 @@ pub fn detect(root: &Path) -> Detected {
         Some(crate::servers_runtime::import::pack::PackKind::Modrinth) => {
             if let Ok(p) = crate::servers_runtime::import::pack::parse_modrinth(root) {
                 return Detected {
-                    loader: Some(p.loader),
+                    loader: Some(ServerCore::from_loader_kind(p.loader)),
                     mc_version: Some(p.mc_version),
                     loader_version: p.loader_version,
                 };
@@ -33,7 +33,7 @@ pub fn detect(root: &Path) -> Detected {
         Some(crate::servers_runtime::import::pack::PackKind::Curseforge) => {
             if let Ok(p) = crate::servers_runtime::import::pack::parse_cf(root) {
                 return Detected {
-                    loader: Some(p.loader),
+                    loader: Some(ServerCore::from_loader_kind(p.loader)),
                     mc_version: Some(p.mc_version),
                     loader_version: p.loader_version,
                 };
@@ -43,35 +43,35 @@ pub fn detect(root: &Path) -> Detected {
     }
     if let Some((mc, lv)) = neoforge_from_libraries(root) {
         return Detected {
-            loader: Some(LoaderKind::NeoForge),
+            loader: Some(ServerCore::NeoForge),
             mc_version: mc,
             loader_version: Some(lv),
         };
     }
     if let Some((mc, lv)) = forge_from_libraries(root) {
         return Detected {
-            loader: Some(LoaderKind::Forge),
+            loader: Some(ServerCore::Forge),
             mc_version: mc,
             loader_version: Some(lv),
         };
     }
     if quilt_marker(root) {
         return Detected {
-            loader: Some(LoaderKind::Quilt),
+            loader: Some(ServerCore::Quilt),
             mc_version: fabric_family_mc(root).or_else(|| mc_from_logs(root)),
             loader_version: loader_version_under(root, "org/quiltmc/quilt-loader"),
         };
     }
     if fabric_marker(root) {
         return Detected {
-            loader: Some(LoaderKind::Fabric),
+            loader: Some(ServerCore::Fabric),
             mc_version: fabric_family_mc(root).or_else(|| mc_from_logs(root)),
             loader_version: loader_version_under(root, "net/fabricmc/fabric-loader"),
         };
     }
     if root.join("server.jar").exists() || has_vanilla_named_jar(root) {
         return Detected {
-            loader: Some(LoaderKind::Vanilla),
+            loader: Some(ServerCore::Vanilla),
             mc_version: mc_from_server_jar(root).or_else(|| mc_from_logs(root)),
             loader_version: None,
         };
@@ -87,16 +87,21 @@ pub fn detect(root: &Path) -> Detected {
 /// V/Q/F — есть `server.jar` и НЕТ отдельного чужого лаунчер-jar (иначе
 /// `server.jar` — ванильный, и `-jar server.jar` запустил бы ваниль);
 /// Forge/NeoForge — найден installer args-файл (та же проверка, что у запуска).
-pub fn can_launch_as_is(root: &Path, loader: LoaderKind) -> bool {
+pub fn can_launch_as_is(root: &Path, loader: ServerCore) -> bool {
     match loader {
-        LoaderKind::Vanilla => root.join("server.jar").exists(),
-        LoaderKind::Fabric | LoaderKind::Quilt => {
+        // Paper/Purpur launch exactly like vanilla (`-jar server.jar`); their
+        // dedicated detection markers are a later slice, but a staged tree with
+        // a bare server.jar is already launchable.
+        ServerCore::Vanilla | ServerCore::Paper | ServerCore::Purpur => {
+            root.join("server.jar").exists()
+        }
+        ServerCore::Fabric | ServerCore::Quilt => {
             root.join("server.jar").exists()
                 && !root.join("fabric-server-launch.jar").exists()
                 && !root.join("fabric-server-launcher.jar").exists()
                 && !root.join("quilt-server-launch.jar").exists()
         }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
+        ServerCore::Forge | ServerCore::NeoForge => {
             crate::servers_runtime::runtime::find_loader_args_file(root).is_some()
         }
     }
@@ -238,7 +243,7 @@ mod tests {
                 .join("libraries/net/neoforged/neoforge/20.4.237/win_args.txt"),
         );
         let r = detect(d.path());
-        assert_eq!(r.loader, Some(LoaderKind::NeoForge));
+        assert_eq!(r.loader, Some(ServerCore::NeoForge));
         assert_eq!(r.loader_version.as_deref(), Some("20.4.237"));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
     }
@@ -251,7 +256,7 @@ mod tests {
                 .join("libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt"),
         );
         let r = detect(d.path());
-        assert_eq!(r.loader, Some(LoaderKind::Forge));
+        assert_eq!(r.loader, Some(ServerCore::Forge));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.1"));
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
     }
@@ -269,7 +274,7 @@ mod tests {
                 .join("libraries/net/fabricmc/fabric-loader/0.16.5/fabric-loader-0.16.5.jar"),
         );
         let r = detect(d.path());
-        assert_eq!(r.loader, Some(LoaderKind::Fabric));
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
         assert_eq!(r.loader_version.as_deref(), Some("0.16.5"));
     }
@@ -279,7 +284,7 @@ mod tests {
         let d = tempdir().unwrap();
         touch(&d.path().join(".quilt/x"));
         let r = detect(d.path());
-        assert_eq!(r.loader, Some(LoaderKind::Quilt));
+        assert_eq!(r.loader, Some(ServerCore::Quilt));
     }
 
     #[test]
@@ -288,7 +293,7 @@ mod tests {
         // server.jar with an embedded version.json {"id":"1.20.4"}
         write_jar_with_version_json(&d.path().join("server.jar"), "1.20.4");
         let r = detect(d.path());
-        assert_eq!(r.loader, Some(LoaderKind::Vanilla));
+        assert_eq!(r.loader, Some(ServerCore::Vanilla));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
     }
 
@@ -305,7 +310,7 @@ mod tests {
     fn can_launch_vanilla_with_server_jar() {
         let d = tempdir().unwrap();
         touch(&d.path().join("server.jar"));
-        assert!(can_launch_as_is(d.path(), LoaderKind::Vanilla));
+        assert!(can_launch_as_is(d.path(), ServerCore::Vanilla));
     }
 
     #[test]
@@ -314,7 +319,7 @@ mod tests {
         let d = tempdir().unwrap();
         touch(&d.path().join("server.jar"));
         touch(&d.path().join("fabric-server-launch.jar"));
-        assert!(!can_launch_as_is(d.path(), LoaderKind::Fabric));
+        assert!(!can_launch_as_is(d.path(), ServerCore::Fabric));
     }
 
     #[test]
@@ -328,7 +333,7 @@ mod tests {
             &d.path()
                 .join("libraries/net/neoforged/neoforge/20.4.237/unix_args.txt"),
         );
-        assert!(can_launch_as_is(d.path(), LoaderKind::NeoForge));
+        assert!(can_launch_as_is(d.path(), ServerCore::NeoForge));
     }
 
     // Helper: write a minimal zip (jar) containing version.json at the root.

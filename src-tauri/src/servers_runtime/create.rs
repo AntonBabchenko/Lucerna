@@ -47,6 +47,29 @@ fn seed_server_properties(runtime: &Path, name: &str) {
 }
 
 /// Общая сборка «готовый jar»: server.json + скачать jar + eula.txt.
+async fn create_prebuilt_server_with(
+    base: &Path,
+    file: &ServerFile,
+    jar_url: &str,
+    checksum: crate::network::download::Checksum,
+) -> Result<()> {
+    crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
+    let p = crate::paths::server_paths(base, &file.id);
+    std::fs::create_dir_all(&p.runtime)
+        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+    crate::servers_runtime::store::write_server_json(&p.json, file)?;
+    crate::network::download::download_no_emit_with(
+        jar_url,
+        &p.runtime.join("server.jar"),
+        checksum,
+        "servers",
+    )
+    .await?;
+    seed_server_properties(&p.runtime, &file.name);
+    crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
+    Ok(())
+}
+
 /// `sha1` = "" означает пропустить SHA-верификацию (Fabric/Quilt не предоставляют).
 async fn create_prebuilt_server(
     base: &Path,
@@ -54,21 +77,24 @@ async fn create_prebuilt_server(
     jar_url: &str,
     sha1: &str,
 ) -> Result<()> {
-    crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
-    let p = crate::paths::server_paths(base, &file.id);
-    std::fs::create_dir_all(&p.runtime)
-        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
-    crate::servers_runtime::store::write_server_json(&p.json, file)?;
-    crate::network::download::download_no_emit(
+    create_prebuilt_server_with(
+        base,
+        file,
         jar_url,
-        &p.runtime.join("server.jar"),
-        sha1,
-        "servers",
+        crate::network::download::Checksum::Sha1(sha1.to_string()),
     )
-    .await?;
-    seed_server_properties(&p.runtime, &file.name);
-    crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
-    Ok(())
+    .await
+}
+
+/// Собрать Paper/Purpur-сервер: тот же prebuilt-путь, что и vanilla, но с
+/// sha256 (Paper) либо md5 (Purpur) верификацией скачанного jar.
+pub async fn create_paper_family_server(
+    base: &Path,
+    file: &ServerFile,
+    jar_url: &str,
+    checksum: crate::network::download::Checksum,
+) -> Result<()> {
+    create_prebuilt_server_with(base, file, jar_url, checksum).await
 }
 
 // ---------------------------------------------------------------- vanilla

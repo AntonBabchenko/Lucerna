@@ -59,6 +59,17 @@ pub enum ServerCore {
 }
 
 impl ServerCore {
+    /// Widen a client loader into the server-core domain (total).
+    pub fn from_loader_kind(k: LoaderKind) -> Self {
+        match k {
+            LoaderKind::Vanilla => ServerCore::Vanilla,
+            LoaderKind::Fabric => ServerCore::Fabric,
+            LoaderKind::Quilt => ServerCore::Quilt,
+            LoaderKind::Forge => ServerCore::Forge,
+            LoaderKind::NeoForge => ServerCore::NeoForge,
+        }
+    }
+
     /// The equivalent client loader, when one exists. `None` for the
     /// plugin cores — a Paper server pairs with a *vanilla* client.
     pub fn as_loader_kind(self) -> Option<crate::instances::schema::LoaderKind> {
@@ -115,7 +126,7 @@ pub struct ServerFile {
     pub id: String,
     pub name: String,
     pub mc_version: String,
-    pub loader: LoaderKind,
+    pub loader: ServerCore,
     pub loader_version: Option<String>,
     pub max_heap_mb: u32,
     pub extra_jvm_args: String,
@@ -145,7 +156,7 @@ pub struct ServerWithStatus {
     pub id: String,
     pub name: String,
     pub mc_version: String,
-    pub loader: LoaderKind,
+    pub loader: ServerCore,
     pub loader_version: Option<String>,
     pub max_heap_mb: u32,
     pub extra_jvm_args: String,
@@ -200,14 +211,13 @@ impl ServerWithStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instances::schema::LoaderKind;
 
     fn sample() -> ServerFile {
         ServerFile {
             id: "srv-aaaa".into(),
             name: "Сервер для друзей".into(),
             mc_version: "1.20.4".into(),
-            loader: LoaderKind::Fabric,
+            loader: ServerCore::Fabric,
             loader_version: Some("0.16.5".into()),
             max_heap_mb: 4096,
             extra_jvm_args: String::new(),
@@ -226,7 +236,7 @@ mod tests {
             id: "x".into(),
             name: "n".into(),
             mc_version: "1.20.1".into(),
-            loader: crate::instances::schema::LoaderKind::Forge,
+            loader: ServerCore::Forge,
             loader_version: Some("47.4.10".into()),
             max_heap_mb: 2048,
             extra_jvm_args: String::new(),
@@ -247,7 +257,7 @@ mod tests {
             id: "x".into(),
             name: "n".into(),
             mc_version: "1.20.1".into(),
-            loader: crate::instances::schema::LoaderKind::Forge,
+            loader: ServerCore::Forge,
             loader_version: None,
             max_heap_mb: 2048,
             extra_jvm_args: String::new(),
@@ -277,6 +287,15 @@ mod tests {
         let j = r#"{"id":"x","name":"n","mc_version":"1.20.1","loader":"forge","loader_version":null,"max_heap_mb":2048,"extra_jvm_args":"","created_unix_ms":1.0,"eula_accepted":true}"#;
         let s: ServerFile = serde_json::from_str(j).unwrap();
         assert_eq!(s.handled_log_sig, None);
+    }
+    #[test]
+    fn paper_server_json_round_trips() {
+        let j = r#"{"id":"x","name":"n","mc_version":"1.21.4","loader":"paper","loader_version":"129","max_heap_mb":2048,"extra_jvm_args":"","created_unix_ms":1.0,"eula_accepted":true}"#;
+        let s: ServerFile = serde_json::from_str(j).unwrap();
+        assert_eq!(s.loader, ServerCore::Paper);
+        assert_eq!(s.loader_version.as_deref(), Some("129"));
+        let back = serde_json::to_string(&s).unwrap();
+        assert!(back.contains("\"loader\":\"paper\""));
     }
     #[test]
     fn server_file_roundtrip() {

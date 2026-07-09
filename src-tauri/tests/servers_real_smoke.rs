@@ -9,12 +9,11 @@
 //! you can inspect the result. The hosts used (piston-meta/piston-data.mojang.com,
 //! meta.fabricmc.net, maven.fabricmc.net) are already on the network allowlist.
 
-use lucerna_lib::instances::schema::LoaderKind;
-use lucerna_lib::servers_runtime::schema::ServerFile;
+use lucerna_lib::servers_runtime::schema::{ServerCore, ServerFile};
 use lucerna_lib::servers_runtime::{create, jar};
 use tempfile::tempdir;
 
-fn file(id: &str, loader: LoaderKind, loader_version: Option<&str>) -> ServerFile {
+fn file(id: &str, loader: ServerCore, loader_version: Option<&str>) -> ServerFile {
     ServerFile {
         id: id.into(),
         name: "Smoke".into(),
@@ -36,7 +35,7 @@ fn file(id: &str, loader: LoaderKind, loader_version: Option<&str>) -> ServerFil
 #[ignore = "real network: resolves + downloads a real vanilla server jar (~50MB)"]
 async fn real_vanilla_assembly() {
     let base = tempdir().unwrap();
-    let f = file("srv-vanilla", LoaderKind::Vanilla, None);
+    let f = file("srv-vanilla", ServerCore::Vanilla, None);
 
     let (url, sha1) = create::resolve_vanilla_jar(&f.mc_version)
         .await
@@ -72,7 +71,7 @@ async fn real_vanilla_assembly() {
 #[ignore = "real network: resolves + downloads a real fabric server launcher jar"]
 async fn real_fabric_assembly() {
     let base = tempdir().unwrap();
-    let f = file("srv-fabric", LoaderKind::Fabric, Some("0.16.5"));
+    let f = file("srv-fabric", ServerCore::Fabric, Some("0.16.5"));
 
     let installer = create::latest_fabric_installer(&f.mc_version)
         .await

@@ -36,14 +36,27 @@ pub async fn create_client_instance(
     let p = crate::paths::server_paths(&base, server_id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
 
+    // A Paper/Purpur server produces a *vanilla* client instance (plugins are
+    // server-only): widen to the client loader, dropping any plugin-core build
+    // string from loader_version. Mod loaders map through unchanged.
+    let client_loader = file
+        .loader
+        .as_loader_kind()
+        .unwrap_or(crate::instances::schema::LoaderKind::Vanilla);
+    let client_loader_version = if file.loader.plugin_capable() {
+        None
+    } else {
+        file.loader_version.clone()
+    };
+
     // Mirror version + loader; heap/jvm get fresh adaptive defaults via
     // create_instance. Record the source server for provenance.
     let created = crate::instances::create_instance(
         app,
         name.to_string(),
         file.mc_version.clone(),
-        file.loader,
-        file.loader_version.clone(),
+        client_loader,
+        client_loader_version,
         None,
         None,
         None,
@@ -60,15 +73,19 @@ pub async fn create_client_instance(
         .map_err(|e| Error::io("<minecraft_dir>", e))?
         .join("mods");
 
-    // Mods are mandatory: a copy failure rolls back the half-built instance
-    // (mirrors the launcher-import rollback). copy_instance_mods preserves
-    // .jar and .jar.disabled state and treats a missing source as 0 copied.
-    if let Err(e) = crate::servers_runtime::create::copy_instance_mods(&p.mods, &dst_mods) {
-        // Remove the half-built instance directly (not via delete_instance,
-        // which silently no-ops on the last instance) — see pipeline.rs's
-        // run_import rollback for the full rationale.
-        let _ = std::fs::remove_dir_all(&instance_root);
-        return Err(e);
+    // Mods are mandatory for a mod-core client: a copy failure rolls back the
+    // half-built instance (mirrors the launcher-import rollback).
+    // copy_instance_mods preserves .jar and .jar.disabled state and treats a
+    // missing source as 0 copied. A Paper/Purpur server holds Bukkit plugins
+    // (server-only), so its vanilla client instance copies no mods.
+    if !file.loader.plugin_capable() {
+        if let Err(e) = crate::servers_runtime::create::copy_instance_mods(&p.mods, &dst_mods) {
+            // Remove the half-built instance directly (not via delete_instance,
+            // which silently no-ops on the last instance) — see pipeline.rs's
+            // run_import rollback for the full rationale.
+            let _ = std::fs::remove_dir_all(&instance_root);
+            return Err(e);
+        }
     }
 
     // Mirror the server's non-mod configuration so the produced client matches
