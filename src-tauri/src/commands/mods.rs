@@ -123,6 +123,27 @@ pub async fn mods_versions(
         .await
 }
 
+/// Every plugin build of `project_id` compatible with the given server core's
+/// plugin-loader lineage (bukkit/spigot/paper/purpur), newest-first. The plugin
+/// twin of [`mods_versions`]: it resolves the compatible loader slugs from the
+/// core rather than a `LoaderKind`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_plugin_versions(
+    source: ModSource,
+    project_id: String,
+    mc_version: Option<String>,
+    core: crate::servers_runtime::schema::ServerCore,
+) -> crate::error::Result<Vec<ModVersion>> {
+    platform_for(source)
+        .plugin_versions(
+            &project_id,
+            mc_version.as_deref(),
+            core.plugin_loader_slugs(),
+        )
+        .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_resolve_deps(
@@ -654,6 +675,245 @@ pub(crate) async fn install_version_into_dir(
         Ok(report)
     })
     .await
+}
+
+/// Download a Hangar-hosted plugin file (which carries a sha256, not the sha1
+/// content-addressed cache key) straight into `dest`, verifying the sha256.
+/// Returns the written filename. The platform-supplied filename is guarded
+/// BEFORE any join, then the join is re-asserted for containment — the same
+/// two-layer path-safety pattern as [`copy_version_into_dir`]. No registry, no
+/// events — the server has neither.
+async fn download_plugin_sha256_into_dir(
+    dest: &std::path::Path,
+    v: &ModVersion,
+    sha256: &str,
+) -> crate::error::Result<String> {
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&v.primary_file.filename) {
+        return Err(crate::error::Error::ModsUnsafeFilename {
+            filename: v.primary_file.filename.clone(),
+        });
+    }
+    tokio::fs::create_dir_all(dest)
+        .await
+        .map_err(|e| crate::error::Error::io(dest.display().to_string(), e))?;
+    let out = dest.join(&v.primary_file.filename);
+    // Defense-in-depth: `is_safe_mod_name` above already rejects traversal, but
+    // re-assert containment after the join (the repo's two-layer pattern).
+    if !out.starts_with(dest) {
+        return Err(crate::error::Error::ModsUnsafeFilename {
+            filename: v.primary_file.filename.clone(),
+        });
+    }
+    crate::network::download::download_no_emit_with(
+        &v.primary_file.url,
+        &out,
+        crate::network::download::Checksum::Sha256(sha256.to_ascii_lowercase()),
+        "mods",
+    )
+    .await?;
+    Ok(v.primary_file.filename.clone())
+}
+
+/// Plugin twin of [`install_version_into_dir`]. Differences: versions resolve
+/// via `plugin_versions` (plugin-loader slugs, not `LoaderKind`); the dependency
+/// closure is a visited-set BFS over declared REQUIRED deps (plugin dep chains
+/// are shallow; Hangar declares none — Modrinth-only in practice); files
+/// without a sha1 (Hangar) download directly with sha256 verification instead
+/// of the sha1 content-addressed cache. Fail-closed: a file with no verifiable
+/// digest is reported unresolved, never written.
+///
+/// Thin public wrapper — resolves the platform from `source` and delegates to
+/// [`install_plugin_into_dir_with`], the seam tests drive with a
+/// wiremock-backed `ModrinthClient::with_base`.
+pub(crate) async fn install_plugin_into_dir(
+    data_dir: &std::path::Path,
+    dest: &std::path::Path,
+    source: ModSource,
+    project_id: &str,
+    version_id: &str,
+    mc_version: &str,
+    core: crate::servers_runtime::schema::ServerCore,
+) -> crate::error::Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let platform = platform_for(source);
+    install_plugin_into_dir_with(
+        platform.as_ref(),
+        data_dir,
+        dest,
+        project_id,
+        version_id,
+        mc_version,
+        core,
+    )
+    .await
+}
+
+/// Cap on the visited-set BFS. The `visited` set already guarantees termination
+/// (each project is enqueued at most once); this is a defensive backstop above
+/// that guarantee, bounding a pathological dep graph.
+const PLUGIN_DEP_VISIT_CAP: usize = 20;
+
+/// Install kernel behind [`install_plugin_into_dir`], taking the `ModPlatform`
+/// directly so tests can inject a wiremock base.
+pub(crate) async fn install_plugin_into_dir_with(
+    platform: &dyn crate::mods::platform::ModPlatform,
+    data_dir: &std::path::Path,
+    dest: &std::path::Path,
+    project_id: &str,
+    version_id: &str,
+    mc_version: &str,
+    core: crate::servers_runtime::schema::ServerCore,
+) -> crate::error::Result<crate::mods::dep_resolve::InstallMissingReport> {
+    // Own the borrowed inputs before the async block so the future does not hold
+    // references into the caller's frame (robust if this is ever spawned).
+    let data_dir = data_dir.to_path_buf();
+    let dest = dest.to_path_buf();
+    let project_id = project_id.to_string();
+    let version_id = version_id.to_string();
+    let mc_version = mc_version.to_string();
+    crate::network::throttle::with_interactive(async move {
+        use crate::mods::dep_resolve::InstallMissingReport;
+
+        let data_dir = data_dir.as_path();
+        let dest = dest.as_path();
+        let mc = mc_version.as_str();
+        let slugs = core.plugin_loader_slugs();
+        let mut report = InstallMissingReport::default();
+        let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+
+        // 1. Resolve the chosen version among the project's plugin builds.
+        let chosen = platform
+            .plugin_versions(&project_id, Some(mc), slugs)
+            .await?
+            .into_iter()
+            .find(|v| v.version_id == version_id)
+            .ok_or_else(|| crate::error::Error::ModsNotFound {
+                platform: "plugin".into(),
+            })?;
+
+        // 2. Dedup set = lowercased `.jar` filenames already enabled in `dest`
+        //    (missing dir → empty set; the mods twin's collector, reused).
+        let mut installed_filenames = enabled_jar_filenames(dest);
+
+        // 3. Visited-set BFS over declared REQUIRED deps. `visited` keys on
+        //    project_id (plugin deps are Modrinth-only in practice); the cap is
+        //    a backstop above the visited-set termination guarantee.
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        visited.insert(chosen.project_id.clone());
+        let mut queue: std::collections::VecDeque<ModVersion> = std::collections::VecDeque::new();
+        queue.push_back(chosen);
+
+        while let Some(v) = queue.pop_front() {
+            if visited.len() > PLUGIN_DEP_VISIT_CAP {
+                break;
+            }
+            let filename_low = v.primary_file.filename.to_ascii_lowercase();
+
+            // Already-enabled jar → skip entirely (download AND its dep walk):
+            // the node is satisfied, so its required closure is presumed
+            // satisfied too. This mirrors the mods twin, where
+            // `resolve_closure`'s `installed_filenames` prunes traversal into an
+            // already-present node — a second run over the same selection thus
+            // installs nothing and re-reports nothing.
+            if !filename_low.is_empty() && installed_filenames.contains(&filename_low) {
+                continue;
+            }
+
+            // Fail-closed guards: undistributable / empty url or filename / unsafe
+            // filename → record unresolved and skip WITHOUT touching the fs.
+            if !v.primary_file.distribution_allowed
+                || v.primary_file.url.is_empty()
+                || v.primary_file.filename.is_empty()
+                || !crate::servers_runtime::runtime::is_safe_mod_name(&v.primary_file.filename)
+            {
+                report.unresolved.push(v.name.clone());
+                continue;
+            }
+
+            let sha1 = v
+                .primary_file
+                .sha1
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let sha256 = v
+                .primary_file
+                .sha256
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            let written = if sha1.is_some() {
+                // sha1 present → the mods twin's content-addressed cache path.
+                copy_version_into_dir(data_dir, dest, &v, &nop).await
+            } else if let Some(s256) = sha256 {
+                // Hangar-hosted: no sha1, sha256 direct download instead.
+                download_plugin_sha256_into_dir(dest, &v, s256).await
+            } else {
+                // No verifiable digest → fail-closed, never written.
+                Err(crate::error::Error::ModsSha1Unavailable)
+            };
+
+            match written {
+                Ok(filename) => {
+                    installed_filenames.insert(filename.to_ascii_lowercase());
+                    report.installed.push(filename);
+                    // Enqueue this version's required deps only AFTER a
+                    // successful install; a failed download does not expand.
+                    enqueue_required_plugin_deps(
+                        platform,
+                        &v,
+                        mc,
+                        slugs,
+                        &mut visited,
+                        &mut queue,
+                        &mut report.unresolved,
+                    )
+                    .await;
+                }
+                Err(_) => report.unresolved.push(v.name.clone()),
+            }
+        }
+
+        Ok(report)
+    })
+    .await
+}
+
+/// Enqueue the newest plugin build of each declared REQUIRED dependency of `v`
+/// that has not been visited. A dep that resolves to zero versions (or errors)
+/// is recorded straight into `unresolved` by its `project_id` — matching the
+/// mods twin's best-effort "install what we can, name what we couldn't" stance.
+///
+/// Modrinth REQUIRED deps only — CurseForge `project_ref`s cannot be resolved on
+/// the plugin platform (plugins are Modrinth/Hangar sourced) and are skipped.
+async fn enqueue_required_plugin_deps(
+    platform: &dyn crate::mods::platform::ModPlatform,
+    v: &ModVersion,
+    mc: &str,
+    slugs: &[&str],
+    visited: &mut std::collections::HashSet<String>,
+    queue: &mut std::collections::VecDeque<ModVersion>,
+    unresolved: &mut Vec<String>,
+) {
+    use crate::mods::platform::{DepKind, DepProjectRef};
+    for dep in &v.deps {
+        if dep.kind != DepKind::Required {
+            continue;
+        }
+        let dep_pid = match &dep.project_ref {
+            DepProjectRef::Modrinth { project_id, .. } => project_id.clone(),
+            // Cross-source dep the plugin platform can't resolve — skip.
+            DepProjectRef::Curseforge { .. } => continue,
+        };
+        if !visited.insert(dep_pid.clone()) {
+            continue;
+        }
+        match platform.plugin_versions(&dep_pid, Some(mc), slugs).await {
+            // Newest-first: the first entry is the newest compatible build.
+            Ok(mut vs) if !vs.is_empty() => queue.push_back(vs.remove(0)),
+            _ => unresolved.push(dep_pid),
+        }
+    }
 }
 
 // =========================================================================
@@ -1906,5 +2166,163 @@ mod tests {
             &already_required,
         );
         assert!(kept.is_empty(), "{kept:?}");
+    }
+
+    // =====================================================================
+    // Plugin install kernel (Task 12) — wiremock-backed integration test.
+    // =====================================================================
+
+    /// Modrinth `/v2/project/{id}/version` body for a single build serving one
+    /// jar. `sha1` is the REAL sha1 of `bytes` (formatted in by the caller) so
+    /// the content-addressed cache accepts the download; `deps_json` is the raw
+    /// `dependencies` array (`[]` or a `{project_id,...,dependency_type}` list).
+    fn plugin_version_body(
+        project_id: &str,
+        version_id: &str,
+        filename: &str,
+        jar_url: &str,
+        sha1: &str,
+        size: usize,
+        deps_json: &str,
+    ) -> String {
+        format!(
+            r#"[{{
+                "id":"{version_id}","project_id":"{project_id}","name":"{project_id} {version_id}",
+                "version_number":"1.0.0","game_versions":["1.21.4"],
+                "loaders":["paper","bukkit"],"date_published":"2026-06-01T00:00:00Z",
+                "dependencies":{deps_json},
+                "files":[{{"filename":"{filename}","url":"{jar_url}","primary":true,
+                          "size":{size},"hashes":{{"sha1":"{sha1}","sha512":"bb"}}}}]
+            }}]"#
+        )
+    }
+
+    #[tokio::test]
+    async fn install_plugin_downloads_primary_and_required_deps_once() {
+        use sha1::{Digest, Sha1};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+        let core = crate::servers_runtime::schema::ServerCore::Paper;
+
+        // Two distinct jar payloads; fixture sha1 = REAL sha1 of the bytes.
+        let chunky_bytes = b"chunky-plugin-jar-bytes".to_vec();
+        let dep_bytes = b"dep-plugin-jar-bytes".to_vec();
+        let chunky_sha1 = hex::encode(Sha1::digest(&chunky_bytes));
+        let dep_sha1 = hex::encode(Sha1::digest(&dep_bytes));
+
+        let chunky_url = format!("{}/cdn/chunky.jar", s.uri());
+        let dep_url = format!("{}/cdn/dep.jar", s.uri());
+
+        // "chunky" v1 requires project "dep"; "gone" is a required dep that
+        // resolves to zero versions (→ unresolved).
+        let chunky_deps = r#"[{"project_id":"dep","version_id":null,"dependency_type":"required"},
+                              {"project_id":"gone","version_id":null,"dependency_type":"required"}]"#;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/chunky/version"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(plugin_version_body(
+                    "chunky",
+                    "v1",
+                    "Chunky-1.0.0.jar",
+                    &chunky_url,
+                    &chunky_sha1,
+                    chunky_bytes.len(),
+                    chunky_deps,
+                )),
+            )
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/dep/version"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(plugin_version_body(
+                    "dep",
+                    "d1",
+                    "Dep-1.0.0.jar",
+                    &dep_url,
+                    &dep_sha1,
+                    dep_bytes.len(),
+                    "[]",
+                )),
+            )
+            .mount(&s)
+            .await;
+        // "gone" resolves to an empty version list.
+        Mock::given(method("GET"))
+            .and(path("/v2/project/gone/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("[]"))
+            .mount(&s)
+            .await;
+        // CDN jar bytes.
+        Mock::given(method("GET"))
+            .and(path("/cdn/chunky.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(chunky_bytes.clone()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/cdn/dep.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(dep_bytes.clone()))
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let data = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let platform = ModrinthClient::with_base(s.uri());
+
+        let report = install_plugin_into_dir_with(
+            &platform,
+            data.path(),
+            dest.path(),
+            "chunky",
+            "v1",
+            "1.21.4",
+            core,
+        )
+        .await
+        .unwrap();
+
+        // Both jars installed; the unresolvable required dep is named.
+        let mut installed = report.installed.clone();
+        installed.sort();
+        assert_eq!(
+            installed,
+            vec!["Chunky-1.0.0.jar".to_string(), "Dep-1.0.0.jar".to_string()],
+            "primary + resolvable dep must both install: {report:?}"
+        );
+        assert!(
+            dest.path().join("Chunky-1.0.0.jar").exists(),
+            "primary jar must exist on disk"
+        );
+        assert!(
+            dest.path().join("Dep-1.0.0.jar").exists(),
+            "dep jar must exist on disk"
+        );
+        assert_eq!(
+            report.unresolved,
+            vec!["gone".to_string()],
+            "a required dep resolving to zero versions must be reported unresolved: {report:?}"
+        );
+
+        // Second run: both jars are already enabled in `dest` → nothing new
+        // installs (dedup by enabled filename).
+        let report2 = install_plugin_into_dir_with(
+            &platform,
+            data.path(),
+            dest.path(),
+            "chunky",
+            "v1",
+            "1.21.4",
+            core,
+        )
+        .await
+        .unwrap();
+        assert!(
+            report2.installed.is_empty(),
+            "already-installed plugins must not re-download: {report2:?}"
+        );
     }
 }

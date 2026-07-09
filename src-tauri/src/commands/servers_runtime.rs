@@ -2159,6 +2159,45 @@ pub async fn server_install_mod(
     .await
 }
 
+/// Install a chosen plugin version + its required dependency closure into the
+/// server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
+/// resolves the server's mc_version + core from `server.json`, gates on the core
+/// being plugin-capable (Paper/Purpur), then reuses the shared plugin install
+/// kernel ([`crate::commands::install_plugin_into_dir`]). Server must be stopped.
+/// Returns the jars written + any dependency that could not be resolved.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_plugin(
+    app: AppHandle,
+    id: String,
+    source: crate::mods::platform::ModSource,
+    project_id: String,
+    version_id: String,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+    crate::commands::install_plugin_into_dir(
+        &base,
+        &p.plugins,
+        source,
+        &project_id,
+        &version_id,
+        &file.mc_version,
+        file.loader,
+    )
+    .await
+}
+
 /// Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
 /// Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
 /// filenames / path escapes. Server must be stopped.
