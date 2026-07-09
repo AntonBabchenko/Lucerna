@@ -173,7 +173,7 @@
 </script>
 
 <p id={groupLabelId} class="block text-xs uppercase text-secondary mb-1">
-  {$t('instance.loader.label')}
+  {$t('servers.core.sectionTitle')}
 </p>
 <div class="flex flex-wrap gap-1 mb-3" role="group" aria-labelledby={groupLabelId}>
   {#each SERVER_CORES as sc}
