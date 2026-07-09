@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { commands, type ModSource, type ModSummary, type ServerCore } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
@@ -77,6 +78,17 @@
   // debounce delay on open); subsequent query/source changes debounce.
   // Driving everything from one $effect avoids the onMount + effect double-fire
   // that would issue two searches on every mount.
+  //
+  // Tracked-deps contract: this effect deliberately depends on query + source
+  // ONLY (the two explicit reads below). Everything reload() touches before
+  // its first await — page, pageSize, mcVersion, core — must stay untracked:
+  // page changes fetch explicitly via onPage (a tracked `page` would make the
+  // onPage write re-fire this effect and debounce a page=0 reload, snapping
+  // the user back to page 1), and core/mcVersion are fixed for the mounted
+  // server. The synchronous first-run call is therefore wrapped in untrack();
+  // the debounced path runs in a timeout callback, which Svelte never tracks,
+  // but gets the same wrapper so the contract holds by construction rather
+  // than by accident of scheduling.
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let firstRun = true;
   $effect(() => {
@@ -85,14 +97,14 @@
     if (debounce) clearTimeout(debounce);
     if (firstRun) {
       firstRun = false;
-      void reload();
+      untrack(() => void reload());
       return;
     }
     debounce = setTimeout(() => {
-      void (async () => {
+      untrack(() => {
         page = 0;
-        await reload();
-      })();
+        void reload();
+      });
     }, 250);
     return () => {
       if (debounce) clearTimeout(debounce);

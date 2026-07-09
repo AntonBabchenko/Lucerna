@@ -259,7 +259,7 @@
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div
     role="tablist"
-    class="flex gap-1 border-b border-border-subtle px-4 bg-surface"
+    class="flex gap-1 overflow-x-auto border-b border-border-subtle px-4 bg-surface"
     onkeydown={onTablistKeydown}
   >
     {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['plugins', $t('servers.plugins.tab')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}

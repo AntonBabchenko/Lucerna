@@ -55,7 +55,7 @@
     actionError = null;
     const picked = await openFile({
       multiple: false,
-      filters: [{ name: get(t)('common.fileFilter.modJar'), extensions: ['jar'] }],
+      filters: [{ name: get(t)('common.fileFilter.pluginJar'), extensions: ['jar'] }],
     });
     if (typeof picked !== 'string') return;
     busyLocal = true;
