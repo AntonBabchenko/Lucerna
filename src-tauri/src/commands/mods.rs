@@ -894,9 +894,16 @@ async fn install_one_plugin(
     v: &ModVersion,
     progress: &crate::mods::install::ProgressFn,
 ) -> crate::error::Result<String> {
-    // An empty url is folded into the distribution-disabled error: both mean
-    // "the platform did not give us a fetchable file" (Modrinth's missing-file
-    // fallback and Hangar's external-download versions set both together).
+    // The url-empty check is a separate, independent signal from
+    // distribution_allowed — not a case the two conditions "set together".
+    // Modrinth's missing-primary-file fallback sets `url = "about:blank"`,
+    // which is non-empty and would slip past an `is_empty()`-only check; its
+    // `distribution_allowed: false` is what actually catches it. Hangar's
+    // external-download versions are the mirror case: `url` is set (points at
+    // the external page, not a file) while `distribution_allowed: false` is
+    // what catches those too. Either flag alone already means "no fetchable
+    // file"; `url.is_empty()` is kept as a defensive second signal for any
+    // future platform that leaves `url` blank without setting the flag.
     if !v.primary_file.distribution_allowed || v.primary_file.url.is_empty() {
         return Err(crate::error::Error::ModsDistributionDisabled {
             platform: match v.source {
