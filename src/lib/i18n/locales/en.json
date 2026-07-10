@@ -1300,18 +1300,6 @@
           "titleBasic": "Make a server",
           "bodyBasic": "Create your own Minecraft server here. Choose a version and a mod loader, or build one from an instance you already have."
         },
-        "list": {
-          "title": "Your servers, at a glance",
-          "body": "Each server you create shows up here. The coloured dot tells you its state without opening it: green for running, red for crashed, amber when a fix is ready. Click a row to manage it.",
-          "titleBasic": "Your servers",
-          "bodyBasic": "Your servers appear in this list. A coloured dot shows whether each one is running, crashed, or stopped. Click a row to open and manage it."
-        },
-        "lanHint": {
-          "title": "Friends on your network",
-          "body": "A server you run is reachable on your local network right away, so anyone on the same Wi-Fi or LAN can join. To open it up over the internet, the Hosting and Connect tabs walk you through it.",
-          "titleBasic": "Play on your network",
-          "bodyBasic": "Anyone on the same home network can join a server you run, with no extra setup. To let friends join over the internet, see the Connect and Hosting tabs inside a server."
-        },
         "modeSwitch": {
           "title": "Two sides of the launcher",
           "titleBasic": "Switch back anytime",
