@@ -12,6 +12,8 @@
   import { compactState, setCompact } from '$lib/layout/compact.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { t } from '$lib/i18n';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   // Servers-mode middle of the sidebar: the mirror of the instance section.
   // Selector (status icon per row) + create + the big Start/Stop. All server
@@ -28,6 +30,14 @@
   );
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
+
+  // §7 fallback gating: creating a server while the data root is unavailable
+  // would write it into the wrong (temporary default) root. Mirrors the legacy
+  // ServersView create button. See data-root-gating.ts / the data-root doc.
+  const createDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
 
   function statusLabelFor(s: ServerWithStatus): string | null {
     const kind = serverNavStatus(s);
@@ -93,16 +103,24 @@
     </div>
   {/if}
 
-  <button
-    type="button"
-    class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-    data-tour-ctx="servers-create"
-    data-testid="sidebar-create-server"
-    onclick={openCreate}
+  <!-- Always-present span wrapper (tooltip param null when enabled) so the
+       tour anchor + testid stay on the button in both states. -->
+  <span
+    class="inline-flex w-full"
+    use:tooltip={createDisabledReason ? { text: createDisabledReason, describe: false } : null}
   >
-    <Icon name="plus" size={14} />
-    {$t('servers.create')}
-  </button>
+    <button
+      type="button"
+      class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+      data-tour-ctx="servers-create"
+      data-testid="sidebar-create-server"
+      disabled={createDisabledReason !== null}
+      onclick={openCreate}
+    >
+      <Icon name="plus" size={14} />
+      {$t('servers.create')}
+    </button>
+  </span>
 
   {#if selected}
     {#if selected.running}

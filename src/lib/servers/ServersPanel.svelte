@@ -99,10 +99,11 @@
   // not even for the one frame before the selection-change effect runs.
   let toInstanceFor = $state<string | null>(null);
 
-  // §7 fallback gating: creating a client instance from this server would
-  // write it into the wrong (temporary default) root while the configured
-  // data root is unavailable. See data-root-gating.ts.
-  const toInstanceDisabledReason = $derived.by(() => {
+  // §7 fallback gating: creating anything (a server via the hero create, or a
+  // client instance from this server) would write it into the wrong
+  // (temporary default) root while the configured data root is unavailable.
+  // One derived, read by both create entry points. See data-root-gating.ts.
+  const createDisabledReason = $derived.by(() => {
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);
   });
@@ -212,15 +213,20 @@
       <Icon name="server" size={40} class="text-muted" />
       <p class="font-medium text-primary">{$t('servers.empty')}</p>
       <p class="text-sm text-muted max-w-md">{$t('servers.lanHint')}</p>
-      <button
-        type="button"
-        class="btn-primary btn-sm flex items-center gap-1.5"
-        data-testid="servers-hero-create"
-        onclick={() => (serversUi.creating = true)}
-      >
-        <Icon name="plus" size={14} />
-        {$t('servers.create')}
-      </button>
+      <!-- Always-present span wrapper (empty tooltip no-ops when enabled) so
+           the testid stays on the button in both states. -->
+      <span class="inline-flex" use:tooltip={{ text: createDisabledReason ?? '', describe: false }}>
+        <button
+          type="button"
+          class="btn-primary btn-sm flex items-center gap-1.5"
+          data-testid="servers-hero-create"
+          disabled={createDisabledReason !== null}
+          onclick={() => (serversUi.creating = true)}
+        >
+          <Icon name="plus" size={14} />
+          {$t('servers.create')}
+        </button>
+      </span>
     </div>
   {:else}
     {#key server.id}
@@ -250,13 +256,13 @@
         <div class="flex items-center gap-1.5" data-tour-ctx="server-header-actions">
           <span
             class="inline-flex"
-            use:tooltip={{ text: toInstanceDisabledReason ?? '', describe: false }}
+            use:tooltip={{ text: createDisabledReason ?? '', describe: false }}
           >
             <button
               type="button"
               class="btn-ghost btn-sm flex items-center gap-1"
               onclick={() => (toInstanceFor = server.id)}
-              disabled={toInstanceDisabledReason !== null}
+              disabled={createDisabledReason !== null}
               data-testid="create-client-instance-btn"
               data-tour-ctx="server-to-instance"
             >

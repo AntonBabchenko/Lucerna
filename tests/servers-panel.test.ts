@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 import { markSeen, storageKey } from '$lib/onboarding/contextual-tours';
@@ -44,13 +44,15 @@ function stubComponent() {
   };
 }
 
-const { serverList, serverStart, serverStop, serverRestart, serverDiagnose } = vi.hoisted(() => ({
-  serverList: vi.fn(),
-  serverStart: vi.fn(),
-  serverStop: vi.fn(),
-  serverRestart: vi.fn(),
-  serverDiagnose: vi.fn(),
-}));
+const { serverList, serverStart, serverStop, serverRestart, serverDiagnose, getDataLocation } =
+  vi.hoisted(() => ({
+    serverList: vi.fn(),
+    serverStart: vi.fn(),
+    serverStop: vi.fn(),
+    serverRestart: vi.fn(),
+    serverDiagnose: vi.fn(),
+    getDataLocation: vi.fn(),
+  }));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -59,6 +61,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverStop,
     serverRestart,
     serverDiagnose,
+    getDataLocation,
     // ServerCreateWizard children (MemorySlider / core + loader pickers).
     instanceMemoryBounds: vi.fn().mockResolvedValue({
       min_mb: 1024,
@@ -90,6 +93,19 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 import ServersPanel from '$lib/servers/ServersPanel.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import { dataLocation } from '$lib/settings/data-location.svelte';
+
+function dataLocationStatus(fellBack: boolean) {
+  return {
+    status: 'ok' as const,
+    data: {
+      effective: 'C:\\Users\\test\\AppData\\Roaming\\com.lucerna.app',
+      configured: fellBack ? 'D:\\LucernaData' : null,
+      fell_back: fellBack,
+      data_size_bytes: 0,
+    },
+  };
+}
 
 function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
   return {
@@ -237,5 +253,36 @@ describe('ServersPanel', () => {
     expect(screen.queryByText('Stop')).toBeNull();
     expect(screen.queryByTestId('sidebar-server-start')).toBeNull();
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
+  });
+
+  describe('data-root fallback gating (§7)', () => {
+    // `dataLocation` is a module singleton — restore fell_back=false after each
+    // gating test so the gate doesn't leak into the rest of the file.
+    afterEach(async () => {
+      getDataLocation.mockResolvedValue(dataLocationStatus(false));
+      await dataLocation.refresh();
+    });
+
+    it('disables the hero create while the data root fell back; click is a no-op', async () => {
+      await load([]);
+      getDataLocation.mockResolvedValue(dataLocationStatus(true));
+      await dataLocation.refresh();
+
+      render(ServersPanel, baseProps());
+      const btn = screen.getByTestId('servers-hero-create') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      await fireEvent.click(btn);
+      expect(serversUi.creating).toBe(false);
+    });
+
+    it('leaves the hero create enabled when the data root is healthy', async () => {
+      await load([]);
+      getDataLocation.mockResolvedValue(dataLocationStatus(false));
+      await dataLocation.refresh();
+
+      render(ServersPanel, baseProps());
+      const btn = screen.getByTestId('servers-hero-create') as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
   });
 });

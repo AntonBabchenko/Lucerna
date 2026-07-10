@@ -383,9 +383,15 @@
     // with the page: subscribe to events once, then load the list and only
     // then let reconcile() touch the persisted selection.
     serverState.init();
-    void serverState.refresh().then(() => {
-      serversReady = true;
-    });
+    void serverState
+      .refresh()
+      .then(() => {
+        serversReady = true;
+      })
+      .catch(() => {
+        // Transport failure: leave serversReady false — reconcile must not
+        // run against a list we never loaded.
+      });
 
     events.processSpawned
       .listen((event) => {
@@ -862,113 +868,115 @@
        the sidebar strip. Note: this resets MainTabs (active tab / scroll) on
        re-expand — acceptable because compact is a launch-pad mode, not a rapid
        toggle-while-browsing-tabs affordance. Both mode panels (client MainTabs
-       and ServersPanel) share the same grid cell and stay mounted; the inactive
-       one gets `hidden` (display:none) so tab state, console scroll and wizard
-       progress survive mode switches — compact still unmounts the whole column. -->
+       and ServersPanel) stay mounted inside the column; the inactive one gets
+       the `hidden` utility CLASS, so component state (active tab, wizard
+       progress) survives mode switches — scroll offsets generally don't
+       (display:none discards layout). Compact still unmounts the whole column. -->
   {#if !compactState.value}
-    <div
-      class="col-start-2 row-start-1 overflow-hidden flex flex-col"
-      hidden={serversUi.mode !== 'client'}
-    >
+    <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
+      <!-- System-scoped notice: the data root fallback affects servers too
+           (they live under the same data root) — render above both mode panels. -->
       {#if dataLocation.fellBack && dataLocation.status}
         <DataRootFallbackBanner configuredPath={dataLocation.status.configured ?? ''} />
       {/if}
-      {#if crashReport}
-        <div
-          class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
-        >
-          <span class="text-sm">
-            {$t('page.crash.banner')}
-            <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
-          </span>
-          <div class="flex items-center gap-2">
-            <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
-              {$t('page.crash.viewReport')}
-            </button>
-            <CloseButton
-              onClick={() => (crashReport = null)}
-              ariaLabel={$t('page.crash.dismissAriaLabel')}
-            />
+      <!-- class:hidden (not the hidden attr): [hidden] loses the cascade to .flex in Tailwind v3 -->
+      <div class="overflow-hidden flex flex-col flex-1" class:hidden={serversUi.mode !== 'client'}>
+        <!-- Client-scoped: a game crash refers to the client instance. -->
+        {#if crashReport}
+          <div
+            class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
+          >
+            <span class="text-sm">
+              {$t('page.crash.banner')}
+              <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
+            </span>
+            <div class="flex items-center gap-2">
+              <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
+                {$t('page.crash.viewReport')}
+              </button>
+              <CloseButton
+                onClick={() => (crashReport = null)}
+                ariaLabel={$t('page.crash.dismissAriaLabel')}
+              />
+            </div>
           </div>
-        </div>
-      {/if}
+        {/if}
 
-      <MainTabs
-        instanceId={activeInstance?.id ?? null}
-        instanceName={activeInstance?.name ?? null}
-        mcVersion={activeInstance?.mc_version ?? null}
-        loader={activeInstance?.loader ?? null}
-        onListChanged={() => {
-          void refreshInstances();
-        }}
-        {onQuickPlayWorld}
-        {quickPlayDisabledReason}
-      >
-        {#snippet overview()}
-          <OverviewTab
-            {activeInstance}
-            installedStats={stats.installedStats}
-            playtime={stats.playtime}
-            incompatibleCount={stats.incompatibleCount}
-            missingModsCount={stats.unresolvedMissing.length}
-            running={running !== null}
-            {installing}
-            {exited}
-            {installError}
-            {modsError}
-            errors={{
-              listAccounts: listAccountsError,
-              remove: removeError,
-              instances: instancesError,
-              versions: mcv.error,
-            }}
-            onManage={() => {
-              manageInitialId = null;
-              manageOpen = true;
-            }}
-            onExport={() => (exportDialogOpen = true)}
-            onOpenPackDrawer={() => {
-              if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
-            }}
-            onPackUpdated={() => {
-              void refreshInstances();
-            }}
-            onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
-            onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
-            onDismissError={(key) => {
-              if (key === 'listAccounts') listAccountsError = null;
-              else if (key === 'remove') removeError = null;
-              else if (key === 'instances') instancesError = null;
-              else if (key === 'versions') mcv.dismissError();
-            }}
-            onRetryError={(key) => {
-              if (key === 'versions') void mcv.load();
-            }}
-            versionsRetrying={mcv.loading}
-            onDismissInstallError={() => (installError = null)}
-            onDismissModsError={() => (modsError = null)}
-            onOpenLogs={() => {
-              logsInitialPath = null;
-              logsOpen = true;
-            }}
-            onOpenServers={() => serversUi.setMode('servers')}
-          />
-        {/snippet}
-      </MainTabs>
-    </div>
-    <div
-      class="col-start-2 row-start-1 overflow-hidden flex flex-col"
-      hidden={serversUi.mode !== 'servers'}
-    >
-      <ServersPanel
-        visible={serversUi.mode === 'servers'}
-        {instances}
-        versions={mcv.value}
-        onInstanceCreated={(id) => {
-          serversUi.setMode('client');
-          void onSelectInstance(id);
-        }}
-      />
+        <MainTabs
+          instanceId={activeInstance?.id ?? null}
+          instanceName={activeInstance?.name ?? null}
+          mcVersion={activeInstance?.mc_version ?? null}
+          loader={activeInstance?.loader ?? null}
+          onListChanged={() => {
+            void refreshInstances();
+          }}
+          {onQuickPlayWorld}
+          {quickPlayDisabledReason}
+        >
+          {#snippet overview()}
+            <OverviewTab
+              {activeInstance}
+              installedStats={stats.installedStats}
+              playtime={stats.playtime}
+              incompatibleCount={stats.incompatibleCount}
+              missingModsCount={stats.unresolvedMissing.length}
+              running={running !== null}
+              {installing}
+              {exited}
+              {installError}
+              {modsError}
+              errors={{
+                listAccounts: listAccountsError,
+                remove: removeError,
+                instances: instancesError,
+                versions: mcv.error,
+              }}
+              onManage={() => {
+                manageInitialId = null;
+                manageOpen = true;
+              }}
+              onExport={() => (exportDialogOpen = true)}
+              onOpenPackDrawer={() => {
+                if (activeInstance)
+                  modpacksNav.value = { openDrawerForInstance: activeInstance.id };
+              }}
+              onPackUpdated={() => {
+                void refreshInstances();
+              }}
+              onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
+              onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
+              onDismissError={(key) => {
+                if (key === 'listAccounts') listAccountsError = null;
+                else if (key === 'remove') removeError = null;
+                else if (key === 'instances') instancesError = null;
+                else if (key === 'versions') mcv.dismissError();
+              }}
+              onRetryError={(key) => {
+                if (key === 'versions') void mcv.load();
+              }}
+              versionsRetrying={mcv.loading}
+              onDismissInstallError={() => (installError = null)}
+              onDismissModsError={() => (modsError = null)}
+              onOpenLogs={() => {
+                logsInitialPath = null;
+                logsOpen = true;
+              }}
+              onOpenServers={() => serversUi.setMode('servers')}
+            />
+          {/snippet}
+        </MainTabs>
+      </div>
+      <div class="overflow-hidden flex flex-col flex-1" class:hidden={serversUi.mode !== 'servers'}>
+        <ServersPanel
+          visible={serversUi.mode === 'servers'}
+          {instances}
+          versions={mcv.value}
+          onInstanceCreated={(id) => {
+            serversUi.setMode('client');
+            void onSelectInstance(id);
+          }}
+        />
+      </div>
     </div>
   {/if}
 

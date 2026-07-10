@@ -1,16 +1,18 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 
-const { serverList, serverStart, serverStop, serverDiagnose, serverUpload } = vi.hoisted(() => ({
-  serverList: vi.fn(),
-  serverStart: vi.fn(),
-  serverStop: vi.fn(),
-  serverDiagnose: vi.fn(),
-  serverUpload: vi.fn(),
-}));
+const { serverList, serverStart, serverStop, serverDiagnose, serverUpload, getDataLocation } =
+  vi.hoisted(() => ({
+    serverList: vi.fn(),
+    serverStart: vi.fn(),
+    serverStop: vi.fn(),
+    serverDiagnose: vi.fn(),
+    serverUpload: vi.fn(),
+    getDataLocation: vi.fn(),
+  }));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { serverList, serverStart, serverStop, serverDiagnose, serverUpload },
+  commands: { serverList, serverStart, serverStop, serverDiagnose, serverUpload, getDataLocation },
   events: {
     serverLogLine: { listen: vi.fn() },
     serverSpawned: { listen: vi.fn() },
@@ -22,6 +24,19 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ServerSidebarSection from '$lib/servers/ServerSidebarSection.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import { dataLocation } from '$lib/settings/data-location.svelte';
+
+function dataLocationStatus(fellBack: boolean) {
+  return {
+    status: 'ok' as const,
+    data: {
+      effective: 'C:\\Users\\test\\AppData\\Roaming\\com.lucerna.app',
+      configured: fellBack ? 'D:\\LucernaData' : null,
+      fell_back: fellBack,
+      data_size_bytes: 0,
+    },
+  };
+}
 
 function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
   return {
@@ -155,5 +170,36 @@ describe('ServerSidebarSection', () => {
     serverList.mockResolvedValue({ status: 'ok', data: [makeServer('a', false)] });
     await fireEvent.click(stopBtn);
     expect(serverStop).toHaveBeenCalledWith('a');
+  });
+
+  describe('data-root fallback gating (§7)', () => {
+    // `dataLocation` is a module singleton — restore fell_back=false after each
+    // gating test so the gate doesn't leak into the rest of the file.
+    afterEach(async () => {
+      getDataLocation.mockResolvedValue(dataLocationStatus(false));
+      await dataLocation.refresh();
+    });
+
+    it('disables create while the data root fell back; click is a no-op', async () => {
+      await load([]);
+      getDataLocation.mockResolvedValue(dataLocationStatus(true));
+      await dataLocation.refresh();
+
+      render(ServerSidebarSection);
+      const btn = screen.getByTestId('sidebar-create-server') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      await fireEvent.click(btn);
+      expect(serversUi.creating).toBe(false);
+    });
+
+    it('leaves create enabled when the data root is healthy', async () => {
+      await load([]);
+      getDataLocation.mockResolvedValue(dataLocationStatus(false));
+      await dataLocation.refresh();
+
+      render(ServerSidebarSection);
+      const btn = screen.getByTestId('sidebar-create-server') as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
   });
 });
