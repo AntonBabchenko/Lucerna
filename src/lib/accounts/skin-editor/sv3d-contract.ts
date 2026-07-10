@@ -11,6 +11,8 @@ export function assertSkinViewerContract(v: SkinViewer): void {
   const camera: PerspectiveCamera = v.camera;
   const renderer: WebGLRenderer = v.renderer;
   const controlsEnabled: boolean = v.controls.enabled;
+  const mouseButtons = v.controls.mouseButtons; // { LEFT?, MIDDLE?, RIGHT? } of THREE.MOUSE
+  const enablePan: boolean = v.controls.enablePan;
   const map: Texture | null = v.playerObject.skin.map;
   const inner: Object3D = v.playerObject.skin.head.innerLayer;
   const outer: Object3D = v.playerObject.skin.head.outerLayer;
@@ -19,6 +21,8 @@ export function assertSkinViewerContract(v: SkinViewer): void {
   void camera;
   void renderer;
   void controlsEnabled;
+  void mouseButtons;
+  void enablePan;
   void map;
   void inner;
   void outer;
