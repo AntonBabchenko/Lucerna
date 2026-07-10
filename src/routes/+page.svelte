@@ -764,7 +764,6 @@
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
-      onOpenServers={() => (serversModalOpen = true)}
       onOpenGallery={() => (screenshotsGalleryOpen = true)}
       onOpenLauncherImport={() => (launcherImportOpen = true)}
       onOpenQuickJoin={() => void openServersDialog()}

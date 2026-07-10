@@ -67,7 +67,6 @@ const baseProps = {
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
   onOpenLauncherImport: () => {},
-  onOpenServers: () => {},
   onOpenGallery: () => {},
   onOpenQuickJoin: () => {},
   onPlay: () => {},
@@ -81,6 +80,8 @@ const baseProps = {
   installing: false,
 };
 
+// 'servers' is intentionally absent: the bottom Servers button was replaced by
+// the (non-hideable) mode switcher; its registry entry is removed in Task 9.
 const ALL_IDS = [
   'account_actions',
   'manage',
@@ -88,7 +89,6 @@ const ALL_IDS = [
   'quick_join',
   'browse_modpacks',
   'import_launcher',
-  'servers',
   'gallery',
   'logs',
 ];
@@ -100,7 +100,6 @@ describe('Sidebar button visibility', () => {
     render(Sidebar, { props: baseProps });
     expect(screen.getByTestId('sidebar-open-modpacks')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-launcher-import')).toBeTruthy();
-    expect(screen.getByTestId('sidebar-open-servers')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-gallery')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-logs')).toBeTruthy();
     expect(screen.getByRole('button', { name: /add offline/i })).toBeTruthy();
@@ -111,7 +110,7 @@ describe('Sidebar button visibility', () => {
     render(Sidebar, { props: baseProps });
     expect(screen.queryByTestId('sidebar-open-modpacks')).toBeNull();
     expect(screen.queryByTestId('sidebar-open-gallery')).toBeNull();
-    expect(screen.getByTestId('sidebar-open-servers')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-open-launcher-import')).toBeTruthy();
   });
 
   it('hides the account action buttons together', () => {
@@ -133,7 +132,7 @@ describe('Sidebar button visibility', () => {
     render(Sidebar, { props: baseProps });
     expect(screen.getByRole('button', { name: /^settings$/i })).toBeTruthy();
     expect(screen.queryByTestId('sidebar-open-logs')).toBeNull();
-    expect(screen.queryByTestId('sidebar-open-servers')).toBeNull();
+    expect(screen.queryByTestId('sidebar-open-gallery')).toBeNull();
   });
 
   it('keeps Mods when only Manage is hidden (row does not fully collapse)', () => {

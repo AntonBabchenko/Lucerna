@@ -64,7 +64,6 @@ const baseProps = {
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
   onOpenLauncherImport: () => {},
-  onOpenServers: () => {},
   onOpenGallery: () => {},
   onOpenQuickJoin: () => {},
   onPlay: () => {},

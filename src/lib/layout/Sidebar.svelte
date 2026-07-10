@@ -17,11 +17,12 @@
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
   import { validateOfflineName } from '$lib/accounts/offline-name';
-  import { serverState } from '$lib/servers/server-state.svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import ServerSidebarSection from '$lib/servers/ServerSidebarSection.svelte';
+  import ModeSwitcher from '$lib/layout/ModeSwitcher.svelte';
   import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
-  import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
@@ -58,7 +59,6 @@
     compact = false,
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
-    onOpenServers = () => {},
     onOpenGallery = () => {},
     playBlockedReason = null,
     createBlockedReason = null,
@@ -109,7 +109,6 @@
     compact?: boolean;
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
-    onOpenServers?: () => void;
     onOpenGallery?: () => void;
     // Non-null while the configured data root is unavailable (§7 fallback
     // gating): disables Play/Install (with an explanatory tooltip) and the
@@ -152,17 +151,6 @@
               : ('download' as const),
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
-  );
-
-  const serversNav = $derived(serverState.serversNavStatus);
-  const anyUploading = $derived(serverState.anyUploading);
-  const serversVisual = $derived(navVisual(serversNav));
-  const serversStatusLabel = $derived(
-    serversNav === 'running'
-      ? $t('sidebar.serverRunning')
-      : serversNav === 'crashed'
-        ? $t('sidebar.serverCrashed')
-        : null,
   );
 
   const logsNav: NavStatusKind = $derived(
@@ -248,6 +236,8 @@
         <Icon name={compact ? 'expand' : 'shrink'} size={14} />
       </button>
     </div>
+
+    <ModeSwitcher />
 
     <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
       <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
@@ -353,197 +343,204 @@
       {/if}
     </div>
 
-    <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
-      <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
-        <span>{$t('sidebar.instance')}</span>
-        <InstanceConceptTooltip />
-      </div>
-      {#if instances.length === 0}
-        <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
-        {#if createBlockedReason}
-          <span class="inline-flex" use:tooltip={{ text: createBlockedReason, describe: false }}>
-            <button type="button" class="btn-primary btn-xs" disabled>
+    {#if serversUi.mode === 'client'}
+      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+        <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
+          <span>{$t('sidebar.instance')}</span>
+          <InstanceConceptTooltip />
+        </div>
+        {#if instances.length === 0}
+          <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
+          {#if createBlockedReason}
+            <span class="inline-flex" use:tooltip={{ text: createBlockedReason, describe: false }}>
+              <button type="button" class="btn-primary btn-xs" disabled>
+                {$t('sidebar.createInstance')}
+              </button>
+            </span>
+          {:else}
+            <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
               {$t('sidebar.createInstance')}
             </button>
-          </span>
+          {/if}
         {:else}
-          <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
-            {$t('sidebar.createInstance')}
-          </button>
-        {/if}
-      {:else}
-        <!-- Per-row Manage inside the profile dropdown. Unlike the account
+          <!-- Per-row Manage inside the profile dropdown. Unlike the account
              trash (which stops its own mousedown so it does not commit the row),
              this deliberately lets the mousedown bubble to the option row's
              commit — selecting that profile (making it active) AND closing the
              dropdown. It opens Manage via onManageInstance(id) with the clicked
              id, so the modal seeds its detail to THIS profile directly rather
              than racing the async active-instance switch. -->
-        {#snippet instanceTrailing(opt: SelectOption)}
-          {@const inst = instances.find((x) => x.id === opt.value)}
-          {#if inst}
-            {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
-            <button
-              type="button"
-              tabindex="-1"
-              class="btn-icon btn-icon-sm flex-shrink-0"
-              data-testid="sidebar-manage-instance-{inst.id}"
-              aria-label={manageLabel}
-              use:tooltip={{ text: manageLabel, describe: false }}
-              onmousedown={() => onManageInstance(inst.id)}
-            >
-              <Icon name="sliders" size={14} />
-            </button>
-          {/if}
-        {/snippet}
-        {#snippet instanceLeading(opt: SelectOption)}
-          {@const inst = instances.find((x) => x.id === opt.value)}
-          {#if inst}
-            <InstanceAvatar instance={inst} size={20} />
-          {/if}
-        {/snippet}
-        <div data-tour="instance-picker">
-          <Select
-            class="w-full text-sm"
-            value={activeInstance?.id ?? ''}
-            options={instanceOptions}
-            onChange={(v) => onSelectInstance(String(v))}
-            ariaLabel={$t('sidebar.instance')}
-            optionLeading={instanceLeading}
-            valueLeading={instanceLeading}
-            optionTrailing={instanceTrailing}
-          />
-        </div>
-        {#if isVisible('manage') || isVisible('mods')}
-          <div class="flex gap-1">
-            {#if isVisible('manage')}
-              <ContextMenu
-                items={hideMenuItems('manage')}
-                ariaLabel={$t('sidebar.contextMenuAria')}
+          {#snippet instanceTrailing(opt: SelectOption)}
+            {@const inst = instances.find((x) => x.id === opt.value)}
+            {#if inst}
+              {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
+              <button
+                type="button"
+                tabindex="-1"
+                class="btn-icon btn-icon-sm flex-shrink-0"
+                data-testid="sidebar-manage-instance-{inst.id}"
+                aria-label={manageLabel}
+                use:tooltip={{ text: manageLabel, describe: false }}
+                onmousedown={() => onManageInstance(inst.id)}
               >
-                <button
-                  type="button"
-                  data-tour="manage-btn"
-                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-                  onclick={onOpenManage}
-                >
-                  <Icon name="sliders" size={14} />
-                  {$t('sidebar.manage')}
-                </button>
-              </ContextMenu>
+                <Icon name="sliders" size={14} />
+              </button>
             {/if}
-            {#if isVisible('mods')}
-              <ContextMenu items={hideMenuItems('mods')} ariaLabel={$t('sidebar.contextMenuAria')}>
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-                  onclick={onOpenMods}
-                >
-                  <Icon name="folderOpen" size={14} />
-                  {$t('sidebar.mods')}
-                </button>
-              </ContextMenu>
+          {/snippet}
+          {#snippet instanceLeading(opt: SelectOption)}
+            {@const inst = instances.find((x) => x.id === opt.value)}
+            {#if inst}
+              <InstanceAvatar instance={inst} size={20} />
             {/if}
+          {/snippet}
+          <div data-tour="instance-picker">
+            <Select
+              class="w-full text-sm"
+              value={activeInstance?.id ?? ''}
+              options={instanceOptions}
+              onChange={(v) => onSelectInstance(String(v))}
+              ariaLabel={$t('sidebar.instance')}
+              optionLeading={instanceLeading}
+              valueLeading={instanceLeading}
+              optionTrailing={instanceTrailing}
+            />
           </div>
-        {/if}
-
-        {#if activeInstance}
-          {#if running}
-            <button
-              type="button"
-              data-tour="play-btn"
-              class="btn-danger btn-lg flex items-center justify-center gap-1.5"
-              onclick={onStop}
-            >
-              <Icon name="stop" size={16} />
-              {$t('sidebar.stop')}
-            </button>
-          {:else if activeInstance.mc_version === ''}
-            <span
-              class="inline-flex"
-              use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}
-            >
-              <button
-                type="button"
-                data-tour="play-btn"
-                class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
-                disabled
-              >
-                <Icon name="play" size={16} />
-                {$t('sidebar.play')}
-              </button>
-            </span>
-          {:else if installing}
-            <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
-              <span class="inline-flex items-center justify-center gap-2">
-                <Spinner size="sm" />
-                {$t('sidebar.working')}
-              </span>
-            </button>
-          {:else if playBlockedReason}
-            <!-- Data root unavailable (§7 fallback gating): block both
-                 Install and Play with the same explanatory tooltip, whichever
-                 would otherwise show. -->
-            <span
-              class="inline-flex w-full"
-              use:tooltip={{ text: playBlockedReason, describe: false }}
-            >
-              <button
-                type="button"
-                data-tour="play-btn"
-                class="btn-primary btn-lg w-full flex items-center justify-center gap-1.5"
-                disabled
-              >
-                <Icon name={activeInstance.ready ? 'play' : 'download'} size={16} />
-                {activeInstance.ready ? $t('sidebar.play') : $t('sidebar.install')}
-              </button>
-            </span>
-          {:else if !activeInstance.ready}
-            <!--
-            Install is the only available action when an instance is not
-            yet ready. Make it loud so it reads as clickable — Play and
-            Install never appear at the same time, so they don't compete.
-          -->
-            <button
-              type="button"
-              data-tour="play-btn"
-              class="btn-primary btn-lg flex items-center justify-center gap-1.5"
-              onclick={onInstall}
-            >
-              <Icon name="download" size={16} />
-              {$t('sidebar.install')}
-            </button>
-          {:else}
-            <div class="flex gap-1.5">
-              <PlayWithWorlds
-                {worlds}
-                {onPlay}
-                {onQuickPlayWorld}
-                menuEnabled={quickPlayMenuEnabled}
-                label={$t('sidebar.play')}
-                menuLabel={$t('sidebar.playWorlds')}
-              />
-              {#if isVisible('quick_join')}
+          {#if isVisible('manage') || isVisible('mods')}
+            <div class="flex gap-1">
+              {#if isVisible('manage')}
                 <ContextMenu
-                  items={hideMenuItems('quick_join')}
+                  items={hideMenuItems('manage')}
                   ariaLabel={$t('sidebar.contextMenuAria')}
                 >
                   <button
                     type="button"
-                    class="btn-success btn-lg px-3"
-                    aria-label={$t('sidebar.servers')}
-                    use:tooltip={$t('sidebar.servers')}
-                    onclick={onOpenQuickJoin}
+                    data-tour="manage-btn"
+                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                    onclick={onOpenManage}
                   >
-                    <Icon name="globe" size={18} />
+                    <Icon name="sliders" size={14} />
+                    {$t('sidebar.manage')}
+                  </button>
+                </ContextMenu>
+              {/if}
+              {#if isVisible('mods')}
+                <ContextMenu
+                  items={hideMenuItems('mods')}
+                  ariaLabel={$t('sidebar.contextMenuAria')}
+                >
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                    onclick={onOpenMods}
+                  >
+                    <Icon name="folderOpen" size={14} />
+                    {$t('sidebar.mods')}
                   </button>
                 </ContextMenu>
               {/if}
             </div>
           {/if}
+
+          {#if activeInstance}
+            {#if running}
+              <button
+                type="button"
+                data-tour="play-btn"
+                class="btn-danger btn-lg flex items-center justify-center gap-1.5"
+                onclick={onStop}
+              >
+                <Icon name="stop" size={16} />
+                {$t('sidebar.stop')}
+              </button>
+            {:else if activeInstance.mc_version === ''}
+              <span
+                class="inline-flex"
+                use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}
+              >
+                <button
+                  type="button"
+                  data-tour="play-btn"
+                  class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
+                  disabled
+                >
+                  <Icon name="play" size={16} />
+                  {$t('sidebar.play')}
+                </button>
+              </span>
+            {:else if installing}
+              <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
+                <span class="inline-flex items-center justify-center gap-2">
+                  <Spinner size="sm" />
+                  {$t('sidebar.working')}
+                </span>
+              </button>
+            {:else if playBlockedReason}
+              <!-- Data root unavailable (§7 fallback gating): block both
+                 Install and Play with the same explanatory tooltip, whichever
+                 would otherwise show. -->
+              <span
+                class="inline-flex w-full"
+                use:tooltip={{ text: playBlockedReason, describe: false }}
+              >
+                <button
+                  type="button"
+                  data-tour="play-btn"
+                  class="btn-primary btn-lg w-full flex items-center justify-center gap-1.5"
+                  disabled
+                >
+                  <Icon name={activeInstance.ready ? 'play' : 'download'} size={16} />
+                  {activeInstance.ready ? $t('sidebar.play') : $t('sidebar.install')}
+                </button>
+              </span>
+            {:else if !activeInstance.ready}
+              <!--
+            Install is the only available action when an instance is not
+            yet ready. Make it loud so it reads as clickable — Play and
+            Install never appear at the same time, so they don't compete.
+          -->
+              <button
+                type="button"
+                data-tour="play-btn"
+                class="btn-primary btn-lg flex items-center justify-center gap-1.5"
+                onclick={onInstall}
+              >
+                <Icon name="download" size={16} />
+                {$t('sidebar.install')}
+              </button>
+            {:else}
+              <div class="flex gap-1.5">
+                <PlayWithWorlds
+                  {worlds}
+                  {onPlay}
+                  {onQuickPlayWorld}
+                  menuEnabled={quickPlayMenuEnabled}
+                  label={$t('sidebar.play')}
+                  menuLabel={$t('sidebar.playWorlds')}
+                />
+                {#if isVisible('quick_join')}
+                  <ContextMenu
+                    items={hideMenuItems('quick_join')}
+                    ariaLabel={$t('sidebar.contextMenuAria')}
+                  >
+                    <button
+                      type="button"
+                      class="btn-success btn-lg px-3"
+                      aria-label={$t('sidebar.servers')}
+                      use:tooltip={$t('sidebar.servers')}
+                      onclick={onOpenQuickJoin}
+                    >
+                      <Icon name="globe" size={18} />
+                    </button>
+                  </ContextMenu>
+                {/if}
+              </div>
+            {/if}
+          {/if}
         {/if}
-      {/if}
-    </div>
+      </div>
+    {:else}
+      <ServerSidebarSection />
+    {/if}
 
     <!--
     This action group clusters directly under the Install/Play block (no
@@ -556,115 +553,89 @@
       because installing a pack creates a NEW instance, so there's nothing
       "current instance" about the action.
     -->
-      {#if isVisible('browse_modpacks')}
-        <ContextMenu
-          items={hideMenuItems('browse_modpacks')}
-          ariaLabel={$t('sidebar.contextMenuAria')}
-        >
-          <button
-            type="button"
-            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-            data-tour="open-modpacks"
-            data-testid="sidebar-open-modpacks"
-            onclick={onOpenModpacks}
+      {#if serversUi.mode === 'client'}
+        {#if isVisible('browse_modpacks')}
+          <ContextMenu
+            items={hideMenuItems('browse_modpacks')}
+            ariaLabel={$t('sidebar.contextMenuAria')}
           >
-            <span class="relative inline-flex items-center gap-1.5">
-              <Icon
-                name="package"
-                size={16}
-                class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
-              />
-              {$t('sidebar.browseModpacks')}
-              {#if modpackUpdates.updateCount > 0}
-                <span
-                  class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-                  use:tooltip={$t('sidebar.modpackUpdatesBadge', {
-                    count: modpackUpdates.updateCount,
-                  })}
-                  data-testid="sidebar-modpack-updates-badge"
-                >
-                  {modpackUpdates.updateCount}
-                </span>
-              {/if}
-            </span>
-          </button>
-        </ContextMenu>
-      {/if}
-      {#if isVisible('import_launcher')}
-        <ContextMenu
-          items={hideMenuItems('import_launcher')}
-          ariaLabel={$t('sidebar.contextMenuAria')}
-        >
-          {#if launcherImportBlockedReason}
-            <span
-              class="inline-flex w-full"
-              use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+            <button
+              type="button"
+              class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+              data-tour="open-modpacks"
+              data-testid="sidebar-open-modpacks"
+              onclick={onOpenModpacks}
             >
+              <span class="relative inline-flex items-center gap-1.5">
+                <Icon
+                  name="package"
+                  size={16}
+                  class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
+                />
+                {$t('sidebar.browseModpacks')}
+                {#if modpackUpdates.updateCount > 0}
+                  <span
+                    class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+                    use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+                      count: modpackUpdates.updateCount,
+                    })}
+                    data-testid="sidebar-modpack-updates-badge"
+                  >
+                    {modpackUpdates.updateCount}
+                  </span>
+                {/if}
+              </span>
+            </button>
+          </ContextMenu>
+        {/if}
+        {#if isVisible('import_launcher')}
+          <ContextMenu
+            items={hideMenuItems('import_launcher')}
+            ariaLabel={$t('sidebar.contextMenuAria')}
+          >
+            {#if launcherImportBlockedReason}
+              <span
+                class="inline-flex w-full"
+                use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+              >
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+                  data-testid="sidebar-open-launcher-import"
+                  disabled
+                >
+                  <Icon name="download" size={16} />
+                  {$t('sidebar.importLauncher')}
+                </button>
+              </span>
+            {:else}
               <button
                 type="button"
-                class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+                class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
                 data-testid="sidebar-open-launcher-import"
-                disabled
+                onclick={onOpenLauncherImport}
               >
                 <Icon name="download" size={16} />
                 {$t('sidebar.importLauncher')}
               </button>
-            </span>
-          {:else}
+            {/if}
+          </ContextMenu>
+        {/if}
+      {/if}
+      {#if serversUi.mode === 'client'}
+        {#if isVisible('gallery')}
+          <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button
               type="button"
               class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-              data-testid="sidebar-open-launcher-import"
-              onclick={onOpenLauncherImport}
+              data-testid="sidebar-open-gallery"
+              onclick={onOpenGallery}
             >
-              <Icon name="download" size={16} />
-              {$t('sidebar.importLauncher')}
+              <Icon name="gallery" size={16} />
+              {$t('sidebar.gallery')}
             </button>
-          {/if}
-        </ContextMenu>
-      {/if}
-      {#if isVisible('servers')}
-        <ContextMenu items={hideMenuItems('servers')} ariaLabel={$t('sidebar.contextMenuAria')}>
-          <button
-            type="button"
-            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-            data-testid="sidebar-open-servers"
-            onclick={onOpenServers}
-          >
-            <NavStatusIcon
-              name="server"
-              size={16}
-              iconClass={serversVisual.iconClass}
-              statusLabel={serversStatusLabel}
-            />
-            {$t('sidebar.servers')}
-            {#if serversVisual.wrench}
-              <NavFixWrench
-                label={$t('sidebar.serversFixAvailable')}
-                testid="sidebar-servers-fix-badge"
-              />
-            {/if}
-            {#if anyUploading}
-              <NavUploadBadge
-                label={$t('sidebar.serversUploading')}
-                testid="sidebar-servers-upload-badge"
-              />
-            {/if}
-          </button>
-        </ContextMenu>
-      {/if}
-      {#if isVisible('gallery')}
-        <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
-          <button
-            type="button"
-            class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-            data-testid="sidebar-open-gallery"
-            onclick={onOpenGallery}
-          >
-            <Icon name="gallery" size={16} />
-            {$t('sidebar.gallery')}
-          </button>
-        </ContextMenu>
+          </ContextMenu>
+        {/if}
       {/if}
       <div class="flex gap-1">
         {#if isVisible('logs')}

@@ -50,16 +50,19 @@ function baseProps() {
   };
 }
 
+// The upload badge lives on the ModeSwitcher's Servers segment (the bottom
+// Servers button was replaced by the Client|Servers mode switch). Still
+// rendered through Sidebar so the integration path stays covered.
 describe('Sidebar upload badge', () => {
   it('shows the upload badge when anyUploading is true', () => {
     mockAnyUploading = true;
     const { getByTestId } = render(Sidebar, { props: baseProps() });
-    expect(getByTestId('sidebar-servers-upload-badge')).toBeTruthy();
+    expect(getByTestId('mode-servers-upload-badge')).toBeTruthy();
   });
 
   it('does not show the upload badge when anyUploading is false', () => {
     mockAnyUploading = false;
     const { queryByTestId } = render(Sidebar, { props: baseProps() });
-    expect(queryByTestId('sidebar-servers-upload-badge')).toBeNull();
+    expect(queryByTestId('mode-servers-upload-badge')).toBeNull();
   });
 });
