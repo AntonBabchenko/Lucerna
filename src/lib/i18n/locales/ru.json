@@ -2021,7 +2021,11 @@
       "setAside": "отложен"
     },
     "contentDetail": {
+      "tabOverview": "Обзор",
       "versions": "Версии",
+      "contentDisclaimer": "Материалы из {source} — любая реклама и ссылки в них принадлежат автору, а не Lucerna.",
+      "loadingDescription": "Загрузка описания…",
+      "noDescription": "Описание отсутствует.",
       "loadingVersions": "Загрузка версий…",
       "versionsError": "Не удалось загрузить версии.",
       "noVersions": "Для этого сервера нет версий.",

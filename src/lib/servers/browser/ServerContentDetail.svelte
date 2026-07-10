@@ -16,7 +16,9 @@
   // servers.mods.* / servers.plugins.* copy — the modal never duplicates it.
   import {
     commands,
+    type GalleryImage,
     type InstallMissingReport,
+    type ModProject,
     type ModSummary,
     type ModVersion,
   } from '$lib/ipc/bindings';
@@ -25,6 +27,9 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import TabBar from '$lib/ui/TabBar.svelte';
+  import ImageGallery from '$lib/ui/ImageGallery.svelte';
+  import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
 
@@ -32,12 +37,17 @@
   // signatures so this component never hardcodes the { status, data|error }
   // shape. modsVersions and modsPluginVersions share the versions envelope;
   // serverInstallMod and serverInstallPlugin share the install envelope.
+  // modsProject is source-dispatched and identical for mods and plugins (there
+  // is no plugin-specific project command), so it is injected too — the parent
+  // owns every IPC call and this component stays unit-testable via plain fns.
   type VersionsResult = Awaited<ReturnType<typeof commands.modsVersions>>;
   type InstallResult = Awaited<ReturnType<typeof commands.serverInstallMod>>;
+  type ProjectResult = Awaited<ReturnType<typeof commands.modsProject>>;
 
   let {
     project,
     onClose,
+    loadProject,
     loadVersions,
     installVersion,
     externalOf,
@@ -47,6 +57,9 @@
   }: {
     project: ModSummary;
     onClose: () => void;
+    /** Fetches the full project (body + gallery) for the Overview tab. Injected
+     *  as `commands.modsProject(source, project_id)` by the parent. */
+    loadProject: () => Promise<ProjectResult>;
     loadVersions: () => Promise<VersionsResult>;
     installVersion: (versionId: string) => Promise<InstallResult>;
     /** Per-version external file URL (e.g. Hangar externalUrl) when the file is
@@ -59,6 +72,15 @@
     onInstalled: (report: InstallMissingReport, versionName: string) => void;
   } = $props();
 
+  type TabId = 'overview' | 'versions';
+  // Default to Overview for parity with the client ModDetailModal: land on
+  // "what is this project", switch to Versions to pick + install.
+  let tab = $state<TabId>('overview');
+
+  // Overview: null = still loading the full project; error surfaces separately.
+  let projectDetail = $state<ModProject | null>(null);
+  let projectError = $state<string | null>(null);
+
   // null = still loading; [] = loaded-but-empty.
   let versions = $state<ModVersion[] | null>(null);
   let error = $state<string | null>(null);
@@ -67,10 +89,34 @@
   let installingId = $state<string | null>(null);
 
   const installing = $derived(installingId !== null);
+  const gallery = $derived<GalleryImage[]>(projectDetail?.gallery ?? []);
+  // Human-facing platform name for the content disclaimer.
+  const sourceLabel = $derived(
+    project.source === 'modrinth'
+      ? 'Modrinth'
+      : project.source === 'curseforge'
+        ? 'CurseForge'
+        : 'Hangar',
+  );
 
+  // Re-fetch if the modal is reused for another project without unmounting
+  // (mirrors ModDetailModal's `void projectId` guard).
   $effect(() => {
+    void project.project_id;
+    void loadProjectDetail();
     void load();
   });
+
+  async function loadProjectDetail(): Promise<void> {
+    projectError = null;
+    projectDetail = null;
+    const res = await loadProject();
+    if (res.status === 'ok') {
+      projectDetail = res.data;
+    } else {
+      projectError = formatError(res.error);
+    }
+  }
 
   async function load(): Promise<void> {
     error = null;
@@ -146,74 +192,115 @@
       <CloseButton onClick={onClose} ariaLabel={$t('common.close')} />
     </div>
 
-    {#if project.summary}
-      <p class="text-sm text-secondary whitespace-pre-line selectable mt-3">
-        {project.summary}
-      </p>
-    {/if}
+    <div class="mt-3">
+      <TabBar
+        tabs={[
+          { id: 'overview', label: $t('servers.contentDetail.tabOverview') },
+          { id: 'versions', label: $t('servers.contentDetail.versions') },
+        ]}
+        active={tab}
+        onChange={(id) => (tab = id as TabId)}
+      />
+    </div>
   </div>
 
-  <!-- Scrollable version list. -->
+  <!-- Scrollable body: Overview (description + gallery) or the version list. -->
   <div class="flex-1 overflow-y-auto min-h-0 p-4 pt-3">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
-      {$t('servers.contentDetail.versions')}
-    </h3>
-
-    {#if error}
-      <div
-        class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-3"
-        data-testid="server-content-detail-error"
-      >
-        {error}
+    {#if tab === 'overview'}
+      <div class="space-y-3">
+        {#if projectError}
+          <div
+            class="bg-danger-bg border border-danger text-danger text-sm rounded p-2"
+            data-testid="server-content-detail-overview-error"
+          >
+            {projectError}
+          </div>
+        {:else if projectDetail === null}
+          <div class="flex justify-center py-8 text-secondary">
+            <Spinner
+              labelPlacement="below"
+              label={$t('servers.contentDetail.loadingDescription')}
+            />
+          </div>
+        {:else}
+          {#if projectDetail.body_html}
+            <p class="text-xs text-placeholder italic">
+              {$t('servers.contentDetail.contentDisclaimer', { source: sourceLabel })}
+            </p>
+          {/if}
+          <!-- ImageGallery renders nothing for an empty set — no empty box for
+               Hangar (which has no gallery API). -->
+          <ImageGallery images={gallery} />
+          {#if projectDetail.body_html}
+            <RenderedBody html={projectDetail.body_html} />
+          {:else if project.summary}
+            <p class="text-sm text-secondary whitespace-pre-line selectable">
+              {project.summary}
+            </p>
+          {:else}
+            <p class="py-6 text-center text-sm text-muted">
+              {$t('servers.contentDetail.noDescription')}
+            </p>
+          {/if}
+        {/if}
       </div>
-    {/if}
-
-    {#if versions === null}
-      <div class="flex justify-center py-8 text-secondary">
-        <Spinner labelPlacement="below" label={$t('servers.contentDetail.loadingVersions')} />
-      </div>
-    {:else if versions.length === 0 && !error}
-      <p class="py-6 text-center text-sm text-muted">
-        {$t('servers.contentDetail.noVersions')}
-      </p>
     {:else}
-      {#each versions as v (v.version_id)}
-        {@const external = externalOf(v)}
+      {#if error}
         <div
-          class="border-t py-2 flex items-center gap-2 text-sm"
-          data-testid="server-content-detail-version"
+          class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-3"
+          data-testid="server-content-detail-error"
         >
-          <div class="flex-1 min-w-0">
-            <div class="truncate font-medium">{versionLabel(v)}</div>
-            <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
+          {error}
+        </div>
+      {/if}
+
+      {#if versions === null}
+        <div class="flex justify-center py-8 text-secondary">
+          <Spinner labelPlacement="below" label={$t('servers.contentDetail.loadingVersions')} />
+        </div>
+      {:else if versions.length === 0 && !error}
+        <p class="py-6 text-center text-sm text-muted">
+          {$t('servers.contentDetail.noVersions')}
+        </p>
+      {:else}
+        {#each versions as v (v.version_id)}
+          {@const external = externalOf(v)}
+          <div
+            class="border-t py-2 flex items-center gap-2 text-sm"
+            data-testid="server-content-detail-version"
+          >
+            <div class="flex-1 min-w-0">
+              <div class="truncate font-medium">{versionLabel(v)}</div>
+              <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
+              {#if external}
+                <div class="text-xs text-placeholder mt-0.5">
+                  {$t('servers.contentDetail.externalNote')}
+                </div>
+              {/if}
+            </div>
             {#if external}
-              <div class="text-xs text-placeholder mt-0.5">
-                {$t('servers.contentDetail.externalNote')}
-              </div>
+              <button
+                type="button"
+                class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
+                disabled={installing}
+                onclick={() => openExternal(external)}
+              >
+                {$t('servers.contentDetail.openPage')}
+                <Icon name="externalLink" size={13} />
+              </button>
+            {:else}
+              <BusyButton
+                class="btn-primary btn-sm shrink-0"
+                busy={installingId === v.version_id}
+                disabled={installing && installingId !== v.version_id}
+                onclick={() => void install(v)}
+              >
+                {$t('common.install')}
+              </BusyButton>
             {/if}
           </div>
-          {#if external}
-            <button
-              type="button"
-              class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
-              disabled={installing}
-              onclick={() => openExternal(external)}
-            >
-              {$t('servers.contentDetail.openPage')}
-              <Icon name="externalLink" size={13} />
-            </button>
-          {:else}
-            <BusyButton
-              class="btn-primary btn-sm shrink-0"
-              busy={installingId === v.version_id}
-              disabled={installing && installingId !== v.version_id}
-              onclick={() => void install(v)}
-            >
-              {$t('common.install')}
-            </BusyButton>
-          {/if}
-        </div>
-      {/each}
+        {/each}
+      {/if}
     {/if}
   </div>
 </Modal>

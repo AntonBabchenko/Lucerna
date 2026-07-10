@@ -53,6 +53,30 @@ impl HangarClient {
             ModSort::Updated => "-updated",
         }
     }
+
+    /// Best-effort fetch + render of a project's Hangar "main page" — its
+    /// README / long description, served as `text/plain` markdown from
+    /// `/api/v1/pages/main/{id}`. Returns an empty string on any network error,
+    /// non-2xx status, or empty page; the caller then leaves `body_html` empty
+    /// and the detail view falls back to the project summary. Rendering reuses
+    /// the shared markdown sanitizer — the same sink as Modrinth bodies — so no
+    /// HTML sanitization is duplicated here.
+    async fn main_page_html(&self, project_id: &str) -> String {
+        let url = format!("{}/api/v1/pages/main/{}", self.base, project_id);
+        let Ok(resp) = crate::network::request::get(&url, &[("user-agent", UA)], "mods").await
+        else {
+            return String::new();
+        };
+        if !(200..300).contains(&resp.status) {
+            return String::new();
+        }
+        let markdown = String::from_utf8_lossy(&resp.body);
+        let trimmed = markdown.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+        crate::mods::render::markdown_to_safe_html(trimmed)
+    }
 }
 
 impl Default for HangarClient {
@@ -150,10 +174,13 @@ impl ModPlatform for HangarClient {
             })?;
         Ok(ModProject {
             summary: convert_summary(p),
-            // Hangar's project detail page content isn't fetched by this
-            // minimal implementation — the plugin browser's detail view
-            // falls back to `summary` when `body_html` is empty.
-            body_html: String::new(),
+            // The long-form description lives on Hangar's separate "main page",
+            // not the project object (whose `mainPageContent` is always null
+            // over the API). Fetch it best-effort — any failure leaves
+            // `body_html` empty and the detail view falls back to `summary`.
+            body_html: self.main_page_html(project_id).await,
+            // Hangar exposes no gallery/screenshot API; the detail view renders
+            // no gallery box for an empty set.
             gallery: Vec::new(),
             website_url: None,
         })
@@ -621,6 +648,75 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = c.project("missing").await.unwrap_err();
         assert!(matches!(err, Error::ModsNotFound { .. }), "got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn project_fetches_main_page_body() {
+        // The long description comes from the SEPARATE /pages/main endpoint
+        // (text/plain markdown); the project object carries only the tagline.
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/projects/LuckPerms"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"name":"LuckPerms","namespace":{"owner":"Luck","slug":"LuckPerms"},
+                    "stats":{"downloads":123},"description":"Permissions plugin"}"#,
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/pages/main/LuckPerms"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("# LuckPerms\n\nA permissions plugin for servers."),
+            )
+            .mount(&s)
+            .await;
+        let c = HangarClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let p = c.project("LuckPerms").await.unwrap();
+        assert_eq!(p.summary.name, "LuckPerms");
+        assert!(
+            p.body_html.contains("<h1>"),
+            "main-page markdown is rendered to HTML: {}",
+            p.body_html
+        );
+        assert!(
+            p.body_html.contains("A permissions plugin for servers."),
+            "body carries the rendered main-page text: {}",
+            p.body_html
+        );
+        assert!(p.gallery.is_empty(), "Hangar exposes no gallery API");
+    }
+
+    #[tokio::test]
+    async fn project_main_page_failure_is_non_fatal() {
+        // A failed /pages/main fetch must NOT fail the whole project lookup —
+        // the body is simply left empty and the UI falls back to the summary.
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/projects/Chunky"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"name":"Chunky","namespace":{"owner":"pop4959","slug":"Chunky"},
+                    "stats":{"downloads":9},"description":"Pre-generates chunks"}"#,
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/pages/main/Chunky"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let c = HangarClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let p = c.project("Chunky").await.unwrap();
+        assert_eq!(p.summary.name, "Chunky");
+        assert!(
+            p.body_html.is_empty(),
+            "a failed main-page fetch leaves the body empty: {}",
+            p.body_html
+        );
     }
 
     #[tokio::test]

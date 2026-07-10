@@ -2021,7 +2021,11 @@
       "setAside": "set aside"
     },
     "contentDetail": {
+      "tabOverview": "Overview",
       "versions": "Versions",
+      "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
+      "loadingDescription": "Loading description…",
+      "noDescription": "No description provided.",
       "loadingVersions": "Loading versions…",
       "versionsError": "Could not load versions.",
       "noVersions": "No versions for this server.",

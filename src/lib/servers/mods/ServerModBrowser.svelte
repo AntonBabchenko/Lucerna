@@ -256,6 +256,7 @@
   <ServerContentDetail
     project={d}
     onClose={() => (detail = null)}
+    loadProject={() => commands.modsProject(d.source, d.project_id)}
     loadVersions={() => commands.modsVersions(d.source, d.project_id, mcVersion, loader)}
     installVersion={(vid) => commands.serverInstallMod(serverId, d.source, d.project_id, vid)}
     externalOf={(v) => externalOf(d, v)}
