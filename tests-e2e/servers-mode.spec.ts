@@ -55,8 +55,12 @@ test('mode switcher swaps panels and preserves the client tab', async ({ page })
   await installMockIpc(page, { instances: [makeInstance()], active_instance_id: 'inst-1' });
   await page.goto('/');
 
-  // Client mode by default.
-  await expect(page.getByTestId('mode-switch-client')).toHaveAttribute('aria-pressed', 'true');
+  // Client mode by default. First assertion after goto doubles as the
+  // cold-boot wait: a cold Vite server's on-demand transform storm exceeds
+  // the default 5s expect timeout; the rest run against a rendered app.
+  await expect(page.getByTestId('mode-switch-client')).toHaveAttribute('aria-pressed', 'true', {
+    timeout: 15_000,
+  });
 
   // Move the client off its default tab (nav.worlds === "Worlds" in en.json).
   await page.getByRole('tab', { name: 'Worlds' }).click();
