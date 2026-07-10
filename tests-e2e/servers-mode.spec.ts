@@ -102,6 +102,8 @@ test('entering servers mode with one server auto-selects it and shows the manage
   });
   await page.goto('/');
 
+  // First assertion after goto doubles as the cold-boot wait (see test 1).
+  await expect(page.getByTestId('mode-switch-servers')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('mode-switch-servers').click();
 
   // reconcile() auto-selected the only server — no empty hero, sidebar Start

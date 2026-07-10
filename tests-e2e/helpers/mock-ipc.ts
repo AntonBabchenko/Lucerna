@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
+import type { ServerWithStatus_Serialize } from '../../src/lib/ipc/bindings';
 
 // The app's onboarding tour version, derived from the single source of truth
 // (`export const TOUR_VERSION = '…'` in src/lib/onboarding/state.svelte.ts)
@@ -83,7 +84,10 @@ const CONTEXTUAL_TOUR_KEYS = resolveContextualTourKeys();
 // Minimal inline shapes mirroring src/lib/ipc/bindings.ts.
 // We re-declare them here because tests-e2e/ is outside the SvelteKit
 // tsconfig include glob; importing from $lib would require path-alias
-// plumbing that Playwright's tsconfig does not have.
+// plumbing that Playwright's tsconfig does not have. (Type-only imports via
+// a RELATIVE path into src/lib/ipc/bindings.ts are fine — no alias involved,
+// erased at transpile time — which is why `servers` below uses the real
+// generated type instead of a mirror.)
 
 export type MockAccount = {
   id: string;
@@ -163,7 +167,7 @@ export type MockState = {
    */
   installed_mods?: MockInstalledMod[];
   /** Servers returned by server_list; defaults to empty. */
-  servers?: unknown[];
+  servers?: ServerWithStatus_Serialize[];
 };
 
 /**
@@ -277,6 +281,27 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // so a missing/wrong handler here breaks the whole e2e suite, not just
         // servers-mode specs.
         server_list: () => m.servers,
+
+        // Server diagnosis — selecting a server triggers a diagnose refresh,
+        // which stores the result in the server store's diagnoses Map. The
+        // __default null fallback would plant a type-violating null there in
+        // every servers spec, so return a well-typed empty ServerDiagnosis
+        // (mirrors src/lib/ipc/bindings.ts) meaning "nothing to report".
+        server_diagnose: () => ({
+          status: 'none',
+          diagnosis: null,
+          client_mods: [],
+          forge_skip_count: null,
+          log_signature: null,
+          server_repair: null,
+          port_in_use: null,
+          orphan_pid: null,
+          corrupt_jar: null,
+          suggested_heap_mb: null,
+          conflict_mods: [],
+          suggested_port: null,
+          exit_code: null,
+        }),
 
         // App settings — returns a minimal AppFile_Serialize shape.
         // tour_completed_version MUST equal the app's TOUR_VERSION constant
