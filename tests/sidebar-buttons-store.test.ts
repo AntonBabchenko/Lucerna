@@ -38,27 +38,27 @@ describe('sidebar button visibility store', () => {
   });
 
   it('setHidden(true) hides the button and persists hidden_sidebar_buttons', async () => {
-    await setHidden('servers', true);
-    expect(isVisible('servers')).toBe(false);
+    await setHidden('gallery', true);
+    expect(isVisible('gallery')).toBe(false);
     expect(appSettingsSetGeneral).toHaveBeenCalledTimes(1);
     expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({
-      hidden_sidebar_buttons: ['servers'],
+      hidden_sidebar_buttons: ['gallery'],
     });
   });
 
   it('setHidden(false) re-shows the button and persists the shrunken list', async () => {
-    initSidebarButtons(['servers', 'logs']);
-    await setHidden('servers', false);
-    expect(isVisible('servers')).toBe(true);
+    initSidebarButtons(['gallery', 'logs']);
+    await setHidden('gallery', false);
+    expect(isVisible('gallery')).toBe(true);
     expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({
       hidden_sidebar_buttons: ['logs'],
     });
   });
 
   it('does not duplicate an already-hidden id', async () => {
-    initSidebarButtons(['servers']);
-    await setHidden('servers', true);
-    expect(appSettingsSetGeneral.mock.calls[0][0].hidden_sidebar_buttons).toEqual(['servers']);
+    initSidebarButtons(['gallery']);
+    await setHidden('gallery', true);
+    expect(appSettingsSetGeneral.mock.calls[0][0].hidden_sidebar_buttons).toEqual(['gallery']);
   });
 
   it('rolls back and keeps the button visible when persistence fails', async () => {

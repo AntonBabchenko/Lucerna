@@ -2,40 +2,30 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
-import { markSeen } from '$lib/onboarding/contextual-tours';
-import ServersView from '$lib/servers/ServersView.svelte';
+import ServerGeneralSettings from '$lib/servers/ServerGeneralSettings.svelte';
+import { serverState } from '$lib/servers/server-state.svelte';
+import { serversUi } from '$lib/servers/servers-ui.svelte';
 
 // vi.mock factories are hoisted above imports — use vi.hoisted so the shared
-// mutable state and vi.fn() references are available inside the factory.
-const { mockList, mockRemove } = vi.hoisted(() => {
-  const mockList: ServerWithStatus_Serialize[] = [
-    {
-      id: 'srv-1',
-      name: 'My Server',
-      mc_version: '1.21.1',
-      loader: 'fabric' as const,
-      loader_version: null as string | null,
-      max_heap_mb: 2048,
-      extra_jvm_args: '',
-      created_unix_ms: null as number | null,
-      eula_accepted: true,
-      created_from_instance: null as string | null,
-      running: false,
-      pid: null as number | null,
-      port: null as number | null,
-      upload: null,
-      upload_password_set: false,
-      last_exit_code: null,
-      diagnosis_status: 'none',
-    },
-  ];
-  const mockRemove = vi.fn().mockResolvedValue({ ok: true });
-  return { mockList, mockRemove };
-});
+// vi.fn() references are available inside the factory (same pattern as
+// server-sidebar-section.test.ts).
+const { serverList, serverDelete, serverRename, serverUpdateRuntimeConfig, instanceMemoryBounds } =
+  vi.hoisted(() => ({
+    serverList: vi.fn(),
+    serverDelete: vi.fn(),
+    serverRename: vi.fn(),
+    serverUpdateRuntimeConfig: vi.fn(),
+    instanceMemoryBounds: vi.fn(),
+  }));
 
-// Mock bindings so IPC never fires.
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: {},
+  commands: {
+    serverList,
+    serverDelete,
+    serverRename,
+    serverUpdateRuntimeConfig,
+    instanceMemoryBounds,
+  },
   events: {
     serverLogLine: { listen: vi.fn().mockResolvedValue(() => {}) },
     serverSpawned: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -44,88 +34,122 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-vi.mock('$lib/servers/server-state.svelte', () => ({
-  serverState: {
-    get list() {
-      return mockList;
-    },
-    running: (id: string) => mockList.find((s) => s.id === id)?.running ?? false,
-    refresh: vi.fn().mockResolvedValue(undefined),
-    init: vi.fn(),
-    remove: mockRemove,
-  },
-  // ServersView's row imports the pure per-server status helper from this module;
-  // mirror its precedence here so the mocked module stays API-complete.
-  serverNavStatus: (s: ServerWithStatus_Serialize) => {
-    if (s.diagnosis_status === 'actionable') return 'fixable';
-    if (!s.running && s.last_exit_code !== null && s.last_exit_code !== 0) return 'crashed';
-    if (s.running) return 'running';
-    return 'idle';
-  },
-}));
-
-function baseProps() {
-  return { instances: [], versions: [], onInstanceCreated: () => {} };
+function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
+  return {
+    id,
+    name: id,
+    mc_version: '1.21',
+    loader: 'vanilla',
+    loader_version: null,
+    max_heap_mb: 2048,
+    extra_jvm_args: '',
+    created_unix_ms: null,
+    eula_accepted: true,
+    created_from_instance: null,
+    running,
+    pid: running ? 1 : null,
+    port: null,
+    upload: null,
+    upload_password_set: false,
+    last_exit_code: null,
+    diagnosis_status: 'none',
+  };
 }
 
-describe('ServersView delete affordance', () => {
+async function load(data: ServerWithStatus_Serialize[]) {
+  serverList.mockResolvedValue({ status: 'ok', data });
+  await serverState.refresh();
+}
+
+describe('ServerGeneralSettings danger zone (delete server)', () => {
   beforeAll(() => locale.set('en'));
-  // Suppress the servers contextual tour so its popover never renders over the
-  // list under test.
-  beforeEach(() => markSeen('servers'));
 
-  it('(a) Delete button is disabled when the server is running', () => {
-    mockList[0].running = true;
-
-    render(ServersView, baseProps());
-
-    const deleteBtn = screen.getByRole('button', {
-      name: 'Delete server',
-    }) as HTMLButtonElement;
-    expect(deleteBtn.disabled).toBe(true);
-
-    mockList[0].running = false;
+  beforeEach(() => {
+    serverList.mockReset();
+    serverDelete.mockReset();
+    serverRename.mockReset();
+    serverUpdateRuntimeConfig.mockReset();
+    instanceMemoryBounds.mockReset();
+    instanceMemoryBounds.mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    });
+    serversUi.selectServer(null);
+    localStorage.clear();
   });
 
-  it('(b) clicking Delete when stopped shows confirm dialog; confirming calls serverState.remove', async () => {
-    mockList[0].running = false;
-    mockRemove.mockClear();
+  it('(a) trigger is disabled while the server is running; confirm dialog never appears', async () => {
+    await load([makeServer('a', true)]);
 
-    render(ServersView, baseProps());
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
 
-    // Delete button should be enabled
-    const deleteBtn = screen.getByRole('button', { name: 'Delete server' }) as HTMLButtonElement;
-    expect(deleteBtn.disabled).toBe(false);
+    const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
 
-    // Click the delete trigger — dialog should appear
-    await fireEvent.click(deleteBtn);
-
-    // Dialog should now be visible
-    expect(screen.getByRole('dialog')).toBeTruthy();
-
-    // Click the confirm button inside the dialog
-    const confirmBtn = screen.getByRole('button', { name: 'Delete' });
-    await fireEvent.click(confirmBtn);
-
-    expect(mockRemove).toHaveBeenCalledWith('srv-1');
+    await fireEvent.click(trigger);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('(c) clicking Cancel in the dialog does NOT call serverState.remove', async () => {
-    mockList[0].running = false;
-    mockRemove.mockClear();
+  it('(b) clicking the trigger on a stopped server shows the DeleteServerDialog', async () => {
+    await load([makeServer('a', false)]);
 
-    render(ServersView, baseProps());
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
 
-    const deleteBtn = screen.getByRole('button', { name: 'Delete server' }) as HTMLButtonElement;
-    await fireEvent.click(deleteBtn);
+    const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
+    expect(trigger.disabled).toBe(false);
 
-    // Dialog should be open
-    expect(screen.getByRole('dialog')).toBeTruthy();
+    await fireEvent.click(trigger);
 
-    // Click Cancel
-    const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
-    await fireEvent.click(cancelBtn);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(screen.getByText('Delete server?')).toBeTruthy();
+  });
 
-    expect(mockRemove).not.toHaveBeenCalled();
+  it('(c) confirming calls serverDelete and falls back selection to the next server', async () => {
+    await load([makeServer('a', false), makeServer('b', false)]);
+    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    serversUi.selectServer('a');
+
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+
+    await fireEvent.click(screen.getByTestId('server-delete-trigger'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(serverDelete).toHaveBeenCalledWith('a');
+    expect(serversUi.selectedServerId).toBe('b');
+  });
+
+  it('(c) deleting the last remaining server falls back selection to null', async () => {
+    await load([makeServer('a', false)]);
+    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    serversUi.selectServer('a');
+
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+
+    await fireEvent.click(screen.getByTestId('server-delete-trigger'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(serverDelete).toHaveBeenCalledWith('a');
+    expect(serversUi.selectedServerId).toBeNull();
+  });
+
+  it('(d) a failed remove renders the error with role="alert" and keeps the selection unchanged', async () => {
+    await load([makeServer('a', false)]);
+    serverDelete.mockResolvedValue({ status: 'error', error: { kind: 'io', details: 'nope' } });
+    serversUi.selectServer('a');
+
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+
+    await fireEvent.click(screen.getByTestId('server-delete-trigger'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(serverDelete).toHaveBeenCalledWith('a');
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBeTruthy();
+    // A failed delete must not disturb the current selection.
+    expect(serversUi.selectedServerId).toBe('a');
   });
 });
