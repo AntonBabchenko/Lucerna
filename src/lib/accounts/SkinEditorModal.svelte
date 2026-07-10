@@ -28,6 +28,12 @@
   import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
+  import {
+    clampPanelWidth,
+    PANEL_KEY_STEP,
+    PANEL_MAX_WIDTH,
+    PANEL_MIN_WIDTH,
+  } from '$lib/accounts/skin-editor/panel-resize';
 
   let {
     account,
@@ -89,6 +95,7 @@
   let viewerBuilding = false;
   let disposeControls: (() => void) | null = null;
   let viewportBox: HTMLElement | null = null;
+  let panelWidth = $state(300);
   let companion: HTMLCanvasElement | null = null;
   let painting = false;
   let companionPainting = false;
@@ -209,6 +216,32 @@
         viewportBox = null;
       },
     };
+  }
+
+  function startPanelResize(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const onMove = (ev: PointerEvent): void => {
+      // Panel is on the right: dragging left (smaller clientX) widens it.
+      panelWidth = clampPanelWidth(startWidth - (ev.clientX - startX));
+    };
+    const onUp = (ev: PointerEvent): void => {
+      handle.releasePointerCapture(ev.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  }
+
+  function onPanelResizeKey(e: KeyboardEvent): void {
+    if (e.key === 'ArrowLeft') panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP);
+    else if (e.key === 'ArrowRight') panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP);
+    else return;
+    e.preventDefault();
   }
 
   onDestroy(() => {
@@ -603,7 +636,7 @@
     </div>
 
     <!-- 3D viewport + colour -->
-    <div class="flex flex-col flex-1 min-w-0 p-3 gap-2 border-r border-border-subtle">
+    <div class="flex flex-col flex-1 min-w-0 p-3 gap-2">
       <div
         use:observeViewport
         class="rounded-[10px] {BG_CLASS[bg]} flex items-center justify-center overflow-hidden flex-1"
@@ -659,8 +692,25 @@
       </div>
     </div>
 
+    <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
+         splitter is a valid ARIA pattern the a11y linter flags as non-interactive. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={$t('skinEditor.resizeViewport')}
+      aria-valuenow={panelWidth}
+      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuemax={PANEL_MAX_WIDTH}
+      tabindex={0}
+      class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
+      onpointerdown={startPanelResize}
+      onkeydown={onPanelResizeKey}
+    ></div>
+
     <!-- 2D companion + panel -->
-    <div class="flex flex-col p-3 gap-3 w-[300px] shrink-0 overflow-y-auto">
+    <div class="flex flex-col p-3 gap-3 shrink-0 overflow-y-auto" style="width:{panelWidth}px">
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
