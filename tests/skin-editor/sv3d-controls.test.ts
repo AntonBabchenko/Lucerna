@@ -1,6 +1,6 @@
+import type { SkinViewer } from 'skinview3d';
 import { MOUSE } from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import type { SkinViewer } from 'skinview3d';
 import { applyViewerControls } from '$lib/accounts/sv3d-controls';
 
 type Listener = (e: unknown) => void;
