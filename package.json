@@ -33,7 +33,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "skinview3d": "^3.4.2",
     "svelte-i18n": "^4.0.1",
-    "three": "^0.185.1"
+    "three": "0.156.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
