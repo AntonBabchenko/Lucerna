@@ -1619,6 +1619,7 @@ pub async fn server_import_commit(
     max_heap_mb: u32,
     eula_accepted: bool,
 ) -> Result<ServerWithStatus> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Enforce name validation at the IPC boundary (parity with server_create):
