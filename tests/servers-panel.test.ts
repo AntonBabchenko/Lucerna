@@ -131,6 +131,24 @@ describe('ServersPanel', () => {
     markSeen('serverManage');
   });
 
+  // MUST STAY FIRST in this file: it pins that the servers tour does NOT
+  // mount before the first refresh() settles. listLoadedOnce is
+  // module-singleton state — false only until any test in this file calls
+  // load() — and vitest gives each test FILE a fresh module graph.
+  it('arms the servers tour only after the first list fetch settles', async () => {
+    localStorage.removeItem(storageKey('servers')); // re-arm the tour
+    // No refresh() yet: the list is empty because it was never FETCHED. The
+    // tour must not mount here — the spinner branch replacing it would burn
+    // it as soft-skipped (ContextualTour marks itself seen on destroy).
+    render(ServersPanel, baseProps());
+    expect(screen.getByTestId('servers-empty-hero')).toBeTruthy();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    // First fetch settles (still empty) → the tour is now allowed to fire.
+    await load([]);
+    expect(await screen.findByTestId('contextual-tour-popover')).toBeTruthy();
+  });
+
   it('shows the empty hero when there are no servers; create opens the wizard flag', async () => {
     await load([]);
     render(ServersPanel, baseProps());

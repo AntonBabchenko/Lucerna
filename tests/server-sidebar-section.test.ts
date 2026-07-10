@@ -113,8 +113,11 @@ describe('ServerSidebarSection', () => {
     resolveStart?.({ status: 'ok', data: 1 });
     await pending;
     // Settle: runLifecycle still refreshes + clears busy after the command
-    // resolves; don't leak that in-flight work into the next test.
-    await vi.waitFor(() => serverState.actionFor('a') === null);
+    // resolves; don't leak that in-flight work into the next test. (waitFor
+    // retries on THROW, not on a falsy return — hence the expect form.)
+    await vi.waitFor(() => {
+      expect(serverState.actionFor('a')).toBeNull();
+    });
   });
 
   it('Start is disabled while a hosting upload is in flight (was the manage-header guard)', async () => {

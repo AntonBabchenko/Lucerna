@@ -81,6 +81,12 @@ let initialized = false;
 // format it consistently with the rest of the store.
 let listLoading = $state(false);
 let listError = $state<unknown>(null);
+// True once the FIRST refresh() has settled (ok or error). Lets surfaces
+// distinguish "not fetched yet" from "fetched and empty" — listLoading alone
+// is false on BOTH sides of the first fetch, so gating on it has a false
+// window before refresh() begins (e.g. the servers tour would mount there,
+// get unmounted by the spinner, and be burned as soft-skipped).
+let listLoadedOnce = $state(false);
 
 async function refresh(): Promise<void> {
   listLoading = true;
@@ -91,6 +97,7 @@ async function refresh(): Promise<void> {
     else listError = res.error;
   } finally {
     listLoading = false;
+    listLoadedOnce = true;
   }
 }
 
@@ -193,7 +200,11 @@ async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boo
   setActionBusy(id, action);
   setActionError(id, null);
   try {
-    let res: Awaited<ReturnType<typeof commands.serverStart | typeof commands.serverStop>>;
+    let res: Awaited<
+      ReturnType<
+        typeof commands.serverStart | typeof commands.serverStop | typeof commands.serverRestart
+      >
+    >;
     try {
       res =
         action === 'start'
@@ -603,6 +614,9 @@ export const serverState = {
   },
   get listError() {
     return listError;
+  },
+  get listLoadedOnce() {
+    return listLoadedOnce;
   },
   lines: lineFor,
   refresh,

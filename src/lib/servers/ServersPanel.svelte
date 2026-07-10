@@ -82,7 +82,22 @@
   // Start/Stop) — a start failure triggered from the sidebar surfaces here.
   const actionError = $derived(server ? serverState.actionErrorFor(server.id) : undefined);
 
-  let showToInstance = $state(false);
+  // The store records action errors RAW: either a typed IPC Result error
+  // (object with a `kind`) or a thrown value (transport failure). formatError
+  // only understands the former — JSON.stringify(new Error()) renders as
+  // "{}" — so route by shape (same split as ServerToInstanceDialog's create()).
+  function describeActionError(e: unknown): string {
+    if (typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string') {
+      return formatError(e as Parameters<typeof formatError>[0]);
+    }
+    return e instanceof Error ? e.message : String(e);
+  }
+
+  // Which server the to-instance dialog is open FOR (null = closed). Captured
+  // at open and compared against the current selection in the render gate, so
+  // a selection change can never show the dialog against the wrong server —
+  // not even for the one frame before the selection-change effect runs.
+  let toInstanceFor = $state<string | null>(null);
 
   // §7 fallback gating: creating a client instance from this server would
   // write it into the wrong (temporary default) root while the configured
@@ -129,9 +144,10 @@
     const id = serverId;
     if (id !== null && id !== prevId) {
       void serverState.diagnose(id);
-      // A modal opened against the previous server must not survive onto the
-      // newly selected one.
-      showToInstance = false;
+      // The render gate already hides a dialog opened against the previous
+      // selection (mismatched id); clearing here also keeps it from
+      // REAPPEARING if the user re-selects that server later.
+      toInstanceFor = null;
     }
     prevId = id;
   });
@@ -239,7 +255,7 @@
             <button
               type="button"
               class="btn-ghost btn-sm flex items-center gap-1"
-              onclick={() => (showToInstance = true)}
+              onclick={() => (toInstanceFor = server.id)}
               disabled={toInstanceDisabledReason !== null}
               data-testid="create-client-instance-btn"
               data-tour-ctx="server-to-instance"
@@ -271,7 +287,7 @@
            owns the message and we suppress this duplicate. -->
       {#if actionError !== undefined && !serverState.diagnosisFor(server.id)}
         <p class="px-4 pt-2 text-sm text-danger" role="alert" data-testid="server-action-error">
-          {formatError(actionError as Parameters<typeof formatError>[0])}
+          {describeActionError(actionError)}
         </p>
       {/if}
 
@@ -335,22 +351,24 @@
 <!-- One-shot tours, gated on this being the ACTIVE panel: the panel stays
      mounted (hidden) in client mode, and a tour must not fire off-screen. The
      wizard suppresses both (its own flow is self-explanatory and the anchors
-     are hidden); the list tour additionally waits out the first load so it
-     can't fire over the spinner. -->
+     are hidden); the list tour additionally waits until the FIRST list fetch
+     has settled — before that, "no server" just means "not loaded yet", and a
+     tour mounted in that window would be unmounted by the spinner branch and
+     burned as soft-skipped (ContextualTour marks itself seen on destroy). -->
 {#if visible && !serversUi.creating}
   {#if server}
     <ContextualTour id="serverManage" steps={SERVER_MANAGE_STEPS} />
-  {:else if !serverState.listLoading}
+  {:else if serverState.listLoadedOnce}
     <ContextualTour id="servers" steps={SERVERS_STEPS} />
   {/if}
 {/if}
 
-{#if showToInstance && server}
+{#if server && toInstanceFor === server.id}
   <ServerToInstanceDialog
     {server}
-    onCancel={() => (showToInstance = false)}
+    onCancel={() => (toInstanceFor = null)}
     onCreated={(id) => {
-      showToInstance = false;
+      toInstanceFor = null;
       onInstanceCreated(id);
     }}
   />
