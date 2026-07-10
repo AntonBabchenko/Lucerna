@@ -1,5 +1,3 @@
-use super::*;
-
 // --- Worlds tab (backlog #16) -----------------------------------
 
 /// List singleplayer worlds in `instance_id`, newest-first by mtime.
