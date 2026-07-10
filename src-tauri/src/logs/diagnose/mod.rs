@@ -11,7 +11,6 @@ pub mod server;
 pub mod server_mods;
 
 use crate::error::Result;
-use crate::logs::files::LogSource;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
 use specta::Type;

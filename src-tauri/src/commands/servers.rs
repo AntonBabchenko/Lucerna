@@ -1,5 +1,3 @@
-use super::*;
-
 /// List the instance's saved multiplayer servers (from `servers.dat`).
 /// Empty Vec when the file does not exist yet.
 #[tauri::command]
