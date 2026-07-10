@@ -2,9 +2,15 @@
 // coordinates; the UI layer resolves pointer events to texels first.
 
 import type { FaceRect } from './atlas';
-import { getTexel, setTexel, type Rgba } from './buffer';
+import { getTexel, type Rgba, setTexel } from './buffer';
 
-export function pencil(data: Uint8ClampedArray, x: number, y: number, colour: Rgba, brush = 1): void {
+export function pencil(
+  data: Uint8ClampedArray,
+  x: number,
+  y: number,
+  colour: Rgba,
+  brush = 1,
+): void {
   for (let dy = 0; dy < brush; dy++) {
     for (let dx = 0; dx < brush; dx++) setTexel(data, x + dx, y + dy, colour);
   }

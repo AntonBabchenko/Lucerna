@@ -25,6 +25,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FlipHorizontal2,
   FolderOpen,
   Globe,
   Hand,
@@ -36,12 +37,16 @@ import {
   List,
   Lock,
   Minus,
+  Moon,
   Package,
+  PaintBucket,
   Pencil,
+  Pipette,
   Play,
   Plus,
   Power,
   Puzzle,
+  Redo2,
   RefreshCw,
   RotateCcw,
   ScrollText,
@@ -50,7 +55,9 @@ import {
   Shirt,
   Shrink,
   SlidersHorizontal,
+  Sparkles,
   Square,
+  Sun,
   Trash2,
   TriangleAlert,
   Undo2,
@@ -135,9 +142,16 @@ export const ICONS = {
   crop: Crop, // crop tool (screenshot annotator)
   hand: Hand, // pan tool (screenshot annotator)
   marker: Highlighter, // freehand draw tool (screenshot annotator)
-  undo: Undo2, // undo last stroke (screenshot annotator)
-  zoomIn: ZoomIn, // zoom in (screenshot annotator)
-  zoomOut: ZoomOut, // zoom out (screenshot annotator)
+  undo: Undo2, // undo last stroke (screenshot annotator, skin editor)
+  redo: Redo2, // redo (skin editor)
+  zoomIn: ZoomIn, // zoom in (screenshot annotator, skin editor 2D view)
+  zoomOut: ZoomOut, // zoom out (screenshot annotator, skin editor 2D view)
+  eyedropper: Pipette, // pick a colour from the skin (skin editor)
+  fill: PaintBucket, // flood fill within a face (skin editor)
+  dodge: Sun, // lighten texels (skin editor)
+  burn: Moon, // darken texels (skin editor)
+  noise: Sparkles, // brightness jitter (skin editor)
+  mirror: FlipHorizontal2, // mirror-X symmetry toggle (skin editor)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

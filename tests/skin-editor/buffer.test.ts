@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SKIN_SIZE,
   createBlankSkin,
   getTexel,
   restore,
+  SKIN_SIZE,
   setTexel,
   snapshot,
   validateSkinDimensions,

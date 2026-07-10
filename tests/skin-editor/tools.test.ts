@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { faceRectAt } from '$lib/accounts/skin-editor/atlas';
+import { type FaceRect, faceRectAt } from '$lib/accounts/skin-editor/atlas';
 import { createBlankSkin, getTexel, setTexel } from '$lib/accounts/skin-editor/buffer';
-import { dodgeBurn, eraser, fill, noise, pencil, pickColour } from '$lib/accounts/skin-editor/tools';
+import {
+  dodgeBurn,
+  eraser,
+  fill,
+  noise,
+  pencil,
+  pickColour,
+} from '$lib/accounts/skin-editor/tools';
+
+function mustFaceRectAt(x: number, y: number): FaceRect {
+  const rect = faceRectAt(x, y, 'classic');
+  if (!rect) throw new Error(`no face rect at (${x}, ${y})`);
+  return rect;
+}
 
 describe('tools', () => {
   it('pencil paints a 1px texel', () => {
@@ -35,10 +48,9 @@ describe('tools', () => {
   it('fill floods a same-colour region bounded to the face', () => {
     const d = createBlankSkin();
     // paint head-front (x8..15,y8..15) all opaque white
-    for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) setTexel(d, x, y, [255, 255, 255, 255]);
-    const rect = faceRectAt(10, 10, 'classic');
-    expect(rect).toBeDefined();
-    fill(d, 10, 10, [0, 0, 255, 255], rect!);
+    for (let y = 8; y < 16; y++)
+      for (let x = 8; x < 16; x++) setTexel(d, x, y, [255, 255, 255, 255]);
+    fill(d, 10, 10, [0, 0, 255, 255], mustFaceRectAt(10, 10));
     expect(getTexel(d, 8, 8)).toEqual([0, 0, 255, 255]);
     expect(getTexel(d, 15, 15)).toEqual([0, 0, 255, 255]);
     // a texel just outside the face rect is untouched
@@ -47,10 +59,10 @@ describe('tools', () => {
 
   it('fill does not cross into a differently-coloured texel inside the face', () => {
     const d = createBlankSkin();
-    for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) setTexel(d, x, y, [255, 255, 255, 255]);
+    for (let y = 8; y < 16; y++)
+      for (let x = 8; x < 16; x++) setTexel(d, x, y, [255, 255, 255, 255]);
     setTexel(d, 12, 10, [0, 0, 0, 255]); // a black divider pixel
-    const rect = faceRectAt(9, 9, 'classic');
-    fill(d, 9, 9, [255, 0, 0, 255], rect!);
+    fill(d, 9, 9, [255, 0, 0, 255], mustFaceRectAt(9, 9));
     expect(getTexel(d, 9, 9)).toEqual([255, 0, 0, 255]);
     expect(getTexel(d, 12, 10)).toEqual([0, 0, 0, 255]); // divider untouched
   });
@@ -58,8 +70,7 @@ describe('tools', () => {
   it('fill into the same colour is a no-op (no infinite loop)', () => {
     const d = createBlankSkin();
     setTexel(d, 10, 10, [5, 5, 5, 255]);
-    const rect = faceRectAt(10, 10, 'classic');
-    fill(d, 10, 10, [5, 5, 5, 255], rect!);
+    fill(d, 10, 10, [5, 5, 5, 255], mustFaceRectAt(10, 10));
     expect(getTexel(d, 10, 10)).toEqual([5, 5, 5, 255]);
   });
 

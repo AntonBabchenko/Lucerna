@@ -35,9 +35,10 @@ describe('atlas', () => {
         const a = rects[i];
         const b = rects[j];
         const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-        expect(overlap, `${a.part}/${a.layer}/${a.face} overlaps ${b.part}/${b.layer}/${b.face}`).toBe(
-          false,
-        );
+        expect(
+          overlap,
+          `${a.part}/${a.layer}/${a.face} overlaps ${b.part}/${b.layer}/${b.face}`,
+        ).toBe(false);
       }
     }
   });

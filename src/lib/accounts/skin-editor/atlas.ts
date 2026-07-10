@@ -21,7 +21,15 @@ export interface FaceRect {
 
 // The 6 faces of one box net at origin (ox,oy) with texel dims w x h x d.
 // Net layout (setUVs): row 1 = [top][bottom] offset by d; row 2 = [left][front][right][back].
-function box(part: Part, layer: Layer, ox: number, oy: number, w: number, h: number, d: number): FaceRect[] {
+function box(
+  part: Part,
+  layer: Layer,
+  ox: number,
+  oy: number,
+  w: number,
+  h: number,
+  d: number,
+): FaceRect[] {
   const f = (x: number, y: number, fw: number, fh: number, face: Face): FaceRect => ({
     x,
     y,
@@ -68,9 +76,7 @@ export function allFaceRects(variant: Variant): FaceRect[] {
 }
 
 export function faceRectAt(x: number, y: number, variant: Variant): FaceRect | undefined {
-  return allFaceRects(variant).find(
-    (r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h,
-  );
+  return allFaceRects(variant).find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 }
 
 // Horizontal mirror within the containing face (v1 mirror-X). Full cross-limb

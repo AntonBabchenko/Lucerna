@@ -3,8 +3,8 @@
 // overlay (a slightly larger box enclosing the base) never steals a hit
 // meant for the base layer — see the skin-editor spec, risk #1.
 
-import { Raycaster, Vector2 } from 'three';
 import type { Object3D, PerspectiveCamera } from 'three';
+import { Raycaster, Vector2 } from 'three';
 import { SKIN_SIZE } from './buffer';
 
 export interface Ndc {
