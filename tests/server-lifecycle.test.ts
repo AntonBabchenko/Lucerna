@@ -81,6 +81,7 @@ describe('serverState lifecycle helpers', () => {
     serverStop.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
     const r = await serverState.stop('a');
     expect(r.ok).toBe(false);
+    expect(serverState.actionErrorFor('a')).toEqual({ kind: 'x' });
     expect(serverDiagnose).not.toHaveBeenCalled();
   });
 

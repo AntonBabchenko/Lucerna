@@ -171,6 +171,12 @@
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
     "servers": "Servers",
+    "mode": {
+      "aria": "Launcher mode",
+      "client": "Client"
+    },
+    "server": "Server",
+    "noServers": "No servers yet.",
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
     "serversFixAvailable": "A server fix is available",
@@ -1305,6 +1311,12 @@
           "body": "A server you run is reachable on your local network right away, so anyone on the same Wi-Fi or LAN can join. To open it up over the internet, the Hosting and Connect tabs walk you through it.",
           "titleBasic": "Play on your network",
           "bodyBasic": "Anyone on the same home network can join a server you run, with no extra setup. To let friends join over the internet, see the Connect and Hosting tabs inside a server."
+        },
+        "modeSwitch": {
+          "title": "Two sides of the launcher",
+          "titleBasic": "Switch back anytime",
+          "body": "The launcher now has two modes: Client for playing, Servers for hosting. Switch here whenever you like; the client keeps working while a server runs.",
+          "bodyBasic": "Use this switch to go back to playing. Your server keeps running."
         }
       },
       "serverManage": {
@@ -2236,7 +2248,8 @@
       "jvmArgsHint": "Advanced. Applied to the server JVM on next start.",
       "save": "Save",
       "saved": "Saved",
-      "restartToApply": "Restart the server to apply memory / JVM changes."
+      "restartToApply": "Restart the server to apply memory / JVM changes.",
+      "dangerTitle": "Danger zone"
     },
     "delete": {
       "trigger": "Delete server",
