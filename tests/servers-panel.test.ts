@@ -18,6 +18,24 @@ vi.mock('$lib/servers/ServerBackupsView.svelte', () => ({ default: stubComponent
 vi.mock('$lib/servers/ServerToInstanceDialog.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerDiagnosisBanner.svelte', () => ({ default: stubComponent() }));
 
+// The wizard stays REAL (the wizard-branch test asserts its heading); this
+// wrapper only captures the props the panel passes so the onDone contract can
+// be pinned without driving the whole create flow through the wizard UI.
+const wizardProps = vi.hoisted(() => ({
+  current: null as null | { onDone: (createdId?: string) => void },
+}));
+vi.mock('$lib/servers/ServerCreateWizard.svelte', async (importOriginal) => {
+  const orig = (await importOriginal()) as {
+    default: (anchor: unknown, props: unknown) => unknown;
+  };
+  return {
+    default: (anchor: unknown, props: unknown) => {
+      wizardProps.current = props as { onDone: (createdId?: string) => void };
+      return orig.default(anchor, props);
+    },
+  };
+});
+
 // A minimal no-op Svelte 5 component for child stubs (Svelte 5 mounts a
 // component by CALLING it, so a plain function that renders nothing works).
 function stubComponent() {
@@ -113,6 +131,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 describe('ServersPanel', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
+    wizardProps.current = null;
     serversUi.selectServer(null);
     serversUi.activeTab = 'console';
     serversUi.creating = false;
@@ -186,6 +205,27 @@ describe('ServersPanel', () => {
     localStorage.removeItem(storageKey('servers')); // re-arm the tour
     render(ServersPanel, baseProps({ visible: false }));
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+  });
+
+  it('wizard onDone closes the wizard and auto-selects the created server', async () => {
+    await load([]);
+    serversUi.creating = true;
+    render(ServersPanel, baseProps());
+    expect(wizardProps.current).not.toBeNull();
+
+    wizardProps.current?.onDone('new-id');
+    expect(serversUi.creating).toBe(false);
+    expect(serversUi.selectedServerId).toBe('new-id');
+  });
+
+  it('wizard onDone without an id (cancelled import) closes without touching the selection', async () => {
+    await load([]);
+    serversUi.creating = true;
+    render(ServersPanel, baseProps());
+
+    wizardProps.current?.onDone();
+    expect(serversUi.creating).toBe(false);
+    expect(serversUi.selectedServerId).toBeNull();
   });
 
   it('running server: header offers Restart only — Start/Stop moved to the sidebar', async () => {

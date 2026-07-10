@@ -30,7 +30,9 @@
   import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
-  import ServersModal from '$lib/servers/ServersModal.svelte';
+  import ServersPanel from '$lib/servers/ServersPanel.svelte';
+  import { serverState } from '$lib/servers/server-state.svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
   import ScreenshotsGallery from '$lib/screenshots/ScreenshotsGallery.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
   import {
@@ -192,8 +194,11 @@
   // pack creates a new instance — so a scrim-backed modal signals "separate
   // context, not the current instance".
   let modpacksModalOpen = $state(false);
-  let serversModalOpen = $state(false);
   let launcherImportOpen = $state(false);
+
+  // True once the first server-list load has settled — gates reconcile() so a
+  // pre-load empty list can't wipe the persisted selection.
+  let serversReady = $state(false);
 
   // The Overview missing-mods indicator and any other deep-link that
   // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
@@ -202,6 +207,14 @@
     if (modpacksNav.value !== null) {
       modpacksModalOpen = true;
     }
+  });
+
+  // Keep the persisted server selection honest against the live list (deleted
+  // server, fresh profile, list refreshes). reconcile() writes only when the
+  // selection is actually invalid, so this cannot loop.
+  $effect(() => {
+    if (!serversReady) return;
+    serversUi.reconcile(serverState.list.map((s) => s.id));
   });
 
   // Whenever the active instance changes, clear per-instance error banners.
@@ -365,6 +378,14 @@
   onMount(async () => {
     void dataLocation.init();
     void refreshInstances();
+
+    // Servers now live in a persistent panel (not a modal), so the store boots
+    // with the page: subscribe to events once, then load the list and only
+    // then let reconcile() touch the persisted selection.
+    serverState.init();
+    void serverState.refresh().then(() => {
+      serversReady = true;
+    });
 
     events.processSpawned
       .listen((event) => {
@@ -840,9 +861,15 @@
   <!-- Compact mode unmounts the entire right column so the window can shrink to
        the sidebar strip. Note: this resets MainTabs (active tab / scroll) on
        re-expand — acceptable because compact is a launch-pad mode, not a rapid
-       toggle-while-browsing-tabs affordance. -->
+       toggle-while-browsing-tabs affordance. Both mode panels (client MainTabs
+       and ServersPanel) share the same grid cell and stay mounted; the inactive
+       one gets `hidden` (display:none) so tab state, console scroll and wizard
+       progress survive mode switches — compact still unmounts the whole column. -->
   {#if !compactState.value}
-    <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
+    <div
+      class="col-start-2 row-start-1 overflow-hidden flex flex-col"
+      hidden={serversUi.mode !== 'client'}
+    >
       {#if dataLocation.fellBack && dataLocation.status}
         <DataRootFallbackBanner configuredPath={dataLocation.status.configured ?? ''} />
       {/if}
@@ -924,10 +951,24 @@
               logsInitialPath = null;
               logsOpen = true;
             }}
-            onOpenServers={() => (serversModalOpen = true)}
+            onOpenServers={() => serversUi.setMode('servers')}
           />
         {/snippet}
       </MainTabs>
+    </div>
+    <div
+      class="col-start-2 row-start-1 overflow-hidden flex flex-col"
+      hidden={serversUi.mode !== 'servers'}
+    >
+      <ServersPanel
+        visible={serversUi.mode === 'servers'}
+        {instances}
+        versions={mcv.value}
+        onInstanceCreated={(id) => {
+          serversUi.setMode('client');
+          void onSelectInstance(id);
+        }}
+      />
     </div>
   {/if}
 
@@ -984,16 +1025,6 @@
     />
   </ModpacksModal>
 
-  <ServersModal
-    open={serversModalOpen}
-    onClose={() => (serversModalOpen = false)}
-    {instances}
-    versions={mcv.value}
-    onInstanceCreated={(id) => {
-      serversModalOpen = false;
-      void onSelectInstance(id);
-    }}
-  />
   {#if screenshotsGalleryOpen}
     <ScreenshotsGallery onClose={() => (screenshotsGalleryOpen = false)} />
   {/if}
