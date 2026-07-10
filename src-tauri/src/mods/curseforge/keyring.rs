@@ -12,6 +12,10 @@
 
 use crate::error::Error;
 
+/// Only the production backend below references SERVICE; under `cargo test`
+/// that backend is compiled out (in-memory redirection), so the constant is
+/// cfg-scoped to match — same split as USERNAME.
+#[cfg(not(test))]
 const SERVICE: &str = "lucerna";
 #[cfg(not(test))]
 const USERNAME: &str = "curseforge-api-key";
