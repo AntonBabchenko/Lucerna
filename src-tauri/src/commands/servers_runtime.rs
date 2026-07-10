@@ -389,6 +389,7 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
@@ -406,6 +407,7 @@ pub async fn server_stop(app: AppHandle, id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
@@ -1619,6 +1621,7 @@ pub async fn server_import_commit(
     max_heap_mb: u32,
     eula_accepted: bool,
 ) -> Result<ServerWithStatus> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Enforce name validation at the IPC boundary (parity with server_create):

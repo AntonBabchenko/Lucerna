@@ -6,6 +6,7 @@
   import { commands, type Account, type CapeInfo, type SkinVariant } from '$lib/ipc/bindings';
   import { drawCapeFront } from '$lib/accounts/cape-render';
   import SkinEditorModal from '$lib/accounts/SkinEditorModal.svelte';
+  import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import type { SkinViewer } from 'skinview3d';
 
   let { account, onClose }: { account: Account; onClose: () => void } = $props();
@@ -32,6 +33,7 @@
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
   let viewerBuilding = false;
+  let disposeControls: (() => void) | null = null;
 
   const activeCape = $derived(capes.find((c) => c.is_active) ?? null);
   const activeCapeName = $derived(activeCape ? (activeCape.alias ?? activeCape.id) : null);
@@ -60,7 +62,7 @@
         model: modelOf(variant),
       });
       viewer.controls.enableZoom = false;
-      viewer.controls.enablePan = false;
+      disposeControls = applyViewerControls(viewer, viewerCanvas);
       viewer.autoRotate = true;
       viewer.autoRotateSpeed = 0.5;
       viewer.animation = new skinview3d.IdleAnimation();
@@ -102,6 +104,8 @@
     void ensureViewer();
     return {
       destroy() {
+        disposeControls?.();
+        disposeControls = null;
         viewer?.dispose();
         viewer = null;
         viewerCanvas = null;
@@ -110,6 +114,8 @@
   }
 
   onDestroy(() => {
+    disposeControls?.();
+    disposeControls = null;
     viewer?.dispose();
     viewer = null;
   });

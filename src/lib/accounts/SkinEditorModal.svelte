@@ -27,6 +27,13 @@
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
   import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
+  import { applyViewerControls } from '$lib/accounts/sv3d-controls';
+  import {
+    clampPanelWidth,
+    PANEL_KEY_STEP,
+    PANEL_MAX_WIDTH,
+    PANEL_MIN_WIDTH,
+  } from '$lib/accounts/skin-editor/panel-resize';
 
   let {
     account,
@@ -86,6 +93,9 @@
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
   let viewerBuilding = false;
+  let disposeControls: (() => void) | null = null;
+  let viewportBox: HTMLElement | null = null;
+  let panelWidth = $state(300);
   let companion: HTMLCanvasElement | null = null;
   let painting = false;
   let companionPainting = false;
@@ -162,13 +172,14 @@
         model: variantToModel(variant),
       });
       assertSkinViewerContract(viewer);
-      viewer.controls.enablePan = false;
       viewer.controls.enableZoom = true;
+      disposeControls = applyViewerControls(viewer, viewerCanvas);
       viewer.autoRotate = false;
       viewer.zoom = 0.8;
       // Static pose — a moving target is unpaintable. (No IdleAnimation here.)
       await viewer.loadSkin(url, { model: variantToModel(variant) });
       renderCompanion();
+      fitViewport();
     } finally {
       viewerBuilding = false;
     }
@@ -179,6 +190,8 @@
     void buildViewer();
     return {
       destroy() {
+        disposeControls?.();
+        disposeControls = null;
         viewer?.dispose();
         viewer = null;
         viewerCanvas = null;
@@ -186,7 +199,56 @@
     };
   }
 
+  function fitViewport(): void {
+    if (!viewer || !viewportBox) return;
+    const w = Math.round(viewportBox.clientWidth);
+    const h = Math.round(viewportBox.clientHeight);
+    if (w > 0 && h > 0) viewer.setSize(w, h);
+  }
+
+  function observeViewport(node: HTMLElement) {
+    viewportBox = node;
+    const ro = new ResizeObserver(() => fitViewport());
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+        viewportBox = null;
+      },
+    };
+  }
+
+  function startPanelResize(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const onMove = (ev: PointerEvent): void => {
+      // Panel is on the right: dragging left (smaller clientX) widens it.
+      panelWidth = clampPanelWidth(startWidth - (ev.clientX - startX));
+    };
+    const onUp = (ev: PointerEvent): void => {
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp); // OS-cancelled pointer: still clean up
+  }
+
+  function onPanelResizeKey(e: KeyboardEvent): void {
+    if (e.key === 'ArrowLeft') panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP);
+    else if (e.key === 'ArrowRight') panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP);
+    else return;
+    e.preventDefault();
+  }
+
   onDestroy(() => {
+    disposeControls?.();
+    disposeControls = null;
     viewer?.dispose();
     viewer = null;
   });
@@ -268,7 +330,12 @@
 
   function onViewerDown(e: PointerEvent): void {
     if (!viewer || busy) return;
+    if (e.button !== 0) return; // right → orbit, middle → pan (OrbitControls handles it)
     if (tool === 'pan') return; // orbit stays enabled — drag rotates
+    // Left paint: disable orbit for the stroke. OrbitControls' own canvas
+    // listener may run first and arm STATE.ROTATE on this pointerdown, but it
+    // applies no camera delta until pointermove — which early-returns while
+    // controls.enabled is false — so the model can't rotate mid-paint.
     viewer.controls.enabled = false;
     painting = true;
     viewerCanvas?.setPointerCapture(e.pointerId);
@@ -575,8 +642,9 @@
     </div>
 
     <!-- 3D viewport + colour -->
-    <div class="flex flex-col flex-1 min-w-0 p-3 gap-2 border-r border-border-subtle">
+    <div class="flex flex-col flex-1 min-w-0 p-3 gap-2">
       <div
+        use:observeViewport
         class="rounded-[10px] {BG_CLASS[
           bg
         ]} flex items-center justify-center overflow-hidden flex-1"
@@ -632,8 +700,25 @@
       </div>
     </div>
 
+    <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
+         splitter is a valid ARIA pattern the a11y linter flags as non-interactive. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={$t('skinEditor.resizeViewport')}
+      aria-valuenow={panelWidth}
+      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuemax={PANEL_MAX_WIDTH}
+      tabindex={0}
+      class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
+      onpointerdown={startPanelResize}
+      onkeydown={onPanelResizeKey}
+    ></div>
+
     <!-- 2D companion + panel -->
-    <div class="flex flex-col p-3 gap-3 w-[300px] shrink-0 overflow-y-auto">
+    <div class="flex flex-col p-3 gap-3 shrink-0 overflow-y-auto" style="width:{panelWidth}px">
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
