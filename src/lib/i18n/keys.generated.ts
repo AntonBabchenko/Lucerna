@@ -1777,7 +1777,7 @@ export type TranslationKey =
   | 'sidebar.logsFixAvailable'
   | 'sidebar.manage'
   | 'sidebar.manageInstanceLabel'
-  | 'sidebar.mode.aria'
+  | 'sidebar.mode.ariaLabel'
   | 'sidebar.mode.client'
   | 'sidebar.modpackUpdatesBadge'
   | 'sidebar.mods'

@@ -172,7 +172,7 @@
     "joinServer": "Join a server",
     "servers": "Servers",
     "mode": {
-      "aria": "Launcher mode",
+      "ariaLabel": "Launcher mode",
       "client": "Client"
     },
     "server": "Server",

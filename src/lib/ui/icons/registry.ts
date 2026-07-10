@@ -37,6 +37,7 @@ import {
   List,
   Lock,
   Minus,
+  Monitor,
   Moon,
   Package,
   PaintBucket,
@@ -128,6 +129,7 @@ export const ICONS = {
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind
   server: Server, // own-server entry point (sidebar + server list rows)
+  monitor: Monitor, // Client mode segment of the sidebar mode switcher
   switch: ArrowRightLeft, // version row: "switch to this installed version"
   lock: Lock, // restricted / distribution-blocked version (download disabled)
   archive: Archive, // create a backup ("Back up now")
