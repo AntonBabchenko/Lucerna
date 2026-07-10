@@ -66,7 +66,11 @@
       tabindex={active ? 0 : -1}
       data-testid={option.testId}
       class={variant === 'boxed'
-        ? `btn-secondary btn-sm rounded-none ${active ? 'btn-primary' : ''}`
+        ? // Swap btn-primary/btn-ghost conditionally: two btn-* purpose classes
+          // must never be stacked on one element — the later app.css rule
+          // (.btn-secondary) wins the equal-specificity cascade and kills the
+          // active fill.
+          `${active ? 'btn-primary' : 'btn-ghost'} btn-sm rounded-none`
         : `px-0.5 ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
       use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
