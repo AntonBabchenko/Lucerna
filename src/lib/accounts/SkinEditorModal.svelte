@@ -229,12 +229,14 @@
       panelWidth = clampPanelWidth(startWidth - (ev.clientX - startX));
     };
     const onUp = (ev: PointerEvent): void => {
-      handle.releasePointerCapture(ev.pointerId);
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp); // OS-cancelled pointer: still clean up
   }
 
   function onPanelResizeKey(e: KeyboardEvent): void {
