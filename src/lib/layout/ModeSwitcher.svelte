@@ -26,6 +26,9 @@
   );
 </script>
 
+<!-- Segments swap btn-primary/btn-ghost conditionally: two btn-* purpose
+     classes must never be stacked on one element — the later app.css rule
+     (.btn-secondary) wins the cascade and kills the active fill. -->
 <div
   class="flex rounded border border-border-subtle overflow-hidden"
   role="group"
@@ -34,10 +37,9 @@
 >
   <button
     type="button"
-    class="btn-secondary btn-sm rounded-none border-0 flex-1 flex items-center justify-center gap-1.5 {serversUi.mode ===
-    'client'
+    class="{serversUi.mode === 'client'
       ? 'btn-primary'
-      : ''}"
+      : 'btn-ghost'} btn-sm rounded-none flex-1 flex items-center justify-center gap-1.5"
     aria-pressed={serversUi.mode === 'client'}
     data-testid="mode-switch-client"
     onclick={() => serversUi.setMode('client')}
@@ -47,10 +49,9 @@
   </button>
   <button
     type="button"
-    class="btn-secondary btn-sm rounded-none border-0 flex-1 flex items-center justify-center gap-1.5 {serversUi.mode ===
-    'servers'
+    class="{serversUi.mode === 'servers'
       ? 'btn-primary'
-      : ''}"
+      : 'btn-ghost'} btn-sm rounded-none flex-1 flex items-center justify-center gap-1.5"
     aria-pressed={serversUi.mode === 'servers'}
     data-testid="mode-switch-servers"
     onclick={() => serversUi.setMode('servers')}
