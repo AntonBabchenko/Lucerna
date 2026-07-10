@@ -300,11 +300,15 @@
         <ServerDiagnosisBanner serverId={server.id} />
       </div>
 
-      <!-- Sub-tabs -->
+      <!-- Sub-tabs. overflow-x-auto is load-bearing: at the 820px window minimum
+           the eight RU tab labels overflow the panel. overflow-y-hidden is too:
+           overflow-x:auto forces overflow-y to compute to auto, and the tabs'
+           -mb-px underline overlap overflows 1px vertically — without the
+           explicit hidden that 1px grows a stray vertical scrollbar. -->
       <!-- svelte-ignore a11y_interactive_supports_focus -->
       <div
         role="tablist"
-        class="flex gap-1 overflow-x-auto border-b border-border-subtle px-4 bg-surface"
+        class="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border-subtle px-4 bg-surface"
         onkeydown={onTablistKeydown}
       >
         {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['plugins', $t('servers.plugins.tab')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
