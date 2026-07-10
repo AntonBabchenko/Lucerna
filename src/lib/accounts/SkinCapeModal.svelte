@@ -5,6 +5,7 @@
   import { t } from '$lib/i18n';
   import { commands, type Account, type CapeInfo, type SkinVariant } from '$lib/ipc/bindings';
   import { drawCapeFront } from '$lib/accounts/cape-render';
+  import SkinEditorModal from '$lib/accounts/SkinEditorModal.svelte';
   import type { SkinViewer } from 'skinview3d';
 
   let { account, onClose }: { account: Account; onClose: () => void } = $props();
@@ -15,12 +16,15 @@
   let busy = $state(false);
   let capes = $state<CapeInfo[]>([]);
   let variant = $state<SkinVariant>('classic');
-  // Base64 of the currently-displayed skin, kept so a reset can snapshot it.
-  let currentSkinB64: string | null = null;
+  // Base64 of the currently-displayed skin: reset snapshots it, and the pixel
+  // editor receives it as its starting canvas (template prop -> reactive).
+  let currentSkinB64 = $state<string | null>(null);
   // Two-step guard for the destructive reset, plus an in-session undo snapshot
   // of the skin that was active before the reset (so it can be re-applied).
   let confirmingReset = $state(false);
   let undoSkin = $state<{ b64: string; variant: SkinVariant } | null>(null);
+  // Pixel editor overlay (stacked on top of this modal, see Modal's open-stack).
+  let editing = $state(false);
 
   // 3D preview (skinview3d, lazily imported so Three.js stays out of the main
   // bundle). WebGL is imperative, not reactive: we drive it via explicit calls
@@ -332,14 +336,25 @@
           <span class="text-xs text-muted">{$t('cosmetics.dragToRotate')}</span>
         </div>
         <div class="flex-1 min-w-[200px] flex flex-col gap-3.5">
-          <button
-            type="button"
-            class="btn-secondary btn-sm self-start"
-            onclick={chooseSkinFile}
-            disabled={busy}
-          >
-            {$t('cosmetics.chooseFile')}
-          </button>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              onclick={chooseSkinFile}
+              disabled={busy}
+            >
+              {$t('cosmetics.chooseFile')}
+            </button>
+            <button
+              type="button"
+              class="btn-secondary btn-sm flex items-center gap-1.5"
+              onclick={() => (editing = true)}
+              disabled={busy}
+            >
+              <Icon name="edit" size={14} />
+              {$t('cosmetics.editSkin')}
+            </button>
+          </div>
           <div>
             <div class="text-xs text-muted mb-1.5">{$t('cosmetics.model')}</div>
             <div class="inline-flex border border-border-subtle rounded overflow-hidden">
@@ -411,3 +426,19 @@
     {/if}
   </div>
 </Modal>
+
+{#if editing}
+  <SkinEditorModal
+    {account}
+    initialSkinB64={currentSkinB64}
+    initialVariant={variant}
+    onClose={() => (editing = false)}
+    onApplied={(b64, v) => {
+      // Keep this modal's preview in sync with what the editor uploaded.
+      currentSkinB64 = b64;
+      variant = v;
+      undoSkin = null;
+      syncSkinPreview();
+    }}
+  />
+{/if}
