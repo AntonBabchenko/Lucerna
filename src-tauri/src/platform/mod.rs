@@ -14,6 +14,10 @@ use std::path::{Path, PathBuf};
 /// Standard on-disk locations where third-party launchers keep their
 /// per-instance folders. Best-effort: returned paths may not exist; the
 /// manual folder picker is the fallback when a path is wrong.
+///
+/// Exactly one cfg arm compiles per target, each the function's tail
+/// expression — same shape as `install_kind`, so no platform gets a
+/// spurious `unreachable_code`/`unused allow` warning.
 pub fn default_launcher_roots() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
@@ -38,7 +42,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
                     .join("Instances"),
             );
         }
-        return roots;
+        roots
     }
     #[cfg(target_os = "linux")]
     {
@@ -53,7 +57,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             );
             roots.push(base.join(".minecraft"));
         }
-        return roots;
+        roots
     }
     #[cfg(target_os = "macos")]
     {
@@ -64,10 +68,12 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             roots.push(base.join("Library/Application Support/MultiMC/instances"));
             roots.push(base.join("Library/Application Support/minecraft"));
         }
-        return roots;
+        roots
     }
-    #[allow(unreachable_code)]
-    vec![]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        Vec::new()
+    }
 }
 
 /// How this particular run can replace itself with a newer build. Decided at
