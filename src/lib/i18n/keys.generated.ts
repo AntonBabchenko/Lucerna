@@ -1811,6 +1811,7 @@ export type TranslationKey =
   | 'skinEditor.offlineHint'
   | 'skinEditor.paintOn'
   | 'skinEditor.redo'
+  | 'skinEditor.resizeViewport'
   | 'skinEditor.savePng'
   | 'skinEditor.title'
   | 'skinEditor.toolBurn'
