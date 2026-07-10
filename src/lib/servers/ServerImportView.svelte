@@ -14,7 +14,14 @@
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import { droppedServer, serverImportActive, dragActive } from '$lib/settings/state.svelte';
 
-  let { onDone, onCancel }: { onDone: () => void; onCancel: () => void } = $props();
+  let {
+    onDone,
+    onCancel,
+  }: {
+    // Passes the new server's id on success so the host can auto-select it.
+    onDone: (createdId?: string) => void;
+    onCancel: () => void;
+  } = $props();
 
   // Phase: 'pick' → source selection, 'confirm' → review + commit.
   let phase = $state<'pick' | 'confirm'>('pick');
@@ -154,7 +161,7 @@
       );
       if (r.ok) {
         token = null; // prevent destroy from cancelling a completed import
-        onDone();
+        onDone(r.server?.id);
       } else {
         error = formatError(r.error as Parameters<typeof formatError>[0]);
       }

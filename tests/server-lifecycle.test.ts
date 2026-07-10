@@ -77,6 +77,16 @@ describe('serverState lifecycle helpers', () => {
     expect(serverList).not.toHaveBeenCalled();
   });
 
+  it('start: a thrown (non-Result) IPC error lands in actionErrors, not a rejection', async () => {
+    const boom = new Error('boom');
+    serverStart.mockRejectedValue(boom);
+    const r = await serverState.start('a');
+    expect(r.ok).toBe(false);
+    expect(serverState.actionErrorFor('a')).toBe(boom);
+    expect(serverDiagnose).toHaveBeenCalledWith('a');
+    expect(serverState.actionFor('a')).toBeNull();
+  });
+
   it('stop: failure records the error and does NOT diagnose', async () => {
     serverStop.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
     const r = await serverState.stop('a');

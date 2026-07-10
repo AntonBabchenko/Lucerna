@@ -2,14 +2,15 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 
-const { serverList, serverStart, serverStop, serverDiagnose } = vi.hoisted(() => ({
+const { serverList, serverStart, serverStop, serverDiagnose, serverUpload } = vi.hoisted(() => ({
   serverList: vi.fn(),
   serverStart: vi.fn(),
   serverStop: vi.fn(),
   serverDiagnose: vi.fn(),
+  serverUpload: vi.fn(),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { serverList, serverStart, serverStop, serverDiagnose },
+  commands: { serverList, serverStart, serverStop, serverDiagnose, serverUpload },
   events: {
     serverLogLine: { listen: vi.fn() },
     serverSpawned: { listen: vi.fn() },
@@ -59,6 +60,7 @@ describe('ServerSidebarSection', () => {
     serverStart.mockReset();
     serverStop.mockReset();
     serverDiagnose.mockReset();
+    serverUpload.mockReset();
     serverDiagnose.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
     // localStorage.clear() runs LAST so the reset serversUi calls above don't
     // race a still-persisted selection from a previous test.
@@ -110,6 +112,30 @@ describe('ServerSidebarSection', () => {
 
     resolveStart?.({ status: 'ok', data: 1 });
     await pending;
+    // Settle: runLifecycle still refreshes + clears busy after the command
+    // resolves; don't leak that in-flight work into the next test.
+    await vi.waitFor(() => serverState.actionFor('a') === null);
+  });
+
+  it('Start is disabled while a hosting upload is in flight (was the manage-header guard)', async () => {
+    await load([makeServer('a', false)]);
+    serversUi.selectServer('a');
+    // Kick off an upload that stays pending so the phase remains 'uploading'.
+    let resolveUpload: ((v: { status: 'ok'; data: null }) => void) | undefined;
+    serverUpload.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      }),
+    );
+    const uploadDone = serverState.upload('a', false, false);
+
+    render(ServerSidebarSection);
+    const startBtn = screen.getByTestId('sidebar-server-start') as HTMLButtonElement;
+    expect(startBtn.disabled).toBe(true);
+
+    // Finish the upload so the 'uploading' phase doesn't leak into other tests.
+    resolveUpload?.({ status: 'ok', data: null });
+    await uploadDone;
   });
 
   it('shows Stop (danger, lg) for a running selected server, no Start', async () => {

@@ -1,5 +1,6 @@
 <!-- src/lib/servers/ServerSidebarSection.svelte -->
 <script lang="ts">
+  import type { ServerWithStatus } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -28,9 +29,7 @@
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
 
-  function statusLabelFor(id: string): string | null {
-    const s = serverState.list.find((x) => x.id === id);
-    if (!s) return null;
+  function statusLabelFor(s: ServerWithStatus): string | null {
     const kind = serverNavStatus(s);
     if (kind === 'running') return $t('servers.status.running');
     if (kind === 'crashed' || kind === 'fixable') return $t('servers.status.crashed');
@@ -67,7 +66,7 @@
       name="server"
       size={16}
       iconClass={navVisual(serverNavStatus(s)).iconClass}
-      statusLabel={statusLabelFor(s.id)}
+      statusLabel={statusLabelFor(s)}
     />
   {/if}
 {/snippet}
@@ -108,7 +107,7 @@
   {#if selected}
     {#if selected.running}
       <BusyButton
-        class="btn-danger btn-lg flex items-center justify-center gap-1.5"
+        class="btn-danger btn-lg flex items-center justify-center"
         busy={action === 'stop'}
         disabled={action !== null && action !== 'stop'}
         data-testid="sidebar-server-stop"
@@ -125,7 +124,7 @@
           : null}
       >
         <BusyButton
-          class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
+          class="btn-success btn-lg w-full flex items-center justify-center"
           busy={action === 'start'}
           disabled={uploading || (action !== null && action !== 'start')}
           data-testid="sidebar-server-start"

@@ -3,6 +3,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
+// ServerManageView survives only inside the legacy Servers modal and is
+// removed together with it (servers-mode plan, Task 11) — this file goes with
+// it. The upload→Start guard it pins now ALSO lives on the sidebar Start
+// button; that variant is in server-sidebar-section.test.ts.
+
 // Heavy children are stubbed so the view mounts in jsdom without their deps.
 vi.mock('$lib/servers/ServerConsole.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerGeneralSettings.svelte', () => ({ default: stubComponent() }));

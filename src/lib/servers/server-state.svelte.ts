@@ -193,12 +193,23 @@ async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boo
   setActionBusy(id, action);
   setActionError(id, null);
   try {
-    const res =
-      action === 'start'
-        ? await commands.serverStart(id)
-        : action === 'stop'
-          ? await commands.serverStop(id)
-          : await commands.serverRestart(id);
+    let res: Awaited<ReturnType<typeof commands.serverStart | typeof commands.serverStop>>;
+    try {
+      res =
+        action === 'start'
+          ? await commands.serverStart(id)
+          : action === 'stop'
+            ? await commands.serverStop(id)
+            : await commands.serverRestart(id);
+    } catch (e) {
+      // A thrown IPC failure (transport error, not a typed Result) must land
+      // in actionErrors like any other failure — otherwise the returned
+      // promise rejects and a `void`-ing caller swallows it with no
+      // user-visible trace. Busy is still cleared by the outer finally.
+      setActionError(id, e);
+      if (action === 'start') void diagnose(id);
+      return { ok: false };
+    }
     if (res.status !== 'ok') {
       setActionError(id, res.error);
       if (action === 'start') void diagnose(id);
@@ -509,7 +520,7 @@ async function importCommit(
   loaderVersion: string | null,
   maxHeapMb: number,
   eulaAccepted: boolean,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: boolean; server?: ServerWithStatus; error?: unknown }> {
   const r = await commands.serverImportCommit(
     token,
     name,
@@ -521,7 +532,9 @@ async function importCommit(
   );
   if (r.status === 'ok') {
     await refresh();
-    return { ok: true };
+    // Expose the created server so the import view can auto-select it in the
+    // servers panel (mirrors the create wizard's `onDone(createdId)`).
+    return { ok: true, server: r.data };
   }
   return { ok: false, error: r.error };
 }
