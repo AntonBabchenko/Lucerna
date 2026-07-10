@@ -54,6 +54,10 @@ export interface UploadState {
 }
 let uploads = $state<Map<string, UploadState>>(new Map());
 
+export type ServerAction = 'start' | 'stop' | 'restart';
+let actionBusy = $state<Map<string, ServerAction>>(new Map());
+let actionErrors = $state<Map<string, unknown>>(new Map());
+
 function setUploadState(id: string, patch: Partial<UploadState>): void {
   const m = new Map(uploads);
   const prev = m.get(id);
@@ -164,6 +168,47 @@ async function stopOrphan(id: string, pid: number): Promise<{ ok: boolean; error
     return { ok: true };
   }
   return { ok: false, error: r.error };
+}
+
+function setActionBusy(id: string, a: ServerAction | null): void {
+  const m = new Map(actionBusy);
+  if (a === null) m.delete(id);
+  else m.set(id, a);
+  actionBusy = m;
+}
+
+function setActionError(id: string, err: unknown | null): void {
+  const m = new Map(actionErrors);
+  if (err === null) m.delete(id);
+  else m.set(id, err);
+  actionErrors = m;
+}
+
+// One lifecycle implementation for the sidebar Start/Stop and the panel
+// Restart, so busy/error/diagnose behavior can't drift between surfaces.
+// Only 'start' failures trigger a diagnose — parity with the old
+// ServerManageView handlers (stop/restart failures never diagnosed).
+async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boolean }> {
+  if (actionBusy.get(id)) return { ok: false }; // one in-flight action per server
+  setActionBusy(id, action);
+  setActionError(id, null);
+  try {
+    const res =
+      action === 'start'
+        ? await commands.serverStart(id)
+        : action === 'stop'
+          ? await commands.serverStop(id)
+          : await commands.serverRestart(id);
+    if (res.status !== 'ok') {
+      setActionError(id, res.error);
+      if (action === 'start') void diagnose(id);
+      return { ok: false };
+    }
+    await refresh();
+    return { ok: true };
+  } finally {
+    setActionBusy(id, null);
+  }
 }
 
 async function changePort(id: string, port: number): Promise<{ ok: boolean; error?: unknown }> {
@@ -595,6 +640,18 @@ export const serverState = {
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
+  },
+  start: (id: string) => runLifecycle(id, 'start'),
+  stop: (id: string) => runLifecycle(id, 'stop'),
+  restart: (id: string) => runLifecycle(id, 'restart'),
+  actionFor(id: string): ServerAction | null {
+    return actionBusy.get(id) ?? null;
+  },
+  actionErrorFor(id: string): unknown {
+    return actionErrors.get(id);
+  },
+  clearActionError(id: string): void {
+    setActionError(id, null);
   },
   // True when any server has a one-click repair available (C1 diagnosis_status
   // === 'actionable'). Drives the sidebar wrench badge + the attention item.

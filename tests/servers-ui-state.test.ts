@@ -3,11 +3,11 @@ import { loadMode, loadSelectedServer, serversUi } from '$lib/servers/servers-ui
 
 describe('servers-ui state', () => {
   beforeEach(() => {
-    localStorage.clear();
     serversUi.setMode('client');
     serversUi.selectServer(null);
     serversUi.activeTab = 'console';
     serversUi.creating = false;
+    localStorage.clear();
   });
 
   it('defaults to client mode when nothing is persisted', () => {
@@ -33,6 +33,7 @@ describe('servers-ui state', () => {
   it('selectServer persists the id and null removes it', () => {
     serversUi.selectServer('srv-1');
     expect(localStorage.getItem('lucerna.ui.selectedServer')).toBe('srv-1');
+    expect(loadSelectedServer()).toBe('srv-1');
     serversUi.selectServer(null);
     expect(localStorage.getItem('lucerna.ui.selectedServer')).toBeNull();
     expect(loadSelectedServer()).toBeNull();
