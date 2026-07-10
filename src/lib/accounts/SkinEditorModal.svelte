@@ -88,6 +88,7 @@
   let viewer: SkinViewer | null = null;
   let viewerBuilding = false;
   let disposeControls: (() => void) | null = null;
+  let viewportBox: HTMLElement | null = null;
   let companion: HTMLCanvasElement | null = null;
   let painting = false;
   let companionPainting = false;
@@ -171,6 +172,7 @@
       // Static pose — a moving target is unpaintable. (No IdleAnimation here.)
       await viewer.loadSkin(url, { model: variantToModel(variant) });
       renderCompanion();
+      fitViewport();
     } finally {
       viewerBuilding = false;
     }
@@ -186,6 +188,25 @@
         viewer?.dispose();
         viewer = null;
         viewerCanvas = null;
+      },
+    };
+  }
+
+  function fitViewport(): void {
+    if (!viewer || !viewportBox) return;
+    const w = Math.round(viewportBox.clientWidth);
+    const h = Math.round(viewportBox.clientHeight);
+    if (w > 0 && h > 0) viewer.setSize(w, h);
+  }
+
+  function observeViewport(node: HTMLElement) {
+    viewportBox = node;
+    const ro = new ResizeObserver(() => fitViewport());
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+        viewportBox = null;
       },
     };
   }
@@ -584,9 +605,8 @@
     <!-- 3D viewport + colour -->
     <div class="flex flex-col flex-1 min-w-0 p-3 gap-2 border-r border-border-subtle">
       <div
-        class="rounded-[10px] {BG_CLASS[
-          bg
-        ]} flex items-center justify-center overflow-hidden flex-1"
+        use:observeViewport
+        class="rounded-[10px] {BG_CLASS[bg]} flex items-center justify-center overflow-hidden flex-1"
       >
         <canvas
           use:mountViewer
