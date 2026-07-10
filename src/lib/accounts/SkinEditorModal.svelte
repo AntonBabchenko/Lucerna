@@ -332,6 +332,10 @@
     if (!viewer || busy) return;
     if (e.button !== 0) return; // right → orbit, middle → pan (OrbitControls handles it)
     if (tool === 'pan') return; // orbit stays enabled — drag rotates
+    // Left paint: disable orbit for the stroke. OrbitControls' own canvas
+    // listener may run first and arm STATE.ROTATE on this pointerdown, but it
+    // applies no camera delta until pointermove — which early-returns while
+    // controls.enabled is false — so the model can't rotate mid-paint.
     viewer.controls.enabled = false;
     painting = true;
     viewerCanvas?.setPointerCapture(e.pointerId);
