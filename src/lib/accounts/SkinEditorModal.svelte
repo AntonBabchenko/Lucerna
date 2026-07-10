@@ -27,6 +27,7 @@
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
   import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
+  import { applyViewerControls } from '$lib/accounts/sv3d-controls';
 
   let {
     account,
@@ -86,6 +87,7 @@
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
   let viewerBuilding = false;
+  let disposeControls: (() => void) | null = null;
   let companion: HTMLCanvasElement | null = null;
   let painting = false;
   let companionPainting = false;
@@ -162,8 +164,8 @@
         model: variantToModel(variant),
       });
       assertSkinViewerContract(viewer);
-      viewer.controls.enablePan = false;
       viewer.controls.enableZoom = true;
+      disposeControls = applyViewerControls(viewer, viewerCanvas);
       viewer.autoRotate = false;
       viewer.zoom = 0.8;
       // Static pose — a moving target is unpaintable. (No IdleAnimation here.)
@@ -179,6 +181,8 @@
     void buildViewer();
     return {
       destroy() {
+        disposeControls?.();
+        disposeControls = null;
         viewer?.dispose();
         viewer = null;
         viewerCanvas = null;
@@ -187,6 +191,8 @@
   }
 
   onDestroy(() => {
+    disposeControls?.();
+    disposeControls = null;
     viewer?.dispose();
     viewer = null;
   });
@@ -268,6 +274,7 @@
 
   function onViewerDown(e: PointerEvent): void {
     if (!viewer || busy) return;
+    if (e.button !== 0) return; // right → orbit, middle → pan (OrbitControls handles it)
     if (tool === 'pan') return; // orbit stays enabled — drag rotates
     viewer.controls.enabled = false;
     painting = true;
