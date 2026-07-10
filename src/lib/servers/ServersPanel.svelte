@@ -3,9 +3,7 @@
   // instance panel. Owns the loading / error / wizard / empty-hero / manage
   // branches; the selected server and active tab live in the shared serversUi
   // module (written by the sidebar, read here), and Start/Stop moved to the
-  // sidebar — the header keeps only Restart. Successor of ServerManageView
-  // (which lives on inside the legacy Servers modal until that modal is
-  // removed).
+  // sidebar — the header keeps only Restart.
   import {
     type InstanceWithStatus,
     type ServerWithStatus_Serialize,
@@ -137,9 +135,9 @@
 
   // Diagnose whenever the SELECTION changes (first mount included). The
   // {#key server.id} below remounts only the keyed markup, not this
-  // component, so ServerManageView's onMount-diagnose would fire once for the
-  // first selection only. Plain (non-$state) bookkeeping: only this effect
-  // reads it, so it must not be a dependency.
+  // component, so a plain onMount-diagnose would fire once for the first
+  // selection only. Plain (non-$state) bookkeeping: only this effect reads
+  // it, so it must not be a dependency.
   let prevId: string | null = null;
   $effect(() => {
     const id = serverId;

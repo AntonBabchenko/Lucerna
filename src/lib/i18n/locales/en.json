@@ -1863,21 +1863,16 @@
     }
   },
   "servers": {
-    "title": "Servers (Beta)",
     "create": "Create server",
     "empty": "No servers yet",
     "loading": "Loading servers…",
     "loadError": "Couldn't load your servers.",
     "retry": "Retry",
     "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
-    "createdFromInstance": "from instance {name}",
     "status": {
       "running": "Running",
       "stopped": "Stopped",
       "crashed": "Crashed"
-    },
-    "manage": {
-      "back": "Servers"
     },
     "tab": {
       "console": "Console",
@@ -1924,8 +1919,6 @@
       "name": "Name",
       "instance": "Instance",
       "version": "Minecraft version",
-      "loader": "Loader",
-      "loaderVersion": "Loader version (optional)",
       "coreVersionsLoading": "Checking available versions…",
       "coreVersionsError": "Could not load the version list for this core.",
       "memory": "Memory (MB)",
@@ -2021,7 +2014,6 @@
     "contentDetail": {
       "versions": "Versions",
       "loadingVersions": "Loading versions…",
-      "versionsError": "Could not load versions.",
       "noVersions": "No versions for this server.",
       "openProjectPage": "Open project page",
       "openPage": "Open page",
@@ -2256,7 +2248,6 @@
       "restoreConfirm": "Restore \"{name}\"? This replaces the current world & files (the current state is backed up first).",
       "deleteConfirm": "Delete backup \"{name}\"?",
       "runningBlock": "Stop the server before restoring",
-      "restored": "Restored",
       "note": "Snapshots of the server (world, mods, config). The newest {n} are kept.",
       "autoTitle": "Automatic backups",
       "autoHint": "While the launcher is open and the server is running, take a snapshot on a schedule (kept under the same newest-{n} limit).",
@@ -2265,18 +2256,6 @@
       "autoIntervalUnit": "minutes",
       "autoSave": "Apply",
       "autoSaved": "Saved"
-    },
-    "whitelist": {
-      "title": "Whitelist & operators",
-      "whitelistHeading": "Whitelist",
-      "opsHeading": "Operators",
-      "addPlaceholder": "Player name",
-      "add": "Add",
-      "remove": "Remove",
-      "empty": "No players yet",
-      "lockoutHint": "Turning the whitelist on locks out anyone not listed — add yourself first.",
-      "onlineModeHint": "Online-mode server: names are resolved to Mojang accounts.",
-      "offlineModeHint": "Offline-mode server: offline UUIDs are used."
     },
     "connect": {
       "tab": "Connect",

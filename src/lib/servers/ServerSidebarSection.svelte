@@ -32,8 +32,8 @@
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
 
   // §7 fallback gating: creating a server while the data root is unavailable
-  // would write it into the wrong (temporary default) root. Mirrors the legacy
-  // ServersView create button. See data-root-gating.ts / the data-root doc.
+  // would write it into the wrong (temporary default) root. See
+  // data-root-gating.ts / the data-root doc.
   const createDisabledReason = $derived.by(() => {
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);

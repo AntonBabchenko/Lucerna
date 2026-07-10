@@ -136,6 +136,28 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     expect(serversUi.selectedServerId).toBeNull();
   });
 
+  it('(e) trigger is disabled while the remove call is pending (T11 busy-guard ride-along)', async () => {
+    await load([makeServer('a', false)]);
+    let resolveDelete: ((v: { status: 'ok'; data: null }) => void) | undefined;
+    serverDelete.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }),
+    );
+    serversUi.selectServer('a');
+
+    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+
+    await fireEvent.click(screen.getByTestId('server-delete-trigger'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
+
+    resolveDelete?.({ status: 'ok', data: null });
+    await vi.waitFor(() => expect(trigger.disabled).toBe(false));
+  });
+
   it('(d) a failed remove renders the error with role="alert" and keeps the selection unchanged', async () => {
     await load([makeServer('a', false)]);
     serverDelete.mockResolvedValue({ status: 'error', error: { kind: 'io', details: 'nope' } });

@@ -69,17 +69,23 @@
 
   let confirmingDelete = $state(false);
   let deleteError = $state<string | null>(null);
+  let deleting = $state(false);
 
   async function confirmDelete() {
     confirmingDelete = false;
     deleteError = null;
-    const r = await serverState.remove(serverId);
-    if (!r.ok) {
-      deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
-      return;
+    deleting = true;
+    try {
+      const r = await serverState.remove(serverId);
+      if (!r.ok) {
+        deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+        return;
+      }
+      // Fall back to the first remaining server (or the empty state).
+      serversUi.selectServer(serverState.list[0]?.id ?? null);
+    } finally {
+      deleting = false;
     }
-    // Fall back to the first remaining server (or the empty state).
-    serversUi.selectServer(serverState.list[0]?.id ?? null);
   }
 </script>
 
@@ -142,7 +148,7 @@
       <button
         type="button"
         class="btn-danger btn-sm flex items-center gap-1.5"
-        disabled={running}
+        disabled={running || deleting}
         data-testid="server-delete-trigger"
         onclick={() => (confirmingDelete = true)}
       >

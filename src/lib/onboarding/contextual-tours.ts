@@ -192,7 +192,7 @@ export const SERVERS_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
-// Server detail view (ServerManageView). The 8 sub-tabs render content only
+// Server detail view (ServersPanel). The 8 sub-tabs render content only
 // while active, so steps anchor the always-present tab BUTTONS (and the header
 // actions), not tab bodies. The crash-diagnosis banner is empty until a crash,
 // so it has no step of its own — it is described in the header-actions step.

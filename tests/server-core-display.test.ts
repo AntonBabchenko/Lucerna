@@ -26,7 +26,7 @@ describe('server core capability/switch matrix', () => {
     expect(modCapable('neoforge')).toBe(true);
   });
   it('displayCore uses brand-canonical capitalisation', () => {
-    // ServersView renders core names through this map — pin the two most
+    // ServersPanel/ServerSidebarSection render core names through this map — pin the two most
     // easily-broken spellings (NeoForge's intentional PascalCase, plus a
     // plugin core absent from the client loader map).
     expect(displayCore('neoforge')).toBe('NeoForge');

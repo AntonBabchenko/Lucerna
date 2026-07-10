@@ -193,8 +193,8 @@ function setActionError(id: string, err: unknown | null): void {
 
 // One lifecycle implementation for the sidebar Start/Stop and the panel
 // Restart, so busy/error/diagnose behavior can't drift between surfaces.
-// Only 'start' failures trigger a diagnose — parity with the old
-// ServerManageView handlers (stop/restart failures never diagnosed).
+// Only 'start' failures trigger a diagnose (stop/restart failures never
+// diagnosed).
 async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boolean }> {
   if (actionBusy.get(id)) return { ok: false }; // one in-flight action per server
   setActionBusy(id, action);

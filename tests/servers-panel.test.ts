@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
+import type { ServerDiagnosis, ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 import { markSeen, storageKey } from '$lib/onboarding/contextual-tours';
 
 // Heavy tab bodies + dialog + banner are stubbed so the panel mounts in
@@ -253,6 +253,74 @@ describe('ServersPanel', () => {
     expect(screen.queryByText('Stop')).toBeNull();
     expect(screen.queryByTestId('sidebar-server-start')).toBeNull();
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
+  });
+
+  // Ported from the retired ServerManageView test (server-action-error-fallback,
+  // T11): lifecycle busy/error state now lives in the store and is shared with
+  // the sidebar, but the render gate — suppress the inline fallback once a rich
+  // diagnosis banner exists for the server — is unique to this panel and had no
+  // ServersPanel-level coverage yet.
+  describe('inline action error vs diagnosis banner', () => {
+    it('suppresses the inline action error once the server has a diagnosis banner', async () => {
+      await load([makeServer('banner-a', true)]);
+      serverDiagnose.mockResolvedValue({
+        status: 'ok',
+        data: {
+          status: 'actionable',
+          diagnosis: {
+            pattern_id: 'server-port-in-use',
+            title: '',
+            explanation: '',
+            recommendation: '',
+            matched_excerpt: '',
+            repair: null,
+          },
+          client_mods: [],
+          forge_skip_count: null,
+          log_signature: null,
+          server_repair: 'change_port',
+          port_in_use: 25565,
+          orphan_pid: null,
+          corrupt_jar: null,
+          suggested_heap_mb: null,
+          conflict_mods: [],
+          suggested_port: 25566,
+          exit_code: null,
+        } as ServerDiagnosis,
+      });
+      serverRestart.mockResolvedValue({
+        status: 'error',
+        error: { kind: 'server_already_running' },
+      });
+      serversUi.selectServer('banner-a');
+      render(ServersPanel, baseProps());
+
+      // Wait for the on-select diagnose() (a real store call here) to populate
+      // the banner state before triggering the failing action.
+      await vi.waitFor(() => expect(serverState.diagnosisFor('banner-a')).toBeDefined());
+
+      await fireEvent.click(screen.getByText('Restart'));
+      await vi.waitFor(() => expect(serverRestart).toHaveBeenCalled());
+      expect(screen.queryByTestId('server-action-error')).toBeNull();
+    });
+
+    it('shows the inline action error when there is no diagnosis banner (fallback)', async () => {
+      await load([makeServer('banner-b', true)]);
+      // Default beforeEach mock resolves serverDiagnose with status 'error', so
+      // the store never populates a diagnosis for this server.
+      serverRestart.mockResolvedValue({
+        status: 'error',
+        error: { kind: 'server_already_running' },
+      });
+      serversUi.selectServer('banner-b');
+      render(ServersPanel, baseProps());
+
+      await fireEvent.click(screen.getByText('Restart'));
+      await vi.waitFor(() => expect(serverRestart).toHaveBeenCalled());
+      expect(screen.getByTestId('server-action-error').textContent).toContain(
+        'This server is already running',
+      );
+    });
   });
 
   describe('data-root fallback gating (§7)', () => {

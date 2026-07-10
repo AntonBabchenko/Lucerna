@@ -1,6 +1,6 @@
 // Pure view helpers for the server diagnosis banner: when it should render and
 // how to identify the current diagnosis for dismissal. Kept as a module so the
-// banner (which renders it) and ServerManageView (which renders the restore
+// banner (which renders it) and ServersPanel (which renders the restore
 // badge) agree on one definition instead of duplicating the condition.
 
 import type { ServerDiagnosis } from '$lib/ipc/bindings';
