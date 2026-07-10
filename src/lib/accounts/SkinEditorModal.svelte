@@ -639,7 +639,9 @@
     <div class="flex flex-col flex-1 min-w-0 p-3 gap-2">
       <div
         use:observeViewport
-        class="rounded-[10px] {BG_CLASS[bg]} flex items-center justify-center overflow-hidden flex-1"
+        class="rounded-[10px] {BG_CLASS[
+          bg
+        ]} flex items-center justify-center overflow-hidden flex-1"
       >
         <canvas
           use:mountViewer
