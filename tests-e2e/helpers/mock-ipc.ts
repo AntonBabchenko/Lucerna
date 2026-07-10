@@ -162,6 +162,8 @@ export type MockState = {
    * the new install. Defaults to empty.
    */
   installed_mods?: MockInstalledMod[];
+  /** Servers returned by server_list; defaults to empty. */
+  servers?: unknown[];
 };
 
 /**
@@ -249,6 +251,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         theme: 'system',
         mod_hits: [],
         installed_mods: [],
+        servers: [],
       };
       const m = { ...defaults, ...s };
 
@@ -268,6 +271,12 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         list_instances: () => m.instances,
         get_active_instance: () =>
           m.instances.find((i: { id: string }) => i.id === m.active_instance_id) ?? null,
+
+        // Servers — the Servers-mode panel's list. Since T8, +page.svelte calls
+        // this at boot in EVERY full-app spec (serverState.init() + refresh()),
+        // so a missing/wrong handler here breaks the whole e2e suite, not just
+        // servers-mode specs.
+        server_list: () => m.servers,
 
         // App settings — returns a minimal AppFile_Serialize shape.
         // tour_completed_version MUST equal the app's TOUR_VERSION constant

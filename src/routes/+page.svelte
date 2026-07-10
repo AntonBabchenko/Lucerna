@@ -880,7 +880,11 @@
         <DataRootFallbackBanner configuredPath={dataLocation.status.configured ?? ''} />
       {/if}
       <!-- class:hidden (not the hidden attr): [hidden] loses the cascade to .flex in Tailwind v3 -->
-      <div class="overflow-hidden flex flex-col flex-1" class:hidden={serversUi.mode !== 'client'}>
+      <div
+        class="overflow-hidden flex flex-col flex-1"
+        class:hidden={serversUi.mode !== 'client'}
+        data-testid="panel-client"
+      >
         <!-- Client-scoped: a game crash refers to the client instance. -->
         {#if crashReport}
           <div
@@ -966,7 +970,11 @@
           {/snippet}
         </MainTabs>
       </div>
-      <div class="overflow-hidden flex flex-col flex-1" class:hidden={serversUi.mode !== 'servers'}>
+      <div
+        class="overflow-hidden flex flex-col flex-1"
+        class:hidden={serversUi.mode !== 'servers'}
+        data-testid="panel-servers"
+      >
         <ServersPanel
           visible={serversUi.mode === 'servers'}
           {instances}
