@@ -61,6 +61,27 @@ describe('SegmentedControl', () => {
     expect(onChange).toHaveBeenLastCalledWith('list');
   });
 
+  it('boxed active option is btn-primary — never stacked with another btn-* purpose class', () => {
+    setup({ value: 'grid' });
+    const active = screen.getByTestId('layout-grid');
+    expect(active).toHaveBtnVariant('primary');
+    // Two btn-* purpose classes must never be stacked on one element: at equal
+    // specificity the later app.css rule (.btn-secondary / .btn-ghost) wins the
+    // cascade and kills the active fill.
+    expect(active).not.toHaveBtnVariant('secondary');
+    expect(active).not.toHaveBtnVariant('ghost');
+    expect(active).toHaveBtnSize('sm');
+  });
+
+  it('boxed inactive option is btn-ghost, not btn-primary or btn-secondary', () => {
+    setup({ value: 'grid' });
+    const inactive = screen.getByTestId('layout-list');
+    expect(inactive).toHaveBtnVariant('ghost');
+    expect(inactive).not.toHaveBtnVariant('primary');
+    expect(inactive).not.toHaveBtnVariant('secondary');
+    expect(inactive).toHaveBtnSize('sm');
+  });
+
   it('renders text labels and roving works in the inline variant', async () => {
     const onChange = vi.fn();
     render(SegmentedControl, {
