@@ -1328,6 +1328,7 @@ export type TranslationKey =
   | 'servers.core.warnConvert'
   | 'servers.core.warnPaperFamily'
   | 'servers.create'
+  | 'servers.createdFromInstance'
   | 'servers.delete.confirm'
   | 'servers.delete.description'
   | 'servers.delete.question'
