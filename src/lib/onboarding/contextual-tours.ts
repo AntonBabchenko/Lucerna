@@ -33,7 +33,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   modpacks: 'v1',
   worlds: 'v3', // bumped 2026-06-23 — added the import-a-world step
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
-  serverManage: 'v1', // added 2026-06-23 — server detail/manage tour
+  serverManage: 'v2', // bumped 2026-07-11 — tabs regrouped into the 5-tab panel
   addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
 };
 
@@ -192,10 +192,12 @@ export const SERVERS_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
-// Server detail view (ServersPanel). The 8 sub-tabs render content only
+// Server detail view (ServersPanel). The 5 tabs render content only
 // while active, so steps anchor the always-present tab BUTTONS (and the header
 // actions), not tab bodies. The crash-diagnosis banner is empty until a crash,
 // so it has no step of its own — it is described in the header-actions step.
+// Settings and Backups carry no step: the tour teaches the surfaces whose
+// grouping changed in v2, not every tab.
 export const SERVER_MANAGE_STEPS: ReadonlyArray<TourStep> = [
   {
     titleKey: 'onboarding.contextual.serverManage.headerActions.title',
@@ -204,21 +206,15 @@ export const SERVER_MANAGE_STEPS: ReadonlyArray<TourStep> = [
     anchor: 'below',
   },
   {
-    titleKey: 'onboarding.contextual.serverManage.console.title',
-    bodyKey: 'onboarding.contextual.serverManage.console.body',
-    targetSelector: '[data-tour-ctx="server-tab-console"]',
+    titleKey: 'onboarding.contextual.serverManage.overview.title',
+    bodyKey: 'onboarding.contextual.serverManage.overview.body',
+    targetSelector: '[data-tour-ctx="server-tab-overview"]',
     anchor: 'below',
   },
   {
-    titleKey: 'onboarding.contextual.serverManage.mods.title',
-    bodyKey: 'onboarding.contextual.serverManage.mods.body',
-    targetSelector: '[data-tour-ctx="server-tab-mods"]',
-    anchor: 'below',
-  },
-  {
-    titleKey: 'onboarding.contextual.serverManage.connect.title',
-    bodyKey: 'onboarding.contextual.serverManage.connect.body',
-    targetSelector: '[data-tour-ctx="server-tab-connect"]',
+    titleKey: 'onboarding.contextual.serverManage.addons.title',
+    bodyKey: 'onboarding.contextual.serverManage.addons.body',
+    targetSelector: '[data-tour-ctx="server-tab-addons"]',
     anchor: 'below',
   },
   {

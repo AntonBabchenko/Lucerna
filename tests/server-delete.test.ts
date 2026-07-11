@@ -2,21 +2,30 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
-import ServerGeneralSettings from '$lib/servers/ServerGeneralSettings.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import ServerSettingsTab from '$lib/servers/settings/ServerSettingsTab.svelte';
 
 // vi.mock factories are hoisted above imports — use vi.hoisted so the shared
 // vi.fn() references are available inside the factory (same pattern as
 // server-sidebar-section.test.ts).
-const { serverList, serverDelete, serverRename, serverUpdateRuntimeConfig, instanceMemoryBounds } =
-  vi.hoisted(() => ({
-    serverList: vi.fn(),
-    serverDelete: vi.fn(),
-    serverRename: vi.fn(),
-    serverUpdateRuntimeConfig: vi.fn(),
-    instanceMemoryBounds: vi.fn(),
-  }));
+const {
+  serverList,
+  serverDelete,
+  serverRename,
+  serverUpdateRuntimeConfig,
+  serverReadProperties,
+  serverWriteProperties,
+  instanceMemoryBounds,
+} = vi.hoisted(() => ({
+  serverList: vi.fn(),
+  serverDelete: vi.fn(),
+  serverRename: vi.fn(),
+  serverUpdateRuntimeConfig: vi.fn(),
+  serverReadProperties: vi.fn().mockResolvedValue({ status: 'ok', data: '' }),
+  serverWriteProperties: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  instanceMemoryBounds: vi.fn(),
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -24,6 +33,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverDelete,
     serverRename,
     serverUpdateRuntimeConfig,
+    serverReadProperties,
+    serverWriteProperties,
     instanceMemoryBounds,
   },
   events: {
@@ -61,7 +72,7 @@ async function load(data: ServerWithStatus_Serialize[]) {
   await serverState.refresh();
 }
 
-describe('ServerGeneralSettings danger zone (delete server)', () => {
+describe('ServerSettingsTab danger zone (delete server)', () => {
   beforeAll(() => locale.set('en'));
 
   beforeEach(() => {
@@ -84,7 +95,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
   it('(a) trigger is disabled while the server is running; confirm dialog never appears', async () => {
     await load([makeServer('a', true)]);
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
     expect(trigger.disabled).toBe(true);
@@ -96,7 +107,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
   it('(b) clicking the trigger on a stopped server shows the DeleteServerDialog', async () => {
     await load([makeServer('a', false)]);
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
     expect(trigger.disabled).toBe(false);
@@ -113,7 +124,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     serverDelete.mockResolvedValue({ status: 'ok', data: null });
     serversUi.selectServer('a');
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     await fireEvent.click(screen.getByTestId('server-delete-trigger'));
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -127,7 +138,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     serverDelete.mockResolvedValue({ status: 'ok', data: null });
     serversUi.selectServer('a');
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     await fireEvent.click(screen.getByTestId('server-delete-trigger'));
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -146,7 +157,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     );
     serversUi.selectServer('a');
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     await fireEvent.click(screen.getByTestId('server-delete-trigger'));
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -163,7 +174,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     serverDelete.mockResolvedValue({ status: 'error', error: { kind: 'io', details: 'nope' } });
     serversUi.selectServer('a');
 
-    render(ServerGeneralSettings, { props: { serverId: 'a' } });
+    render(ServerSettingsTab, { props: { serverId: 'a' } });
 
     await fireEvent.click(screen.getByTestId('server-delete-trigger'));
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));

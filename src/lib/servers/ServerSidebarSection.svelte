@@ -56,9 +56,9 @@
   async function startSelected(): Promise<void> {
     const id = selected?.id;
     if (!id) return;
-    // Show the console first so startup lines (and any EULA/port failure
-    // banner) land in front of the user — then run the shared helper.
-    serversUi.activeTab = 'console';
+    // Show Overview first so startup lines (and any EULA/port failure
+    // banner) land on its console card — then run the shared helper.
+    serversUi.activeTab = 'overview';
     await serverState.start(id);
   }
 

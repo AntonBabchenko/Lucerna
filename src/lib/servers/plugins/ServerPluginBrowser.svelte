@@ -3,6 +3,7 @@
   import {
     commands,
     type InstallMissingReport,
+    type ModSort,
     type ModSource,
     type ModSummary,
     type ModVersion,
@@ -17,9 +18,12 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import ModResultsGrid from '$lib/mods/ModResultsGrid.svelte';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
+  import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
+  import { displayCore } from '$lib/servers/core-display';
 
   // The plugin-flavoured sibling of ServerModBrowser: same seq-guarded
   // debounced reload effect, pagination, and result grid, but targets the
@@ -34,14 +38,21 @@
     mcVersion,
     core,
     onInstalled,
+    // Bindable so an Add-ons host can own the source picker in its sub-tab
+    // row (showSourcePicker={false}) while legacy embedders keep the inline
+    // picker with the local default.
+    source = $bindable<ModSource>('modrinth'),
+    showSourcePicker = true,
   }: {
     serverId: string;
     mcVersion: string;
     core: ServerCore;
     onInstalled: () => void;
+    source?: ModSource;
+    showSourcePicker?: boolean;
   } = $props();
 
-  let source = $state<ModSource>('modrinth');
+  let sort = $state<ModSort>('downloads');
   let query = $state('');
   let page = $state(0);
   let hits = $state<ModSummary[]>([]);
@@ -57,6 +68,12 @@
   const pageSize = $derived(browserPrefs.pageSize);
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
 
+  const sortOptions = $derived([
+    { value: 'downloads', label: $t('mods.browse.sortDownloads') },
+    { value: 'relevance', label: $t('mods.browse.sortRelevance') },
+    { value: 'updated', label: $t('mods.browse.sortUpdated') },
+  ]);
+
   let reqSeq = 0;
 
   async function reload(): Promise<void> {
@@ -70,7 +87,7 @@
       mc_version: mcVersion,
       loader: null,
       plugin_core: core,
-      sort: 'downloads',
+      sort,
       page_size: pageSize,
       offset: page * pageSize,
     });
@@ -85,25 +102,26 @@
   }
 
   // Single source of truth for loading: the first run loads immediately (no
-  // debounce delay on open); subsequent query/source changes debounce.
+  // debounce delay on open); subsequent query/source/sort changes debounce.
   // Driving everything from one $effect avoids the onMount + effect double-fire
   // that would issue two searches on every mount.
   //
   // Tracked-deps contract: this effect deliberately depends on query + source
-  // ONLY (the two explicit reads below). Everything reload() touches before
-  // its first await — page, pageSize, mcVersion, core — must stay untracked:
-  // page changes fetch explicitly via onPage (a tracked `page` would make the
-  // onPage write re-fire this effect and debounce a page=0 reload, snapping
-  // the user back to page 1), and core/mcVersion are fixed for the mounted
-  // server. The synchronous first-run call is therefore wrapped in untrack();
-  // the debounced path runs in a timeout callback, which Svelte never tracks,
-  // but gets the same wrapper so the contract holds by construction rather
-  // than by accident of scheduling.
+  // + sort ONLY (the three explicit reads below). Everything reload() touches
+  // before its first await — page, pageSize, mcVersion, core — must stay
+  // untracked: page changes fetch explicitly via onPage (a tracked `page`
+  // would make the onPage write re-fire this effect and debounce a page=0
+  // reload, snapping the user back to page 1), and core/mcVersion are fixed
+  // for the mounted server. The synchronous first-run call is therefore
+  // wrapped in untrack(); the debounced path runs in a timeout callback,
+  // which Svelte never tracks, but gets the same wrapper so the contract
+  // holds by construction rather than by accident of scheduling.
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let firstRun = true;
   $effect(() => {
     const _ = query;
     const __ = source;
+    const ___ = sort;
     if (debounce) clearTimeout(debounce);
     if (firstRun) {
       firstRun = false;
@@ -207,9 +225,15 @@
 </script>
 
 <div class="flex flex-col gap-2" data-testid="server-plugin-browser">
-  <!-- Toolbar: source + search -->
+  <!-- Toolbar: source + search + pinned facets + sort + layout -->
   <div class="flex items-center gap-2">
-    <SourcePicker value={source} onChange={(v) => (source = v)} options={['modrinth', 'hangar']} />
+    {#if showSourcePicker}
+      <SourcePicker
+        value={source}
+        onChange={(v) => (source = v)}
+        options={['modrinth', 'hangar']}
+      />
+    {/if}
     <input
       type="search"
       class="filter-control flex-1 min-w-[8rem]"
@@ -218,6 +242,18 @@
       bind:value={query}
       data-testid="server-plugin-search"
     />
+    <span class="text-xs text-muted whitespace-nowrap"
+      >{$t('servers.addons.pinnedFacets', { core: displayCore(core), mcVersion })}</span
+    >
+    <Select
+      class="filter-control filter-control-select"
+      value={sort}
+      options={sortOptions}
+      onChange={(v) => (sort = v as ModSort)}
+      ariaLabel={$t('browse.filter.sortLabel')}
+      dataTestid="server-plugin-sort"
+    />
+    <LayoutToggle />
   </div>
 
   {#if error}
@@ -229,7 +265,7 @@
   {:else}
     <ModResultsGrid
       {hits}
-      layout="list"
+      layout={browserPrefs.layout}
       isMod={true}
       placeholderIcon="puzzle"
       installedFor={() => null}

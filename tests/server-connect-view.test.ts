@@ -18,9 +18,9 @@ Object.defineProperty(globalThis.navigator, 'clipboard', {
   configurable: true,
 });
 
-import ServerConnectView from '$lib/servers/ServerConnectView.svelte';
+import ServerConnectCard from '$lib/servers/overview/ServerConnectCard.svelte';
 
-describe('ServerConnectView', () => {
+describe('ServerConnectCard', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
     connectivity.mockReset();
@@ -36,7 +36,7 @@ describe('ServerConnectView', () => {
   it('shows a start hint when the server is stopped', async () => {
     running.mockReturnValue(false);
     connectivity.mockResolvedValue({ lan_addresses: [], port: null, online_mode: true });
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     expect(await screen.findByText('Start the server to get a join address.')).toBeTruthy();
   });
 
@@ -47,7 +47,7 @@ describe('ServerConnectView', () => {
       port: 25565,
       online_mode: true,
     });
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     expect(await screen.findByText('192.168.1.5:25565')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy invite' })).toBeTruthy();
   });
@@ -62,7 +62,7 @@ describe('ServerConnectView', () => {
     (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('clipboard blocked'),
     );
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     const btn = await screen.findByRole('button', { name: 'Copy invite' });
     await fireEvent.click(btn);
     // No false "Copied!" — instead the manual-select hint appears.
@@ -82,7 +82,7 @@ describe('ServerConnectView', () => {
       port: 25565,
       online_mode: true,
     });
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     expect(await screen.findByText('203.0.113.7:25565')).toBeTruthy();
     // Port-forward guidance carries the port.
     expect(screen.getByText(/Forward TCP port 25565/i)).toBeTruthy();
@@ -101,7 +101,7 @@ describe('ServerConnectView', () => {
       port: 25565,
       online_mode: true,
     });
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     expect(await screen.findByText(/Couldn't detect your public IP/i)).toBeTruthy();
   });
 
@@ -112,7 +112,7 @@ describe('ServerConnectView', () => {
       port: 25565,
       online_mode: true,
     });
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
     expect(await screen.findByText(/only friends signed in with a Microsoft/i)).toBeTruthy();
   });
 });

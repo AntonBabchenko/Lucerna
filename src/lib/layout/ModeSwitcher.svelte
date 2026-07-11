@@ -26,20 +26,30 @@
   );
 </script>
 
-<!-- Segments swap btn-primary/btn-ghost conditionally: two btn-* purpose
-     classes must never be stacked on one element — the later app.css rule
-     (.btn-secondary) wins the cascade and kills the active fill. -->
+<!-- Inset-track segmented control: a recessed bg-black/20 gutter (reads as an
+     inset over bg-base in BOTH themes) with one aria-hidden bg-surface pill
+     sliding under the active segment (transform only — compositor-friendly;
+     state lives on aria-pressed, not on the pill). Activity is conveyed by
+     elevation + text weight, deliberately not an accent fill. -->
 <div
-  class="flex rounded border border-border-subtle overflow-hidden"
+  class="relative flex rounded-lg bg-black/20 p-[3px]"
   role="group"
   aria-label={$t('sidebar.mode.ariaLabel')}
   data-tour-ctx="servers-mode-switch"
 >
+  <div
+    class="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-md bg-surface shadow transition-transform duration-150 ease-out motion-reduce:transition-none {serversUi.mode ===
+    'servers'
+      ? 'translate-x-full'
+      : ''}"
+    aria-hidden="true"
+  ></div>
   <button
     type="button"
-    class="{serversUi.mode === 'client'
-      ? 'btn-primary'
-      : 'btn-ghost'} btn-sm rounded-none flex-1 flex items-center justify-center gap-1.5"
+    class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
+    'client'
+      ? 'text-primary font-semibold'
+      : 'text-muted hover:text-secondary'}"
     aria-pressed={serversUi.mode === 'client'}
     data-testid="mode-switch-client"
     onclick={() => serversUi.setMode('client')}
@@ -49,9 +59,10 @@
   </button>
   <button
     type="button"
-    class="{serversUi.mode === 'servers'
-      ? 'btn-primary'
-      : 'btn-ghost'} btn-sm rounded-none flex-1 flex items-center justify-center gap-1.5"
+    class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
+    'servers'
+      ? 'text-primary font-semibold'
+      : 'text-muted hover:text-secondary'}"
     aria-pressed={serversUi.mode === 'servers'}
     data-testid="mode-switch-servers"
     onclick={() => serversUi.setMode('servers')}

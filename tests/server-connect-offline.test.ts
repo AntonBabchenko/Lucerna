@@ -6,7 +6,7 @@ const { connectivity, running, firewallStatus, publicAddress } = vi.hoisted(() =
   connectivity: vi.fn(),
   running: vi.fn(),
   firewallStatus: vi.fn(),
-  // ServerConnectView fetches the public address on mount via `.then(...)`, so the
+  // ServerConnectCard fetches the public address on mount via `.then(...)`, so the
   // mock must return a Promise (a bare vi.fn() returns undefined → no `.then`).
   publicAddress: vi.fn().mockResolvedValue(null),
 }));
@@ -33,9 +33,9 @@ Object.defineProperty(globalThis.navigator, 'clipboard', {
   configurable: true,
 });
 
-import ServerConnectView from '$lib/servers/ServerConnectView.svelte';
+import ServerConnectCard from '$lib/servers/overview/ServerConnectCard.svelte';
 
-describe('ServerConnectView — allow offline players', () => {
+describe('ServerConnectCard — allow offline players', () => {
   beforeAll(() => locale.set('en'));
 
   it('turns off online-mode and restarts the running server', async () => {
@@ -49,7 +49,7 @@ describe('ServerConnectView — allow offline players', () => {
     serverWriteProperties.mockResolvedValue({ status: 'ok', data: null });
     serverRestart.mockResolvedValue({ status: 'ok', data: 4321 });
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     const btn = await screen.findByTestId('server-allow-offline');
     await fireEvent.click(btn);
@@ -66,7 +66,7 @@ describe('ServerConnectView — allow offline players', () => {
     running.mockReturnValue(true);
     firewallStatus.mockResolvedValue('not_applicable');
     connectivity.mockResolvedValue({ lan_addresses: [], port: 25565, online_mode: false });
-    render(ServerConnectView, { serverId: 'srv-2' });
+    render(ServerConnectCard, { serverId: 'srv-2' });
     // Wait for the snapshot-driven explainer to appear, then assert no button.
     expect(await screen.findByText(/online-mode is OFF/i)).toBeTruthy();
     expect(screen.queryByTestId('server-allow-offline')).toBeNull();

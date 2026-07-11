@@ -2,7 +2,7 @@
   // Confirmation gate for deleting a server. Deletion is irreversible (world,
   // mods, config are removed), so a single click must not delete silently.
   // Mirrors RemoveAccountDialog. Purely presentational — the serverState.remove
-  // call lives in the caller (ServerGeneralSettings).
+  // call lives in the caller (ServerSettingsTab).
   import Modal from '$lib/ui/Modal.svelte';
   import { t } from '$lib/i18n';
 

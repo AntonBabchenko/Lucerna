@@ -111,8 +111,8 @@ test('entering servers mode with one server auto-selects it and shows the manage
   await expect(page.getByTestId('servers-empty-hero')).not.toBeVisible();
   await expect(page.getByTestId('sidebar-server-start')).toBeVisible();
 
-  // The 8 server-management tabs (console/connect/general/settings/mods/
-  // plugins/hosting/backups) render inside the servers panel.
+  // The 5 server-management tabs (overview/settings/addons/hosting/backups)
+  // render inside the servers panel.
   const managementTabs = page.getByTestId('panel-servers').getByRole('tab');
-  await expect(managementTabs).toHaveCount(8);
+  await expect(managementTabs).toHaveCount(5);
 });

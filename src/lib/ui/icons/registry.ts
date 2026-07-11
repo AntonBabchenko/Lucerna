@@ -44,6 +44,7 @@ import {
   Pencil,
   Pipette,
   Play,
+  Plug,
   Plus,
   Power,
   Puzzle,
@@ -128,6 +129,8 @@ export const ICONS = {
   // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind
+  plug: Plug, // plugin kind (server Add-ons kind switch)
+  world: Globe, // datapack kind (server Add-ons kind switch) — packs apply to the world
   server: Server, // own-server entry point (sidebar + server list rows)
   monitor: Monitor, // Client mode segment of the sidebar mode switcher
   switch: ArrowRightLeft, // version row: "switch to this installed version"

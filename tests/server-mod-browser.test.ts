@@ -54,6 +54,14 @@ function hit(name: string, projectId: string) {
   };
 }
 
+// The sort control is the custom <Select> listbox: open the trigger by
+// testid, then commit an option by its accessible name. The Select commits on
+// `mousedown` (not click), so the option must be driven with mouseDown.
+async function pickSelectOption(triggerTestid: string, name: RegExp | string) {
+  await fireEvent.click(screen.getByTestId(triggerTestid));
+  await fireEvent.mouseDown(screen.getByRole('option', { name }));
+}
+
 describe('ServerModBrowser', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
@@ -208,5 +216,19 @@ describe('ServerModBrowser', () => {
     await fireEvent.click(installBtn);
     await waitFor(() => expect(mockPushWarning).toHaveBeenCalled());
     expect(mockInstallMod).not.toHaveBeenCalled();
+  });
+
+  it('changing sort re-runs the search with the new sort and resets to page 0', async () => {
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    mockSearch.mockClear();
+    await pickSelectOption('server-mod-sort', 'Updated');
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({ sort: 'updated', offset: 0 });
   });
 });

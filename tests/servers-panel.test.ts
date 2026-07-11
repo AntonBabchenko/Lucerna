@@ -7,12 +7,9 @@ import { markSeen, storageKey } from '$lib/onboarding/contextual-tours';
 // Heavy tab bodies + dialog + banner are stubbed so the panel mounts in
 // happy-dom without their transitive deps (console buffer, hosting IPC, …).
 // The header, tab BAR, hero and wizard branches under test stay real.
-vi.mock('$lib/servers/ServerConsole.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerConnectView.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerGeneralSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerMods.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerPlugins.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/overview/ServerOverviewTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/settings/ServerSettingsTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/addons/ServerAddonsTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerHostingTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerBackupsView.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerToInstanceDialog.svelte', () => ({ default: stubComponent() }));
@@ -148,7 +145,7 @@ describe('ServersPanel', () => {
   beforeEach(() => {
     wizardProps.current = null;
     serversUi.selectServer(null);
-    serversUi.activeTab = 'console';
+    serversUi.activeTab = 'overview';
     serversUi.creating = false;
     serverList.mockReset();
     serverStart.mockReset();
@@ -199,13 +196,13 @@ describe('ServersPanel', () => {
     expect(screen.getByRole('heading', { name: 'New server' })).toBeTruthy();
   });
 
-  it('renders the 8-tab bar for a selected server and flips the shared activeTab', async () => {
+  it('renders the 5-tab bar for a selected server and flips the shared activeTab', async () => {
     await load([makeServer('a', false)]);
     serversUi.selectServer('a');
     render(ServersPanel, baseProps());
-    expect(screen.getAllByRole('tab')).toHaveLength(8);
-    await fireEvent.click(screen.getByRole('tab', { name: 'General' }));
-    expect(serversUi.activeTab).toBe('general');
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(serversUi.activeTab).toBe('settings');
   });
 
   it('fires the servers tour on the empty panel when visible', async () => {

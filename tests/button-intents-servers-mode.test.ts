@@ -9,12 +9,9 @@ import { markSeen } from '$lib/onboarding/contextual-tours';
 // Heavy ServersPanel tab bodies + dialog + banner are stubbed so the panel
 // mounts in happy-dom without their transitive deps (console buffer, hosting
 // IPC, …). Only the empty-hero branch is under test here.
-vi.mock('$lib/servers/ServerConsole.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerConnectView.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerGeneralSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerMods.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerPlugins.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/overview/ServerOverviewTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/settings/ServerSettingsTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/addons/ServerAddonsTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerHostingTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerBackupsView.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerToInstanceDialog.svelte', () => ({ default: stubComponent() }));
@@ -98,7 +95,7 @@ async function load(data: ServerWithStatus_Serialize[]) {
 beforeEach(() => {
   serversUi.setMode('client');
   serversUi.selectServer(null);
-  serversUi.activeTab = 'console';
+  serversUi.activeTab = 'overview';
   serversUi.creating = false;
   serverList.mockReset();
   // clear() runs after the serversUi resets (they persist to localStorage)
@@ -109,28 +106,31 @@ beforeEach(() => {
   markSeen('serverManage');
 });
 
-describe('ModeSwitcher — segment button intents', () => {
-  it('client mode: active client segment is primary sm, inactive servers is ghost sm', async () => {
+describe('ModeSwitcher — segment styling contract', () => {
+  // The switcher is an inset-track segmented control: segments are
+  // deliberately NOT btn-* buttons (activity = elevation pill + text weight,
+  // never an accent fill). Pin the emphasis swap and the no-btn-class rule.
+  it('client mode: client segment emphasized, servers muted, no btn-* classes', async () => {
     await load([]);
     render(ModeSwitcher);
     const client = screen.getByTestId('mode-switch-client');
     const servers = screen.getByTestId('mode-switch-servers');
-    expect(client).toHaveBtnVariant('primary');
-    expect(client).toHaveBtnSize('sm');
-    expect(servers).toHaveBtnVariant('ghost');
-    expect(servers).toHaveBtnSize('sm');
+    expect(client.className).toContain('font-semibold');
+    expect(client.className).toContain('text-primary');
+    expect(servers.className).toContain('text-muted');
+    expect(client.className).not.toMatch(/\bbtn-/);
+    expect(servers.className).not.toMatch(/\bbtn-/);
   });
 
-  it('servers mode: the variants swap, sizes stay sm', async () => {
+  it('servers mode: the emphasis swaps', async () => {
     await load([]);
     serversUi.setMode('servers');
     render(ModeSwitcher);
     const client = screen.getByTestId('mode-switch-client');
     const servers = screen.getByTestId('mode-switch-servers');
-    expect(servers).toHaveBtnVariant('primary');
-    expect(servers).toHaveBtnSize('sm');
-    expect(client).toHaveBtnVariant('ghost');
-    expect(client).toHaveBtnSize('sm');
+    expect(servers.className).toContain('font-semibold');
+    expect(servers.className).toContain('text-primary');
+    expect(client.className).toContain('text-muted');
   });
 });
 
