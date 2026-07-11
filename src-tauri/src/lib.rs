@@ -300,6 +300,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_core_versions,
             // Data-root location:
             commands::get_data_location,
+            commands::data_root_size_bytes,
             commands::set_data_location,
         ])
         .events(collect_events![

@@ -56,23 +56,40 @@ pub struct DataLocationStatus {
     pub effective: String,
     pub configured: Option<String>,
     pub fell_back: bool,
-    /// f64 (specta forbids u64); within JS safe-int range.
-    pub data_size_bytes: f64,
 }
 
-/// Current effective data-root location, its configured (possibly
-/// unavailable) target, and the size on disk.
+/// Current effective data-root location and its configured (possibly
+/// unavailable) target. Deliberately cheap — a plain read of the resolved
+/// `DataRoot` state. The on-disk size lives in `data_root_size_bytes`
+/// instead: this command runs on the startup path (fallback gating reads
+/// `fell_back` at mount), and as a sync command it executes on the main
+/// thread, so it must never touch the filesystem tree.
 #[tauri::command]
 #[specta::specta]
 pub fn get_data_location(app: AppHandle) -> Result<DataLocationStatus> {
     let st = app.state::<crate::data_root::DataRoot>();
-    let root = st.0.root.clone();
     Ok(DataLocationStatus {
-        effective: root.display().to_string(),
+        effective: st.0.root.display().to_string(),
         configured: st.0.configured.as_ref().map(|p| p.display().to_string()),
         fell_back: st.0.fell_back,
-        data_size_bytes: crate::data_root::migrate::dir_size(&root) as f64,
     })
+}
+
+/// Total size in bytes of everything under the effective data root. Split
+/// out of `get_data_location` because the recursive walk (assets, libraries,
+/// versions, every instance's mods — easily tens of thousands of files)
+/// takes seconds on a cold FS cache. Async + `spawn_blocking` so it never
+/// runs on the main thread and never stalls the async runtime; the Storage
+/// panel fetches it lazily when opened.
+/// f64 not u64: specta forbids exporting BigInt-style types to TS.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
+    let root = app.state::<crate::data_root::DataRoot>().0.root.clone();
+    let size = tokio::task::spawn_blocking(move || crate::data_root::migrate::dir_size(&root))
+        .await
+        .map_err(|e| Error::io("<data_root_size>", format!("size task panicked: {e}")))?;
+    Ok(size as f64)
 }
 
 /// Streamed progress for a data-root relocation.
