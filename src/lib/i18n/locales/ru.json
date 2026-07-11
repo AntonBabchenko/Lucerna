@@ -1879,7 +1879,11 @@
       "console": "Консоль",
       "settings": "Настройки",
       "mods": "Моды",
-      "general": "Общее"
+      "general": "Общее",
+      "overview": "Обзор",
+      "addons": "Дополнения",
+      "hosting": "Хостинг",
+      "backups": "Резервные копии"
     },
     "action": {
       "start": "Запустить",
@@ -1935,9 +1939,25 @@
         "eula": "Примите Minecraft EULA, чтобы продолжить."
       }
     },
+    "overview": {
+      "serverCard": "Сервер",
+      "connectionCard": "Подключение",
+      "consoleCard": "Консоль",
+      "version": "Версия",
+      "core": "Ядро",
+      "memory": "Память"
+    },
+    "addons": {
+      "kindPlugins": "Плагины",
+      "kindDatapacks": "Датапаки",
+      "pinnedFacets": "Для {core} {mcVersion}"
+    },
     "settings": {
       "save": "Сохранить",
       "saved": "Сохранено",
+      "launchSection": "Запуск",
+      "propertiesSection": "server.properties",
+      "restartToApply": "Перезапустите сервер, чтобы применить изменения server.properties.",
       "raw": "Дополнительно (сырой файл)",
       "port": "Порт",
       "motd": "MOTD",

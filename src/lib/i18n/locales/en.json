@@ -1879,7 +1879,11 @@
       "console": "Console",
       "settings": "Settings",
       "mods": "Mods",
-      "general": "General"
+      "general": "General",
+      "overview": "Overview",
+      "addons": "Add-ons",
+      "hosting": "Hosting",
+      "backups": "Backups"
     },
     "action": {
       "start": "Start",
@@ -1935,9 +1939,25 @@
         "eula": "Accept the Minecraft EULA to continue."
       }
     },
+    "overview": {
+      "serverCard": "Server",
+      "connectionCard": "Connection",
+      "consoleCard": "Console",
+      "version": "Version",
+      "core": "Core",
+      "memory": "Memory"
+    },
+    "addons": {
+      "kindPlugins": "Plugins",
+      "kindDatapacks": "Datapacks",
+      "pinnedFacets": "For {core} {mcVersion}"
+    },
     "settings": {
       "save": "Save",
       "saved": "Saved",
+      "launchSection": "Launch",
+      "propertiesSection": "server.properties",
+      "restartToApply": "Restart the server to apply changes to server.properties.",
       "raw": "Advanced (raw file)",
       "port": "Port",
       "motd": "MOTD",
