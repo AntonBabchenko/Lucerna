@@ -27,8 +27,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
     getDataLocation: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { effective: '/data', configured: null, fell_back: false, data_size_bytes: 0 },
+      data: { effective: '/data', configured: null, fell_back: false },
     }),
+    dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
