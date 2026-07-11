@@ -3,6 +3,7 @@
     commands,
     type InstallMissingReport,
     type LoaderKind,
+    type ModSort,
     type ModSource,
     type ModSummary,
     type ModVersion,
@@ -18,9 +19,12 @@
   import ModResultsGrid from '$lib/mods/ModResultsGrid.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
+  import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
+  import { displayCore } from '$lib/servers/core-display';
 
   // A lighter, server-targeted mod browser (S2 #3). Deliberately NOT a retrofit
   // of the instance ModBrowseView — that component is deeply instance-coupled
@@ -36,14 +40,21 @@
     mcVersion,
     loader,
     onInstalled,
+    // Bindable so an Add-ons host can own the source picker in its sub-tab
+    // row (showSourcePicker={false}) while legacy embedders keep the inline
+    // picker with the local default.
+    source = $bindable<ModSource>('modrinth'),
+    showSourcePicker = true,
   }: {
     serverId: string;
     mcVersion: string;
     loader: LoaderKind;
     onInstalled: () => void;
+    source?: ModSource;
+    showSourcePicker?: boolean;
   } = $props();
 
-  let source = $state<ModSource>('modrinth');
+  let sort = $state<ModSort>('downloads');
   let query = $state('');
   let page = $state(0);
   let hits = $state<ModSummary[]>([]);
@@ -59,6 +70,12 @@
 
   const pageSize = $derived(browserPrefs.pageSize);
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
+
+  const sortOptions = $derived([
+    { value: 'downloads', label: $t('mods.browse.sortDownloads') },
+    { value: 'relevance', label: $t('mods.browse.sortRelevance') },
+    { value: 'updated', label: $t('mods.browse.sortUpdated') },
+  ]);
 
   let reqSeq = 0;
 
@@ -77,7 +94,7 @@
       query,
       mc_version: mcVersion,
       loader,
-      sort: 'downloads',
+      sort,
       page_size: pageSize,
       offset: page * pageSize,
     });
@@ -105,15 +122,16 @@
   }
 
   // Single source of truth for loading: the first run loads immediately (no
-  // debounce delay on open); subsequent query/source/cf-key changes debounce.
-  // Driving everything from one $effect avoids the onMount + effect double-fire
-  // that would issue two searches on every mount.
+  // debounce delay on open); subsequent query/source/sort/cf-key changes
+  // debounce. Driving everything from one $effect avoids the onMount + effect
+  // double-fire that would issue two searches on every mount.
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let firstRun = true;
   $effect(() => {
     const _ = query;
     const __ = source;
     const ___ = cfKeyVersion.value;
+    const ____ = sort;
     if (debounce) clearTimeout(debounce);
     if (firstRun) {
       firstRun = false;
@@ -213,9 +231,11 @@
 </script>
 
 <div class="flex flex-col gap-2" data-testid="server-mod-browser">
-  <!-- Toolbar: source + search -->
+  <!-- Toolbar: source + search + pinned facets + sort + layout -->
   <div class="flex items-center gap-2">
-    <SourcePicker value={source} onChange={(v) => (source = v)} />
+    {#if showSourcePicker}
+      <SourcePicker value={source} onChange={(v) => (source = v)} />
+    {/if}
     <input
       type="search"
       class="filter-control flex-1 min-w-[8rem]"
@@ -224,6 +244,18 @@
       bind:value={query}
       data-testid="server-mod-search"
     />
+    <span class="text-xs text-muted whitespace-nowrap"
+      >{$t('servers.addons.pinnedFacets', { core: displayCore(loader), mcVersion })}</span
+    >
+    <Select
+      class="filter-control filter-control-select"
+      value={sort}
+      options={sortOptions}
+      onChange={(v) => (sort = v as ModSort)}
+      ariaLabel={$t('browse.filter.sortLabel')}
+      dataTestid="server-mod-sort"
+    />
+    <LayoutToggle />
   </div>
 
   {#if needsCfKey}
@@ -237,7 +269,7 @@
   {:else}
     <ModResultsGrid
       {hits}
-      layout="list"
+      layout={browserPrefs.layout}
       isMod={true}
       placeholderIcon="puzzle"
       installedFor={() => null}
