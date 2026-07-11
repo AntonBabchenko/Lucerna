@@ -1315,23 +1315,17 @@
           "titleBasic": "Start and stop",
           "bodyBasic": "Use these buttons to start, restart, or stop your server. If it crashes, a help banner appears with the likely cause and a button to fix it."
         },
-        "console": {
-          "title": "The Console tab",
-          "body": "Console streams the server's live output. Type commands at the bottom, search the log, switch between past sessions, and share a log to mclo.gs when you need help.",
-          "titleBasic": "Console",
-          "bodyBasic": "The Console shows what your server is doing right now. You can type server commands, search the log, and share it to get help."
+        "overview": {
+          "title": "Everything at a glance",
+          "titleBasic": "Your server's home",
+          "body": "Overview gathers the server facts, the connection details for inviting friends, and the live console with its command input.",
+          "bodyBasic": "This tab shows how the server is doing, how friends can join, and what it prints while running."
         },
-        "mods": {
-          "title": "The Mods tab",
-          "body": "Install server mods from Modrinth or CurseForge, drop in a local .jar, or add datapacks. Client-only mods get quarantined automatically, so a graphics mod can't crash a headless server.",
-          "titleBasic": "Mods",
-          "bodyBasic": "Add mods to your server from Modrinth or CurseForge, or from a file. Mods that only work on the game client are set aside automatically so they don't crash the server."
-        },
-        "connect": {
-          "title": "The Connect tab",
-          "body": "Connect hands you the address friends use to join, for both LAN and the internet. It adds the Windows firewall rule for you and offers an allow-offline toggle that clears the common 'invalid session' block.",
-          "titleBasic": "Connect",
-          "bodyBasic": "Connect gives you the address your friends need to join. It can add the Windows firewall rule for you, and fix the common 'invalid session' error."
+        "addons": {
+          "title": "Mods, plugins and datapacks",
+          "titleBasic": "Extra content lives here",
+          "body": "Add-ons adapts to the server core: mod loaders take mods, Paper and Purpur take plugins, and datapacks work everywhere. Search the catalogs or drop files onto the zone.",
+          "bodyBasic": "Here you add extra content. The tab only offers what your server type supports."
         },
         "hosting": {
           "title": "The Hosting tab",
