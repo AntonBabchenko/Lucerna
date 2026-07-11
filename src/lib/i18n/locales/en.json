@@ -1870,10 +1870,7 @@
       "crashed": "Crashed"
     },
     "tab": {
-      "console": "Console",
       "settings": "Settings",
-      "mods": "Mods",
-      "general": "General",
       "overview": "Overview",
       "addons": "Add-ons",
       "hosting": "Hosting",
@@ -1985,8 +1982,6 @@
       "setAside": "set aside",
       "setAsideClientOnly": "set aside: client-only",
       "restore": "Restore",
-      "addMods": "Add mods",
-      "installLocal": "Install .jar",
       "stopToManage": "Stop the server to change its mods and datapacks.",
       "localInstalled": "Installed {name}",
       "searchPlaceholder": "Search mods…",
@@ -2006,14 +2001,10 @@
       "remove": "Remove"
     },
     "plugins": {
-      "tab": "Plugins",
       "empty": "No plugins",
       "note": "Plugins run on the server only. Players join with a plain vanilla client.",
       "requiresCore": "Plugins need a Paper or Purpur core. You can switch this server's core in the Settings tab.",
-      "addPlugins": "Add plugins",
-      "installLocal": "Install .jar",
       "openFolder": "Open folder",
-      "localInstalled": "Installed {name}",
       "stopToManage": "Stop the server to change its plugins.",
       "searchPlaceholder": "Search plugins…",
       "noResults": "No results.",
@@ -2056,7 +2047,6 @@
       "stopToSwitch": "Stop the server to switch its core."
     },
     "hosting": {
-      "tab": "Hosting",
       "host": "Host",
       "port": "Port",
       "user": "User",
@@ -2260,7 +2250,6 @@
       "runningBlock": "Stop the server before deleting"
     },
     "backups": {
-      "tab": "Backups",
       "create": "Create backup",
       "creating": "Creating…",
       "empty": "No backups yet",
@@ -2279,7 +2268,6 @@
       "autoSaved": "Saved"
     },
     "connect": {
-      "tab": "Connect",
       "stoppedHint": "Start the server to get a join address.",
       "lanTitle": "On your network (LAN)",
       "lanHint": "Friends on the same Wi-Fi / network can join with Direct Connect:",
