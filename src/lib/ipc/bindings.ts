@@ -477,6 +477,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	modsFilterSatisfying: (versions: string[], needed: string, family: RangeFamily) => __TAURI_INVOKE<number[]>("mods_filter_satisfying", { versions, needed, family }),
 	modsResolveDeps: (version: ModVersion_Deserialize, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps_Serialize, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
 	/**
+	 *  Resolve the curated one-click Optimise set for an instance: classify each
+	 *  catalog performance mod against the instance's loader+MC and installed mods
+	 *  (skip already-installed, suppress the renderer when OptiFine is present).
+	 *  Pure classification lives in `mods::optimise::resolve`; this only wires the
+	 *  live Modrinth platform + the installed list into it.
+	 */
+	optimiseResolve: (instanceId: string, mcVersion: string, loader: LoaderKind) => typedError<OptimisePlan, Error>(__TAURI_INVOKE("optimise_resolve", { instanceId, mcVersion, loader })),
+	/**
 	 *  Resolve the full `InstallPlan` for `primary`:
 	 *  - `required`: primary's transitive required closure (all must be installed)
 	 *  - `optional`: each direct optional dep + its own transitive required sub-closure
@@ -3096,6 +3104,47 @@ export type OpEntry = {
 	name: string,
 	level?: number,
 	bypassesPlayerLimit?: boolean,
+};
+
+export type OptimiseEntry = {
+	key: string,
+	title: string,
+	status: OptimiseEntryStatus,
+	note: OptimiseNote | null,
+	/**  Present only for `WillInstall` — the exact build the FE installs. */
+	version: VersionRef | null,
+	/**  Present only for `WillInstall` — the display version string. */
+	version_number: string | null,
+};
+
+/**  Per-entry classification against the instance. */
+export type OptimiseEntryStatus = 
+/**  Has a build for this loader+MC and is not installed — will be installed. */
+{ status: "will_install" } | 
+/**  Already present on the instance (matched by Modrinth project id). */
+{ status: "already_installed" } | 
+/**  Publishes to this loader but has no build for this MC version. */
+{ status: "unavailable_for_version" } | 
+/**  A renderer suppressed because OptiFine is installed (incompatible). */
+{ status: "conflict_optifine" } | 
+/**  The platform query errored — surfaced non-fatally, not installed. */
+{ status: "unknown" };
+
+/**  A per-entry advisory surfaced in the dialog. */
+export type OptimiseNote = 
+/**
+ *  Tick-optimizer: strongest in singleplayer / LAN (the client hosts the
+ *  integrated server); on a remote dedicated server it does not speed the
+ *  server up but is harmless.
+ */
+"single_player_tick";
+
+export type OptimisePlan = {
+	/**  True when the instance has no mod loader (vanilla) — nothing to install. */
+	loader_unsupported: boolean,
+	entries: OptimiseEntry[],
+	/**  Count of `WillInstall` entries (drives the confirm button label/enabled). */
+	install_count: number,
 };
 
 /**

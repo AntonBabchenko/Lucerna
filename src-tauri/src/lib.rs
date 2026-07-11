@@ -146,6 +146,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_plugin_versions,
             commands::mods_filter_satisfying,
             commands::mods_resolve_deps,
+            commands::optimise_resolve,
             commands::mods_resolve_install_plan,
             commands::mods_install_with_deps,
             commands::mods_list_installed,

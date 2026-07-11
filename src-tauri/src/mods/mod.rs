@@ -22,6 +22,7 @@ pub mod installed;
 pub mod local;
 pub mod modpack;
 pub mod modrinth;
+pub mod optimise;
 pub mod orphans;
 pub mod platform;
 pub mod preflight;
