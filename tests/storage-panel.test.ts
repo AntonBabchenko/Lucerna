@@ -26,8 +26,11 @@ vi.mock('$lib/ipc/bindings', () => ({
     // StoragePanel calls dataLocation.init() -> getDataLocation() on mount.
     getDataLocation: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { effective: '/data', configured: null, fell_back: false, data_size_bytes: 0 },
+      data: { effective: '/data', configured: null, fell_back: false },
     }),
+    // Data-root size is loaded lazily via its own command (split from
+    // getDataLocation so startup never walks the whole tree).
+    dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 4096 }),
     setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
@@ -78,6 +81,16 @@ describe('StoragePanel', () => {
     render(StoragePanel);
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/permission denied/)).toBeTruthy();
+  });
+
+  it('loads the data-root size lazily via dataRootSizeBytes and renders it', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(StoragePanel);
+    // Yield so the mount-time refreshDataRootSize() promise resolves.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.dataRootSizeBytes).toHaveBeenCalled();
+    // 4096 bytes → "4.0 KB" (formatSize, 1024 divisor).
+    expect(screen.getByText(/4\.0 KB/)).toBeTruthy();
   });
 });
 

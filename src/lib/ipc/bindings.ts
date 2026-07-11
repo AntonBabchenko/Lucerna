@@ -1308,10 +1308,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverCoreVersions: (core: ServerCore) => typedError<string[], Error>(__TAURI_INVOKE("server_core_versions", { core })),
 	/**
-	 *  Current effective data-root location, its configured (possibly
-	 *  unavailable) target, and the size on disk.
+	 *  Current effective data-root location and its configured (possibly
+	 *  unavailable) target. Deliberately cheap — a plain read of the resolved
+	 *  `DataRoot` state. The on-disk size lives in `data_root_size_bytes`
+	 *  instead: this command runs on the startup path (fallback gating reads
+	 *  `fell_back` at mount), and as a sync command it executes on the main
+	 *  thread, so it must never touch the filesystem tree.
 	 */
 	getDataLocation: () => typedError<DataLocationStatus, Error>(__TAURI_INVOKE("get_data_location")),
+	/**
+	 *  Total size in bytes of everything under the effective data root. Split
+	 *  out of `get_data_location` because the recursive walk (assets, libraries,
+	 *  versions, every instance's mods — easily tens of thousands of files)
+	 *  takes seconds on a cold FS cache. Async + `spawn_blocking` so it never
+	 *  runs on the main thread and never stalls the async runtime; the Storage
+	 *  panel fetches it lazily when opened.
+	 *  f64 not u64: specta forbids exporting BigInt-style types to TS.
+	 */
+	dataRootSizeBytes: () => typedError<number | null, Error>(__TAURI_INVOKE("data_root_size_bytes")),
 	/**
 	 *  Relocate the data root to `new_path`, or reset to the OS default when
 	 *  `None`. Copies the current root to the target, verifies the copy,
@@ -1691,8 +1705,6 @@ export type DataLocationStatus = {
 	effective: string,
 	configured: string | null,
 	fell_back: boolean,
-	/**  f64 (specta forbids u64); within JS safe-int range. */
-	data_size_bytes: number | null,
 };
 
 /**  Streamed progress for a data-root relocation. */
