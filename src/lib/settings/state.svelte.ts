@@ -82,6 +82,10 @@ export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[
 // and resets it to null. Mirrors `droppedMods`.
 export const droppedWorld = $state<{ value: string[] | null }>({ value: null });
 
+// MainTabs' active tab, mirrored for the window drop router in +page.svelte
+// (the router must know whether the client is on Add-ons or Worlds).
+export const clientActiveTab = $state<{ value: string }>({ value: 'overview' });
+
 // ── Servers-mode add-ons drop routing ────────────────────────────────────────
 // The content kind currently shown by the servers Add-ons tab ('mod' |
 // 'plugin' | 'datapack'), mirrored by ServerAddonsTab while it is mounted and

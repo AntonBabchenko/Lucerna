@@ -25,6 +25,9 @@
   } from '$lib/layout/compact.svelte';
   import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
+  import { routeDrop } from '$lib/layout/drop-router';
+  import { canInstallMods } from '$lib/mods/install-eligibility';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
@@ -63,7 +66,20 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
-  import { modBrowserNav, modpacksNav, settingsOpen } from '$lib/settings/state.svelte';
+  import {
+    addonsKind,
+    clientActiveTab,
+    dragActive,
+    droppedAssets,
+    droppedMods,
+    droppedServerContent,
+    droppedWorld,
+    modBrowserNav,
+    modpacksNav,
+    serverAddonsKind,
+    serverImportActive,
+    settingsOpen,
+  } from '$lib/settings/state.svelte';
   import { createMcVersions } from '$lib/versions/mc-versions.svelte';
   import {
     dismiss,
@@ -377,6 +393,52 @@
   // appearing/disappearing, etc.). Separate from the async onMount below so
   // Svelte actually uses the returned disposer for cleanup.
   onMount(() => observeCompactContent());
+
+  // The app's single window-level drag-drop listener (moved out of MainTabs
+  // when servers mode grew a drop target): +page owns both mode panels, so
+  // it owns the window event and routes to the mode-appropriate rune. Its own
+  // synchronous onMount — a cleanup returned from the async onMount below
+  // would be ignored (see the onDestroy teardown note further down).
+  onMount(() => {
+    const pendingDrop = getCurrentWebview().onDragDropEvent((event) => {
+      if (serverImportActive.value) {
+        dragActive.value = false;
+        return;
+      }
+      const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
+      const t = payload.type;
+      if (t === 'enter' || t === 'over') {
+        dragActive.value = true;
+        return;
+      }
+      if (t === 'leave') {
+        dragActive.value = false;
+        return;
+      }
+      if (t !== 'drop') return;
+      dragActive.value = false;
+      const selectedServer = serverState.list.find((s) => s.id === serversUi.selectedServerId);
+      const route = routeDrop(payload.paths ?? [], {
+        mode: serversUi.mode,
+        clientTab: clientActiveTab.value,
+        addonsKind: addonsKind.value,
+        canInstallMods: canInstallMods(activeInstance?.id ?? null, activeInstance?.loader ?? null),
+        instanceSelected: activeInstance !== null,
+        serversTab: serversUi.activeTab,
+        serverAddonsKind: serverAddonsKind.value,
+        serverCanMutate: selectedServer !== undefined && !selectedServer.running,
+      });
+      if (route === null) return;
+      if (route.target === 'client-world') droppedWorld.value = route.paths;
+      else if (route.target === 'client-mods') droppedMods.value = route.paths;
+      else if (route.target === 'client-assets')
+        droppedAssets.value = { kind: route.kind, paths: route.paths };
+      else droppedServerContent.value = { kind: route.kind, paths: route.paths };
+    });
+    return () => {
+      void pendingDrop.then((un) => un());
+    };
+  });
 
   onMount(async () => {
     void dataLocation.init();
