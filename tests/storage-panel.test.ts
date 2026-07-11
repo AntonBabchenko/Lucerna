@@ -92,6 +92,29 @@ describe('StoragePanel', () => {
     // 4096 bytes → "4.0 KB" (formatSize, 1024 divisor).
     expect(screen.getByText(/4\.0 KB/)).toBeTruthy();
   });
+
+  it('shows a spinner in the size row while dataRootSizeBytes is pending', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    // Hold the command unresolved so the row stays in its loading state.
+    let resolveSize: (v: { status: 'ok'; data: number }) => void = () => {};
+    (mod.commands.dataRootSizeBytes as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => {
+        resolveSize = r;
+      }),
+    );
+
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    // Loading → the size row shows a status spinner, not "0 B".
+    const sizeLabel = screen.getByText('Size on disk:');
+    const row = sizeLabel.closest('div') as HTMLElement;
+    expect(row.querySelector('[role="status"]')).not.toBeNull();
+
+    // Resolve → the spinner is replaced by the formatted size.
+    resolveSize({ status: 'ok', data: 4096 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/4\.0 KB/)).toBeTruthy();
+  });
 });
 
 describe('StoragePanel — log retention', () => {

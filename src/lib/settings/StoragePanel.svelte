@@ -399,11 +399,15 @@
         <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
         <span class="font-mono text-xs selectable ml-1">{dataLocation.status.effective}</span>
       </div>
-      <div class="text-sm">
+      <div class="text-sm flex items-center gap-1">
         <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
-        <span class="font-medium ml-1"
-          >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
-        >
+        {#if dataRootSize === null && !dataRootSizeError}
+          <Spinner size="sm" class="text-muted" />
+        {:else}
+          <span class="font-medium ml-1"
+            >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
+          >
+        {/if}
       </div>
       {#if dataRootSizeError}
         <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
