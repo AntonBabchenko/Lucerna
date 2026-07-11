@@ -1,19 +1,35 @@
 <script lang="ts">
-  import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { navVisual } from '$lib/layout/nav-status';
+  import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
 
   // Top-level launcher mode switch (Client | Servers). Two aria-pressed
   // buttons styled like SegmentedControl's boxed variant — a dedicated
-  // component (not SegmentedControl) because the servers segment carries live
-  // status content (coloured/pulsing icon + wrench/upload badges) that the
-  // shared primitive's string-only options cannot express. Deliberately NOT
-  // hideable via hidden_sidebar_buttons: it is the navigation itself.
+  // component (not SegmentedControl) because BOTH segments carry live status
+  // content (coloured/pulsing icon; the servers segment also has wrench/upload
+  // badges) that the shared primitive's string-only options cannot express.
+  // Deliberately NOT hideable via hidden_sidebar_buttons: it is the navigation
+  // itself.
+  //
+  // The client's game state lives page-locally in +page.svelte (not a rune
+  // module like serverState), so its status arrives as an opaque NavStatusKind
+  // prop threaded +page → Sidebar → here; the servers status is read directly
+  // from serverState. Defaults to 'idle' so no-prop mounts render unchanged.
+  let { clientNav = 'idle' }: { clientNav?: NavStatusKind } = $props();
+
+  const clientVisual = $derived(navVisual(clientNav));
+  const clientStatusLabel = $derived(
+    clientNav === 'running'
+      ? $t('sidebar.clientRunning')
+      : clientNav === 'crashed'
+        ? $t('sidebar.clientCrashed')
+        : null,
+  );
+
   const serversNav = $derived(serverState.serversNavStatus);
   const serversVisual = $derived(navVisual(serversNav));
   const anyUploading = $derived(serverState.anyUploading);
@@ -54,7 +70,12 @@
     data-testid="mode-switch-client"
     onclick={() => serversUi.setMode('client')}
   >
-    <Icon name="monitor" size={14} />
+    <NavStatusIcon
+      name="monitor"
+      size={14}
+      iconClass={clientVisual.iconClass}
+      statusLabel={clientStatusLabel}
+    />
     {$t('sidebar.mode.client')}
   </button>
   <button

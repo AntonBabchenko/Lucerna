@@ -1739,6 +1739,8 @@ export type TranslationKey =
   | 'sidebar.accountRequired.title'
   | 'sidebar.addOffline'
   | 'sidebar.browseModpacks'
+  | 'sidebar.clientCrashed'
+  | 'sidebar.clientRunning'
   | 'sidebar.compactCollapse'
   | 'sidebar.compactExpand'
   | 'sidebar.contextHide'

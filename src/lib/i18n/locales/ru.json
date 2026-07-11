@@ -180,6 +180,8 @@
     "noServers": "Серверов пока нет.",
     "serverRunning": "Сервер запущен",
     "serverCrashed": "Сервер упал",
+    "clientRunning": "Игра запущена",
+    "clientCrashed": "Игра упала",
     "serversFixAvailable": "Доступно исправление сервера",
     "serversUploading": "Идёт заливка на хостинг…",
     "importLauncher": "Импорт из лаунчера",

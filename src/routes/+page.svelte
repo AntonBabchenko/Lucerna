@@ -26,9 +26,11 @@
   import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import { routeDrop } from '$lib/layout/drop-router';
+  import { type NavStatusKind } from '$lib/layout/nav-status';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
+  import { classifyExit } from '$lib/overview/exit-status';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
@@ -163,6 +165,15 @@
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
   let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
+  // Client (game) status for the ModeSwitcher's Client segment, so a crash is
+  // visible while the user is in Servers mode. Mirrors the servers segment:
+  // pulse while running, red after a crash. The red source is `exited` +
+  // classifyExit (same lifecycle as the Overview's crash status — clears on
+  // relaunch or instance switch), NOT the dismissible `crashReport` banner. A
+  // user-requested Stop classifies as `stopped`, never `crashed`.
+  const clientNav = $derived<NavStatusKind>(
+    running ? 'running' : exited && classifyExit(exited).kind === 'crashed' ? 'crashed' : 'idle',
+  );
   // Tauri event unlisteners, captured so the listeners are torn down on unmount
   // rather than leaking across the page's lifetime. (This is a long-lived
   // single-page shell, but the listeners still need explicit cleanup — an
@@ -879,6 +890,7 @@
         logsOpen = !logsOpen;
       }}
       {running}
+      {clientNav}
       {installing}
       {onPlay}
       {onStop}
