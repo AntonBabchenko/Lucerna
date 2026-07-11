@@ -46,6 +46,7 @@
     onOpenModpacks,
     onOpenLauncherImport,
     running,
+    clientNav = 'idle',
     installing,
     onPlay,
     onStop,
@@ -97,6 +98,9 @@
     // install pipeline is in flight; otherwise the button morphs
     // between Install (not-ready) and Play (ready).
     running: { version_id: string; pid: number } | null;
+    // Client (game) status for the ModeSwitcher's Client segment, derived in
+    // +page.svelte from running/exited and threaded through as an opaque enum.
+    clientNav?: NavStatusKind;
     installing: boolean;
     onPlay: () => void;
     onStop: () => void;
@@ -245,7 +249,7 @@
       </button>
     </div>
 
-    <ModeSwitcher />
+    <ModeSwitcher {clientNav} />
 
     <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
       <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>

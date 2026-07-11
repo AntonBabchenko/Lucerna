@@ -84,4 +84,23 @@ describe('ModeSwitcher', () => {
     render(ModeSwitcher);
     expect(screen.getByRole('img', { name: 'Server running' })).toBeTruthy();
   });
+
+  it('announces a running game on the client segment via clientNav', async () => {
+    await load([]);
+    render(ModeSwitcher, { props: { clientNav: 'running' } });
+    expect(screen.getByRole('img', { name: 'Game running' })).toBeTruthy();
+  });
+
+  it('announces a crashed game on the client segment via clientNav', async () => {
+    await load([]);
+    render(ModeSwitcher, { props: { clientNav: 'crashed' } });
+    expect(screen.getByRole('img', { name: 'Game crashed' })).toBeTruthy();
+  });
+
+  it('does not announce a client status when idle (default)', async () => {
+    await load([]);
+    render(ModeSwitcher);
+    expect(screen.queryByRole('img', { name: 'Game running' })).toBeNull();
+    expect(screen.queryByRole('img', { name: 'Game crashed' })).toBeNull();
+  });
 });

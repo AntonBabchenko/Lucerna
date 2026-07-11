@@ -180,6 +180,8 @@
     "noServers": "No servers yet.",
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
+    "clientRunning": "Game running",
+    "clientCrashed": "Game crashed",
     "serversFixAvailable": "A server fix is available",
     "serversUploading": "Uploading to hosting…",
     "importLauncher": "Import from launcher",
