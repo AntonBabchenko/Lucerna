@@ -75,7 +75,6 @@ const baseProps = {
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
   onOpenLauncherImport: () => {},
-  onOpenServers: () => {},
   onOpenGallery: () => {},
   onOpenQuickJoin: () => {},
   onPlay: () => {},
@@ -98,30 +97,30 @@ describe('Sidebar right-click hide', () => {
 
   it('right-clicking a hideable button surfaces a Hide menu item', async () => {
     render(Sidebar, { props: baseProps });
-    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-servers'));
-    expect(screen.getByTestId('sidebar-ctx-hide-servers')).toBeTruthy();
+    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-gallery'));
+    expect(screen.getByTestId('sidebar-ctx-hide-gallery')).toBeTruthy();
   });
 
   it('choosing Hide opens the confirm dialog; confirming persists the hidden id', async () => {
     render(Sidebar, { props: baseProps });
-    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-servers'));
-    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-servers'));
+    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-gallery'));
+    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-gallery'));
     expect(screen.getByTestId('hide-button-confirm')).toBeTruthy();
     await fireEvent.click(screen.getByTestId('hide-button-confirm'));
     expect(appSettingsSetGeneral).toHaveBeenCalledTimes(1);
     expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({
-      hidden_sidebar_buttons: ['servers'],
+      hidden_sidebar_buttons: ['gallery'],
     });
   });
 
   it('cancelling the dialog leaves the button visible and persists nothing', async () => {
     render(Sidebar, { props: baseProps });
-    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-servers'));
-    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-servers'));
+    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-gallery'));
+    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-gallery'));
     await fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(screen.queryByTestId('hide-button-confirm')).toBeNull();
     expect(appSettingsSetGeneral).not.toHaveBeenCalled();
-    expect(screen.getByTestId('sidebar-open-servers')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-open-gallery')).toBeTruthy();
   });
 
   it('refuses to hide the account buttons with no accounts, explaining instead', async () => {

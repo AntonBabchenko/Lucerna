@@ -8,6 +8,7 @@
 // "Replay" path and intentionally does NOT touch persistence.
 
 import { commands } from '$lib/ipc/bindings';
+import { serversUi } from '$lib/servers/servers-ui.svelte';
 import { resetAllContextualTours } from './contextual-tours';
 import { STEPS } from './steps';
 
@@ -89,6 +90,10 @@ export function replayTour(): void {
   // tours — otherwise the Logs/Manage/Modpacks/Worlds tours stay suppressed
   // by their localStorage flags and never reappear.
   resetAllContextualTours();
+  // The main tour's anchors (instance picker, play button, modpacks) exist
+  // only in client mode — force it before activating so replay never opens
+  // into an empty servers-mode panel.
+  serversUi.setMode('client');
   tourState.currentStep = 0;
   tourState.contextual = false;
   tourState.active = true;

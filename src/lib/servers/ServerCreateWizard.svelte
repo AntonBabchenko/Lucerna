@@ -28,7 +28,9 @@
   }: {
     instances: InstanceWithStatus[];
     versions: VersionEntry[];
-    onDone: () => void;
+    // Passes the new server's id on success so the host can auto-select it
+    // (the import path may omit it — callers must handle `undefined`).
+    onDone: (createdId?: string) => void;
     onCancel: () => void;
   } = $props();
 
@@ -222,7 +224,7 @@
         if (setAside > 0) {
           pushSuccess(get(t)('servers.diagnose.quarantined', { count: setAside }));
         }
-        onDone();
+        onDone(res.data.server.id);
       } else {
         error = formatError(res.error);
       }

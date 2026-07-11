@@ -172,6 +172,12 @@
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
     "servers": "Servers",
+    "mode": {
+      "ariaLabel": "Launcher mode",
+      "client": "Client"
+    },
+    "server": "Server",
+    "noServers": "No servers yet.",
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
     "serversFixAvailable": "A server fix is available",
@@ -1295,17 +1301,11 @@
           "titleBasic": "Make a server",
           "bodyBasic": "Create your own Minecraft server here. Choose a version and a mod loader, or build one from an instance you already have."
         },
-        "list": {
-          "title": "Your servers, at a glance",
-          "body": "Each server you create shows up here. The coloured dot tells you its state without opening it: green for running, red for crashed, amber when a fix is ready. Click a row to manage it.",
-          "titleBasic": "Your servers",
-          "bodyBasic": "Your servers appear in this list. A coloured dot shows whether each one is running, crashed, or stopped. Click a row to open and manage it."
-        },
-        "lanHint": {
-          "title": "Friends on your network",
-          "body": "A server you run is reachable on your local network right away, so anyone on the same Wi-Fi or LAN can join. To open it up over the internet, the Hosting and Connect tabs walk you through it.",
-          "titleBasic": "Play on your network",
-          "bodyBasic": "Anyone on the same home network can join a server you run, with no extra setup. To let friends join over the internet, see the Connect and Hosting tabs inside a server."
+        "modeSwitch": {
+          "title": "Two sides of the launcher",
+          "titleBasic": "Switch back anytime",
+          "body": "The launcher now has two modes: Client for playing, Servers for hosting. Switch here whenever you like; the client keeps working while a server runs.",
+          "bodyBasic": "Use this switch to go back to playing. Your server keeps running."
         }
       },
       "serverManage": {
@@ -1546,7 +1546,6 @@
           "quickJoin": "Quick join server",
           "browseModpacks": "Browse modpacks",
           "importLauncher": "Import from launcher",
-          "servers": "Servers",
           "gallery": "Gallery",
           "logs": "Logs"
         }
@@ -1865,21 +1864,16 @@
     }
   },
   "servers": {
-    "title": "Servers (Beta)",
     "create": "Create server",
     "empty": "No servers yet",
     "loading": "Loading servers…",
     "loadError": "Couldn't load your servers.",
     "retry": "Retry",
     "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
-    "createdFromInstance": "from instance {name}",
     "status": {
       "running": "Running",
       "stopped": "Stopped",
       "crashed": "Crashed"
-    },
-    "manage": {
-      "back": "Servers"
     },
     "tab": {
       "console": "Console",
@@ -1926,8 +1920,6 @@
       "name": "Name",
       "instance": "Instance",
       "version": "Minecraft version",
-      "loader": "Loader",
-      "loaderVersion": "Loader version (optional)",
       "coreVersionsLoading": "Checking available versions…",
       "coreVersionsError": "Could not load the version list for this core.",
       "memory": "Memory (MB)",
@@ -2027,7 +2019,6 @@
       "loadingDescription": "Loading description…",
       "noDescription": "No description provided.",
       "loadingVersions": "Loading versions…",
-      "versionsError": "Could not load versions.",
       "noVersions": "No versions for this server.",
       "openProjectPage": "Open project page",
       "openPage": "Open page",
@@ -2241,7 +2232,8 @@
       "jvmArgsHint": "Advanced. Applied to the server JVM on next start.",
       "save": "Save",
       "saved": "Saved",
-      "restartToApply": "Restart the server to apply memory / JVM changes."
+      "restartToApply": "Restart the server to apply memory / JVM changes.",
+      "dangerTitle": "Danger zone"
     },
     "delete": {
       "trigger": "Delete server",
@@ -2261,7 +2253,6 @@
       "restoreConfirm": "Restore \"{name}\"? This replaces the current world & files (the current state is backed up first).",
       "deleteConfirm": "Delete backup \"{name}\"?",
       "runningBlock": "Stop the server before restoring",
-      "restored": "Restored",
       "note": "Snapshots of the server (world, mods, config). The newest {n} are kept.",
       "autoTitle": "Automatic backups",
       "autoHint": "While the launcher is open and the server is running, take a snapshot on a schedule (kept under the same newest-{n} limit).",
@@ -2270,18 +2261,6 @@
       "autoIntervalUnit": "minutes",
       "autoSave": "Apply",
       "autoSaved": "Saved"
-    },
-    "whitelist": {
-      "title": "Whitelist & operators",
-      "whitelistHeading": "Whitelist",
-      "opsHeading": "Operators",
-      "addPlaceholder": "Player name",
-      "add": "Add",
-      "remove": "Remove",
-      "empty": "No players yet",
-      "lockoutHint": "Turning the whitelist on locks out anyone not listed — add yourself first.",
-      "onlineModeHint": "Online-mode server: names are resolved to Mojang accounts.",
-      "offlineModeHint": "Offline-mode server: offline UUIDs are used."
     },
     "connect": {
       "tab": "Connect",

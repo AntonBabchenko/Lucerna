@@ -436,7 +436,7 @@ describe('ServerDiagnosisBanner', () => {
     await fireEvent.click(screen.getByTestId('server-diagnosis-dismiss'));
     expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
     first.unmount();
-    // The restore badge lives in ServerManageView; here we assert the banner
+    // The restore badge lives in ServersPanel; here we assert the banner
     // returns once the dismissal is cleared (what that badge does on click).
     diagnosisDismiss.restore('server:srv-restore');
     render(ServerDiagnosisBanner, { props: { serverId: 'srv-restore' } });

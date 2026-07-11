@@ -4,7 +4,11 @@
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { formatHeapLabel } from '$lib/instances/heap';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
+  import DeleteServerDialog from './DeleteServerDialog.svelte';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -62,6 +66,27 @@
       busy = false;
     }
   }
+
+  let confirmingDelete = $state(false);
+  let deleteError = $state<string | null>(null);
+  let deleting = $state(false);
+
+  async function confirmDelete() {
+    confirmingDelete = false;
+    deleteError = null;
+    deleting = true;
+    try {
+      const r = await serverState.remove(serverId);
+      if (!r.ok) {
+        deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+        return;
+      }
+      // Fall back to the first remaining server (or the empty state).
+      serversUi.selectServer(serverState.list[0]?.id ?? null);
+    } finally {
+      deleting = false;
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-4">
@@ -110,4 +135,38 @@
       <span class="text-xs text-danger">{error}</span>
     {/if}
   </div>
+
+  <div class="border-t border-border-subtle pt-4 flex flex-col gap-2">
+    <span class="text-sm font-medium text-danger">{$t('servers.general.dangerTitle')}</span>
+    <span
+      class="inline-flex self-start"
+      use:tooltip={{
+        text: running ? $t('servers.delete.runningBlock') : $t('servers.delete.trigger'),
+        describe: false,
+      }}
+    >
+      <button
+        type="button"
+        class="btn-danger btn-sm flex items-center gap-1.5"
+        disabled={running || deleting}
+        data-testid="server-delete-trigger"
+        onclick={() => (confirmingDelete = true)}
+      >
+        <Icon name="trash" size={14} />
+        {$t('servers.delete.trigger')}
+      </button>
+    </span>
+    {#if deleteError}
+      <span class="text-xs text-danger" role="alert">{deleteError}</span>
+    {/if}
+  </div>
 </div>
+
+{#if confirmingDelete}
+  {@const s = serverState.list.find((x) => x.id === serverId)}
+  <DeleteServerDialog
+    serverName={s?.name ?? serverId}
+    onCancel={() => (confirmingDelete = false)}
+    onConfirm={() => void confirmDelete()}
+  />
+{/if}

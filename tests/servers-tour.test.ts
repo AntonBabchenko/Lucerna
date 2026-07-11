@@ -9,12 +9,11 @@ function selector(step: { targetSelector: string | null }): string {
   return step.targetSelector ?? '';
 }
 
-describe('servers list tour (SERVERS_STEPS)', () => {
-  it('has the three list-view steps in order', () => {
+describe('servers mode tour (SERVERS_STEPS)', () => {
+  it('has the two servers-mode steps in order', () => {
     expect(SERVERS_STEPS.map(selector)).toEqual([
       '[data-tour-ctx="servers-create"]',
-      '[data-tour-ctx="servers-list"]',
-      '[data-tour-ctx="servers-lan"]',
+      '[data-tour-ctx="servers-mode-switch"]',
     ]);
   });
 

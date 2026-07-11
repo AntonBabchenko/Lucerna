@@ -20,7 +20,7 @@
 
   // The user can dismiss the banner ("I know about this problem"). Dismissal is
   // keyed by the diagnosis signature, so a different/new crash resurfaces it on
-  // its own; the restore badge in ServerManageView brings the same one back.
+  // its own; the restore badge in ServersPanel brings the same one back.
   const signature = $derived(serverDiagnosisSignature(diag));
   const dismissed = $derived(
     signature !== null && diagnosisDismiss.isDismissed(`server:${serverId}`, signature),

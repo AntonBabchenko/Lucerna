@@ -54,6 +54,10 @@ export interface UploadState {
 }
 let uploads = $state<Map<string, UploadState>>(new Map());
 
+export type ServerAction = 'start' | 'stop' | 'restart';
+let actionBusy = $state<Map<string, ServerAction>>(new Map());
+let actionErrors = $state<Map<string, unknown>>(new Map());
+
 function setUploadState(id: string, patch: Partial<UploadState>): void {
   const m = new Map(uploads);
   const prev = m.get(id);
@@ -77,6 +81,12 @@ let initialized = false;
 // format it consistently with the rest of the store.
 let listLoading = $state(false);
 let listError = $state<unknown>(null);
+// True once the FIRST refresh() has settled (ok or error). Lets surfaces
+// distinguish "not fetched yet" from "fetched and empty" — listLoading alone
+// is false on BOTH sides of the first fetch, so gating on it has a false
+// window before refresh() begins (e.g. the servers tour would mount there,
+// get unmounted by the spinner, and be burned as soft-skipped).
+let listLoadedOnce = $state(false);
 
 async function refresh(): Promise<void> {
   listLoading = true;
@@ -85,8 +95,14 @@ async function refresh(): Promise<void> {
     const res = await commands.serverList();
     if (res.status === 'ok') list = res.data;
     else listError = res.error;
+  } catch (e) {
+    // A thrown IPC failure (transport error, not a typed Result) must land in
+    // listError like a typed one — otherwise refresh() rejects, a `void`-ing
+    // caller swallows it, and the error/retry surface never shows.
+    listError = e;
   } finally {
     listLoading = false;
+    listLoadedOnce = true;
   }
 }
 
@@ -164,6 +180,62 @@ async function stopOrphan(id: string, pid: number): Promise<{ ok: boolean; error
     return { ok: true };
   }
   return { ok: false, error: r.error };
+}
+
+function setActionBusy(id: string, a: ServerAction | null): void {
+  const m = new Map(actionBusy);
+  if (a === null) m.delete(id);
+  else m.set(id, a);
+  actionBusy = m;
+}
+
+function setActionError(id: string, err: unknown | null): void {
+  const m = new Map(actionErrors);
+  if (err === null) m.delete(id);
+  else m.set(id, err);
+  actionErrors = m;
+}
+
+// One lifecycle implementation for the sidebar Start/Stop and the panel
+// Restart, so busy/error/diagnose behavior can't drift between surfaces.
+// Only 'start' failures trigger a diagnose (stop/restart failures never
+// diagnosed).
+async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boolean }> {
+  if (actionBusy.get(id)) return { ok: false }; // one in-flight action per server
+  setActionBusy(id, action);
+  setActionError(id, null);
+  try {
+    let res: Awaited<
+      ReturnType<
+        typeof commands.serverStart | typeof commands.serverStop | typeof commands.serverRestart
+      >
+    >;
+    try {
+      res =
+        action === 'start'
+          ? await commands.serverStart(id)
+          : action === 'stop'
+            ? await commands.serverStop(id)
+            : await commands.serverRestart(id);
+    } catch (e) {
+      // A thrown IPC failure (transport error, not a typed Result) must land
+      // in actionErrors like any other failure — otherwise the returned
+      // promise rejects and a `void`-ing caller swallows it with no
+      // user-visible trace. Busy is still cleared by the outer finally.
+      setActionError(id, e);
+      if (action === 'start') void diagnose(id);
+      return { ok: false };
+    }
+    if (res.status !== 'ok') {
+      setActionError(id, res.error);
+      if (action === 'start') void diagnose(id);
+      return { ok: false };
+    }
+    await refresh();
+    return { ok: true };
+  } finally {
+    setActionBusy(id, null);
+  }
 }
 
 async function changePort(id: string, port: number): Promise<{ ok: boolean; error?: unknown }> {
@@ -409,6 +481,12 @@ async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
   const r = await commands.serverDelete(id);
   if (r.status === 'ok') {
     list = list.filter((s) => s.id !== id);
+    // Per-id map hygiene: ids are slugs, so a recreated same-name server would
+    // otherwise resurrect the deleted one's stale error/busy/diagnosis/console.
+    setActionError(id, null);
+    setActionBusy(id, null);
+    clearDiagnosis(id);
+    clearLines(id);
     return { ok: true };
   }
   return { ok: false, error: r.error };
@@ -464,7 +542,7 @@ async function importCommit(
   loaderVersion: string | null,
   maxHeapMb: number,
   eulaAccepted: boolean,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: boolean; server?: ServerWithStatus; error?: unknown }> {
   const r = await commands.serverImportCommit(
     token,
     name,
@@ -476,7 +554,9 @@ async function importCommit(
   );
   if (r.status === 'ok') {
     await refresh();
-    return { ok: true };
+    // Expose the created server so the import view can auto-select it in the
+    // servers panel (mirrors the create wizard's `onDone(createdId)`).
+    return { ok: true, server: r.data };
   }
   return { ok: false, error: r.error };
 }
@@ -546,6 +626,9 @@ export const serverState = {
   get listError() {
     return listError;
   },
+  get listLoadedOnce() {
+    return listLoadedOnce;
+  },
   lines: lineFor,
   refresh,
   clearLines,
@@ -595,6 +678,18 @@ export const serverState = {
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
+  },
+  start: (id: string) => runLifecycle(id, 'start'),
+  stop: (id: string) => runLifecycle(id, 'stop'),
+  restart: (id: string) => runLifecycle(id, 'restart'),
+  actionFor(id: string): ServerAction | null {
+    return actionBusy.get(id) ?? null;
+  },
+  actionErrorFor(id: string): unknown {
+    return actionErrors.get(id);
+  },
+  clearActionError(id: string): void {
+    setActionError(id, null);
   },
   // True when any server has a one-click repair available (C1 diagnosis_status
   // === 'actionable'). Drives the sidebar wrench badge + the attention item.

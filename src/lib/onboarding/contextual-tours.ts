@@ -32,7 +32,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
   modpacks: 'v1',
   worlds: 'v3', // bumped 2026-06-23 — added the import-a-world step
-  servers: 'v1', // added 2026-06-23 — Servers list tour
+  servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
   serverManage: 'v1', // added 2026-06-23 — server detail/manage tour
   addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
 };
@@ -174,32 +174,25 @@ export const WORLDS_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
-// Servers list view (ServersView). Fires on first open of the Servers modal,
-// when the list is typically EMPTY — so every step anchors a stable element
-// (Create button, the list wrapper, the always-present LAN hint), never a
-// server row, which may not exist yet.
+// Servers mode, first entry (ServersPanel mounts this tour only in the empty
+// state, so a server row never needs anchoring). Anchors: the sidebar create
+// button and the mode switcher, both always present in servers mode.
 export const SERVERS_STEPS: ReadonlyArray<TourStep> = [
   {
     titleKey: 'onboarding.contextual.servers.create.title',
     bodyKey: 'onboarding.contextual.servers.create.body',
     targetSelector: '[data-tour-ctx="servers-create"]',
-    anchor: 'below',
+    anchor: 'right',
   },
   {
-    titleKey: 'onboarding.contextual.servers.list.title',
-    bodyKey: 'onboarding.contextual.servers.list.body',
-    targetSelector: '[data-tour-ctx="servers-list"]',
-    anchor: 'below',
-  },
-  {
-    titleKey: 'onboarding.contextual.servers.lanHint.title',
-    bodyKey: 'onboarding.contextual.servers.lanHint.body',
-    targetSelector: '[data-tour-ctx="servers-lan"]',
-    anchor: 'below',
+    titleKey: 'onboarding.contextual.servers.modeSwitch.title',
+    bodyKey: 'onboarding.contextual.servers.modeSwitch.body',
+    targetSelector: '[data-tour-ctx="servers-mode-switch"]',
+    anchor: 'right',
   },
 ];
 
-// Server detail view (ServerManageView). The 8 sub-tabs render content only
+// Server detail view (ServersPanel). The 8 sub-tabs render content only
 // while active, so steps anchor the always-present tab BUTTONS (and the header
 // actions), not tab bodies. The crash-diagnosis banner is empty until a crash,
 // so it has no step of its own — it is described in the header-actions step.

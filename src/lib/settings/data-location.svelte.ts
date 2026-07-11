@@ -2,9 +2,10 @@
 // the `createMcVersions` composable shape (module-level runes wrapped in
 // getters), but is a single shared instance rather than a per-consumer
 // factory: `fellBack` gates UI in several unrelated places (the global
-// fallback banner, ManageInstancesModal's create button, ServersView's create
-// button, and Sidebar's Play/Install), so every consumer must read the SAME
-// fetch rather than each firing its own `getDataLocation()` on mount.
+// fallback banner, ManageInstancesModal's create button, ServerSidebarSection
+// / ServersPanel's create buttons, and Sidebar's Play/Install), so every
+// consumer must read the SAME fetch rather than each firing its own
+// `getDataLocation()` on mount.
 //
 // The Storage panel calls `refresh()` again after a successful
 // `setDataLocation()` (though in practice that call restarts the app, so the

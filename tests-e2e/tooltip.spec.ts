@@ -20,7 +20,9 @@ test.describe('shared tooltip', () => {
     await page.goto('/');
 
     const toggle = page.getByRole('button', { name: TOGGLE_NAME }).first();
-    await expect(toggle).toBeVisible();
+    // First assertion after goto doubles as the cold-boot wait: a cold Vite
+    // server's on-demand transform storm exceeds the default 5s expect timeout.
+    await expect(toggle).toBeVisible({ timeout: 15_000 });
     await toggle.hover();
 
     const bubble = page.locator('#app-tooltip');

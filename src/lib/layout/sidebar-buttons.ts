@@ -13,7 +13,6 @@ export type SidebarButtonId =
   | 'quick_join'
   | 'browse_modpacks'
   | 'import_launcher'
-  | 'servers'
   | 'gallery'
   | 'logs';
 
@@ -29,7 +28,6 @@ export const SIDEBAR_BUTTONS: readonly SidebarButtonDescriptor[] = [
   { id: 'quick_join', labelKey: 'settings.general.appearance.sidebarButtons.quickJoin' },
   { id: 'browse_modpacks', labelKey: 'settings.general.appearance.sidebarButtons.browseModpacks' },
   { id: 'import_launcher', labelKey: 'settings.general.appearance.sidebarButtons.importLauncher' },
-  { id: 'servers', labelKey: 'settings.general.appearance.sidebarButtons.servers' },
   { id: 'gallery', labelKey: 'settings.general.appearance.sidebarButtons.gallery' },
   { id: 'logs', labelKey: 'settings.general.appearance.sidebarButtons.logs' },
 ];
