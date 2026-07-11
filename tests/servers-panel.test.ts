@@ -102,7 +102,6 @@ function dataLocationStatus(fellBack: boolean) {
       effective: 'C:\\Users\\test\\AppData\\Roaming\\com.lucerna.app',
       configured: fellBack ? 'D:\\LucernaData' : null,
       fell_back: fellBack,
-      data_size_bytes: 0,
     },
   };
 }

@@ -140,10 +140,27 @@
     }
   }
 
+  // Data-root size, loaded lazily through its own async command — split from
+  // getDataLocation so the full-tree walk (seconds on a cold FS cache) never
+  // runs on the startup path, only when this panel is open. null = loading.
+  let dataRootSize = $state<number | null>(null);
+  let dataRootSizeError = $state<string | null>(null);
+
+  async function refreshDataRootSize() {
+    dataRootSizeError = null;
+    const result = await commands.dataRootSizeBytes();
+    if (result.status === 'ok') {
+      dataRootSize = result.data;
+    } else {
+      dataRootSizeError = formatError(result.error);
+    }
+  }
+
   $effect(() => {
     void refresh();
     void loadRetention();
     void dataLocation.init();
+    void refreshDataRootSize();
   });
 
   // ── Data-root relocation ────────────────────────────────────────────────
@@ -209,6 +226,8 @@
     if (result.status === 'error') {
       migrationError = formatError(result.error);
       await dataLocation.refresh();
+      // A failed migration may still have touched disk — re-measure.
+      void refreshDataRootSize();
     }
   }
 
@@ -380,13 +399,21 @@
         <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
         <span class="font-mono text-xs selectable ml-1">{dataLocation.status.effective}</span>
       </div>
-      <div class="text-sm">
+      <div class="text-sm flex items-center gap-1">
         <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
-        <span class="font-medium ml-1"
-          >{formatSize($t, dataLocation.status.data_size_bytes) ||
-            $t('format.size.bytes', { n: 0 })}</span
-        >
+        {#if dataRootSize === null && !dataRootSizeError}
+          <Spinner size="sm" class="text-muted" />
+        {:else}
+          <span class="font-medium ml-1"
+            >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
+          >
+        {/if}
       </div>
+      {#if dataRootSizeError}
+        <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
+          {dataRootSizeError}
+        </div>
+      {/if}
     {:else}
       <p class="text-xs text-muted">…</p>
     {/if}
@@ -417,8 +444,7 @@
 {#if pendingTarget !== null && !migrating}
   <DataLocationConfirmDialog
     targetPath={pendingTarget === 'reset' ? null : pendingTarget}
-    sizeLabel={formatSize($t, dataLocation.status?.data_size_bytes ?? null) ||
-      $t('format.size.bytes', { n: 0 })}
+    sizeLabel={formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}
     busy={migrating}
     onCancel={cancelPending}
     onConfirm={() => void confirmPending()}

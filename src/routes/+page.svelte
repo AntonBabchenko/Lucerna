@@ -111,6 +111,9 @@
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
   let instancesError = $state<string | null>(null);
+  // False until the FIRST refreshInstances() settles — Sidebar shows a
+  // spinner instead of the empty state while this is false.
+  let instancesLoaded = $state(false);
 
   // Mirrors `general.check_updates_on_startup`: when off, no background modpack
   // update sweeps run (offline-first / privacy). Set once settings load.
@@ -562,6 +565,7 @@
       activeInstance = null;
     }
     sweepModpackUpdates();
+    instancesLoaded = true;
   }
 
   async function onSelectInstance(id: string) {
@@ -781,6 +785,7 @@
       {accounts}
       {activeAccount}
       {instances}
+      {instancesLoaded}
       {activeInstance}
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}

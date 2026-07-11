@@ -14,6 +14,11 @@ release is **0.9.0**.
 
 - Tooltips triggered by keyboard focus now appear only on real keyboard focus
   (`:focus-visible`), so they no longer flash when a modal opens or closes.
+- The instance list no longer takes several seconds to appear after a restart
+  when the data folder is large: the folder-size calculation that used to run
+  (and block other startup requests) on every launch now runs only when
+  Settings → Storage is opened. While the list is loading, the sidebar shows a
+  small spinner instead of a misleading "No instances yet".
 
 ## [0.17.0] — 2026-07-09
 
