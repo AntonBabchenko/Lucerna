@@ -3,7 +3,6 @@
 use crate::error::{Error, Result};
 use crate::worlds::{backups_root, fs as wfs, saves_dir, zip as wzip, RestoreMode, RestoredWorld};
 use chrono::Utc;
-use std::path::PathBuf;
 
 /// Public entrypoint. Resolves paths from the AppHandle then
 /// delegates to `restore_backup_at_saves`.
@@ -233,6 +232,7 @@ mod tests {
     use super::*;
     use crate::worlds::zip as wzip;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn make_world_with_files(

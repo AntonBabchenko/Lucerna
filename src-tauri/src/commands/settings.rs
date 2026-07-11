@@ -1,5 +1,3 @@
-use super::*;
-
 // Onboarding (v0.5.0 sub-feature 5):
 
 /// Read the persisted app-level settings (currently: onboarding state).

@@ -1,5 +1,3 @@
-use super::*;
-
 /// List all stored accounts.
 #[tauri::command]
 #[specta::specta]

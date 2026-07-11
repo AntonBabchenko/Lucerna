@@ -1,5 +1,3 @@
-use super::*;
-
 /// Fetch the Mojang version manifest. Cached for 5 minutes — repeated
 /// calls within that window are zero-network.
 #[tauri::command]

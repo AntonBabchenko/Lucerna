@@ -281,7 +281,7 @@ fn inject_patched_library_if_missing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::forge::installer::transitional::{DataEntry, InstallProfile, ProcessorEntry};
+    use crate::forge::installer::transitional::{DataEntry, InstallProfile};
     use crate::versions::version_json::{Library, VersionDetails};
     use std::collections::HashMap;
 
