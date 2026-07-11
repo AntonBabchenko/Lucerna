@@ -1950,7 +1950,9 @@
     "addons": {
       "kindPlugins": "Плагины",
       "kindDatapacks": "Датапаки",
-      "pinnedFacets": "Для {core} {mcVersion}"
+      "pinnedFacets": "Для {core} {mcVersion}",
+      "dropzonePlugin": "Перетащите .jar плагина сюда или нажмите для выбора файла",
+      "dropzoneDatapack": "Перетащите .zip датапака сюда или нажмите для выбора файла"
     },
     "settings": {
       "save": "Сохранить",

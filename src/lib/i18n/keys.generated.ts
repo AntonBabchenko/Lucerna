@@ -1247,6 +1247,8 @@ export type TranslationKey =
   | 'servers.action.restart'
   | 'servers.action.start'
   | 'servers.action.stop'
+  | 'servers.addons.dropzoneDatapack'
+  | 'servers.addons.dropzonePlugin'
   | 'servers.addons.kindDatapacks'
   | 'servers.addons.kindPlugins'
   | 'servers.addons.pinnedFacets'

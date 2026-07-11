@@ -1950,7 +1950,9 @@
     "addons": {
       "kindPlugins": "Plugins",
       "kindDatapacks": "Datapacks",
-      "pinnedFacets": "For {core} {mcVersion}"
+      "pinnedFacets": "For {core} {mcVersion}",
+      "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
+      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file"
     },
     "settings": {
       "save": "Save",
