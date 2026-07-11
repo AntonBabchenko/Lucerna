@@ -208,11 +208,8 @@ enum Outcome {
     },
     LaunchCrashed {
         exit_code: Option<i32>,
-        log_tail: String,
     },
-    LaunchTimedOut {
-        log_tail: String,
-    },
+    LaunchTimedOut,
 }
 
 impl Outcome {
@@ -229,10 +226,10 @@ impl Outcome {
                 format!("INSTALL_FAILED@{stage}: {snippet}")
             }
             Outcome::LaunchSpawnFailed { error } => format!("SPAWN_FAILED: {error}"),
-            Outcome::LaunchCrashed { exit_code, .. } => {
+            Outcome::LaunchCrashed { exit_code } => {
                 format!("LAUNCH_CRASHED exit={exit_code:?}")
             }
-            Outcome::LaunchTimedOut { .. } => "LAUNCH_TIMED_OUT (no menu marker in 120s)".into(),
+            Outcome::LaunchTimedOut => "LAUNCH_TIMED_OUT (no menu marker in 120s)".into(),
         }
     }
     fn is_success(&self) -> bool {
@@ -627,14 +624,6 @@ async fn install_neoforge(combo: &Combo, paths: &Paths) -> Result<VersionDetails
 
 fn forge_path_segment(mc: &str, fv: &str) -> String {
     format!("{mc}-{fv}")
-}
-
-fn forge_installer_url(mc: &str, fv: &str) -> (String, String) {
-    let seg = forge_path_segment(mc, fv);
-    (
-        format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{seg}/forge-{seg}-installer.jar"),
-        format!("forge-{seg}-installer.jar"),
-    )
 }
 
 fn read_install_profile(installer_bytes: &[u8]) -> Result<serde_json::Value, InstallError> {
@@ -1108,7 +1097,6 @@ async fn launch_and_watch(
                 let _ = std::fs::write(combo_log, combo_text);
                 return Outcome::LaunchCrashed {
                     exit_code: status.code(),
-                    log_tail: format!("{mc_tail}\n--- jvm stdio ---\n{stdio_tail}"),
                 };
             }
             Ok(None) => {}
@@ -1148,9 +1136,7 @@ async fn launch_and_watch(
                     argv.join(" ")
                 ),
             );
-            return Outcome::LaunchTimedOut {
-                log_tail: format!("{mc_tail}\n--- jvm stdio ---\n{stdio_tail}"),
-            };
+            return Outcome::LaunchTimedOut;
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
