@@ -106,28 +106,31 @@ beforeEach(() => {
   markSeen('serverManage');
 });
 
-describe('ModeSwitcher — segment button intents', () => {
-  it('client mode: active client segment is primary sm, inactive servers is ghost sm', async () => {
+describe('ModeSwitcher — segment styling contract', () => {
+  // The switcher is an inset-track segmented control: segments are
+  // deliberately NOT btn-* buttons (activity = elevation pill + text weight,
+  // never an accent fill). Pin the emphasis swap and the no-btn-class rule.
+  it('client mode: client segment emphasized, servers muted, no btn-* classes', async () => {
     await load([]);
     render(ModeSwitcher);
     const client = screen.getByTestId('mode-switch-client');
     const servers = screen.getByTestId('mode-switch-servers');
-    expect(client).toHaveBtnVariant('primary');
-    expect(client).toHaveBtnSize('sm');
-    expect(servers).toHaveBtnVariant('ghost');
-    expect(servers).toHaveBtnSize('sm');
+    expect(client.className).toContain('font-semibold');
+    expect(client.className).toContain('text-primary');
+    expect(servers.className).toContain('text-muted');
+    expect(client.className).not.toMatch(/\bbtn-/);
+    expect(servers.className).not.toMatch(/\bbtn-/);
   });
 
-  it('servers mode: the variants swap, sizes stay sm', async () => {
+  it('servers mode: the emphasis swaps', async () => {
     await load([]);
     serversUi.setMode('servers');
     render(ModeSwitcher);
     const client = screen.getByTestId('mode-switch-client');
     const servers = screen.getByTestId('mode-switch-servers');
-    expect(servers).toHaveBtnVariant('primary');
-    expect(servers).toHaveBtnSize('sm');
-    expect(client).toHaveBtnVariant('ghost');
-    expect(client).toHaveBtnSize('sm');
+    expect(servers.className).toContain('font-semibold');
+    expect(servers.className).toContain('text-primary');
+    expect(client.className).toContain('text-muted');
   });
 });
 
