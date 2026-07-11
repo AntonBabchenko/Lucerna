@@ -9,12 +9,9 @@ import { markSeen } from '$lib/onboarding/contextual-tours';
 // Heavy ServersPanel tab bodies + dialog + banner are stubbed so the panel
 // mounts in happy-dom without their transitive deps (console buffer, hosting
 // IPC, …). Only the empty-hero branch is under test here.
-vi.mock('$lib/servers/ServerConsole.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerConnectView.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerGeneralSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerSettings.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerMods.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/ServerPlugins.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/overview/ServerOverviewTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/settings/ServerSettingsTab.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/addons/ServerAddonsTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerHostingTab.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerBackupsView.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/ServerToInstanceDialog.svelte', () => ({ default: stubComponent() }));
@@ -98,7 +95,7 @@ async function load(data: ServerWithStatus_Serialize[]) {
 beforeEach(() => {
   serversUi.setMode('client');
   serversUi.selectServer(null);
-  serversUi.activeTab = 'console';
+  serversUi.activeTab = 'overview';
   serversUi.creating = false;
   serverList.mockReset();
   // clear() runs after the serversUi resets (they persist to localStorage)

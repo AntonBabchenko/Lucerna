@@ -7,15 +7,7 @@
 // no backend field, no bindings regen); tab + wizard flag are session-only.
 
 export type UiMode = 'client' | 'servers';
-export type ServerTab =
-  | 'console'
-  | 'connect'
-  | 'general'
-  | 'settings'
-  | 'mods'
-  | 'plugins'
-  | 'hosting'
-  | 'backups';
+export type ServerTab = 'overview' | 'settings' | 'addons' | 'hosting' | 'backups';
 
 const MODE_KEY = 'lucerna.ui.mode';
 const SELECTED_KEY = 'lucerna.ui.selectedServer';
@@ -39,7 +31,7 @@ export function loadSelectedServer(): string | null {
 class ServersUi {
   mode = $state<UiMode>(loadMode());
   selectedServerId = $state<string | null>(loadSelectedServer());
-  activeTab = $state<ServerTab>('console');
+  activeTab = $state<ServerTab>('overview');
   creating = $state(false);
 
   setMode(mode: UiMode): void {

@@ -93,7 +93,7 @@
       if (res.status === 'ok') {
         // Success toast: the exact key+params the legacy flows used —
         // servers.mods.localInstalled for jars, servers.mods.datapackInstalled
-        // for datapacks (param `name`, per ServerMods/ServerDatapacks).
+        // for datapacks (param `name`, per the retired Mods tab / ServerDatapacks).
         pushSuccess(
           get(t)(
             kind === 'datapack' ? 'servers.mods.datapackInstalled' : 'servers.mods.localInstalled',
@@ -215,7 +215,7 @@
       {#key kind}
         {#if kind === 'mod'}
           <!-- The ! is safe: 'mod' is only offered when modCapable, and
-               mod-capable cores are never paper/purpur (ServerMods parity). -->
+               mod-capable cores are never paper/purpur (see core-display). -->
           <ServerModBrowser
             {serverId}
             mcVersion={server.mc_version}

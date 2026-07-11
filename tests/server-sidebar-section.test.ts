@@ -69,7 +69,7 @@ describe('ServerSidebarSection', () => {
   beforeEach(() => {
     serversUi.setMode('client');
     serversUi.selectServer(null);
-    serversUi.activeTab = 'console';
+    serversUi.activeTab = 'overview';
     serversUi.creating = false;
     serverList.mockReset();
     serverStart.mockReset();
@@ -118,10 +118,10 @@ describe('ServerSidebarSection', () => {
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
   });
 
-  it('switches to the console tab immediately on Start click, before the command resolves', async () => {
+  it('switches to the Overview tab immediately on Start click, before the command resolves', async () => {
     await load([makeServer('a', false)]);
     serversUi.selectServer('a');
-    serversUi.activeTab = 'general';
+    serversUi.activeTab = 'settings';
 
     let resolveStart: ((v: { status: 'ok'; data: number }) => void) | undefined;
     const pending = new Promise((resolve) => {
@@ -132,7 +132,7 @@ describe('ServerSidebarSection', () => {
     render(ServerSidebarSection);
     await fireEvent.click(screen.getByTestId('sidebar-server-start'));
 
-    expect(serversUi.activeTab).toBe('console');
+    expect(serversUi.activeTab).toBe('overview');
     expect(serverStart).toHaveBeenCalledWith('a');
 
     resolveStart?.({ status: 'ok', data: 1 });

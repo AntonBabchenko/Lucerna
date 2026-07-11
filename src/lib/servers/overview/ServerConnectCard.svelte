@@ -30,7 +30,7 @@
   let offlineError = $state<string | null>(null);
 
   // Turn off online-mode so offline accounts can join, then restart to apply
-  // (server.properties is only read at startup). Mirrors ServerSettings' RMW.
+  // (server.properties is only read at startup). Mirrors ServerSettingsTab's RMW.
   async function allowOffline(): Promise<void> {
     switchingOffline = true;
     offlineError = null;

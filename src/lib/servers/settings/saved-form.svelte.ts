@@ -3,7 +3,7 @@
 // diverges from the saved snapshot. Consumers derive a JSON signature of
 // their fields and feed it to sync() from an $effect; markSaved(sig) is
 // called on save success. Extracted from the identical copies that lived in
-// ServerGeneralSettings.svelte and ServerSettings.svelte.
+// the retired General and Settings tab components.
 
 export class SavedForm {
   saved = $state(false);
