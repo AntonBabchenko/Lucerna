@@ -114,7 +114,7 @@ describe('ServerModsInstalled', () => {
     render(ServerModsInstalled, { serverId: 'srv-1' });
     expect(
       await screen.findByText(
-        'This core does not load mods. Paper-family servers use plugins instead: see the Plugins tab.',
+        'This core does not load mods. Paper-family servers use plugins instead: pick Plugins in the Add-ons tab.',
       ),
     ).toBeTruthy();
 
