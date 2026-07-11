@@ -6,6 +6,7 @@ import ServerModBrowser from '$lib/servers/mods/ServerModBrowser.svelte';
 const {
   mockSearch,
   mockVersions,
+  mockProject,
   mockInstallMod,
   mockCfStatus,
   mockOpenUrl,
@@ -14,6 +15,7 @@ const {
 } = vi.hoisted(() => ({
   mockSearch: vi.fn(),
   mockVersions: vi.fn(),
+  mockProject: vi.fn(),
   mockInstallMod: vi.fn(),
   mockCfStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
   mockOpenUrl: vi.fn().mockResolvedValue(undefined),
@@ -25,6 +27,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsSearch: mockSearch,
     modsVersions: mockVersions,
+    modsProject: mockProject,
     serverInstallMod: mockInstallMod,
     modsGetCurseforgeKeyStatus: mockCfStatus,
   },
@@ -57,6 +60,11 @@ describe('ServerModBrowser', () => {
     vi.clearAllMocks();
     mockCfStatus.mockResolvedValue({ status: 'ok', data: 'present' });
     mockSearch.mockResolvedValue({ status: 'ok', data: { hits: [hit('JEI', 'jei')], total: 1 } });
+    // Full-project envelope for the detail card's Overview tab (opens first).
+    mockProject.mockResolvedValue({
+      status: 'ok',
+      data: { summary: hit('JEI', 'jei'), body_html: '', gallery: [], website_url: null },
+    });
     mockVersions.mockResolvedValue({
       status: 'ok',
       data: [
@@ -180,9 +188,10 @@ describe('ServerModBrowser', () => {
     // The card body button carries the project name.
     const cardBody = await screen.findByRole('button', { name: /JEI/ });
     await fireEvent.click(cardBody);
-    // The in-launcher detail modal mounts…
+    // The in-launcher detail modal mounts on its Overview tab…
     expect(await screen.findByTestId('server-content-detail')).toBeTruthy();
-    // …and its version picker lists the fetched version.
+    // …and the Versions tab lists the fetched version.
+    await fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
     expect(await screen.findByText('15.0.0')).toBeTruthy();
     expect(mockOpenUrl).not.toHaveBeenCalled();
   });

@@ -6,6 +6,7 @@ import ServerPluginBrowser from '$lib/servers/plugins/ServerPluginBrowser.svelte
 const {
   mockSearch,
   mockVersions,
+  mockProject,
   mockInstallPlugin,
   mockOpenUrl,
   mockPushSuccess,
@@ -13,6 +14,7 @@ const {
 } = vi.hoisted(() => ({
   mockSearch: vi.fn(),
   mockVersions: vi.fn(),
+  mockProject: vi.fn(),
   mockInstallPlugin: vi.fn(),
   mockOpenUrl: vi.fn().mockResolvedValue(undefined),
   mockPushSuccess: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsSearch: mockSearch,
     modsPluginVersions: mockVersions,
+    modsProject: mockProject,
     serverInstallPlugin: mockInstallPlugin,
   },
 }));
@@ -86,6 +89,11 @@ describe('ServerPluginBrowser', () => {
       data: { hits: [hit('WorldEdit', 'we')], total: 1 },
     });
     mockVersions.mockResolvedValue({ status: 'ok', data: [version('v9'), version('v8')] });
+    // Full-project envelope for the detail card's Overview tab (opens first).
+    mockProject.mockResolvedValue({
+      status: 'ok',
+      data: { summary: hit('WorldEdit', 'we'), body_html: '', gallery: [], website_url: null },
+    });
     mockInstallPlugin.mockResolvedValue({
       status: 'ok',
       data: { installed: ['worldedit.jar'], unresolved: [] },
@@ -127,8 +135,10 @@ describe('ServerPluginBrowser', () => {
     renderBrowser();
     const cardBody = await screen.findByRole('button', { name: /WorldEdit/ });
     await fireEvent.click(cardBody);
-    // The in-launcher detail modal mounts with its version picker.
+    // The in-launcher detail modal mounts on its Overview tab; versions live
+    // behind the Versions tab.
     expect(await screen.findByTestId('server-content-detail')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
     expect(await screen.findByText('v9')).toBeTruthy();
     // Clicking the body must NOT open the external site.
     expect(mockOpenUrl).not.toHaveBeenCalled();
@@ -141,8 +151,9 @@ describe('ServerPluginBrowser', () => {
     const modal = await screen.findByTestId('server-content-detail');
     // Two versions listed (v9, v8) INSIDE the modal (the grid card behind it
     // still has its own quick-install button — scope to the modal). Install
-    // the older one from the picker.
+    // the older one from the picker, behind the Versions tab.
     const modalUtils = within(modal);
+    await fireEvent.click(modalUtils.getByRole('tab', { name: 'Versions' }));
     const installButtons = await modalUtils.findAllByRole('button', { name: 'Install' });
     expect(installButtons).toHaveLength(2);
     await fireEvent.click(installButtons[1]);
