@@ -60,4 +60,37 @@ describe('serverState list load state (#23)', () => {
     await serverState.refresh();
     expect(serverState.listError).toBeNull();
   });
+
+  it('a retry in flight reads as loading, not as a settled empty success', async () => {
+    // refresh() clears listError at the START of an attempt. Consumers that
+    // gate on "settled AND successful" (the page's reconcile effect) must
+    // also check listLoading, or a Retry after a failed first load looks
+    // like a successful empty load for the in-flight window. This pins the
+    // signal combination that gate relies on.
+    vi.mocked(commands.serverList).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'Io', message: 'transient' } as unknown as never,
+    });
+    await serverState.refresh();
+    expect(serverState.listError).not.toBeNull();
+    expect(serverState.listLoadedOnce).toBe(true);
+
+    let resolveRetry: ((v: unknown) => void) | undefined;
+    vi.mocked(commands.serverList).mockReturnValue(
+      new Promise((res) => {
+        resolveRetry = res;
+      }) as never,
+    );
+    const retry = serverState.refresh();
+    // In-flight window: the error is already cleared, but loading is up —
+    // the pair (listError === null, listLoading === true) must never read
+    // as a settled success.
+    expect(serverState.listError).toBeNull();
+    expect(serverState.listLoading).toBe(true);
+
+    resolveRetry?.({ status: 'ok', data: [] });
+    await retry;
+    expect(serverState.listLoading).toBe(false);
+    expect(serverState.listError).toBeNull();
+  });
 });

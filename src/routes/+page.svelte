@@ -209,9 +209,14 @@
   // a SETTLED, SUCCESSFUL load: listLoadedOnce alone isn't enough — a failed
   // load (typed or thrown, both land in listError) must not let reconcile()
   // treat "never really loaded" as "empty" and wipe the persisted selection.
-  // A later successful Retry clears listError and re-enables reconcile.
+  // listLoading must close the gate too: refresh() clears listError at the
+  // START of an attempt, so a Retry after a failed first load would otherwise
+  // open the gate against the still-empty list for the in-flight window.
+  // Reconcile therefore re-enables only once a retry actually SUCCEEDS.
   $effect(() => {
-    if (!serverState.listLoadedOnce || serverState.listError !== null) return;
+    if (!serverState.listLoadedOnce || serverState.listLoading || serverState.listError !== null) {
+      return;
+    }
     serversUi.reconcile(serverState.list.map((s) => s.id));
   });
 
