@@ -82,6 +82,16 @@ describe('ServerSidebarSection', () => {
     localStorage.clear();
   });
 
+  // MUST stay the first test in this file: it asserts the pre-settled-load
+  // state, and listLoadedOnce is module-singleton state that any load() from
+  // an earlier test would have already latched true.
+  it('shows neither the empty-state text nor the select before the first load settles', () => {
+    render(ServerSidebarSection);
+    expect(screen.queryByText('No servers yet.')).toBeNull();
+    expect(screen.queryByTestId('sidebar-server-select')).toBeNull();
+    expect(screen.getByTestId('sidebar-create-server')).toBeTruthy();
+  });
+
   it('shows the empty state and no select/start when there are no servers', async () => {
     await load([]);
     render(ServerSidebarSection);

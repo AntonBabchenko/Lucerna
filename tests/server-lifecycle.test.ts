@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 
-const { serverStart, serverStop, serverRestart, serverList, serverDiagnose } = vi.hoisted(() => ({
-  serverStart: vi.fn(),
-  serverStop: vi.fn(),
-  serverRestart: vi.fn(),
-  serverList: vi.fn(),
-  serverDiagnose: vi.fn(),
-}));
+const { serverStart, serverStop, serverRestart, serverList, serverDiagnose, serverDelete } =
+  vi.hoisted(() => ({
+    serverStart: vi.fn(),
+    serverStop: vi.fn(),
+    serverRestart: vi.fn(),
+    serverList: vi.fn(),
+    serverDiagnose: vi.fn(),
+    serverDelete: vi.fn(),
+  }));
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { serverStart, serverStop, serverRestart, serverList, serverDiagnose },
+  commands: { serverStart, serverStop, serverRestart, serverList, serverDiagnose, serverDelete },
   events: {
     serverLogLine: { listen: vi.fn() },
     serverSpawned: { listen: vi.fn() },
@@ -50,6 +52,7 @@ describe('serverState lifecycle helpers', () => {
     serverRestart.mockReset();
     serverList.mockReset();
     serverDiagnose.mockReset();
+    serverDelete.mockReset();
     serverList.mockResolvedValue({ status: 'ok', data: [makeServer('a', true)] });
     serverDiagnose.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
     serverState.clearActionError('a');
@@ -113,6 +116,16 @@ describe('serverState lifecycle helpers', () => {
     resolveStart({ status: 'ok', data: 1 });
     await p;
     expect(serverState.actionFor('a')).toBeNull();
+  });
+
+  it('remove clears the per-id action error so a recreated same-slug server starts clean', async () => {
+    serverStart.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
+    await serverState.start('a');
+    expect(serverState.actionErrorFor('a')).toBeDefined();
+
+    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    await serverState.remove('a');
+    expect(serverState.actionErrorFor('a')).toBeUndefined();
   });
 
   it('clearActionError removes a recorded error', async () => {

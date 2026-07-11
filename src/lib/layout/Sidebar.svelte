@@ -621,8 +621,6 @@
             {/if}
           </ContextMenu>
         {/if}
-      {/if}
-      {#if serversUi.mode === 'client'}
         {#if isVisible('gallery')}
           <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button

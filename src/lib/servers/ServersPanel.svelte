@@ -80,11 +80,12 @@
   // Start/Stop) — a start failure triggered from the sidebar surfaces here.
   const actionError = $derived(server ? serverState.actionErrorFor(server.id) : undefined);
 
-  // The store records action errors RAW: either a typed IPC Result error
-  // (object with a `kind`) or a thrown value (transport failure). formatError
-  // only understands the former — JSON.stringify(new Error()) renders as
-  // "{}" — so route by shape (same split as ServerToInstanceDialog's create()).
-  function describeActionError(e: unknown): string {
+  // The store records action AND list errors RAW: either a typed IPC Result
+  // error (object with a `kind`) or a thrown value (transport failure).
+  // formatError only understands the former — JSON.stringify(new Error())
+  // renders as "{}" — so route by shape (same split as
+  // ServerToInstanceDialog's create()).
+  function describeStoreError(e: unknown): string {
     if (typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string') {
       return formatError(e as Parameters<typeof formatError>[0]);
     }
@@ -182,8 +183,10 @@
       role="alert"
     >
       <p class="text-sm text-danger">{$t('servers.loadError')}</p>
+      <!-- listError holds a typed IPC error OR a thrown transport Error (see
+           refresh() in server-state) — route by shape like action errors. -->
       <p class="text-xs text-muted break-all">
-        {formatError(serverState.listError as Parameters<typeof formatError>[0])}
+        {describeStoreError(serverState.listError)}
       </p>
       <button type="button" class="btn-secondary btn-sm" onclick={() => void serverState.refresh()}>
         {$t('servers.retry')}
@@ -291,7 +294,7 @@
            owns the message and we suppress this duplicate. -->
       {#if actionError !== undefined && !serverState.diagnosisFor(server.id)}
         <p class="px-4 pt-2 text-sm text-danger" role="alert" data-testid="server-action-error">
-          {describeActionError(actionError)}
+          {describeStoreError(actionError)}
         </p>
       {/if}
 

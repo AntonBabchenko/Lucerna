@@ -86,21 +86,21 @@
     <span>{$t('sidebar.server')}</span>
   </div>
 
-  {#if serverState.list.length === 0}
+  {#if serverState.list.length > 0}
+    <Select
+      class="w-full text-sm"
+      value={serversUi.selectedServerId ?? ''}
+      options={serverOptions}
+      onChange={(v) => serversUi.selectServer(String(v))}
+      ariaLabel={$t('sidebar.server')}
+      optionLeading={serverLeading}
+      valueLeading={serverLeading}
+      dataTestid="sidebar-server-select"
+    />
+  {:else if serverState.listLoadedOnce}
+    <!-- Only claim "no servers" after a settled load — while the initial fetch
+         is still in flight show nothing (the label + create button remain). -->
     <p class="text-xs text-muted">{$t('sidebar.noServers')}</p>
-  {:else}
-    <div data-tour-ctx="servers-picker">
-      <Select
-        class="w-full text-sm"
-        value={serversUi.selectedServerId ?? ''}
-        options={serverOptions}
-        onChange={(v) => serversUi.selectServer(String(v))}
-        ariaLabel={$t('sidebar.server')}
-        optionLeading={serverLeading}
-        valueLeading={serverLeading}
-        dataTestid="sidebar-server-select"
-      />
-    </div>
   {/if}
 
   <!-- Always-present span wrapper (tooltip param null when enabled) so the

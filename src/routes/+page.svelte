@@ -196,10 +196,6 @@
   let modpacksModalOpen = $state(false);
   let launcherImportOpen = $state(false);
 
-  // True once the first server-list load has settled — gates reconcile() so a
-  // pre-load empty list can't wipe the persisted selection.
-  let serversReady = $state(false);
-
   // The Overview missing-mods indicator and any other deep-link that
   // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
   // itself reads the same rune to flip to the Imported sub-tab.
@@ -209,11 +205,13 @@
     }
   });
 
-  // Keep the persisted server selection honest against the live list (deleted
-  // server, fresh profile, list refreshes). reconcile() writes only when the
-  // selection is actually invalid, so this cannot loop.
+  // Keep the persisted server selection honest against the live list. Gated on
+  // a SETTLED, SUCCESSFUL load: listLoadedOnce alone isn't enough — a failed
+  // load (typed or thrown, both land in listError) must not let reconcile()
+  // treat "never really loaded" as "empty" and wipe the persisted selection.
+  // A later successful Retry clears listError and re-enables reconcile.
   $effect(() => {
-    if (!serversReady) return;
+    if (!serverState.listLoadedOnce || serverState.listError !== null) return;
     serversUi.reconcile(serverState.list.map((s) => s.id));
   });
 
@@ -380,18 +378,9 @@
     void refreshInstances();
 
     // Servers now live in a persistent panel (not a modal), so the store boots
-    // with the page: subscribe to events once, then load the list and only
-    // then let reconcile() touch the persisted selection.
+    // with the page: subscribe to events once, then load the list.
     serverState.init();
-    void serverState
-      .refresh()
-      .then(() => {
-        serversReady = true;
-      })
-      .catch(() => {
-        // Transport failure: leave serversReady false — reconcile must not
-        // run against a list we never loaded.
-      });
+    void serverState.refresh();
 
     events.processSpawned
       .listen((event) => {

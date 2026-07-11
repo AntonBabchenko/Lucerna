@@ -95,6 +95,11 @@ async function refresh(): Promise<void> {
     const res = await commands.serverList();
     if (res.status === 'ok') list = res.data;
     else listError = res.error;
+  } catch (e) {
+    // A thrown IPC failure (transport error, not a typed Result) must land in
+    // listError like a typed one — otherwise refresh() rejects, a `void`-ing
+    // caller swallows it, and the error/retry surface never shows.
+    listError = e;
   } finally {
     listLoading = false;
     listLoadedOnce = true;
@@ -476,6 +481,12 @@ async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
   const r = await commands.serverDelete(id);
   if (r.status === 'ok') {
     list = list.filter((s) => s.id !== id);
+    // Per-id map hygiene: ids are slugs, so a recreated same-name server would
+    // otherwise resurrect the deleted one's stale error/busy/diagnosis/console.
+    setActionError(id, null);
+    setActionBusy(id, null);
+    clearDiagnosis(id);
+    clearLines(id);
     return { ok: true };
   }
   return { ok: false, error: r.error };

@@ -80,8 +80,8 @@ const baseProps = {
   installing: false,
 };
 
-// 'servers' is intentionally absent: the bottom Servers button was replaced by
-// the (non-hideable) mode switcher; its registry entry is removed in Task 9.
+// 'servers' is intentionally absent: it is no longer a sidebar-button id —
+// the (non-hideable) mode switcher replaced the bottom Servers button.
 const ALL_IDS = [
   'account_actions',
   'manage',

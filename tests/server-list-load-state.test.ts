@@ -37,6 +37,17 @@ describe('serverState list load state (#23)', () => {
     expect(serverState.listLoading).toBe(false);
   });
 
+  it('a thrown (non-Result) IPC error lands in listError, not a rejection', async () => {
+    const boom = new Error('boom');
+    vi.mocked(commands.serverList).mockRejectedValue(boom);
+    // Must resolve (no unhandled rejection) — a `void`-ing caller would
+    // otherwise swallow the throw with no user-visible trace.
+    await serverState.refresh();
+    expect(serverState.listError).toBe(boom);
+    expect(serverState.listLoading).toBe(false);
+    expect(serverState.listLoadedOnce).toBe(true);
+  });
+
   it('clears a prior error when a later refresh succeeds', async () => {
     vi.mocked(commands.serverList).mockResolvedValue({
       status: 'error',

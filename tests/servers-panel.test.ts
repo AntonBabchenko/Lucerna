@@ -255,8 +255,8 @@ describe('ServersPanel', () => {
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
   });
 
-  // Ported from the retired ServerManageView test (server-action-error-fallback,
-  // T11): lifecycle busy/error state now lives in the store and is shared with
+  // Ported from the retired ServerManageView test (server-action-error-fallback):
+  // lifecycle busy/error state now lives in the store and is shared with
   // the sidebar, but the render gate — suppress the inline fallback once a rich
   // diagnosis banner exists for the server — is unique to this panel and had no
   // ServersPanel-level coverage yet.

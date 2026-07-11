@@ -276,10 +276,10 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         get_active_instance: () =>
           m.instances.find((i: { id: string }) => i.id === m.active_instance_id) ?? null,
 
-        // Servers — the Servers-mode panel's list. Since T8, +page.svelte calls
-        // this at boot in EVERY full-app spec (serverState.init() + refresh()),
-        // so a missing/wrong handler here breaks the whole e2e suite, not just
-        // servers-mode specs.
+        // Servers — the Servers-mode panel's list. The page boots the servers
+        // store on mount (serverState.init() + refresh()), so EVERY full-app
+        // spec hits server_list — a missing/wrong handler here breaks the
+        // whole e2e suite, not just servers-mode specs.
         server_list: () => m.servers,
 
         // Server diagnosis — selecting a server triggers a diagnose refresh,

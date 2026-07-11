@@ -2,9 +2,9 @@
 // +page.svelte's two mounted-but-hidden panels). Exercises:
 //   - the switcher's aria-pressed state
 //   - both panels staying mounted across a switch (the client tab survives)
-//   - the T8-review cascade regression: the inactive panel wrapper must carry
-//     the `hidden` CLASS (the [hidden] attribute loses to .flex in Tailwind
-//     v3) — asserted via the panel-client/panel-servers testids added to
+//   - the cascade regression: the [hidden] attribute loses to .flex in
+//     Tailwind v3, so the inactive panel wrapper must carry the `hidden`
+//     CLASS — asserted via the panel-client/panel-servers testids added to
 //     +page.svelte for exactly this purpose
 //   - reconcile() auto-selecting the only server so the management tabs (not
 //     the empty hero) render on entering servers mode
@@ -73,7 +73,7 @@ test('mode switcher swaps panels and preserves the client tab', async ({ page })
   await expect(page.getByTestId('mode-switch-servers')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('mode-switch-client')).toHaveAttribute('aria-pressed', 'false');
 
-  // Cascade regression (T8 review): the inactive panel wrapper must carry the
+  // Cascade regression ([hidden] loses to .flex): the inactive panel wrapper must carry the
   // `hidden` CLASS, and the client tablist must not be visible while hidden.
   // Use a plain [role] CSS locator (not getByRole) — Playwright's role
   // locator excludes accessibility-hidden subtrees by default, which would

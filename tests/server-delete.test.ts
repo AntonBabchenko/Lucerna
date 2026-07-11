@@ -136,7 +136,7 @@ describe('ServerGeneralSettings danger zone (delete server)', () => {
     expect(serversUi.selectedServerId).toBeNull();
   });
 
-  it('(e) trigger is disabled while the remove call is pending (T11 busy-guard ride-along)', async () => {
+  it('(e) trigger is disabled while the remove call is pending', async () => {
     await load([makeServer('a', false)]);
     let resolveDelete: ((v: { status: 'ok'; data: null }) => void) | undefined;
     serverDelete.mockReturnValue(
