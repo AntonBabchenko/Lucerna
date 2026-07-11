@@ -1859,6 +1859,25 @@
       "mbPerSec": "{n} МБ/с"
     }
   },
+  "optimise": {
+    "button": "Оптимизировать",
+    "vanillaTooltip": "Добавьте загрузчик модов (Fabric/Forge/…), чтобы использовать оптимизацию",
+    "dialogTitle": "Оптимизация производительности",
+    "intro": "Курируемый набор модов на производительность для {loader}. Уже установленные и несовместимые с версией моды пропускаются.",
+    "sectionInstall": "Будут установлены",
+    "sectionInstalled": "Уже установлены",
+    "sectionSkipped": "Не применимы",
+    "statusUnavailable": "Нет сборки под Minecraft {mc}",
+    "statusConflictOptifine": "Конфликтует с OptiFine",
+    "statusUnknown": "Не удалось проверить сейчас",
+    "noteSinglePlayerTick": "Наибольший эффект в одиночке / LAN",
+    "nothingToInstall": "Этот инстанс уже оптимизирован.",
+    "install": "Установить {count}",
+    "cancel": "Отмена",
+    "toastDone": "Оптимизация завершена — установлено {installed}, пропущено {skipped}",
+    "toastSomeFailed": "Оптимизация завершена — установлено {installed}, ошибок {failed}",
+    "resolving": "Проверяю…"
+  },
   "servers": {
     "create": "Создать сервер",
     "empty": "Серверов пока нет",

@@ -118,6 +118,21 @@ describe('OverviewTab', () => {
     expect(getByTestId('overview-modpack-card')).toBeTruthy();
   });
 
+  it('enables the Optimise button on a loader instance', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, onOptimise: vi.fn() },
+    });
+    expect((getByTestId('optimise-btn') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('disables the Optimise button on a vanilla instance', () => {
+    const vanilla = { ...fabricInst, loader: 'vanilla' as const, loader_version: null };
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: vanilla, onOptimise: vi.fn() },
+    });
+    expect((getByTestId('optimise-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('surfaces an integrity attention row for an unhealthy instance', () => {
     const unhealthy = {
       ...fabricInst,

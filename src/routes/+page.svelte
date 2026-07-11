@@ -6,6 +6,7 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
+    type OptimisePlan,
   } from '$lib/ipc/bindings';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
@@ -54,6 +55,7 @@
   import SkinCapeModal from '$lib/accounts/SkinCapeModal.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
+  import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
@@ -174,6 +176,59 @@
   const clientNav = $derived<NavStatusKind>(
     running ? 'running' : exited && classifyExit(exited).kind === 'crashed' ? 'crashed' : 'idle',
   );
+
+  // One-click Optimise: resolve the curated performance set, preview it, then
+  // install the WillInstall entries serially through the existing dep-aware
+  // pipeline (mods_install_with_deps emits mod-installed, which refreshes the
+  // installed stats).
+  let optimiseOpen = $state(false);
+  let optimiseResolving = $state(false);
+  let optimiseInstalling = $state(false);
+  let optimisePlan = $state<OptimisePlan | null>(null);
+
+  async function onOptimise() {
+    if (!activeInstance || optimiseResolving) return;
+    optimiseResolving = true;
+    try {
+      const res = await commands.optimiseResolve(
+        activeInstance.id,
+        activeInstance.mc_version,
+        activeInstance.loader,
+      );
+      if (res.status === 'ok') {
+        optimisePlan = res.data;
+        optimiseOpen = true;
+      } else {
+        pushWarning(formatError(res.error));
+      }
+    } finally {
+      optimiseResolving = false;
+    }
+  }
+
+  async function confirmOptimise() {
+    if (!activeInstance || !optimisePlan) return;
+    const instanceId = activeInstance.id;
+    const toInstall = optimisePlan.entries.filter(
+      (e) => e.status.status === 'will_install' && e.version,
+    );
+    optimiseInstalling = true;
+    let installed = 0;
+    let failed = 0;
+    for (const e of toInstall) {
+      if (!e.version) continue;
+      const res = await commands.modsInstallWithDeps(instanceId, e.version, []);
+      if (res.status === 'ok') installed += 1;
+      else failed += 1;
+    }
+    optimiseInstalling = false;
+    optimiseOpen = false;
+    optimisePlan = null;
+    void stats.refreshInstalledStats(instanceId);
+    const skipped = toInstall.length - installed - failed;
+    if (failed > 0) pushWarning($t('optimise.toastSomeFailed', { installed, failed }));
+    else pushSuccess($t('optimise.toastDone', { installed, skipped }));
+  }
   // Tauri event unlisteners, captured so the listeners are torn down on unmount
   // rather than leaking across the page's lifetime. (This is a long-lived
   // single-page shell, but the listeners still need explicit cleanup — an
@@ -1039,6 +1094,8 @@
                 logsOpen = true;
               }}
               onOpenServers={() => serversUi.setMode('servers')}
+              {onOptimise}
+              {optimiseResolving}
             />
           {/snippet}
         </MainTabs>
@@ -1155,6 +1212,21 @@
       instanceId={activeInstance.id}
       instanceName={activeInstance.name}
       onClose={() => (exportDialogOpen = false)}
+    />
+  {/if}
+  {#if optimiseOpen && optimisePlan && activeInstance}
+    <OptimiseDialog
+      plan={optimisePlan}
+      loader={activeInstance.loader}
+      mc={activeInstance.mc_version}
+      installing={optimiseInstalling}
+      onConfirm={confirmOptimise}
+      onCancel={() => {
+        if (!optimiseInstalling) {
+          optimiseOpen = false;
+          optimisePlan = null;
+        }
+      }}
     />
   {/if}
   {#if launcherImportOpen}
