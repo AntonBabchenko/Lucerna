@@ -344,10 +344,10 @@
           </span>
         </div>
         <div class="flex-1 min-w-0 flex flex-col gap-3">
-          <div class="flex gap-2 flex-wrap">
+          <div class="flex gap-2">
             <button
               type="button"
-              class="btn-secondary btn-sm"
+              class="btn-secondary btn-sm flex-1 justify-center"
               onclick={chooseSkinFile}
               disabled={busy}
             >
@@ -355,7 +355,7 @@
             </button>
             <button
               type="button"
-              class="btn-secondary btn-sm flex items-center gap-1.5"
+              class="btn-secondary btn-sm flex-1 flex items-center justify-center gap-1.5"
               onclick={() => (editing = true)}
               disabled={busy}
             >
@@ -365,17 +365,17 @@
           </div>
           <div>
             <div class="text-xs text-muted mb-1.5">{$t('cosmetics.model')}</div>
-            <div class="inline-flex border border-border-subtle rounded overflow-hidden">
+            <div class="flex w-full border border-border-subtle rounded overflow-hidden">
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'classic'
+                class="flex-1 px-4 py-1.5 text-sm {variant === 'classic'
                   ? 'bg-accent-soft text-accent'
                   : 'text-secondary'}"
                 onclick={() => setVariant('classic')}>{$t('cosmetics.modelClassic')}</button
               >
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'slim'
+                class="flex-1 px-4 py-1.5 text-sm {variant === 'slim'
                   ? 'bg-accent-soft text-accent'
                   : 'text-secondary'}"
                 onclick={() => setVariant('slim')}>{$t('cosmetics.modelSlim')}</button
@@ -407,7 +407,7 @@
           {:else}
             <button
               type="button"
-              class="btn-secondary btn-sm self-start"
+              class="btn-secondary btn-sm w-full justify-center"
               onclick={requestReset}
               disabled={busy}
             >
@@ -417,7 +417,7 @@
           {#if undoSkin}
             <button
               type="button"
-              class="btn-secondary btn-sm self-start flex items-center gap-1.5"
+              class="btn-secondary btn-sm w-full flex items-center justify-center gap-1.5"
               onclick={restorePreviousSkin}
               disabled={busy}
             >
