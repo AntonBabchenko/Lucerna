@@ -13,7 +13,7 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { commands, type Account, type SkinVariant } from '$lib/ipc/bindings';
   import type { SkinViewer } from 'skinview3d';
-  import type { Object3D } from 'three';
+  import type { Mesh, Object3D } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
   import {
     allFaceRects,
@@ -31,6 +31,7 @@
   } from '$lib/accounts/skin-editor/tools';
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
   import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import { createCenterlineGuide, disposeGuide } from '$lib/accounts/skin-editor/centerline';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import {
@@ -97,6 +98,7 @@
 
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
+  let centerline: Mesh | null = null;
   let viewerBuilding = false;
   let disposeControls: (() => void) | null = null;
   let viewportBox: HTMLElement | null = null;
@@ -185,8 +187,20 @@
       await viewer.loadSkin(url, { model: variantToModel(variant) });
       renderCompanion();
       fitViewport();
+      syncCenterline();
     } finally {
       viewerBuilding = false;
+    }
+  }
+
+  function syncCenterline(): void {
+    if (!viewer) return;
+    if (mirror && !centerline) {
+      centerline = createCenterlineGuide();
+      viewer.scene.add(centerline);
+    } else if (!mirror && centerline) {
+      disposeGuide(centerline);
+      centerline = null;
     }
   }
 
@@ -195,6 +209,10 @@
     void buildViewer();
     return {
       destroy() {
+        if (centerline) {
+          disposeGuide(centerline);
+          centerline = null;
+        }
         disposeControls?.();
         disposeControls = null;
         viewer?.dispose();
@@ -409,6 +427,7 @@
   function toggleMirror(): void {
     mirror = !mirror;
     renderCompanion();
+    syncCenterline();
   }
 
   function companionTexel(e: PointerEvent): { x: number; y: number } | null {

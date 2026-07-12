@@ -4,12 +4,13 @@
 // editor's paint pipeline before shipping. skinview3d is pinned in package.json.
 
 import type { SkinViewer } from 'skinview3d';
-import type { Object3D, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
+import type { Object3D, PerspectiveCamera, Scene, Texture, WebGLRenderer } from 'three';
 
 export function assertSkinViewerContract(v: SkinViewer): void {
   const canvas: HTMLCanvasElement = v.skinCanvas;
   const camera: PerspectiveCamera = v.camera;
   const renderer: WebGLRenderer = v.renderer;
+  const scene: Scene = v.scene;
   const controlsEnabled: boolean = v.controls.enabled;
   const mouseButtons = v.controls.mouseButtons; // { LEFT?, MIDDLE?, RIGHT? } of THREE.MOUSE
   const enablePan: boolean = v.controls.enablePan;
@@ -20,6 +21,7 @@ export function assertSkinViewerContract(v: SkinViewer): void {
   void canvas;
   void camera;
   void renderer;
+  void scene;
   void controlsEnabled;
   void mouseButtons;
   void enablePan;
