@@ -10,6 +10,14 @@
   // Empty `value` means "no version filter" — the caller sends null to
   // the search backend. A "Any version" row at the top of the dropdown
   // is the explicit way to reset.
+  //
+  // A11y (DESIGN.md "Known gaps"): `aria-selected` marks the COMMITTED option
+  // (the row whose id === value, or the "Any version" row when value is empty),
+  // NOT the keyboard-active row — the active descendant is already announced via
+  // `aria-activedescendant`. Mapping aria-selected to activeIndex made a screen
+  // reader read whatever row the cursor sat on as "selected", so the user could
+  // never hear which version was actually chosen. Home/End jump to first/last
+  // match, matching Select.
 
   let {
     value = $bindable(''),
@@ -41,6 +49,9 @@
   // the arrow-key-highlighted option — without it, keyboard navigation is
   // invisible to a screen reader (the input's value never changes on ArrowUp/Down).
   const optionId = (i: number) => `${listboxId}-opt-${i}`;
+  // Stable id for the "Any version" reset row so aria-selected can mark it as
+  // the committed option when no filter is set (value === '').
+  const anyOptionId = `${listboxId}-any`;
 
   // Snapshots / pre-releases would bury the stable list. The Manage
   // modal already excludes them from the version picker — same call
@@ -76,6 +87,16 @@
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       activeIndex = Math.max(activeIndex - 1, -1);
+    } else if (e.key === 'Home') {
+      // Parity with Select: jump to the first match.
+      e.preventDefault();
+      open = true;
+      activeIndex = filtered.length > 0 ? 0 : -1;
+    } else if (e.key === 'End') {
+      // Parity with Select: jump to the last match.
+      e.preventDefault();
+      open = true;
+      activeIndex = filtered.length - 1;
     } else if (e.key === 'Enter') {
       if (activeIndex >= 0 && activeIndex < filtered.length) {
         e.preventDefault();
@@ -143,6 +164,9 @@
     >
       <button
         type="button"
+        id={anyOptionId}
+        role="option"
+        aria-selected={value === ''}
         class="block w-full text-left px-3 py-1 btn-tertiary text-sm italic"
         onclick={clear}
       >
@@ -153,7 +177,7 @@
           type="button"
           id={optionId(i)}
           role="option"
-          aria-selected={activeIndex === i}
+          aria-selected={id === value}
           class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle"
           class:bg-accent-soft={activeIndex === i}
           onclick={() => pick(id)}
