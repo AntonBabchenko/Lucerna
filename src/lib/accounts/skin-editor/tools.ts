@@ -2,7 +2,7 @@
 // coordinates; the UI layer resolves pointer events to texels first.
 
 import type { FaceRect } from './atlas';
-import { getTexel, type Rgba, setTexel } from './buffer';
+import { getTexel, type Rgba, SKIN_SIZE, setTexel } from './buffer';
 
 export function pencil(
   data: Uint8ClampedArray,
@@ -129,4 +129,28 @@ export function noise(
       setTexel(data, x + dx, y + dy, [c[0] + delta, c[1] + delta, c[2] + delta, c[3]]);
     }
   }
+}
+
+// Clear every texel not covered by any face rect (the gaps outside the UV
+// layout, which never render on the model). Returns true if anything changed, so
+// callers can skip a no-op history entry. `rects` is the layout for the variant.
+export function clearOutsideAtlas(data: Uint8ClampedArray, rects: FaceRect[]): boolean {
+  const used = new Uint8Array(SKIN_SIZE * SKIN_SIZE);
+  for (const r of rects) {
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) used[y * SKIN_SIZE + x] = 1;
+    }
+  }
+  let changed = false;
+  for (let y = 0; y < SKIN_SIZE; y++) {
+    for (let x = 0; x < SKIN_SIZE; x++) {
+      if (used[y * SKIN_SIZE + x]) continue;
+      const i = (y * SKIN_SIZE + x) * 4;
+      if (data[i] || data[i + 1] || data[i + 2] || data[i + 3]) {
+        setTexel(data, x, y, [0, 0, 0, 0]);
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
