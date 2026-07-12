@@ -80,6 +80,10 @@
   let canUndo = $state(false);
   let canRedo = $state(false);
   let companionBoxWidth = $state(240); // measured companion box width (px), drives backing
+  let resizeRowWidth = $state(880); // measured width of the 3D↔panel row
+  // Let the panel grow to half the row (so in fullscreen the border reaches the
+  // screen middle), but never below the fixed 640 default.
+  let maxPanelWidth = $derived(Math.max(PANEL_MAX_WIDTH, Math.floor(resizeRowWidth / 2)));
 
   const isMicrosoft = $derived(account.kind === 'microsoft');
   const history = new SkinHistory(50);
@@ -107,6 +111,10 @@
   let viewportBox: HTMLElement | null = null;
   let panelWidth = $state(300);
   let companion: HTMLCanvasElement | null = null;
+  let companionBox: HTMLElement | null = null;
+  let companionZoom = $state(1); // 2D companion magnification (1x–8x), wheel-controlled
+  let companionPanning = false;
+  let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
   let painting = false;
   let companionPainting = false;
 
@@ -252,6 +260,25 @@
     };
   }
 
+  function observeResizeRow(node: HTMLElement) {
+    const ro = new ResizeObserver(() => {
+      const w = node.clientWidth;
+      resizeRowWidth = w;
+      // Re-clamp when the window shrinks or fullscreen is toggled off.
+      panelWidth = clampPanelWidth(
+        panelWidth,
+        PANEL_MIN_WIDTH,
+        Math.max(PANEL_MAX_WIDTH, Math.floor(w / 2)),
+      );
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+      },
+    };
+  }
+
   function startPanelResize(e: PointerEvent): void {
     if (e.button !== 0) return;
     const startX = e.clientX;
@@ -260,7 +287,11 @@
     handle.setPointerCapture(e.pointerId);
     const onMove = (ev: PointerEvent): void => {
       // Panel is on the right: dragging left (smaller clientX) widens it.
-      panelWidth = clampPanelWidth(startWidth - (ev.clientX - startX));
+      panelWidth = clampPanelWidth(
+        startWidth - (ev.clientX - startX),
+        PANEL_MIN_WIDTH,
+        maxPanelWidth,
+      );
     };
     const onUp = (ev: PointerEvent): void => {
       if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
@@ -274,8 +305,10 @@
   }
 
   function onPanelResizeKey(e: KeyboardEvent): void {
-    if (e.key === 'ArrowLeft') panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP);
-    else if (e.key === 'ArrowRight') panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP);
+    if (e.key === 'ArrowLeft')
+      panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
+    else if (e.key === 'ArrowRight')
+      panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
     else return;
     e.preventDefault();
   }
@@ -437,6 +470,7 @@
   }
 
   function observeCompanionBox(node: HTMLElement) {
+    companionBox = node;
     companionBoxWidth = node.clientWidth;
     const ro = new ResizeObserver(() => {
       companionBoxWidth = node.clientWidth;
@@ -446,8 +480,15 @@
     return {
       destroy() {
         ro.disconnect();
+        companionBox = null;
       },
     };
+  }
+
+  function onCompanionWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.25 : 0.8;
+    companionZoom = Math.min(8, Math.max(1, companionZoom * factor));
   }
 
   function toggleMirror(): void {
@@ -466,7 +507,19 @@
   }
 
   function onCompanionDown(e: PointerEvent): void {
-    if (busy || tool === 'pan') return;
+    if (busy) return;
+    if (tool === 'pan') {
+      if (!companionBox) return;
+      companionPanning = true;
+      companion?.setPointerCapture(e.pointerId);
+      panStart = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: companionBox.scrollLeft,
+        scrollTop: companionBox.scrollTop,
+      };
+      return;
+    }
     companionPainting = true;
     companion?.setPointerCapture(e.pointerId);
     beginStroke();
@@ -475,12 +528,22 @@
   }
 
   function onCompanionMove(e: PointerEvent): void {
+    if (companionPanning && companionBox) {
+      companionBox.scrollLeft = panStart.scrollLeft - (e.clientX - panStart.x);
+      companionBox.scrollTop = panStart.scrollTop - (e.clientY - panStart.y);
+      return;
+    }
     if (!companionPainting) return;
     const texel = companionTexel(e);
     if (texel) applyToolAt(texel.x, texel.y);
   }
 
   function onCompanionUp(e: PointerEvent): void {
+    if (companionPanning) {
+      companionPanning = false;
+      companion?.releasePointerCapture(e.pointerId);
+      return;
+    }
     if (!companionPainting) return;
     companionPainting = false;
     companion?.releasePointerCapture(e.pointerId);
@@ -644,7 +707,7 @@
   closeOnBackdrop={false}
   panelClass={fullscreen
     ? 'w-[calc(100vw-2rem)] h-[calc(100vh-2rem)] max-w-none p-0 flex flex-col'
-    : 'w-[880px] max-w-[calc(100vw-2rem)] p-0 flex flex-col'}
+    : 'w-[880px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] p-0 flex flex-col'}
 >
   <div class="flex items-center px-5 py-3 border-b border-border-subtle shrink-0">
     <div>
@@ -674,7 +737,7 @@
     </div>
   </div>
 
-  <div class="flex min-h-0 flex-1">
+  <div use:observeResizeRow class="flex min-h-0 flex-1">
     <!-- Tool rail -->
     <div class="flex flex-col gap-1 p-2 border-r border-border-subtle text-secondary shrink-0">
       {#each TOOLS as tdef (tdef.id)}
@@ -809,7 +872,7 @@
       aria-label={$t('skinEditor.resizeViewport')}
       aria-valuenow={panelWidth}
       aria-valuemin={PANEL_MIN_WIDTH}
-      aria-valuemax={PANEL_MAX_WIDTH}
+      aria-valuemax={maxPanelWidth}
       tabindex={0}
       class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
       onpointerdown={startPanelResize}
@@ -824,13 +887,14 @@
         </div>
         <div
           use:observeCompanionBox
-          class="w-full overflow-hidden rounded border border-border-subtle"
+          class="w-full max-w-[calc(100vh-19rem)] aspect-square mx-auto overflow-auto rounded border border-border-subtle"
         >
           <canvas
             bind:this={companion}
-            class="block w-full touch-none"
-            style="image-rendering:pixelated;aspect-ratio:1/1"
+            class="block touch-none {tool === 'pan' ? 'cursor-grab active:cursor-grabbing' : ''}"
+            style="image-rendering:pixelated;aspect-ratio:1/1;width:{companionZoom * 100}%"
             aria-label={$t('skinEditor.companionHeading')}
+            onwheel={onCompanionWheel}
             onpointerdown={onCompanionDown}
             onpointermove={onCompanionMove}
             onpointerup={onCompanionUp}
