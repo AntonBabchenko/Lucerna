@@ -41,7 +41,6 @@
     PANEL_KEY_STEP,
     PANEL_MAX_WIDTH,
     PANEL_MIN_WIDTH,
-    toggleMaxWidth,
   } from '$lib/accounts/skin-editor/panel-resize';
 
   let {
@@ -81,7 +80,6 @@
   let canUndo = $state(false);
   let canRedo = $state(false);
   let companionBoxWidth = $state(240); // measured companion box width (px), drives backing
-  let lastPanelWidth = 300; // remembered width for the maximize toggle
 
   const isMicrosoft = $derived(account.kind === 'microsoft');
   const history = new SkinHistory(50);
@@ -452,11 +450,6 @@
     };
   }
 
-  function maximizePanel(): void {
-    if (panelWidth < PANEL_MAX_WIDTH) lastPanelWidth = panelWidth;
-    panelWidth = toggleMaxWidth(panelWidth, lastPanelWidth);
-  }
-
   function toggleMirror(): void {
     mirror = !mirror;
     renderCompanion();
@@ -818,10 +811,9 @@
       aria-valuemin={PANEL_MIN_WIDTH}
       aria-valuemax={PANEL_MAX_WIDTH}
       tabindex={0}
-      class="w-1.5 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
+      class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
       onpointerdown={startPanelResize}
       onkeydown={onPanelResizeKey}
-      ondblclick={maximizePanel}
     ></div>
 
     <!-- 2D companion + panel -->
@@ -829,19 +821,6 @@
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm ml-auto"
-            aria-label={panelWidth >= PANEL_MAX_WIDTH
-              ? $t('skinEditor.restorePanel')
-              : $t('skinEditor.maximizePanel')}
-            use:tooltip={panelWidth >= PANEL_MAX_WIDTH
-              ? $t('skinEditor.restorePanel')
-              : $t('skinEditor.maximizePanel')}
-            onclick={maximizePanel}
-          >
-            <Icon name={panelWidth >= PANEL_MAX_WIDTH ? 'shrink' : 'expand'} size={14} />
-          </button>
         </div>
         <div
           use:observeCompanionBox

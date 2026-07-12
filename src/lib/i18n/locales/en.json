@@ -104,8 +104,6 @@
     "poseTpose": "T-pose",
     "poseWalk": "Walk",
     "poseSit": "Sit",
-    "maximizePanel": "Maximize texture",
-    "restorePanel": "Restore size",
     "loadPng": "Load PNG",
     "savePng": "Download PNG",
     "apply": "Apply to account",

@@ -6,7 +6,6 @@ import {
   MIN_CELL,
   PANEL_MAX_WIDTH,
   PANEL_MIN_WIDTH,
-  toggleMaxWidth,
 } from '$lib/accounts/skin-editor/panel-resize';
 
 describe('clampPanelWidth', () => {
@@ -37,15 +36,5 @@ describe('companionCell', () => {
   it('clamps to MIN_CELL and MAX_CELL', () => {
     expect(companionCell(10)).toBe(MIN_CELL);
     expect(companionCell(64 * 100)).toBe(MAX_CELL);
-  });
-});
-
-describe('toggleMaxWidth', () => {
-  it('snaps to max when below it', () => {
-    expect(toggleMaxWidth(300, 300)).toBe(PANEL_MAX_WIDTH);
-  });
-
-  it('restores the remembered width when already at max', () => {
-    expect(toggleMaxWidth(PANEL_MAX_WIDTH, 320)).toBe(320);
   });
 });

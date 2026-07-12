@@ -26,12 +26,3 @@ export function clampPanelWidth(
 export function companionCell(px: number): number {
   return Math.min(MAX_CELL, Math.max(MIN_CELL, Math.floor(px / SKIN_SIZE)));
 }
-
-/** Double-click behaviour: snap to `max`, or return `restore` when already maxed. */
-export function toggleMaxWidth(
-  current: number,
-  restore: number,
-  max: number = PANEL_MAX_WIDTH,
-): number {
-  return current >= max ? restore : max;
-}
