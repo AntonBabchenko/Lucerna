@@ -389,6 +389,26 @@
       }
       c.stroke();
     }
+    if (mirror) {
+      c.strokeStyle = 'rgba(96,165,250,0.6)';
+      c.lineWidth = 1;
+      c.beginPath();
+      for (const r of allFaceRects(variant)) {
+        if (r.part !== 'head' && r.part !== 'body') continue;
+        if (r.face !== 'front' && r.face !== 'back' && r.face !== 'top' && r.face !== 'bottom') {
+          continue;
+        }
+        const cx = (r.x + r.w / 2) * zoom;
+        c.moveTo(cx + 0.5, r.y * zoom);
+        c.lineTo(cx + 0.5, (r.y + r.h) * zoom);
+      }
+      c.stroke();
+    }
+  }
+
+  function toggleMirror(): void {
+    mirror = !mirror;
+    renderCompanion();
   }
 
   function companionTexel(e: PointerEvent): { x: number; y: number } | null {
@@ -622,7 +642,7 @@
         aria-pressed={mirror}
         aria-label={$t('skinEditor.toolMirror')}
         use:tooltip={$t('skinEditor.toolMirror')}
-        onclick={() => (mirror = !mirror)}
+        onclick={toggleMirror}
       >
         <Icon name="mirror" size={16} />
       </button>
