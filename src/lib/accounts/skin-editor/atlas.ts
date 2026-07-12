@@ -86,3 +86,62 @@ export function mirrorInFace(x: number, y: number, variant: Variant): { x: numbe
   if (!r) return { x, y };
   return { x: r.x + (r.x + r.w - 1 - x), y };
 }
+
+const PART_MIRROR: Record<Part, Part> = {
+  head: 'head',
+  body: 'body',
+  rightArm: 'leftArm',
+  leftArm: 'rightArm',
+  rightLeg: 'leftLeg',
+  leftLeg: 'rightLeg',
+};
+
+const FACE_MIRROR: Record<Face, Face> = {
+  top: 'top',
+  bottom: 'bottom',
+  left: 'right',
+  front: 'front',
+  right: 'left',
+  back: 'back',
+};
+
+const RECT_INDEX: Partial<Record<Variant, Map<string, FaceRect>>> = {};
+
+function rectFor(variant: Variant, part: Part, layer: Layer, face: Face): FaceRect | undefined {
+  let idx = RECT_INDEX[variant];
+  if (!idx) {
+    idx = new Map();
+    for (const r of allFaceRects(variant)) idx.set(`${r.part}:${r.layer}:${r.face}`, r);
+    RECT_INDEX[variant] = idx;
+  }
+  return idx.get(`${part}:${layer}:${face}`);
+}
+
+// Sagittal (x=0) body mirror: cross-limb part swap + left/right face swap, flip
+// U on every face, never flip V, same layer. Returns null when (x,y) is outside
+// every face. Counterpart faces share dimensions within a variant, so this is an
+// involution: mirrorTexel(mirrorTexel(p)) === p.
+export function mirrorTexel(
+  x: number,
+  y: number,
+  variant: Variant,
+): { x: number; y: number } | null {
+  const r = faceRectAt(x, y, variant);
+  if (!r) return null;
+  const dest = rectFor(variant, PART_MIRROR[r.part], r.layer, FACE_MIRROR[r.face]);
+  if (!dest) return null;
+  const lx = x - r.x;
+  const ly = y - r.y;
+  return { x: dest.x + (dest.w - 1 - lx), y: dest.y + ly }; // flip U, keep V
+}
+
+// Top-left anchor for the mirror of a brush block. Block tools anchor a
+// brush×brush square at its top-left; because the mirror flips U, the mirrored
+// square's top-left sits brush-1 texels left of the mirrored anchor. Fill ignores
+// brush and uses the mirrored seed directly (do not call this for fill).
+export function mirrorBlockAnchor(
+  m: { x: number; y: number },
+  brush: number,
+): { x: number; y: number } {
+  return { x: m.x - (brush - 1), y: m.y };
+}
