@@ -818,7 +818,7 @@
       aria-valuemin={PANEL_MIN_WIDTH}
       aria-valuemax={PANEL_MAX_WIDTH}
       tabindex={0}
-      class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
+      class="w-1.5 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
       onpointerdown={startPanelResize}
       onkeydown={onPanelResizeKey}
       ondblclick={maximizePanel}
@@ -829,6 +829,19 @@
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm ml-auto"
+            aria-label={panelWidth >= PANEL_MAX_WIDTH
+              ? $t('skinEditor.restorePanel')
+              : $t('skinEditor.maximizePanel')}
+            use:tooltip={panelWidth >= PANEL_MAX_WIDTH
+              ? $t('skinEditor.restorePanel')
+              : $t('skinEditor.maximizePanel')}
+            onclick={maximizePanel}
+          >
+            <Icon name={panelWidth >= PANEL_MAX_WIDTH ? 'shrink' : 'expand'} size={14} />
+          </button>
         </div>
         <div
           use:observeCompanionBox

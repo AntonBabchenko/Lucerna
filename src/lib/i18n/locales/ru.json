@@ -104,6 +104,8 @@
     "poseTpose": "T-поза",
     "poseWalk": "Ходьба",
     "poseSit": "Сидя",
+    "maximizePanel": "Развернуть текстуру",
+    "restorePanel": "Вернуть размер",
     "loadPng": "Загрузить PNG",
     "savePng": "Скачать PNG",
     "apply": "Применить к аккаунту",
