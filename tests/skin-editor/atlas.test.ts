@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   allFaceRects,
+  brushOffset,
   faceRectAt,
   mirrorBlockAnchor,
   mirrorTexel,
@@ -124,9 +125,15 @@ describe('atlas mirror (sagittal x=0)', () => {
     expect(mirrorTexel(60, 2, 'classic')).toBeNull();
   });
 
-  it('anchors a mirrored brush block brush-1 texels left along U', () => {
+  it('centres the brush footprint (offset grows with size)', () => {
+    expect(brushOffset(1)).toBe(0);
+    expect(brushOffset(2)).toBe(0);
+    expect(brushOffset(3)).toBe(1);
+  });
+
+  it('mirrors a centred brush block (flips U, keeps it centred)', () => {
     expect(mirrorBlockAnchor({ x: 39, y: 52 }, 1)).toEqual({ x: 39, y: 52 });
     expect(mirrorBlockAnchor({ x: 39, y: 52 }, 2)).toEqual({ x: 38, y: 52 });
-    expect(mirrorBlockAnchor({ x: 39, y: 52 }, 3)).toEqual({ x: 37, y: 52 });
+    expect(mirrorBlockAnchor({ x: 39, y: 52 }, 3)).toEqual({ x: 38, y: 51 });
   });
 });

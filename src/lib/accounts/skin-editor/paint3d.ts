@@ -99,11 +99,15 @@ export function pickFootprint(
     const t = (dv * d1x - du * d1y) / det;
     return pa.clone().addScaledVector(e1, s).addScaledVector(e2, t);
   };
+  // Centre the brush×brush footprint on the hit texel.
   // uvToTexel recovers texel y as floor((1 - v) * size) → v = 1 - y / size.
-  const u0 = texel.x / SKIN_SIZE;
-  const u1 = (texel.x + brush) / SKIN_SIZE;
-  const v0 = 1 - texel.y / SKIN_SIZE;
-  const v1 = 1 - (texel.y + brush) / SKIN_SIZE;
+  const off = Math.floor((brush - 1) / 2);
+  const ax = texel.x - off;
+  const ay = texel.y - off;
+  const u0 = ax / SKIN_SIZE;
+  const u1 = (ax + brush) / SKIN_SIZE;
+  const v0 = 1 - ay / SKIN_SIZE;
+  const v1 = 1 - (ay + brush) / SKIN_SIZE;
   const cornersLocal = [localAt(u0, v0), localAt(u1, v0), localAt(u1, v1), localAt(u0, v1)];
   mesh.updateWorldMatrix(true, false);
   const normal = hit.face.normal.clone().transformDirection(mesh.matrixWorld).normalize();

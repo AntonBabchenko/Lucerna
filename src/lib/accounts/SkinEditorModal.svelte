@@ -369,7 +369,9 @@
           return;
       }
     };
-    paintOne(x, y);
+    const off = Math.floor((brush - 1) / 2);
+    if (tool === 'fill') paintOne(x, y);
+    else paintOne(x - off, y - off);
     if (mirror) {
       const m = mirrorTexel(x, y, variant);
       if (m && (m.x !== x || m.y !== y)) {
@@ -498,8 +500,9 @@
       c.stroke();
     }
     if (hoverTexel && (tool === 'pencil' || tool === 'eraser')) {
-      const bx = hoverTexel.x * cell;
-      const by = hoverTexel.y * cell;
+      const off = Math.floor((brush - 1) / 2);
+      const bx = (hoverTexel.x - off) * cell;
+      const by = (hoverTexel.y - off) * cell;
       const bs = brush * cell;
       // Thin 1px outline in difference mode: always contrasts, never bulky.
       c.save();
@@ -974,13 +977,14 @@
       {#each [1, 2, 3] as b (b)}
         <button
           type="button"
-          class="px-2 py-0.5 text-xs rounded border {brush === b
+          class="w-7 h-7 rounded border inline-flex items-center justify-center {brush === b
             ? 'bg-accent-soft text-accent border-transparent'
             : 'text-secondary border-border-subtle'}"
           aria-pressed={brush === b}
+          aria-label={`${$t('skinEditor.brushSize')} ${b}`}
           onclick={() => (brush = b)}
         >
-          {b}
+          <span class="rounded-full bg-current" style="width:{b * 3}px;height:{b * 3}px"></span>
         </button>
       {/each}
     </div>

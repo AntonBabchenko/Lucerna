@@ -127,13 +127,20 @@ export function mirrorTexel(
   return { x: dest.x + (dest.w - 1 - lx), y: dest.y + ly }; // flip U, keep V
 }
 
-// Top-left anchor for the mirror of a brush block. Block tools anchor a
-// brush×brush square at its top-left; because the mirror flips U, the mirrored
-// square's top-left sits brush-1 texels left of the mirrored anchor. Fill ignores
-// brush and uses the mirrored seed directly (do not call this for fill).
+// A brush×brush block is centred on the cursor by shifting its top-left up/left
+// by this offset (0 for size 1-2, 1 for size 3, …).
+export function brushOffset(brush: number): number {
+  return Math.floor((brush - 1) / 2);
+}
+
+// Top-left anchor for the mirror of a centred brush block. The mirror flips U, so
+// the mirrored square's top-left sits (brush-1-offset) texels left and `offset`
+// up of the mirrored centre. Fill ignores brush and uses the mirrored seed
+// directly (do not call this for fill).
 export function mirrorBlockAnchor(
   m: { x: number; y: number },
   brush: number,
 ): { x: number; y: number } {
-  return { x: m.x - (brush - 1), y: m.y };
+  const off = brushOffset(brush);
+  return { x: m.x - (brush - 1 - off), y: m.y - off };
 }
