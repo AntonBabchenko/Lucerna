@@ -32,13 +32,16 @@
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
   import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import { createCenterlineGuide, disposeGuide } from '$lib/accounts/skin-editor/centerline';
+  import { POSE_NAMES, resolvePose, type PoseName } from '$lib/accounts/skin-editor/poses';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import {
     clampPanelWidth,
+    companionCell,
     PANEL_KEY_STEP,
     PANEL_MAX_WIDTH,
     PANEL_MIN_WIDTH,
+    toggleMaxWidth,
   } from '$lib/accounts/skin-editor/panel-resize';
 
   let {
@@ -67,6 +70,7 @@
   let colour = $state<Rgba>([224, 224, 224, 255]);
   let brush = $state(1);
   let mirror = $state(false);
+  let pose = $state<PoseName>('default');
   let showGrid = $state(true);
   let fullscreen = $state(false);
   let bg = $state<'dark' | 'light' | 'mid'>('dark');
@@ -76,7 +80,8 @@
   let dirty = $state(false);
   let canUndo = $state(false);
   let canRedo = $state(false);
-  let zoom = $state(4); // 2D companion texel size in px (4 / 6 / 8)
+  let companionBoxWidth = $state(240); // measured companion box width (px), drives backing
+  let lastPanelWidth = 300; // remembered width for the maximize toggle
 
   const isMicrosoft = $derived(account.kind === 'microsoft');
   const history = new SkinHistory(50);
@@ -115,6 +120,13 @@
     Number.parseInt(hex.slice(5, 7), 16),
     255,
   ];
+
+  const POSE_LABEL: Record<PoseName, TranslationKey> = {
+    default: 'skinEditor.poseDefault',
+    tpose: 'skinEditor.poseTpose',
+    walk: 'skinEditor.poseWalk',
+    sit: 'skinEditor.poseSit',
+  };
 
   const skinCtx = (): CanvasRenderingContext2D | null =>
     viewer?.skinCanvas.getContext('2d', { willReadFrequently: true }) ?? null;
@@ -188,6 +200,7 @@
       renderCompanion();
       fitViewport();
       syncCenterline();
+      applyPose(pose);
     } finally {
       viewerBuilding = false;
     }
@@ -385,7 +398,8 @@
 
   function renderCompanion(): void {
     if (!companion || !viewer) return;
-    const size = SKIN_SIZE * zoom;
+    const cell = companionCell(companionBoxWidth);
+    const size = SKIN_SIZE * cell;
     if (companion.width !== size) {
       companion.width = size;
       companion.height = size;
@@ -395,15 +409,15 @@
     c.imageSmoothingEnabled = false;
     c.clearRect(0, 0, size, size);
     c.drawImage(viewer.skinCanvas, 0, 0, SKIN_SIZE, SKIN_SIZE, 0, 0, size, size);
-    if (showGrid && zoom >= 4) {
+    if (showGrid && cell >= 4) {
       c.strokeStyle = 'rgba(128,128,128,0.25)';
       c.lineWidth = 1;
       c.beginPath();
       for (let i = 1; i < SKIN_SIZE; i++) {
-        c.moveTo(i * zoom + 0.5, 0);
-        c.lineTo(i * zoom + 0.5, size);
-        c.moveTo(0, i * zoom + 0.5);
-        c.lineTo(size, i * zoom + 0.5);
+        c.moveTo(i * cell + 0.5, 0);
+        c.lineTo(i * cell + 0.5, size);
+        c.moveTo(0, i * cell + 0.5);
+        c.lineTo(size, i * cell + 0.5);
       }
       c.stroke();
     }
@@ -416,12 +430,31 @@
         if (r.face !== 'front' && r.face !== 'back' && r.face !== 'top' && r.face !== 'bottom') {
           continue;
         }
-        const cx = (r.x + r.w / 2) * zoom;
-        c.moveTo(cx + 0.5, r.y * zoom);
-        c.lineTo(cx + 0.5, (r.y + r.h) * zoom);
+        const cx = (r.x + r.w / 2) * cell;
+        c.moveTo(cx + 0.5, r.y * cell);
+        c.lineTo(cx + 0.5, (r.y + r.h) * cell);
       }
       c.stroke();
     }
+  }
+
+  function observeCompanionBox(node: HTMLElement) {
+    companionBoxWidth = node.clientWidth;
+    const ro = new ResizeObserver(() => {
+      companionBoxWidth = node.clientWidth;
+      renderCompanion();
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+      },
+    };
+  }
+
+  function maximizePanel(): void {
+    if (panelWidth < PANEL_MAX_WIDTH) lastPanelWidth = panelWidth;
+    panelWidth = toggleMaxWidth(panelWidth, lastPanelWidth);
   }
 
   function toggleMirror(): void {
@@ -489,6 +522,24 @@
     if (variant === v || !viewer) return;
     variant = v;
     viewer.playerObject.skin.modelType = variantToModel(v);
+    applyPose(pose);
+  }
+
+  function applyPose(name: PoseName): void {
+    if (!viewer) return;
+    const rot = resolvePose(name);
+    const s = viewer.playerObject.skin;
+    s.head.rotation.set(rot.head.x, rot.head.y, rot.head.z);
+    s.body.rotation.set(rot.body.x, rot.body.y, rot.body.z);
+    s.rightArm.rotation.set(rot.rightArm.x, rot.rightArm.y, rot.rightArm.z);
+    s.leftArm.rotation.set(rot.leftArm.x, rot.leftArm.y, rot.leftArm.z);
+    s.rightLeg.rotation.set(rot.rightLeg.x, rot.rightLeg.y, rot.rightLeg.z);
+    s.leftLeg.rotation.set(rot.leftLeg.x, rot.leftLeg.y, rot.leftLeg.z);
+  }
+
+  function setPose(name: PoseName): void {
+    pose = name;
+    applyPose(name);
   }
 
   function applyVisibility(): void {
@@ -508,13 +559,6 @@
   function toggleOverlay(): void {
     overlayVisible = !overlayVisible;
     applyVisibility();
-  }
-
-  function setZoom(delta: number): void {
-    const steps = [4, 6, 8];
-    const i = steps.indexOf(zoom);
-    zoom = steps[Math.min(steps.length - 1, Math.max(0, i + delta))];
-    renderCompanion();
   }
 
   // --- import / export / apply -------------------------------------------------
@@ -745,6 +789,21 @@
           </button>
         {/each}
       </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs text-muted">{$t('skinEditor.poseHeading')}</span>
+        {#each POSE_NAMES as p (p)}
+          <button
+            type="button"
+            class="px-2 py-0.5 text-xs rounded border {pose === p
+              ? 'bg-accent-soft text-accent border-transparent'
+              : 'text-secondary border-border-subtle'}"
+            aria-pressed={pose === p}
+            onclick={() => setPose(p)}
+          >
+            {$t(POSE_LABEL[p])}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
@@ -762,6 +821,7 @@
       class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
       onpointerdown={startPanelResize}
       onkeydown={onPanelResizeKey}
+      ondblclick={maximizePanel}
     ></div>
 
     <!-- 2D companion + panel -->
@@ -769,32 +829,15 @@
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
-          <span class="ml-auto flex gap-0.5">
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              aria-label={$t('skinEditor.zoomOut')}
-              use:tooltip={$t('skinEditor.zoomOut')}
-              onclick={() => setZoom(-1)}
-            >
-              <Icon name="zoomOut" size={14} />
-            </button>
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              aria-label={$t('skinEditor.zoomIn')}
-              use:tooltip={$t('skinEditor.zoomIn')}
-              onclick={() => setZoom(1)}
-            >
-              <Icon name="zoomIn" size={14} />
-            </button>
-          </span>
         </div>
-        <div class="max-h-[264px] max-w-[264px] overflow-auto rounded border border-border-subtle">
+        <div
+          use:observeCompanionBox
+          class="w-full overflow-hidden rounded border border-border-subtle"
+        >
           <canvas
             bind:this={companion}
-            class="block touch-none"
-            style="image-rendering:pixelated"
+            class="block w-full touch-none"
+            style="image-rendering:pixelated;aspect-ratio:1/1"
             aria-label={$t('skinEditor.companionHeading')}
             onpointerdown={onCompanionDown}
             onpointermove={onCompanionMove}
