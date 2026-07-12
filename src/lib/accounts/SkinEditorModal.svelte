@@ -115,6 +115,7 @@
   let companionZoom = $state(1); // 2D companion magnification (1x–8x), wheel-controlled
   let companionPanning = false;
   let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+  let hoverTexel: { x: number; y: number } | null = null; // brush footprint preview anchor
   let painting = false;
   let companionPainting = false;
 
@@ -414,7 +415,24 @@
   }
 
   function onViewerMove(e: PointerEvent): void {
-    if (painting) paintFromViewerEvent(e);
+    if (painting) {
+      paintFromViewerEvent(e);
+      return;
+    }
+    if (!viewer || !viewerCanvas) return;
+    if (tool === 'pencil' || tool === 'eraser') {
+      setHoverTexel(
+        pickTexel(
+          viewer.camera,
+          activeMeshes(),
+          e.clientX,
+          e.clientY,
+          viewerCanvas.getBoundingClientRect(),
+        ),
+      );
+    } else {
+      setHoverTexel(null);
+    }
   }
 
   function onViewerUp(e: PointerEvent): void {
@@ -467,6 +485,23 @@
       }
       c.stroke();
     }
+    if (hoverTexel && (tool === 'pencil' || tool === 'eraser')) {
+      const bx = hoverTexel.x * cell;
+      const by = hoverTexel.y * cell;
+      const bs = brush * cell;
+      // Double outline so the footprint reads on any pixel colour.
+      c.strokeStyle = 'rgba(0,0,0,0.65)';
+      c.lineWidth = 1;
+      c.strokeRect(bx + 0.5, by + 0.5, bs - 1, bs - 1);
+      c.strokeStyle = 'rgba(255,255,255,0.95)';
+      c.strokeRect(bx + 1.5, by + 1.5, bs - 3, bs - 3);
+    }
+  }
+
+  function setHoverTexel(t: { x: number; y: number } | null): void {
+    if (t?.x === hoverTexel?.x && t?.y === hoverTexel?.y) return;
+    hoverTexel = t;
+    renderCompanion();
   }
 
   function observeCompanionBox(node: HTMLElement) {
@@ -537,8 +572,9 @@
       companionBox.scrollTop = panStart.scrollTop - (e.clientY - panStart.y);
       return;
     }
-    if (!companionPainting) return;
     const texel = companionTexel(e);
+    setHoverTexel(tool === 'pencil' || tool === 'eraser' ? texel : null);
+    if (!companionPainting) return;
     if (texel) applyToolAt(texel.x, texel.y);
   }
 
@@ -808,6 +844,7 @@
           onpointermove={onViewerMove}
           onpointerup={onViewerUp}
           onpointercancel={onViewerUp}
+          onpointerleave={() => setHoverTexel(null)}
         ></canvas>
       </div>
       <span class="text-xs text-muted text-center">{$t('skinEditor.dragToPaint')}</span>
@@ -906,6 +943,7 @@
             onpointermove={onCompanionMove}
             onpointerup={onCompanionUp}
             onpointercancel={onCompanionUp}
+            onpointerleave={() => setHoverTexel(null)}
           ></canvas>
         </div>
         <p class="text-[11px] text-muted mt-1">{$t('skinEditor.companionHint')}</p>
