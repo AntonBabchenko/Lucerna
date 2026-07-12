@@ -22,6 +22,7 @@
     mirrorTexel,
   } from '$lib/accounts/skin-editor/atlas';
   import {
+    clearOutsideAtlas,
     dodgeBurn,
     eraser,
     fill,
@@ -767,8 +768,26 @@
     input.click();
   }
 
+  // Wipe painted texels that fall outside the UV layout (atlas gaps that never
+  // render) before saving, so exported/uploaded skins carry no dead pixels.
+  // Undoable — snapshots the pre-cleanup canvas.
+  function cleanupTexture(): void {
+    const ctx = skinCtx();
+    if (!ctx || !viewer) return;
+    const img = ctx.getImageData(0, 0, SKIN_SIZE, SKIN_SIZE);
+    if (!clearOutsideAtlas(img.data, allFaceRects(variant))) return;
+    beginStroke();
+    ctx.putImageData(img, 0, 0);
+    const tex = viewer.playerObject.skin.map;
+    if (tex) tex.needsUpdate = true;
+    dirty = true;
+    syncHistoryFlags();
+    renderCompanion();
+  }
+
   function exportPng(): void {
     if (!viewer) return;
+    cleanupTexture();
     const url = viewer.skinCanvas.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
@@ -778,6 +797,7 @@
 
   async function apply(): Promise<void> {
     if (busy || !isMicrosoft || !viewer) return;
+    cleanupTexture();
     busy = true;
     saveError = null;
     applied = false;
