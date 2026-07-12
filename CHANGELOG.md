@@ -10,15 +10,74 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-07-12
+
+### Added
+
+- **Servers are now a first-class mode, not a modal.** A **Client / Servers**
+  switcher sits under the sidebar header. In Servers mode the sidebar mirrors
+  the client — a server selector with live status icons, a create button, and a
+  large Start/Stop — while the right panel hosts the full server management UI.
+  The switcher itself carries live status for both sides: the Servers segment
+  pulses while a server runs (and flags crashes or pending fixes), and the
+  Client segment now pulses green while Minecraft runs and turns red after a
+  crash, so a crash that happens while you are in Servers mode no longer goes
+  unnoticed. Your last-used mode and selected server are remembered between
+  launches.
+- **Bukkit-plugin server cores — Paper and Purpur.** Create, provision, and
+  launch a Paper or Purpur server; friends join with a plain vanilla client, no
+  client-side install required. A new **Plugins** area browses plugins from
+  Modrinth and Hangar, installs a chosen version (not just the newest), and
+  enables, disables, deletes, or reveals them on disk; local `.jar` files are
+  validated before installing. Switching an existing server between Vanilla,
+  Paper, and Purpur takes a mandatory fresh backup first and swaps the core
+  atomically. English and Russian throughout.
+- **Pixel skin editor.** From the Skin & Cape dialog, "Edit skin" opens an
+  editor that paints directly on the rotatable 3D player model, with a
+  synchronized 2D atlas companion for pixel-precise work and occluded faces.
+  Tools include pencil, eraser, eyedropper, face-bounded fill, dodge/burn, and
+  noise, with per-stroke undo/redo, mirror-X, a palette and custom colours,
+  base/overlay layers, classic/slim models, and PNG import/export. Microsoft
+  accounts apply the result straight to their profile; offline accounts export
+  it.
+
+### Changed
+
+- **Server management regrouped into five tabs.** The eight flat server tabs
+  become **Overview / Settings / Add-ons / Hosting / Backups**, mirroring the
+  client layout. Overview gathers server facts, LAN and invite connection
+  details with a one-click firewall rule, and the full console; Settings
+  collects launch config, `server.properties` (a curated form plus a raw
+  editor), the core switch, and the danger zone; Add-ons brings client-parity
+  Browse/Installed sub-tabs with sort and grid/list toggles and drag-and-drop
+  install. The server content browser also gained an Overview tab with the
+  project description and image gallery.
+- **3D skin & cape controls.** Both the preview and the editor now support
+  right-drag to rotate and middle-drag to pan (left-drag still rotates the
+  preview and paints in the editor), and the editor's 3D viewport is resizable
+  via a draggable splitter that keeps the model crisp — which also fixes the
+  fullscreen toggle.
+
 ### Fixed
 
-- Tooltips triggered by keyboard focus now appear only on real keyboard focus
-  (`:focus-visible`), so they no longer flash when a modal opens or closes.
 - The instance list no longer takes several seconds to appear after a restart
   when the data folder is large: the folder-size calculation that used to run
   (and block other startup requests) on every launch now runs only when
   Settings → Storage is opened. While the list is loading, the sidebar shows a
   small spinner instead of a misleading "No instances yet".
+- Tooltips triggered by keyboard focus now appear only on real keyboard focus
+  (`:focus-visible`), so they no longer flash when a modal opens or closes.
+- A custom instance picture now displays correctly in the packaged app: it is
+  loaded through a `data:` URL so the production content-security policy no
+  longer blocks it.
+- The boxed segmented control now shows a clearly visible active state for the
+  selected segment.
+- The saved-servers list shows the source instance's name in a row's subtitle
+  instead of a raw internal id.
+- Creating, importing, starting, or restarting a server is now safely rejected
+  when the data location has fallen back to its default, so writes never land in
+  the wrong place.
+- Russian text for "installed with dependencies" now uses correct plural forms.
 
 ## [0.17.0] — 2026-07-09
 
@@ -558,7 +617,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.0...v0.15.1
