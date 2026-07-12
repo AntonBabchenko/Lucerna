@@ -13,7 +13,7 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { commands, type Account, type SkinVariant } from '$lib/ipc/bindings';
   import type { SkinViewer } from 'skinview3d';
-  import type { LineLoop, Mesh, Object3D, Vector3 } from 'three';
+  import type { Mesh, Object3D, Vector3 } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
   import {
     allFaceRects,
@@ -30,7 +30,7 @@
     pickColour,
   } from '$lib/accounts/skin-editor/tools';
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
-  import { footprintForTexel, pickFootprint, pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import { footprintForTexel, pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import {
     createBrushCursor,
     disposeBrushCursor,
@@ -121,7 +121,7 @@
   let companionPanning = false;
   let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
   let hoverTexel: { x: number; y: number } | null = null; // brush footprint preview anchor
-  let brushCursor: LineLoop | null = null; // 3D footprint outline on the model surface
+  let brushCursor: Mesh | null = null; // per-texel footprint highlight on the model surface
   let painting = false;
   let companionPainting = false;
 
@@ -437,16 +437,15 @@
       clearHover();
       return;
     }
-    const hit = pickFootprint(
+    const texel = pickTexel(
       viewer.camera,
       activeMeshes(),
       e.clientX,
       e.clientY,
       viewerCanvas.getBoundingClientRect(),
-      brush,
     );
-    setHoverTexel(hit?.texel ?? null);
-    syncBrushCursor(hit?.corners ?? null);
+    setHoverTexel(texel);
+    syncBrushCursor(texel ? footprintQuads(texel, brush) : null);
   }
 
   function onViewerUp(e: PointerEvent): void {
@@ -520,18 +519,38 @@
     renderCompanion();
   }
 
-  function syncBrushCursor(corners: Vector3[] | null): void {
+  function syncBrushCursor(quads: Vector3[][] | null): void {
     if (!viewer) return;
-    if (corners) {
+    if (quads && quads.length > 0) {
       if (!brushCursor) {
         brushCursor = createBrushCursor();
         viewer.scene.add(brushCursor);
       }
-      updateBrushCursor(brushCursor, corners);
+      updateBrushCursor(brushCursor, quads);
     } else if (brushCursor) {
       disposeBrushCursor(brushCursor);
       brushCursor = null;
     }
+  }
+
+  // World-space quads for every texel of the centred brush footprint, each placed
+  // on its own model face — so the highlight wraps around edges. Off-atlas or
+  // hidden-layer texels are skipped.
+  function footprintQuads(center: { x: number; y: number }, size: number): Vector3[][] {
+    const off = Math.floor((size - 1) / 2);
+    const quads: Vector3[][] = [];
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        const tx = center.x - off + dx;
+        const ty = center.y - off + dy;
+        if (tx < 0 || tx >= SKIN_SIZE || ty < 0 || ty >= SKIN_SIZE) continue;
+        const mesh = meshForTexel({ x: tx, y: ty });
+        if (!mesh) continue;
+        const corners = footprintForTexel(mesh, { x: tx, y: ty }, 1);
+        if (corners) quads.push(corners);
+      }
+    }
+    return quads;
   }
 
   function clearHover(): void {
@@ -629,8 +648,7 @@
     const texel = companionTexel(e);
     const brushHover = tool === 'pencil' || tool === 'eraser' ? texel : null;
     setHoverTexel(brushHover);
-    const mesh = brushHover ? meshForTexel(brushHover) : null;
-    syncBrushCursor(mesh && brushHover ? footprintForTexel(mesh, brushHover, brush) : null);
+    syncBrushCursor(brushHover ? footprintQuads(brushHover, brush) : null);
     if (!companionPainting) return;
     if (texel) applyToolAt(texel.x, texel.y);
   }
@@ -996,7 +1014,7 @@
         />
       </label>
       <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
-      {#each [1, 2, 3] as b (b)}
+      {#each [1, 3, 5] as b (b)}
         <button
           type="button"
           class="w-7 h-7 rounded border inline-flex items-center justify-center {brush === b
@@ -1006,7 +1024,7 @@
           aria-label={`${$t('skinEditor.brushSize')} ${b}`}
           onclick={() => (brush = b)}
         >
-          <span class="rounded-full bg-current" style="width:{b * 3}px;height:{b * 3}px"></span>
+          <span class="rounded-full bg-current" style="width:{b * 2}px;height:{b * 2}px"></span>
         </button>
       {/each}
     </div>

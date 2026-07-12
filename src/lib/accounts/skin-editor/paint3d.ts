@@ -113,36 +113,7 @@ function pointInUvTriangle(px: number, py: number, a: Vector2, b: Vector2, c: Ve
 }
 
 /**
- * Raycast the model and return the hit texel plus the world-space corners of the
- * brush footprint on that face (for an on-model outline). Null on a miss.
- */
-export function pickFootprint(
-  camera: PerspectiveCamera,
-  meshes: Object3D[],
-  clientX: number,
-  clientY: number,
-  rect: DOMRect,
-  brush: number,
-): { texel: { x: number; y: number }; corners: Vector3[] } | null {
-  const ndc = ndcFromPointer(clientX, clientY, rect);
-  ndcVec.set(ndc.x, ndc.y);
-  raycaster.setFromCamera(ndcVec, camera);
-  const hit = raycaster.intersectObjects(meshes, true).find((h) => h.uv && h.face);
-  if (!hit?.uv || !hit.face) return null;
-  const texel = uvToTexel(hit.uv);
-  const corners = cornersFromTriangle(
-    hit.object as Mesh,
-    hit.face.a,
-    hit.face.b,
-    hit.face.c,
-    texel,
-    brush,
-  );
-  return corners ? { texel, corners } : null;
-}
-
-/**
- * Inverse of pickFootprint: given a texel and the box `mesh` whose atlas region
+ * Given a texel and the box `mesh` whose atlas region
  * contains it, return the world-space footprint corners on the model — so hovering
  * the 2D texture can outline the brush on the 3D model. Null if the texel's UV is
  * not on this mesh.

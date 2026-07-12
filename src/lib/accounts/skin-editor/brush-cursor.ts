@@ -1,30 +1,54 @@
-// A thin outline loop drawn on the 3D model surface marking the brush footprint
-// while hovering. It lives in the viewer scene and is fed world-space corners by
-// pickFootprint — it never touches the skin texture, so it can't corrupt a save.
+// A translucent highlight of the brush footprint on the 3D model surface, drawn
+// as one quad per targeted texel. Because each texel is placed on its own face,
+// the highlight wraps around the model's edges. It lives in the viewer scene and
+// never touches the skin texture, so it can't corrupt a save.
 import type { BufferAttribute, Vector3 } from 'three';
-import { BufferGeometry, LineBasicMaterial, LineLoop, Vector3 as V3 } from 'three';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial } from 'three';
 
-export function createBrushCursor(): LineLoop {
-  const geometry = new BufferGeometry().setFromPoints([new V3(), new V3(), new V3(), new V3()]);
-  const material = new LineBasicMaterial({
+// Brush max is 5 → 25 texels; keep headroom so the buffer never reallocates.
+const MAX_QUADS = 36;
+const VERTS_PER_QUAD = 6; // two triangles
+
+export function createBrushCursor(): Mesh {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new Float32BufferAttribute(new Float32Array(MAX_QUADS * VERTS_PER_QUAD * 3), 3),
+  );
+  geometry.setDrawRange(0, 0);
+  const material = new MeshBasicMaterial({
     color: 0xffffff,
-    depthTest: false, // always visible on the surface
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.35,
+    depthTest: false, // always visible on the surface
+    side: DoubleSide,
   });
-  const loop = new LineLoop(geometry, material);
-  loop.renderOrder = 1000;
-  return loop;
+  const mesh = new Mesh(geometry, material);
+  mesh.renderOrder = 1000;
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
-export function updateBrushCursor(loop: LineLoop, corners: Vector3[]): void {
-  const pos = loop.geometry.getAttribute('position') as BufferAttribute;
-  for (let i = 0; i < 4; i++) pos.setXYZ(i, corners[i].x, corners[i].y, corners[i].z);
+/** Each quad is 4 world corners [tl, tr, br, bl]; drawn as two triangles. */
+export function updateBrushCursor(mesh: Mesh, quads: Vector3[][]): void {
+  const pos = mesh.geometry.getAttribute('position') as BufferAttribute;
+  const arr = pos.array as Float32Array;
+  const n = Math.min(quads.length, MAX_QUADS);
+  let i = 0;
+  for (let q = 0; q < n; q++) {
+    const c = quads[q];
+    for (const idx of [0, 1, 2, 0, 2, 3]) {
+      arr[i++] = c[idx].x;
+      arr[i++] = c[idx].y;
+      arr[i++] = c[idx].z;
+    }
+  }
   pos.needsUpdate = true;
+  mesh.geometry.setDrawRange(0, n * VERTS_PER_QUAD);
 }
 
-export function disposeBrushCursor(loop: LineLoop): void {
-  loop.parent?.remove(loop);
-  loop.geometry.dispose();
-  (loop.material as LineBasicMaterial).dispose();
+export function disposeBrushCursor(mesh: Mesh): void {
+  mesh.parent?.remove(mesh);
+  mesh.geometry.dispose();
+  (mesh.material as MeshBasicMaterial).dispose();
 }
