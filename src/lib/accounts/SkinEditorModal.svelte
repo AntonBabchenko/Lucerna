@@ -880,59 +880,6 @@
         ></canvas>
       </div>
       <span class="text-xs text-muted text-center">{$t('skinEditor.dragToPaint')}</span>
-      <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs text-muted">{$t('skinEditor.colour')}</span>
-        <span
-          class="w-6 h-6 rounded border border-border-emphasis inline-block"
-          style="background:{rgbaToHex(colour)}"
-        ></span>
-        {#each PALETTE as swatch (rgbaToHex(swatch))}
-          <button
-            type="button"
-            class="w-[18px] h-[18px] rounded border border-border-subtle"
-            style="background:{rgbaToHex(swatch)}"
-            aria-label={rgbaToHex(swatch)}
-            onclick={() => (colour = swatch)}
-          ></button>
-        {/each}
-        <label class="inline-flex items-center gap-1 text-xs text-secondary">
-          <input
-            type="color"
-            value={rgbaToHex(colour)}
-            oninput={(e) => (colour = hexToRgba(e.currentTarget.value))}
-            aria-label={$t('skinEditor.customColour')}
-            class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
-          />
-        </label>
-        <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
-        {#each [1, 2, 3] as b (b)}
-          <button
-            type="button"
-            class="px-2 py-0.5 text-xs rounded border {brush === b
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={brush === b}
-            onclick={() => (brush = b)}
-          >
-            {b}
-          </button>
-        {/each}
-      </div>
-      <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs text-muted">{$t('skinEditor.poseHeading')}</span>
-        {#each POSE_NAMES as p (p)}
-          <button
-            type="button"
-            class="px-2 py-0.5 text-xs rounded border {pose === p
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={pose === p}
-            onclick={() => setPose(p)}
-          >
-            {$t(POSE_LABEL[p])}
-          </button>
-        {/each}
-      </div>
     </div>
 
     <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
@@ -994,9 +941,70 @@
         </div>
         <p class="text-[11px] text-muted mt-1">{$t('skinEditor.companionHint')}</p>
       </div>
+    </div>
+  </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.paintOn')}</div>
+  <div class="flex flex-col gap-3 px-5 py-3 border-t border-border-subtle shrink-0">
+    <!-- Colour + brush -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-muted">{$t('skinEditor.colour')}</span>
+      <span
+        class="w-6 h-6 rounded border border-border-emphasis inline-block"
+        style="background:{rgbaToHex(colour)}"
+      ></span>
+      {#each PALETTE as swatch (rgbaToHex(swatch))}
+        <button
+          type="button"
+          class="w-[18px] h-[18px] rounded border border-border-subtle"
+          style="background:{rgbaToHex(swatch)}"
+          aria-label={rgbaToHex(swatch)}
+          onclick={() => (colour = swatch)}
+        ></button>
+      {/each}
+      <label class="inline-flex items-center gap-1 text-xs text-secondary">
+        <input
+          type="color"
+          value={rgbaToHex(colour)}
+          oninput={(e) => (colour = hexToRgba(e.currentTarget.value))}
+          aria-label={$t('skinEditor.customColour')}
+          class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
+        />
+      </label>
+      <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
+      {#each [1, 2, 3] as b (b)}
+        <button
+          type="button"
+          class="px-2 py-0.5 text-xs rounded border {brush === b
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={brush === b}
+          onclick={() => (brush = b)}
+        >
+          {b}
+        </button>
+      {/each}
+    </div>
+
+    <!-- Pose · paint layer · visibility · model · background -->
+    <div class="flex items-center gap-x-4 gap-y-2 flex-wrap">
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.poseHeading')}</span>
+        {#each POSE_NAMES as p (p)}
+          <button
+            type="button"
+            class="px-2 py-0.5 text-xs rounded border {pose === p
+              ? 'bg-accent-soft text-accent border-transparent'
+              : 'text-secondary border-border-subtle'}"
+            aria-pressed={pose === p}
+            onclick={() => setPose(p)}
+          >
+            {$t(POSE_LABEL[p])}
+          </button>
+        {/each}
+      </div>
+
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.paintOn')}</span>
         <div class="inline-flex border border-border-subtle rounded overflow-hidden">
           <button
             type="button"
@@ -1021,36 +1029,34 @@
         </div>
       </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.layerVisibility')}</div>
-        <div class="flex gap-1.5">
-          <button
-            type="button"
-            class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {baseVisible
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={baseVisible}
-            onclick={toggleBase}
-          >
-            <Icon name={baseVisible ? 'eye' : 'eyeOff'} size={13} />
-            {$t('skinEditor.layerBase')}
-          </button>
-          <button
-            type="button"
-            class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {overlayVisible
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={overlayVisible}
-            onclick={toggleOverlay}
-          >
-            <Icon name={overlayVisible ? 'eye' : 'eyeOff'} size={13} />
-            {$t('skinEditor.layerOverlay')}
-          </button>
-        </div>
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.layerVisibility')}</span>
+        <button
+          type="button"
+          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {baseVisible
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={baseVisible}
+          onclick={toggleBase}
+        >
+          <Icon name={baseVisible ? 'eye' : 'eyeOff'} size={13} />
+          {$t('skinEditor.layerBase')}
+        </button>
+        <button
+          type="button"
+          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {overlayVisible
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={overlayVisible}
+          onclick={toggleOverlay}
+        >
+          <Icon name={overlayVisible ? 'eye' : 'eyeOff'} size={13} />
+          {$t('skinEditor.layerOverlay')}
+        </button>
       </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.model')}</div>
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.model')}</span>
         <div class="inline-flex border border-border-subtle rounded overflow-hidden">
           <button
             type="button"
@@ -1073,48 +1079,47 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-3 flex-wrap">
-        <div class="inline-flex items-center gap-1 text-xs text-secondary">
-          {$t('skinEditor.background')}
-          <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
-            {#each ['dark', 'mid', 'light'] as const as b (b)}
-              <button
-                type="button"
-                class="w-6 h-5 {BG_CLASS[b]} {bg === b
-                  ? 'outline outline-2 outline-accent -outline-offset-2'
-                  : ''}"
-                aria-pressed={bg === b}
-                aria-label={b}
-                onclick={() => (bg = b)}
-              ></button>
-            {/each}
-          </div>
+      <div class="inline-flex items-center gap-1 text-xs text-secondary">
+        {$t('skinEditor.background')}
+        <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
+          {#each ['dark', 'mid', 'light'] as const as b (b)}
+            <button
+              type="button"
+              class="w-6 h-5 {BG_CLASS[b]} {bg === b
+                ? 'outline outline-2 outline-accent -outline-offset-2'
+                : ''}"
+              aria-pressed={bg === b}
+              aria-label={b}
+              onclick={() => (bg = b)}
+            ></button>
+          {/each}
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="flex items-center gap-2 px-5 py-3 border-t border-border-subtle shrink-0">
-    <button type="button" class="btn-secondary btn-sm" onclick={loadPng} disabled={busy}>
-      <Icon name="upload" size={14} />
-      {$t('skinEditor.loadPng')}
-    </button>
-    <button type="button" class="btn-secondary btn-sm" onclick={exportPng} disabled={busy}>
-      <Icon name="download" size={14} />
-      {$t('skinEditor.savePng')}
-    </button>
-    {#if saveError}
-      <span class="text-xs text-danger">{saveError}</span>
-    {/if}
-    {#if applied}
-      <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
-    {/if}
-    {#if isMicrosoft}
-      <button type="button" class="btn-primary btn-sm ml-auto" onclick={apply} disabled={busy}>
-        {$t('skinEditor.apply')}
+    <!-- Actions -->
+    <div class="flex items-center gap-2">
+      <button type="button" class="btn-secondary btn-sm" onclick={loadPng} disabled={busy}>
+        <Icon name="upload" size={14} />
+        {$t('skinEditor.loadPng')}
       </button>
-    {:else}
-      <span class="text-xs text-muted ml-auto max-w-[360px]">{$t('skinEditor.offlineHint')}</span>
-    {/if}
+      <button type="button" class="btn-secondary btn-sm" onclick={exportPng} disabled={busy}>
+        <Icon name="download" size={14} />
+        {$t('skinEditor.savePng')}
+      </button>
+      {#if saveError}
+        <span class="text-xs text-danger">{saveError}</span>
+      {/if}
+      {#if applied}
+        <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
+      {/if}
+      {#if isMicrosoft}
+        <button type="button" class="btn-primary btn-sm ml-auto" onclick={apply} disabled={busy}>
+          {$t('skinEditor.apply')}
+        </button>
+      {:else}
+        <span class="text-xs text-muted ml-auto max-w-[360px]">{$t('skinEditor.offlineHint')}</span>
+      {/if}
+    </div>
   </div>
 </Modal>
