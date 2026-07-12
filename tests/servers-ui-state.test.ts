@@ -5,7 +5,7 @@ describe('servers-ui state', () => {
   beforeEach(() => {
     serversUi.setMode('client');
     serversUi.selectServer(null);
-    serversUi.activeTab = 'console';
+    serversUi.activeTab = 'overview';
     serversUi.creating = false;
     localStorage.clear();
   });

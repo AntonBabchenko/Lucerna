@@ -1,20 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { onMount } from 'svelte';
-  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
-  import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import ScreenshotsTab from '$lib/screenshots/ScreenshotsTab.svelte';
-  import {
-    modBrowserNav,
-    droppedMods,
-    droppedAssets,
-    droppedWorld,
-    addonsKind,
-    dragActive,
-    serverImportActive,
-  } from '$lib/settings/state.svelte';
+  import { modBrowserNav, clientActiveTab } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
 
   type Tab = 'overview' | 'mod_browser' | 'worlds' | 'screenshots';
@@ -70,60 +59,10 @@
     }
   });
 
-  // Whether the active instance can take mods (selected + non-vanilla).
-  // Shared with ModBrowserTab via canInstallMods() so the rule lives once.
-  const canInstall = $derived(canInstallMods(instanceId, loader));
-
-  // One window-level drag-drop listener for the per-instance tabs.
-  // Modpacks live outside MainTabs now (sidebar-level Browse modpacks
-  // view owns its own drag-drop), so on the Add-ons tab this listener
-  // routes `.jar` drops to the Mods segment (droppedMods) and `.zip`
-  // drops to the Resource-pack/Shader segments (droppedAssets), keyed
-  // off the active `addonsKind`.
-  onMount(() => {
-    const pending = getCurrentWebview().onDragDropEvent((event) => {
-      if (serverImportActive.value) {
-        dragActive.value = false;
-        return;
-      }
-      const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
-      const t = payload.type;
-      // Only the Add-ons and Worlds tabs accept drops.
-      if (active !== 'mod_browser' && active !== 'worlds') {
-        dragActive.value = false;
-        return;
-      }
-      if (t === 'enter' || t === 'over') {
-        dragActive.value = true;
-      } else if (t === 'leave') {
-        dragActive.value = false;
-      } else if (t === 'drop') {
-        dragActive.value = false;
-        const paths = payload.paths ?? [];
-        if (active === 'worlds') {
-          // A world is a `.zip` or a folder; the backend disambiguates and
-          // returns a typed error per path. Pass everything through.
-          if (paths.length > 0 && instanceId !== null) {
-            droppedWorld.value = paths;
-          }
-          return;
-        }
-        if (addonsKind.value === 'mod') {
-          const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
-          if (jars.length > 0 && canInstall) {
-            droppedMods.value = jars;
-          }
-        } else {
-          const zips = paths.filter((p) => p.toLowerCase().endsWith('.zip'));
-          if (zips.length > 0 && instanceId !== null) {
-            droppedAssets.value = { kind: addonsKind.value, paths: zips };
-          }
-        }
-      }
-    });
-    return () => {
-      void pending.then((un) => un());
-    };
+  // Mirror the active tab for the window-level drop router in +page.svelte
+  // (it routes drops by whether the client sits on Add-ons or Worlds).
+  $effect(() => {
+    clientActiveTab.value = active;
   });
 </script>
 

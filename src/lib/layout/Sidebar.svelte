@@ -46,6 +46,7 @@
     onOpenModpacks,
     onOpenLauncherImport,
     running,
+    clientNav = 'idle',
     installing,
     onPlay,
     onStop,
@@ -64,6 +65,7 @@
     createBlockedReason = null,
     launcherImportBlockedReason = null,
     dataRootFallbackReason = null,
+    instancesLoaded = true,
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -96,6 +98,9 @@
     // install pipeline is in flight; otherwise the button morphs
     // between Install (not-ready) and Play (ready).
     running: { version_id: string; pid: number } | null;
+    // Client (game) status for the ModeSwitcher's Client segment, derived in
+    // +page.svelte from running/exited and threaded through as an opaque enum.
+    clientNav?: NavStatusKind;
     installing: boolean;
     onPlay: () => void;
     onStop: () => void;
@@ -126,6 +131,13 @@
     // effectively compact-mode-only (see +page.svelte), but it's driven purely
     // by this prop so Sidebar itself doesn't need to know about compact mode.
     dataRootFallbackReason?: string | null;
+    // False until the page's first list_instances response settles. While
+    // false and the list is empty, the sidebar shows a spinner instead of
+    // the "No instances yet" empty state — "not loaded yet" must not read
+    // as "you have no instances" (it did, for seconds, on cold starts).
+    // Defaults to true so mounts that never load asynchronously (tests)
+    // keep the old semantics.
+    instancesLoaded?: boolean;
   } = $props();
 
   const accountOptions = $derived(
@@ -237,7 +249,7 @@
       </button>
     </div>
 
-    <ModeSwitcher />
+    <ModeSwitcher {clientNav} />
 
     <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
       <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
@@ -349,7 +361,11 @@
           <span>{$t('sidebar.instance')}</span>
           <InstanceConceptTooltip />
         </div>
-        {#if instances.length === 0}
+        {#if !instancesLoaded && instances.length === 0}
+          <div class="py-1" data-testid="sidebar-instances-loading">
+            <Spinner size="sm" delayMs={150} class="text-muted" />
+          </div>
+        {:else if instances.length === 0}
           <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
           {#if createBlockedReason}
             <span class="inline-flex" use:tooltip={{ text: createBlockedReason, describe: false }}>

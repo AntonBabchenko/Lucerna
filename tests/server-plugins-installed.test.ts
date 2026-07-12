@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore } from '$lib/ipc/bindings';
-import ServerPlugins from '$lib/servers/ServerPlugins.svelte';
+import ServerPluginsInstalled from '$lib/servers/addons/ServerPluginsInstalled.svelte';
 
 // Shared mutable mock state + vi.fn handles, hoisted so the vi.mock factories
 // (which run before imports) can close over them.
@@ -11,10 +11,7 @@ const {
   mockDeletePlugin,
   mockEnablePlugin,
   mockDisablePlugin,
-  mockInstallPluginLocal,
   mockOpenPluginsFolder,
-  mockOpenDialog,
-  mockPushSuccess,
   serverRow,
 } = vi.hoisted(() => {
   const serverRow = {
@@ -39,10 +36,7 @@ const {
     mockDeletePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     mockEnablePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     mockDisablePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    mockInstallPluginLocal: vi.fn().mockResolvedValue({ status: 'ok', data: 'cool.jar' }),
     mockOpenPluginsFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    mockOpenDialog: vi.fn(),
-    mockPushSuccess: vi.fn(),
     serverRow,
   };
 });
@@ -53,10 +47,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverDeletePlugin: mockDeletePlugin,
     serverEnablePlugin: mockEnablePlugin,
     serverDisablePlugin: mockDisablePlugin,
-    serverInstallPluginLocal: mockInstallPluginLocal,
     serverOpenPluginsFolder: mockOpenPluginsFolder,
-    // Browser-only command (used once the Add-plugins panel is opened).
-    modsSearch: vi.fn().mockResolvedValue({ status: 'ok', data: { hits: [], total: 0 } }),
   },
 }));
 
@@ -68,14 +59,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
   },
 }));
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mockOpenDialog }));
-
-vi.mock('$lib/toasts/toasts.svelte', () => ({
-  pushSuccess: mockPushSuccess,
-  pushWarning: vi.fn(),
-}));
-
-describe('ServerPlugins', () => {
+describe('ServerPluginsInstalled', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
     vi.clearAllMocks();
@@ -90,15 +74,16 @@ describe('ServerPlugins', () => {
     });
   });
 
-  it('labels a set-aside plugin with the setAside badge', async () => {
-    render(ServerPlugins, { serverId: 'srv-1' });
-    expect(await screen.findByText('essentials.jar.disabled')).toBeTruthy();
+  it('renders the entries returned by serverListPlugins, with the setAside badge', async () => {
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
+    expect(await screen.findByText('worldedit.jar')).toBeTruthy();
+    expect(screen.getByText('essentials.jar.disabled')).toBeTruthy();
     // Badge is lowercase "set aside"; the per-row action button is "Set aside".
     expect(screen.getByText('set aside')).toBeTruthy();
   });
 
   it('Restore on a disabled plugin calls serverEnablePlugin and refreshes', async () => {
-    render(ServerPlugins, { serverId: 'srv-1' });
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
     const restore = await screen.findByTestId('server-plugin-restore');
     await fireEvent.click(restore);
     await waitFor(() =>
@@ -109,62 +94,30 @@ describe('ServerPlugins', () => {
   });
 
   it('Set aside on an enabled plugin calls serverDisablePlugin and refreshes', async () => {
-    render(ServerPlugins, { serverId: 'srv-1' });
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
     const disable = await screen.findByTestId('server-plugin-disable');
     await fireEvent.click(disable);
     await waitFor(() => expect(mockDisablePlugin).toHaveBeenCalledWith('srv-1', 'worldedit.jar'));
     expect(mockListPlugins).toHaveBeenCalledTimes(2);
   });
 
-  it('Add plugins toggles the server plugin browser when stopped', async () => {
-    render(ServerPlugins, { serverId: 'srv-1' });
-    const add = await screen.findByTestId('server-plugins-add');
-    expect((add as HTMLButtonElement).disabled).toBe(false);
-    await fireEvent.click(add);
-    expect(await screen.findByTestId('server-plugin-browser')).toBeTruthy();
-  });
-
-  it('Install .jar picks a file and calls serverInstallPluginLocal', async () => {
-    mockOpenDialog.mockResolvedValue('C:/dl/cool.jar');
-    render(ServerPlugins, { serverId: 'srv-1' });
-    const btn = await screen.findByTestId('server-plugins-install-local');
-    await fireEvent.click(btn);
-    await waitFor(() =>
-      expect(mockInstallPluginLocal).toHaveBeenCalledWith('srv-1', 'C:/dl/cool.jar'),
-    );
-    expect(mockPushSuccess).toHaveBeenCalled();
-  });
-
-  it('Install .jar is a no-op when the picker is cancelled', async () => {
-    mockOpenDialog.mockResolvedValue(null);
-    render(ServerPlugins, { serverId: 'srv-1' });
-    const btn = await screen.findByTestId('server-plugins-install-local');
-    await fireEvent.click(btn);
-    await waitFor(() => expect(mockOpenDialog).toHaveBeenCalled());
-    expect(mockInstallPluginLocal).not.toHaveBeenCalled();
-  });
-
-  it('disables management + shows a hint while the server runs', async () => {
-    serverRow.running = true;
-    render(ServerPlugins, { serverId: 'srv-1' });
+  it('bumping reloadToken re-reads the plugins list', async () => {
+    const { rerender } = render(ServerPluginsInstalled, { serverId: 'srv-1', reloadToken: 0 });
     await screen.findByText('worldedit.jar');
-    expect(screen.getByText('Stop the server to change its plugins.')).toBeTruthy();
-    expect((screen.getByTestId('server-plugins-add') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId('server-plugins-install-local') as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(mockListPlugins).toHaveBeenCalledTimes(1);
+    await rerender({ serverId: 'srv-1', reloadToken: 1 });
+    await waitFor(() => expect(mockListPlugins).toHaveBeenCalledTimes(2));
   });
 
-  it('renders only the requiresCore hint for a non-plugin core', async () => {
-    serverRow.loader = 'forge';
-    render(ServerPlugins, { serverId: 'srv-1' });
+  it('renders only the requiresCore hint for a non-plugin core (fabric)', async () => {
+    serverRow.loader = 'fabric';
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
     expect(
       await screen.findByText(
         "Plugins need a Paper or Purpur core. You can switch this server's core in the Settings tab.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByTestId('server-plugins-add')).toBeNull();
-    expect(screen.queryByTestId('server-plugins-install-local')).toBeNull();
+    expect(screen.queryByRole('button', { name: /open folder/i })).toBeNull();
     expect(screen.queryByText('worldedit.jar')).toBeNull();
   });
 });

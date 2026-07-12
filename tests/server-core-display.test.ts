@@ -33,8 +33,8 @@ describe('server core capability/switch matrix', () => {
     expect(displayCore('paper')).toBe('Paper');
   });
   it('coreToLoaderKind maps mod cores through and plugin cores to null', () => {
-    // ServerMods feeds ServerModBrowser's LoaderKind prop through this map —
-    // a plugin core must never leak a fake loader.
+    // The Add-ons tab feeds ServerModBrowser's LoaderKind prop through this
+    // map — a plugin core must never leak a fake loader.
     expect(coreToLoaderKind('paper')).toBe(null);
     expect(coreToLoaderKind('fabric')).toBe('fabric');
   });

@@ -106,7 +106,6 @@ describe('data-root fallback gating (§7)', () => {
         effective: 'C:\\Users\\test\\AppData\\Roaming\\com.lucerna.app',
         configured: 'D:\\LucernaData',
         fell_back: true,
-        data_size_bytes: 12345,
       },
     });
     await dataLocation.refresh();
@@ -135,7 +134,6 @@ describe('data-root fallback gating (§7)', () => {
         effective: 'C:\\Users\\test\\AppData\\Roaming\\com.lucerna.app',
         configured: null,
         fell_back: false,
-        data_size_bytes: 12345,
       },
     });
     await dataLocation.refresh();

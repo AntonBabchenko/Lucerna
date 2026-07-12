@@ -8,7 +8,7 @@ const { connectivity, running, firewallStatus, firewallAddRule, publicAddress } 
     running: vi.fn(),
     firewallStatus: vi.fn(),
     firewallAddRule: vi.fn(),
-    // ServerConnectView fetches the public address on mount via `.then(...)`, so the
+    // ServerConnectCard fetches the public address on mount via `.then(...)`, so the
     // mock must return a Promise (a bare vi.fn() returns undefined → no `.then`).
     publicAddress: vi.fn().mockResolvedValue(null),
   }),
@@ -24,9 +24,9 @@ Object.defineProperty(globalThis.navigator, 'clipboard', {
   configurable: true,
 });
 
-import ServerConnectView from '$lib/servers/ServerConnectView.svelte';
+import ServerConnectCard from '$lib/servers/overview/ServerConnectCard.svelte';
 
-describe('ServerConnectView firewall banner', () => {
+describe('ServerConnectCard firewall banner', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
     connectivity.mockReset();
@@ -46,7 +46,7 @@ describe('ServerConnectView firewall banner', () => {
     firewallStatus.mockResolvedValue('needs_rule');
     firewallAddRule.mockResolvedValue({ ok: true });
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     expect(await screen.findByText('Add firewall rule')).toBeTruthy();
     expect(await screen.findByText('Windows Firewall may be blocking friends')).toBeTruthy();
@@ -57,7 +57,7 @@ describe('ServerConnectView firewall banner', () => {
     firewallStatus.mockResolvedValue('needs_rule');
     firewallAddRule.mockResolvedValue({ ok: true });
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     const btn = await screen.findByRole('button', { name: 'Add firewall rule' });
     fireEvent.click(btn);
@@ -72,7 +72,7 @@ describe('ServerConnectView firewall banner', () => {
     running.mockReturnValue(true);
     firewallStatus.mockResolvedValue('allowed');
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     // Wait for any async rendering to settle.
     await screen.findByText(/On your network/i);
@@ -83,7 +83,7 @@ describe('ServerConnectView firewall banner', () => {
     running.mockReturnValue(true);
     firewallStatus.mockResolvedValue('not_applicable');
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     await screen.findByText(/On your network/i);
     expect(screen.queryByText('Windows Firewall may be blocking friends')).toBeNull();
@@ -94,7 +94,7 @@ describe('ServerConnectView firewall banner', () => {
     running.mockReturnValue(false);
     firewallStatus.mockResolvedValue('needs_rule');
 
-    render(ServerConnectView, { serverId: 'srv-1' });
+    render(ServerConnectCard, { serverId: 'srv-1' });
 
     expect(await screen.findByText('Start the server to get a join address.')).toBeTruthy();
     expect(screen.queryByText('Windows Firewall may be blocking friends')).toBeNull();

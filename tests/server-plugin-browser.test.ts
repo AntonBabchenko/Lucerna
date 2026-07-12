@@ -70,6 +70,14 @@ function version(versionId: string, opts?: { distributionAllowed?: boolean; url?
   };
 }
 
+// The sort control is the custom <Select> listbox: open the trigger by
+// testid, then commit an option by its accessible name. The Select commits on
+// `mousedown` (not click), so the option must be driven with mouseDown.
+async function pickSelectOption(triggerTestid: string, name: RegExp | string) {
+  await fireEvent.click(screen.getByTestId(triggerTestid));
+  await fireEvent.mouseDown(screen.getByRole('option', { name }));
+}
+
 function renderBrowser(onInstalled = vi.fn()) {
   render(ServerPluginBrowser, {
     serverId: 'srv-1',
@@ -208,5 +216,19 @@ describe('ServerPluginBrowser', () => {
     // a third search with offset 0 here.
     await new Promise((resolve) => setTimeout(resolve, 350));
     expect(mockSearch).toHaveBeenCalledTimes(2);
+  });
+
+  it('changing sort re-runs the search with the new sort and resets to page 0', async () => {
+    renderBrowser();
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    mockSearch.mockClear();
+    await pickSelectOption('server-plugin-sort', 'Updated');
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({
+      sort: 'updated',
+      offset: 0,
+      plugin_core: 'paper',
+      loader: null,
+    });
   });
 });

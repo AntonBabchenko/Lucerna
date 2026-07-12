@@ -27,12 +27,11 @@ describe('servers mode tour (SERVERS_STEPS)', () => {
 });
 
 describe('server manage tour (SERVER_MANAGE_STEPS)', () => {
-  it('has the six detail-view steps in order, anchored to stable elements', () => {
+  it('has the five detail-view steps in order, anchored to stable elements', () => {
     expect(SERVER_MANAGE_STEPS.map(selector)).toEqual([
       '[data-tour-ctx="server-header-actions"]',
-      '[data-tour-ctx="server-tab-console"]',
-      '[data-tour-ctx="server-tab-mods"]',
-      '[data-tour-ctx="server-tab-connect"]',
+      '[data-tour-ctx="server-tab-overview"]',
+      '[data-tour-ctx="server-tab-addons"]',
       '[data-tour-ctx="server-tab-hosting"]',
       '[data-tour-ctx="server-to-instance"]',
     ]);

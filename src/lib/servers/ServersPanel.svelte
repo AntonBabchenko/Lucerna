@@ -19,14 +19,11 @@
   import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
   import { serverBannerEligible, serverDiagnosisSignature } from './server-diagnosis-view';
-  import ServerConsole from './ServerConsole.svelte';
-  import ServerGeneralSettings from './ServerGeneralSettings.svelte';
-  import ServerSettings from './ServerSettings.svelte';
-  import ServerMods from './ServerMods.svelte';
-  import ServerPlugins from './ServerPlugins.svelte';
+  import ServerOverviewTab from '$lib/servers/overview/ServerOverviewTab.svelte';
+  import ServerSettingsTab from '$lib/servers/settings/ServerSettingsTab.svelte';
+  import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
   import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
   import ServerHostingTab from './ServerHostingTab.svelte';
-  import ServerConnectView from './ServerConnectView.svelte';
   import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
   import ServerBackupsView from './ServerBackupsView.svelte';
   import ServerCreateWizard from './ServerCreateWizard.svelte';
@@ -108,16 +105,7 @@
   });
 
   // WAI-ARIA tabs pattern: roving tabindex with arrow-key navigation.
-  const TAB_ORDER: ServerTab[] = [
-    'console',
-    'connect',
-    'general',
-    'settings',
-    'mods',
-    'plugins',
-    'hosting',
-    'backups',
-  ];
+  const TAB_ORDER: ServerTab[] = ['overview', 'settings', 'addons', 'hosting', 'backups'];
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
 
   function onTablistKeydown(e: KeyboardEvent) {
@@ -304,7 +292,7 @@
       </div>
 
       <!-- Sub-tabs. overflow-x-auto is load-bearing: at the 820px window minimum
-           the eight RU tab labels overflow the panel. overflow-y-hidden is too:
+           the RU tab labels overflow the panel. overflow-y-hidden is too:
            overflow-x:auto forces overflow-y to compute to auto, and the tabs'
            -mb-px underline overlap overflows 1px vertically — without the
            explicit hidden that 1px grows a stray vertical scrollbar. -->
@@ -314,7 +302,7 @@
         class="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border-subtle px-4 bg-surface"
         onkeydown={onTablistKeydown}
       >
-        {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['plugins', $t('servers.plugins.tab')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
+        {#each [['overview', $t('servers.tab.overview')], ['settings', $t('servers.tab.settings')], ['addons', $t('servers.tab.addons')], ['hosting', $t('servers.tab.hosting')], ['backups', $t('servers.tab.backups')]] as const as [id, label] (id)}
           <button
             bind:this={tabEls[TAB_ORDER.indexOf(id)]}
             type="button"
@@ -337,18 +325,12 @@
 
       <!-- Tab body -->
       <div class="flex-1 overflow-y-auto p-4">
-        {#if serversUi.activeTab === 'console'}
-          <ServerConsole serverId={server.id} />
-        {:else if serversUi.activeTab === 'connect'}
-          <ServerConnectView serverId={server.id} />
-        {:else if serversUi.activeTab === 'general'}
-          <ServerGeneralSettings serverId={server.id} />
+        {#if serversUi.activeTab === 'overview'}
+          <ServerOverviewTab serverId={server.id} />
         {:else if serversUi.activeTab === 'settings'}
-          <ServerSettings serverId={server.id} />
-        {:else if serversUi.activeTab === 'mods'}
-          <ServerMods serverId={server.id} />
-        {:else if serversUi.activeTab === 'plugins'}
-          <ServerPlugins serverId={server.id} />
+          <ServerSettingsTab serverId={server.id} />
+        {:else if serversUi.activeTab === 'addons'}
+          <ServerAddonsTab serverId={server.id} />
         {:else if serversUi.activeTab === 'hosting'}
           <ServerHostingTab serverId={server.id} />
         {:else if serversUi.activeTab === 'backups'}

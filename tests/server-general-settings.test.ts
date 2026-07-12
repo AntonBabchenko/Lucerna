@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import ServerGeneralSettings from '$lib/servers/ServerGeneralSettings.svelte';
+import ServerSettingsTab from '$lib/servers/settings/ServerSettingsTab.svelte';
 
 // vi.mock factories are hoisted above imports — use vi.hoisted so the shared
 // mutable mock state and vi.fn() references are available inside the factory.
@@ -42,6 +42,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       step_mb: 256,
       ram_known: false,
     }),
+    serverReadProperties: vi.fn().mockResolvedValue({ status: 'ok', data: '' }),
+    serverWriteProperties: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
 
@@ -56,7 +58,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
   },
 }));
 
-describe('ServerGeneralSettings', () => {
+describe('ServerSettingsTab launch section', () => {
   beforeAll(() => locale.set('en'));
 
   it('(a) Name input is pre-filled; saving calls rename and updateRuntimeConfig', async () => {
@@ -64,7 +66,7 @@ describe('ServerGeneralSettings', () => {
     mockRename.mockClear();
     mockUpdateRuntimeConfig.mockClear();
 
-    render(ServerGeneralSettings, { props: { serverId: 'srv-1' } });
+    render(ServerSettingsTab, { props: { serverId: 'srv-1' } });
 
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
     expect(nameInput.value).toBe('Old Name');
@@ -72,8 +74,8 @@ describe('ServerGeneralSettings', () => {
     // Change the name
     await fireEvent.input(nameInput, { target: { value: 'New Name' } });
 
-    // Click Save
-    const saveBtn = screen.getByRole('button', { name: 'Save' });
+    // Click Save (the merged tab has two Save buttons — target the launch one)
+    const saveBtn = screen.getByTestId('settings-launch-save');
     await fireEvent.click(saveBtn);
 
     expect(mockRename).toHaveBeenCalledWith('srv-1', 'New Name');
@@ -85,11 +87,11 @@ describe('ServerGeneralSettings', () => {
     mockRename.mockClear();
     mockUpdateRuntimeConfig.mockClear();
 
-    render(ServerGeneralSettings, { props: { serverId: 'srv-1' } });
+    render(ServerSettingsTab, { props: { serverId: 'srv-1' } });
 
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
     await fireEvent.input(nameInput, { target: { value: 'New Name' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await fireEvent.click(screen.getByTestId('settings-launch-save'));
 
     // "Saved" appears after a successful save.
     expect(await screen.findByText('Saved')).toBeTruthy();
@@ -102,7 +104,7 @@ describe('ServerGeneralSettings', () => {
   it('(b) shows restart warning when the server is running', () => {
     mockRunning.mockReturnValue(true);
 
-    render(ServerGeneralSettings, { props: { serverId: 'srv-1' } });
+    render(ServerSettingsTab, { props: { serverId: 'srv-1' } });
 
     expect(screen.getByText('Restart the server to apply memory / JVM changes.')).toBeTruthy();
   });

@@ -185,6 +185,8 @@
     "noServers": "No servers yet.",
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
+    "clientRunning": "Game running",
+    "clientCrashed": "Game crashed",
     "serversFixAvailable": "A server fix is available",
     "serversUploading": "Uploading to hosting…",
     "importLauncher": "Import from launcher",
@@ -1320,23 +1322,17 @@
           "titleBasic": "Start and stop",
           "bodyBasic": "Use these buttons to start, restart, or stop your server. If it crashes, a help banner appears with the likely cause and a button to fix it."
         },
-        "console": {
-          "title": "The Console tab",
-          "body": "Console streams the server's live output. Type commands at the bottom, search the log, switch between past sessions, and share a log to mclo.gs when you need help.",
-          "titleBasic": "Console",
-          "bodyBasic": "The Console shows what your server is doing right now. You can type server commands, search the log, and share it to get help."
+        "overview": {
+          "title": "Everything at a glance",
+          "titleBasic": "Your server's home",
+          "body": "Overview gathers the server facts, the connection details for inviting friends, and the live console with its command input.",
+          "bodyBasic": "This tab shows how the server is doing, how friends can join, and what it prints while running."
         },
-        "mods": {
-          "title": "The Mods tab",
-          "body": "Install server mods from Modrinth or CurseForge, drop in a local .jar, or add datapacks. Client-only mods get quarantined automatically, so a graphics mod can't crash a headless server.",
-          "titleBasic": "Mods",
-          "bodyBasic": "Add mods to your server from Modrinth or CurseForge, or from a file. Mods that only work on the game client are set aside automatically so they don't crash the server."
-        },
-        "connect": {
-          "title": "The Connect tab",
-          "body": "Connect hands you the address friends use to join, for both LAN and the internet. It adds the Windows firewall rule for you and offers an allow-offline toggle that clears the common 'invalid session' block.",
-          "titleBasic": "Connect",
-          "bodyBasic": "Connect gives you the address your friends need to join. It can add the Windows firewall rule for you, and fix the common 'invalid session' error."
+        "addons": {
+          "title": "Mods, plugins and datapacks",
+          "titleBasic": "Extra content lives here",
+          "body": "Add-ons adapts to the server core: mod loaders take mods, Paper and Purpur take plugins, and datapacks work everywhere. Search the catalogs or drop files onto the zone.",
+          "bodyBasic": "Here you add extra content. The tab only offers what your server type supports."
         },
         "hosting": {
           "title": "The Hosting tab",
@@ -1881,10 +1877,11 @@
       "crashed": "Crashed"
     },
     "tab": {
-      "console": "Console",
       "settings": "Settings",
-      "mods": "Mods",
-      "general": "General"
+      "overview": "Overview",
+      "addons": "Add-ons",
+      "hosting": "Hosting",
+      "backups": "Backups"
     },
     "action": {
       "start": "Start",
@@ -1940,9 +1937,27 @@
         "eula": "Accept the Minecraft EULA to continue."
       }
     },
+    "overview": {
+      "serverCard": "Server",
+      "connectionCard": "Connection",
+      "consoleCard": "Console",
+      "version": "Version",
+      "core": "Core",
+      "memory": "Memory"
+    },
+    "addons": {
+      "kindPlugins": "Plugins",
+      "kindDatapacks": "Datapacks",
+      "pinnedFacets": "For {core} {mcVersion}",
+      "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
+      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file"
+    },
     "settings": {
       "save": "Save",
       "saved": "Saved",
+      "launchSection": "Launch",
+      "propertiesSection": "server.properties",
+      "restartToApply": "Restart the server to apply changes to server.properties.",
       "raw": "Advanced (raw file)",
       "port": "Port",
       "motd": "MOTD",
@@ -1974,8 +1989,6 @@
       "setAside": "set aside",
       "setAsideClientOnly": "set aside: client-only",
       "restore": "Restore",
-      "addMods": "Add mods",
-      "installLocal": "Install .jar",
       "stopToManage": "Stop the server to change its mods and datapacks.",
       "localInstalled": "Installed {name}",
       "searchPlaceholder": "Search mods…",
@@ -1985,8 +1998,8 @@
       "installedOne": "Installed {name}",
       "installedWithDeps": "Installed {name} and {count, plural, one {# dependency} other {# dependencies}}",
       "someDepsUnresolved": "Some dependencies couldn't be resolved: {deps}. Install them manually if the server needs them.",
-      "externalDownload": "{name} can't be downloaded automatically (the author disabled third-party downloads). Open the project page to get it, then use Install .jar.",
-      "pluginCoreHint": "This core does not load mods. Paper-family servers use plugins instead: see the Plugins tab.",
+      "externalDownload": "{name} can't be downloaded automatically (the author disabled third-party downloads). Open the project page to get it, then drop the .jar onto the Add-ons zone.",
+      "pluginCoreHint": "This core does not load mods. Paper-family servers use plugins instead: pick Plugins in the Add-ons tab.",
       "datapacksTitle": "Datapacks",
       "addDatapack": "Add datapack",
       "datapacksEmpty": "No datapacks",
@@ -1995,14 +2008,10 @@
       "remove": "Remove"
     },
     "plugins": {
-      "tab": "Plugins",
       "empty": "No plugins",
       "note": "Plugins run on the server only. Players join with a plain vanilla client.",
       "requiresCore": "Plugins need a Paper or Purpur core. You can switch this server's core in the Settings tab.",
-      "addPlugins": "Add plugins",
-      "installLocal": "Install .jar",
       "openFolder": "Open folder",
-      "localInstalled": "Installed {name}",
       "stopToManage": "Stop the server to change its plugins.",
       "searchPlaceholder": "Search plugins…",
       "noResults": "No results.",
@@ -2010,7 +2019,7 @@
       "installedOne": "Installed {name}",
       "installedWithDeps": "Installed {name} and {count, plural, one {# dependency} other {# dependencies}}",
       "someDepsUnresolved": "Some dependencies couldn't be resolved: {deps}. Install them manually if the server needs them.",
-      "externalDownload": "{name} is distributed outside Hangar. Download it from the project page, then use Install .jar.",
+      "externalDownload": "{name} is distributed outside Hangar. Download it from the project page, then drop the .jar onto the Add-ons zone.",
       "disable": "Set aside",
       "restore": "Restore",
       "delete": "Remove",
@@ -2045,7 +2054,6 @@
       "stopToSwitch": "Stop the server to switch its core."
     },
     "hosting": {
-      "tab": "Hosting",
       "host": "Host",
       "port": "Port",
       "user": "User",
@@ -2249,7 +2257,6 @@
       "runningBlock": "Stop the server before deleting"
     },
     "backups": {
-      "tab": "Backups",
       "create": "Create backup",
       "creating": "Creating…",
       "empty": "No backups yet",
@@ -2268,7 +2275,6 @@
       "autoSaved": "Saved"
     },
     "connect": {
-      "tab": "Connect",
       "stoppedHint": "Start the server to get a join address.",
       "lanTitle": "On your network (LAN)",
       "lanHint": "Friends on the same Wi-Fi / network can join with Direct Connect:",
