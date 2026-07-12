@@ -508,7 +508,9 @@
 
   function onCompanionDown(e: PointerEvent): void {
     if (busy) return;
-    if (tool === 'pan') {
+    // Left button draws; right/middle (or the pan tool) pan the zoomed view.
+    const wantsPan = e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'pan');
+    if (wantsPan) {
       if (!companionBox) return;
       companionPanning = true;
       companion?.setPointerCapture(e.pointerId);
@@ -520,6 +522,7 @@
       };
       return;
     }
+    if (e.button !== 0) return;
     companionPainting = true;
     companion?.setPointerCapture(e.pointerId);
     beginStroke();
@@ -891,10 +894,13 @@
         >
           <canvas
             bind:this={companion}
-            class="block touch-none {tool === 'pan' ? 'cursor-grab active:cursor-grabbing' : ''}"
+            class="block touch-none {tool === 'pan'
+              ? 'cursor-grab active:cursor-grabbing'
+              : 'cursor-crosshair'}"
             style="image-rendering:pixelated;aspect-ratio:1/1;width:{companionZoom * 100}%"
             aria-label={$t('skinEditor.companionHeading')}
             onwheel={onCompanionWheel}
+            oncontextmenu={(e) => e.preventDefault()}
             onpointerdown={onCompanionDown}
             onpointermove={onCompanionMove}
             onpointerup={onCompanionUp}
