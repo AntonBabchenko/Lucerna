@@ -56,8 +56,8 @@
       if (!viewerCanvas || url === null) return;
       viewer = new skinview3d.SkinViewer({
         canvas: viewerCanvas,
-        width: 200,
-        height: 260,
+        width: 180,
+        height: 240,
         skin: url,
         model: modelOf(variant),
       });
@@ -332,16 +332,18 @@
         <div class="text-sm font-medium text-primary">{$t('cosmetics.skinHeading')}</div>
         <div class="text-xs text-muted">{$t('cosmetics.skinHint')}</div>
       </div>
-      <div class="flex gap-[18px] items-start flex-wrap">
-        <div class="bg-subtle rounded-[10px] px-3 py-3 flex flex-col items-center gap-2">
+      <div class="flex gap-4 items-start">
+        <div class="bg-subtle rounded-[10px] p-2 flex flex-col items-center gap-1.5 shrink-0">
           <canvas
             use:mountViewer
-            class="w-[200px] h-[260px] cursor-grab active:cursor-grabbing"
+            class="w-[180px] h-[240px] cursor-grab active:cursor-grabbing"
             aria-label={$t('cosmetics.currentSkin')}
           ></canvas>
-          <span class="text-xs text-muted">{$t('cosmetics.dragToRotate')}</span>
+          <span class="text-[11px] text-muted text-center max-w-[180px]">
+            {$t('cosmetics.dragToRotate')}
+          </span>
         </div>
-        <div class="flex-1 min-w-[200px] flex flex-col gap-3.5">
+        <div class="flex-1 min-w-0 flex flex-col gap-3">
           <div class="flex gap-2 flex-wrap">
             <button
               type="button"
