@@ -252,9 +252,9 @@
 <Modal
   ariaLabelledby="cosmetics-title"
   {onClose}
-  panelClass="w-[560px] max-w-full p-0 flex flex-col"
+  panelClass="w-[560px] max-w-full max-h-[calc(100vh-2rem)] p-0 flex flex-col"
 >
-  <div class="flex items-center px-5 py-3.5 border-b border-border-subtle">
+  <div class="flex items-center px-5 py-3.5 border-b border-border-subtle shrink-0">
     <div>
       <h3 id="cosmetics-title" class="font-medium text-primary text-base">
         {$t('cosmetics.title')}
@@ -271,7 +271,7 @@
     </button>
   </div>
 
-  <div class="p-5">
+  <div class="p-5 flex-1 min-h-0 overflow-y-auto">
     {#if loading}
       <p class="text-sm text-muted">{$t('common.loading')}</p>
     {:else if loadError}
@@ -286,11 +286,11 @@
         <div class="text-sm font-medium text-primary">{$t('cosmetics.capeHeading')}</div>
         <div class="text-xs text-muted">{$t('cosmetics.capeHint')}</div>
       </div>
-      <div class="grid gap-2.5" style="grid-template-columns:repeat(auto-fit,minmax(88px,1fr))">
+      <div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(64px,1fr))">
         {#each capes as cape (cape.id)}
           <button
             type="button"
-            class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {cape.is_active
+            class="flex flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
               ? 'border-transparent outline outline-2 outline-accent'
               : 'border-border-subtle hover:border-border-emphasis'}"
             onclick={() => pickCape(cape.id)}
@@ -298,7 +298,7 @@
           >
             <canvas
               use:renderCape={cape.texture_url}
-              class="h-[70px]"
+              class="h-[46px]"
               style="image-rendering:pixelated"
             ></canvas>
             <span class="text-xs text-secondary truncate w-full text-center"
@@ -308,16 +308,16 @@
         {/each}
         <button
           type="button"
-          class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {noCapeActive
+          class="flex flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
             ? 'border-transparent outline outline-2 outline-accent'
             : 'border-border-subtle hover:border-border-emphasis'}"
           onclick={() => pickCape(null)}
           disabled={busy}
         >
           <span
-            class="h-[70px] w-11 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
+            class="h-[46px] w-8 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
           >
-            <Icon name="close" size={20} />
+            <Icon name="close" size={16} />
           </span>
           <span class="text-xs text-secondary">{$t('cosmetics.noCape')}</span>
         </button>
