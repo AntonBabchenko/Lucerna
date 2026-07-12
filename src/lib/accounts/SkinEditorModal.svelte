@@ -13,7 +13,7 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { commands, type Account, type SkinVariant } from '$lib/ipc/bindings';
   import type { SkinViewer } from 'skinview3d';
-  import type { Mesh, Object3D } from 'three';
+  import type { LineLoop, Mesh, Object3D, Vector3 } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
   import {
     allFaceRects,
@@ -30,7 +30,12 @@
     pickColour,
   } from '$lib/accounts/skin-editor/tools';
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
-  import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import { pickFootprint, pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import {
+    createBrushCursor,
+    disposeBrushCursor,
+    updateBrushCursor,
+  } from '$lib/accounts/skin-editor/brush-cursor';
   import { createCenterlineGuide, disposeGuide } from '$lib/accounts/skin-editor/centerline';
   import { POSE_NAMES, resolvePose, type PoseName } from '$lib/accounts/skin-editor/poses';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
@@ -116,6 +121,7 @@
   let companionPanning = false;
   let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
   let hoverTexel: { x: number; y: number } | null = null; // brush footprint preview anchor
+  let brushCursor: LineLoop | null = null; // 3D footprint outline on the model surface
   let painting = false;
   let companionPainting = false;
 
@@ -232,6 +238,10 @@
         if (centerline) {
           disposeGuide(centerline);
           centerline = null;
+        }
+        if (brushCursor) {
+          disposeBrushCursor(brushCursor);
+          brushCursor = null;
         }
         disposeControls?.();
         disposeControls = null;
@@ -409,6 +419,7 @@
     // controls.enabled is false — so the model can't rotate mid-paint.
     viewer.controls.enabled = false;
     painting = true;
+    syncBrushCursor(null);
     viewerCanvas?.setPointerCapture(e.pointerId);
     beginStroke();
     paintFromViewerEvent(e);
@@ -420,19 +431,20 @@
       return;
     }
     if (!viewer || !viewerCanvas) return;
-    if (tool === 'pencil' || tool === 'eraser') {
-      setHoverTexel(
-        pickTexel(
-          viewer.camera,
-          activeMeshes(),
-          e.clientX,
-          e.clientY,
-          viewerCanvas.getBoundingClientRect(),
-        ),
-      );
-    } else {
-      setHoverTexel(null);
+    if (tool !== 'pencil' && tool !== 'eraser') {
+      clearHover();
+      return;
     }
+    const hit = pickFootprint(
+      viewer.camera,
+      activeMeshes(),
+      e.clientX,
+      e.clientY,
+      viewerCanvas.getBoundingClientRect(),
+      brush,
+    );
+    setHoverTexel(hit?.texel ?? null);
+    syncBrushCursor(hit?.corners ?? null);
   }
 
   function onViewerUp(e: PointerEvent): void {
@@ -503,6 +515,25 @@
     if (t?.x === hoverTexel?.x && t?.y === hoverTexel?.y) return;
     hoverTexel = t;
     renderCompanion();
+  }
+
+  function syncBrushCursor(corners: Vector3[] | null): void {
+    if (!viewer) return;
+    if (corners) {
+      if (!brushCursor) {
+        brushCursor = createBrushCursor();
+        viewer.scene.add(brushCursor);
+      }
+      updateBrushCursor(brushCursor, corners);
+    } else if (brushCursor) {
+      disposeBrushCursor(brushCursor);
+      brushCursor = null;
+    }
+  }
+
+  function clearHover(): void {
+    setHoverTexel(null);
+    syncBrushCursor(null);
   }
 
   function observeCompanionBox(node: HTMLElement) {
@@ -845,7 +876,7 @@
           onpointermove={onViewerMove}
           onpointerup={onViewerUp}
           onpointercancel={onViewerUp}
-          onpointerleave={() => setHoverTexel(null)}
+          onpointerleave={clearHover}
         ></canvas>
       </div>
       <span class="text-xs text-muted text-center">{$t('skinEditor.dragToPaint')}</span>
