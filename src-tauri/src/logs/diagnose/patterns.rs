@@ -355,4 +355,20 @@ mod tests {
             "[Server thread/INFO]: Done (4.1s)! For help, type \"help\"\n"
         ));
     }
+
+    #[test]
+    fn banner_patterns_are_all_client_side() {
+        // Deliberate property: every banner pattern's copy is client-worded.
+        // Server surfaces get their own inline entries instead.
+        for p in PATTERNS {
+            assert_eq!(p.side, Side::Client, "{} must be Side::Client", p.id);
+        }
+    }
+
+    #[test]
+    fn side_matching_helpers() {
+        assert!(Side::Any.matches_client() && Side::Any.matches_server());
+        assert!(Side::Client.matches_client() && !Side::Client.matches_server());
+        assert!(Side::Server.matches_server() && !Side::Server.matches_client());
+    }
 }

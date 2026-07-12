@@ -5,6 +5,7 @@
 
 pub mod engine;
 pub mod fixmods;
+pub mod inline_patterns;
 pub mod patterns;
 pub mod repair;
 pub mod server;
