@@ -15,7 +15,12 @@
   import type { SkinViewer } from 'skinview3d';
   import type { Object3D } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
-  import { allFaceRects, faceRectAt, mirrorInFace } from '$lib/accounts/skin-editor/atlas';
+  import {
+    allFaceRects,
+    faceRectAt,
+    mirrorBlockAnchor,
+    mirrorTexel,
+  } from '$lib/accounts/skin-editor/atlas';
   import {
     dodgeBurn,
     eraser,
@@ -293,8 +298,11 @@
     };
     paintOne(x, y);
     if (mirror) {
-      const m = mirrorInFace(x, y, variant);
-      if (m.x !== x || m.y !== y) paintOne(m.x, m.y);
+      const m = mirrorTexel(x, y, variant);
+      if (m && (m.x !== x || m.y !== y)) {
+        const anchor = tool === 'fill' ? m : mirrorBlockAnchor(m, brush);
+        paintOne(anchor.x, anchor.y);
+      }
     }
     ctx.putImageData(img, 0, 0);
     const tex = viewer.playerObject.skin.map;

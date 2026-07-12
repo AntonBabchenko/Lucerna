@@ -79,14 +79,6 @@ export function faceRectAt(x: number, y: number, variant: Variant): FaceRect | u
   return allFaceRects(variant).find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 }
 
-// Horizontal mirror within the containing face (v1 mirror-X). Full cross-limb
-// symmetry is a future enhancement.
-export function mirrorInFace(x: number, y: number, variant: Variant): { x: number; y: number } {
-  const r = faceRectAt(x, y, variant);
-  if (!r) return { x, y };
-  return { x: r.x + (r.x + r.w - 1 - x), y };
-}
-
 const PART_MIRROR: Record<Part, Part> = {
   head: 'head',
   body: 'body',

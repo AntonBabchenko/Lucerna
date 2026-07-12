@@ -3,7 +3,6 @@ import {
   allFaceRects,
   faceRectAt,
   mirrorBlockAnchor,
-  mirrorInFace,
   mirrorTexel,
 } from '$lib/accounts/skin-editor/atlas';
 
@@ -47,16 +46,6 @@ describe('atlas', () => {
         ).toBe(false);
       }
     }
-  });
-
-  it('mirrors a texel horizontally within its face', () => {
-    // head-front rect is x:8 w:8 -> mirror of x=8 is x=15, of x=9 is x=14
-    expect(mirrorInFace(8, 10, 'classic')).toEqual({ x: 15, y: 10 });
-    expect(mirrorInFace(9, 10, 'classic')).toEqual({ x: 14, y: 10 });
-  });
-
-  it('returns the same texel when it is outside any face (no-op mirror)', () => {
-    expect(mirrorInFace(60, 2, 'classic')).toEqual({ x: 60, y: 2 });
   });
 
   it('slim arm front face is 3 wide', () => {
