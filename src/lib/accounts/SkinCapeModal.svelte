@@ -286,11 +286,11 @@
         <div class="text-sm font-medium text-primary">{$t('cosmetics.capeHeading')}</div>
         <div class="text-xs text-muted">{$t('cosmetics.capeHint')}</div>
       </div>
-      <div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(64px,1fr))">
+      <div class="flex flex-wrap gap-2">
         {#each capes as cape (cape.id)}
           <button
             type="button"
-            class="flex flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
+            class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
               ? 'border-transparent outline outline-2 outline-accent'
               : 'border-border-subtle hover:border-border-emphasis'}"
             onclick={() => pickCape(cape.id)}
@@ -308,7 +308,7 @@
         {/each}
         <button
           type="button"
-          class="flex flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
+          class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
             ? 'border-transparent outline outline-2 outline-accent'
             : 'border-border-subtle hover:border-border-emphasis'}"
           onclick={() => pickCape(null)}
