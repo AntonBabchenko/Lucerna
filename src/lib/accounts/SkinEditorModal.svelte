@@ -30,7 +30,7 @@
     pickColour,
   } from '$lib/accounts/skin-editor/tools';
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
-  import { pickFootprint, pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import { footprintForTexel, pickFootprint, pickTexel } from '$lib/accounts/skin-editor/paint3d';
   import {
     createBrushCursor,
     disposeBrushCursor,
@@ -539,6 +539,25 @@
     syncBrushCursor(null);
   }
 
+  // The visible layer mesh that a texel lives on, for outlining a 2D-hovered
+  // brush on the 3D model. Null if the texel is off-atlas or its mesh is hidden.
+  function meshForTexel(texel: { x: number; y: number }): Mesh | null {
+    if (!viewer) return null;
+    const r = faceRectAt(texel.x, texel.y, variant);
+    if (!r) return null;
+    const s = viewer.playerObject.skin;
+    const parts = {
+      head: s.head,
+      body: s.body,
+      rightArm: s.rightArm,
+      leftArm: s.leftArm,
+      rightLeg: s.rightLeg,
+      leftLeg: s.leftLeg,
+    };
+    const mesh = (r.layer === 'base' ? parts[r.part].innerLayer : parts[r.part].outerLayer) as Mesh;
+    return mesh.visible ? mesh : null;
+  }
+
   function observeCompanionBox(node: HTMLElement) {
     companionBox = node;
     companionBoxWidth = node.clientWidth;
@@ -608,7 +627,10 @@
       return;
     }
     const texel = companionTexel(e);
-    setHoverTexel(tool === 'pencil' || tool === 'eraser' ? texel : null);
+    const brushHover = tool === 'pencil' || tool === 'eraser' ? texel : null;
+    setHoverTexel(brushHover);
+    const mesh = brushHover ? meshForTexel(brushHover) : null;
+    syncBrushCursor(mesh && brushHover ? footprintForTexel(mesh, brushHover, brush) : null);
     if (!companionPainting) return;
     if (texel) applyToolAt(texel.x, texel.y);
   }
@@ -939,7 +961,7 @@
             onpointermove={onCompanionMove}
             onpointerup={onCompanionUp}
             onpointercancel={onCompanionUp}
-            onpointerleave={() => setHoverTexel(null)}
+            onpointerleave={clearHover}
           ></canvas>
         </div>
         <p class="text-[11px] text-muted mt-1">{$t('skinEditor.companionHint')}</p>
