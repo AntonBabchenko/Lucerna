@@ -459,7 +459,7 @@
     c.clearRect(0, 0, size, size);
     c.drawImage(viewer.skinCanvas, 0, 0, SKIN_SIZE, SKIN_SIZE, 0, 0, size, size);
     if (showGrid && cell >= 4) {
-      c.strokeStyle = 'rgba(128,128,128,0.25)';
+      c.strokeStyle = 'rgba(128,128,128,0.15)';
       c.lineWidth = 1;
       c.beginPath();
       for (let i = 1; i < SKIN_SIZE; i++) {
@@ -489,12 +489,13 @@
       const bx = hoverTexel.x * cell;
       const by = hoverTexel.y * cell;
       const bs = brush * cell;
-      // Double outline so the footprint reads on any pixel colour.
-      c.strokeStyle = 'rgba(0,0,0,0.65)';
+      // Thin 1px outline in difference mode: always contrasts, never bulky.
+      c.save();
+      c.globalCompositeOperation = 'difference';
+      c.strokeStyle = '#ffffff';
       c.lineWidth = 1;
       c.strokeRect(bx + 0.5, by + 0.5, bs - 1, bs - 1);
-      c.strokeStyle = 'rgba(255,255,255,0.95)';
-      c.strokeRect(bx + 1.5, by + 1.5, bs - 3, bs - 3);
+      c.restore();
     }
   }
 
@@ -925,6 +926,20 @@
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm ml-auto"
+            class:text-accent={showGrid}
+            aria-pressed={showGrid}
+            aria-label={$t('skinEditor.grid')}
+            use:tooltip={$t('skinEditor.grid')}
+            onclick={() => {
+              showGrid = !showGrid;
+              renderCompanion();
+            }}
+          >
+            <Icon name="grid" size={14} />
+          </button>
         </div>
         <div
           use:observeCompanionBox
@@ -1028,17 +1043,6 @@
       </div>
 
       <div class="flex items-center gap-3 flex-wrap">
-        <label class="inline-flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showGrid}
-            onchange={() => {
-              showGrid = !showGrid;
-              renderCompanion();
-            }}
-          />
-          {$t('skinEditor.grid')}
-        </label>
         <div class="inline-flex items-center gap-1 text-xs text-secondary">
           {$t('skinEditor.background')}
           <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
