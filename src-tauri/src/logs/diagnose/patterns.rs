@@ -125,6 +125,7 @@ static CLIENT_EXTRA_MODS_RE: Lazy<Regex> = Lazy::new(|| {
 
 // --- The knowledge base --------------------------------------------
 
+// NOTE: the inline annotator (annotate.rs) scans this table too and MUST side-filter it.
 pub const PATTERNS: &[Pattern] = &[
     Pattern {
         id: "java-version-too-old",
@@ -262,7 +263,7 @@ pub const PATTERNS: &[Pattern] = &[
              Windows. The launcher's Storage settings show how much space the mod cache takes if \
              you want to start there.",
         source_hint: SourceHint::Any,
-        side: Side::Client,
+        side: Side::Any,
     },
     Pattern {
         id: "create-goggle-overlay-crash",
@@ -357,11 +358,17 @@ mod tests {
     }
 
     #[test]
-    fn banner_patterns_are_all_client_side() {
-        // Deliberate property: every banner pattern's copy is client-worded.
-        // Server surfaces get their own inline entries instead.
+    fn banner_patterns_sides_are_deliberate() {
+        // Banner copy is client-worded, so banner patterns stay Client on
+        // the inline surface — except disk-full, whose copy is generic and
+        // deliberately serves the server console too.
         for p in PATTERNS {
-            assert_eq!(p.side, Side::Client, "{} must be Side::Client", p.id);
+            let expected = if p.id == "disk-full" {
+                Side::Any
+            } else {
+                Side::Client
+            };
+            assert_eq!(p.side, expected, "{} has unexpected side", p.id);
         }
     }
 

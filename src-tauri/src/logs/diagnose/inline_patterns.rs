@@ -40,7 +40,7 @@ static LINKAGE_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static HEAP_RESERVE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"Could not reserve enough space for object heap|Invalid maximum heap size")
+    Regex::new(r"Could not reserve enough space for.*object heap|Invalid maximum heap size")
         .expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
@@ -54,19 +54,24 @@ static NATIVE_CRASH_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
+// Both halves usually co-occur on one line; the OR is defense against GLFW phrasing drift across versions.
 static GLFW_NO_OPENGL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"GLFW error 65542|WGL: The driver does not appear to support OpenGL")
         .expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
 static GL_ERROR_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"########## GL ERROR ##########|OpenGL error \d")
+    Regex::new(r"########## GL ERROR ##########|OpenGL error \d+")
         .expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
 static INVALID_SESSION_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"Invalid session|Failed to verify username")
         .expect("regex compiles — covered by `inline_regexes_compile`")
+});
+
+static NOT_WHITELISTED_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"not white-?listed").expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
 static TIMEOUT_RE: Lazy<Regex> = Lazy::new(|| {
@@ -109,7 +114,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "forge-duplicate-mods",
         matcher: Matcher::Regex(&DUPLICATE_MODS_RE),
         title: "Two copies of the same mod are installed",
-        explanation: "Forge found the same mod twice in the mods folder — usually an old \
+        explanation: "The mod loader found the same mod twice in the mods folder — usually an old \
              version left behind next to a newer one. It refuses to start until \
              one copy is removed.",
         recommendation: "Open the Installed tab (or the mods folder) and delete the older \
@@ -199,7 +204,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "A mod was built for a different game version",
         explanation: "Java couldn't find a method, field or class another mod expected — \
              the classic sign of a mod compiled against a different Minecraft \
-             or mod version than what's installed.",
+             or mod version than what's installed. NoClassDefFoundError can \
+             also be an echo of an earlier failure in the same mod — check the \
+             first error above it.",
         recommendation: "Look at the mod named in this line (or the 'Caused by' below) and \
              install the build that matches your exact Minecraft version and \
              the versions of the mods it interacts with.",
@@ -323,7 +330,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         matcher: Matcher::Regex(&INVALID_SESSION_RE),
         title: "The Minecraft session is invalid",
         explanation: "The session token has expired or the account isn't properly signed \
-             in, so the server rejected the join.",
+             in, so the server rejected the join. Occasionally the Minecraft \
+             session service itself is down — then waiting is the only fix.",
         recommendation: "Sign out and back in (Accounts), then restart the game. On a \
              server log this means the joining player needs to do that.",
         source_hint: SourceHint::Any,
@@ -331,7 +339,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
     },
     Pattern {
         id: "not-whitelisted",
-        matcher: Matcher::Substring("You are not whitelisted"),
+        matcher: Matcher::Regex(&NOT_WHITELISTED_RE),
         title: "Not on the server's whitelist",
         explanation: "The server runs a whitelist and this account isn't on it — nothing \
              is broken on your side.",
@@ -345,7 +353,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         matcher: Matcher::Substring("UnknownHostException"),
         title: "The server address couldn't be resolved",
         explanation: "DNS lookup failed — the address has a typo, the domain is gone, or \
-             this machine has no working internet/DNS.",
+             this machine has no working internet/DNS. The address is usually \
+             the server you tried to join, but mods checking for updates can \
+             log this too.",
         recommendation: "Double-check the server address for typos, then verify your \
              internet connection. If both are fine, try a different DNS \
              (e.g. 1.1.1.1).",
@@ -370,7 +380,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         matcher: Matcher::Regex(&TIMEOUT_RE),
         title: "The connection timed out",
         explanation: "The other side never answered — the server is down, the address/\
-             port is wrong, or a firewall is dropping the traffic.",
+             port is wrong, or a firewall is dropping the traffic. (If it \
+             appears without you joining a server, a mod's background download \
+             timed out — harmless.)",
         recommendation: "Verify the server is actually running and the address and port are \
              right, then check firewalls on both ends (including the router's \
              port forwarding for self-hosted servers).",
@@ -383,7 +395,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "The connection was refused",
         explanation: "The target machine answered but nothing is listening on that port \
              — the server isn't running there, or it listens on a different \
-             port.",
+             port. (Mods' background update checks can also log this — \
+             harmless if you weren't joining a server.)",
         recommendation: "Make sure the server is running and the port matches its \
              configuration. For self-hosted servers, confirm the port in \
              server.properties.",
@@ -446,7 +459,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "The shader pack failed to load",
         explanation: "The shader pack couldn't be compiled for this GPU/driver — it's \
              incompatible with the current Iris/OptiFine version or the pack \
-             itself is broken.",
+             itself is broken. If no shader pack is installed, the rendering \
+             mod or GPU driver itself is at fault.",
         recommendation: "Try a different version of the shader pack (or a different pack), \
              and make sure Iris/OptiFine matches your Minecraft version.",
         source_hint: SourceHint::Any,
@@ -490,13 +504,14 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "server-cant-keep-up",
         matcher: Matcher::Substring("Can't keep up! Is the server overloaded?"),
         title: "The server is lagging behind",
-        explanation: "Ticks are taking longer than 50 ms, so game time is running slower \
-             than real time. Not a crash — a performance warning.",
-        recommendation: "Reduce the load: fewer/lighter mods, smaller view distance in \
-             server.properties, or more CPU/memory for the server. Occasional \
-             single occurrences are harmless.",
+        explanation: "Game ticks are taking longer than 50 ms, so game time runs slower \
+             than real time. In singleplayer this comes from the built-in \
+             server inside the game. Not a crash — a performance warning.",
+        recommendation: "Reduce the load: fewer or lighter mods, smaller view/simulation \
+             distance, or more memory. Occasional single occurrences are \
+             harmless.",
         source_hint: SourceHint::Any,
-        side: Side::Server,
+        side: Side::Any,
     },
     Pattern {
         id: "server-watchdog-stall",
