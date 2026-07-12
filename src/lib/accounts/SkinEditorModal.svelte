@@ -512,6 +512,7 @@
     const wantsPan = e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'pan');
     if (wantsPan) {
       if (!companionBox) return;
+      e.preventDefault(); // suppress middle-button autoscroll / text selection
       companionPanning = true;
       companion?.setPointerCapture(e.pointerId);
       panStart = {
