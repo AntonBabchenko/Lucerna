@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { type FaceRect, faceRectAt } from '$lib/accounts/skin-editor/atlas';
+import { allFaceRects, type FaceRect, faceRectAt } from '$lib/accounts/skin-editor/atlas';
 import { createBlankSkin, getTexel, setTexel } from '$lib/accounts/skin-editor/buffer';
 import {
+  clearOutsideAtlas,
   dodgeBurn,
   eraser,
   fill,
@@ -107,5 +108,21 @@ describe('tools', () => {
     const d = createBlankSkin();
     noise(d, 6, 6, 20, 1, () => 1);
     expect(getTexel(d, 6, 6)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('clearOutsideAtlas wipes texels outside the UV layout but keeps used ones', () => {
+    const d = createBlankSkin();
+    setTexel(d, 10, 10, [1, 2, 3, 255]); // inside head-front
+    setTexel(d, 63, 0, [9, 9, 9, 255]); // top-right corner gap: outside every rect
+    expect(clearOutsideAtlas(d, allFaceRects('classic'))).toBe(true);
+    expect(getTexel(d, 10, 10)).toEqual([1, 2, 3, 255]);
+    expect(getTexel(d, 63, 0)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('clearOutsideAtlas is a no-op when nothing is outside the layout', () => {
+    const d = createBlankSkin();
+    setTexel(d, 10, 10, [1, 2, 3, 255]);
+    expect(clearOutsideAtlas(d, allFaceRects('classic'))).toBe(false);
+    expect(getTexel(d, 10, 10)).toEqual([1, 2, 3, 255]);
   });
 });

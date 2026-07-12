@@ -79,10 +79,68 @@ export function faceRectAt(x: number, y: number, variant: Variant): FaceRect | u
   return allFaceRects(variant).find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 }
 
-// Horizontal mirror within the containing face (v1 mirror-X). Full cross-limb
-// symmetry is a future enhancement.
-export function mirrorInFace(x: number, y: number, variant: Variant): { x: number; y: number } {
+const PART_MIRROR: Record<Part, Part> = {
+  head: 'head',
+  body: 'body',
+  rightArm: 'leftArm',
+  leftArm: 'rightArm',
+  rightLeg: 'leftLeg',
+  leftLeg: 'rightLeg',
+};
+
+const FACE_MIRROR: Record<Face, Face> = {
+  top: 'top',
+  bottom: 'bottom',
+  left: 'right',
+  front: 'front',
+  right: 'left',
+  back: 'back',
+};
+
+const RECT_INDEX: Partial<Record<Variant, Map<string, FaceRect>>> = {};
+
+function rectFor(variant: Variant, part: Part, layer: Layer, face: Face): FaceRect | undefined {
+  let idx = RECT_INDEX[variant];
+  if (!idx) {
+    idx = new Map();
+    for (const r of allFaceRects(variant)) idx.set(`${r.part}:${r.layer}:${r.face}`, r);
+    RECT_INDEX[variant] = idx;
+  }
+  return idx.get(`${part}:${layer}:${face}`);
+}
+
+// Sagittal (x=0) body mirror: cross-limb part swap + left/right face swap, flip
+// U on every face, never flip V, same layer. Returns null when (x,y) is outside
+// every face. Counterpart faces share dimensions within a variant, so this is an
+// involution: mirrorTexel(mirrorTexel(p)) === p.
+export function mirrorTexel(
+  x: number,
+  y: number,
+  variant: Variant,
+): { x: number; y: number } | null {
   const r = faceRectAt(x, y, variant);
-  if (!r) return { x, y };
-  return { x: r.x + (r.x + r.w - 1 - x), y };
+  if (!r) return null;
+  const dest = rectFor(variant, PART_MIRROR[r.part], r.layer, FACE_MIRROR[r.face]);
+  if (!dest) return null;
+  const lx = x - r.x;
+  const ly = y - r.y;
+  return { x: dest.x + (dest.w - 1 - lx), y: dest.y + ly }; // flip U, keep V
+}
+
+// A brush×brush block is centred on the cursor by shifting its top-left up/left
+// by this offset (0 for size 1-2, 1 for size 3, …).
+export function brushOffset(brush: number): number {
+  return Math.floor((brush - 1) / 2);
+}
+
+// Top-left anchor for the mirror of a centred brush block. The mirror flips U, so
+// the mirrored square's top-left sits (brush-1-offset) texels left and `offset`
+// up of the mirrored centre. Fill ignores brush and uses the mirrored seed
+// directly (do not call this for fill).
+export function mirrorBlockAnchor(
+  m: { x: number; y: number },
+  brush: number,
+): { x: number; y: number } {
+  const off = brushOffset(brush);
+  return { x: m.x - (brush - 1 - off), y: m.y - off };
 }
