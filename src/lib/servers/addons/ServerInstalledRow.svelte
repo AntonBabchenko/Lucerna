@@ -14,6 +14,7 @@
     canToggle = true,
     updateState = null,
     checking = false,
+    onOpenDetail = () => {},
     onToggle,
     onUninstall,
     onUpdate = () => {},
@@ -23,6 +24,7 @@
     canToggle?: boolean;
     updateState?: ModUpdateState | null;
     checking?: boolean;
+    onOpenDetail?: () => void;
     onToggle: () => void;
     onUninstall: () => void;
     onUpdate?: () => void;
@@ -38,13 +40,12 @@
 </script>
 
 <div>
-  <!-- no server-mod detail view yet: title is not a link (onOpenDetail is a no-op) -->
   <ModCard
     layout="list"
     summary={card.summary}
     installed={card.installed}
     onInstall={() => {}}
-    onOpenDetail={() => {}}
+    {onOpenDetail}
     {onToggle}
     {onUninstall}
     {canToggle}

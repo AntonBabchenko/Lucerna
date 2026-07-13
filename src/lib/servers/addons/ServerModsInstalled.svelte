@@ -1,10 +1,16 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { onDestroy } from 'svelte';
-  import { commands, type ModUpdateState } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type ModSummary,
+    type ModUpdateState,
+    type ModVersion,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import { modCapable, pluginCapable } from '$lib/servers/core-display';
+  import { modProjectUrl } from '$lib/mods/project-url';
+  import { coreToLoaderKind, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -12,6 +18,7 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import Select from '$lib/ui/Select.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
+  import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import {
     createInstalledFilters,
     type SortBy,
@@ -36,6 +43,23 @@
   // Pane-level delete confirm (ServerInstalledRow delegates delete up).
   let pendingDelete = $state<ServerRow | null>(null);
   let deleting = $state(false);
+  // The enriched project whose in-launcher detail card is open (null = closed).
+  // Only identity-bearing rows (card.summary != null) can open it.
+  let detail = $state<ModSummary | null>(null);
+
+  // For the detail modal: a version whose file is not distributable must open
+  // the project page, never download (mirrors ServerModBrowser).
+  function externalOf(card: ModSummary, v: ModVersion): string | null {
+    if (v.primary_file.distribution_allowed) return null;
+    return modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
+  }
+
+  // Dynamic import mirrors every other opener call-site in the app (the Tauri
+  // plugin is never statically imported — it isn't resolvable under vitest/SSR
+  // and the browsers use this exact helper).
+  function openUrl(url: string): void {
+    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+  }
 
   // Per-mod update-check results, keyed by sha1 (identity that survives an
   // enable/disable rename). Plugins are out of scope — this pane is mods-only.
@@ -379,6 +403,9 @@
               canToggle={canManageMods}
               checking={checkingUpdates}
               updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}
+              onOpenDetail={() => {
+                if (row.card.summary) detail = row.card.summary;
+              }}
               onUpdate={() => void updateOne(row)}
               onToggle={() => void toggle(row)}
               onUninstall={() => {
@@ -409,6 +436,28 @@
         onCancel={() => (pendingDelete = null)}
         onConfirm={() => pendingDelete && void confirmDelete(pendingDelete)}
       />
+    {/if}
+
+    {#if detail && server}
+      {@const d = detail}
+      {@const loaderKind = coreToLoaderKind(server.loader)}
+      {#if loaderKind}
+        <ServerContentDetail
+          project={d}
+          onClose={() => (detail = null)}
+          loadProject={() => commands.modsProject(d.source, d.project_id)}
+          loadVersions={() =>
+            commands.modsVersions(d.source, d.project_id, server.mc_version, loaderKind)}
+          installVersion={(vid) => commands.serverInstallMod(serverId, d.source, d.project_id, vid)}
+          externalOf={(v) => externalOf(d, v)}
+          openExternal={openUrl}
+          projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}
+          onInstalled={() => {
+            detail = null;
+            void data.refresh();
+          }}
+        />
+      {/if}
     {/if}
   {/if}
 </div>

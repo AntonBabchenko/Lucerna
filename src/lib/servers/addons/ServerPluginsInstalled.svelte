@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { commands } from '$lib/ipc/bindings';
+  import { commands, type ModSummary, type ModVersion } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { modProjectUrl } from '$lib/mods/project-url';
   import { pluginCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -10,6 +11,7 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import Select from '$lib/ui/Select.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
+  import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import {
     createInstalledFilters,
     type SortBy,
@@ -78,6 +80,26 @@
   let busyFolder = $state(false);
   let pendingDelete = $state<ServerRow | null>(null);
   let deleting = $state(false);
+  // The enriched project whose in-launcher detail card is open (null = closed).
+  // Only identity-bearing rows (card.summary != null) can open it.
+  let detail = $state<ModSummary | null>(null);
+
+  // For the detail modal: a version whose file is externally hosted must open
+  // its page (or the project page when the file URL is empty), never download
+  // (mirrors ServerPluginBrowser's Hangar externalUrl handling).
+  function externalOf(card: ModSummary, v: ModVersion): string | null {
+    if (v.primary_file.distribution_allowed) return null;
+    return v.primary_file.url.length > 0
+      ? v.primary_file.url
+      : modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
+  }
+
+  // Dynamic import mirrors every other opener call-site in the app (the Tauri
+  // plugin is never statically imported — it isn't resolvable under vitest/SSR
+  // and the browsers use this exact helper).
+  function openUrl(url: string): void {
+    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+  }
 
   // Plugins only attach to plugin-capable cores (paper/purpur) — a mod-loader
   // or vanilla server gets no Plugins UI, just the requiresCore hint below.
@@ -194,6 +216,9 @@
             <ServerInstalledRow
               card={row.card}
               canToggle={canManage}
+              onOpenDetail={() => {
+                if (row.card.summary) detail = row.card.summary;
+              }}
               onToggle={() => void toggle(row)}
               onUninstall={() => {
                 // ModCard's trash button can't be gated per-row (no prop for it),
@@ -222,6 +247,26 @@
         error={actionError}
         onCancel={() => (pendingDelete = null)}
         onConfirm={() => pendingDelete && void confirmDelete(pendingDelete)}
+      />
+    {/if}
+
+    {#if detail && server}
+      {@const d = detail}
+      <ServerContentDetail
+        project={d}
+        onClose={() => (detail = null)}
+        loadProject={() => commands.modsProject(d.source, d.project_id)}
+        loadVersions={() =>
+          commands.modsPluginVersions(d.source, d.project_id, server.mc_version, server.loader)}
+        installVersion={(vid) =>
+          commands.serverInstallPlugin(serverId, d.source, d.project_id, vid)}
+        externalOf={(v) => externalOf(d, v)}
+        openExternal={openUrl}
+        projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}
+        onInstalled={() => {
+          detail = null;
+          void data.refresh();
+        }}
       />
     {/if}
   </div>
