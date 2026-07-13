@@ -142,7 +142,7 @@ The canonical reference row is [`ModCard.svelte`](../src/lib/mods/ModCard.svelte
 - **Never `title=`** — it is unreliable for assistive tech / touch and bypasses the singleton tooltip layer. (A `title` prop forwarded *into* `use:tooltip` internally is fine — the prop name is incidental.)
 - A **disabled-reason** tooltip wraps the control in `<span use:tooltip={{ text, describe: false }}>`; `describe: false` marks it as *supplementary* info, not the accessible name.
 - **Text-labelled buttons take no tooltip** (the label is the name) — except a `.btn-link` whose tooltip carries the destination URL.
-- **`HelpPopover` (`(?)`) is for a sentence of conceptual help next to a header — never to name an action.** A hover tooltip names a control tersely; a HelpPopover explains.
+- **`HelpPopover` (`(?)`) is for a sentence of conceptual help next to a header — never to name an action.** A hover tooltip names a control tersely; a HelpPopover explains a control; a `LogHintCard` explains a recognized log line — a rich hover card that persists while hovered (its text can be selected and copied), deliberately not `role="tooltip"` so the app's single tooltip bubble stays a singleton. Keyboard path: the gutter badge is focusable (`:focus-visible`-gated) and Escape closes the card without closing the hosting modal.
 - Tooltip copy is i18n (`$t`); raw strings only for non-translatable data (URLs, file paths).
 
 **Animation rule.** Motion is a small, mostly-semantic vocabulary; nothing else may be hand-rolled on a button.
@@ -205,7 +205,7 @@ All overlays split into two families.
 
 **Confirm-dialog convention.** Confirm dialogs are thin presentational wrappers over `Modal` (the mutation stays with the caller). The shape: an `ariaLabelledby`-linked `<h3>` title, one or two `text-sm text-secondary` description paragraphs, and a right-aligned footer with a neutral `.btn-secondary.btn-sm` Cancel + a `.btn-danger.btn-sm` confirm whose label *is* the destructive verb. For **filesystem-irreversible** actions (deleting a world's files), add the stronger gate: a text input requiring the literal word `Delete` (not the world's name — players use unicode/emoji names) before the confirm `BusyButton` enables, plus `closeOnBackdrop={!busy}` / `closeOnEscape={!busy}` lockout while the op runs.
 
-**Fixed-popover family.** `OverflowMenu`, `ContextMenu`, `HelpPopover`, and the tooltip layer all use `position: fixed` to escape host `overflow` boxes, measure from the trigger on open, clamp into the viewport (8px margin), and close on captured `scroll` + `resize`.
+**Fixed-popover family.** `OverflowMenu`, `ContextMenu`, `HelpPopover`, `LogHintCard`, and the tooltip layer all use `position: fixed` to escape host `overflow` boxes, measure from the trigger on open, clamp into the viewport (8px margin), and close on captured `scroll` + `resize`.
 
 - **Menus** (`OverflowMenu` left-click ⋯, `ContextMenu` right-click) share one item model, `ContextMenuItem` (`label`, `icon?`, `danger?`, `disabled?`, `separatorBefore?`, `onSelect`), and identical `role="menu"` / `role="menuitem"` markup with arrow-key roving `activeIndex`, Escape close, and focus return.
 - **`CloseButton`** is the shared `×` (a `.btn-icon` rendering the `close` Icon, `aria-label` defaulting to `common.close`). Use it for popovers/headers needing an explicit dismiss; plain `Modal` confirms close via the footer Cancel instead.
