@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -25,6 +26,11 @@ use crate::mods::platform::ModSource;
 
 const FILE_VERSION: u32 = 1;
 const SIDECAR: &str = ".lucerna-installed.json";
+
+/// Process-lifetime write counter. Mirrors `mods::installed`: a unique per-write
+/// temp name so concurrent `save()` calls for the same dir don't collide on the
+/// tmp path and fail the rename.
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
 pub struct ServerInstalledRecord {
@@ -73,7 +79,8 @@ pub fn load(jar_dir: &Path) -> Vec<ServerInstalledRecord> {
 pub fn save(jar_dir: &Path, records: &[ServerInstalledRecord]) -> Result<()> {
     std::fs::create_dir_all(jar_dir).map_err(|e| Error::io(jar_dir.display().to_string(), e))?;
     let final_path = sidecar_path(jar_dir);
-    let tmp = final_path.with_extension(format!("json.tmp.{}", std::process::id()));
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
     let sidecar = Sidecar {
         version: FILE_VERSION,
         records: records.to_vec(),
@@ -144,12 +151,13 @@ pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
         changed = true;
     }
 
-    let known: HashSet<String> = records
+    let mut known: HashSet<String> = records
         .iter()
         .map(|r| r.sha1.to_ascii_lowercase())
         .collect();
     for (filename, sha, _enabled) in on_disk.iter() {
-        if !known.contains(&sha.to_ascii_lowercase()) {
+        let key = sha.to_ascii_lowercase();
+        if !known.contains(&key) {
             records.push(ServerInstalledRecord {
                 filename: filename.clone(),
                 sha1: sha.clone(),
@@ -160,6 +168,7 @@ pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
                 version_number: None,
                 enrich_attempted: false,
             });
+            known.insert(key);
             changed = true;
         }
     }
@@ -357,5 +366,65 @@ mod tests {
         assert_eq!(r.source, Some(ModSource::Modrinth));
         assert_eq!(r.project_id.as_deref(), Some("pid"));
         assert!(r.enrich_attempted);
+    }
+
+    #[test]
+    fn reconcile_is_noop_when_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        write_jar(dir.path(), "stable.jar", b"STABLE");
+        // First pass synthesizes + persists the sidecar.
+        reconcile_on_list(dir.path()).unwrap();
+        // Make the sidecar read-only: a 2nd pass that tried to persist would
+        // fail the rename. A genuine no-op never touches it → Ok.
+        let sc = sidecar_path(dir.path());
+        let mut perms = std::fs::metadata(&sc).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&sc, perms).unwrap();
+        assert!(reconcile_on_list(dir.path()).is_ok());
+        // Restore writability so tempdir cleanup can remove it.
+        let mut perms = std::fs::metadata(&sc).unwrap().permissions();
+        perms.set_readonly(false);
+        std::fs::set_permissions(&sc, perms).unwrap();
+    }
+
+    #[test]
+    fn synthesis_dedups_identical_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        let sha_a = write_jar(dir.path(), "a.jar", b"SAME");
+        let sha_b = write_jar(dir.path(), "b.jar", b"SAME");
+        assert_eq!(sha_a, sha_b);
+        reconcile_on_list(dir.path()).unwrap();
+        let matching: Vec<_> = load(dir.path())
+            .into_iter()
+            .filter(|r| r.sha1 == sha_a)
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "identical-sha jars must dedup to a single record"
+        );
+    }
+
+    #[test]
+    fn scan_dir_skips_non_jar_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.txt.disabled"), b"x").unwrap();
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        assert!(entries.is_empty());
+        assert!(load(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn upsert_replaces_same_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut r = rec("x.jar", "aa");
+        r.name = Some("old".into());
+        upsert(dir.path(), r).unwrap();
+        let mut r2 = rec("x.jar", "aa");
+        r2.name = Some("new".into());
+        upsert(dir.path(), r2).unwrap();
+        let records = load(dir.path());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name.as_deref(), Some("new"));
     }
 }
