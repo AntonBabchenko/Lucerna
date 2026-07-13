@@ -56,7 +56,7 @@
     onClose,
     onApplied,
   }: {
-    account: Account;
+    account: Account | null;
     initialSkinB64: string | null;
     initialVariant: SkinVariant;
     onClose: () => void;
@@ -91,7 +91,7 @@
   // screen middle), but never below the fixed 640 default.
   let maxPanelWidth = $derived(Math.max(PANEL_MAX_WIDTH, Math.floor(resizeRowWidth / 2)));
 
-  const isMicrosoft = $derived(account.kind === 'microsoft');
+  const isMicrosoft = $derived(account?.kind === 'microsoft');
   const history = new SkinHistory(50);
 
   const variantToModel = (v: SkinVariant): 'default' | 'slim' =>
@@ -791,12 +791,13 @@
     const url = viewer.skinCanvas.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${account.name}-skin.png`;
+    a.download = account ? `${account.name}-skin.png` : 'skin.png';
     a.click();
   }
 
   async function apply(): Promise<void> {
-    if (busy || !isMicrosoft || !viewer) return;
+    if (busy || !viewer) return;
+    if (account?.kind !== 'microsoft') return; // narrows account to non-null
     cleanupTexture();
     busy = true;
     saveError = null;
@@ -849,7 +850,9 @@
       <h3 id="skin-editor-title" class="font-medium text-primary text-base">
         {$t('skinEditor.title')}
       </h3>
-      <p class="text-xs text-muted">{account.name}</p>
+      {#if account}
+        <p class="text-xs text-muted">{account.name}</p>
+      {/if}
     </div>
     <div class="ml-auto flex items-center gap-1.5 text-secondary">
       <button
@@ -1177,13 +1180,21 @@
       {#if applied}
         <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
       {/if}
-      {#if isMicrosoft}
-        <button type="button" class="btn-primary btn-sm ml-auto" onclick={apply} disabled={busy}>
+      <span
+        class="ml-auto"
+        use:tooltip={isMicrosoft
+          ? undefined
+          : { text: $t('skinEditor.offlineHint'), describe: false }}
+      >
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          onclick={apply}
+          disabled={busy || !isMicrosoft}
+        >
           {$t('skinEditor.apply')}
         </button>
-      {:else}
-        <span class="text-xs text-muted ml-auto max-w-[360px]">{$t('skinEditor.offlineHint')}</span>
-      {/if}
+      </span>
     </div>
   </div>
 </Modal>
