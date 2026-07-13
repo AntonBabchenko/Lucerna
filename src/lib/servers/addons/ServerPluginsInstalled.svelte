@@ -1,25 +1,32 @@
 <script lang="ts">
-  import { commands, type ServerPluginEntry } from '$lib/ipc/bindings';
+  import { onDestroy } from 'svelte';
+  import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pluginCapable } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
-  import CardShell from '$lib/ui/cards/CardShell.svelte';
-  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import ServerInstalledRow from './ServerInstalledRow.svelte';
+  import { createServerInstalledData, type ServerRow } from './server-installed-data.svelte';
 
   let { serverId, reloadToken = 0 }: { serverId: string; reloadToken?: number } = $props();
 
-  let plugins = $state<ServerPluginEntry[]>([]);
-  let loadError = $state<string | null>(null);
+  // Enriched Installed list. Plugins carry no quarantine reason (rows' `reason`
+  // is always null → ServerInstalledRow shows no badge). `updateState` stays
+  // unset — plugin update-check is a separate session's work.
+  const data = createServerInstalledData(
+    () => serverId,
+    'plugin',
+    () => reloadToken,
+  );
+  onDestroy(() => data.dispose());
+
   let actionError = $state<string | null>(null);
-  let busyDelete = $state<string | null>(null);
-  let busyRestore = $state<string | null>(null);
-  let busyDisable = $state<string | null>(null);
   let busyFolder = $state(false);
-  let pendingDelete = $state<string | null>(null);
+  let pendingDelete = $state<ServerRow | null>(null);
+  let deleting = $state(false);
 
   // Plugins only attach to plugin-capable cores (paper/purpur) — a mod-loader
   // or vanilla server gets no Plugins UI, just the requiresCore hint below.
@@ -30,71 +37,30 @@
   const isRunning = $derived(server?.running ?? false);
   const canManage = $derived(isPluginCore && !isRunning);
 
-  async function refresh() {
-    const res = await commands.serverListPlugins(serverId);
-    if (res.status === 'ok') {
-      plugins = res.data;
-      loadError = null;
-    } else {
-      loadError = formatError(res.error);
-    }
+  // Toggle enable/disable — MUST use `on_disk_filename` (a disabled plugin lives
+  // at `<name>.jar.disabled`), never the base display filename.
+  async function toggle(row: ServerRow) {
+    actionError = null;
+    const res = row.card.installed.enabled
+      ? await commands.serverDisablePlugin(serverId, row.onDiskFilename)
+      : await commands.serverEnablePlugin(serverId, row.onDiskFilename);
+    if (res.status === 'ok') await data.refresh();
+    else actionError = formatError(res.error);
   }
 
-  // Re-read on mount and whenever the Add-ons host signals a mutation
-  // (dropzone/browser install while this pane is visible).
-  $effect(() => {
-    const _ = reloadToken;
-    void refresh();
-  });
-
-  async function restore(filename: string) {
-    busyRestore = filename;
+  async function confirmDelete(row: ServerRow) {
     actionError = null;
+    deleting = true;
     try {
-      const res = await commands.serverEnablePlugin(serverId, filename);
-      if (res.status === 'ok') {
-        await refresh();
-      } else {
-        actionError = formatError(res.error);
-      }
-    } finally {
-      busyRestore = null;
-    }
-  }
-
-  async function disable(filename: string) {
-    busyDisable = filename;
-    actionError = null;
-    try {
-      const res = await commands.serverDisablePlugin(serverId, filename);
-      if (res.status === 'ok') {
-        await refresh();
-      } else {
-        actionError = formatError(res.error);
-      }
-    } finally {
-      busyDisable = null;
-    }
-  }
-
-  function requestDelete(filename: string) {
-    pendingDelete = filename;
-    actionError = null;
-  }
-
-  async function confirmDelete(filename: string) {
-    busyDelete = filename;
-    actionError = null;
-    try {
-      const res = await commands.serverDeletePlugin(serverId, filename);
+      const res = await commands.serverDeletePlugin(serverId, row.onDiskFilename);
       if (res.status === 'ok') {
         pendingDelete = null;
-        await refresh();
+        await data.refresh();
       } else {
         actionError = formatError(res.error);
       }
     } finally {
-      busyDelete = null;
+      deleting = false;
     }
   }
 
@@ -131,94 +97,42 @@
     <!-- Note -->
     <p class="text-xs text-secondary">{$t('servers.plugins.note')}</p>
 
-    {#if loadError}
-      <p class="text-sm text-danger">{loadError}</p>
+    {#if data.error}
+      <p class="text-sm text-danger">{data.error}</p>
     {/if}
     {#if actionError}
       <p class="text-sm text-danger">{actionError}</p>
     {/if}
 
-    {#if plugins.length === 0 && !loadError}
+    {#if data.rows.length === 0 && !data.error}
       <p class="text-sm text-muted">{$t('servers.plugins.empty')}</p>
     {:else}
-      <div class="overflow-hidden rounded-lg border border-border-subtle">
-        {#each plugins as entry (entry.filename)}
-          <CardShell variant="compact-row" dim={entry.disabled}>
-            <span class="flex-1 truncate font-mono text-xs text-primary">{entry.filename}</span>
-
-            {#if entry.disabled}
-              <StatusBadge variant="muted">
-                {$t('servers.plugins.setAside')}
-              </StatusBadge>
-            {/if}
-
-            {#if pendingDelete === entry.filename}
-              <!-- Inline confirm row -->
-              <span class="text-xs text-secondary shrink-0">
-                {$t('servers.plugins.deleteConfirm', { name: entry.filename })}
-              </span>
-              <BusyButton
-                class="btn-danger btn-xs"
-                busy={busyDelete === entry.filename}
-                onclick={() => void confirmDelete(entry.filename)}
-              >
-                {$t('servers.plugins.delete')}
-              </BusyButton>
-              <button
-                type="button"
-                class="btn-ghost btn-xs"
-                disabled={busyDelete === entry.filename}
-                onclick={() => (pendingDelete = null)}
-              >
-                {$t('common.cancel')}
-              </button>
-            {:else}
-              {#if entry.disabled && canManage}
-                <BusyButton
-                  class="btn-ghost btn-xs inline-flex items-center gap-1"
-                  busy={busyRestore === entry.filename}
-                  onclick={() => void restore(entry.filename)}
-                  data-testid="server-plugin-restore"
-                >
-                  <Icon name="restore" size={13} />
-                  {$t('servers.plugins.restore')}
-                </BusyButton>
-              {:else if !entry.disabled && canManage}
-                <BusyButton
-                  class="btn-ghost btn-xs"
-                  busy={busyDisable === entry.filename}
-                  onclick={() => void disable(entry.filename)}
-                  data-testid="server-plugin-disable"
-                >
-                  {$t('servers.plugins.disable')}
-                </BusyButton>
-              {/if}
-              {#if isRunning}
-                <span use:tooltip={{ text: $t('servers.plugins.stopToManage'), describe: false }}>
-                  <button
-                    type="button"
-                    class="btn-icon btn-icon-sm btn-icon-danger"
-                    aria-label={$t('servers.plugins.delete')}
-                    disabled
-                  >
-                    <Icon name="trash" size={13} />
-                  </button>
-                </span>
-              {:else}
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm btn-icon-danger"
-                  aria-label={$t('servers.plugins.delete')}
-                  use:tooltip={$t('servers.plugins.delete')}
-                  onclick={() => requestDelete(entry.filename)}
-                >
-                  <Icon name="trash" size={13} />
-                </button>
-              {/if}
-            {/if}
-          </CardShell>
+      <div class="flex flex-col gap-2">
+        {#each data.rows as row (row.sha1)}
+          <ServerInstalledRow
+            card={row.card}
+            canToggle={canManage}
+            onToggle={() => void toggle(row)}
+            onUninstall={() => {
+              actionError = null;
+              pendingDelete = row;
+            }}
+          />
         {/each}
       </div>
+    {/if}
+
+    {#if pendingDelete}
+      <ConfirmDialog
+        title={$t('servers.plugins.delete')}
+        bodyText={$t('servers.plugins.deleteConfirm', { name: pendingDelete.card.installed.name })}
+        confirmLabel={$t('servers.plugins.delete')}
+        variant="danger"
+        busy={deleting}
+        error={actionError}
+        onCancel={() => (pendingDelete = null)}
+        onConfirm={() => pendingDelete && void confirmDelete(pendingDelete)}
+      />
     {/if}
   </div>
 {/if}

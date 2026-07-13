@@ -1,13 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore } from '$lib/ipc/bindings';
 import ServerPluginsInstalled from '$lib/servers/addons/ServerPluginsInstalled.svelte';
 
 // Shared mutable mock state + vi.fn handles, hoisted so the vi.mock factories
-// (which run before imports) can close over them.
+// (which run before imports) can close over them. The pane now delegates its
+// list to createServerInstalledData, so we mock the *enriched* command surface
+// (list + enrich backfill + batched ModSummary lookup), not serverListPlugins.
 const {
-  mockListPlugins,
+  mockListEnriched,
+  mockEnrich,
+  mockProjects,
   mockDeletePlugin,
   mockEnablePlugin,
   mockDisablePlugin,
@@ -32,7 +36,9 @@ const {
     upload_password_set: false,
   };
   return {
-    mockListPlugins: vi.fn(),
+    mockListEnriched: vi.fn(),
+    mockEnrich: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
+    mockProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     mockDeletePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     mockEnablePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     mockDisablePlugin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -43,7 +49,9 @@ const {
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    serverListPlugins: mockListPlugins,
+    serverListPluginsEnriched: mockListEnriched,
+    serverEnrichPlugins: mockEnrich,
+    modsProjects: mockProjects,
     serverDeletePlugin: mockDeletePlugin,
     serverEnablePlugin: mockEnablePlugin,
     serverDisablePlugin: mockDisablePlugin,
@@ -59,54 +67,80 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
   },
 }));
 
+// A ServerPluginEntryEnriched-shaped row (no quarantine reason — plugins carry
+// no client/server ambiguity). Left "loose" (source: null) so ModCard renders
+// its degraded/manual branch (title = filename). `on_disk_filename` carries the
+// `.disabled` suffix when disabled — what every mutation command must receive.
+const pluginRow = (filename: string, opts: { disabled?: boolean } = {}) => ({
+  filename,
+  on_disk_filename: opts.disabled ? `${filename}.disabled` : filename,
+  disabled: opts.disabled ?? false,
+  sha1: filename,
+  source: null,
+  project_id: null,
+  version_id: null,
+  name: null,
+  version_number: null,
+});
+
 describe('ServerPluginsInstalled', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
     vi.clearAllMocks();
     serverRow.running = false;
     serverRow.loader = 'paper';
-    mockListPlugins.mockResolvedValue({
+    mockEnrich.mockResolvedValue({ status: 'ok', data: 0 });
+    mockProjects.mockResolvedValue({ status: 'ok', data: [] });
+    mockListEnriched.mockResolvedValue({
       status: 'ok',
-      data: [
-        { filename: 'worldedit.jar', disabled: false },
-        { filename: 'essentials.jar.disabled', disabled: true },
-      ],
+      data: [pluginRow('worldedit.jar'), pluginRow('essentials.jar', { disabled: true })],
     });
   });
 
-  it('renders the entries returned by serverListPlugins, with the setAside badge', async () => {
+  it('renders the enriched plugins as ModCard rows', async () => {
     render(ServerPluginsInstalled, { serverId: 'srv-1' });
     expect(await screen.findByText('worldedit.jar')).toBeTruthy();
-    expect(screen.getByText('essentials.jar.disabled')).toBeTruthy();
-    // Badge is lowercase "set aside"; the per-row action button is "Set aside".
-    expect(screen.getByText('set aside')).toBeTruthy();
+    expect(screen.getByText('essentials.jar')).toBeTruthy();
   });
 
-  it('Restore on a disabled plugin calls serverEnablePlugin and refreshes', async () => {
+  it('toggling an enabled plugin disables it via on-disk filename', async () => {
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [pluginRow('worldedit.jar')] });
     render(ServerPluginsInstalled, { serverId: 'srv-1' });
-    const restore = await screen.findByTestId('server-plugin-restore');
-    await fireEvent.click(restore);
+    await screen.findByText('worldedit.jar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(mockDisablePlugin).toHaveBeenCalledWith('srv-1', 'worldedit.jar'));
+    expect(mockListEnriched).toHaveBeenCalledTimes(2);
+  });
+
+  it('toggling a disabled plugin enables it via the .disabled on-disk filename', async () => {
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [pluginRow('essentials.jar', { disabled: true })],
+    });
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('essentials.jar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
     await waitFor(() =>
       expect(mockEnablePlugin).toHaveBeenCalledWith('srv-1', 'essentials.jar.disabled'),
     );
-    // refresh re-queries the list (mount + after-restore).
-    expect(mockListPlugins).toHaveBeenCalledTimes(2);
   });
 
-  it('Set aside on an enabled plugin calls serverDisablePlugin and refreshes', async () => {
+  it('uninstall opens a confirm dialog, then deletes via on-disk filename', async () => {
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [pluginRow('worldedit.jar')] });
     render(ServerPluginsInstalled, { serverId: 'srv-1' });
-    const disable = await screen.findByTestId('server-plugin-disable');
-    await fireEvent.click(disable);
-    await waitFor(() => expect(mockDisablePlugin).toHaveBeenCalledWith('srv-1', 'worldedit.jar'));
-    expect(mockListPlugins).toHaveBeenCalledTimes(2);
+    await screen.findByText('worldedit.jar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(mockDeletePlugin).toHaveBeenCalledWith('srv-1', 'worldedit.jar'));
   });
 
   it('bumping reloadToken re-reads the plugins list', async () => {
     const { rerender } = render(ServerPluginsInstalled, { serverId: 'srv-1', reloadToken: 0 });
     await screen.findByText('worldedit.jar');
-    expect(mockListPlugins).toHaveBeenCalledTimes(1);
+    expect(mockListEnriched).toHaveBeenCalledTimes(1);
     await rerender({ serverId: 'srv-1', reloadToken: 1 });
-    await waitFor(() => expect(mockListPlugins).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockListEnriched).toHaveBeenCalledTimes(2));
   });
 
   it('renders only the requiresCore hint for a non-plugin core (fabric)', async () => {
