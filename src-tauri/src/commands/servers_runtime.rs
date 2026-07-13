@@ -633,6 +633,123 @@ pub fn server_list_mods_enriched(
         .collect())
 }
 
+/// Hash-enrich untracked jars in a server dir, mirroring
+/// `mods::enrich::enrich_untracked`: SHA-1 → Modrinth (`versions_by_hashes`)
+/// for both dirs; Murmur2 → CurseForge (`files_by_fingerprint`) for mods only.
+/// `home = Modrinth` tie-break. Best-effort: a failure degrades to "no match"
+/// and does NOT mark the jar attempted (so the next pass retries).
+///
+/// Hangar has NO hash-lookup endpoint, so plugins resolve via Modrinth's
+/// plugin index only; unresolved plugins keep `source = None` but are still
+/// marked attempted so they aren't re-queried every pass.
+async fn enrich_server_dir(dir: &std::path::Path, use_cf: bool) -> Result<u32> {
+    use std::collections::{HashMap, HashSet};
+
+    let entries = crate::servers_runtime::installed::reconcile_on_list(dir)?;
+    let in_scope: Vec<_> = entries
+        .into_iter()
+        .filter(|e| e.record.source.is_none() && !e.record.enrich_attempted)
+        .collect();
+    if in_scope.is_empty() {
+        return Ok(0);
+    }
+
+    // Enabled jars are `*.jar`; set-aside jars are `*.jar.disabled`.
+    let mut shas: Vec<String> = Vec::new();
+    let mut fingerprints: Vec<(u32, String)> = Vec::new();
+    for e in &in_scope {
+        let on_disk = if e.enabled {
+            e.record.filename.clone()
+        } else {
+            format!("{}.disabled", e.record.filename)
+        };
+        let sha = e.record.sha1.to_ascii_lowercase();
+        shas.push(sha.clone());
+        if use_cf {
+            if let Ok(bytes) = tokio::fs::read(dir.join(&on_disk)).await {
+                fingerprints.push((crate::mods::enrich::curseforge_fingerprint(&bytes), sha));
+            }
+        }
+    }
+
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let shas_ref: Vec<&str> = shas.iter().map(String::as_str).collect();
+    let (mr_hits, mr_ok) = match mr.versions_by_hashes(&shas_ref).await {
+        Ok(m) => (m, true),
+        Err(_) => (HashMap::new(), false),
+    };
+
+    let cf_tried = use_cf;
+    let (cf_hits, cf_ok) = if use_cf {
+        let cf = crate::mods::curseforge::CurseForgeClient::new();
+        match cf.files_by_fingerprint(&fingerprints).await {
+            Ok(m) => (m, true),
+            Err(_) => (HashMap::new(), false),
+        }
+    } else {
+        (HashMap::new(), true) // not tried => vacuous success
+    };
+
+    let mut resolved: HashMap<String, crate::servers_runtime::installed::ResolvedServerIdentity> =
+        HashMap::new();
+    for e in &in_scope {
+        let sha = e.record.sha1.to_ascii_lowercase();
+        let id = match (mr_hits.get(&sha), cf_hits.get(&sha)) {
+            (Some(mr), _) => crate::servers_runtime::installed::ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Modrinth,
+                project_id: mr.project_id.clone(),
+                version_id: Some(mr.version_id.clone()),
+                name: Some(mr.name.clone()),
+                version_number: Some(mr.version_number.clone()),
+            },
+            (None, Some(cf)) => crate::servers_runtime::installed::ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Curseforge,
+                project_id: cf.project_id.clone(),
+                version_id: Some(cf.version_id.clone()),
+                name: None,
+                version_number: cf.version_number.clone(),
+            },
+            (None, None) => continue,
+        };
+        resolved.insert(sha, id);
+    }
+
+    // One-shot gate: mark attempted only when every TRIED platform returned OK.
+    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
+    let attempted: HashSet<String> = if all_tried_succeeded {
+        in_scope
+            .iter()
+            .map(|e| e.record.sha1.to_ascii_lowercase())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+    let n = resolved.len() as u32;
+    crate::servers_runtime::installed::apply_enrichment(dir, &resolved, &attempted)?;
+    Ok(n)
+}
+
+/// Hash-enrich a server's `runtime/mods/` (Modrinth + CurseForge). Returns the
+/// count newly resolved. Best-effort — never blocks the UI.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_enrich_mods(app: AppHandle, id: String) -> Result<u32> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let use_cf = crate::mods::curseforge::keyring::resolve().is_some();
+    enrich_server_dir(&p.mods, use_cf).await
+}
+
+/// Hash-enrich a server's `runtime/plugins/` via Modrinth only (Hangar has no
+/// hash endpoint; CurseForge has no plugin registry).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_enrich_plugins(app: AppHandle, id: String) -> Result<u32> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    enrich_server_dir(&p.plugins, /* use_cf = */ false).await
+}
+
 /// Удалить мод из папки `mods/` сервера по имени файла.
 /// Идемпотентно: файл уже удалён → `Ok`.
 /// Отклоняет небезопасные имена (path traversal).

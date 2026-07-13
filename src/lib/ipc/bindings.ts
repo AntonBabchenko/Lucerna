@@ -998,6 +998,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverListModsEnriched: (id: string) => typedError<ServerModEntryEnriched[], Error>(__TAURI_INVOKE("server_list_mods_enriched", { id })),
 	/**
+	 *  Hash-enrich a server's `runtime/mods/` (Modrinth + CurseForge). Returns the
+	 *  count newly resolved. Best-effort — never blocks the UI.
+	 */
+	serverEnrichMods: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_mods", { id })),
+	/**
+	 *  Hash-enrich a server's `runtime/plugins/` via Modrinth only (Hangar has no
+	 *  hash endpoint; CurseForge has no plugin registry).
+	 */
+	serverEnrichPlugins: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_plugins", { id })),
+	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
 	 *  Отклоняет небезопасные имена (path traversal).

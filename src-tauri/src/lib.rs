@@ -226,6 +226,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 3: mod management + folder open):
             commands::server_list_mods,
             commands::server_list_mods_enriched,
+            commands::server_enrich_mods,
+            commands::server_enrich_plugins,
             commands::server_delete_mod,
             commands::server_open_folder,
             // Own server (Plan 4: diagnosis + repair):
