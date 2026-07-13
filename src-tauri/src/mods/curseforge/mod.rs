@@ -515,13 +515,35 @@ impl ModPlatform for CurseForgeClient {
 
         let auth = self.auth()?.to_string();
         // Reuse the normalized file list (version_id == CF file id, published_at
-        // set). No loader/mc filter: the cumulative changelog spans all builds.
+        // set), fetched unfiltered so the target is always present.
         let mut versions = self.versions(project_id, None, None).await?;
         versions.sort_by(|a, b| b.published_at.cmp(&a.published_at)); // newest-first
 
-        let ids: Vec<&str> = versions.iter().map(|v| v.version_id.as_str()).collect();
+        // Restrict to the TARGET's release lineage — files sharing at least one
+        // loader AND one MC version with the target — so a cross-loader / cross-MC
+        // build published between `base` and `target` by date is not pulled into
+        // the window. The target defines the lineage, so it is always present.
+        let (t_mcs, t_loaders): (Vec<String>, Vec<LoaderKind>) = versions
+            .iter()
+            .find(|v| v.version_id == target_version_id)
+            .map(|t| (t.mc_versions.clone(), t.loaders.clone()))
+            .unwrap_or_default();
+        let lineage: Vec<crate::mods::platform::ModVersion> =
+            if t_mcs.is_empty() && t_loaders.is_empty() {
+                versions
+            } else {
+                versions
+                    .into_iter()
+                    .filter(|v| {
+                        v.loaders.iter().any(|l| t_loaders.contains(l))
+                            && v.mc_versions.iter().any(|g| t_mcs.contains(g))
+                    })
+                    .collect()
+            };
+
+        let ids: Vec<&str> = lineage.iter().map(|v| v.version_id.as_str()).collect();
         let (start, end, full) = changelog_window(&ids, target_version_id, base_version_id);
-        let window: Vec<crate::mods::platform::ModVersion> = versions[start..end].to_vec();
+        let window: Vec<crate::mods::platform::ModVersion> = lineage[start..end].to_vec();
 
         // CurseForge has no changelog in the file list — it is a per-file
         // endpoint. Fan out but preserve newest-first order (`buffered`, not

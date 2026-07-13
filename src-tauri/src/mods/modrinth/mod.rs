@@ -571,9 +571,32 @@ impl ModPlatform for ModrinthClient {
         // upstream ordering (Modrinth returns date-descending, but be explicit).
         list.sort_by(|a, b| b.date_published.cmp(&a.date_published));
 
-        let ids: Vec<&str> = list.iter().map(|v| v.id.as_str()).collect();
+        // Restrict to the TARGET's release lineage — versions sharing at least
+        // one loader AND one game version with the target. Without this, a
+        // project that publishes many loaders / MC versions (e.g. a 1.20.4
+        // backport released after newer 1.21 builds) would pull every unrelated
+        // build published between `base` and `target` by date into the window.
+        // The target defines the lineage, so it is always present — no empty
+        // window. When the target can't be found (shouldn't happen), keep all.
+        let (t_mcs, t_loaders): (Vec<String>, Vec<String>) = list
+            .iter()
+            .find(|v| v.id == target_version_id)
+            .map(|t| (t.game_versions.clone(), t.loaders.clone()))
+            .unwrap_or_default();
+        let lineage: Vec<&types::Version> = if t_mcs.is_empty() && t_loaders.is_empty() {
+            list.iter().collect()
+        } else {
+            list.iter()
+                .filter(|v| {
+                    v.loaders.iter().any(|l| t_loaders.contains(l))
+                        && v.game_versions.iter().any(|g| t_mcs.contains(g))
+                })
+                .collect()
+        };
+
+        let ids: Vec<&str> = lineage.iter().map(|v| v.id.as_str()).collect();
         let (start, end, full) = changelog_window(&ids, target_version_id, base_version_id);
-        let sections: Vec<ChangelogSection> = list[start..end]
+        let sections: Vec<ChangelogSection> = lineage[start..end]
             .iter()
             .map(|v| ChangelogSection {
                 version_id: v.id.clone(),
@@ -1107,6 +1130,43 @@ mod tests {
         let res = c.changelog_range("sodium", "v3", None).await.unwrap();
         assert_eq!(res.sections.len(), 1);
         assert_eq!(res.sections[0].version_id, "v3");
+    }
+
+    #[tokio::test]
+    async fn changelog_range_restricts_to_target_loader_and_mc_lineage() {
+        // Real ImmediatelyFast shape: a 1.20.4-neoforge backport published AFTER
+        // newer fabric/26.2 builds. Windowing by date alone would drag the fabric
+        // build into the range; the lineage filter (target's loader + MC) must
+        // keep only the 1.20.4-neoforge releases.
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/imf/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"[
+                  {"id":"n5","project_id":"imf","name":"1.5.5","version_number":"1.5.5+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-06-30T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.5"},
+                  {"id":"fab","project_id":"imf","name":"1.16.1","version_number":"1.16.1+26.2-fabric",
+                   "game_versions":["26.2"],"loaders":["fabric"],"date_published":"2026-06-27T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"fabric build"},
+                  {"id":"n4","project_id":"imf","name":"1.5.4","version_number":"1.5.4+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.4"},
+                  {"id":"n3","project_id":"imf","name":"1.5.3","version_number":"1.5.3+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-04-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.3"}
+                ]"##,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // installed n3, target n5 → only n5, n4 (base n3 excluded); fabric build dropped.
+        let res = c.changelog_range("imf", "n5", Some("n3")).await.unwrap();
+        let ids: Vec<&str> = res.sections.iter().map(|s| s.version_id.as_str()).collect();
+        assert_eq!(ids, vec!["n5", "n4"]);
+        assert_eq!(res.truncated, None);
     }
 
     #[tokio::test]
