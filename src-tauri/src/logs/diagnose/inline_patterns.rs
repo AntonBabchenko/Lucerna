@@ -500,6 +500,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         source_hint: SourceHint::Any,
         side: Side::Server,
     },
+    // Side::Any despite the section: the integrated singleplayer server
+    // prints this exact line into the client's own log.
     Pattern {
         id: "server-cant-keep-up",
         matcher: Matcher::Substring("Can't keep up! Is the server overloaded?"),
