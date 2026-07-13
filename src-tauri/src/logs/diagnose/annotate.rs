@@ -136,6 +136,17 @@ mod tests {
     }
 
     #[test]
+    fn crlf_and_trailing_newline_keep_indices_aligned() {
+        // Windows logs are CRLF and usually end with a newline. `lines()`
+        // strips the trailing `\r` (so matchers see clean text) and drops
+        // the final empty segment — indices still agree with a JS
+        // `text.split('\n')` for every line that can carry an annotation.
+        let text = "line zero\r\njava.lang.OutOfMemoryError: Metaspace\r\nline two\r\n";
+        let got = ids_for(text, AnnotateSide::Client);
+        assert_eq!(got, vec![(1, "oom-metaspace".to_string())]);
+    }
+
+    #[test]
     fn first_match_wins_within_a_line_banner_table_first() {
         // A line matching a PATTERNS entry AND an inline entry must resolve
         // to the banner-table pattern (declaration precedence).
