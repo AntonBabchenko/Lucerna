@@ -19,6 +19,9 @@ export interface TaggedLine {
 export type RenderUnit =
   | { kind: 'line'; text: string; level: Severity; index: number }
   | {
+      // No index on folds — deliberate: hint badges never attach to folded
+      // stack frames (patterns match the exception line, not `at ...` frames),
+      // and the first frame of a fold is by definition a stack frame.
       kind: 'fold';
       level: Severity;
       firstFrame: string;
@@ -40,12 +43,12 @@ function parseLevel(line: string): Severity | null {
   return m[1].toLowerCase() as Severity;
 }
 
-export function tagWithSeverity(lines: string[], startIndex = 0): TaggedLine[] {
+export function tagWithSeverity(lines: string[], startLine = 0): TaggedLine[] {
   let current: Severity = 'other';
   return lines.map((text, i) => {
     const parsed = parseLevel(text);
     if (parsed) current = parsed;
-    return { text, level: current, index: startIndex + i };
+    return { text, level: current, index: startLine + i };
   });
 }
 

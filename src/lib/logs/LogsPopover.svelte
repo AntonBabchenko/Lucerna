@@ -456,7 +456,12 @@
     const tagged = tagWithSeverity(lines);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level, index: l.index }));
+      : tagged.map((l) => ({
+          kind: 'line' as const,
+          text: l.text,
+          level: l.level,
+          index: l.index,
+        }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   });
 
@@ -740,7 +745,12 @@
     const tagged = tagWithSeverity(lines, startLine);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level, index: l.index }));
+      : tagged.map((l) => ({
+          kind: 'line' as const,
+          text: l.text,
+          level: l.level,
+          index: l.index,
+        }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   }
 
