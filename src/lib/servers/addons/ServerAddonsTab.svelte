@@ -236,12 +236,16 @@
         {/if}
       {/key}
     </div>
-    {#if view === 'installed'}
+    <!-- Kept mounted (mirrors the Browse block above) so switching
+         Browse↔Installed never remounts it: rows persist across visits, and
+         the cold load runs in the background while the user is on Browse.
+         `reloadToken` still refreshes it after a Browse/dropzone install. -->
+    <div class:hidden={view !== 'installed'}>
       {#if kind === 'mod'}
         <ServerModsInstalled {serverId} {reloadToken} />
       {:else}
         <ServerPluginsInstalled {serverId} {reloadToken} />
       {/if}
-    {/if}
+    </div>
   {/if}
 </div>
