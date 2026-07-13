@@ -156,6 +156,23 @@ describe('ServerModsInstalled', () => {
     await waitFor(() => expect(mockDeleteMod).toHaveBeenCalledWith('srv-1', 'jei.jar'));
   });
 
+  it('uninstall on a disabled mod deletes via the .disabled on-disk filename', async () => {
+    // Guards the silent-no-op footgun: a disabled row's delete must target the
+    // real on-disk file (`.jar.disabled`), not the base display name.
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [modRow('betterf3.jar', { disabled: true })],
+    });
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('betterf3.jar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(mockDeleteMod).toHaveBeenCalledWith('srv-1', 'betterf3.jar.disabled'),
+    );
+  });
+
   it('bumping reloadToken re-reads the mods list', async () => {
     const { rerender } = render(ServerModsInstalled, { serverId: 'srv-1', reloadToken: 0 });
     await screen.findByText('jei.jar');

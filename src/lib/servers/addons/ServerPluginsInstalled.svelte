@@ -114,6 +114,13 @@
             canToggle={canManage}
             onToggle={() => void toggle(row)}
             onUninstall={() => {
+              // ModCard's trash button can't be gated per-row (no prop for it),
+              // so refuse here while running instead of opening a dialog whose
+              // confirm the backend would only reject.
+              if (isRunning) {
+                actionError = $t('servers.plugins.stopToManage');
+                return;
+              }
               actionError = null;
               pendingDelete = row;
             }}

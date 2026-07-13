@@ -135,6 +135,23 @@ describe('ServerPluginsInstalled', () => {
     await waitFor(() => expect(mockDeletePlugin).toHaveBeenCalledWith('srv-1', 'worldedit.jar'));
   });
 
+  it('uninstall on a disabled plugin deletes via the .disabled on-disk filename', async () => {
+    // Guards the silent-no-op footgun: a disabled row's delete must target the
+    // real on-disk file (`.jar.disabled`), not the base display name.
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [pluginRow('essentials.jar', { disabled: true })],
+    });
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('essentials.jar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(mockDeletePlugin).toHaveBeenCalledWith('srv-1', 'essentials.jar.disabled'),
+    );
+  });
+
   it('bumping reloadToken re-reads the plugins list', async () => {
     const { rerender } = render(ServerPluginsInstalled, { serverId: 'srv-1', reloadToken: 0 });
     await screen.findByText('worldedit.jar');
