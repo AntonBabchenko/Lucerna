@@ -63,8 +63,10 @@ export interface ActiveHint {
   anchor: { top: number; left: number; width: number; height: number; bottom: number };
 }
 
-const OPEN_DELAY_MS = 300;
-const GRACE_MS = 150;
+/** Hover open delay. Keyboard focus (openFromFocus) bypasses this. */
+export const OPEN_DELAY_MS = 300;
+/** Hover-bridge grace: how long the card stays after leaving row/card. */
+export const GRACE_MS = 150;
 
 /**
  * Hover controller for one surface. Row handlers arm a delayed open;
@@ -109,6 +111,14 @@ export function createLogHintHover() {
     }
   }
 
+  // One immediate-teardown path, exposed under both API names: `close`
+  // (user intent — Escape / scroll dismiss) and `dispose` (owner cleanup
+  // in onDestroy, per the project's composable convention).
+  function closeNow() {
+    clearTimers();
+    active = null;
+  }
+
   return {
     get active() {
       return active;
@@ -135,14 +145,8 @@ export function createLogHintHover() {
     openFromFocus(hint: ActiveHint) {
       show(hint);
     },
-    close() {
-      clearTimers();
-      active = null;
-    },
-    dispose() {
-      clearTimers();
-      active = null;
-    },
+    close: closeNow,
+    dispose: closeNow,
   };
 }
 
