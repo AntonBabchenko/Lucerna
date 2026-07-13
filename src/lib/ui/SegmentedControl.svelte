@@ -7,6 +7,7 @@
   // accessible name + tooltip, so they stay compact but remain labelled.
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import { nextRovingIndex } from '$lib/ui/roving';
 
   type Option = { value: string; label?: string; icon?: IconName; testId?: string };
   let {
@@ -31,13 +32,8 @@
   // control whose options act immediately.
   function onKeydown(e: KeyboardEvent) {
     const current = options.findIndex((o) => o.value === value);
-    if (current === -1) return;
-    let next = current;
-    if (e.key === 'ArrowRight') next = (current + 1) % options.length;
-    else if (e.key === 'ArrowLeft') next = (current - 1 + options.length) % options.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = options.length - 1;
-    else return;
+    const next = nextRovingIndex(e.key, current, options.length, 'horizontal');
+    if (next === null) return;
     e.preventDefault();
     const target = options[next];
     if (!target) return;

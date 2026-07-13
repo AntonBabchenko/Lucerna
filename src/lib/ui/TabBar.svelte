@@ -4,6 +4,7 @@
   // Add-ons content-kind switch). `ariaLabel` names the tablist for screen
   // readers; `testid` is handy when several tablists coexist.
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { nextRovingIndex } from '$lib/ui/roving';
 
   // `iconClass` lets a caller opt a single tab's icon into an extra CSS class
   // (e.g. the rainbow-hover effect on the Shaders tab) without affecting others.
@@ -32,13 +33,8 @@
   // mounted. Up/Down are left to the browser so vertical scroll still works.
   function onKeydown(e: KeyboardEvent) {
     const current = tabs.findIndex((t) => t.id === active);
-    if (current === -1) return;
-    let next = current;
-    if (e.key === 'ArrowRight') next = (current + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = tabs.length - 1;
-    else return;
+    const next = nextRovingIndex(e.key, current, tabs.length, 'horizontal');
+    if (next === null) return;
     e.preventDefault();
     const target = tabs[next];
     if (!target) return;

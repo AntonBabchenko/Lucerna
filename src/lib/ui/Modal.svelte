@@ -33,6 +33,7 @@
     onClose,
     ariaLabel,
     ariaLabelledby,
+    ariaDescribedby,
     panelClass = 'max-w-lg w-full',
     closeOnBackdrop = true,
     closeOnEscape = true,
@@ -42,6 +43,10 @@
     onClose: () => void;
     ariaLabel?: string;
     ariaLabelledby?: string;
+    /** Id of body copy to announce alongside the title — e.g. a confirm
+        dialog's irreversibility warning. Without it screen readers announce
+        only the heading. ConfirmDialog wires this automatically. */
+    ariaDescribedby?: string;
     panelClass?: string;
     closeOnBackdrop?: boolean;
     closeOnEscape?: boolean;
@@ -111,6 +116,7 @@
     aria-modal="true"
     aria-label={ariaLabel}
     aria-labelledby={ariaLabelledby}
+    aria-describedby={ariaDescribedby}
     data-testid={dataTestid}
     tabindex="-1"
     class="bg-surface rounded-lg shadow-xl outline-none {panelClass}"
