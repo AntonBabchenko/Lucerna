@@ -1902,6 +1902,7 @@ export type TranslationKey =
   | 'skinEditor.loadPng'
   | 'skinEditor.model'
   | 'skinEditor.offlineHint'
+  | 'skinEditor.open'
   | 'skinEditor.paintOn'
   | 'skinEditor.poseDefault'
   | 'skinEditor.poseHeading'
