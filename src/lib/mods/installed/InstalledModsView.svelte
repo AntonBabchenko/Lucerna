@@ -38,7 +38,7 @@
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { modKey } from './row-utils';
+  import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
@@ -67,9 +67,18 @@
   );
   const filters = createInstalledFilters(
     () => data.rows,
-    () => updates.updatableShas,
-    () => deps.missingShas,
-    () => compat.incompatibleShas,
+    (r) => ({
+      id: r.installed.sha1,
+      name: rowDisplayName(r),
+      enabled: r.installed.enabled,
+      sortKey: r.installed.installed_at,
+      source: r.installed.source,
+    }),
+    {
+      isUpdatable: (id) => updates.updatableShas.has(id),
+      hasIssue: (id) => deps.missingShas.has(id),
+      isIncompatible: (id) => compat.incompatibleShas.has(id),
+    },
   );
   const deps = createDepGraph(
     () => instanceId,
