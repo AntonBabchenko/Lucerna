@@ -84,6 +84,11 @@ describe('createServerInstalledData', () => {
       'mod',
       () => 0,
     );
+    // The composable's $effect.root is NOT inert under this repo's vitest (the
+    // Svelte runtime is present), so it would fire its own auto-refresh and
+    // double the mocked calls / blank `rows`. Dispose it up front and drive
+    // refresh() manually — this test isolates the load logic, not the effect.
+    data.dispose();
     await data.refresh();
 
     expect(data.rows).toHaveLength(2);
@@ -119,6 +124,11 @@ describe('createServerInstalledData', () => {
       'mod',
       () => 0,
     );
+    // The composable's $effect.root is NOT inert under this repo's vitest (the
+    // Svelte runtime is present), so it would fire its own auto-refresh and
+    // double the mocked calls / blank `rows`. Dispose it up front and drive
+    // refresh() manually — this test isolates the load logic, not the effect.
+    data.dispose();
     await data.refresh();
 
     expect(mocks.serverEnrichMods).toHaveBeenCalledTimes(1);
@@ -143,6 +153,11 @@ describe('createServerInstalledData', () => {
       'mod',
       () => 0,
     );
+    // The composable's $effect.root is NOT inert under this repo's vitest (the
+    // Svelte runtime is present), so it would fire its own auto-refresh and
+    // double the mocked calls / blank `rows`. Dispose it up front and drive
+    // refresh() manually — this test isolates the load logic, not the effect.
+    data.dispose();
     await data.refresh();
 
     expect(mocks.serverEnrichMods).not.toHaveBeenCalled();
@@ -158,6 +173,11 @@ describe('createServerInstalledData', () => {
       'mod',
       () => 0,
     );
+    // The composable's $effect.root is NOT inert under this repo's vitest (the
+    // Svelte runtime is present), so it would fire its own auto-refresh and
+    // double the mocked calls / blank `rows`. Dispose it up front and drive
+    // refresh() manually — this test isolates the load logic, not the effect.
+    data.dispose();
     await data.refresh();
 
     expect(mocks.serverEnrichMods).toHaveBeenCalledTimes(1);
