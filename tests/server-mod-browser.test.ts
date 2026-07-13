@@ -8,6 +8,10 @@ const {
   mockVersions,
   mockProject,
   mockInstallMod,
+  mockListEnriched,
+  mockEnableMod,
+  mockDisableMod,
+  mockDeleteMod,
   mockCfStatus,
   mockOpenUrl,
   mockPushSuccess,
@@ -17,6 +21,10 @@ const {
   mockVersions: vi.fn(),
   mockProject: vi.fn(),
   mockInstallMod: vi.fn(),
+  mockListEnriched: vi.fn(),
+  mockEnableMod: vi.fn(),
+  mockDisableMod: vi.fn(),
+  mockDeleteMod: vi.fn(),
   mockCfStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
   mockOpenUrl: vi.fn().mockResolvedValue(undefined),
   mockPushSuccess: vi.fn(),
@@ -29,6 +37,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsVersions: mockVersions,
     modsProject: mockProject,
     serverInstallMod: mockInstallMod,
+    serverListModsEnriched: mockListEnriched,
+    serverEnableMod: mockEnableMod,
+    serverDisableMod: mockDisableMod,
+    serverDeleteMod: mockDeleteMod,
     modsGetCurseforgeKeyStatus: mockCfStatus,
   },
 }));
@@ -98,6 +110,11 @@ describe('ServerModBrowser', () => {
       status: 'ok',
       data: { installed: ['jei.jar'], unresolved: [] },
     });
+    // Nothing installed by default: cards render the install button as before.
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [] });
+    mockEnableMod.mockResolvedValue({ status: 'ok', data: null });
+    mockDisableMod.mockResolvedValue({ status: 'ok', data: null });
+    mockDeleteMod.mockResolvedValue({ status: 'ok', data: null });
   });
 
   it('searches for the server mc + loader and renders results', async () => {
@@ -230,5 +247,36 @@ describe('ServerModBrowser', () => {
     await pickSelectOption('server-mod-sort', 'Updated');
     await waitFor(() => expect(mockSearch).toHaveBeenCalled());
     expect(mockSearch.mock.calls[0][0]).toMatchObject({ sort: 'updated', offset: 0 });
+  });
+
+  it('renders the installed state (no re-install button) for an already-installed mod', async () => {
+    // The enriched registry reports JEI as installed → the card shows the
+    // Remove/toggle controls instead of an Install button, so it can't be
+    // installed again (the repeat-install toast-spam bug this fixes).
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          filename: 'jei.jar',
+          on_disk_filename: 'jei.jar',
+          disabled: false,
+          reason: null,
+          sha1: 'sha-jei',
+          source: 'modrinth',
+          project_id: 'jei',
+          version_id: 'v9',
+          name: 'JEI',
+          version_number: '15.0.0',
+        },
+      ],
+    });
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    expect(await screen.findByLabelText('Remove')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText('Install')).toBeNull());
   });
 });

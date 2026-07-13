@@ -1,12 +1,14 @@
 <script lang="ts">
   import {
     commands,
+    type InstalledMod,
     type InstallMissingReport,
     type LoaderKind,
     type ModSort,
     type ModSource,
     type ModSummary,
     type ModVersion,
+    type ServerModEntryEnriched,
   } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
@@ -206,11 +208,84 @@
       );
       if (res.status === 'ok') {
         toastInstalled(card.name, res.data);
+        // Flip the just-installed card to its "Installed" state immediately.
+        await loadInstalled();
       } else {
         error = formatError(res.error);
       }
     } finally {
       installing.delete(card.project_id);
+    }
+  }
+
+  // ── Installed-state parity (client ModBrowseView) ──────────────────────────
+  // Map of installed identities for the mounted server, keyed
+  // `${source}:${project_id}`, so a browse card renders the "Installed" state
+  // (toggle + uninstall) instead of a re-installable button — this is what stops
+  // the same mod being installed over and over (toast spam). Reassigned
+  // immutably (new Map) after every mutation; ModResultsGrid calls
+  // installedFor(hit) in its render, so swapping the map re-renders the cards.
+  let installedByKey = $state(new Map<string, ServerModEntryEnriched>());
+
+  async function loadInstalled(): Promise<void> {
+    const res = await commands.serverListModsEnriched(serverId);
+    if (res.status !== 'ok') return; // best-effort; leave the map as-is
+    const m = new Map<string, ServerModEntryEnriched>();
+    for (const e of res.data) if (e.source && e.project_id) m.set(`${e.source}:${e.project_id}`, e);
+    installedByKey = m;
+  }
+
+  // serverId is fixed per mount; load once (and re-run if it ever changes).
+  $effect(() => {
+    void serverId;
+    void loadInstalled();
+  });
+
+  function installedFor(card: ModSummary): InstalledMod | null {
+    const e = installedByKey.get(`${card.source}:${card.project_id}`);
+    if (!e) return null;
+    return {
+      filename: e.filename,
+      sha1: e.sha1,
+      source: e.source,
+      project_id: e.project_id,
+      version_id: e.version_id,
+      name: e.name ?? card.name,
+      version_number: e.version_number,
+      installed_at: '',
+      enabled: !e.disabled,
+      requires: [],
+      enrich_attempted: false,
+    };
+  }
+
+  // Enable/disable an installed browse card. Mutations join on_disk_filename
+  // (base filename + `.disabled` when disabled), never the base filename.
+  // Backend refuses while the server runs (surfaces via `error`), consistent
+  // with how install already behaves on this tab — no extra gating needed.
+  async function toggleInstalled(card: ModSummary): Promise<void> {
+    const e = installedByKey.get(`${card.source}:${card.project_id}`);
+    if (!e) return;
+    const res = e.disabled
+      ? await commands.serverEnableMod(serverId, e.on_disk_filename)
+      : await commands.serverDisableMod(serverId, e.on_disk_filename);
+    if (res.status === 'ok') {
+      await loadInstalled();
+      onInstalled();
+    } else {
+      error = formatError(res.error);
+    }
+  }
+
+  async function uninstallInstalled(card: ModSummary): Promise<void> {
+    const e = installedByKey.get(`${card.source}:${card.project_id}`);
+    if (!e) return;
+    const res = await commands.serverDeleteMod(serverId, e.on_disk_filename);
+    if (res.status === 'ok') {
+      await loadInstalled();
+      onInstalled();
+    } else {
+      error = formatError(res.error);
     }
   }
 
@@ -272,12 +347,12 @@
       layout={browserPrefs.layout}
       isMod={true}
       placeholderIcon="puzzle"
-      installedFor={() => null}
+      {installedFor}
       isCardBusy={(id) => installing.has(id)}
       onInstall={(h) => void install(h)}
       onOpenDetail={(h) => (detail = h)}
-      onToggle={() => {}}
-      onUninstall={() => {}}
+      onToggle={(h) => void toggleInstalled(h)}
+      onUninstall={(h) => void uninstallInstalled(h)}
     />
     <Pagination {page} {pageCount} disabled={loading} {onPage} />
   {/if}
@@ -298,6 +373,8 @@
       // Toast copy keys on the PROJECT name ("Installed WorldEdit"); the
       // version label the modal passes is not surfaced in the toast.
       toastInstalled(d.name, report);
+      // Reflect the install in the browse cards behind the modal.
+      void loadInstalled();
     }}
   />
 {/if}
