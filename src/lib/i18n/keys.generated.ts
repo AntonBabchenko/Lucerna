@@ -1874,6 +1874,7 @@ export type TranslationKey =
   | 'sidebar.play'
   | 'sidebar.playWorlds'
   | 'sidebar.playerNamePlaceholder'
+  | 'sidebar.plugins'
   | 'sidebar.removeAccountLabel'
   | 'sidebar.server'
   | 'sidebar.serverCrashed'

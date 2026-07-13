@@ -1341,6 +1341,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverOpenPluginsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_plugins_folder", { id })),
 	/**
+	 *  Open the server's `runtime/mods/` folder in the system file manager.
+	 *  Creates the folder if it doesn't exist yet. Mirrors `server_open_plugins_folder`
+	 *  (and the client's `open_mods_folder`) so the sidebar can drop a mod-loader
+	 *  server's operator directly into its mods directory. `server_open_folder`
+	 *  intentionally lands one level up in `runtime/`.
+	 */
+	serverOpenModsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_mods_folder", { id })),
+	/**
 	 *  Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
 	 *  Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
 	 *  these). Sequence: guard running -> validate -> fresh backup -> resolve +

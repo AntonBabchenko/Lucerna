@@ -2,17 +2,36 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 
-const { serverList, serverStart, serverStop, serverDiagnose, serverUpload, getDataLocation } =
-  vi.hoisted(() => ({
-    serverList: vi.fn(),
-    serverStart: vi.fn(),
-    serverStop: vi.fn(),
-    serverDiagnose: vi.fn(),
-    serverUpload: vi.fn(),
-    getDataLocation: vi.fn(),
-  }));
+const {
+  serverList,
+  serverStart,
+  serverStop,
+  serverDiagnose,
+  serverUpload,
+  getDataLocation,
+  serverOpenModsFolder,
+  serverOpenPluginsFolder,
+} = vi.hoisted(() => ({
+  serverList: vi.fn(),
+  serverStart: vi.fn(),
+  serverStop: vi.fn(),
+  serverDiagnose: vi.fn(),
+  serverUpload: vi.fn(),
+  getDataLocation: vi.fn(),
+  serverOpenModsFolder: vi.fn(),
+  serverOpenPluginsFolder: vi.fn(),
+}));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { serverList, serverStart, serverStop, serverDiagnose, serverUpload, getDataLocation },
+  commands: {
+    serverList,
+    serverStart,
+    serverStop,
+    serverDiagnose,
+    serverUpload,
+    getDataLocation,
+    serverOpenModsFolder,
+    serverOpenPluginsFolder,
+  },
   events: {
     serverLogLine: { listen: vi.fn() },
     serverSpawned: { listen: vi.fn() },
@@ -37,12 +56,16 @@ function dataLocationStatus(fellBack: boolean) {
   };
 }
 
-function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
+function makeServer(
+  id: string,
+  running: boolean,
+  loader: ServerWithStatus_Serialize['loader'] = 'vanilla',
+): ServerWithStatus_Serialize {
   return {
     id,
     name: id,
     mc_version: '1.21',
-    loader: 'vanilla',
+    loader,
     loader_version: null,
     max_heap_mb: 2048,
     extra_jvm_args: '',
@@ -75,6 +98,10 @@ describe('ServerSidebarSection', () => {
     serverStop.mockReset();
     serverDiagnose.mockReset();
     serverUpload.mockReset();
+    serverOpenModsFolder.mockReset();
+    serverOpenPluginsFolder.mockReset();
+    serverOpenModsFolder.mockResolvedValue({ status: 'ok', data: null });
+    serverOpenPluginsFolder.mockResolvedValue({ status: 'ok', data: null });
     serverDiagnose.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
     // localStorage.clear() runs LAST so the reset serversUi calls above don't
     // race a still-persisted selection from a previous test.
@@ -179,6 +206,37 @@ describe('ServerSidebarSection', () => {
     serverList.mockResolvedValue({ status: 'ok', data: [makeServer('a', false)] });
     await fireEvent.click(stopBtn);
     expect(serverStop).toHaveBeenCalledWith('a');
+  });
+
+  describe('add-ons folder button', () => {
+    it('is hidden for a vanilla server (neither mods nor plugins)', async () => {
+      await load([makeServer('a', false, 'vanilla')]);
+      serversUi.selectServer('a');
+      render(ServerSidebarSection);
+      expect(screen.queryByTestId('sidebar-server-addons-folder')).toBeNull();
+    });
+
+    it('shows a Mods button for a mod-loader server and opens its mods folder', async () => {
+      await load([makeServer('a', false, 'fabric')]);
+      serversUi.selectServer('a');
+      render(ServerSidebarSection);
+      const btn = screen.getByTestId('sidebar-server-addons-folder');
+      expect(btn.textContent).toContain('Mods');
+      await fireEvent.click(btn);
+      expect(serverOpenModsFolder).toHaveBeenCalledWith('a');
+      expect(serverOpenPluginsFolder).not.toHaveBeenCalled();
+    });
+
+    it('shows a Plugins button for a plugin (Paper/Purpur) server and opens its plugins folder', async () => {
+      await load([makeServer('a', true, 'paper')]);
+      serversUi.selectServer('a');
+      render(ServerSidebarSection);
+      const btn = screen.getByTestId('sidebar-server-addons-folder');
+      expect(btn.textContent).toContain('Plugins');
+      await fireEvent.click(btn);
+      expect(serverOpenPluginsFolder).toHaveBeenCalledWith('a');
+      expect(serverOpenModsFolder).not.toHaveBeenCalled();
+    });
   });
 
   describe('data-root fallback gating (§7)', () => {
