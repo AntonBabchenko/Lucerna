@@ -536,6 +536,62 @@ impl ModPlatform for ModrinthClient {
         }
         Ok(out)
     }
+
+    async fn changelog_range(
+        &self,
+        project_id: &str,
+        target_version_id: &str,
+        base_version_id: Option<&str>,
+    ) -> Result<crate::mods::changelog::ChangelogResult, Error> {
+        use crate::mods::changelog::{changelog_window, ChangelogResult, ChangelogSection};
+
+        // The version object already carries `changelog` (markdown), so one
+        // list fetch covers the whole cumulative window — no per-version calls.
+        let url = format!("{}/v2/project/{}/version", self.base, project_id);
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        if resp.status == 404 {
+            return Err(Error::ModsNotFound {
+                platform: "modrinth".into(),
+            });
+        }
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
+        }
+        let mut list: Vec<types::Version> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
+        // Ensure newest-first so the window math is correct regardless of
+        // upstream ordering (Modrinth returns date-descending, but be explicit).
+        list.sort_by(|a, b| b.date_published.cmp(&a.date_published));
+
+        let ids: Vec<&str> = list.iter().map(|v| v.id.as_str()).collect();
+        let (start, end, full) = changelog_window(&ids, target_version_id, base_version_id);
+        let sections: Vec<ChangelogSection> = list[start..end]
+            .iter()
+            .map(|v| ChangelogSection {
+                version_id: v.id.clone(),
+                version_number: v.version_number.clone(),
+                published_at: v.date_published.clone(),
+                body_html: v
+                    .changelog
+                    .as_deref()
+                    .map(crate::mods::render::markdown_to_safe_html)
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let truncated = (end - start < full).then_some(full as u32);
+        Ok(ChangelogResult {
+            sections,
+            truncated,
+        })
+    }
 }
 
 /// Map a Modrinth `Project` to the normalized summary. Shared by `project()`
@@ -990,6 +1046,67 @@ mod tests {
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));
         assert_eq!(vs[0].deps.len(), 1);
         assert_eq!(vs[0].deps[0].kind, DepKind::Required);
+    }
+
+    #[tokio::test]
+    async fn changelog_range_windows_and_renders_markdown() {
+        let s = server().await;
+        // newest → oldest, each with a markdown changelog.
+        Mock::given(method("GET"))
+            .and(path("/v2/project/sodium/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"[
+                  {"id":"v3","project_id":"sodium","name":"0.6.0","version_number":"0.6.0",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-06-03T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"# 0.6.0\n- new renderer"},
+                  {"id":"v2","project_id":"sodium","name":"0.5.9","version_number":"0.5.9",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"- bugfixes"},
+                  {"id":"v1","project_id":"sodium","name":"0.5.8","version_number":"0.5.8",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-04-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":null}
+                ]"##,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // installed v1, target v3 → sections for v3 and v2 (v1 excluded).
+        let res = c.changelog_range("sodium", "v3", Some("v1")).await.unwrap();
+        assert_eq!(res.sections.len(), 2);
+        assert_eq!(res.sections[0].version_id, "v3");
+        assert!(
+            res.sections[0].body_html.contains("<h1>"),
+            "markdown rendered to HTML"
+        );
+        assert_eq!(res.sections[1].version_id, "v2");
+        assert_eq!(res.truncated, None);
+    }
+
+    #[tokio::test]
+    async fn changelog_range_base_none_returns_only_target() {
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/sodium/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":"v3","project_id":"sodium","name":"0.6.0","version_number":"0.6.0",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-06-03T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"notes"},
+                  {"id":"v2","project_id":"sodium","name":"0.5.9","version_number":"0.5.9",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"old"}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let res = c.changelog_range("sodium", "v3", None).await.unwrap();
+        assert_eq!(res.sections.len(), 1);
+        assert_eq!(res.sections[0].version_id, "v3");
     }
 
     #[tokio::test]

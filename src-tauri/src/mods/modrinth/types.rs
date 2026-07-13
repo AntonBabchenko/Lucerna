@@ -61,6 +61,9 @@ pub struct Version {
     pub date_published: Option<String>,
     pub files: Vec<VersionFile>,
     pub dependencies: Vec<VersionDep>,
+    /// Release notes (markdown). Nullable / absent on older versions.
+    #[serde(default)]
+    pub changelog: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
