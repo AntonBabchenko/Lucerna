@@ -207,7 +207,24 @@ describe('ServerModsInstalled', () => {
       name: 'JEI',
       version_number: '1.0',
     };
-    mockListEnriched.mockResolvedValue({ status: 'ok', data: [enriched] });
+    // Post-update the backend swaps the jar: a NEW sha1 + version (mirrors the
+    // registry row swap). The re-list after apply must surface this row and the
+    // stale `update_available` entry (keyed by the OLD sha1) must be gone — so a
+    // cleared badge distinguishes "entry deleted + re-rendered" from a no-op.
+    const enrichedAfter = {
+      filename: 'jei-2.jar',
+      on_disk_filename: 'jei-2.jar',
+      disabled: false,
+      reason: null,
+      sha1: 'sha-jei-v2',
+      source: 'modrinth',
+      project_id: 'jei',
+      version_id: 'v2',
+      name: 'JEI',
+      version_number: '2.0',
+    };
+    mockListEnriched.mockResolvedValueOnce({ status: 'ok', data: [enriched] }); // mount
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [enrichedAfter] }); // post-apply refresh
     mockProjects.mockResolvedValue({
       status: 'ok',
       data: [
@@ -272,6 +289,13 @@ describe('ServerModsInstalled', () => {
     // Clicking the per-row Update applies it via sha1 + the classified target.
     await fireEvent.click(screen.getByRole('button', { name: 'Update' }));
     await waitFor(() => expect(mockUpdateOne).toHaveBeenCalledWith('srv-1', 'sha-jei', target));
+
+    // The apply re-lists (registry swap → new sha1) and drops the stale check,
+    // so the update badge clears rather than lingering on the old row.
+    await waitFor(() => expect(screen.queryByTestId('mod-update-badge')).toBeNull());
+    // The re-list actually happened (mount + post-apply), proving the cleared
+    // badge is a real refresh, not a component that never re-rendered.
+    expect(mockListEnriched).toHaveBeenCalledTimes(2);
   });
 
   it('shows the quarantine button for a fabric server', async () => {

@@ -35,6 +35,10 @@
   // enable/disable rename). Plugins are out of scope — this pane is mods-only.
   let updateChecks = $state(new Map<string, ModUpdateState>());
   let checkingUpdates = $state(false);
+  // Per-row in-flight guard: `serverUpdateOne` is a filesystem-mutating swap
+  // with no backend concurrent-same-mod guard, and the Update icon has no busy
+  // state — so a double-click would fire two concurrent updates. Keyed by sha1.
+  let updatingShas = $state(new Set<string>());
 
   // A different server's checks must never bleed across a switch (sha1 keys can
   // collide across servers). Reset on serverId change.
@@ -86,14 +90,30 @@
   async function updateOne(row: ServerRow) {
     const state = updateChecks.get(row.sha1);
     if (state?.kind !== 'update_available') return;
+    // A stale badge can survive a server start (the pane stays mounted and
+    // updateChecks only resets on serverId change) — refuse the swap the
+    // backend would reject anyway, with a clear message.
+    if (!canManageMods) {
+      actionError = $t('servers.mods.stopToManage');
+      return;
+    }
+    // No-op the second concurrent click on the same row.
+    if (updatingShas.has(row.sha1)) return;
+    updatingShas = new Set(updatingShas).add(row.sha1);
     actionError = null;
-    const res = await commands.serverUpdateOne(serverId, row.sha1, state.target);
-    if (res.status === 'ok') {
-      const next = new Map(updateChecks);
-      next.delete(row.sha1);
-      updateChecks = next;
-      await data.refresh();
-    } else actionError = formatError(res.error);
+    try {
+      const res = await commands.serverUpdateOne(serverId, row.sha1, state.target);
+      if (res.status === 'ok') {
+        const next = new Map(updateChecks);
+        next.delete(row.sha1);
+        updateChecks = next;
+        await data.refresh();
+      } else actionError = formatError(res.error);
+    } finally {
+      const s = new Set(updatingShas);
+      s.delete(row.sha1);
+      updatingShas = s;
+    }
   }
 
   async function confirmDelete(row: ServerRow) {
@@ -209,7 +229,7 @@
             reason={row.reason}
             canToggle={canManageMods}
             checking={checkingUpdates}
-            updateState={updateChecks.get(row.sha1) ?? null}
+            updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}
             onUpdate={() => void updateOne(row)}
             onToggle={() => void toggle(row)}
             onUninstall={() => {
