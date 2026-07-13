@@ -8,7 +8,7 @@
   import { navVisual } from '$lib/layout/nav-status';
   import { serverState, serverNavStatus } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { displayCore } from '$lib/servers/core-display';
+  import { displayCore, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { compactState, setCompact } from '$lib/layout/compact.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { t } from '$lib/i18n';
@@ -30,6 +30,16 @@
   );
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
+
+  // Which add-on folder this server exposes: plugin cores (Paper/Purpur) keep
+  // jars in runtime/plugins, mod cores (Fabric/Quilt/Forge/NeoForge) in
+  // runtime/mods. Vanilla has neither — the button stays hidden there.
+  const addonKind = $derived.by((): 'mods' | 'plugins' | null => {
+    if (!selected) return null;
+    if (pluginCapable(selected.loader)) return 'plugins';
+    if (modCapable(selected.loader)) return 'mods';
+    return null;
+  });
 
   // §7 fallback gating: creating a server while the data root is unavailable
   // would write it into the wrong (temporary default) root. See
@@ -66,6 +76,13 @@
     const id = selected?.id;
     if (!id) return;
     await serverState.stop(id);
+  }
+
+  async function openAddonsFolder(): Promise<void> {
+    const id = selected?.id;
+    if (!id) return;
+    if (addonKind === 'plugins') await serverState.openPluginsFolder(id);
+    else if (addonKind === 'mods') await serverState.openModsFolder(id);
   }
 </script>
 
@@ -123,6 +140,18 @@
   </span>
 
   {#if selected}
+    {#if addonKind}
+      <button
+        type="button"
+        class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+        data-testid="sidebar-server-addons-folder"
+        onclick={() => void openAddonsFolder()}
+      >
+        <Icon name="folderOpen" size={14} />
+        {addonKind === 'plugins' ? $t('sidebar.plugins') : $t('sidebar.mods')}
+      </button>
+    {/if}
+
     {#if selected.running}
       <BusyButton
         class="btn-danger btn-lg flex items-center justify-center"

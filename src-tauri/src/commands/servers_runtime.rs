@@ -3111,6 +3111,26 @@ pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()
     Ok(())
 }
 
+/// Open the server's `runtime/mods/` folder in the system file manager.
+/// Creates the folder if it doesn't exist yet. Mirrors `server_open_plugins_folder`
+/// (and the client's `open_mods_folder`) so the sidebar can drop a mod-loader
+/// server's operator directly into its mods directory. `server_open_folder`
+/// intentionally lands one level up in `runtime/`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_mods_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).mods;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
 /// Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
 /// Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
 /// these). Sequence: guard running -> validate -> fresh backup -> resolve +

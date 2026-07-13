@@ -161,6 +161,7 @@
     "pickMcVersion": "(pick MC)",
     "manage": "Manage",
     "mods": "Mods",
+    "plugins": "Plugins",
     "stop": "Stop",
     "play": "Play",
     "playWorlds": "Launch into a world",
