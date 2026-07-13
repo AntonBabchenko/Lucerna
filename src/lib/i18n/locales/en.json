@@ -106,6 +106,7 @@
     "poseSit": "Sit",
     "loadPng": "Load PNG",
     "savePng": "Download PNG",
+    "open": "Skin editor",
     "apply": "Apply to account",
     "applied": "Skin applied",
     "invalidImage": "That's not a 64×64 (or 64×32) skin PNG.",
