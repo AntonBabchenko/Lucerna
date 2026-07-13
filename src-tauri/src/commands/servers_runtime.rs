@@ -633,6 +633,55 @@ pub fn server_list_mods_enriched(
         .collect())
 }
 
+/// Pure resolve + tie-break + one-shot gate for a scope of lowercased sha1s.
+/// `home = Modrinth` tie-break: a sha present in both platform maps resolves to
+/// Modrinth. The gate marks a sha `attempted` only when every *tried* platform
+/// returned OK (a partial failure leaves the whole scope un-attempted so the
+/// next pass retries), while still surfacing any identities that DID resolve.
+/// Extracted from `enrich_server_dir` so the branchy logic is unit-testable
+/// without a network or filesystem.
+fn resolve_and_gate(
+    scope_shas: &[String],
+    mr_hits: &std::collections::HashMap<String, crate::mods::modrinth::HashVersion>,
+    mr_ok: bool,
+    cf_hits: &std::collections::HashMap<String, crate::mods::curseforge::FingerprintFile>,
+    cf_ok: bool,
+    cf_tried: bool,
+) -> (
+    std::collections::HashMap<String, crate::servers_runtime::installed::ResolvedServerIdentity>,
+    std::collections::HashSet<String>,
+) {
+    use crate::servers_runtime::installed::ResolvedServerIdentity;
+    let mut resolved = std::collections::HashMap::new();
+    for sha in scope_shas {
+        let id = match (mr_hits.get(sha), cf_hits.get(sha)) {
+            (Some(mr), _) => ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Modrinth,
+                project_id: mr.project_id.clone(),
+                version_id: Some(mr.version_id.clone()),
+                name: Some(mr.name.clone()),
+                version_number: Some(mr.version_number.clone()),
+            },
+            (None, Some(cf)) => ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Curseforge,
+                project_id: cf.project_id.clone(),
+                version_id: Some(cf.version_id.clone()),
+                name: None,
+                version_number: cf.version_number.clone(),
+            },
+            (None, None) => continue,
+        };
+        resolved.insert(sha.clone(), id);
+    }
+    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
+    let attempted = if all_tried_succeeded {
+        scope_shas.iter().cloned().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+    (resolved, attempted)
+}
+
 /// Hash-enrich untracked jars in a server dir, mirroring
 /// `mods::enrich::enrich_untracked`: SHA-1 → Modrinth (`versions_by_hashes`)
 /// for both dirs; Murmur2 → CurseForge (`files_by_fingerprint`) for mods only.
@@ -642,38 +691,54 @@ pub fn server_list_mods_enriched(
 /// Hangar has NO hash-lookup endpoint, so plugins resolve via Modrinth's
 /// plugin index only; unresolved plugins keep `source = None` but are still
 /// marked attempted so they aren't re-queried every pass.
+///
+/// The blocking work (directory scan + sha1/Murmur2 hashing, and the final
+/// sidecar write) runs on `spawn_blocking` threads so the async executor is
+/// never blocked on disk I/O; the two network calls stay on the async task.
 async fn enrich_server_dir(dir: &std::path::Path, use_cf: bool) -> Result<u32> {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
-    let entries = crate::servers_runtime::installed::reconcile_on_list(dir)?;
-    let in_scope: Vec<_> = entries
-        .into_iter()
-        .filter(|e| e.record.source.is_none() && !e.record.enrich_attempted)
-        .collect();
-    if in_scope.is_empty() {
+    // Blocking phase 1: reconcile the sidecar against disk, filter to untracked
+    // jars, and (for the CF path) fingerprint each jar's bytes. Runs off the
+    // async executor since it is pure disk I/O + hashing.
+    let scan_dir = dir.to_path_buf();
+    let (scope_shas, fingerprints): (Vec<String>, Vec<(u32, String)>) =
+        tokio::task::spawn_blocking(move || -> Result<(Vec<String>, Vec<(u32, String)>)> {
+            let entries = crate::servers_runtime::installed::reconcile_on_list(&scan_dir)?;
+            let in_scope: Vec<_> = entries
+                .into_iter()
+                .filter(|e| e.record.source.is_none() && !e.record.enrich_attempted)
+                .collect();
+            let mut shas: Vec<String> = Vec::new();
+            let mut fingerprints: Vec<(u32, String)> = Vec::new();
+            for e in &in_scope {
+                // Enabled jars are `*.jar`; set-aside jars are `*.jar.disabled`.
+                let on_disk = if e.enabled {
+                    e.record.filename.clone()
+                } else {
+                    format!("{}.disabled", e.record.filename)
+                };
+                let sha = e.record.sha1.to_ascii_lowercase();
+                shas.push(sha.clone());
+                if use_cf {
+                    // Already on a blocking thread → sync read is correct here.
+                    if let Ok(bytes) = std::fs::read(scan_dir.join(&on_disk)) {
+                        fingerprints
+                            .push((crate::mods::enrich::curseforge_fingerprint(&bytes), sha));
+                    }
+                }
+            }
+            Ok((shas, fingerprints))
+        })
+        .await
+        .map_err(|e| Error::io("<enrich-scan>", e))??;
+
+    if scope_shas.is_empty() {
         return Ok(0);
     }
 
-    // Enabled jars are `*.jar`; set-aside jars are `*.jar.disabled`.
-    let mut shas: Vec<String> = Vec::new();
-    let mut fingerprints: Vec<(u32, String)> = Vec::new();
-    for e in &in_scope {
-        let on_disk = if e.enabled {
-            e.record.filename.clone()
-        } else {
-            format!("{}.disabled", e.record.filename)
-        };
-        let sha = e.record.sha1.to_ascii_lowercase();
-        shas.push(sha.clone());
-        if use_cf {
-            if let Ok(bytes) = tokio::fs::read(dir.join(&on_disk)).await {
-                fingerprints.push((crate::mods::enrich::curseforge_fingerprint(&bytes), sha));
-            }
-        }
-    }
-
     let mr = crate::mods::modrinth::ModrinthClient::new();
-    let shas_ref: Vec<&str> = shas.iter().map(String::as_str).collect();
+    let shas_ref: Vec<&str> = scope_shas.iter().map(String::as_str).collect();
     let (mr_hits, mr_ok) = match mr.versions_by_hashes(&shas_ref).await {
         Ok(m) => (m, true),
         Err(_) => (HashMap::new(), false),
@@ -690,42 +755,17 @@ async fn enrich_server_dir(dir: &std::path::Path, use_cf: bool) -> Result<u32> {
         (HashMap::new(), true) // not tried => vacuous success
     };
 
-    let mut resolved: HashMap<String, crate::servers_runtime::installed::ResolvedServerIdentity> =
-        HashMap::new();
-    for e in &in_scope {
-        let sha = e.record.sha1.to_ascii_lowercase();
-        let id = match (mr_hits.get(&sha), cf_hits.get(&sha)) {
-            (Some(mr), _) => crate::servers_runtime::installed::ResolvedServerIdentity {
-                source: crate::mods::platform::ModSource::Modrinth,
-                project_id: mr.project_id.clone(),
-                version_id: Some(mr.version_id.clone()),
-                name: Some(mr.name.clone()),
-                version_number: Some(mr.version_number.clone()),
-            },
-            (None, Some(cf)) => crate::servers_runtime::installed::ResolvedServerIdentity {
-                source: crate::mods::platform::ModSource::Curseforge,
-                project_id: cf.project_id.clone(),
-                version_id: Some(cf.version_id.clone()),
-                name: None,
-                version_number: cf.version_number.clone(),
-            },
-            (None, None) => continue,
-        };
-        resolved.insert(sha, id);
-    }
+    let (resolved, attempted) =
+        resolve_and_gate(&scope_shas, &mr_hits, mr_ok, &cf_hits, cf_ok, cf_tried);
 
-    // One-shot gate: mark attempted only when every TRIED platform returned OK.
-    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
-    let attempted: HashSet<String> = if all_tried_succeeded {
-        in_scope
-            .iter()
-            .map(|e| e.record.sha1.to_ascii_lowercase())
-            .collect()
-    } else {
-        HashSet::new()
-    };
     let n = resolved.len() as u32;
-    crate::servers_runtime::installed::apply_enrichment(dir, &resolved, &attempted)?;
+    // Blocking phase 2: persist the identities + attempted flags off the executor.
+    let apply_dir = dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::installed::apply_enrichment(&apply_dir, &resolved, &attempted)
+    })
+    .await
+    .map_err(|e| Error::io("<enrich-apply>", e))??;
     Ok(n)
 }
 
@@ -3012,5 +3052,91 @@ mod password_ux_tests {
         )
         .unwrap();
         assert_eq!(got, "");
+    }
+}
+
+#[cfg(test)]
+mod enrich_resolve_tests {
+    use super::resolve_and_gate;
+    use crate::mods::curseforge::FingerprintFile;
+    use crate::mods::modrinth::HashVersion;
+    use crate::mods::platform::ModSource;
+    use std::collections::{HashMap, HashSet};
+
+    fn mr(project: &str) -> HashVersion {
+        HashVersion {
+            project_id: project.into(),
+            version_id: "mr-ver".into(),
+            version_number: "1.0.0".into(),
+            name: "Modrinth Mod".into(),
+        }
+    }
+
+    fn cf(project: &str) -> FingerprintFile {
+        FingerprintFile {
+            project_id: project.into(),
+            version_id: "cf-file".into(),
+            version_number: Some("cf-1.2".into()),
+        }
+    }
+
+    #[test]
+    fn modrinth_wins_tie_break() {
+        let shas = vec!["aa".to_string()];
+        let mr_hits = HashMap::from([("aa".to_string(), mr("mr-proj"))]);
+        let cf_hits = HashMap::from([("aa".to_string(), cf("cf-proj"))]);
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        let id = resolved.get("aa").expect("sha resolved");
+        assert_eq!(id.source, ModSource::Modrinth);
+        assert_eq!(id.project_id, "mr-proj");
+    }
+
+    #[test]
+    fn cf_only_hit_resolves_curseforge() {
+        let shas = vec!["bb".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits = HashMap::from([("bb".to_string(), cf("cf-proj"))]);
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        let id = resolved.get("bb").expect("sha resolved");
+        assert_eq!(id.source, ModSource::Curseforge);
+        assert_eq!(id.project_id, "cf-proj");
+        assert!(id.name.is_none());
+        assert_eq!(id.version_number.as_deref(), Some("cf-1.2"));
+    }
+
+    #[test]
+    fn gate_marks_attempted_when_all_tried_ok() {
+        // Modrinth-only path (plugin dir / no CF key): cf_tried=false is a
+        // vacuous success, so the whole scope is marked attempted.
+        let shas = vec!["aa".to_string(), "bb".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (_, attempted) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, false);
+        let expected: HashSet<String> = shas.into_iter().collect();
+        assert_eq!(attempted, expected);
+    }
+
+    #[test]
+    fn gate_skips_attempted_on_platform_failure() {
+        // Modrinth failed (mr_ok=false) → nothing is marked attempted, but any
+        // identity that DID resolve (e.g. from CF) still lands.
+        let shas = vec!["aa".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits = HashMap::from([("aa".to_string(), cf("cf-proj"))]);
+        let (resolved, attempted) = resolve_and_gate(&shas, &mr_hits, false, &cf_hits, true, true);
+        assert!(attempted.is_empty());
+        assert!(
+            resolved.contains_key("aa"),
+            "partial-success identity lands"
+        );
+    }
+
+    #[test]
+    fn unmatched_sha_is_neither_resolved_nor_forced() {
+        let shas = vec!["cc".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        assert!(!resolved.contains_key("cc"));
     }
 }
