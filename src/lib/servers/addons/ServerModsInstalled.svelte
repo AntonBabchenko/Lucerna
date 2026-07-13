@@ -10,6 +10,13 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import Select from '$lib/ui/Select.svelte';
+  import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
+  import {
+    createInstalledFilters,
+    type SortBy,
+    type ViewFilter,
+  } from '$lib/mods/installed/installed-filters.svelte';
   import ServerInstalledRow from './ServerInstalledRow.svelte';
   import { createServerInstalledData, type ServerRow } from './server-installed-data.svelte';
 
@@ -22,7 +29,6 @@
     'mod',
     () => reloadToken,
   );
-  onDestroy(() => data.dispose());
 
   let actionError = $state<string | null>(null);
   let busyFolder = $state(false);
@@ -46,6 +52,66 @@
     void serverId;
     updateChecks = new Map();
   });
+
+  // Search / enabled-disabled / sort over the installed list, hosted on the
+  // shared client composable. Server rows carry no install timestamp, so the
+  // sort is name-only (sortKey='' → 'recent' would collapse to input order).
+  // The `isUpdatable` predicate lights the Updates chip after a check-updates
+  // scan; issues / incompatible views have no server equivalent (no predicate).
+  const filters = createInstalledFilters(
+    () => data.rows,
+    (r) => ({
+      id: r.sha1,
+      name: r.card.summary?.name ?? r.card.installed.name,
+      enabled: r.card.installed.enabled,
+      sortKey: '',
+      source: r.card.installed.source,
+    }),
+    { isUpdatable: (id) => updateChecks.get(id)?.kind === 'update_available' },
+  );
+  onDestroy(() => {
+    data.dispose();
+    filters.dispose();
+  });
+
+  const sortOptions = $derived([
+    { value: 'name-asc', label: $t('mods.installed.sortNameAsc') },
+    { value: 'name-desc', label: $t('mods.installed.sortNameDesc') },
+  ]);
+
+  // All / Enabled / Disabled are always present; Updates appears only once a
+  // check-updates scan has flagged at least one pending update.
+  const filterOptions = $derived([
+    {
+      value: 'all',
+      label: $t('mods.installed.filterAllLabel'),
+      tone: 'neutral' as const,
+      count: filters.counts.total,
+    },
+    {
+      value: 'enabled',
+      label: $t('mods.installed.filterEnabledLabel'),
+      tone: 'success' as const,
+      count: filters.counts.enabled,
+    },
+    {
+      value: 'disabled',
+      label: $t('mods.installed.filterDisabledLabel'),
+      tone: 'muted' as const,
+      count: filters.counts.disabled,
+    },
+    ...(filters.counts.updates > 0
+      ? [
+          {
+            value: 'updates',
+            label: $t('mods.installed.filterUpdatesLabel'),
+            tone: 'warning' as const,
+            icon: 'arrowUp' as const,
+            count: filters.counts.updates,
+          },
+        ]
+      : []),
+  ]);
 
   // The server's own metadata drives mod applicability. Mods only attach to a
   // mod loader; a vanilla server gets datapacks only. Plugin cores (paper/purpur)
@@ -221,31 +287,63 @@
 
     {#if data.rows.length === 0 && !data.error}
       <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
-    {:else}
-      <div class="flex flex-col gap-2">
-        {#each data.rows as row (row.sha1)}
-          <ServerInstalledRow
-            card={row.card}
-            reason={row.reason}
-            canToggle={canManageMods}
-            checking={checkingUpdates}
-            updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}
-            onUpdate={() => void updateOne(row)}
-            onToggle={() => void toggle(row)}
-            onUninstall={() => {
-              // ModCard's trash button can't be gated per-row (no prop for it),
-              // so refuse here while running instead of opening a dialog whose
-              // confirm the backend would only reject.
-              if (isRunning) {
-                actionError = $t('servers.mods.stopToManage');
-                return;
-              }
-              actionError = null;
-              pendingDelete = row;
-            }}
+    {:else if data.rows.length > 0}
+      <!-- Filter toolbar: search + all/enabled/disabled(+updates) + sort. Gated
+           on data.rows so an empty search still shows the controls. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          placeholder={$t('mods.installed.filterPlaceholder')}
+          aria-label={$t('mods.installed.filterPlaceholder')}
+          class="min-w-40 flex-1 rounded border border-border-emphasis px-3 py-1.5 text-sm"
+          bind:value={filters.filter}
+        />
+        <div class="inline-flex items-center gap-1 text-xs text-secondary">
+          {$t('mods.installed.sortLabel')}
+          <Select
+            class="text-xs"
+            ariaLabel={$t('mods.installed.sortLabel')}
+            value={filters.sortBy}
+            options={sortOptions}
+            onChange={(v) => (filters.sortBy = String(v) as SortBy)}
           />
-        {/each}
+        </div>
       </div>
+      <ToggleChipGroup
+        options={filterOptions}
+        value={filters.viewFilter}
+        onChange={(v) => (filters.viewFilter = v as ViewFilter)}
+        ariaLabel={$t('mods.installed.filterGroupAriaLabel')}
+      />
+
+      {#if filters.filtered.length === 0}
+        <p class="text-sm text-muted">{$t('servers.mods.noResults')}</p>
+      {:else}
+        <div class="flex flex-col gap-2">
+          {#each filters.filtered as row (row.sha1)}
+            <ServerInstalledRow
+              card={row.card}
+              reason={row.reason}
+              canToggle={canManageMods}
+              checking={checkingUpdates}
+              updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}
+              onUpdate={() => void updateOne(row)}
+              onToggle={() => void toggle(row)}
+              onUninstall={() => {
+                // ModCard's trash button can't be gated per-row (no prop for it),
+                // so refuse here while running instead of opening a dialog whose
+                // confirm the backend would only reject.
+                if (isRunning) {
+                  actionError = $t('servers.mods.stopToManage');
+                  return;
+                }
+                actionError = null;
+                pendingDelete = row;
+              }}
+            />
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if pendingDelete}

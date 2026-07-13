@@ -171,4 +171,27 @@ describe('ServerPluginsInstalled', () => {
     expect(screen.queryByRole('button', { name: /open folder/i })).toBeNull();
     expect(screen.queryByText('worldedit.jar')).toBeNull();
   });
+
+  it('search narrows the visible rows by name', async () => {
+    // beforeEach lists worldedit.jar (enabled) + essentials.jar (disabled).
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('worldedit.jar');
+    expect(screen.getByText('essentials.jar')).toBeTruthy();
+
+    await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'world' } });
+
+    await waitFor(() => expect(screen.queryByText('essentials.jar')).toBeNull());
+    expect(screen.getByText('worldedit.jar')).toBeTruthy();
+  });
+
+  it('the Disabled view filter shows only disabled rows', async () => {
+    render(ServerPluginsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('worldedit.jar');
+
+    // The chip group renders role="radio"; its accessible name is "Disabled <n>".
+    await fireEvent.click(screen.getByRole('radio', { name: /disabled/i }));
+
+    await waitFor(() => expect(screen.queryByText('worldedit.jar')).toBeNull());
+    expect(screen.getByText('essentials.jar')).toBeTruthy();
+  });
 });

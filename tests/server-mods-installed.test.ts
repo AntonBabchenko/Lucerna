@@ -320,4 +320,27 @@ describe('ServerModsInstalled', () => {
     expect(screen.queryByTestId('server-mods-quarantine')).toBeNull();
     expect(screen.queryByText('jei.jar')).toBeNull();
   });
+
+  it('search narrows the visible rows by name', async () => {
+    // beforeEach lists jei.jar (enabled) + betterf3.jar (disabled).
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('jei.jar');
+    expect(screen.getByText('betterf3.jar')).toBeTruthy();
+
+    await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'jei' } });
+
+    await waitFor(() => expect(screen.queryByText('betterf3.jar')).toBeNull());
+    expect(screen.getByText('jei.jar')).toBeTruthy();
+  });
+
+  it('the Disabled view filter shows only disabled rows', async () => {
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('jei.jar');
+
+    // The chip group renders role="radio"; its accessible name is "Disabled <n>".
+    await fireEvent.click(screen.getByRole('radio', { name: /disabled/i }));
+
+    await waitFor(() => expect(screen.queryByText('jei.jar')).toBeNull());
+    expect(screen.getByText('betterf3.jar')).toBeTruthy();
+  });
 });
