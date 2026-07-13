@@ -456,7 +456,7 @@
     const tagged = tagWithSeverity(lines);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level, index: l.index }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   });
 
@@ -601,7 +601,7 @@
     const locs: MatchLocation[] = [];
     if (isStructured && crashSections) {
       for (let si = 0; si < crashSections.length; si++) {
-        const units = sectionRenderUnits(crashSections[si].body);
+        const units = sectionRenderUnits(crashSections[si].body, crashSections[si].startLine);
         for (let ui = 0; ui < units.length; ui++) {
           const unit = units[ui];
           const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
@@ -735,12 +735,12 @@
     return false;
   }
 
-  function sectionRenderUnits(body: string): RenderUnit[] {
+  function sectionRenderUnits(body: string, startLine: number): RenderUnit[] {
     const lines = body.split('\n');
-    const tagged = tagWithSeverity(lines);
+    const tagged = tagWithSeverity(lines, startLine);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level, index: l.index }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   }
 
@@ -1127,7 +1127,7 @@
                 {#each crashSections as section, si}
                   {@const defaultOpen = isSectionDefaultOpen(section)}
                   {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
-                  {@const units = sectionRenderUnits(section.body)}
+                  {@const units = sectionRenderUnits(section.body, section.startLine)}
                   <div class="border rounded overflow-hidden">
                     <button
                       type="button"

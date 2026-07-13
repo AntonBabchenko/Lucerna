@@ -11,10 +11,13 @@ export type Severity = 'info' | 'warn' | 'error' | 'debug' | 'trace' | 'fatal' |
 export interface TaggedLine {
   text: string;
   level: Severity;
+  /** 0-based index of this line in the ORIGINAL text (pre-fold, pre-filter).
+   *  Inline hint annotations from the backend are keyed on it. */
+  index: number;
 }
 
 export type RenderUnit =
-  | { kind: 'line'; text: string; level: Severity }
+  | { kind: 'line'; text: string; level: Severity; index: number }
   | {
       kind: 'fold';
       level: Severity;
@@ -25,6 +28,8 @@ export type RenderUnit =
 export interface CrashSection {
   title: string;
   body: string;
+  /** 0-based line index (in the full report) of the section body's first line. */
+  startLine: number;
 }
 
 const LEVEL_RE = /\[[^/\]]+\/(INFO|WARN|ERROR|DEBUG|TRACE|FATAL)\]/;
@@ -35,12 +40,12 @@ function parseLevel(line: string): Severity | null {
   return m[1].toLowerCase() as Severity;
 }
 
-export function tagWithSeverity(lines: string[]): TaggedLine[] {
+export function tagWithSeverity(lines: string[], startIndex = 0): TaggedLine[] {
   let current: Severity = 'other';
-  return lines.map((text) => {
+  return lines.map((text, i) => {
     const parsed = parseLevel(text);
     if (parsed) current = parsed;
-    return { text, level: current };
+    return { text, level: current, index: startIndex + i };
   });
 }
 
@@ -66,12 +71,12 @@ export function groupStackFolds(lines: TaggedLine[]): RenderUnit[] {
         });
       } else {
         for (const f of frames) {
-          out.push({ kind: 'line', text: f.text, level: f.level });
+          out.push({ kind: 'line', text: f.text, level: f.level, index: f.index });
         }
       }
       continue;
     }
-    out.push({ kind: 'line', text: lines[i].text, level: lines[i].level });
+    out.push({ kind: 'line', text: lines[i].text, level: lines[i].level, index: lines[i].index });
     i += 1;
   }
   return out;
@@ -86,16 +91,22 @@ export function maybeParseCrashReport(body: string): CrashSection[] | null {
   const sections: CrashSection[] = [];
   let currentTitle = 'Head';
   let currentLines: string[] = [];
-  for (const line of lines) {
-    const m = SECTION_MARKER_RE.exec(line);
+  let currentStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = SECTION_MARKER_RE.exec(lines[i]);
     if (m) {
-      sections.push({ title: currentTitle, body: currentLines.join('\n') });
+      sections.push({
+        title: currentTitle,
+        body: currentLines.join('\n'),
+        startLine: currentStart,
+      });
       currentTitle = m[1].trim();
       currentLines = [];
+      currentStart = i + 1;
     } else {
-      currentLines.push(line);
+      currentLines.push(lines[i]);
     }
   }
-  sections.push({ title: currentTitle, body: currentLines.join('\n') });
+  sections.push({ title: currentTitle, body: currentLines.join('\n'), startLine: currentStart });
   return sections;
 }
