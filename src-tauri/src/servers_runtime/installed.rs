@@ -89,6 +89,155 @@ pub fn sha1_of(path: &Path) -> Result<String> {
     Ok(hex::encode(Sha1::digest(bytes)))
 }
 
+fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
+    let mut on_disk: Vec<(String, String, bool)> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(jar_dir) else {
+        return Ok(on_disk);
+    };
+    for entry in rd.flatten() {
+        match entry.metadata() {
+            Ok(m) if m.is_file() => {}
+            _ => continue,
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let (enabled, base_name) = if let Some(stripped) = name.strip_suffix(".disabled") {
+            if !stripped.ends_with(".jar") {
+                continue;
+            }
+            (false, stripped.to_string())
+        } else if name.ends_with(".jar") {
+            (true, name.clone())
+        } else {
+            continue;
+        };
+        let bytes = std::fs::read(entry.path())
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
+        on_disk.push((base_name, hex::encode(Sha1::digest(&bytes)), enabled));
+    }
+    Ok(on_disk)
+}
+
+pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
+    let on_disk = scan_dir(jar_dir)?;
+    let mut records = load(jar_dir);
+    let mut changed = false;
+
+    for r in records.iter_mut() {
+        if let Some((disk_name, _, _)) = on_disk
+            .iter()
+            .find(|(_, sha, _)| sha.eq_ignore_ascii_case(&r.sha1))
+        {
+            if r.filename != *disk_name {
+                r.filename = disk_name.clone();
+                changed = true;
+            }
+        }
+    }
+
+    let disk_shas: HashSet<String> = on_disk
+        .iter()
+        .map(|(_, s, _)| s.to_ascii_lowercase())
+        .collect();
+    let before = records.len();
+    records.retain(|r| disk_shas.contains(&r.sha1.to_ascii_lowercase()));
+    if records.len() != before {
+        changed = true;
+    }
+
+    let known: HashSet<String> = records
+        .iter()
+        .map(|r| r.sha1.to_ascii_lowercase())
+        .collect();
+    for (filename, sha, _enabled) in on_disk.iter() {
+        if !known.contains(&sha.to_ascii_lowercase()) {
+            records.push(ServerInstalledRecord {
+                filename: filename.clone(),
+                sha1: sha.clone(),
+                source: None,
+                project_id: None,
+                version_id: None,
+                name: None,
+                version_number: None,
+                enrich_attempted: false,
+            });
+            changed = true;
+        }
+    }
+
+    if changed {
+        save(jar_dir, &records)?;
+    }
+
+    let by_sha: HashMap<String, ServerInstalledRecord> = records
+        .into_iter()
+        .map(|r| (r.sha1.to_ascii_lowercase(), r))
+        .collect();
+    let mut entries: Vec<ServerInstalledEntry> = on_disk
+        .into_iter()
+        .filter_map(|(_, sha, enabled)| {
+            by_sha
+                .get(&sha.to_ascii_lowercase())
+                .cloned()
+                .map(|record| ServerInstalledEntry { record, enabled })
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        a.record
+            .filename
+            .to_ascii_lowercase()
+            .cmp(&b.record.filename.to_ascii_lowercase())
+    });
+    Ok(entries)
+}
+
+pub fn upsert(jar_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
+    let mut records = load(jar_dir);
+    records.retain(|r| !r.sha1.eq_ignore_ascii_case(&record.sha1));
+    records.push(record);
+    save(jar_dir, &records)
+}
+
+pub fn remove(jar_dir: &Path, sha1: &str) -> Result<()> {
+    let mut records = load(jar_dir);
+    let before = records.len();
+    records.retain(|r| !r.sha1.eq_ignore_ascii_case(sha1));
+    if records.len() != before {
+        save(jar_dir, &records)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedServerIdentity {
+    pub source: ModSource,
+    pub project_id: String,
+    pub version_id: Option<String>,
+    pub name: Option<String>,
+    pub version_number: Option<String>,
+}
+
+pub fn apply_enrichment(
+    jar_dir: &Path,
+    resolved: &HashMap<String, ResolvedServerIdentity>,
+    attempted: &HashSet<String>,
+) -> Result<()> {
+    let mut records = load(jar_dir);
+    for r in records.iter_mut() {
+        let key = r.sha1.to_ascii_lowercase();
+        if let Some(id) = resolved.get(&key) {
+            r.source = Some(id.source);
+            r.project_id = Some(id.project_id.clone());
+            r.version_id = id.version_id.clone();
+            r.name = id.name.clone();
+            r.version_number = id.version_number.clone();
+        }
+        if attempted.contains(&key) {
+            r.enrich_attempted = true;
+        }
+    }
+    save(jar_dir, &records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +269,93 @@ mod tests {
         let records = vec![rec("a.jar", "aa"), rec("b.jar", "bb")];
         save(dir.path(), &records).unwrap();
         assert_eq!(load(dir.path()), records);
+    }
+
+    fn write_jar(dir: &Path, name: &str, bytes: &[u8]) -> String {
+        std::fs::write(dir.join(name), bytes).unwrap();
+        hex::encode(Sha1::digest(bytes))
+    }
+
+    #[test]
+    fn reconcile_synthesizes_untracked_and_derives_enabled_from_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let sha_on = write_jar(dir.path(), "on.jar", b"AAAA");
+        let sha_off = write_jar(dir.path(), "off.jar.disabled", b"BBBB");
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        let on = entries.iter().find(|e| e.record.sha1 == sha_on).unwrap();
+        let off = entries.iter().find(|e| e.record.sha1 == sha_off).unwrap();
+        assert!(on.enabled && on.record.filename == "on.jar" && on.record.source.is_none());
+        assert!(!off.enabled && off.record.filename == "off.jar");
+    }
+
+    #[test]
+    fn reconcile_keeps_identity_across_disable_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let sha = write_jar(dir.path(), "m.jar", b"CCCC");
+        upsert(
+            dir.path(),
+            ServerInstalledRecord {
+                filename: "m.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("p".into()),
+                version_id: Some("v".into()),
+                name: None,
+                version_number: None,
+                enrich_attempted: false,
+            },
+        )
+        .unwrap();
+        std::fs::rename(dir.path().join("m.jar"), dir.path().join("m.jar.disabled")).unwrap();
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        let e = entries.iter().find(|e| e.record.sha1 == sha).unwrap();
+        assert!(!e.enabled);
+        assert_eq!(e.record.project_id.as_deref(), Some("p"));
+        assert_eq!(e.record.filename, "m.jar");
+    }
+
+    #[test]
+    fn reconcile_drops_stale_records() {
+        let dir = tempfile::tempdir().unwrap();
+        save(dir.path(), &[rec("gone.jar", "deadbeef")]).unwrap();
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        assert!(entries.is_empty());
+        assert!(load(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn remove_deletes_by_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        save(dir.path(), &[rec("a.jar", "aa"), rec("b.jar", "bb")]).unwrap();
+        remove(dir.path(), "AA").unwrap();
+        let shas: Vec<_> = load(dir.path()).into_iter().map(|r| r.sha1).collect();
+        assert_eq!(shas, vec!["bb".to_string()]);
+    }
+
+    #[test]
+    fn apply_enrichment_fills_identity_and_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let sha = write_jar(dir.path(), "u.jar", b"DDDD");
+        reconcile_on_list(dir.path()).unwrap();
+        let mut resolved = std::collections::HashMap::new();
+        resolved.insert(
+            sha.clone(),
+            ResolvedServerIdentity {
+                source: ModSource::Modrinth,
+                project_id: "pid".into(),
+                version_id: Some("vid".into()),
+                name: Some("Cool".into()),
+                version_number: Some("2.0".into()),
+            },
+        );
+        let attempted: std::collections::HashSet<String> = [sha.clone()].into_iter().collect();
+        apply_enrichment(dir.path(), &resolved, &attempted).unwrap();
+        let r = load(dir.path())
+            .into_iter()
+            .find(|r| r.sha1 == sha)
+            .unwrap();
+        assert_eq!(r.source, Some(ModSource::Modrinth));
+        assert_eq!(r.project_id.as_deref(), Some("pid"));
+        assert!(r.enrich_attempted);
     }
 }
