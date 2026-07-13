@@ -160,7 +160,7 @@
       id={listboxId}
       bind:this={listEl}
       role="listbox"
-      class="absolute z-30 mt-1 w-32 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
+      class="absolute z-[var(--z-popover)] mt-1 w-32 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
     >
       <button
         type="button"
