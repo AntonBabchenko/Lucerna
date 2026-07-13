@@ -1245,6 +1245,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverInstallMod: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_mod", { id, source, projectId, versionId })),
 	/**
+	 *  Check every identity-bearing server mod for a newer version. Mirrors
+	 *  `mods_check_updates`: resolve mc_version + loader from `server.json`, query
+	 *  each mod's platform, classify with the shared `classify_update`. Per-mod
+	 *  failure → that row's `CheckFailed`.
+	 */
+	serverCheckModUpdates: (id: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_mod_updates", { id })),
+	/**
+	 *  Apply one server-mod update: install `target` (+ required deps) via the
+	 *  shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
+	 *  set-aside state, and swap the registry rows. Server must be stopped.
+	 */
+	serverUpdateOne: (id: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_update_one", { id, oldSha1, target })),
+	/**
 	 *  Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
 	 *  Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
 	 *  filenames / path escapes. Server must be stopped.

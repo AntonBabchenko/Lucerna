@@ -1,7 +1,8 @@
 //! Tauri-команды фичи «Свой сервер» (План 1: создание/список/удаление).
 
 use crate::error::{Error, Result};
-use crate::mods::platform::ServerSideSupport;
+use crate::mods::platform::{InstalledMod, ModVersion, ServerSideSupport};
+use crate::mods::updates::{classify_update, ModUpdateCheck, ModUpdateState};
 use crate::servers_runtime::schema::{ServerCore, ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{backup, create, import, store};
 use std::collections::HashMap;
@@ -2424,6 +2425,202 @@ pub async fn server_install_mod(
     Ok(report)
 }
 
+/// Adapt a registry record (identity-bearing) into the `InstalledMod` shape
+/// `classify_update` consumes. `classify_update` reads only `version_id`, but
+/// map faithfully so it stays correct if the classifier widens.
+fn record_as_installed(
+    r: &crate::servers_runtime::installed::ServerInstalledRecord,
+    enabled: bool,
+) -> InstalledMod {
+    InstalledMod {
+        filename: r.filename.clone(),
+        sha1: r.sha1.clone(),
+        source: r.source,
+        project_id: r.project_id.clone(),
+        version_id: r.version_id.clone(),
+        name: r.name.clone().unwrap_or_else(|| r.filename.clone()),
+        version_number: r.version_number.clone(),
+        installed_at: String::new(),
+        enabled,
+        enrich_attempted: r.enrich_attempted,
+        requires: Vec::new(),
+    }
+}
+
+/// Check every identity-bearing server mod for a newer version. Mirrors
+/// `mods_check_updates`: resolve mc_version + loader from `server.json`, query
+/// each mod's platform, classify with the shared `classify_update`. Per-mod
+/// failure → that row's `CheckFailed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<ModUpdateCheck>> {
+    use futures_util::stream::{self, StreamExt};
+
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?; // rejects vanilla/plugin cores pre-network
+    let mc_version = file.mc_version;
+
+    // Only records with full platform identity are checkable.
+    let eligible: Vec<(
+        usize,
+        InstalledMod,
+        crate::mods::platform::ModSource,
+        String,
+    )> = crate::servers_runtime::installed::reconcile_on_list(&p.mods)?
+        .into_iter()
+        .filter_map(|e| {
+            match (
+                e.record.source,
+                e.record.project_id.clone(),
+                e.record.version_id.clone(),
+            ) {
+                (Some(source), Some(pid), Some(_vid)) => {
+                    Some((record_as_installed(&e.record, e.enabled), source, pid))
+                }
+                _ => None,
+            }
+        })
+        .enumerate()
+        .map(|(i, (m, s, pid))| (i, m, s, pid))
+        .collect();
+
+    const CONCURRENCY: usize = 6;
+    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
+        .map(|(i, m, source, project_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let platform = super::platform_for(source);
+                let state = match platform
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (
+                    i,
+                    ModUpdateCheck {
+                        sha1: m.sha1.clone(),
+                        name: m.name.clone(),
+                        source,
+                        project_id,
+                        current_version_id: m.version_id.clone().unwrap_or_default(),
+                        current_version_number: m.version_number.clone(),
+                        state,
+                    },
+                )
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+    results.sort_by_key(|(i, _)| *i);
+    Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
+/// Idempotent, path-guarded removal of one file under a server's `mods/`.
+fn remove_server_mod_file(mods_dir: &std::path::Path, on_disk_name: &str) -> Result<()> {
+    if !crate::servers_runtime::runtime::is_safe_mod_name(on_disk_name) {
+        return Err(Error::io("<mod>", "invalid filename"));
+    }
+    let path = mods_dir.join(on_disk_name);
+    if !path.starts_with(mods_dir) {
+        return Err(Error::io("<mod>", "path escapes mods dir"));
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// Apply one server-mod update: install `target` (+ required deps) via the
+/// shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
+/// set-aside state, and swap the registry rows. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_update_one(
+    app: AppHandle,
+    id: String,
+    old_sha1: String,
+    target: ModVersion,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?;
+
+    let old = crate::servers_runtime::installed::reconcile_on_list(&p.mods)?
+        .into_iter()
+        .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
+        .ok_or_else(|| Error::io("<mod>", "no such installed server mod"))?;
+
+    let new_name = target.primary_file.filename.clone();
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&new_name) {
+        return Err(Error::io("<mod>", "unsafe target filename"));
+    }
+
+    let report = crate::commands::install_version_into_dir(
+        &base,
+        &p.mods,
+        target.source,
+        &target.project_id,
+        &target.version_id,
+        &file.mc_version,
+        loader,
+    )
+    .await?;
+
+    // Old on-disk name, honoring the disabled suffix.
+    let old_on_disk = if old.enabled {
+        old.record.filename.clone()
+    } else {
+        format!("{}.disabled", old.record.filename)
+    };
+    // Delete the old jar only if it differs from the one we just wrote.
+    if old_on_disk != new_name {
+        remove_server_mod_file(&p.mods, &old_on_disk)?;
+    }
+    // Preserve set-aside: install lands enabled, so re-disable if the old was.
+    if !old.enabled {
+        let src = p.mods.join(&new_name);
+        let dst = p.mods.join(format!("{new_name}.disabled"));
+        if src.starts_with(&p.mods) && dst.starts_with(&p.mods) {
+            if let Err(e) = std::fs::rename(&src, &dst) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(Error::io(src.display().to_string(), e));
+                }
+            }
+        }
+    }
+
+    // Swap registry rows.
+    crate::servers_runtime::installed::remove(&p.mods, &old.record.sha1)?;
+    if let Some(new_sha1) = target.primary_file.sha1.as_deref() {
+        crate::servers_runtime::installed::upsert(
+            &p.mods,
+            crate::servers_runtime::installed::ServerInstalledRecord {
+                filename: new_name,
+                sha1: new_sha1.to_ascii_lowercase(),
+                source: Some(target.source),
+                project_id: Some(target.project_id.clone()),
+                version_id: Some(target.version_id.clone()),
+                name: Some(target.name.clone()),
+                version_number: Some(target.version_number.clone()),
+                enrich_attempted: true,
+            },
+        )?;
+    }
+    Ok(report)
+}
+
 /// Install a chosen plugin version + its required dependency closure into the
 /// server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
 /// resolves the server's mc_version + core from `server.json`, gates on the core
@@ -3029,6 +3226,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("no-such-crash-reports");
         assert_eq!(newest_crash_text(&missing, 1024, None), None);
+    }
+
+    #[test]
+    fn record_as_installed_maps_version_id_and_name_fallback() {
+        let r = crate::servers_runtime::installed::ServerInstalledRecord {
+            filename: "m.jar".into(),
+            sha1: "ab".into(),
+            source: Some(crate::mods::platform::ModSource::Modrinth),
+            project_id: Some("p".into()),
+            version_id: Some("v".into()),
+            name: None,
+            version_number: None,
+            enrich_attempted: true,
+        };
+        let im = super::record_as_installed(&r, true);
+        assert_eq!(im.version_id.as_deref(), Some("v"));
+        assert_eq!(im.name, "m.jar"); // filename fallback when name is None
+        assert!(im.enabled);
     }
 }
 

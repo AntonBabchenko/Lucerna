@@ -287,6 +287,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (S2: mod content management — browse-install, enable,
             // local install, datapacks):
             commands::server_install_mod,
+            commands::server_check_mod_updates,
+            commands::server_update_one,
             commands::server_enable_mod,
             commands::server_disable_mod,
             commands::server_install_local,
