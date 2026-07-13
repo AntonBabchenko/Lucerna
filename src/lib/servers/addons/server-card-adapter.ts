@@ -1,23 +1,19 @@
-import type { InstalledMod, ModSource, ModSummary } from '$lib/ipc/bindings';
+import type {
+  InstalledMod,
+  ModSummary,
+  ServerModEntryEnriched,
+  ServerPluginEntryEnriched,
+} from '$lib/ipc/bindings';
 
 // The {summary, installed} pair ModCard consumes — identical to the client's
 // Row, reused so ModCard needs zero changes.
 export type ServerCardRow = { summary: ModSummary | null; installed: InstalledMod };
 
-// Structural shape of ServerModEntryEnriched / ServerPluginEntryEnriched.
-// `on_disk_filename` is the CURRENT on-disk name (with `.disabled` when disabled)
-// — used by mutation commands; `filename` is the base display name.
-export type EnrichedEntry = {
-  filename: string;
-  on_disk_filename: string;
-  disabled: boolean;
-  sha1: string;
-  source: ModSource | null;
-  project_id: string | null;
-  version_id: string | null;
-  name: string | null;
-  version_number: string | null;
-};
+// The real binding union — mods carry a quarantine `reason`, plugins do not.
+// `enrichedToCard` only reads fields common to both. `on_disk_filename` is the
+// CURRENT on-disk name (with `.disabled` when disabled) — used by mutation
+// commands; `filename` is the base display name.
+export type EnrichedEntry = ServerModEntryEnriched | ServerPluginEntryEnriched;
 
 /** Project an enriched server entry onto ModCard's {summary, installed} model.
  *  `summaryByKey` is keyed `${source}:${project_id}`. Rows without identity get

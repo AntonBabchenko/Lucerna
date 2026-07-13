@@ -45,7 +45,7 @@ export function createServerInstalledData(
         ? await commands.serverListModsEnriched(id)
         : await commands.serverListPluginsEnriched(id);
     if (res.status === 'error') throw new Error(formatError(res.error));
-    return res.data as unknown as EnrichedEntry[];
+    return res.data;
   }
 
   async function refresh(): Promise<void> {
@@ -75,7 +75,7 @@ export function createServerInstalledData(
 
       rows = list.map((e) => ({
         card: enrichedToCard(e, byKey),
-        reason: 'reason' in e ? ((e as { reason: string | null }).reason ?? null) : null,
+        reason: 'reason' in e ? (e.reason ?? null) : null,
         onDiskFilename: e.on_disk_filename,
         sha1: e.sha1,
       }));
@@ -86,13 +86,21 @@ export function createServerInstalledData(
     }
   }
 
+  // Blank the previous server/kind's rows immediately on switch so stale content
+  // never lingers while the new list loads, then trigger the load. Wrapped in
+  // $effect.root so the factory can be unit-tested (no parent reactive context)
+  // and torn down via dispose() on unmount.
   let stop: (() => void) | null = null;
   try {
     stop = $effect.root(() => {
       $effect(() => {
-        void getServerId();
         void getReloadToken();
-        void refresh();
+        const id = getServerId();
+        if (id) {
+          rows = [];
+          error = null;
+          void refresh();
+        }
       });
     });
   } catch {

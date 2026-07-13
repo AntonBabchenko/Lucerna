@@ -38,6 +38,7 @@
 </script>
 
 <div>
+  <!-- no server-mod detail view yet: title is not a link (onOpenDetail is a no-op) -->
   <ModCard
     layout="list"
     summary={card.summary}
