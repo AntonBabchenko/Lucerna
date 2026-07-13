@@ -18,10 +18,6 @@
   let top = $state(0);
   let left = $state(0);
 
-  // Listener lifecycle keys on open/closed only — retargeting between
-  // annotated rows must not tear down and re-add the window listeners.
-  const open = $derived(hover.active !== null);
-
   // Measure + position after render whenever the active hint changes.
   $effect(() => {
     const hint = hover.active;
@@ -36,21 +32,25 @@
     left = pos.left;
   });
 
-  // Fixed-popover family behavior: close on any captured scroll/resize
-  // (the log body scrolls under the card otherwise) and on Escape.
+  // Lifetime listeners (not gated on open): a scroll during the open-delay
+  // window must cancel the pending open, not just close an open card —
+  // hover.close() clears timers either way. Handlers read state
+  // imperatively; the effect body has no reactive reads, so it runs once.
   $effect(() => {
-    if (!open) return;
-    const close = () => hover.close();
+    const onScroll = () => hover.close();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') hover.close();
+      if (e.key !== 'Escape' || !hover.active) return;
+      // Swallow Escape so it closes only the card, not the hosting Modal.
+      e.stopPropagation();
+      hover.close();
     };
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    window.addEventListener('keydown', onKey, true);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('keydown', onKey, true);
     };
   });
 </script>

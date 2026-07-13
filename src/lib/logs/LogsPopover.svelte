@@ -37,6 +37,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { DIAGNOSIS_COPY } from '$lib/logs/diagnosis-copy';
+  import LogHintBadge from '$lib/logs/LogHintBadge.svelte';
   import LogHintCard from '$lib/logs/LogHintCard.svelte';
   import {
     annotationMap,
@@ -138,6 +139,10 @@
   let annotateResult = $state<AnnotateResult | null>(null);
   const annotations = $derived(annotationMap(annotateResult));
   const hintFallbacks = $derived(fallbackCopyMap(annotateResult));
+  // When the current file has any annotations, EVERY row (line + fold, both
+  // views) reserves a uniform left gutter and the badge sits absolutely inside
+  // it — annotated lines' text must not shift out of column alignment.
+  const hintGutter = $derived(annotations.size > 0);
   const hints = createLogHintHover();
   onDestroy(() => hints.dispose());
 
@@ -391,10 +396,15 @@
     annotateResult = null;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
+    // The user may have switched files while we awaited — a stale resolution
+    // must not clobber the newer selection's state. Re-check after EVERY await
+    // that precedes a state commit.
+    if (selectedPath !== path) return;
     if (result.status === 'ok') {
       selectedContent = result.data;
       if (instanceId) {
         const d = await commands.diagnoseLog(instanceId, path);
+        if (selectedPath !== path) return;
         if (d.status === 'ok') {
           diagnosis = d.data;
         } else {
@@ -407,6 +417,7 @@
       // was just loaded. Best-effort: a failure here degrades to no badges,
       // never blocks the log body from displaying (already set above).
       const a = await commands.annotateLogFile(path, capBytes, 'client');
+      if (selectedPath !== path) return;
       if (a.status === 'ok') {
         annotateResult = a.data;
       } else {
@@ -759,20 +770,24 @@
   // Severity CSS classes
   // ---------------------------------------------------------------------------
 
-  function severityLineClass(level: Severity): string {
+  // `gutter` (per-file, not per-line) swaps the base padding for a wider
+  // `relative pl-6` gutter that the absolutely-positioned hint badge sits in —
+  // uniform across ALL rows so annotated lines stay column-aligned.
+  function severityLineClass(level: Severity, gutter: boolean): string {
+    const pad = gutter ? 'relative pl-6' : 'pl-2';
     switch (level) {
       case 'error':
       case 'fatal':
-        return 'border-l-2 pl-2 border-danger bg-danger-bg';
+        return `border-l-2 ${pad} border-danger bg-danger-bg`;
       case 'warn':
-        return 'border-l-2 pl-2 border-warning-text bg-warning-bg/30';
+        return `border-l-2 ${pad} border-warning-text bg-warning-bg/30`;
       case 'debug':
       case 'trace':
-        return 'border-l-2 pl-2 border-border-subtle text-muted';
+        return `border-l-2 ${pad} border-border-subtle text-muted`;
       case 'info':
-        return 'border-l-2 pl-2 border-border-subtle';
+        return `border-l-2 ${pad} border-border-subtle`;
       default:
-        return 'border-l-2 pl-2 border-transparent';
+        return `border-l-2 ${pad} border-transparent`;
     }
   }
 
@@ -1206,7 +1221,7 @@
                                  path is the badge button below (focus/blur), same split
                                  LogHintCard.svelte uses. -->
                             <div
-                              class={severityLineClass(unit.level)}
+                              class={severityLineClass(unit.level, hintGutter)}
                               class:min-w-max={!wrap}
                               class:log-row-hint={hintId}
                               onpointerenter={hintId
@@ -1214,20 +1229,13 @@
                                 : undefined}
                               onpointerleave={hintId ? () => hints.rowLeave() : undefined}
                             >
-                              {#if hintId}<button
-                                  type="button"
-                                  class="log-hint-badge text-accent"
-                                  aria-label={$t('logs.hints.badgeAriaLabel')}
-                                  onfocus={(e) => {
-                                    if (
-                                      (e.currentTarget as HTMLElement).matches(':focus-visible')
-                                    ) {
-                                      activateHint(hintId, e.currentTarget as HTMLElement, true);
-                                    }
-                                  }}
-                                  onblur={() => hints.rowLeave()}
-                                  ><Icon name="info" size={12} /></button
-                                >{/if}<span
+                              {#if hintId}
+                                <LogHintBadge
+                                  onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+                                  onLeave={() => hints.rowLeave()}
+                                />
+                              {/if}
+                              <span
                                 class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
                                 ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
                                   unit.text,
@@ -1239,7 +1247,10 @@
                           {:else}
                             {@const foldKey = unitKey}
                             {@const isExpanded = foldExpanded.get(foldKey) ?? false}
-                            <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                            <div
+                              class={severityLineClass(unit.level, hintGutter)}
+                              class:min-w-max={!wrap}
+                            >
                               <button
                                 type="button"
                                 class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
@@ -1289,7 +1300,7 @@
                          only arm/disarm the hover card; the keyboard-accessible path is the
                          badge button below (focus/blur), same split LogHintCard.svelte uses. -->
                     <div
-                      class="log-row {severityLineClass(unit.level)}"
+                      class="log-row {severityLineClass(unit.level, hintGutter)}"
                       class:min-w-max={!wrap}
                       class:log-row-hint={hintId}
                       onpointerenter={hintId
@@ -1297,19 +1308,15 @@
                         : undefined}
                       onpointerleave={hintId ? () => hints.rowLeave() : undefined}
                     >
+                      {#if hintId}
+                        <LogHintBadge
+                          onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+                          onLeave={() => hints.rowLeave()}
+                        />
+                      {/if}
                       <span class="text-placeholder select-none"
                         >{(ui + 1).toString().padStart(6, ' ')}:
-                      </span>{#if hintId}<button
-                          type="button"
-                          class="log-hint-badge text-accent"
-                          aria-label={$t('logs.hints.badgeAriaLabel')}
-                          onfocus={(e) => {
-                            if ((e.currentTarget as HTMLElement).matches(':focus-visible')) {
-                              activateHint(hintId, e.currentTarget as HTMLElement, true);
-                            }
-                          }}
-                          onblur={() => hints.rowLeave()}><Icon name="info" size={12} /></button
-                        >{/if}<span
+                      </span><span
                         class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
                         ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
                           unit.text,
@@ -1320,7 +1327,10 @@
                     </div>
                   {:else}
                     {@const isExpanded = foldExpanded.get(ui) ?? false}
-                    <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
+                    <div
+                      class="log-row {severityLineClass(unit.level, hintGutter)}"
+                      class:min-w-max={!wrap}
+                    >
                       <button
                         type="button"
                         class="btn-tertiary text-left w-full"
@@ -1383,20 +1393,10 @@
 
   /* Subtle left-edge tint marking a line with an inline hint annotation.
      Uses the same `--accent` RGB triplet the rest of the design system reads
-     through Tailwind's `accent`/`accent-soft` utilities (see app.css). */
+     through Tailwind's `accent`/`accent-soft` utilities (see app.css).
+     The badge's own styles live in LogHintBadge.svelte (scoped styles here
+     could not reach a child component's internals). */
   .log-row-hint {
     background-image: linear-gradient(to right, rgb(var(--accent) / 12%), transparent 60%);
-  }
-
-  .log-hint-badge {
-    display: inline-flex;
-    vertical-align: baseline;
-    margin-right: 0.25rem;
-    opacity: 0.85;
-  }
-
-  .log-hint-badge:hover,
-  .log-hint-badge:focus-visible {
-    opacity: 1;
   }
 </style>
