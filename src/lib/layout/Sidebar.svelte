@@ -251,111 +251,122 @@
 
     <ModeSwitcher {clientNav} />
 
-    <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
-      <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
-      {#if accounts.length === 0}
-        <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
-      {:else}
-        {#snippet accountLeading(opt: SelectOption)}
-          {@const acc = accounts.find((a) => a.id === opt.value)}
-          {#if acc}
-            <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
-            {#if acc.kind === 'offline' && validateOfflineName(acc.name) !== null}
-              <span
-                class="text-warning-text flex-shrink-0"
-                use:tooltip={{ text: $t('sidebar.offlineNameUnsupported'), describe: false }}
-              >
-                <Icon name="warning" size={14} />
-              </span>
+    <!--
+      Account is a purely client-side concept: which player identity launches
+      the game and owns skins/capes. Hosting a server needs no account, so the
+      account section shares the instance section's client-mode gate below —
+      servers mode shows only ServerSidebarSection. The onboarding tour +
+      account-hint anchor on [data-tour="account-section"], so state.svelte.ts
+      forces client mode before showing them (initOnboarding / showAccountHint).
+    -->
+    {#if serversUi.mode === 'client'}
+      <div
+        class="flex flex-col gap-1 pt-3 border-t border-border-subtle"
+        data-tour="account-section"
+      >
+        <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
+        {#if accounts.length === 0}
+          <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
+        {:else}
+          {#snippet accountLeading(opt: SelectOption)}
+            {@const acc = accounts.find((a) => a.id === opt.value)}
+            {#if acc}
+              <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
+              {#if acc.kind === 'offline' && validateOfflineName(acc.name) !== null}
+                <span
+                  class="text-warning-text flex-shrink-0"
+                  use:tooltip={{ text: $t('sidebar.offlineNameUnsupported'), describe: false }}
+                >
+                  <Icon name="warning" size={14} />
+                </span>
+              {/if}
             {/if}
-          {/if}
-        {/snippet}
-        <!-- Per-row trash inside the open dropdown: always visible, neutral at
+          {/snippet}
+          <!-- Per-row trash inside the open dropdown: always visible, neutral at
            rest, red on hover/focus (btn-icon-danger, §6 delete-icon model).
            Removes that specific account (gated by the confirm dialog in
            +page.svelte). onmousedown is stopped so clicking the trash does not
            also commit/select the row; Delete on the active row routes through
            Select's onDeleteOption. -->
-        {#snippet accountTrailing(opt: SelectOption)}
-          {@const acc = accounts.find((a) => a.id === opt.value)}
-          {#if acc}
-            {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
-            <button
-              type="button"
-              tabindex="-1"
-              class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
-              aria-label={removeLabel}
-              use:tooltip={{ text: removeLabel, describe: false }}
-              onmousedown={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-              }}
-              onclick={() => onRemoveAccount(acc.id)}
-            >
-              <Icon name="trash" size={14} />
-            </button>
-          {/if}
-        {/snippet}
-        <Select
-          class="w-full text-sm"
-          value={activeAccount?.id ?? ''}
-          options={accountOptions}
-          onChange={(v) => onSelectAccount(String(v))}
-          ariaLabel={$t('sidebar.account')}
-          optionLeading={accountLeading}
-          valueLeading={accountLeading}
-          optionTrailing={accountTrailing}
-          onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
-        />
-      {/if}
-      <!--
+          {#snippet accountTrailing(opt: SelectOption)}
+            {@const acc = accounts.find((a) => a.id === opt.value)}
+            {#if acc}
+              {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
+              <button
+                type="button"
+                tabindex="-1"
+                class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
+                aria-label={removeLabel}
+                use:tooltip={{ text: removeLabel, describe: false }}
+                onmousedown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onclick={() => onRemoveAccount(acc.id)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            {/if}
+          {/snippet}
+          <Select
+            class="w-full text-sm"
+            value={activeAccount?.id ?? ''}
+            options={accountOptions}
+            onChange={(v) => onSelectAccount(String(v))}
+            ariaLabel={$t('sidebar.account')}
+            optionLeading={accountLeading}
+            valueLeading={accountLeading}
+            optionTrailing={accountTrailing}
+            onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
+          />
+        {/if}
+        <!--
         Skin & cape cosmetics — a labeled, always-visible entry point for the
         ACTIVE Microsoft account (offline accounts have no server-side cosmetics
         to edit). Sits in the account action cluster so it reads as an
         account-scoped action, next to Add / Sign in.
       -->
-      {#if activeAccount?.kind === 'microsoft'}
-        <button
-          type="button"
-          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-          onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
-        >
-          <Icon name="shirt" size={14} />
-          {$t('cosmetics.title')}
-        </button>
-      {/if}
-      <!--
+        {#if activeAccount?.kind === 'microsoft'}
+          <button
+            type="button"
+            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+            onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
+          >
+            <Icon name="shirt" size={14} />
+            {$t('cosmetics.title')}
+          </button>
+        {/if}
+        <!--
         Force the account-add buttons visible when there are no accounts, even
         if the user hid `account_actions` in Settings — otherwise an
         account-less launcher is a dead end: the empty-state text says "add one
         below" but there is nothing to add with, and there is no way to sign in.
         Once an account exists the hidden preference is honoured again.
       -->
-      {#if isVisible('account_actions') || accounts.length === 0}
-        <ContextMenu
-          items={hideMenuItems('account_actions')}
-          ariaLabel={$t('sidebar.contextMenuAria')}
-        >
-          <button
-            type="button"
-            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-            onclick={() => onAddOffline()}
+        {#if isVisible('account_actions') || accounts.length === 0}
+          <ContextMenu
+            items={hideMenuItems('account_actions')}
+            ariaLabel={$t('sidebar.contextMenuAria')}
           >
-            <Icon name="userPlus" size={14} />
-            {$t('sidebar.addOffline')}
-          </button>
-          <div class="mt-2">
-            <MicrosoftSignInButton
-              bind:signingIn={msSigningIn}
-              onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
-              onError={(err) => onMicrosoftError?.(err)}
-            />
-          </div>
-        </ContextMenu>
-      {/if}
-    </div>
+            <button
+              type="button"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+              onclick={() => onAddOffline()}
+            >
+              <Icon name="userPlus" size={14} />
+              {$t('sidebar.addOffline')}
+            </button>
+            <div class="mt-2">
+              <MicrosoftSignInButton
+                bind:signingIn={msSigningIn}
+                onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+                onError={(err) => onMicrosoftError?.(err)}
+              />
+            </div>
+          </ContextMenu>
+        {/if}
+      </div>
 
-    {#if serversUi.mode === 'client'}
       <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
         <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
           <span>{$t('sidebar.instance')}</span>
@@ -652,7 +663,10 @@
         {/if}
       {/if}
       <div class="flex gap-1">
-        {#if isVisible('logs')}
+        <!-- Logs opens the active INSTANCE's game logs — a client concept. In
+             servers mode the server's own console lives on the Overview tab, so
+             this client Logs button is hidden there (only Settings remains). -->
+        {#if serversUi.mode === 'client' && isVisible('logs')}
           <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button
               type="button"
