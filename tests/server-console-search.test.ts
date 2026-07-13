@@ -7,6 +7,9 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     serverSendCommand: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     serverReadLog: vi.fn().mockResolvedValue({ status: 'ok', data: '' }),
+    annotateLogText: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { annotations: [], patterns: [] } }),
   },
 }));
 
