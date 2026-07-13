@@ -79,6 +79,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::latest_crash,
             commands::diagnose_log,
             commands::diagnose_latest,
+            commands::annotate_log_file,
+            commands::annotate_log_text,
             commands::build_repair_plan,
             commands::execute_repair,
             commands::share_log_to_mclogs,

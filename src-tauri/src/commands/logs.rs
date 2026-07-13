@@ -126,6 +126,64 @@ pub async fn diagnose_log(
     }
 }
 
+/// Cap for `annotate_log_text` input. The live server console holds at
+/// most 500 lines; archives read through `server_read_log` are already
+/// capped upstream. This is a defensive backstop, not a tuning knob.
+const ANNOTATE_TEXT_CAP: usize = 25 * 1024 * 1024;
+
+/// Per-line inline-hint annotations for a log FILE. Reads the file with
+/// the SAME `max_bytes` clamp as `read_log_file` so the line indices
+/// align with the content the viewer displays (both reads tail on
+/// overflow). Path validation mirrors `read_log_file`.
+#[tauri::command]
+#[specta::specta]
+pub fn annotate_log_file(
+    app: tauri::AppHandle,
+    path: String,
+    max_bytes: f64,
+    side: crate::logs::diagnose::annotate::AnnotateSide,
+) -> Result<crate::logs::diagnose::annotate::AnnotateResult, crate::error::Error> {
+    let all = crate::instances::list_instances_with_status(&app)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for inst in &all {
+        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
+        roots.append(&mut r);
+    }
+    let path = std::path::PathBuf::from(&path);
+    crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
+    let cap = if !max_bytes.is_finite() || max_bytes < 0.0 {
+        0
+    } else {
+        max_bytes as u64
+    };
+    let content = crate::logs::read::read_with_cap(&path, cap)?;
+    Ok(crate::logs::diagnose::annotate::annotate_lines(
+        &content, side,
+    ))
+}
+
+/// Per-line inline-hint annotations for TEXT the UI already holds (the
+/// live server console buffer / an archive blob). Input is truncated at
+/// a defensive cap; annotation output is capped inside `annotate_lines`.
+#[tauri::command]
+#[specta::specta]
+pub fn annotate_log_text(
+    text: String,
+    side: crate::logs::diagnose::annotate::AnnotateSide,
+) -> Result<crate::logs::diagnose::annotate::AnnotateResult, crate::error::Error> {
+    let slice = if text.len() > ANNOTATE_TEXT_CAP {
+        // Truncate at a char boundary below the cap.
+        let mut end = ANNOTATE_TEXT_CAP;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        &text[..end]
+    } else {
+        &text[..]
+    };
+    Ok(crate::logs::diagnose::annotate::annotate_lines(slice, side))
+}
+
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
 /// `None` when no safe fix can be constructed (the UI then keeps the
 /// advisory recommendation text). Lazy: called only when the user
