@@ -45,6 +45,8 @@
   // with no backend concurrent-same-mod guard, and the Update icon has no busy
   // state — so a double-click would fire two concurrent updates. Keyed by sha1.
   let updatingShas = $state(new Set<string>());
+  // "Update all" runs the pending updates as one sequential batch (see below).
+  let updatingAll = $state(false);
 
   // A different server's checks must never bleed across a switch (sha1 keys can
   // collide across servers). Reset on serverId change.
@@ -124,6 +126,13 @@
   const isRunning = $derived(server?.running ?? false);
   const canManageMods = $derived(server !== null && isModCapable && !isRunning);
 
+  // How many installed mods have a pending update, derived from the live rows so
+  // a stale check for a since-removed mod never counts. Drives the "Update all"
+  // label + enablement.
+  const updatableCount = $derived(
+    data.rows.filter((row) => updateChecks.get(row.sha1)?.kind === 'update_available').length,
+  );
+
   // Toggle enable/disable — MUST use `on_disk_filename` (a disabled mod lives at
   // `<name>.jar.disabled`), never the base display filename.
   async function toggle(row: ServerRow) {
@@ -179,6 +188,40 @@
       const s = new Set(updatingShas);
       s.delete(row.sha1);
       updatingShas = s;
+    }
+  }
+
+  // Apply every pending update in one sequential batch. Each `serverUpdateOne`
+  // swaps the on-disk jar + registry row, so the applies MUST stay serial —
+  // parallel calls would race the same mods directory — and the snapshot is
+  // taken up front because the checks map goes stale as each swap lands.
+  async function updateAll() {
+    if (!canManageMods) {
+      actionError = $t('servers.mods.stopToManage');
+      return;
+    }
+    const targets = data.rows
+      .map((row) => ({ sha: row.sha1, state: updateChecks.get(row.sha1) }))
+      .filter((x) => x.state?.kind === 'update_available')
+      .map((x) => ({
+        sha: x.sha,
+        target: (x.state as Extract<ModUpdateState, { kind: 'update_available' }>).target,
+      }));
+    if (targets.length === 0) return;
+    actionError = null;
+    updatingAll = true;
+    try {
+      for (const { sha, target } of targets) {
+        const res = await commands.serverUpdateOne(serverId, sha, target);
+        if (res.status === 'error') {
+          actionError = formatError(res.error);
+          break;
+        }
+      }
+      updateChecks = new Map(); // all applied entries are now stale
+      await data.refresh();
+    } finally {
+      updatingAll = false;
     }
   }
 
@@ -257,6 +300,15 @@
         {$t('servers.mods.checkUpdates')}
       </BusyButton>
       <BusyButton
+        class="btn-warning btn-sm"
+        data-testid="server-mods-update-all"
+        busy={updatingAll}
+        disabled={!canManageMods || updatableCount === 0}
+        onclick={() => void updateAll()}
+      >
+        {$t('mods.installed.updateAll', { count: updatableCount })}
+      </BusyButton>
+      <BusyButton
         class="btn-secondary btn-sm"
         data-testid="server-mods-quarantine"
         busy={busyQuarantine}
@@ -285,7 +337,7 @@
       <p class="text-sm text-danger">{actionError}</p>
     {/if}
 
-    {#if data.rows.length === 0 && !data.error}
+    {#if data.rows.length === 0 && !data.error && !data.loading}
       <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
     {:else if data.rows.length > 0}
       <!-- Filter toolbar: search + all/enabled/disabled(+updates) + sort. Gated

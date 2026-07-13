@@ -298,6 +298,121 @@ describe('ServerModsInstalled', () => {
     expect(mockListEnriched).toHaveBeenCalledTimes(2);
   });
 
+  // Enriched row (source + resolvable summary) so ModCard renders the update
+  // badge + direct Update button. `sha1` is the identity the update commands key on.
+  const enrichedRow = (name: string, sha1: string) => ({
+    filename: `${name}.jar`,
+    on_disk_filename: `${name}.jar`,
+    disabled: false,
+    reason: null,
+    sha1,
+    source: 'modrinth',
+    project_id: name,
+    version_id: 'v1',
+    name: name.toUpperCase(),
+    version_number: '1.0',
+  });
+  const projectFor = (name: string) => ({
+    source: 'modrinth',
+    project_id: name,
+    slug: name,
+    name: name.toUpperCase(),
+    summary: '',
+    icon_url: null,
+    downloads: 0,
+    author: 'a',
+    updated_at: null,
+  });
+  const targetFor = (name: string) => ({
+    source: 'modrinth',
+    project_id: name,
+    version_id: 'v2',
+    name: name.toUpperCase(),
+    version_number: '2.0',
+    mc_versions: ['1.20.1'],
+    loaders: ['forge'],
+    primary_file: {
+      filename: `${name}-2.jar`,
+      url: `https://example/${name}-2.jar`,
+      sha1: 'bb',
+      size: 1,
+      distribution_allowed: true,
+    },
+    deps: [],
+    published_at: null,
+  });
+  const updateCheckFor = (name: string, sha1: string, target: ReturnType<typeof targetFor>) => ({
+    sha1,
+    name: name.toUpperCase(),
+    source: 'modrinth',
+    project_id: name,
+    current_version_id: 'v1',
+    current_version_number: '1.0',
+    state: { kind: 'update_available', target },
+  });
+
+  it('Update all applies every pending update (both shas + targets), then clears the badges', async () => {
+    const targetJei = targetFor('jei');
+    const targetSodium = targetFor('sodium');
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [enrichedRow('jei', 'sha-jei'), enrichedRow('sodium', 'sha-sodium')],
+    });
+    mockProjects.mockResolvedValue({
+      status: 'ok',
+      data: [projectFor('jei'), projectFor('sodium')],
+    });
+    mockCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [
+        updateCheckFor('jei', 'sha-jei', targetJei),
+        updateCheckFor('sodium', 'sha-sodium', targetSodium),
+      ],
+    });
+
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('JEI');
+
+    await fireEvent.click(screen.getByTestId('server-mods-check-updates'));
+    // Both rows flag a pending update.
+    await waitFor(() => expect(screen.getAllByTestId('mod-update-badge')).toHaveLength(2));
+
+    // One click on "Update all" applies BOTH pending updates (sequentially).
+    await fireEvent.click(screen.getByTestId('server-mods-update-all'));
+    await waitFor(() => expect(mockUpdateOne).toHaveBeenCalledTimes(2));
+    expect(mockUpdateOne).toHaveBeenCalledWith('srv-1', 'sha-jei', targetJei);
+    expect(mockUpdateOne).toHaveBeenCalledWith('srv-1', 'sha-sodium', targetSodium);
+
+    // All applied entries are stale → the checks map is cleared → no badges.
+    await waitFor(() => expect(screen.queryByTestId('mod-update-badge')).toBeNull());
+  });
+
+  it('per-row Update collapses a concurrent double-click into a single apply (updatingShas guard)', async () => {
+    const target = targetFor('jei');
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [enrichedRow('jei', 'sha-jei')] });
+    mockProjects.mockResolvedValue({ status: 'ok', data: [projectFor('jei')] });
+    mockCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [updateCheckFor('jei', 'sha-jei', target)],
+    });
+    // The (only) apply never resolves, so the in-flight `updatingShas` guard
+    // stays engaged across the second click — deterministic, no timing race.
+    mockUpdateOne.mockReturnValue(new Promise(() => {}));
+
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('JEI');
+    await fireEvent.click(screen.getByTestId('server-mods-check-updates'));
+    await screen.findByTestId('mod-update-badge');
+
+    const updateBtn = screen.getByRole('button', { name: 'Update' });
+    await fireEvent.click(updateBtn);
+    await fireEvent.click(updateBtn);
+
+    // The second click is a no-op: exactly one serverUpdateOne for that sha.
+    expect(mockUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockUpdateOne).toHaveBeenCalledWith('srv-1', 'sha-jei', target);
+  });
+
   it('shows the quarantine button for a fabric server', async () => {
     serverRow.loader = 'fabric';
     render(ServerModsInstalled, { serverId: 'srv-1' });

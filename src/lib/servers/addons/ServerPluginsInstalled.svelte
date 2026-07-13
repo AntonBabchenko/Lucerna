@@ -155,7 +155,7 @@
       <p class="text-sm text-danger">{actionError}</p>
     {/if}
 
-    {#if data.rows.length === 0 && !data.error}
+    {#if data.rows.length === 0 && !data.error && !data.loading}
       <p class="text-sm text-muted">{$t('servers.plugins.empty')}</p>
     {:else if data.rows.length > 0}
       <!-- Filter toolbar: search + all/enabled/disabled + sort. Gated on
