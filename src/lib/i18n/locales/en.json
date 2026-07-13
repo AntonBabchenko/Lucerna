@@ -1047,8 +1047,177 @@
           "title": "Create goggles are spamming errors",
           "explanation": "While wearing Create goggles and looking at a mob or other entity, a Create add-on throws an error every frame. The game keeps running, but the log fills up and the goggle overlay flickers.",
           "recommendation": "Lucerna can install a small community fix mod that resolves this. It's a third-party mod, not an official patch — review it before installing."
+        },
+        "forgeDuplicateMods": {
+          "title": "Two copies of the same mod are installed",
+          "explanation": "The mod loader found the same mod twice in the mods folder — usually an old version left behind next to a newer one. It refuses to start until you delete one copy.",
+          "recommendation": "Open the Installed tab (or the mods folder) and delete the older duplicate jar, then launch again."
+        },
+        "forgeMissingDependencies": {
+          "title": "A mod is missing a required dependency",
+          "explanation": "One of your mods needs another mod (or a newer version of it) that isn't installed. The lines after this one name the mod and the version it wants.",
+          "recommendation": "Install the dependency named below at the required version, or remove the mod that demands it."
+        },
+        "fabricUnmetDependency": {
+          "title": "A mod's dependency is missing or the wrong version",
+          "explanation": "Fabric stopped loading because a mod requires something that isn't installed or is the wrong version. The lines below name exactly which mod wants what.",
+          "recommendation": "Install the mod named below at the version it asks for (most Fabric mods also need Fabric API), or remove the mod that requires it."
+        },
+        "mixinApplyFailed": {
+          "title": "A mod failed to hook into the game",
+          "explanation": "A mod's mixin (its way of patching game code) failed to apply. This almost always means the mod was built for a different Minecraft version, or two mods are patching the same code and collide.",
+          "recommendation": "Check the mod named in this line. Install the build matching your exact Minecraft version and loader; if it's current, try removing it to identify the conflicting pair."
+        },
+        "brokenModMetadata": {
+          "title": "A mod file has broken metadata",
+          "explanation": "The loader couldn't read a mod's descriptor (fabric.mod.json / mods.toml). The jar is malformed — usually a corrupted download or a file that isn't a mod for this loader.",
+          "recommendation": "Re-download the mod from its official page for your loader and Minecraft version, replacing the broken file."
+        },
+        "overlayRenderCrash": {
+          "title": "Crash while drawing the loading overlay",
+          "explanation": "The game died during the mod-loading screen. The 'Caused by' lines below name the mod or resource that failed to initialize.",
+          "recommendation": "Find the mod named in the stack below and update or remove it. If a resource pack is named, disable that pack."
+        },
+        "datapackLoadFailed": {
+          "title": "Datapacks blocked the world from loading",
+          "explanation": "A datapack in this world is broken or was made for a different Minecraft version, so the world refused to load.",
+          "recommendation": "Remove or update the offending datapack in the world's datapacks folder. Choosing 'safe mode' when Minecraft offers it disables them temporarily."
+        },
+        "modLinkageError": {
+          "title": "A mod was built for a different game version",
+          "explanation": "Java couldn't find a method, field or class another mod expected — a mod was compiled against a different Minecraft or mod version than what's installed. NoClassDefFoundError can also be an echo of an earlier failure in the same mod — check the first error above it.",
+          "recommendation": "Look at the mod named in this line (or the 'Caused by' below) and install the build that matches your exact Minecraft version and the versions of the mods it interacts with."
+        },
+        "oomMetaspace": {
+          "title": "Java ran out of metaspace",
+          "explanation": "The class-metadata area filled up — this happens with hundreds of mods installed, independent of the normal heap setting.",
+          "recommendation": "Add -XX:MaxMetaspaceSize=1G to the instance's custom JVM arguments, or reduce the number of installed mods."
+        },
+        "oomGcOverhead": {
+          "title": "Memory is so full Java gave up",
+          "explanation": "Java spent almost all its time garbage-collecting because the heap is nearly exhausted — effectively an out-of-memory condition.",
+          "recommendation": "Raise the instance's maximum memory (heap). For heavy modpacks try 6144 MB or more, but stay under half of your system RAM."
+        },
+        "heapReserveFailed": {
+          "title": "The memory setting is larger than available RAM",
+          "explanation": "Java could not even start because the configured maximum heap is bigger than the memory the system can give it (or the value is malformed).",
+          "recommendation": "Lower the maximum memory setting, close memory-hungry programs, and make sure the game runs on 64-bit Java."
+        },
+        "badJvmArg": {
+          "title": "A custom Java argument is invalid",
+          "explanation": "Java refused to start because one of the custom JVM arguments isn't recognized — often a typo or a flag from a different Java version.",
+          "recommendation": "Open the instance's Java settings and fix or remove the argument named in this line."
+        },
+        "nativesLinkError": {
+          "title": "A native library failed to load",
+          "explanation": "Java couldn't load a platform-native library (typically LWJGL). The files may be missing, corrupted, or blocked by antivirus.",
+          "recommendation": "Run instance repair to re-download the libraries. If it recurs, add the launcher's data folder to your antivirus exclusions."
+        },
+        "jvmNativeCrash": {
+          "title": "Java itself crashed (native crash)",
+          "explanation": "The crash happened below Java, in native code — on clients this is most often a graphics-driver fault; overclocking and faulty RAM cause it too.",
+          "recommendation": "Update your GPU driver first. If it keeps happening, remove recently added mods that use native code, and check the hs_err file mentioned nearby for the failing module."
+        },
+        "glfwNoOpengl": {
+          "title": "The graphics driver doesn't provide OpenGL",
+          "explanation": "Minecraft couldn't create an OpenGL window. The GPU driver is missing, too old, or the game ran on the wrong GPU (common on laptops with two graphics chips).",
+          "recommendation": "Install the latest driver from NVIDIA/AMD/Intel (not just Windows Update). On dual-GPU laptops, force the discrete GPU for Java in Windows graphics settings or via the launcher's GPU option."
+        },
+        "pixelFormatNotAccelerated": {
+          "title": "No hardware graphics acceleration available",
+          "explanation": "The system offered only software rendering — the GPU driver is missing or outdated (frequent after Windows reinstalls and on remote desktops).",
+          "recommendation": "Install the proper GPU driver from the vendor's site and restart. Remote-desktop sessions often have no acceleration — try locally."
+        },
+        "openglErrorSpam": {
+          "title": "OpenGL is reporting rendering errors",
+          "explanation": "The renderer hit invalid GL state — usually a shader pack, a resource pack, or a rendering mod that doesn't match the current game or driver.",
+          "recommendation": "Disable the most recently added shader or resource pack. If it persists, update the GPU driver and rendering mods (Sodium/Iris/OptiFine) to builds for this exact Minecraft version."
+        },
+        "invalidSession": {
+          "title": "The Minecraft session is invalid",
+          "explanation": "The session token has expired or the sign-in didn't complete, so the server rejected the join. Occasionally the Minecraft session service itself is down — then waiting is the only fix.",
+          "recommendation": "Sign out and back in (Accounts), then restart the game. On a server log this means the joining player needs to do that."
+        },
+        "notWhitelisted": {
+          "title": "Not on the server's whitelist",
+          "explanation": "The server runs a whitelist and this account isn't on it — nothing is broken on your side.",
+          "recommendation": "Ask the server owner to whitelist your exact username (whitelist add <name>)."
+        },
+        "dnsUnknownHost": {
+          "title": "The server address couldn't be resolved",
+          "explanation": "DNS lookup failed — the address has a typo, the domain is gone, or this machine has no working internet/DNS. The address is usually the server you tried to join, but mods checking for updates can log this too.",
+          "recommendation": "Double-check the server address for typos, then verify your internet connection. If both are fine, try a different DNS (e.g. 1.1.1.1)."
+        },
+        "sslHandshakeFailed": {
+          "title": "Secure connection failed",
+          "explanation": "An HTTPS connection (login, mod download, API) couldn't be established. The most common cause is a wrong system clock; intercepting antivirus/proxy software is next.",
+          "recommendation": "Check that the system date and time are correct, then try again. If it persists, temporarily disable HTTPS-scanning in your antivirus or proxy to confirm the culprit."
+        },
+        "connectionTimedOut": {
+          "title": "The connection timed out",
+          "explanation": "The other side never answered — the server is down, the address/port is wrong, or a firewall is dropping the traffic. (If it appears without you joining a server, a mod's background download timed out — harmless.)",
+          "recommendation": "Verify the server is running and the address and port are right, then check firewalls on both ends (including the router's port forwarding for self-hosted servers)."
+        },
+        "connectionRefused": {
+          "title": "The connection was refused",
+          "explanation": "The target machine answered but nothing is listening on that port — the server isn't running there, or it listens on a different port. (Mods' background update checks can also log this — harmless if you weren't joining a server.)",
+          "recommendation": "Make sure the server is running and the port matches its configuration. For self-hosted servers, confirm the port in server.properties."
+        },
+        "sessionLock": {
+          "title": "The world is opened by another process",
+          "explanation": "This world's session lock is held by another running copy of the game or server, so it can't be opened twice.",
+          "recommendation": "Close the other Minecraft/server process that has this world open (check the system tray and Task Manager), then try again."
+        },
+        "chunkCorruption": {
+          "title": "World chunk data is damaged",
+          "explanation": "The game failed to read part of the world — a region or chunk file is corrupted or missing, usually after a crash or forced shutdown while saving.",
+          "recommendation": "Restore this world from a backup (Worlds → Backups). Keep playing on a corrupted world only if you accept losing the damaged area."
+        },
+        "levelDatCorrupt": {
+          "title": "The world's level.dat is damaged",
+          "explanation": "The world's main metadata file couldn't be read — typically after an interrupted save.",
+          "recommendation": "Restore the world from a backup. Minecraft also keeps level.dat_old next to level.dat — renaming it over the broken file recovers most worlds."
+        },
+        "accessDenied": {
+          "title": "A file couldn't be accessed",
+          "explanation": "The operating system blocked a file operation — the file is locked by another program (often antivirus mid-scan) or the folder's permissions are wrong.",
+          "recommendation": "Close other programs using the folder and add the launcher's data directory to your antivirus exclusions. Avoid OneDrive-synced folders for game data."
+        },
+        "shaderCompileFailed": {
+          "title": "The shader pack failed to load",
+          "explanation": "The shader pack couldn't be compiled for this GPU/driver — it's incompatible with the current Iris/OptiFine version or the pack itself is broken. If no shader pack is installed, the rendering mod or GPU driver itself is at fault.",
+          "recommendation": "Try a different version of the shader pack (or a different pack), and make sure Iris/OptiFine matches your Minecraft version."
+        },
+        "serverEulaNotAccepted": {
+          "title": "The Minecraft EULA is not accepted",
+          "explanation": "A Minecraft server refuses to start until the EULA is accepted in eula.txt.",
+          "recommendation": "Accept the EULA in the server's settings (or set eula=true in eula.txt) and start it again."
+        },
+        "serverPortInUse": {
+          "title": "The server port is already in use",
+          "explanation": "Another program — usually another copy of this server — is already listening on the configured port.",
+          "recommendation": "Stop the other process, or change this server's port in its settings and start again."
+        },
+        "serverOutOfMemory": {
+          "title": "The server ran out of memory",
+          "explanation": "The memory allotted to the server wasn't enough — common for heavy modpacks, many players, or large loaded areas.",
+          "recommendation": "Raise the server's memory in its settings, keeping it under half of the machine's RAM, then start it again."
+        },
+        "serverCantKeepUp": {
+          "title": "The server is lagging behind",
+          "explanation": "Game ticks are taking longer than 50 ms, so game time runs slower than real time. In singleplayer the game's built-in server logs it. This is a warning about performance, not a crash.",
+          "recommendation": "Reduce the load: fewer or lighter mods, smaller view/simulation distance, or more memory. Occasional single occurrences are harmless."
+        },
+        "serverWatchdogStall": {
+          "title": "A server tick stalled — watchdog triggered",
+          "explanation": "One tick took far longer than the configured limit, so the watchdog killed the server to break the hang. Usually one mod or one chunk operation is stuck.",
+          "recommendation": "Check the stack printed below this line for the mod that hung. As a stopgap, raise max-tick-time in server.properties, but the real fix is finding the stuck mod."
         }
       }
+    },
+    "hints": {
+      "badgeAriaLabel": "Known issue — details",
+      "cardAriaLabel": "Explanation of a known log error"
     },
     "repair": {
       "fixThis": "Fix this",

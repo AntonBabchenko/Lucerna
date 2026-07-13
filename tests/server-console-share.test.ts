@@ -17,6 +17,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverReadLog: (...a: unknown[]) => serverReadLog(...a),
     shareLogToMclogs: (...a: unknown[]) => shareLogToMclogs(...a),
     serverSendCommand: vi.fn(),
+    annotateLogText: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { annotations: [], patterns: [] } }),
   },
 }));
 
