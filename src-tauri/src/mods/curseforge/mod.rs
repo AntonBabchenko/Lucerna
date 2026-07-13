@@ -78,6 +78,97 @@ impl CurseForgeClient {
             details: e.to_string(),
         })
     }
+
+    /// Resolve `(Murmur2, sha1)` pairs to CF files via `POST /v1/fingerprints`,
+    /// returned keyed by lowercased sha1. Authenticates via `self.auth()`. The
+    /// response's `exactMatches[].file` carries the identity (`modId` +
+    /// `id`) and echoes the `fileFingerprint` we sent, which keys each match
+    /// back to its sha1.
+    pub async fn files_by_fingerprint(
+        &self,
+        fingerprints: &[(u32, String)],
+    ) -> Result<std::collections::HashMap<String, FingerprintFile>, Error> {
+        let mut out = std::collections::HashMap::new();
+        if fingerprints.is_empty() {
+            return Ok(out);
+        }
+        let key = self.auth()?;
+        let fp_to_sha: std::collections::HashMap<u32, String> = fingerprints
+            .iter()
+            .map(|(fp, sha)| (*fp, sha.clone()))
+            .collect();
+        let fps: Vec<u32> = fingerprints.iter().map(|(fp, _)| *fp).collect();
+        let url = format!("{}/v1/fingerprints", self.base);
+        let body = serde_json::to_vec(&serde_json::json!({ "fingerprints": fps }))
+            .expect("a fixed-shape JSON object always serializes");
+        let resp = crate::network::request::post(
+            &url,
+            &[("x-api-key", key), ("content-type", "application/json")],
+            &body,
+            "mods",
+        )
+        .await
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
+        let parsed: CfFingerprintEnvelope = self.map_status(resp, url)?;
+        for m in parsed.data.exact_matches {
+            if let Some(sha) = fp_to_sha.get(&m.file.file_fingerprint) {
+                out.insert(
+                    sha.to_ascii_lowercase(),
+                    FingerprintFile {
+                        project_id: m.file.mod_id.to_string(),
+                        version_id: m.file.id.to_string(),
+                        version_number: if m.file.display_name.is_empty() {
+                            None
+                        } else {
+                            Some(m.file.display_name)
+                        },
+                    },
+                );
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Response-mirror structs for `POST /v1/fingerprints`, mirroring the private
+/// deserialize shapes in `mods/enrich.rs` (`rename_all = "camelCase"`), plus a
+/// `display_name` field (`displayName` on the CF file object).
+#[derive(serde::Deserialize)]
+struct CfFingerprintEnvelope {
+    data: CfFingerprintData,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfFingerprintData {
+    exact_matches: Vec<CfFingerprintMatch>,
+}
+
+#[derive(serde::Deserialize)]
+struct CfFingerprintMatch {
+    file: CfFingerprintFile,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfFingerprintFile {
+    /// CurseForge file id == the version identity.
+    id: u32,
+    /// CurseForge mod id == the project identity.
+    mod_id: u32,
+    /// The Murmur2 fingerprint we sent, echoed back — keys this match to its jar.
+    file_fingerprint: u32,
+    /// CurseForge `displayName`; absent decodes to empty (dropped to `None`).
+    #[serde(default)]
+    display_name: String,
+}
+
+/// A CurseForge file matched by Murmur2 fingerprint.
+#[derive(Debug, Clone)]
+pub struct FingerprintFile {
+    pub project_id: String,
+    pub version_id: String,
+    pub version_number: Option<String>,
 }
 
 impl Default for CurseForgeClient {
@@ -613,6 +704,45 @@ mod tests {
         assert_eq!(out[0].version_id, "555");
         assert_eq!(out[0].deps.len(), 1);
         assert_eq!(out[0].deps[0].kind, DepKind::Required);
+    }
+
+    #[tokio::test]
+    async fn files_by_fingerprint_maps_fingerprint_to_identity() {
+        // The echoed `fileFingerprint` — NOT the top-level `id` (which is the
+        // modId) — is what keys each match back to the sha1 we sent.
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .and(header("x-api-key", "test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "exactMatches": [
+                    {
+                        "id": 42,
+                        "file": {
+                            "id": 555,
+                            "modId": 42,
+                            "fileFingerprint": 111,
+                            "displayName": "JEI 15.0.0"
+                        }
+                    }
+                ]}
+            })))
+            .mount(&s)
+            .await;
+        let c = client(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // Uppercase sha in: the returned map key is lowercased.
+        let out = c
+            .files_by_fingerprint(&[(111u32, "SHA-A".to_string())])
+            .await
+            .unwrap();
+        let hit = out
+            .get("sha-a")
+            .expect("fingerprint should map back to its sha1");
+        assert_eq!(hit.project_id, "42");
+        assert_eq!(hit.version_id, "555");
+        assert_eq!(hit.version_number.as_deref(), Some("JEI 15.0.0"));
     }
 
     #[tokio::test]
