@@ -61,6 +61,7 @@
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
     onOpenGallery = () => {},
+    onOpenSkinEditor = () => {},
     playBlockedReason = null,
     createBlockedReason = null,
     launcherImportBlockedReason = null,
@@ -115,6 +116,7 @@
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
     onOpenGallery?: () => void;
+    onOpenSkinEditor?: (account: Account | null) => void;
     // Non-null while the configured data root is unavailable (§7 fallback
     // gating): disables Play/Install (with an explanatory tooltip) and the
     // empty-state "Create instance" shortcut. See data-root-gating.ts.
@@ -321,21 +323,24 @@
           />
         {/if}
         <!--
-        Skin & cape cosmetics — a labeled, always-visible entry point for the
-        ACTIVE Microsoft account (offline accounts have no server-side cosmetics
-        to edit). Sits in the account action cluster so it reads as an
-        account-scoped action, next to Add / Sign in.
+        Skin entry point — one adaptive button in the account action cluster,
+        always visible in client mode (even with zero accounts). A Microsoft
+        account opens the full Skin & cape modal (server-side cosmetics + the
+        editor); everyone else (offline or no account) opens the standalone
+        pixel skin editor directly. Only uploading a skin to Mojang needs a
+        Microsoft login.
       -->
-        {#if activeAccount?.kind === 'microsoft'}
-          <button
-            type="button"
-            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-            onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
-          >
-            <Icon name="shirt" size={14} />
-            {$t('cosmetics.title')}
-          </button>
-        {/if}
+        <button
+          type="button"
+          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+          onclick={() =>
+            activeAccount?.kind === 'microsoft'
+              ? onOpenCosmetics(activeAccount)
+              : onOpenSkinEditor(activeAccount)}
+        >
+          <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
+          {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
+        </button>
         <!--
         Force the account-add buttons visible when there are no accounts, even
         if the user hid `account_actions` in Settings — otherwise an

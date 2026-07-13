@@ -616,6 +616,17 @@ async function openLogsFolder(id: string): Promise<void> {
   await commands.serverOpenLogsFolder(id);
 }
 
+// Open a mod-loader server's `runtime/mods/` folder. Mirrors openLogsFolder.
+// The sidebar only offers this for mod-capable cores (see core-display.ts).
+async function openModsFolder(id: string): Promise<void> {
+  await commands.serverOpenModsFolder(id);
+}
+
+// Open a plugin server's `runtime/plugins/` folder (Paper/Purpur cores).
+async function openPluginsFolder(id: string): Promise<void> {
+  await commands.serverOpenPluginsFolder(id);
+}
+
 export const serverState = {
   get list() {
     return list;
@@ -675,6 +686,8 @@ export const serverState = {
   listLogs,
   readLog,
   openLogsFolder,
+  openModsFolder,
+  openPluginsFolder,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
