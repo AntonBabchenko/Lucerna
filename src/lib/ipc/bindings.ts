@@ -167,6 +167,19 @@ export const commands = {
 	 */
 	diagnoseLatest: (instanceId: string) => typedError<LatestDiagnosis, Error>(__TAURI_INVOKE("diagnose_latest", { instanceId })),
 	/**
+	 *  Per-line inline-hint annotations for a log FILE. Reads the file with
+	 *  the SAME `max_bytes` clamp as `read_log_file` so the line indices
+	 *  align with the content the viewer displays (both reads tail on
+	 *  overflow). Path validation mirrors `read_log_file`.
+	 */
+	annotateLogFile: (path: string, maxBytes: number | null, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_file", { path, maxBytes, side })),
+	/**
+	 *  Per-line inline-hint annotations for TEXT the UI already holds (the
+	 *  live server console buffer / an archive blob). Input is truncated at
+	 *  a defensive cap; annotation output is capped inside `annotate_lines`.
+	 */
+	annotateLogText: (text: string, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_text", { text, side })),
+	/**
 	 *  Build a concrete, confirmable repair plan for a diagnosed log, or
 	 *  `None` when no safe fix can be constructed (the UI then keeps the
 	 *  advisory recommendation text). Lazy: called only when the user
@@ -1401,6 +1414,30 @@ export type AccountSkin = {
 	skin_png_base64: string,
 };
 
+/**
+ *  The wire result: per-line hits plus copy for each distinct pattern
+ *  that matched (deduplicated — spam-heavy logs stay cheap).
+ */
+export type AnnotateResult = {
+	annotations: LineAnnotation[],
+	patterns: AnnotatedPatternCopy[],
+};
+
+/**  Which surface is asking. Command input — maps onto `Side` scoping. */
+export type AnnotateSide = "client" | "server";
+
+/**
+ *  English fallback copy for one matched pattern — mirrors how
+ *  `Diagnosis` ships its strings so the UI never renders an empty card
+ *  when an i18n key lags behind the Rust catalog.
+ */
+export type AnnotatedPatternCopy = {
+	id: string,
+	title: string,
+	explanation: string,
+	recommendation: string,
+};
+
 export type AppFile = AppFile_Serialize | AppFile_Deserialize;
 
 export type AppFile_Deserialize = {
@@ -2375,6 +2412,12 @@ export type LatestDiagnosis = {
 	diagnosis: Diagnosis | null,
 	path: string | null,
 	signature: string | null,
+};
+
+/**  One annotated line: 0-based index into the text split by '\n'. */
+export type LineAnnotation = {
+	line: number,
+	pattern_id: string,
 };
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";

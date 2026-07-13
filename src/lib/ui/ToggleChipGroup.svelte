@@ -5,6 +5,7 @@
   // bare ToggleChip[] instead.
   import { Icon, type IconName } from '$lib/ui/icons';
   import { toggleChipClass, type ToggleChipTone } from '$lib/ui/ToggleChip.svelte';
+  import { nextRovingIndex } from '$lib/ui/roving';
 
   type Option = {
     value: string;
@@ -31,14 +32,8 @@
   // Roving focus: Left/Right (and Up/Down) wrap, Home/End jump.
   function onKeydown(e: KeyboardEvent) {
     const current = options.findIndex((o) => o.value === value);
-    if (current === -1) return;
-    let next = current;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (current + 1) % options.length;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')
-      next = (current - 1 + options.length) % options.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = options.length - 1;
-    else return;
+    const next = nextRovingIndex(e.key, current, options.length, 'both');
+    if (next === null) return;
     e.preventDefault();
     const target = options[next];
     if (!target) return;
