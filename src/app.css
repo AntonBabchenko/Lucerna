@@ -41,10 +41,15 @@
      popover-engine and Banner work (P2). --focus-ring is already live below
      via the global *:focus-visible rule. */
 
-  /* Layering — one source of truth for stacked overlays.
-     Migrate (P2): Select listbox & McVersionCombobox dropdown → var(--z-popover);
-     Modal backdrop → var(--z-modal); toast region → var(--z-toast). */
-  --z-popover: 40;
+  /* Layering — one source of truth for stacked overlays. Popovers/menus share
+     the modal tier (50): an inline popover opened inside a modal is a DOM
+     descendant of the modal panel, so DOM order — not a higher z — keeps it
+     above the panel, exactly as the z-50 Select/Menu did before unification; a
+     page-level popover at this tier sits above ordinary content. Consumed via
+     z-[var(--z-popover)] by Select / Menu / HelpPopover / McVersionCombobox;
+     their click-scrims sit one step below. Toasts float above modals; the
+     tooltip layer stays highest (both are root-mounted, outside modal contexts). */
+  --z-popover: 50;
   --z-modal: 50;
   --z-toast: 60;
 

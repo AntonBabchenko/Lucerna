@@ -6,6 +6,7 @@
   // owns everything once the menu is positioned and mounted.
   import { onMount } from 'svelte';
   import { Icon } from '$lib/ui/icons';
+  import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
 
   let {
@@ -59,20 +60,15 @@
     }
   }
 
-  // A fixed menu does not follow the trigger on layout shift — close on any
-  // ancestor scroll (capture-phase, third arg true, so non-bubbling scroll from
-  // a scrollable host is caught) or resize. Seed the active row and grab focus
-  // on mount; the returned cleanup detaches the listeners on close/unmount.
+  // Seed the active row and grab focus on mount, then close on any ancestor
+  // scroll / resize via the shared helper. ignoreScrollWithin keeps a tall
+  // internally-scrolling menu (max-h-[80vh]) from dismissing itself when the
+  // user wheels it — a fix the hand-rolled menu listeners lacked. The returned
+  // cleanup detaches the listeners on close/unmount.
   onMount(() => {
     activeIndex = items.findIndex((it) => !it.disabled);
     menuEl?.focus();
-    const onScroll = () => onClose();
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onScroll);
-    return () => {
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onScroll);
-    };
+    return attachPopoverDismiss({ onDismiss: onClose, ignoreScrollWithin: () => menuEl });
   });
 </script>
 
@@ -92,7 +88,7 @@
   role="menu"
   tabindex="-1"
   aria-label={ariaLabel}
-  class="fixed z-50 max-h-[80vh] overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
+  class="fixed z-[var(--z-popover)] max-h-[80vh] overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
   style="top: {top}px; left: {left}px; width: {width}px;"
   onkeydown={onMenuKeydown}
 >
