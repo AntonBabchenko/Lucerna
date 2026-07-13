@@ -308,10 +308,15 @@
     }
     const id = setTimeout(() => {
       void commands.annotateLogText(text, 'server').then((r) => {
+        if (r.status !== 'ok') {
+          // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
+          console.warn('[ServerConsole] annotate_log_text failed:', r.error);
+          return;
+        }
         // Stale guard: the debounced result may land after `viewLines` moved on
         // (e.g. archive → live switch mid-flight) — only commit if the view
         // still shows the same text.
-        if (r.status === 'ok' && viewLines.join('\n') === text) annotateResult = r.data;
+        if (viewLines.join('\n') === text) annotateResult = r.data;
       });
     }, ANNOTATE_DEBOUNCE_MS);
     return () => clearTimeout(id);
