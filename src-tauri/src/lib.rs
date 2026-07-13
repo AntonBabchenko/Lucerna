@@ -225,6 +225,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_write_properties,
             // Own server (Plan 3: mod management + folder open):
             commands::server_list_mods,
+            commands::server_list_mods_enriched,
+            commands::server_enrich_mods,
+            commands::server_enrich_plugins,
             commands::server_delete_mod,
             commands::server_open_folder,
             // Own server (Plan 4: diagnosis + repair):
@@ -284,13 +287,17 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (S2: mod content management — browse-install, enable,
             // local install, datapacks):
             commands::server_install_mod,
+            commands::server_check_mod_updates,
+            commands::server_update_one,
             commands::server_enable_mod,
+            commands::server_disable_mod,
             commands::server_install_local,
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
             // Own server (plugin management: Paper/Purpur runtime/plugins/):
             commands::server_list_plugins,
+            commands::server_list_plugins_enriched,
             commands::server_install_plugin,
             commands::server_install_plugin_local,
             commands::server_enable_plugin,

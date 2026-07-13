@@ -17,7 +17,7 @@ function row(sha1: string, name: string) {
       requires: [],
     },
     summary: null,
-  } as never;
+  };
 }
 
 describe('installed-filters incompatible view-filter', () => {
@@ -26,9 +26,14 @@ describe('installed-filters incompatible view-filter', () => {
     const incompatible = new Set(['b']);
     const f = createInstalledFilters(
       () => rows,
-      () => new Set(),
-      () => new Set(),
-      () => incompatible,
+      (r) => ({
+        id: r.installed.sha1,
+        name: r.installed.name,
+        enabled: r.installed.enabled,
+        sortKey: r.installed.installed_at,
+        source: r.installed.source,
+      }),
+      { isIncompatible: (id) => incompatible.has(id) },
     );
     f.viewFilter = 'incompatible';
     expect(f.filtered.map((r) => r.installed.sha1)).toEqual(['b']);
