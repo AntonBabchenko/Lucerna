@@ -136,7 +136,7 @@ pub fn infer_source_from_path(path: &Path) -> LogSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logs::diagnose::patterns::{Matcher, Pattern, SourceHint};
+    use crate::logs::diagnose::patterns::{Matcher, Pattern, Side, SourceHint};
     use crate::logs::files::LogSource;
     use std::path::PathBuf;
 
@@ -248,6 +248,7 @@ mod tests {
                 explanation: "E",
                 recommendation: "R",
                 source_hint: SourceHint::Any,
+                side: Side::Client,
             },
             Pattern {
                 id: "test-regex",
@@ -256,6 +257,7 @@ mod tests {
                 explanation: "out",
                 recommendation: "more ram",
                 source_hint: SourceHint::Crash,
+                side: Side::Client,
             },
         ]
     }

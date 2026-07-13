@@ -41,6 +41,11 @@ export async function initOnboarding(): Promise<void> {
   const r = await commands.appSettingsGet();
   if (r.status !== 'ok') return;
   if (r.data.onboarding.tour_completed_version !== TOUR_VERSION) {
+    // The main tour's anchors (instance picker, play button, modpacks, account
+    // section) exist only in client mode — force it before activating so a
+    // returning servers-mode user who gets a re-shown tour (on a TOUR_VERSION
+    // bump) never opens into an empty servers-mode panel. Mirrors replayTour().
+    serversUi.setMode('client');
     tourState.active = true;
     tourState.contextual = false;
     tourState.currentStep = 0;
@@ -60,6 +65,11 @@ export function showAccountHint(): void {
   // fighting over the pointer-events kill). ContextualTour sets this attribute
   // while active; skip the hint until it closes.
   if (typeof document !== 'undefined' && document.body.hasAttribute('data-ctx-tour-active')) return;
+  // The account section renders only in client mode, so force it before the
+  // spotlight anchors on [data-tour="account-section"]. In practice this hint
+  // is triggered from the client Play path (already client mode), but the guard
+  // keeps it correct if a future caller fires it from servers mode.
+  serversUi.setMode('client');
   tourState.contextual = true;
   tourState.currentStep = ACCOUNT_STEP_INDEX;
   tourState.active = true;

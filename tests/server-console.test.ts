@@ -10,6 +10,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     // The live console backfills from server-latest.log when there's no captured
     // output; empty data keeps the "no output" state these tests assert.
     serverReadLog: vi.fn().mockResolvedValue({ status: 'ok', data: '' }),
+    annotateLogText: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { annotations: [], patterns: [] } }),
   },
 }));
 

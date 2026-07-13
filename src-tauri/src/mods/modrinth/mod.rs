@@ -15,6 +15,15 @@ pub struct ModrinthClient {
     base: String,
 }
 
+/// The full identity of a Modrinth version matched by file hash.
+#[derive(Debug, Clone)]
+pub struct HashVersion {
+    pub project_id: String,
+    pub version_id: String,
+    pub version_number: String,
+    pub name: String,
+}
+
 impl ModrinthClient {
     pub fn new() -> Self {
         Self {
@@ -183,6 +192,65 @@ impl ModrinthClient {
                 })?;
             for (sha, v) in map {
                 out.insert(sha.to_ascii_lowercase(), v.project_id);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Like `project_ids_by_hash`, but returns the full matched-version
+    /// identity. Same endpoint (`POST /v2/version_files`), same `BATCH_CHUNK`
+    /// batching, no API key. Keyed by lowercased sha1.
+    pub async fn versions_by_hashes(
+        &self,
+        shas: &[&str],
+    ) -> Result<HashMap<String, HashVersion>, Error> {
+        #[derive(serde::Deserialize)]
+        struct VersionLite {
+            id: String,
+            project_id: String,
+            version_number: String,
+            name: String,
+        }
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let url = format!("{}/v2/version_files", self.base);
+            let body = serde_json::to_vec(&serde_json::json!({
+                "hashes": chunk,
+                "algorithm": "sha1",
+            }))
+            .expect("a fixed-shape JSON object always serializes");
+            let resp = crate::network::request::post(
+                &url,
+                &[("user-agent", UA), ("content-type", "application/json")],
+                &body,
+                "mods",
+            )
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let map: HashMap<String, VersionLite> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            for (sha, v) in map {
+                out.insert(
+                    sha.to_ascii_lowercase(),
+                    HashVersion {
+                        project_id: v.project_id,
+                        version_id: v.id,
+                        version_number: v.version_number,
+                        name: v.name,
+                    },
+                );
             }
         }
         Ok(out)
@@ -1149,6 +1217,30 @@ mod tests {
         let m = c.project_ids_by_hash(&["AABBCC", "ddeeff"]).await.unwrap();
         assert_eq!(m.get("aabbcc"), Some(&"betterf3".to_string()));
         assert_eq!(m.get("ddeeff"), Some(&"jei".to_string()));
+    }
+
+    #[tokio::test]
+    async fn versions_by_hashes_returns_full_identity() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                  "aabbcc":{"project_id":"betterf3","id":"v1","version_number":"1.0.0","name":"v1"}
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // Uppercase input: the returned map key is lowercased.
+        let out = c.versions_by_hashes(&["AABBCC"]).await.unwrap();
+        let hit = out.get("aabbcc").unwrap();
+        assert_eq!(hit.project_id, "betterf3");
+        assert_eq!(hit.version_id, "v1");
+        assert_eq!(hit.version_number, "1.0.0");
+        assert_eq!(hit.name, "v1");
     }
 
     #[tokio::test]

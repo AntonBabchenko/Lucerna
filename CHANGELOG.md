@@ -10,6 +10,13 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+
+- **Inline hints in logs.** Well-known errors (mod conflicts, memory, drivers,
+  network, world corruption, and more) get a marker in the log viewer and the
+  server console; hovering the line shows what the error means and how to fix
+  it, in English and Russian.
+
 ## [0.18.0] — 2026-07-12
 
 ### Added

@@ -167,6 +167,19 @@ export const commands = {
 	 */
 	diagnoseLatest: (instanceId: string) => typedError<LatestDiagnosis, Error>(__TAURI_INVOKE("diagnose_latest", { instanceId })),
 	/**
+	 *  Per-line inline-hint annotations for a log FILE. Reads the file with
+	 *  the SAME `max_bytes` clamp as `read_log_file` so the line indices
+	 *  align with the content the viewer displays (both reads tail on
+	 *  overflow). Path validation mirrors `read_log_file`.
+	 */
+	annotateLogFile: (path: string, maxBytes: number | null, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_file", { path, maxBytes, side })),
+	/**
+	 *  Per-line inline-hint annotations for TEXT the UI already holds (the
+	 *  live server console buffer / an archive blob). Input is truncated at
+	 *  a defensive cap; annotation output is capped inside `annotate_lines`.
+	 */
+	annotateLogText: (text: string, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_text", { text, side })),
+	/**
 	 *  Build a concrete, confirmable repair plan for a diagnosed log, or
 	 *  `None` when no safe fix can be constructed (the UI then keeps the
 	 *  advisory recommendation text). Lazy: called only when the user
@@ -980,6 +993,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverListMods: (id: string) => typedError<ServerModEntry[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
 	/**
+	 *  Like `server_list_mods`, but each jar carries its registry identity. Uses
+	 *  `reconcile_on_list` (sha1-keyed) so identity survives enable/disable renames.
+	 */
+	serverListModsEnriched: (id: string) => typedError<ServerModEntryEnriched[], Error>(__TAURI_INVOKE("server_list_mods_enriched", { id })),
+	/**
+	 *  Hash-enrich a server's `runtime/mods/` (Modrinth + CurseForge). Returns the
+	 *  count newly resolved. Best-effort — never blocks the UI.
+	 */
+	serverEnrichMods: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_mods", { id })),
+	/**
+	 *  Hash-enrich a server's `runtime/plugins/` via Modrinth only (Hangar has no
+	 *  hash endpoint; CurseForge has no plugin registry).
+	 */
+	serverEnrichPlugins: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_plugins", { id })),
+	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
 	 *  Отклоняет небезопасные имена (path traversal).
@@ -1217,11 +1245,32 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverInstallMod: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_mod", { id, source, projectId, versionId })),
 	/**
+	 *  Check every identity-bearing server mod for a newer version. Mirrors
+	 *  `mods_check_updates`: resolve mc_version + loader from `server.json`, query
+	 *  each mod's platform, classify with the shared `classify_update`. Per-mod
+	 *  failure → that row's `CheckFailed`.
+	 */
+	serverCheckModUpdates: (id: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_mod_updates", { id })),
+	/**
+	 *  Apply one server-mod update: install `target` (+ required deps) via the
+	 *  shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
+	 *  set-aside state, and swap the registry rows. Server must be stopped.
+	 */
+	serverUpdateOne: (id: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_update_one", { id, oldSha1, target })),
+	/**
 	 *  Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
 	 *  Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
 	 *  filenames / path escapes. Server must be stopped.
 	 */
 	serverEnableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_mod", { id, filename })),
+	/**
+	 *  Disable (rename to `*.disabled`) a single mod in the server's `mods/`.
+	 *  The mirror of `server_disable_plugin` for the mods dir: a user-initiated
+	 *  disable, so — unlike `server_disable_mods`' client-only quarantine — it
+	 *  writes NO quarantine `reason` sidecar. Single-file, no dependency guard.
+	 *  Rejects unsafe filenames / path escapes. Server must be stopped.
+	 */
+	serverDisableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_disable_mod", { id, filename })),
 	/**
 	 *  Install a local mod `.jar` (chosen via the file picker) into the server's
 	 *  `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
@@ -1247,6 +1296,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
 	 */
 	serverListPlugins: (id: string) => typedError<ServerPluginEntry[], Error>(__TAURI_INVOKE("server_list_plugins", { id })),
+	/**  Plugin twin of `server_list_mods_enriched` (no quarantine reason). */
+	serverListPluginsEnriched: (id: string) => typedError<ServerPluginEntryEnriched[], Error>(__TAURI_INVOKE("server_list_plugins_enriched", { id })),
 	/**
 	 *  Install a chosen plugin version + its required dependency closure into the
 	 *  server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
@@ -1279,11 +1330,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Delete a plugin from the server's `runtime/plugins/` by filename.
 	 *  Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
-	 *  traversal). Unlike `server_delete_mod` this HAS an is_running guard —
-	 *  deleting a live plugin's jar out from under a running Bukkit-family server
-	 *  is a class of foot-gun the mods twin doesn't need to worry about the same
-	 *  way (mods are only ever touched while stopped in practice); kept here
-	 *  deliberately rather than propagating the mods twin's gap.
+	 *  traversal). Refuses while the server is running — symmetric with
+	 *  `server_delete_mod` — so a live plugin's jar is never deleted out from
+	 *  under a running Bukkit-family server.
 	 */
 	serverDeletePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete_plugin", { id, filename })),
 	/**
@@ -1399,6 +1448,30 @@ export type AccountSkin = {
 	uuid: string,
 	texture_url: string,
 	skin_png_base64: string,
+};
+
+/**
+ *  The wire result: per-line hits plus copy for each distinct pattern
+ *  that matched (deduplicated — spam-heavy logs stay cheap).
+ */
+export type AnnotateResult = {
+	annotations: LineAnnotation[],
+	patterns: AnnotatedPatternCopy[],
+};
+
+/**  Which surface is asking. Command input — maps onto `Side` scoping. */
+export type AnnotateSide = "client" | "server";
+
+/**
+ *  English fallback copy for one matched pattern — mirrors how
+ *  `Diagnosis` ships its strings so the UI never renders an empty card
+ *  when an i18n key lags behind the Rust catalog.
+ */
+export type AnnotatedPatternCopy = {
+	id: string,
+	title: string,
+	explanation: string,
+	recommendation: string,
 };
 
 export type AppFile = AppFile_Serialize | AppFile_Deserialize;
@@ -2375,6 +2448,12 @@ export type LatestDiagnosis = {
 	diagnosis: Diagnosis | null,
 	path: string | null,
 	signature: string | null,
+};
+
+/**  One annotated line: 0-based index into the text split by '\n'. */
+export type LineAnnotation = {
+	line: number,
+	pattern_id: string,
 };
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
@@ -3618,12 +3697,52 @@ export type ServerModEntry = {
 };
 
 /**
+ *  `ServerModEntry` + the install-identity overlay (sha1-keyed registry).
+ *  Identity fields are `Option`: locally-dropped jars carry no record until
+ *  enriched. `name`/`version_number` are hints; the UI resolves the display
+ *  name from the platform by `project_id`.
+ */
+export type ServerModEntryEnriched = {
+	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
+	disabled: boolean,
+	reason: string | null,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
+};
+
+/**
  *  One entry in `server_list_plugins`. Unlike mods there is no quarantine
  *  sidecar — plugins have no client/server ambiguity — so no reason field.
  */
 export type ServerPluginEntry = {
 	filename: string,
 	disabled: boolean,
+};
+
+/**  `ServerPluginEntry` + the install-identity overlay (no quarantine reason). */
+export type ServerPluginEntryEnriched = {
+	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
+	disabled: boolean,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
 };
 
 /**

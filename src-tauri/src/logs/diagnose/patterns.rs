@@ -15,6 +15,7 @@ pub struct Pattern {
     pub explanation: &'static str,
     pub recommendation: &'static str,
     pub source_hint: SourceHint,
+    pub side: Side,
 }
 
 pub enum Matcher {
@@ -54,6 +55,26 @@ impl SourceHint {
             SourceHint::LauncherStdout => matches!(src, LogSource::Launcher),
             SourceHint::GameLog => matches!(src, LogSource::Game),
         }
+    }
+}
+
+/// Which launcher surface an error is meaningful on. The banner engine
+/// ignores this (its table is client-scoped by construction); the inline
+/// annotator filters on it so client-worded copy never shows on the
+/// server console and vice versa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Client,
+    Server,
+    Any,
+}
+
+impl Side {
+    pub fn matches_client(self) -> bool {
+        matches!(self, Side::Client | Side::Any)
+    }
+    pub fn matches_server(self) -> bool {
+        matches!(self, Side::Server | Side::Any)
     }
 }
 
@@ -104,6 +125,7 @@ static CLIENT_EXTRA_MODS_RE: Lazy<Regex> = Lazy::new(|| {
 
 // --- The knowledge base --------------------------------------------
 
+// NOTE: the inline annotator (annotate.rs) scans this table too and MUST side-filter it.
 pub const PATTERNS: &[Pattern] = &[
     Pattern {
         id: "java-version-too-old",
@@ -117,6 +139,7 @@ pub const PATTERNS: &[Pattern] = &[
              MC versions install a newer JRE automatically. If your modpack is locked to this \
              MC version, the mod itself likely needs an update from its author.",
         source_hint: SourceHint::Any,
+        side: Side::Client,
     },
     Pattern {
         id: "mod-resolution-conflict",
@@ -130,6 +153,7 @@ pub const PATTERNS: &[Pattern] = &[
              Installed tab and try again. If you imported a modpack, see if the pack author lists \
              a known-bad combination.",
         source_hint: SourceHint::Any,
+        side: Side::Client,
     },
     Pattern {
         id: "fabric-loader-missing-main",
@@ -143,6 +167,7 @@ pub const PATTERNS: &[Pattern] = &[
             "Open Manage for this instance, set the loader to Fabric, pick a loader version, and \
              let the launcher reinstall before launching.",
         source_hint: SourceHint::LauncherStdout,
+        side: Side::Client,
     },
     Pattern {
         id: "corrupt-mod-jar",
@@ -156,6 +181,7 @@ pub const PATTERNS: &[Pattern] = &[
              that mod and reinstall it. If you imported a modpack, re-importing the pack will \
              re-fetch every jar with SHA-1 verification.",
         source_hint: SourceHint::Any,
+        side: Side::Client,
     },
     Pattern {
         id: "server-missing-mods",
@@ -174,6 +200,7 @@ pub const PATTERNS: &[Pattern] = &[
              then reconnect. Mods the launcher can't identify automatically are listed so \
              you can find them in the Add-ons browser.",
         source_hint: SourceHint::GameLog,
+        side: Side::Client,
     },
     Pattern {
         id: "client-extra-mods",
@@ -195,6 +222,7 @@ pub const PATTERNS: &[Pattern] = &[
              reconnect. If it's a version difference, install the version the server needs \
              instead of disabling.",
         source_hint: SourceHint::GameLog,
+        side: Side::Client,
     },
     Pattern {
         id: "out-of-memory",
@@ -208,6 +236,7 @@ pub const PATTERNS: &[Pattern] = &[
              modpack, 6144 MB or more for heavy packs), then try again. Don't exceed half of your \
              system RAM.",
         source_hint: SourceHint::Any,
+        side: Side::Client,
     },
     Pattern {
         id: "port-already-in-use",
@@ -220,6 +249,7 @@ pub const PATTERNS: &[Pattern] = &[
             "Quit any other running Minecraft windows (including from other launchers), then try \
              again. If the problem persists, restart the computer to clear stuck connections.",
         source_hint: SourceHint::Any,
+        side: Side::Client,
     },
     Pattern {
         id: "disk-full",
@@ -233,6 +263,7 @@ pub const PATTERNS: &[Pattern] = &[
              Windows. The launcher's Storage settings show how much space the mod cache takes if \
              you want to start there.",
         source_hint: SourceHint::Any,
+        side: Side::Any,
     },
     Pattern {
         id: "create-goggle-overlay-crash",
@@ -251,6 +282,7 @@ pub const PATTERNS: &[Pattern] = &[
             "Lucerna can install a small community fix mod that resolves this. It's a \
              third-party mod, not an official patch — review it before installing.",
         source_hint: SourceHint::GameLog,
+        side: Side::Client,
     },
 ];
 
@@ -323,5 +355,27 @@ mod tests {
         assert!(!super::detect_java_version_too_old(
             "[Server thread/INFO]: Done (4.1s)! For help, type \"help\"\n"
         ));
+    }
+
+    #[test]
+    fn banner_patterns_sides_are_deliberate() {
+        // Banner copy is client-worded, so banner patterns stay Client on
+        // the inline surface — except disk-full, whose copy is generic and
+        // deliberately serves the server console too.
+        for p in PATTERNS {
+            let expected = if p.id == "disk-full" {
+                Side::Any
+            } else {
+                Side::Client
+            };
+            assert_eq!(p.side, expected, "{} has unexpected side", p.id);
+        }
+    }
+
+    #[test]
+    fn side_matching_helpers() {
+        assert!(Side::Any.matches_client() && Side::Any.matches_server());
+        assert!(Side::Client.matches_client() && !Side::Client.matches_server());
+        assert!(Side::Server.matches_server() && !Side::Server.matches_client());
     }
 }

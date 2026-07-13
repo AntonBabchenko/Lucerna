@@ -8,6 +8,10 @@ const {
   mockVersions,
   mockProject,
   mockInstallPlugin,
+  mockListEnriched,
+  mockEnablePlugin,
+  mockDisablePlugin,
+  mockDeletePlugin,
   mockOpenUrl,
   mockPushSuccess,
   mockPushWarning,
@@ -16,6 +20,10 @@ const {
   mockVersions: vi.fn(),
   mockProject: vi.fn(),
   mockInstallPlugin: vi.fn(),
+  mockListEnriched: vi.fn(),
+  mockEnablePlugin: vi.fn(),
+  mockDisablePlugin: vi.fn(),
+  mockDeletePlugin: vi.fn(),
   mockOpenUrl: vi.fn().mockResolvedValue(undefined),
   mockPushSuccess: vi.fn(),
   mockPushWarning: vi.fn(),
@@ -27,6 +35,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsPluginVersions: mockVersions,
     modsProject: mockProject,
     serverInstallPlugin: mockInstallPlugin,
+    serverListPluginsEnriched: mockListEnriched,
+    serverEnablePlugin: mockEnablePlugin,
+    serverDisablePlugin: mockDisablePlugin,
+    serverDeletePlugin: mockDeletePlugin,
   },
 }));
 
@@ -106,6 +118,11 @@ describe('ServerPluginBrowser', () => {
       status: 'ok',
       data: { installed: ['worldedit.jar'], unresolved: [] },
     });
+    // Nothing installed by default: cards render the install button as before.
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [] });
+    mockEnablePlugin.mockResolvedValue({ status: 'ok', data: null });
+    mockDisablePlugin.mockResolvedValue({ status: 'ok', data: null });
+    mockDeletePlugin.mockResolvedValue({ status: 'ok', data: null });
   });
 
   it('searches the plugin kind with the server core (no loader facet) and renders results', async () => {
@@ -230,5 +247,30 @@ describe('ServerPluginBrowser', () => {
       plugin_core: 'paper',
       loader: null,
     });
+  });
+
+  it('renders the installed state (no re-install button) for an already-installed plugin', async () => {
+    // The enriched registry reports WorldEdit as installed → the card shows the
+    // Remove/toggle controls instead of an Install button, so it can't be
+    // installed again (the repeat-install toast-spam bug this fixes).
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          filename: 'worldedit.jar',
+          on_disk_filename: 'worldedit.jar',
+          disabled: false,
+          sha1: 'sha-we',
+          source: 'modrinth',
+          project_id: 'we',
+          version_id: 'v9',
+          name: 'WorldEdit',
+          version_number: 'v9',
+        },
+      ],
+    });
+    renderBrowser();
+    expect(await screen.findByLabelText('Remove')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText('Install')).toBeNull());
   });
 });
