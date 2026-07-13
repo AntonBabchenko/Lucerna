@@ -2155,7 +2155,7 @@ pub async fn server_install_mod(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let loader = require_mod_loader(&file)?;
-    crate::commands::install_version_into_dir(
+    let report = crate::commands::install_version_into_dir(
         &base,
         &p.mods,
         source,
@@ -2164,7 +2164,30 @@ pub async fn server_install_mod(
         &file.mc_version,
         loader,
     )
-    .await
+    .await?;
+
+    // The mods kernel pushes the user-picked primary LAST (deps first). Record
+    // its identity so the enriched list can show it. Best-effort: a sidecar
+    // failure must never fail an install already completed on disk.
+    if let Some(primary) = report.installed.last() {
+        let jar = p.mods.join(primary);
+        if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+            let _ = crate::servers_runtime::installed::upsert(
+                &p.mods,
+                crate::servers_runtime::installed::ServerInstalledRecord {
+                    filename: primary.clone(),
+                    sha1: sha1.to_ascii_lowercase(),
+                    source: Some(source),
+                    project_id: Some(project_id.clone()),
+                    version_id: Some(version_id.clone()),
+                    name: None,
+                    version_number: None,
+                    enrich_attempted: false,
+                },
+            );
+        }
+    }
+    Ok(report)
 }
 
 /// Install a chosen plugin version + its required dependency closure into the
@@ -2194,7 +2217,7 @@ pub async fn server_install_plugin(
             "this server core does not load plugins",
         ));
     }
-    crate::commands::install_plugin_into_dir(
+    let report = crate::commands::install_plugin_into_dir(
         &base,
         &p.plugins,
         source,
@@ -2203,7 +2226,28 @@ pub async fn server_install_plugin(
         &file.mc_version,
         file.loader,
     )
-    .await
+    .await?;
+
+    // The PLUGIN kernel pushes the primary FIRST (index 0), then appends deps.
+    if let Some(primary) = report.installed.first() {
+        let jar = p.plugins.join(primary);
+        if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+            let _ = crate::servers_runtime::installed::upsert(
+                &p.plugins,
+                crate::servers_runtime::installed::ServerInstalledRecord {
+                    filename: primary.clone(),
+                    sha1: sha1.to_ascii_lowercase(),
+                    source: Some(source),
+                    project_id: Some(project_id.clone()),
+                    version_id: Some(version_id.clone()),
+                    name: None,
+                    version_number: None,
+                    enrich_attempted: false,
+                },
+            );
+        }
+    }
+    Ok(report)
 }
 
 /// Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
