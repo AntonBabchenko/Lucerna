@@ -993,6 +993,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverListMods: (id: string) => typedError<ServerModEntry[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
 	/**
+	 *  Like `server_list_mods`, but each jar carries its registry identity. Uses
+	 *  `reconcile_on_list` (sha1-keyed) so identity survives enable/disable renames.
+	 */
+	serverListModsEnriched: (id: string) => typedError<ServerModEntryEnriched[], Error>(__TAURI_INVOKE("server_list_mods_enriched", { id })),
+	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
 	 *  Отклоняет небезопасные имена (path traversal).
@@ -1260,6 +1265,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
 	 */
 	serverListPlugins: (id: string) => typedError<ServerPluginEntry[], Error>(__TAURI_INVOKE("server_list_plugins", { id })),
+	/**  Plugin twin of `server_list_mods_enriched` (no quarantine reason). */
+	serverListPluginsEnriched: (id: string) => typedError<ServerPluginEntryEnriched[], Error>(__TAURI_INVOKE("server_list_plugins_enriched", { id })),
 	/**
 	 *  Install a chosen plugin version + its required dependency closure into the
 	 *  server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
@@ -1292,11 +1299,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Delete a plugin from the server's `runtime/plugins/` by filename.
 	 *  Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
-	 *  traversal). Unlike `server_delete_mod` this HAS an is_running guard —
-	 *  deleting a live plugin's jar out from under a running Bukkit-family server
-	 *  is a class of foot-gun the mods twin doesn't need to worry about the same
-	 *  way (mods are only ever touched while stopped in practice); kept here
-	 *  deliberately rather than propagating the mods twin's gap.
+	 *  traversal). Refuses while the server is running — symmetric with
+	 *  `server_delete_mod` — so a live plugin's jar is never deleted out from
+	 *  under a running Bukkit-family server.
 	 */
 	serverDeletePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete_plugin", { id, filename })),
 	/**
@@ -3661,12 +3666,42 @@ export type ServerModEntry = {
 };
 
 /**
+ *  `ServerModEntry` + the install-identity overlay (sha1-keyed registry).
+ *  Identity fields are `Option`: locally-dropped jars carry no record until
+ *  enriched. `name`/`version_number` are hints; the UI resolves the display
+ *  name from the platform by `project_id`.
+ */
+export type ServerModEntryEnriched = {
+	filename: string,
+	disabled: boolean,
+	reason: string | null,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
+};
+
+/**
  *  One entry in `server_list_plugins`. Unlike mods there is no quarantine
  *  sidecar — plugins have no client/server ambiguity — so no reason field.
  */
 export type ServerPluginEntry = {
 	filename: string,
 	disabled: boolean,
+};
+
+/**  `ServerPluginEntry` + the install-identity overlay (no quarantine reason). */
+export type ServerPluginEntryEnriched = {
+	filename: string,
+	disabled: boolean,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
 };
 
 /**
