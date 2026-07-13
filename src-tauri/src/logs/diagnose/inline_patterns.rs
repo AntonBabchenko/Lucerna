@@ -116,7 +116,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "Two copies of the same mod are installed",
         explanation: "The mod loader found the same mod twice in the mods folder — usually an old \
              version left behind next to a newer one. It refuses to start until \
-             one copy is removed.",
+             you delete one copy.",
         recommendation: "Open the Installed tab (or the mods folder) and delete the older \
              duplicate jar, then launch again.",
         source_hint: SourceHint::Any,
@@ -167,7 +167,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "A mod file has broken metadata",
         explanation: "The loader couldn't read a mod's descriptor (fabric.mod.json / \
              mods.toml). The jar is malformed — usually a corrupted download or \
-             a file that isn't actually a mod for this loader.",
+             a file that isn't a mod for this loader.",
         recommendation: "Re-download the mod from its official page for your loader and \
              Minecraft version, replacing the broken file.",
         source_hint: SourceHint::Any,
@@ -203,8 +203,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         matcher: Matcher::Regex(&LINKAGE_RE),
         title: "A mod was built for a different game version",
         explanation: "Java couldn't find a method, field or class another mod expected — \
-             the classic sign of a mod compiled against a different Minecraft \
-             or mod version than what's installed. NoClassDefFoundError can \
+             a mod was compiled against a different Minecraft or mod version \
+             than what's installed. NoClassDefFoundError can \
              also be an echo of an earlier failure in the same mod — check the \
              first error above it.",
         recommendation: "Look at the mod named in this line (or the 'Caused by' below) and \
@@ -218,8 +218,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "oom-metaspace",
         matcher: Matcher::Substring("OutOfMemoryError: Metaspace"),
         title: "Java ran out of metaspace",
-        explanation: "The class-metadata area filled up — this happens with very large \
-             mod counts, independent of the normal heap setting.",
+        explanation: "The class-metadata area filled up — this happens with hundreds of \
+             mods installed, independent of the normal heap setting.",
         recommendation: "Add -XX:MaxMetaspaceSize=1G to the instance's custom JVM \
              arguments, or reduce the number of installed mods.",
         source_hint: SourceHint::Any,
@@ -244,7 +244,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
              bigger than the memory the system can give it (or the value is \
              malformed).",
         recommendation: "Lower the maximum memory setting, close memory-hungry programs, \
-             and make sure a 64-bit Java is being used.",
+             and make sure the game runs on 64-bit Java.",
         source_hint: SourceHint::Any,
         side: Side::Any,
     },
@@ -277,7 +277,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "Java itself crashed (native crash)",
         explanation: "The crash happened below Java, in native code — on clients this is \
              most often a graphics-driver fault; overclocking and faulty RAM \
-             are the other usual suspects.",
+             cause it too.",
         recommendation: "Update your GPU driver first. If it keeps happening, remove \
              recently added mods that use native code, and check the hs_err \
              file mentioned nearby for the failing module.",
@@ -302,11 +302,11 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "pixel-format-not-accelerated",
         matcher: Matcher::Substring("Pixel format not accelerated"),
         title: "No hardware graphics acceleration available",
-        explanation: "The system offered only software rendering — the classic sign of a \
-             missing or outdated GPU driver (frequent after Windows reinstalls \
-             and on remote desktops).",
+        explanation: "The system offered only software rendering — the GPU driver is \
+             missing or outdated (frequent after Windows reinstalls and on \
+             remote desktops).",
         recommendation: "Install the proper GPU driver from the vendor's site and restart. \
-             Remote-desktop sessions often lack acceleration entirely — try \
+             Remote-desktop sessions often have no acceleration — try \
              locally.",
         source_hint: SourceHint::Any,
         side: Side::Client,
@@ -315,9 +315,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "opengl-error-spam",
         matcher: Matcher::Regex(&GL_ERROR_RE),
         title: "OpenGL is reporting rendering errors",
-        explanation: "The renderer hit invalid GL state. In practice this comes from a \
-             shader pack, a resource pack, or a rendering mod that doesn't \
-             match the current game/driver.",
+        explanation: "The renderer hit invalid GL state — usually a shader pack, a \
+             resource pack, or a rendering mod that doesn't match the current \
+             game or driver.",
         recommendation: "Disable the most recently added shader or resource pack. If it \
              persists, update the GPU driver and rendering mods (Sodium/Iris/\
              OptiFine) to builds for this exact Minecraft version.",
@@ -329,8 +329,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         id: "invalid-session",
         matcher: Matcher::Regex(&INVALID_SESSION_RE),
         title: "The Minecraft session is invalid",
-        explanation: "The session token has expired or the account isn't properly signed \
-             in, so the server rejected the join. Occasionally the Minecraft \
+        explanation: "The session token has expired or the sign-in didn't complete, so \
+             the server rejected the join. Occasionally the Minecraft \
              session service itself is down — then waiting is the only fix.",
         recommendation: "Sign out and back in (Accounts), then restart the game. On a \
              server log this means the joining player needs to do that.",
@@ -383,7 +383,7 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
              port is wrong, or a firewall is dropping the traffic. (If it \
              appears without you joining a server, a mod's background download \
              timed out — harmless.)",
-        recommendation: "Verify the server is actually running and the address and port are \
+        recommendation: "Verify the server is running and the address and port are \
              right, then check firewalls on both ends (including the router's \
              port forwarding for self-hosted servers).",
         source_hint: SourceHint::Any,
@@ -433,9 +433,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "The world's level.dat is damaged",
         explanation: "The world's main metadata file couldn't be read — typically after \
              an interrupted save.",
-        recommendation: "Restore the world from a backup; Minecraft also keeps \
-             level.dat_old next to level.dat, which can be renamed over it to \
-             recover most worlds.",
+        recommendation: "Restore the world from a backup. Minecraft also keeps \
+             level.dat_old next to level.dat — renaming it over the broken \
+             file recovers most worlds.",
         source_hint: SourceHint::Any,
         side: Side::Any,
     },
@@ -507,8 +507,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         matcher: Matcher::Substring("Can't keep up! Is the server overloaded?"),
         title: "The server is lagging behind",
         explanation: "Game ticks are taking longer than 50 ms, so game time runs slower \
-             than real time. In singleplayer this comes from the built-in \
-             server inside the game. Not a crash — a performance warning.",
+             than real time. In singleplayer the game's built-in server logs \
+             it. This is a warning about performance, not a crash.",
         recommendation: "Reduce the load: fewer or lighter mods, smaller view/simulation \
              distance, or more memory. Occasional single occurrences are \
              harmless.",
@@ -523,8 +523,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
              watchdog killed the server to break the hang. Usually one mod or \
              one chunk operation is stuck.",
         recommendation: "Check the stack printed below this line for the mod that hung. As \
-             a stopgap, max-tick-time in server.properties can be raised, but \
-             finding the stuck mod is the real fix.",
+             a stopgap, raise max-tick-time in server.properties, but the \
+             real fix is finding the stuck mod.",
         source_hint: SourceHint::Any,
         side: Side::Server,
     },
