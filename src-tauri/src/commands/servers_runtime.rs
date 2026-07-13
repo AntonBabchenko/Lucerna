@@ -2462,7 +2462,9 @@ pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<
     let loader = require_mod_loader(&file)?; // rejects vanilla/plugin cores pre-network
     let mc_version = file.mc_version;
 
-    // Only records with full platform identity are checkable.
+    // Only records with full platform identity are checkable. Enumerate first
+    // (mirrors the client `mods_check_updates`): the paired index restores the
+    // installed order after the unordered concurrent poll.
     let eligible: Vec<(
         usize,
         InstalledMod,
@@ -2470,20 +2472,19 @@ pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<
         String,
     )> = crate::servers_runtime::installed::reconcile_on_list(&p.mods)?
         .into_iter()
-        .filter_map(|e| {
+        .enumerate()
+        .filter_map(|(i, e)| {
             match (
                 e.record.source,
                 e.record.project_id.clone(),
                 e.record.version_id.clone(),
             ) {
                 (Some(source), Some(pid), Some(_vid)) => {
-                    Some((record_as_installed(&e.record, e.enabled), source, pid))
+                    Some((i, record_as_installed(&e.record, e.enabled), source, pid))
                 }
                 _ => None,
             }
         })
-        .enumerate()
-        .map(|(i, (m, s, pid))| (i, m, s, pid))
         .collect();
 
     const CONCURRENCY: usize = 6;
@@ -2538,6 +2539,44 @@ fn remove_server_mod_file(mods_dir: &std::path::Path, on_disk_name: &str) -> Res
     }
 }
 
+/// Decide the file/registry swap for an update. `new_name` is the actual
+/// installed primary's on-disk name (always enabled `<base>.jar`). Returns
+/// (old on-disk file to delete or None if it's the same file we just wrote,
+///  whether to re-disable the new primary, the new registry record).
+fn plan_swap(
+    old_enabled: bool,
+    old_base_filename: &str,
+    new_name: &str,
+    new_sha1: &str,
+    target: &ModVersion,
+) -> (
+    Option<String>,
+    bool,
+    crate::servers_runtime::installed::ServerInstalledRecord,
+) {
+    let old_on_disk = if old_enabled {
+        old_base_filename.to_string()
+    } else {
+        format!("{old_base_filename}.disabled")
+    };
+    let delete_old = if old_on_disk != new_name {
+        Some(old_on_disk)
+    } else {
+        None
+    };
+    let record = crate::servers_runtime::installed::ServerInstalledRecord {
+        filename: new_name.to_string(),
+        sha1: new_sha1.to_ascii_lowercase(),
+        source: Some(target.source),
+        project_id: Some(target.project_id.clone()),
+        version_id: Some(target.version_id.clone()),
+        name: Some(target.name.clone()),
+        version_number: Some(target.version_number.clone()),
+        enrich_attempted: true,
+    };
+    (delete_old, !old_enabled, record)
+}
+
 /// Apply one server-mod update: install `target` (+ required deps) via the
 /// shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
 /// set-aside state, and swap the registry rows. Server must be stopped.
@@ -2562,11 +2601,6 @@ pub async fn server_update_one(
         .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
         .ok_or_else(|| Error::io("<mod>", "no such installed server mod"))?;
 
-    let new_name = target.primary_file.filename.clone();
-    if !crate::servers_runtime::runtime::is_safe_mod_name(&new_name) {
-        return Err(Error::io("<mod>", "unsafe target filename"));
-    }
-
     let report = crate::commands::install_version_into_dir(
         &base,
         &p.mods,
@@ -2578,46 +2612,49 @@ pub async fn server_update_one(
     )
     .await?;
 
-    // Old on-disk name, honoring the disabled suffix.
-    let old_on_disk = if old.enabled {
-        old.record.filename.clone()
-    } else {
-        format!("{}.disabled", old.record.filename)
+    // Derive the swap from the ACTUAL installed primary, never the caller's
+    // `target`: `install_version_into_dir` re-resolves the version server-side
+    // and writes whatever THAT returns, so the client-echoed filename/sha1 can
+    // differ (targeting the wrong file → a silently-swallowed NotFound → a
+    // set-aside mod coming back enabled, or a registry row that doesn't match
+    // disk). The mods kernel pushes the primary LAST (deps first).
+    let Some(new_name) = report.installed.last().cloned() else {
+        // Install succeeded but reported no primary — nothing to reconcile.
+        return Ok(report);
     };
-    // Delete the old jar only if it differs from the one we just wrote.
-    if old_on_disk != new_name {
-        remove_server_mod_file(&p.mods, &old_on_disk)?;
-    }
-    // Preserve set-aside: install lands enabled, so re-disable if the old was.
-    if !old.enabled {
-        let src = p.mods.join(&new_name);
-        let dst = p.mods.join(format!("{new_name}.disabled"));
-        if src.starts_with(&p.mods) && dst.starts_with(&p.mods) {
-            if let Err(e) = std::fs::rename(&src, &dst) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(Error::io(src.display().to_string(), e));
-                }
+    // File + registry bookkeeping off the async executor (jar hash + fs + sidecar).
+    let mods = p.mods.clone();
+    let old_enabled = old.enabled;
+    let old_base = old.record.filename.clone();
+    let old_record_sha1 = old.record.sha1.clone();
+    let target_for_record = target.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let new_sha1 = crate::servers_runtime::installed::sha1_of(&mods.join(&new_name))?;
+        let (delete_old, redisable, new_record) = plan_swap(
+            old_enabled,
+            &old_base,
+            &new_name,
+            &new_sha1,
+            &target_for_record,
+        );
+        if let Some(on_disk) = delete_old {
+            remove_server_mod_file(&mods, &on_disk)?;
+        }
+        if redisable {
+            // `new_name` is the REAL installed file, so a NotFound here is a true
+            // invariant violation — do NOT swallow it.
+            let src = mods.join(&new_name);
+            let dst = mods.join(format!("{new_name}.disabled"));
+            if src.starts_with(&mods) && dst.starts_with(&mods) {
+                std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
             }
         }
-    }
-
-    // Swap registry rows.
-    crate::servers_runtime::installed::remove(&p.mods, &old.record.sha1)?;
-    if let Some(new_sha1) = target.primary_file.sha1.as_deref() {
-        crate::servers_runtime::installed::upsert(
-            &p.mods,
-            crate::servers_runtime::installed::ServerInstalledRecord {
-                filename: new_name,
-                sha1: new_sha1.to_ascii_lowercase(),
-                source: Some(target.source),
-                project_id: Some(target.project_id.clone()),
-                version_id: Some(target.version_id.clone()),
-                name: Some(target.name.clone()),
-                version_number: Some(target.version_number.clone()),
-                enrich_attempted: true,
-            },
-        )?;
-    }
+        crate::servers_runtime::installed::remove(&mods, &old_record_sha1)?;
+        crate::servers_runtime::installed::upsert(&mods, new_record)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<update-swap>", e))??;
     Ok(report)
 }
 
@@ -3244,6 +3281,69 @@ mod tests {
         assert_eq!(im.version_id.as_deref(), Some("v"));
         assert_eq!(im.name, "m.jar"); // filename fallback when name is None
         assert!(im.enabled);
+    }
+
+    fn plan_swap_target() -> crate::mods::platform::ModVersion {
+        crate::mods::platform::ModVersion {
+            source: crate::mods::platform::ModSource::Modrinth,
+            project_id: "proj".into(),
+            version_id: "ver".into(),
+            name: "Cool Mod".into(),
+            version_number: "2.0".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![crate::mods::platform::LoaderKind::Fabric],
+            primary_file: crate::mods::platform::ModFile {
+                filename: "cool-2.jar".into(),
+                url: "https://example/cool-2.jar".into(),
+                sha1: Some("CC".into()),
+                size: 1.0,
+                distribution_allowed: true,
+                sha256: None,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn plan_swap_enabled_same_name() {
+        // Re-install wrote the same filename: nothing to delete, stays enabled.
+        let (delete_old, redisable, record) =
+            super::plan_swap(true, "a.jar", "a.jar", "ab", &plan_swap_target());
+        assert_eq!(delete_old, None);
+        assert!(!redisable);
+        assert_eq!(record.filename, "a.jar");
+    }
+
+    #[test]
+    fn plan_swap_enabled_diff_name() {
+        // Enabled old jar under a different name → delete it, keep new enabled.
+        let (delete_old, redisable, _record) =
+            super::plan_swap(true, "a.jar", "b.jar", "ab", &plan_swap_target());
+        assert_eq!(delete_old.as_deref(), Some("a.jar"));
+        assert!(!redisable);
+    }
+
+    #[test]
+    fn plan_swap_disabled_diff_name() {
+        // Set-aside old jar → delete its `.disabled` file, re-disable the new
+        // primary, and stamp the new record with the target's identity + the
+        // file-derived sha1 (lowercased).
+        let (delete_old, redisable, record) =
+            super::plan_swap(false, "a.jar", "b.jar", "AB", &plan_swap_target());
+        assert_eq!(delete_old.as_deref(), Some("a.jar.disabled"));
+        assert!(redisable);
+        assert_eq!(record.filename, "b.jar");
+        assert_eq!(record.sha1, "ab"); // lowercased
+        assert_eq!(
+            record.source,
+            Some(crate::mods::platform::ModSource::Modrinth)
+        );
+        assert_eq!(record.project_id.as_deref(), Some("proj"));
+        assert_eq!(record.version_id.as_deref(), Some("ver"));
+        assert_eq!(record.name.as_deref(), Some("Cool Mod"));
+        assert_eq!(record.version_number.as_deref(), Some("2.0"));
+        assert!(record.enrich_attempted);
     }
 }
 
