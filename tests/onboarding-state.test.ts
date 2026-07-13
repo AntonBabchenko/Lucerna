@@ -25,6 +25,7 @@ import {
   tourState,
 } from '../src/lib/onboarding/state.svelte';
 import { STEPS } from '../src/lib/onboarding/steps';
+import { serversUi } from '../src/lib/servers/servers-ui.svelte';
 
 beforeEach(() => {
   appSettingsGet.mockReset();
@@ -33,6 +34,9 @@ beforeEach(() => {
   tourState.active = false;
   tourState.currentStep = 0;
   tourState.contextual = false;
+  // Each mode-forcing test opts into servers mode explicitly; default to client
+  // so a leaked servers mode from one test can't affect the next.
+  serversUi.setMode('client');
 });
 
 describe('initOnboarding', () => {
@@ -73,6 +77,29 @@ describe('initOnboarding', () => {
     });
     await initOnboarding();
     expect(tourState.active).toBe(true);
+  });
+
+  test('forces client mode when it activates the tour (main-tour anchors are client-only)', async () => {
+    // The account section / instance picker / play button / modpacks anchors
+    // render only in client mode, so a re-shown tour must yank a servers-mode
+    // user back to client — otherwise it opens onto missing anchors.
+    serversUi.setMode('servers');
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { onboarding: { tour_completed_version: null } },
+    });
+    await initOnboarding();
+    expect(serversUi.mode).toBe('client');
+  });
+
+  test('leaves servers mode untouched when the tour does NOT activate', async () => {
+    serversUi.setMode('servers');
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { onboarding: { tour_completed_version: TOUR_VERSION } },
+    });
+    await initOnboarding();
+    expect(serversUi.mode).toBe('servers');
   });
 });
 
@@ -152,6 +179,14 @@ describe('account hint (contextual reuse of the account step)', () => {
     expect(tourState.active).toBe(true);
     expect(tourState.contextual).toBe(true);
     expect(tourState.currentStep).toBe(ACCOUNT_STEP_INDEX);
+  });
+
+  test('showAccountHint forces client mode so the account anchor is present', () => {
+    // The account section renders only in client mode; the hint spotlights
+    // [data-tour="account-section"], so it must switch modes first.
+    serversUi.setMode('servers');
+    showAccountHint();
+    expect(serversUi.mode).toBe('client');
   });
 
   test('closeHint clears active + contextual WITHOUT persisting tour completion', () => {
