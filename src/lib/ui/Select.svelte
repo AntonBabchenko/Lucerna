@@ -28,6 +28,7 @@
   import type { Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { computePopoverPlacement } from './select-placement';
+  import { attachPopoverDismiss } from './popover-dismiss';
 
   type Primitive = string | number;
   type Option = SelectOption;
@@ -260,28 +261,17 @@
   });
 
   // A fixed popover does not follow the trigger on layout shift — close on
-  // ancestor scroll / resize. The scroll listener is capture-phase (3rd arg
-  // true) so it catches non-bubbling scroll from ancestor containers (sidebar,
-  // modal body). Capture also delivers scroll from DESCENDANTS, so we must
-  // ignore scrolls originating inside the popover's own list — otherwise
-  // wheeling a long list, or the arrow-key scrollIntoView below, would fire
-  // this and dismiss the dropdown mid-interaction.
+  // ancestor scroll / resize (shared helper; ignoreScrollWithin keeps wheeling
+  // the list or the arrow-key scrollIntoView below from dismissing it).
   $effect(() => {
     if (!open) return;
-    const collapse = () => {
-      open = false;
-      activeIndex = -1;
-    };
-    const onScroll = (e: Event) => {
-      if (listEl?.contains(e.target as Node)) return;
-      collapse();
-    };
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', collapse);
-    return () => {
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', collapse);
-    };
+    return attachPopoverDismiss({
+      onDismiss: () => {
+        open = false;
+        activeIndex = -1;
+      },
+      ignoreScrollWithin: () => listEl,
+    });
   });
 
   // Keep the active option in view while arrowing. scrollIntoView is a no-op
@@ -333,7 +323,7 @@
     id={listboxId}
     role="listbox"
     tabindex="-1"
-    class="fixed z-50 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
+    class="fixed z-[var(--z-popover)] overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
     style={popoverStyle}
   >
     <!-- Keyed by `opt.value`: option values must be unique within a Select
