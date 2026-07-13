@@ -427,4 +427,35 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].name.as_deref(), Some("new"));
     }
+
+    #[test]
+    fn reconcile_rewrites_base_filename_on_content_preserving_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let sha = write_jar(dir.path(), "sodium-0.5.jar", b"SAMEBYTES");
+        upsert(
+            dir.path(),
+            ServerInstalledRecord {
+                filename: "sodium-0.5.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("p".into()),
+                version_id: Some("v".into()),
+                name: None,
+                version_number: None,
+                enrich_attempted: false,
+            },
+        )
+        .unwrap();
+        // Rename to a DIFFERENT base name, identical bytes (same sha1).
+        std::fs::rename(
+            dir.path().join("sodium-0.5.jar"),
+            dir.path().join("sodium.jar"),
+        )
+        .unwrap();
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        let e = entries.iter().find(|e| e.record.sha1 == sha).unwrap();
+        assert_eq!(e.record.filename, "sodium.jar"); // base filename rewritten by sha1 match
+        assert_eq!(e.record.project_id.as_deref(), Some("p")); // identity preserved
+        assert!(e.enabled);
+    }
 }

@@ -2462,6 +2462,17 @@ pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<
     let loader = require_mod_loader(&file)?; // rejects vanilla/plugin cores pre-network
     let mc_version = file.mc_version;
 
+    // Reconcile the sidecar against disk off the async executor: it does a full
+    // byte read + Sha1 of every jar (mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
     // Only records with full platform identity are checkable. Enumerate first
     // (mirrors the client `mods_check_updates`): the paired index restores the
     // installed order after the unordered concurrent poll.
@@ -2470,7 +2481,7 @@ pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<
         InstalledMod,
         crate::mods::platform::ModSource,
         String,
-    )> = crate::servers_runtime::installed::reconcile_on_list(&p.mods)?
+    )> = entries
         .into_iter()
         .enumerate()
         .filter_map(|(i, e)| {
@@ -2596,7 +2607,18 @@ pub async fn server_update_one(
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let loader = require_mod_loader(&file)?;
 
-    let old = crate::servers_runtime::installed::reconcile_on_list(&p.mods)?
+    // Reconcile the sidecar against disk off the async executor: it does a full
+    // byte read + Sha1 of every jar (mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    let old = entries
         .into_iter()
         .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
         .ok_or_else(|| Error::io("<mod>", "no such installed server mod"))?;
@@ -3481,5 +3503,19 @@ mod enrich_resolve_tests {
         let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
         let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
         assert!(!resolved.contains_key("cc"));
+    }
+
+    #[test]
+    fn gate_skips_attempted_when_cf_failed_though_mr_ok() {
+        // CF was tried and failed (cf_ok=false) even though Modrinth succeeded:
+        // the whole scope must stay un-attempted so the next pass retries CF.
+        let shas = vec!["aa".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (_resolved, attempted) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, false, true);
+        assert!(
+            attempted.is_empty(),
+            "cf failure must leave the scope un-attempted for retry"
+        );
     }
 }
