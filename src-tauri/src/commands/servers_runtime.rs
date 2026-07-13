@@ -574,6 +574,11 @@ pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<ServerModEntry
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    // Match server_delete_plugin: never delete a jar out from under a running
+    // server. Closes the gap the plugin twin's doc comment previously flagged.
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(crate::error::Error::ServerAlreadyRunning { id });
+    }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
         return Err(crate::error::Error::io("<mod>", "invalid filename"));
     }
@@ -2440,11 +2445,9 @@ pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Re
 
 /// Delete a plugin from the server's `runtime/plugins/` by filename.
 /// Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
-/// traversal). Unlike `server_delete_mod` this HAS an is_running guard —
-/// deleting a live plugin's jar out from under a running Bukkit-family server
-/// is a class of foot-gun the mods twin doesn't need to worry about the same
-/// way (mods are only ever touched while stopped in practice); kept here
-/// deliberately rather than propagating the mods twin's gap.
+/// traversal). Refuses while the server is running — symmetric with
+/// `server_delete_mod` — so a live plugin's jar is never deleted out from
+/// under a running Bukkit-family server.
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
