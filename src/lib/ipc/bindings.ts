@@ -1251,6 +1251,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverEnableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_mod", { id, filename })),
 	/**
+	 *  Disable (rename to `*.disabled`) a single mod in the server's `mods/`.
+	 *  The mirror of `server_disable_plugin` for the mods dir: a user-initiated
+	 *  disable, so — unlike `server_disable_mods`' client-only quarantine — it
+	 *  writes NO quarantine `reason` sidecar. Single-file, no dependency guard.
+	 *  Rejects unsafe filenames / path escapes. Server must be stopped.
+	 */
+	serverDisableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_disable_mod", { id, filename })),
+	/**
 	 *  Install a local mod `.jar` (chosen via the file picker) into the server's
 	 *  `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
 	 *  over IPC). Validates the jar is readable and the destination name is safe.

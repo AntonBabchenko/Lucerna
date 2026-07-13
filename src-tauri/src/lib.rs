@@ -288,6 +288,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // local install, datapacks):
             commands::server_install_mod,
             commands::server_enable_mod,
+            commands::server_disable_mod,
             commands::server_install_local,
             commands::server_list_datapacks,
             commands::server_install_datapack,

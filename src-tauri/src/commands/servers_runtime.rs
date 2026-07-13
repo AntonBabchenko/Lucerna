@@ -2528,6 +2528,34 @@ pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result
     Ok(())
 }
 
+/// Disable (rename to `*.disabled`) a single mod in the server's `mods/`.
+/// The mirror of `server_disable_plugin` for the mods dir: a user-initiated
+/// disable, so — unlike `server_disable_mods`' client-only quarantine — it
+/// writes NO quarantine `reason` sidecar. Single-file, no dependency guard.
+/// Rejects unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_disable_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<mod>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let src = mods.join(&filename);
+    if !src.starts_with(&mods) {
+        return Err(Error::io("<mod>", "path escapes mods dir"));
+    }
+    let dst = mods.join(format!("{filename}.disabled"));
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
+}
+
 /// Install a local mod `.jar` (chosen via the file picker) into the server's
 /// `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
 /// over IPC). Validates the jar is readable and the destination name is safe.
