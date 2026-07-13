@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { onDestroy } from 'svelte';
-  import { commands } from '$lib/ipc/bindings';
+  import { commands, type ModUpdateState } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { modCapable, pluginCapable } from '$lib/servers/core-display';
@@ -31,6 +31,18 @@
   let pendingDelete = $state<ServerRow | null>(null);
   let deleting = $state(false);
 
+  // Per-mod update-check results, keyed by sha1 (identity that survives an
+  // enable/disable rename). Plugins are out of scope — this pane is mods-only.
+  let updateChecks = $state(new Map<string, ModUpdateState>());
+  let checkingUpdates = $state(false);
+
+  // A different server's checks must never bleed across a switch (sha1 keys can
+  // collide across servers). Reset on serverId change.
+  $effect(() => {
+    void serverId;
+    updateChecks = new Map();
+  });
+
   // The server's own metadata drives mod applicability. Mods only attach to a
   // mod loader; a vanilla server gets datapacks only. Plugin cores (paper/purpur)
   // have no mod loader either — they get datapacks + plugins, not mods.
@@ -51,6 +63,37 @@
       : await commands.serverEnableMod(serverId, row.onDiskFilename);
     if (res.status === 'ok') await data.refresh();
     else actionError = formatError(res.error);
+  }
+
+  // Read-only scan: classify every identity-bearing mod against its platform.
+  async function checkUpdates() {
+    checkingUpdates = true;
+    actionError = null;
+    try {
+      const res = await commands.serverCheckModUpdates(serverId);
+      if (res.status === 'ok') {
+        const m = new Map<string, ModUpdateState>();
+        for (const c of res.data) m.set(c.sha1, c.state);
+        updateChecks = m;
+      } else actionError = formatError(res.error);
+    } finally {
+      checkingUpdates = false;
+    }
+  }
+
+  // Apply one pending update, then drop its check and re-list (the row's sha1
+  // and version change after the swap, so the stale entry must go).
+  async function updateOne(row: ServerRow) {
+    const state = updateChecks.get(row.sha1);
+    if (state?.kind !== 'update_available') return;
+    actionError = null;
+    const res = await commands.serverUpdateOne(serverId, row.sha1, state.target);
+    if (res.status === 'ok') {
+      const next = new Map(updateChecks);
+      next.delete(row.sha1);
+      updateChecks = next;
+      await data.refresh();
+    } else actionError = formatError(res.error);
   }
 
   async function confirmDelete(row: ServerRow) {
@@ -120,6 +163,15 @@
     {#if isModCapable}
       <BusyButton
         class="btn-secondary btn-sm"
+        data-testid="server-mods-check-updates"
+        busy={checkingUpdates}
+        disabled={!canManageMods}
+        onclick={() => void checkUpdates()}
+      >
+        {$t('servers.mods.checkUpdates')}
+      </BusyButton>
+      <BusyButton
+        class="btn-secondary btn-sm"
         data-testid="server-mods-quarantine"
         busy={busyQuarantine}
         disabled={!canManageMods}
@@ -156,6 +208,9 @@
             card={row.card}
             reason={row.reason}
             canToggle={canManageMods}
+            checking={checkingUpdates}
+            updateState={updateChecks.get(row.sha1) ?? null}
+            onUpdate={() => void updateOne(row)}
             onToggle={() => void toggle(row)}
             onUninstall={() => {
               // ModCard's trash button can't be gated per-row (no prop for it),

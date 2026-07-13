@@ -2152,6 +2152,7 @@
     "mods": {
       "empty": "No mods",
       "delete": "Remove",
+      "checkUpdates": "Check for updates",
       "openFolder": "Open folder",
       "deleteConfirm": "Remove {name}?",
       "note": "Add or remove mods in the server's mods folder.",

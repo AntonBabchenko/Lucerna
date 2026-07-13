@@ -1596,6 +1596,7 @@ export type TranslationKey =
   | 'servers.logs.sharedAt'
   | 'servers.logs.viewing'
   | 'servers.mods.addDatapack'
+  | 'servers.mods.checkUpdates'
   | 'servers.mods.datapackInstalled'
   | 'servers.mods.datapacksEmpty'
   | 'servers.mods.datapacksTitle'

@@ -18,6 +18,8 @@ const {
   mockDisableMod,
   mockOpenFolder,
   mockQuarantine,
+  mockCheckUpdates,
+  mockUpdateOne,
   serverRow,
 } = vi.hoisted(() => {
   const serverRow = {
@@ -49,6 +51,10 @@ const {
     mockQuarantine: vi
       .fn()
       .mockResolvedValue({ ok: true, report: { disabled: [], kept_because_required: [] } }),
+    mockCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    mockUpdateOne: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { installed: [], unresolved: [] } }),
     serverRow,
   };
 });
@@ -62,6 +68,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverEnableMod: mockEnableMod,
     serverDisableMod: mockDisableMod,
     serverOpenFolder: mockOpenFolder,
+    serverCheckModUpdates: mockCheckUpdates,
+    serverUpdateOne: mockUpdateOne,
   },
 }));
 
@@ -104,6 +112,8 @@ describe('ServerModsInstalled', () => {
     serverRow.loader = 'forge';
     mockEnrich.mockResolvedValue({ status: 'ok', data: 0 });
     mockProjects.mockResolvedValue({ status: 'ok', data: [] });
+    mockCheckUpdates.mockResolvedValue({ status: 'ok', data: [] });
+    mockUpdateOne.mockResolvedValue({ status: 'ok', data: { installed: [], unresolved: [] } });
     mockListEnriched.mockResolvedValue({
       status: 'ok',
       data: [modRow('jei.jar'), modRow('betterf3.jar', { disabled: true, reason: 'client_only' })],
@@ -179,6 +189,89 @@ describe('ServerModsInstalled', () => {
     expect(mockListEnriched).toHaveBeenCalledTimes(1);
     await rerender({ serverId: 'srv-1', reloadToken: 1 });
     await waitFor(() => expect(mockListEnriched).toHaveBeenCalledTimes(2));
+  });
+
+  it('checks updates, shows the badge, then applies a per-row update via sha1 + target', async () => {
+    // An ENRICHED row (source + resolved summary) so ModCard's list layout
+    // renders a direct "Update" button — a loose row puts Update in a context
+    // menu instead. `sha1` is the identity the update commands key on.
+    const enriched = {
+      filename: 'jei.jar',
+      on_disk_filename: 'jei.jar',
+      disabled: false,
+      reason: null,
+      sha1: 'sha-jei',
+      source: 'modrinth',
+      project_id: 'jei',
+      version_id: 'v1',
+      name: 'JEI',
+      version_number: '1.0',
+    };
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [enriched] });
+    mockProjects.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          source: 'modrinth',
+          project_id: 'jei',
+          slug: 'jei',
+          name: 'JEI',
+          summary: '',
+          icon_url: null,
+          downloads: 0,
+          author: 'mezz',
+          updated_at: null,
+        },
+      ],
+    });
+    const target = {
+      source: 'modrinth',
+      project_id: 'jei',
+      version_id: 'v2',
+      name: 'JEI',
+      version_number: '2.0',
+      mc_versions: ['1.20.1'],
+      loaders: ['forge'],
+      primary_file: {
+        filename: 'jei-2.jar',
+        url: 'https://example/jei-2.jar',
+        sha1: 'bb',
+        size: 1,
+        distribution_allowed: true,
+      },
+      deps: [],
+      published_at: null,
+    };
+    mockCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          sha1: 'sha-jei',
+          name: 'JEI',
+          source: 'modrinth',
+          project_id: 'jei',
+          current_version_id: 'v1',
+          current_version_number: '1.0',
+          state: { kind: 'update_available', target },
+        },
+      ],
+    });
+
+    render(ServerModsInstalled, { serverId: 'srv-1' });
+    await screen.findByText('JEI');
+
+    // Before checking: no update affordance.
+    expect(screen.queryByTestId('mod-update-badge')).toBeNull();
+
+    await fireEvent.click(screen.getByTestId('server-mods-check-updates'));
+    await waitFor(() => expect(mockCheckUpdates).toHaveBeenCalledWith('srv-1'));
+
+    // The update badge appears for the row with a pending update.
+    await screen.findByTestId('mod-update-badge');
+
+    // Clicking the per-row Update applies it via sha1 + the classified target.
+    await fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(mockUpdateOne).toHaveBeenCalledWith('srv-1', 'sha-jei', target));
   });
 
   it('shows the quarantine button for a fabric server', async () => {
