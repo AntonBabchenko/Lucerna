@@ -45,6 +45,9 @@ pub struct ServerModEntry {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct ServerModEntryEnriched {
     pub filename: String,
+    /// Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+    /// (delete/enable/disable) MUST join this, not the base `filename`.
+    pub on_disk_filename: String,
     pub disabled: bool,
     pub reason: Option<String>,
     pub sha1: String,
@@ -593,7 +596,7 @@ pub fn server_list_mods_enriched(
     app: AppHandle,
     id: String,
 ) -> Result<Vec<ServerModEntryEnriched>> {
-    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
     let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
     let entries = crate::servers_runtime::installed::reconcile_on_list(&mods)?;
@@ -601,6 +604,9 @@ pub fn server_list_mods_enriched(
         .into_iter()
         .map(|e| {
             let disabled = !e.enabled;
+            // Current on-disk name: base `filename` + `.disabled` when disabled.
+            // Used both for the quarantine-reason lookup and as `on_disk_filename`
+            // so mutation commands join the real file, not the base name.
             let on_disk = if disabled {
                 format!("{}.disabled", e.record.filename)
             } else {
@@ -613,6 +619,7 @@ pub fn server_list_mods_enriched(
             };
             ServerModEntryEnriched {
                 filename: e.record.filename,
+                on_disk_filename: on_disk,
                 disabled,
                 reason,
                 sha1: e.record.sha1,
@@ -2224,26 +2231,38 @@ pub async fn server_install_mod(
     )
     .await?;
 
-    // The mods kernel pushes the user-picked primary LAST (deps first). Record
-    // its identity so the enriched list can show it. Best-effort: a sidecar
-    // failure must never fail an install already completed on disk.
+    // Record the user-picked primary's identity so the enriched list can show it.
+    // The mods kernel pushes the primary LAST (deps first). Best-effort AND off the
+    // async executor: `sha1_of` does a full-file jar read and `upsert` writes the
+    // sidecar — both blocking, so run them in `spawn_blocking` (mirrors
+    // `install_local_plugin`). A sidecar failure must never fail an install already
+    // completed on disk.
+    // Fast-follow: `copy_version_into_dir` already verifies this sha1 during the
+    // download; a future change could thread it out of `InstallMissingReport` to
+    // skip this re-read (deferred — that struct is shared with the client path).
     if let Some(primary) = report.installed.last() {
-        let jar = p.mods.join(primary);
-        if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
-            let _ = crate::servers_runtime::installed::upsert(
-                &p.mods,
-                crate::servers_runtime::installed::ServerInstalledRecord {
-                    filename: primary.clone(),
-                    sha1: sha1.to_ascii_lowercase(),
-                    source: Some(source),
-                    project_id: Some(project_id.clone()),
-                    version_id: Some(version_id.clone()),
-                    name: None,
-                    version_number: None,
-                    enrich_attempted: false,
-                },
-            );
-        }
+        let dir = p.mods.clone();
+        let primary = primary.clone();
+        let (src, pid, vid) = (source, project_id, version_id);
+        let _ = tokio::task::spawn_blocking(move || {
+            let jar = dir.join(&primary);
+            if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+                let _ = crate::servers_runtime::installed::upsert(
+                    &dir,
+                    crate::servers_runtime::installed::ServerInstalledRecord {
+                        filename: primary,
+                        sha1: sha1.to_ascii_lowercase(),
+                        source: Some(src),
+                        project_id: Some(pid),
+                        version_id: Some(vid),
+                        name: None,
+                        version_number: None,
+                        enrich_attempted: false,
+                    },
+                );
+            }
+        })
+        .await;
     }
     Ok(report)
 }
@@ -2287,23 +2306,33 @@ pub async fn server_install_plugin(
     .await?;
 
     // The PLUGIN kernel pushes the primary FIRST (index 0), then appends deps.
+    // Best-effort AND off the async executor: `sha1_of` reads the whole jar and
+    // `upsert` writes the sidecar — both blocking, so run them in `spawn_blocking`
+    // (mirrors `install_local_plugin`). A sidecar failure never fails an install
+    // already completed on disk.
     if let Some(primary) = report.installed.first() {
-        let jar = p.plugins.join(primary);
-        if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
-            let _ = crate::servers_runtime::installed::upsert(
-                &p.plugins,
-                crate::servers_runtime::installed::ServerInstalledRecord {
-                    filename: primary.clone(),
-                    sha1: sha1.to_ascii_lowercase(),
-                    source: Some(source),
-                    project_id: Some(project_id.clone()),
-                    version_id: Some(version_id.clone()),
-                    name: None,
-                    version_number: None,
-                    enrich_attempted: false,
-                },
-            );
-        }
+        let dir = p.plugins.clone();
+        let primary = primary.clone();
+        let (src, pid, vid) = (source, project_id, version_id);
+        let _ = tokio::task::spawn_blocking(move || {
+            let jar = dir.join(&primary);
+            if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+                let _ = crate::servers_runtime::installed::upsert(
+                    &dir,
+                    crate::servers_runtime::installed::ServerInstalledRecord {
+                        filename: primary,
+                        sha1: sha1.to_ascii_lowercase(),
+                        source: Some(src),
+                        project_id: Some(pid),
+                        version_id: Some(vid),
+                        name: None,
+                        version_number: None,
+                        enrich_attempted: false,
+                    },
+                );
+            }
+        })
+        .await;
     }
     Ok(report)
 }
@@ -2442,6 +2471,9 @@ pub struct ServerPluginEntry {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct ServerPluginEntryEnriched {
     pub filename: String,
+    /// Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+    /// (delete/enable/disable) MUST join this, not the base `filename`.
+    pub on_disk_filename: String,
     pub disabled: bool,
     pub sha1: String,
     pub source: Option<crate::mods::platform::ModSource>,
@@ -2476,15 +2508,26 @@ pub fn server_list_plugins_enriched(
     let entries = crate::servers_runtime::installed::reconcile_on_list(&dir)?;
     Ok(entries
         .into_iter()
-        .map(|e| ServerPluginEntryEnriched {
-            filename: e.record.filename,
-            disabled: !e.enabled,
-            sha1: e.record.sha1,
-            source: e.record.source,
-            project_id: e.record.project_id,
-            version_id: e.record.version_id,
-            name: e.record.name,
-            version_number: e.record.version_number,
+        .map(|e| {
+            let disabled = !e.enabled;
+            // Current on-disk name so mutation commands join the real file, not
+            // the base name (a disabled plugin lives at `<name>.jar.disabled`).
+            let on_disk = if disabled {
+                format!("{}.disabled", e.record.filename)
+            } else {
+                e.record.filename.clone()
+            };
+            ServerPluginEntryEnriched {
+                filename: e.record.filename,
+                on_disk_filename: on_disk,
+                disabled,
+                sha1: e.record.sha1,
+                source: e.record.source,
+                project_id: e.record.project_id,
+                version_id: e.record.version_id,
+                name: e.record.name,
+                version_number: e.record.version_number,
+            }
         })
         .collect())
 }

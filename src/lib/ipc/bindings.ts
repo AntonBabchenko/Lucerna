@@ -3673,6 +3673,11 @@ export type ServerModEntry = {
  */
 export type ServerModEntryEnriched = {
 	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
 	disabled: boolean,
 	reason: string | null,
 	sha1: string,
@@ -3695,6 +3700,11 @@ export type ServerPluginEntry = {
 /**  `ServerPluginEntry` + the install-identity overlay (no quarantine reason). */
 export type ServerPluginEntryEnriched = {
 	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
 	disabled: boolean,
 	sha1: string,
 	source: ModSource | null,
