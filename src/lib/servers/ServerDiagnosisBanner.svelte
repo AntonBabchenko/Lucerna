@@ -5,9 +5,8 @@
   import type { ClientModFinding } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
-  import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Banner from '$lib/ui/Banner.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
   import { serverDiagnosisSignature } from './server-diagnosis-view';
 
@@ -264,225 +263,211 @@
 {#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running && !dismissed}
   <!-- role="alert" so screen-reader users hear the diagnosis when it appears
        after a crash (it renders conditionally, not on mount). -->
-  <div
-    class="rounded-xl border border-warning-text bg-warning-bg p-3 text-warning-text"
-    data-testid="server-diagnosis-banner"
+  <Banner
+    title={key ? $t(`servers.diagnose.${key}.title`) : diag.diagnosis.title}
+    icon="warning"
     role="alert"
+    dataTestid="server-diagnosis-banner"
+    dismissTestid="server-diagnosis-dismiss"
+    onDismiss={() => signature && diagnosisDismiss.dismiss(`server:${serverId}`, signature)}
   >
-    <div class="flex items-start gap-2">
-      <Icon name="warning" class="mt-0.5 shrink-0 text-warning-text" />
-      <div class="flex-1 min-w-0">
-        <p class="font-semibold text-warning-text">
-          {key ? $t(`servers.diagnose.${key}.title`) : diag.diagnosis.title}
-        </p>
-        <p class="mt-1 text-sm text-primary">
-          {#if key === 'crashUnknown'}
-            {$t('servers.diagnose.crashUnknown.explanation', { code: exitCodeLabel ?? '?' })}
-          {:else if key}
-            {$t(`servers.diagnose.${key}.explanation`)}
-          {:else}
-            {diag.diagnosis.explanation}
-          {/if}
-        </p>
-        <p class="mt-1 text-sm text-primary">
-          {key ? $t(`servers.diagnose.${key}.recommendation`) : diag.diagnosis.recommendation}
-        </p>
+    <p class="mt-1 text-sm text-primary">
+      {#if key === 'crashUnknown'}
+        {$t('servers.diagnose.crashUnknown.explanation', { code: exitCodeLabel ?? '?' })}
+      {:else if key}
+        {$t(`servers.diagnose.${key}.explanation`)}
+      {:else}
+        {diag.diagnosis.explanation}
+      {/if}
+    </p>
+    <p class="mt-1 text-sm text-primary">
+      {key ? $t(`servers.diagnose.${key}.recommendation`) : diag.diagnosis.recommendation}
+    </p>
 
-        {#if diag.forge_skip_count != null && diag.forge_skip_count > 0}
-          <p class="mt-1 text-xs text-warning-text/80">
-            {$t('servers.diagnose.forgeSkipNote', { count: diag.forge_skip_count })}
-          </p>
-        {/if}
+    {#if diag.forge_skip_count != null && diag.forge_skip_count > 0}
+      <p class="mt-1 text-xs text-warning-text/80">
+        {$t('servers.diagnose.forgeSkipNote', { count: diag.forge_skip_count })}
+      </p>
+    {/if}
 
-        <!-- Manual diagnose button always shown so the user can re-run -->
-        <BusyButton
-          class="btn-ghost btn-sm mt-2"
-          data-testid="server-diagnose-btn"
-          busy={busyDiagnose}
-          onclick={() => void runDiagnose()}
+    <!-- Manual diagnose button always shown so the user can re-run -->
+    <BusyButton
+      class="btn-ghost btn-sm mt-2"
+      data-testid="server-diagnose-btn"
+      busy={busyDiagnose}
+      onclick={() => void runDiagnose()}
+    >
+      {$t('servers.diagnose.diagnoseBtn')}
+    </BusyButton>
+
+    {#if diag.server_repair === 'remove_client_mods'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-quarantine"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.quarantineClientMods')}
+        onclick={() => void runQuarantine()}
+      >
+        {$t('servers.diagnose.quarantineClientMods')}
+      </BusyButton>
+    {:else if diag.server_repair === 'accept_eula'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-accept-eula"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.acceptEula')}
+        onclick={() => void runFix(() => serverState.acceptEula(serverId))}
+      >
+        {$t('servers.diagnose.fix.acceptEula')}
+      </BusyButton>
+    {:else if diag.server_repair === 'stop_orphan_and_retry'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-stop-orphan"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.stopOrphan')}
+        onclick={() => void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
+      >
+        {$t('servers.diagnose.fix.stopOrphan')}
+      </BusyButton>
+    {:else if diag.server_repair === 'change_port'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-change-port"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
+        onclick={() => void runFix(() => serverState.changePort(serverId, suggestedPort))}
+      >
+        {$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
+      </BusyButton>
+    {:else if diag.server_repair === 'raise_heap'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-raise-heap"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.raiseHeap', {
+          mb: diag.suggested_heap_mb ?? 4096,
+        })}
+        onclick={() =>
+          void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096))}
+      >
+        {$t('servers.diagnose.fix.raiseHeap', { mb: diag.suggested_heap_mb ?? 4096 })}
+      </BusyButton>
+    {:else if diag.server_repair === 'lower_heap'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-lower-heap"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.lowerHeap', {
+          mb: diag.suggested_heap_mb ?? 2048,
+        })}
+        onclick={() =>
+          void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048))}
+      >
+        {$t('servers.diagnose.fix.lowerHeap', { mb: diag.suggested_heap_mb ?? 2048 })}
+      </BusyButton>
+    {:else if diag.server_repair === 'redownload_server_jar'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-redownload-jar"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.redownloadJar')}
+        onclick={() => void runFix(() => serverState.redownloadJar(serverId))}
+      >
+        {$t('servers.diagnose.fix.redownloadJar')}
+      </BusyButton>
+    {:else if diag.server_repair === 'install_missing_dep'}
+      <BusyButton
+        class="btn-warning btn-sm mt-2"
+        data-testid="server-fix-install-dep"
+        busy={busyFix}
+        aria-label={$t('servers.diagnose.fix.installMissingDep', {
+          count: diag.conflict_mods.length,
+        })}
+        onclick={() => void runInstallMissingDep()}
+      >
+        {$t('servers.diagnose.fix.installMissingDep', { count: diag.conflict_mods.length })}
+      </BusyButton>
+    {/if}
+
+    {#if fixError}
+      <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-fix-error">
+        {fixError}
+      </p>
+    {/if}
+
+    {#if installInfo}
+      <p class="mt-2 text-sm text-primary" role="status" data-testid="server-install-info">
+        {installInfo}
+      </p>
+    {/if}
+
+    {#if diag.status === 'actionable' && diag.client_mods.length > 0}
+      <div class="mt-2">
+        <button
+          type="button"
+          class="btn-ghost btn-sm"
+          onclick={() => (showChecklist = !showChecklist)}
         >
-          {$t('servers.diagnose.diagnoseBtn')}
-        </BusyButton>
+          {$t('servers.diagnose.showClientMods')}
+        </button>
 
-        {#if diag.server_repair === 'remove_client_mods'}
+        {#if showChecklist}
+          <ul class="mt-2 space-y-1">
+            {#each diag.client_mods as f (f.filename)}
+              <li class="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  id="mod-{f.filename}"
+                  checked={checked[f.filename] ?? false}
+                  onchange={(e) => {
+                    checked[f.filename] = (e.currentTarget as HTMLInputElement).checked;
+                  }}
+                  class="shrink-0"
+                />
+                <label for="mod-{f.filename}" class="flex-1 min-w-0">
+                  <span class="font-mono text-xs">{f.filename}</span>
+                  <span class="ml-2 text-xs text-secondary">
+                    {$t(`servers.diagnose.reason.${reasonKey(f.reason)}`)}
+                    ·
+                    {$t(`servers.diagnose.confidence.${f.confidence}`)}
+                  </span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+
           <BusyButton
             class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-quarantine"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.quarantineClientMods')}
-            onclick={() => void runQuarantine()}
+            busy={busyRemove}
+            disabled={!diag.client_mods.some((f) => checked[f.filename])}
+            onclick={() => void removeSelected()}
           >
-            {$t('servers.diagnose.quarantineClientMods')}
+            {diag.server_repair === 'disable_mods'
+              ? $t('servers.diagnose.disableSelected')
+              : $t('servers.diagnose.removeSelected')}
           </BusyButton>
-        {:else if diag.server_repair === 'accept_eula'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-accept-eula"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.acceptEula')}
-            onclick={() => void runFix(() => serverState.acceptEula(serverId))}
-          >
-            {$t('servers.diagnose.fix.acceptEula')}
-          </BusyButton>
-        {:else if diag.server_repair === 'stop_orphan_and_retry'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-stop-orphan"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.stopOrphan')}
-            onclick={() =>
-              void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
-          >
-            {$t('servers.diagnose.fix.stopOrphan')}
-          </BusyButton>
-        {:else if diag.server_repair === 'change_port'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-change-port"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
-            onclick={() => void runFix(() => serverState.changePort(serverId, suggestedPort))}
-          >
-            {$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
-          </BusyButton>
-        {:else if diag.server_repair === 'raise_heap'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-raise-heap"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.raiseHeap', {
-              mb: diag.suggested_heap_mb ?? 4096,
-            })}
-            onclick={() =>
-              void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096))}
-          >
-            {$t('servers.diagnose.fix.raiseHeap', { mb: diag.suggested_heap_mb ?? 4096 })}
-          </BusyButton>
-        {:else if diag.server_repair === 'lower_heap'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-lower-heap"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.lowerHeap', {
-              mb: diag.suggested_heap_mb ?? 2048,
-            })}
-            onclick={() =>
-              void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048))}
-          >
-            {$t('servers.diagnose.fix.lowerHeap', { mb: diag.suggested_heap_mb ?? 2048 })}
-          </BusyButton>
-        {:else if diag.server_repair === 'redownload_server_jar'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-redownload-jar"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.redownloadJar')}
-            onclick={() => void runFix(() => serverState.redownloadJar(serverId))}
-          >
-            {$t('servers.diagnose.fix.redownloadJar')}
-          </BusyButton>
-        {:else if diag.server_repair === 'install_missing_dep'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-install-dep"
-            busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.installMissingDep', {
-              count: diag.conflict_mods.length,
-            })}
-            onclick={() => void runInstallMissingDep()}
-          >
-            {$t('servers.diagnose.fix.installMissingDep', { count: diag.conflict_mods.length })}
-          </BusyButton>
-        {/if}
-
-        {#if fixError}
-          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-fix-error">
-            {fixError}
-          </p>
-        {/if}
-
-        {#if installInfo}
-          <p class="mt-2 text-sm text-primary" role="status" data-testid="server-install-info">
-            {installInfo}
-          </p>
-        {/if}
-
-        {#if diag.status === 'actionable' && diag.client_mods.length > 0}
-          <div class="mt-2">
-            <button
-              type="button"
-              class="btn-ghost btn-sm"
-              onclick={() => (showChecklist = !showChecklist)}
-            >
-              {$t('servers.diagnose.showClientMods')}
-            </button>
-
-            {#if showChecklist}
-              <ul class="mt-2 space-y-1">
-                {#each diag.client_mods as f (f.filename)}
-                  <li class="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      id="mod-{f.filename}"
-                      checked={checked[f.filename] ?? false}
-                      onchange={(e) => {
-                        checked[f.filename] = (e.currentTarget as HTMLInputElement).checked;
-                      }}
-                      class="shrink-0"
-                    />
-                    <label for="mod-{f.filename}" class="flex-1 min-w-0">
-                      <span class="font-mono text-xs">{f.filename}</span>
-                      <span class="ml-2 text-xs text-secondary">
-                        {$t(`servers.diagnose.reason.${reasonKey(f.reason)}`)}
-                        ·
-                        {$t(`servers.diagnose.confidence.${f.confidence}`)}
-                      </span>
-                    </label>
-                  </li>
-                {/each}
-              </ul>
-
-              <BusyButton
-                class="btn-warning btn-sm mt-2"
-                busy={busyRemove}
-                disabled={!diag.client_mods.some((f) => checked[f.filename])}
-                onclick={() => void removeSelected()}
-              >
-                {diag.server_repair === 'disable_mods'
-                  ? $t('servers.diagnose.disableSelected')
-                  : $t('servers.diagnose.removeSelected')}
-              </BusyButton>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Conflict (B8): the loader cited mod ids but the classifier matched no
-             installed jar to disable automatically — list them as guidance. -->
-        {#if diag.server_repair === 'disable_mods' && diag.client_mods.length === 0 && diag.conflict_mods.length > 0}
-          <div class="mt-2 text-sm text-primary" data-testid="server-fix-disable-mods">
-            <p>{$t('servers.diagnose.conflictNamed')}</p>
-            <ul class="mt-1 list-disc pl-5">
-              {#each diag.conflict_mods as id (id)}
-                <li class="font-mono text-xs">{id}</li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
-
-        {#if removeError}
-          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-remove-error">
-            {removeError}
-          </p>
         {/if}
       </div>
-      <button
-        type="button"
-        class="btn-icon -my-1 -mr-1 shrink-0 !text-warning-text hover:!bg-warning-text/10"
-        aria-label={$t('common.dismissWarning')}
-        use:tooltip={$t('common.dismissWarningTooltip')}
-        onclick={() => signature && diagnosisDismiss.dismiss(`server:${serverId}`, signature)}
-        data-testid="server-diagnosis-dismiss"><Icon name="close" size={16} /></button
-      >
-    </div>
-  </div>
+    {/if}
+
+    <!-- Conflict (B8): the loader cited mod ids but the classifier matched no
+             installed jar to disable automatically — list them as guidance. -->
+    {#if diag.server_repair === 'disable_mods' && diag.client_mods.length === 0 && diag.conflict_mods.length > 0}
+      <div class="mt-2 text-sm text-primary" data-testid="server-fix-disable-mods">
+        <p>{$t('servers.diagnose.conflictNamed')}</p>
+        <ul class="mt-1 list-disc pl-5">
+          {#each diag.conflict_mods as id (id)}
+            <li class="font-mono text-xs">{id}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
+    {#if removeError}
+      <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-remove-error">
+        {removeError}
+      </p>
+    {/if}
+  </Banner>
 {/if}

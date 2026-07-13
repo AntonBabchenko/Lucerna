@@ -13,9 +13,8 @@
   import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import FixModRepairCard from '$lib/logs/FixModRepairCard.svelte';
-  import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Banner from '$lib/ui/Banner.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
   import { logDiagnosisSignature } from '$lib/logs/log-diagnosis-view';
 
@@ -93,79 +92,69 @@
   <!-- role="alert" so screen-reader users hear the diagnosis when it appears
        (it renders conditionally after a run, not on mount) — matches the server
        banner. -->
-  <div
-    class="mb-3 rounded-xl border border-warning-text bg-warning-bg p-3"
-    data-testid="log-diagnosis-banner"
-    data-tour-ctx="logs-diagnosis"
+  <Banner
+    title={copy ? $t(copy.title) : diag.title}
+    icon="warning"
     role="alert"
+    class="mb-3"
+    dataTestid="log-diagnosis-banner"
+    dataTourCtx="logs-diagnosis"
+    dismissTestid="log-diagnosis-dismiss"
+    onDismiss={() =>
+      instanceId && signature && diagnosisDismiss.dismiss(`log:${instanceId}`, signature)}
   >
-    <div class="flex items-start gap-2">
-      <Icon name="warning" class="mt-0.5 text-warning-text" />
-      <div class="flex-1">
-        <p class="font-semibold text-warning-text">{copy ? $t(copy.title) : diag.title}</p>
-        <p class="mt-1 text-sm">{copy ? $t(copy.explanation) : diag.explanation}</p>
-        <p class="mt-1 text-sm">
-          <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
-          {copy ? $t(copy.recommendation) : diag.recommendation}
-        </p>
+    <p class="mt-1 text-sm">{copy ? $t(copy.explanation) : diag.explanation}</p>
+    <p class="mt-1 text-sm">
+      <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
+      {copy ? $t(copy.recommendation) : diag.recommendation}
+    </p>
 
-        {#if status === 'actionable'}
-          {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
-            <MissingModsRepairCard
-              plan={repairPlan}
-              instanceId={instanceId ?? ''}
-              {mcVersion}
-              {loader}
-              onClose={() => (repairPlan = null)}
-            />
-          {:else if repairPlan && repairPlan.kind === 'disable_blocking_mods'}
-            <BlockingModsRepairCard
-              plan={repairPlan}
-              instanceId={instanceId ?? ''}
-              {mcVersion}
-              {loader}
-              {gameRunning}
-              onClose={() => (repairPlan = null)}
-            />
-          {:else if repairPlan && repairPlan.kind === 'install_fix_mod'}
-            <FixModRepairCard
-              plan={repairPlan}
-              busy={repairApplying}
-              onConfirm={applyRepair}
-              onCancel={() => (repairPlan = null)}
-            />
-          {:else if repairPlan}
-            <RepairConfirmCard
-              plan={repairPlan}
-              busy={repairApplying}
-              onConfirm={applyRepair}
-              onCancel={() => (repairPlan = null)}
-            />
-          {:else}
-            <BusyButton
-              type="button"
-              class="btn-primary btn-sm mt-2"
-              data-testid="diagnosis-fix"
-              busy={repairLoading}
-              onclick={startRepair}
-            >
-              {repairLoading ? $t('logs.repair.checking') : $t('logs.repair.fixThis')}
-            </BusyButton>
-            {#if repairUnavailable}
-              <p class="mt-2 text-xs text-secondary">{$t('logs.repair.unavailable')}</p>
-            {/if}
-          {/if}
+    {#if status === 'actionable'}
+      {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
+        <MissingModsRepairCard
+          plan={repairPlan}
+          instanceId={instanceId ?? ''}
+          {mcVersion}
+          {loader}
+          onClose={() => (repairPlan = null)}
+        />
+      {:else if repairPlan && repairPlan.kind === 'disable_blocking_mods'}
+        <BlockingModsRepairCard
+          plan={repairPlan}
+          instanceId={instanceId ?? ''}
+          {mcVersion}
+          {loader}
+          {gameRunning}
+          onClose={() => (repairPlan = null)}
+        />
+      {:else if repairPlan && repairPlan.kind === 'install_fix_mod'}
+        <FixModRepairCard
+          plan={repairPlan}
+          busy={repairApplying}
+          onConfirm={applyRepair}
+          onCancel={() => (repairPlan = null)}
+        />
+      {:else if repairPlan}
+        <RepairConfirmCard
+          plan={repairPlan}
+          busy={repairApplying}
+          onConfirm={applyRepair}
+          onCancel={() => (repairPlan = null)}
+        />
+      {:else}
+        <BusyButton
+          type="button"
+          class="btn-primary btn-sm mt-2"
+          data-testid="diagnosis-fix"
+          busy={repairLoading}
+          onclick={startRepair}
+        >
+          {repairLoading ? $t('logs.repair.checking') : $t('logs.repair.fixThis')}
+        </BusyButton>
+        {#if repairUnavailable}
+          <p class="mt-2 text-xs text-secondary">{$t('logs.repair.unavailable')}</p>
         {/if}
-      </div>
-      <button
-        type="button"
-        class="btn-icon -my-1 -mr-1 shrink-0 !text-warning-text hover:!bg-warning-text/10"
-        aria-label={$t('common.dismissWarning')}
-        use:tooltip={$t('common.dismissWarningTooltip')}
-        onclick={() =>
-          instanceId && signature && diagnosisDismiss.dismiss(`log:${instanceId}`, signature)}
-        data-testid="log-diagnosis-dismiss"><Icon name="close" size={16} /></button
-      >
-    </div>
-  </div>
+      {/if}
+    {/if}
+  </Banner>
 {/if}

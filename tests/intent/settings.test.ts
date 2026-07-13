@@ -21,7 +21,7 @@
 //                        aria-label present on GitHub button
 //                        DISCLAIMER_TEXT rendered as text-secondary
 //                        GPL license line text-xs text-muted
-//   CurseForgeKeyBanner: bg-warning-bg border-warning-text/30 text-warning-text
+//   CurseForgeKeyBanner: shared Banner recipe (bg-warning-bg + full warning border)
 //                        Open Settings → CurseForge → btn-warning btn-sm
 
 import { render, screen, waitFor } from '@testing-library/svelte';
@@ -443,8 +443,8 @@ describe('AboutPanel — GPL license line has text-xs text-muted', () => {
 
 // ── CurseForgeKeyBanner — warning container classes ───────────────────────────
 
-describe('CurseForgeKeyBanner — warning container uses warning-tinted border', () => {
-  it('banner container has bg-warning-bg border-warning-text/30 text-warning-text', () => {
+describe('CurseForgeKeyBanner — warning container uses the shared Banner recipe', () => {
+  it('banner container has bg-warning-bg + full-opacity warning border', () => {
     const { container } = render(CurseForgeKeyBanner, {
       props: { onOpenSettings: () => {} },
     });
@@ -452,10 +452,13 @@ describe('CurseForgeKeyBanner — warning container uses warning-tinted border',
     expect(banner).not.toBeNull();
     const cls = banner?.className ?? '';
     expect(cls).toContain('bg-warning-bg');
-    // Fixed from border-border-subtle to border-warning-text/30 (inventory line 10 fix).
-    expect(cls).toContain('border-warning-text/30');
+    // Unified onto the shared Banner primitive: one full-opacity warning border
+    // + one radius token, replacing the hand-rolled border-warning-text/30.
+    expect(cls).toContain('border-warning-text');
+    expect(cls).not.toContain('border-warning-text/30');
     expect(cls).not.toContain('border-border-subtle');
-    expect(cls).toContain('text-warning-text');
+    // The tone colour now lives on the title/body, not the container.
+    expect(container.querySelector('.text-warning-text')).not.toBeNull();
   });
 });
 
