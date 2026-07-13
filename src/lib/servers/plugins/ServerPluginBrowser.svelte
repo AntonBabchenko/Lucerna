@@ -66,6 +66,10 @@
   const installing = new SvelteSet<string>();
   // The project whose in-launcher detail card is open (null = closed).
   let detail = $state<ModSummary | null>(null);
+  // Client parity (ModBrowseView): default shows installed cards (with their
+  // "Installed" badge); unchecking hides them so only not-yet-installed plugins
+  // remain on the current page. Pure client-side filter — no refetch.
+  let showInstalled = $state(true);
 
   const pageSize = $derived(browserPrefs.pageSize);
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
@@ -255,6 +259,13 @@
     };
   }
 
+  // Current-page cards after the "Show installed" filter. When the toggle is
+  // off, already-installed cards drop out of the rendered grid (server total /
+  // page-count are unchanged, so a page may render fewer cards — matches the
+  // documented client behavior). Empty-state checks stay keyed on the original
+  // `hits` so a fully-installed page renders an empty grid, not "no results".
+  const visibleHits = $derived(showInstalled ? hits : hits.filter((h) => installedFor(h) === null));
+
   // Enable/disable an installed browse card. Mutations join on_disk_filename
   // (base filename + `.disabled` when disabled), never the base filename.
   // Backend refuses while the server runs (surfaces via `error`), consistent
@@ -328,6 +339,15 @@
       ariaLabel={$t('browse.filter.sortLabel')}
       dataTestid="server-plugin-sort"
     />
+    <label class="flex shrink-0 items-center gap-1.5 text-xs text-secondary whitespace-nowrap">
+      <input
+        type="checkbox"
+        class="accent-accent"
+        bind:checked={showInstalled}
+        data-testid="server-plugin-show-installed"
+      />
+      {$t('browse.filter.showInstalled')}
+    </label>
     <LayoutToggle />
   </div>
 
@@ -339,7 +359,7 @@
     <p class="py-6 text-center text-sm text-muted">{$t('servers.plugins.noResults')}</p>
   {:else}
     <ModResultsGrid
-      {hits}
+      hits={visibleHits}
       layout={browserPrefs.layout}
       isMod={true}
       placeholderIcon="puzzle"

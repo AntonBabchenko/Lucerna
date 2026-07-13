@@ -279,4 +279,37 @@ describe('ServerModBrowser', () => {
     expect(await screen.findByLabelText('Remove')).toBeTruthy();
     await waitFor(() => expect(screen.queryByLabelText('Install')).toBeNull());
   });
+
+  it('hides installed cards when "Show installed" is toggled off (client parity)', async () => {
+    // JEI is installed → its card renders the installed (Remove) state.
+    mockListEnriched.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          filename: 'jei.jar',
+          on_disk_filename: 'jei.jar',
+          disabled: false,
+          reason: null,
+          sha1: 'sha-jei',
+          source: 'modrinth',
+          project_id: 'jei',
+          version_id: 'v9',
+          name: 'JEI',
+          version_number: '15.0.0',
+        },
+      ],
+    });
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    // Visible by default (Show installed is on): the card renders installed.
+    expect(await screen.findByLabelText('Remove')).toBeTruthy();
+    // Toggle "Show installed" off → the installed card drops out of the grid.
+    await fireEvent.click(screen.getByTestId('server-mod-show-installed'));
+    await waitFor(() => expect(screen.queryByLabelText('Remove')).toBeNull());
+    expect(screen.queryByText('JEI')).toBeNull();
+  });
 });
