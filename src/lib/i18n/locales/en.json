@@ -389,6 +389,14 @@
     }
   },
   "mods": {
+    "changelog": {
+      "view": "Changelog",
+      "loading": "Loading changelog…",
+      "empty": "No changelog was published for this update.",
+      "noNotes": "The author didn't include notes for this version.",
+      "truncated": "Showing the latest {shown} of {total} versions.",
+      "retry": "Try again"
+    },
     "browse": {
       "tabBrowse": "Browse",
       "tabInstalled": "Installed",
@@ -1596,6 +1604,7 @@
     "modsPlatformAuthMissing": "CurseForge requires an API key — set it in Settings",
     "modsPlatformUnreachable": "CurseForge appears blocked on this network or region. Try a VPN, or disable HTTPS/SSL scanning in your antivirus.",
     "modsPlatformUnsupported": "This action is not supported on {source}.",
+    "changelogUnsupported": "Changelog isn't available for this source.",
     "modsDistributionDisabled": "This mod's author has disabled third-party launcher downloads on {source}.",
     "modsNotFound": "This mod is no longer available on {source}.",
     "modsDecode": "Unexpected response from {source}",

@@ -389,6 +389,14 @@
     }
   },
   "mods": {
+    "changelog": {
+      "view": "Что нового",
+      "loading": "Загрузка изменений…",
+      "empty": "Для этого обновления не опубликован список изменений.",
+      "noNotes": "Автор не приложил заметки к этой версии.",
+      "truncated": "Показаны последние {shown} из {total} версий.",
+      "retry": "Повторить"
+    },
     "browse": {
       "tabBrowse": "Поиск",
       "tabInstalled": "Установленные",
@@ -1596,6 +1604,7 @@
     "modsPlatformAuthMissing": "CurseForge требует API-ключ — укажите его в настройках",
     "modsPlatformUnreachable": "CurseForge, похоже, заблокирован в этой сети или регионе. Попробуйте VPN или отключите проверку HTTPS/SSL в антивирусе.",
     "modsPlatformUnsupported": "Это действие не поддерживается на {source}.",
+    "changelogUnsupported": "Для этого источника список изменений недоступен.",
     "modsDistributionDisabled": "Автор этого мода запретил загрузку через сторонние лаунчеры на {source}.",
     "modsNotFound": "Этот мод больше не доступен на {source}.",
     "modsDecode": "Неожиданный ответ от {source}",
