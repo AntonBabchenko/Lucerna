@@ -52,6 +52,7 @@
   import RemoveAccountDialog from '$lib/accounts/RemoveAccountDialog.svelte';
   import AddOfflineAccountDialog from '$lib/accounts/AddOfflineAccountDialog.svelte';
   import SkinCapeModal from '$lib/accounts/SkinCapeModal.svelte';
+  import SkinEditorModal from '$lib/accounts/SkinEditorModal.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
@@ -117,6 +118,10 @@
   // Account whose skin & cape editor is open (Microsoft accounts only). Set from
   // the sidebar cosmetics button; cleared when the SkinCapeModal closes.
   let cosmeticsAccount = $state<Account | null>(null);
+  // Standalone skin editor for non-Microsoft / no-account users (Microsoft
+  // accounts reach the editor through SkinCapeModal instead). The editor reads
+  // the current activeAccount directly, so no separate account state is needed.
+  let skinEditorOpen = $state(false);
   const removeConfirmAccount = $derived(
     removeConfirmId ? (accounts.find((a) => a.id === removeConfirmId) ?? null) : null,
   );
@@ -869,6 +874,7 @@
       {onSelectAccount}
       onRemoveAccount={requestRemoveAccount}
       onOpenCosmetics={(account) => (cosmeticsAccount = account)}
+      onOpenSkinEditor={() => (skinEditorOpen = true)}
       onAddOffline={() => {
         offlineNameError = null;
         addOfflineOpen = true;
@@ -1189,6 +1195,14 @@
   {/if}
   {#if cosmeticsAccount}
     <SkinCapeModal account={cosmeticsAccount} onClose={() => (cosmeticsAccount = null)} />
+  {/if}
+  {#if skinEditorOpen}
+    <SkinEditorModal
+      account={activeAccount}
+      initialSkinB64={null}
+      initialVariant="classic"
+      onClose={() => (skinEditorOpen = false)}
+    />
   {/if}
 </main>
 <ToastHost />
