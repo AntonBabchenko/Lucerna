@@ -74,5 +74,16 @@ describe('properties catalog i18n', () => {
         expect(leaf(locale.dict, `servers.propGroups.${g}`), `${locale.name} ${g}`).toBeTruthy();
       }
     });
+
+    it(`${locale.name} has enum option labels for every enum key`, () => {
+      for (const s of PROPERTIES_CATALOG) {
+        const type = s.type;
+        if (type.kind !== 'enum') continue;
+        const base = `servers.propEnums.${keyToI18n(s.key)}`;
+        for (const v of type.values) {
+          expect(leaf(locale.dict, `${base}.${v}`), `${locale.name} ${base}.${v}`).toBeTruthy();
+        }
+      }
+    });
   }
 });

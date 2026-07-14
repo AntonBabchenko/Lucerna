@@ -80,4 +80,17 @@ describe('ServerPropertiesEditor', () => {
     const written = serverWriteProperties.mock.calls[0][1] as string;
     expect(written).toContain('my-custom-key=xyz');
   });
+
+  it('saves a toggled boolean field changed from its default', async () => {
+    serverReadProperties.mockResolvedValue({ status: 'ok', data: '' });
+    serverWriteProperties.mockResolvedValue({ status: 'ok', data: null });
+    render(ServerPropertiesEditor, { props: { serverId: 'srv-1', running: false } });
+    const nether = (await screen.findByLabelText('Allow Nether')) as HTMLInputElement;
+    expect(nether.checked).toBe(true); // default true
+    await fireEvent.click(nether);
+    await fireEvent.click(screen.getByTestId('properties-save'));
+    await waitFor(() => expect(serverWriteProperties).toHaveBeenCalled());
+    const written = serverWriteProperties.mock.calls[0][1] as string;
+    expect(written).toContain('allow-nether=false');
+  });
 });
