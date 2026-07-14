@@ -506,9 +506,9 @@ pub async fn execute_repair(
 ) -> Result<(), crate::error::Error> {
     use crate::logs::diagnose::repair::RepairChoice;
 
-    // Reject while a game is running — can't mutate an instance whose files
-    // are in use.
-    if crate::launch::spawn::is_running() {
+    // Reject while THIS instance is running — can't mutate an instance whose
+    // files are in use.
+    if crate::launch::spawn::is_running(&instance_id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Hold the repair guard for the whole rewrite. ReinstallLoader/Reinstall

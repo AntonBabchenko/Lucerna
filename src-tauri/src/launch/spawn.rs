@@ -1,9 +1,12 @@
-//! Process spawn + single-instance state + exit watcher.
+//! Process spawn + per-instance run state + exit watcher.
 //!
-//! State design: the running `Child` is owned by the exit-watcher
-//! task that calls `.wait().await` on it. `stop()` cannot share that
-//! `&mut Child` with the watcher, so it kills by PID instead, via
-//! `crate::platform::kill_process_tree`.
+//! State design: running processes are tracked in a keyed
+//! `ProcessRegistry<ClientRun>` (id → pid + run data), so multiple instances
+//! can run at once. Each running `Child` is owned by its exit-watcher task,
+//! which calls `.wait().await` on it. `stop(id)` cannot share that `&mut Child`
+//! with the watcher, so it kills by PID instead, via
+//! `crate::platform::kill_process_tree`. Removal is pid-matched (`remove_if_pid`)
+//! so a stop()+relaunch's stale watcher never evicts the fresh entry.
 
 use crate::accounts::Account;
 use crate::error::{Error, Result};
@@ -16,67 +19,69 @@ use crate::paths::{
     assets_dir, instance_dir, instance_logs_dir, instance_natives_dir, libraries_dir,
     minecraft_dir, versions_dir,
 };
+use crate::process::registry::ProcessRegistry;
 use crate::versions::loaders::Loader;
 use crate::versions::version_json::{parse, VersionDetails};
 use serde::Serialize;
 use specta::Type;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_specta::Event;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ProcessSpawned {
+    pub instance_id: String,
     pub version_id: String,
     pub pid: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ProcessExited {
+    pub instance_id: String,
     pub version_id: String,
-    /// Process exit code. `-1` when the process was terminated by a
-    /// signal (no code available from the OS).
+    /// Process exit code. `-1` when the process was terminated by a signal.
     pub code: i32,
-    /// True when this exit was caused by the user pressing Stop (the
-    /// launcher killed the process tree itself). Lets the UI show
-    /// "Stopped" instead of presenting the force-kill exit code as a
-    /// crash, and suppresses the crash-diagnosis fetch.
+    /// True when the exit was caused by the user pressing Stop.
     pub user_requested: bool,
     /// Absolute path to the launch log file for this run.
     pub log_path: String,
 }
 
-/// The single-slot launch state. `Launching` is the reservation held
-/// between the moment `start()` claims the slot and the moment the child
-/// process is actually spawned — it closes the TOCTOU window where two
-/// rapid launches could both pass the "is anything running?" check and
-/// spawn two Minecrafts. `Running` carries the live pid + log path.
-enum RunningState {
-    /// Slot reserved, process not yet spawned. Holds the intended log path
-    /// so the exit-watcher can still report something if a later step fails.
-    Launching {
-        log_path: PathBuf,
-    },
-    Running {
-        pid: u32,
-        log_path: PathBuf,
-    },
+/// Per-running-instance data. `pid` lives in the registry entry; this carries
+/// what the exit-watcher and the RAM guardrail need.
+#[derive(Clone)]
+struct ClientRun {
+    // Carried in the registry so a running instance's log path is discoverable
+    // from its id alone (log-path lookup). The exit-watcher captures its own
+    // owned copy, so this field is not read on that path yet.
+    #[allow(dead_code)]
+    log_path: PathBuf,
+    max_heap_mb: u32,
 }
 
-impl RunningState {
-    fn log_path(&self) -> &PathBuf {
-        match self {
-            RunningState::Launching { log_path } | RunningState::Running { log_path, .. } => {
-                log_path
-            }
-        }
-    }
+fn registry() -> &'static ProcessRegistry<ClientRun> {
+    static REG: OnceLock<ProcessRegistry<ClientRun>> = OnceLock::new();
+    REG.get_or_init(ProcessRegistry::new)
 }
 
-fn state() -> &'static Mutex<Option<RunningState>> {
-    static STATE: OnceLock<Mutex<Option<RunningState>>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(None))
+/// True iff `instance_id` currently has a running process.
+pub fn is_running(instance_id: &str) -> bool {
+    registry().is_running(instance_id)
+}
+
+/// True iff ANY instance is running (tray + app-exit teardown).
+pub fn is_any_running() -> bool {
+    registry().is_any_running()
+}
+
+/// `(instance_id, pid, max_heap_mb)` for every running instance.
+pub fn running_snapshot() -> Vec<(String, u32, u32)> {
+    registry()
+        .snapshot()
+        .into_iter()
+        .map(|(id, pid, run)| (id, pid, run.max_heap_mb))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -85,31 +90,30 @@ fn state() -> &'static Mutex<Option<RunningState>> {
 //
 // `stop()` force-kills the process tree, which the OS reports as a non-zero
 // exit code (Windows) or a signal-termination / `-1` (Unix) — indistinguishable
-// from a crash at the exit-watcher. This flag carries the "the user asked for
-// this" intent from `stop()` through to the `ProcessExited` event. Only one
-// process runs at a time (`start()` guards on `AlreadyRunning`), so a single
-// process-wide flag is unambiguous.
+// from a crash at the exit-watcher. This set carries the "the user asked for
+// this" intent from `stop()` through to the per-instance `ProcessExited` event.
+// Keyed by instance id so one instance's Stop never mislabels another's exit.
 
-fn stop_flag() -> &'static AtomicBool {
-    static FLAG: OnceLock<AtomicBool> = OnceLock::new();
-    FLAG.get_or_init(|| AtomicBool::new(false))
+fn stop_requested() -> &'static Mutex<std::collections::HashSet<String>> {
+    static SET: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    SET.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
 
-/// Reset the stop flag for a fresh launch.
-fn clear_stop_requested() {
-    stop_flag().store(false, Ordering::SeqCst);
+/// Record that the user requested `instance_id` be stopped.
+fn mark_stop_requested(instance_id: &str) {
+    stop_requested()
+        .lock()
+        .expect("stop-requested set poisoned")
+        .insert(instance_id.to_string());
 }
 
-/// Record that the user requested the current process be stopped.
-fn mark_stop_requested() {
-    stop_flag().store(true, Ordering::SeqCst);
-}
-
-/// Read and reset the stop flag — true iff a stop was requested since the
-/// last clear. Consuming (swap-to-false) keeps the flag from leaking into a
-/// subsequent run that exits on its own.
-fn take_stop_requested() -> bool {
-    stop_flag().swap(false, Ordering::SeqCst)
+/// Read and clear the stop request for `instance_id` — true iff a stop was
+/// requested since it was last cleared.
+fn take_stop_requested(instance_id: &str) -> bool {
+    stop_requested()
+        .lock()
+        .expect("stop-requested set poisoned")
+        .remove(instance_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -121,29 +125,65 @@ struct SessionStart {
     started_unix_ms: i64,
 }
 
-fn session() -> &'static Mutex<Option<SessionStart>> {
-    static SESSION: OnceLock<Mutex<Option<SessionStart>>> = OnceLock::new();
-    SESSION.get_or_init(|| Mutex::new(None))
+fn sessions() -> &'static Mutex<std::collections::HashMap<String, SessionStart>> {
+    static SESSIONS: OnceLock<Mutex<std::collections::HashMap<String, SessionStart>>> =
+        OnceLock::new();
+    SESSIONS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-fn note_session_start(instance_root: std::path::PathBuf) {
+fn note_session_start(instance_id: &str, instance_root: std::path::PathBuf) {
     let start = chrono::Utc::now().timestamp_millis();
-    *session().lock().expect("playtime session mutex poisoned") = Some(SessionStart {
-        instance_root,
-        started_unix_ms: start,
-    });
+    sessions()
+        .lock()
+        .expect("playtime session mutex poisoned")
+        .insert(
+            instance_id.to_string(),
+            SessionStart {
+                instance_root,
+                started_unix_ms: start,
+            },
+        );
+}
+
+fn note_session_end(instance_id: &str) {
+    let Some(start) = sessions()
+        .lock()
+        .expect("playtime session mutex poisoned")
+        .remove(instance_id)
+    else {
+        return;
+    };
+    let end = chrono::Utc::now().timestamp_millis();
+    let seconds = ((end - start.started_unix_ms).max(0) as u64) / 1000;
+    if let Err(e) = crate::playtime::record_session_at(&start.instance_root, seconds) {
+        crate::diag!(
+            "playtime: failed to record session at {}: {e}",
+            start.instance_root.display()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Tray hide / restore
 // ---------------------------------------------------------------------------
 
+/// Hide the launcher to tray on launch only when the user opted in AND this is
+/// the FIRST running instance (no instance was running before this one).
+fn should_hide_on_launch(opted_in: bool, was_any_running_before: bool) -> bool {
+    opted_in && !was_any_running_before
+}
+
 /// If the user opted in, schedule a hide-to-tray for when the spawned
 /// MC process has actually opened its window. We don't hide the
 /// launcher synchronously on spawn because the JVM may take 5–15
 /// seconds (Mojang splash, Forge mod scan, etc.) to render anything —
 /// hiding the launcher first leaves the user staring at the desktop.
-fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
+fn maybe_schedule_hide_to_tray(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    pid: u32,
+    was_any_running_before: bool,
+) {
     let path = match crate::paths::app_file(app) {
         Ok(p) => p,
         Err(e) => {
@@ -158,10 +198,12 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
             return;
         }
     };
-    if !settings.general.hide_to_tray_during_game {
+    let opted_in = settings.general.hide_to_tray_during_game;
+    if !should_hide_on_launch(opted_in, was_any_running_before) {
         return;
     }
 
+    let instance_id = instance_id.to_string();
     let app_clone = app.clone();
     tokio::spawn(async move {
         crate::platform::wait_for_window_ready(pid).await;
@@ -169,7 +211,7 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
         // kill), there's nothing to hide *for* — skip popping a tray
         // icon that would immediately get removed by the exit-watcher
         // restore call.
-        if !is_running() {
+        if !is_running(&instance_id) {
             return;
         }
         let app_for_hide = app_clone.clone();
@@ -184,33 +226,6 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
     });
 }
 
-fn note_session_end() {
-    let Some(start) = session()
-        .lock()
-        .expect("playtime session mutex poisoned")
-        .take()
-    else {
-        return;
-    };
-    let end = chrono::Utc::now().timestamp_millis();
-    let delta_ms = (end - start.started_unix_ms).max(0) as u64;
-    let seconds = delta_ms / 1000;
-    if let Err(e) = crate::playtime::record_session_at(&start.instance_root, seconds) {
-        crate::diag!(
-            "playtime: failed to record session at {}: {e}",
-            start.instance_root.display()
-        );
-    }
-}
-
-/// True iff a Minecraft process is currently running.
-pub fn is_running() -> bool {
-    state()
-        .lock()
-        .expect("launch state mutex poisoned")
-        .is_some()
-}
-
 /// Spawn Minecraft for `instance`. `effective_version_id` is what
 /// `versions::install_version` was called with (e.g. `"1.20.4"` for
 /// vanilla, `"fabric-loader-0.16.5-1.20.4"` for Fabric). Returns the
@@ -223,24 +238,19 @@ pub async fn start(
     app: &AppHandle,
     quick_play: Option<&QuickPlay>,
 ) -> Result<u32> {
-    // Atomically claim the single launch slot INSIDE the lock. Reserving a
-    // `Launching` placeholder here — before any `.await` — closes the TOCTOU
-    // window where two rapid `start()` calls could both observe an empty slot
-    // and spawn two Minecraft processes. `ReservationGuard` rolls the slot
-    // back to `None` if any step before spawn fails (via `?` early-return).
-    {
-        let mut guard = state().lock().expect("launch state mutex poisoned");
-        if guard.is_some() {
-            return Err(Error::AlreadyRunning);
-        }
-        *guard = Some(RunningState::Launching {
-            log_path: PathBuf::new(),
-        });
-    }
-    let mut reservation = ReservationGuard { armed: true };
-
-    // Fresh run: clear any stale stop request from a previous session.
-    clear_stop_requested();
+    // Reserve THIS instance's id across the whole spawn. `claim_start` returns
+    // None if the id is already running OR already starting — closing the TOCTOU
+    // window where two rapid `start()` calls could both spawn a Minecraft for
+    // the same instance. The claim's `Drop` releases the reservation if any step
+    // before `insert` fails (via `?` early-return); `claim.commit()` releases it
+    // once the live process is registered and the exit-watcher owns teardown.
+    let claim = registry()
+        .claim_start(&instance.id)
+        .ok_or_else(|| Error::AlreadyRunning {
+            instance_id: instance.id.clone(),
+        })?;
+    // Fresh run: clear any stale stop request for THIS instance.
+    let _ = take_stop_requested(&instance.id);
 
     let versions = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let libraries = libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
@@ -389,30 +399,39 @@ pub async fn start(
     let version_id_owned = effective_version_id.to_string();
     let log_path_owned = log_path.clone();
 
-    {
-        let mut guard = state().lock().expect("launch state mutex poisoned");
-        *guard = Some(RunningState::Running {
-            pid,
+    // Resolve the instance root BEFORE registering the live process. This `?`
+    // must not fire after `insert`, or we would leak a registered process with
+    // no exit-watcher. `instance_dir` resolves to `<app_data>/instances/<id>`,
+    // the instance root expected by `crate::playtime::record_session_at`.
+    let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
+
+    // Snapshot liveness BEFORE this instance is registered so the tray hide
+    // fires only for the first running instance.
+    let was_any_running_before = registry().is_any_running();
+
+    registry().insert(
+        &instance.id,
+        pid,
+        ClientRun {
             log_path: log_path_owned.clone(),
-        });
-    }
-    // Slot now holds the live process; the exit-watcher owns teardown.
-    reservation.armed = false;
+            max_heap_mb: heap_mb,
+        },
+    );
+    // Registry now holds the live process; the exit-watcher owns teardown.
+    claim.commit();
 
     let _ = ProcessSpawned {
+        instance_id: instance.id.clone(),
         version_id: version_id_owned.clone(),
         pid,
     }
     .emit(app);
 
-    // Record session start. `instance_dir` resolves to
-    // `<app_data>/instances/<id>`, which is the instance root expected
-    // by `crate::playtime::record_session_at`.
-    let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
-    note_session_start(inst_root);
-    maybe_schedule_hide_to_tray(app, pid);
+    note_session_start(&instance.id, inst_root);
+    maybe_schedule_hide_to_tray(app, &instance.id, pid, was_any_running_before);
 
     let instance_id_for_retention = instance.id.to_string();
+    let instance_id_for_event = instance.id.to_string();
     let app_clone = app.clone();
     tokio::spawn(async move {
         let exit_code = child
@@ -421,24 +440,27 @@ pub async fn start(
             .ok()
             .and_then(|st| st.code())
             .unwrap_or(-1);
-        let log_path_to_emit = {
-            let mut guard = state().lock().expect("launch state mutex poisoned");
-            let prev = guard.take();
-            prev.map(|s| s.log_path().clone()).unwrap_or(log_path_owned)
-        };
-        // Consume the stop flag: did this exit come from the user pressing Stop?
-        let user_requested = take_stop_requested();
+        // ABA-safe: only clear/announce if this map entry is still OUR pid. A
+        // stop()+relaunch could have inserted a NEW pid under this id before
+        // this stale watcher woke; `remove_if_pid` refuses to evict it.
+        if !registry().remove_if_pid(&instance_id_for_event, pid) {
+            return;
+        }
+        // Consume the stop request: did this exit come from the user pressing
+        // Stop for THIS instance?
+        let user_requested = take_stop_requested(&instance_id_for_event);
         let _ = ProcessExited {
+            instance_id: instance_id_for_event.clone(),
             version_id: version_id_owned,
             code: exit_code,
             user_requested,
-            log_path: log_path_to_emit.to_string_lossy().into_owned(),
+            log_path: log_path_owned.to_string_lossy().into_owned(),
         }
         .emit(&app_clone);
         // Record session end. Fires for both clean (code 0) and crash
         // (non-zero / -1) exits — the spec requires we always persist
         // the duration regardless of exit reason.
-        note_session_end();
+        note_session_end(&instance_id_for_event);
         // Opt-in old-log cleanup. Runs after the session's logs have
         // settled (MC rotates latest.log at START, so the full set is
         // complete at exit). Non-fatal: a cleanup failure must never
@@ -448,8 +470,8 @@ pub async fn start(
         {
             crate::diag!("log-retention: cleanup failed for {instance_id_for_retention}: {e}");
         }
-        // Restore window from tray. Idempotent — no-op when the window
-        // was never hidden (hide_to_tray_during_game was off).
+        // Restore window from tray on ANY exit. Idempotent — no-op when the
+        // window was never hidden (hide_to_tray_during_game was off).
         //
         // MUST run on the main (GUI) thread, exactly like the hide path
         // above. `restore_from_tray` removes the icon via
@@ -472,29 +494,28 @@ pub async fn start(
     Ok(pid)
 }
 
-/// Kill the running MC process if any. Idempotent: returns Ok(()) if
-/// nothing is running. Uses platform-native kill-by-PID so it doesn't
-/// have to share `&mut Child` with the exit-watcher task.
-pub fn stop() -> Result<()> {
-    let pid_opt = {
-        let guard = state().lock().expect("launch state mutex poisoned");
-        match guard.as_ref() {
-            // A process is live — kill it by pid.
-            Some(RunningState::Running { pid, .. }) => Some(*pid),
-            // Slot reserved but not yet spawned, or nothing running: no pid
-            // to kill. `start()`'s ReservationGuard will tear the slot down
-            // on its own; nothing for stop() to do.
-            Some(RunningState::Launching { .. }) | None => None,
-        }
-    };
-    let Some(pid) = pid_opt else {
+/// Kill the running MC process for `instance_id` if any. Idempotent: returns
+/// Ok(()) if that instance is not running. Uses platform-native kill-by-PID so
+/// it doesn't have to share `&mut Child` with the exit-watcher task.
+pub fn stop(instance_id: &str) -> Result<()> {
+    let Some(pid) = registry().pid_of(instance_id) else {
         return Ok(());
     };
     // Mark before the kill so the exit-watcher (which wakes on `.wait()`
     // returning) sees the intent and labels the exit as user-requested.
-    mark_stop_requested();
+    mark_stop_requested(instance_id);
     crate::platform::kill_process_tree(pid);
     Ok(())
+}
+
+/// Force-kill every tracked client process (called on app exit so no Minecraft
+/// is orphaned). Best-effort; clears the registry.
+pub fn kill_all_running() {
+    for (id, pid, _heap) in running_snapshot() {
+        mark_stop_requested(&id);
+        crate::platform::kill_process_tree(pid);
+        registry().remove(&id);
+    }
 }
 
 /// `mainClass` of the legacy launchwrapper era (Minecraft ≤ 1.12.2).
@@ -561,28 +582,6 @@ fn unique_launch_log_name() -> String {
         .unwrap_or(0);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     format!("launch-{secs}-{n}.log")
-}
-
-/// Drop-guard that rolls the launch slot back to `None` if `start()` returns
-/// early (via `?`) before the child process is spawned. Disarmed once the
-/// slot transitions to `Running`, after which the exit-watcher owns teardown.
-struct ReservationGuard {
-    armed: bool,
-}
-
-impl Drop for ReservationGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        // Only clear a still-`Launching` reservation. If the slot somehow
-        // advanced to `Running` without disarming (it can't in the current
-        // flow), leave the live process untouched.
-        let mut guard = state().lock().expect("launch state mutex poisoned");
-        if matches!(guard.as_ref(), Some(RunningState::Launching { .. })) {
-            *guard = None;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -675,22 +674,21 @@ mod tests {
     // tests live in the manual e2e step. Pure helpers above are the
     // unit-test surface here.
 
-    // The stop-flag helpers share a process-wide static; this test owns
-    // that state start-to-finish (clears first, consumes at the end), and
-    // no other test touches the flag.
+    // The stop-requested set is keyed by instance id; this test owns a unique
+    // id start-to-finish so it never races another test's key.
     #[test]
-    fn stop_flag_clear_mark_take_round_trip() {
-        clear_stop_requested();
-        assert!(!take_stop_requested(), "cleared flag must read false");
+    fn stop_requested_mark_take_round_trip() {
+        let id = "inst-stop-unit-test";
+        assert!(!take_stop_requested(id), "unmarked reads false");
+        mark_stop_requested(id);
+        assert!(take_stop_requested(id), "marked reads true");
+        assert!(!take_stop_requested(id), "take consumes the flag");
+    }
 
-        mark_stop_requested();
-        assert!(take_stop_requested(), "marked flag must read true");
-        assert!(
-            !take_stop_requested(),
-            "take must consume the flag (swap to false)"
-        );
-
-        // Leave the static clean for any later reader.
-        clear_stop_requested();
+    #[test]
+    fn tray_hides_only_on_first_when_opted_in() {
+        assert!(should_hide_on_launch(true, false));
+        assert!(!should_hide_on_launch(true, true));
+        assert!(!should_hide_on_launch(false, false));
     }
 }

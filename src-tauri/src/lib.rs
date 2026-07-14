@@ -73,7 +73,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::install_instance,
             commands::launch_instance,
             commands::instance_quick_play_support,
-            commands::stop_minecraft,
+            commands::stop_instance,
             commands::list_log_files,
             commands::read_log_file,
             commands::latest_crash,
@@ -540,6 +540,9 @@ pub fn run() {
             // hold its world lock.
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 crate::servers_runtime::runtime::kill_all_running();
+                // Same for client Minecraft processes: never orphan a running
+                // game when the launcher exits.
+                crate::launch::spawn::kill_all_running();
                 if let Ok(dir) = crate::paths::servers_dir(app_handle) {
                     crate::servers_runtime::runtime::kill_persisted_orphans(&dir);
                 }

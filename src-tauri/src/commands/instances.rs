@@ -140,7 +140,7 @@ pub async fn verify_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&instance_id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
@@ -161,7 +161,7 @@ pub async fn repair_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&instance_id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Mark repair-in-progress for the whole rewrite so a concurrent launch is
@@ -179,11 +179,11 @@ pub async fn repair_instance(
     Ok(report)
 }
 
-/// Kill the running Minecraft process if any. Idempotent.
+/// Kill the running Minecraft process for `instance_id` if any. Idempotent.
 #[tauri::command]
 #[specta::specta]
-pub fn stop_minecraft() -> Result<(), crate::error::Error> {
-    crate::launch::stop()
+pub fn stop_instance(instance_id: String) -> Result<(), crate::error::Error> {
+    crate::launch::spawn::stop(&instance_id)
 }
 
 /// All instances on disk with precomputed `ready` status. Sorted
@@ -249,7 +249,7 @@ pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::e
     // Refuse while a game is running: on Windows the live JVM holds OS locks on
     // the instance dir, so remove_dir_all can partially fail and corrupt it.
     // Mirrors the verify/repair guards in this file.
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::delete_instance(&app, &id)
@@ -281,7 +281,7 @@ pub async fn change_instance_mc(
     use crate::instances::{self, LoaderDecision, LoaderOutcome};
     use crate::versions::loaders::{list_loaders, Loader};
 
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     let current = instances::read_instance(&app, &id)?;
@@ -337,7 +337,7 @@ pub fn set_instance_loader(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::set_instance_loader(&app, &id, loader, loader_version)
@@ -409,7 +409,7 @@ pub fn detach_instance_pack(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::detach_instance_pack(&app, &id)
