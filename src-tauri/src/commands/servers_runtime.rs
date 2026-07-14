@@ -2534,6 +2534,105 @@ pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<
     Ok(results.into_iter().map(|(_, c)| c).collect())
 }
 
+/// Check every identity-bearing server plugin for a newer version. The plugin
+/// twin of [`server_check_mod_updates`]: gate on the core being plugin-capable
+/// (Paper/Purpur) before any network, reconcile `runtime/plugins/`, query each
+/// plugin's platform via `plugin_versions` (plugin-loader slug lineage, not a
+/// `LoaderKind`), and classify with the shared `classify_update`. Per-plugin
+/// failure → that row's `CheckFailed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_check_plugin_updates(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ModUpdateCheck>> {
+    use futures_util::stream::{self, StreamExt};
+
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    // Reject vanilla / mod cores before any network — plugins only load on
+    // Bukkit-family cores (Paper/Purpur).
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+    let core = file.loader;
+    let mc_version = file.mc_version;
+
+    // Reconcile the sidecar against disk off the async executor (full byte read
+    // + Sha1 of every jar, mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.plugins.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    // Only records with full platform identity are checkable. Enumerate first so
+    // the paired index restores installed order after the unordered poll.
+    let eligible: Vec<(
+        usize,
+        InstalledMod,
+        crate::mods::platform::ModSource,
+        String,
+    )> = entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, e)| {
+            match (
+                e.record.source,
+                e.record.project_id.clone(),
+                e.record.version_id.clone(),
+            ) {
+                (Some(source), Some(pid), Some(_vid)) => {
+                    Some((i, record_as_installed(&e.record, e.enabled), source, pid))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+
+    const CONCURRENCY: usize = 6;
+    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
+        .map(|(i, m, source, project_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let platform = super::platform_for(source);
+                let state = match platform
+                    .plugin_versions(&project_id, Some(&mc), core.plugin_loader_slugs())
+                    .await
+                {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (
+                    i,
+                    ModUpdateCheck {
+                        sha1: m.sha1.clone(),
+                        name: m.name.clone(),
+                        source,
+                        project_id,
+                        current_version_id: m.version_id.clone().unwrap_or_default(),
+                        current_version_number: m.version_number.clone(),
+                        state,
+                    },
+                )
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+    results.sort_by_key(|(i, _)| *i);
+    Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
 /// Idempotent, path-guarded removal of one file under a server's `mods/`.
 fn remove_server_mod_file(mods_dir: &std::path::Path, on_disk_name: &str) -> Result<()> {
     if !crate::servers_runtime::runtime::is_safe_mod_name(on_disk_name) {
@@ -2673,6 +2772,100 @@ pub async fn server_update_one(
         }
         crate::servers_runtime::installed::remove(&mods, &old_record_sha1)?;
         crate::servers_runtime::installed::upsert(&mods, new_record)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<update-swap>", e))??;
+    Ok(report)
+}
+
+/// Apply one server-plugin update: install `target` (+ its required dependency
+/// closure) into `runtime/plugins/` via the shared plugin kernel, remove the old
+/// jar (honoring its `.disabled` suffix), preserve set-aside state, and swap the
+/// registry rows. The plugin twin of [`server_update_one`] — differs in the
+/// install dir (`plugins`), the kernel (`install_plugin_into_dir`, which pushes
+/// the primary FIRST), and the plugin-capable gate. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_update_plugin_one(
+    app: AppHandle,
+    id: String,
+    old_sha1: String,
+    target: ModVersion,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::io(
+            "<plugin>",
+            "this server core does not load plugins",
+        ));
+    }
+
+    // Reconcile the sidecar against disk off the async executor.
+    let entries = {
+        let dir = p.plugins.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    let old = entries
+        .into_iter()
+        .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
+        .ok_or_else(|| Error::io("<plugin>", "no such installed server plugin"))?;
+
+    let report = crate::commands::install_plugin_into_dir(
+        &base,
+        &p.plugins,
+        target.source,
+        &target.project_id,
+        &target.version_id,
+        &file.mc_version,
+        file.loader,
+    )
+    .await?;
+
+    // The PLUGIN kernel pushes the primary FIRST (index 0), then appends deps —
+    // the mirror of the mods twin's `.last()`. An empty list means the
+    // already-installed short-circuit fired: nothing to reconcile.
+    let Some(new_name) = report.installed.first().cloned() else {
+        return Ok(report);
+    };
+
+    // File + registry bookkeeping off the async executor (jar hash + fs + sidecar).
+    let plugins = p.plugins.clone();
+    let old_enabled = old.enabled;
+    let old_base = old.record.filename.clone();
+    let old_record_sha1 = old.record.sha1.clone();
+    let target_for_record = target.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let new_sha1 = crate::servers_runtime::installed::sha1_of(&plugins.join(&new_name))?;
+        let (delete_old, redisable, new_record) = plan_swap(
+            old_enabled,
+            &old_base,
+            &new_name,
+            &new_sha1,
+            &target_for_record,
+        );
+        if let Some(on_disk) = delete_old {
+            remove_server_mod_file(&plugins, &on_disk)?;
+        }
+        if redisable {
+            let src = plugins.join(&new_name);
+            let dst = plugins.join(format!("{new_name}.disabled"));
+            if src.starts_with(&plugins) && dst.starts_with(&plugins) {
+                std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
+            }
+        }
+        crate::servers_runtime::installed::remove(&plugins, &old_record_sha1)?;
+        crate::servers_runtime::installed::upsert(&plugins, new_record)?;
         Ok(())
     })
     .await

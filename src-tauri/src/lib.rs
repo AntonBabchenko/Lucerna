@@ -299,6 +299,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_plugins,
             commands::server_list_plugins_enriched,
             commands::server_install_plugin,
+            commands::server_check_plugin_updates,
+            commands::server_update_plugin_one,
             commands::server_install_plugin_local,
             commands::server_enable_plugin,
             commands::server_disable_plugin,
