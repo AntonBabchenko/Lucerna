@@ -17,6 +17,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -96,16 +98,45 @@ pub fn sha1_of(path: &Path) -> Result<String> {
     Ok(hex::encode(Sha1::digest(bytes)))
 }
 
+/// Process-lifetime SHA-1 cache keyed by path, re-using the stored digest when
+/// a jar's (mtime, size) are unchanged — turning a full read+hash into a cheap
+/// stat on repeat lists. Mirrors `crate::mods::installed`'s HASH_CACHE. The
+/// cache lives for the process (dropped on restart, which is fine — a rescan
+/// simply repopulates it).
+static HASH_CACHE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// SHA-1 of the file at `path`, re-using the cached digest when `(mtime, size)`
+/// are unchanged since it was last hashed. Only reads+hashes on a miss. Sync
+/// mirror of `crate::mods::installed::cached_sha1` (this module is `std::fs`).
+fn cached_sha1(path: &Path, mtime: SystemTime, size: u64) -> Result<String> {
+    {
+        let cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((m, s, sha)) = cache.get(path) {
+            if *m == mtime && *s == size {
+                return Ok(sha.clone());
+            }
+        }
+    }
+    let bytes = std::fs::read(path).map_err(|e| Error::io(path.display().to_string(), e))?;
+    let sha = hex::encode(Sha1::digest(&bytes));
+    {
+        let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        cache.insert(path.to_path_buf(), (mtime, size, sha.clone()));
+    }
+    Ok(sha)
+}
+
 fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
     let mut on_disk: Vec<(String, String, bool)> = Vec::new();
     let Ok(rd) = std::fs::read_dir(jar_dir) else {
         return Ok(on_disk);
     };
     for entry in rd.flatten() {
-        match entry.metadata() {
-            Ok(m) if m.is_file() => {}
+        let meta = match entry.metadata() {
+            Ok(m) if m.is_file() => m,
             _ => continue,
-        }
+        };
         let name = entry.file_name().to_string_lossy().to_string();
         let (enabled, base_name) = if let Some(stripped) = name.strip_suffix(".disabled") {
             if !stripped.ends_with(".jar") {
@@ -117,9 +148,12 @@ fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
         } else {
             continue;
         };
-        let bytes = std::fs::read(entry.path())
-            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
-        on_disk.push((base_name, hex::encode(Sha1::digest(&bytes)), enabled));
+        let path = entry.path();
+        let mtime = meta
+            .modified()
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        let sha = cached_sha1(&path, mtime, meta.len())?;
+        on_disk.push((base_name, sha, enabled));
     }
     Ok(on_disk)
 }
