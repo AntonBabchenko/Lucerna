@@ -823,7 +823,8 @@
   }
 
   async function onStop() {
-    const result = await commands.stopMinecraft();
+    if (!activeInstance) return;
+    const result = await commands.stopInstance(activeInstance.id);
     if (result.status === 'error') {
       installError = formatError(result.error);
     }
