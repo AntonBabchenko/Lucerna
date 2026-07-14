@@ -2,6 +2,7 @@
 //! process spawn + lifecycle. Single-instance for v0.1.0.
 
 pub mod args;
+pub mod guardrail;
 pub mod natives;
 pub mod quick_play;
 pub mod spawn;
