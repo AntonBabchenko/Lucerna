@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const modsChangelog = vi.fn();
+// `vi.mock` factories are hoisted above top-level declarations, so the mock fn
+// must come from `vi.hoisted` (a bare `const` would be uninitialised when the
+// hoisted factory runs).
+const { modsChangelog } = vi.hoisted(() => ({ modsChangelog: vi.fn() }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modsChangelog } }));
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
 
