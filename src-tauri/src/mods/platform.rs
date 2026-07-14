@@ -492,6 +492,26 @@ pub trait ModPlatform: Send + Sync {
     ) -> Result<Vec<ModVersion>, Error> {
         Ok(Vec::new())
     }
+
+    /// The cumulative changelog for `(base_version_id, target_version_id]` of
+    /// `project_id`, newest→oldest, each section's `body_html` sanitized.
+    /// Default: the source has no changelog API — a defensive backstop, since
+    /// the UI gates the affordance on [`changelog_supported`].
+    async fn changelog_range(
+        &self,
+        _project_id: &str,
+        _target_version_id: &str,
+        _base_version_id: Option<&str>,
+    ) -> Result<crate::mods::changelog::ChangelogResult, Error> {
+        Err(Error::ChangelogUnsupported)
+    }
+}
+
+/// Sources that implement [`ModPlatform::changelog_range`]. The FE gates the
+/// "changelog" affordance on this (re-derived in TS) and the command
+/// short-circuits the rest, so the trait default is only a defensive backstop.
+pub fn changelog_supported(source: ModSource) -> bool {
+    matches!(source, ModSource::Modrinth | ModSource::Curseforge)
 }
 
 /// Upper bound on ids per batched `summaries` / `versions_by_ids` request.

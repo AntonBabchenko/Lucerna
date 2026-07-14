@@ -28,6 +28,8 @@
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
   import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
   import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
+  import ChangelogModal from '$lib/mods/ChangelogModal.svelte';
+  import { changelogSupported } from '$lib/mods/changelog-supported';
 
   // Centered modal that surfaces the metadata captured at import time for a
   // pack-originated instance. Uses the shared Modal primitive (backdrop +
@@ -107,6 +109,27 @@
   let updateAvailable = $state<ModpackVersionEntry | null>(null);
   let updateError = $state<string | null>(null);
   const updateFlow = createModpackUpdateFlow();
+
+  // Cumulative changelog for a pending pack update. The pack IS a project on its
+  // source, so the same ChangelogModal works; base is the frozen origin version
+  // (falls back to target-only if it isn't a version-id the source lists).
+  let changelogReq = $state<{
+    source: ModSource;
+    projectId: string;
+    title: string;
+    target: string;
+    base: string | null;
+  } | null>(null);
+  function openPackChangelog() {
+    if (!status || !updateAvailable || !status.origin.project_id) return;
+    changelogReq = {
+      source: status.origin.source,
+      projectId: status.origin.project_id,
+      title: `${status.origin.project_name} ${status.origin.version} → ${updateAvailable.version_number}`,
+      target: updateAvailable.id,
+      base: status.origin.version,
+    };
+  }
   // Check failure (from checkForUpdates) OR an apply/fetch failure (from the flow).
   const shownUpdateError = $derived(updateError ?? updateFlow.error);
 
@@ -406,6 +429,17 @@
             version: updateAvailable.version_number,
           })}</span
         >
+        {#if status && status.origin.project_id && changelogSupported(status.origin.source)}
+          <button
+            type="button"
+            class="btn-ghost btn-xs inline-flex items-center gap-1"
+            onclick={openPackChangelog}
+            data-testid="imported-detail-changelog-button"
+          >
+            <Icon name="scrollText" size={13} />
+            {$t('mods.changelog.view')}
+          </button>
+        {/if}
         <button
           type="button"
           class="btn-warning btn-xs"
@@ -780,6 +814,17 @@
     </button>
   </footer>
 </Modal>
+
+{#if changelogReq}
+  <ChangelogModal
+    source={changelogReq.source}
+    projectId={changelogReq.projectId}
+    title={changelogReq.title}
+    targetVersionId={changelogReq.target}
+    baseVersionId={changelogReq.base}
+    onClose={() => (changelogReq = null)}
+  />
+{/if}
 
 {#if updateFlow.diff}
   <ModpackUpdateDialog

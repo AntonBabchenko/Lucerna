@@ -7,6 +7,7 @@
 pub mod asset_local;
 pub mod assets;
 pub mod cache;
+pub mod changelog;
 pub mod cited_resolve;
 pub mod compat;
 pub mod curseforge;

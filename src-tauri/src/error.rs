@@ -181,6 +181,9 @@ pub enum Error {
         details: String,
     },
 
+    #[error("This source does not expose a changelog API")]
+    ChangelogUnsupported,
+
     #[error("Mod file has no SHA-1 published; refusing to install")]
     ModsSha1Unavailable,
 

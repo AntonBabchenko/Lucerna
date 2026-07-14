@@ -15,6 +15,7 @@
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
+  import { changelogSupported } from '$lib/mods/changelog-supported';
 
   let {
     summary,
@@ -40,6 +41,7 @@
     onToggle,
     onUninstall,
     onUpdate,
+    onShowChangelog,
     onSelectChange,
     onInstallDep,
     onJump,
@@ -69,6 +71,9 @@
     onToggle: () => void;
     onUninstall: () => void;
     onUpdate: () => void;
+    // Opens the cumulative changelog for the pending update. Only invoked when
+    // `showChangelog` below is true (update available + supported source).
+    onShowChangelog: () => void;
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
@@ -100,6 +105,18 @@
     if (depMissing > 0) return { text: $t('mods.installed.badgeMissing', { count: depMissing }) };
     return null;
   });
+
+  // "View changelog" is offered only when an update is actually pending and the
+  // source implements a changelog API (Modrinth/CurseForge) — mirrors the Rust
+  // `changelog_supported` gate. Guards on identity so the modal always has a
+  // (source, project_id, base version) to query.
+  const showChangelog = $derived(
+    updateState?.kind === 'update_available' &&
+      !!installed.source &&
+      changelogSupported(installed.source) &&
+      !!installed.project_id &&
+      !!installed.version_id,
+  );
 </script>
 
 <div role="group" aria-label={installed.name}>
@@ -132,7 +149,7 @@
       {selected}
       {onSelectChange}
     />
-    {#if summary || incompatibleTitle}
+    {#if summary || incompatibleTitle || showChangelog}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if incompatibleTitle}
           <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
@@ -145,6 +162,17 @@
           <span data-testid="status-badge" use:tooltip={$t('mods.installed.missingDepsTooltip')}>
             <StatusBadge variant="danger" icon="warning">{badge.text}</StatusBadge>
           </span>
+        {/if}
+        {#if showChangelog}
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded inline-flex items-center gap-1 bg-subtle text-secondary"
+            onclick={onShowChangelog}
+            data-testid="mod-changelog-btn"
+          >
+            <Icon name="scrollText" />
+            {$t('mods.changelog.view')}
+          </button>
         {/if}
         {#if graphLoading && !root}
           <span class="text-placeholder">
