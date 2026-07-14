@@ -1,10 +1,11 @@
-//! Pure decision helpers for multi-instance launch: the soft RAM warning and
-//! the tray hide-on-first rule. Kept side-effect-free so they are unit-tested
-//! without real processes (project pattern: `reconcile_running`, `build_argv`).
+//! Pure decision helper for multi-instance launch: the soft RAM warning. Kept
+//! side-effect-free so it is unit-tested without real processes (project
+//! pattern: `reconcile_running`, `build_argv`).
 
 use serde::Serialize;
 use specta::Type;
 
+// Distinct from `instances::memory`'s per-instance recommended band (~75%): this is the cross-instance aggregate reserve.
 /// Percent of physical RAM above which launching another instance warns.
 pub const RAM_WARN_PERCENT: u8 = 80;
 
@@ -26,6 +27,7 @@ pub fn ram_warning(
     total_ram_mb: u64,
     pct: u8,
 ) -> Option<RamWarning> {
+    debug_assert!(pct <= 100, "pct must be a percentage 0..=100");
     if total_ram_mb == 0 {
         return None;
     }
@@ -43,12 +45,6 @@ pub fn ram_warning(
     } else {
         None
     }
-}
-
-/// Hide the launcher to tray on launch only when the user opted in AND this is
-/// the FIRST running instance (no instance was running before this one).
-pub fn should_hide_on_launch(opted_in: bool, was_any_running_before: bool) -> bool {
-    opted_in && !was_any_running_before
 }
 
 #[cfg(test)]
@@ -86,9 +82,32 @@ mod tests {
     }
 
     #[test]
-    fn tray_hides_only_on_first_when_opted_in() {
-        assert!(should_hide_on_launch(true, false));
-        assert!(!should_hide_on_launch(true, true));
-        assert!(!should_hide_on_launch(false, false));
+    fn exactly_at_threshold_does_not_warn() {
+        // threshold = 16384*80/100 = 13107; reserved == threshold must NOT warn
+        // (pins the strict `>` against an accidental `>=`).
+        assert_eq!(ram_warning(&[13107], 0, 16384, 80), None);
+    }
+
+    #[test]
+    fn pct_zero_warns_on_any_positive_reserve() {
+        // threshold = 0; any reserved > 0 warns, reserved == 0 does not.
+        assert!(ram_warning(&[], 1, 16384, 0).is_some());
+        assert_eq!(ram_warning(&[], 0, 16384, 0), None);
+    }
+
+    #[test]
+    fn pct_hundred_threshold_is_full_ram() {
+        // threshold = total; exactly-full does not warn, one over does.
+        assert_eq!(ram_warning(&[16384], 0, 16384, 100), None);
+        assert!(ram_warning(&[16384], 1, 16384, 100).is_some());
+    }
+
+    #[test]
+    fn reserved_over_u32_max_truncates_saturating() {
+        // A single near-u32::MAX heap pushes reserved past u32::MAX; the payload
+        // truncates to u32::MAX rather than wrapping. total=1000MB, threshold=800.
+        let w = ram_warning(&[u32::MAX], 1000, 1000, 80).expect("must warn");
+        assert_eq!(w.reserved_mb, u32::MAX);
+        assert_eq!(w.total_mb, 1000);
     }
 }
