@@ -140,7 +140,8 @@ pub async fn verify_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running(&instance_id) {
+    // gates on ANY running instance: repair/verify touch SHARED libraries/versions dirs, not per-instance files
+    if crate::launch::spawn::is_any_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
@@ -161,7 +162,8 @@ pub async fn repair_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running(&instance_id) {
+    // gates on ANY running instance: repair/verify touch SHARED libraries/versions dirs, not per-instance files
+    if crate::launch::spawn::is_any_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Mark repair-in-progress for the whole rewrite so a concurrent launch is

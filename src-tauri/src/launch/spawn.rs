@@ -49,14 +49,9 @@ pub struct ProcessExited {
 }
 
 /// Per-running-instance data. `pid` lives in the registry entry; this carries
-/// what the exit-watcher and the RAM guardrail need.
+/// what the RAM guardrail needs.
 #[derive(Clone)]
 struct ClientRun {
-    // Carried in the registry so a running instance's log path is discoverable
-    // from its id alone (log-path lookup). The exit-watcher captures its own
-    // owned copy, so this field is not read on that path yet.
-    #[allow(dead_code)]
-    log_path: PathBuf,
     max_heap_mb: u32,
 }
 
@@ -384,6 +379,11 @@ pub async fn start(
         .try_clone()
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
 
+    // resolved before spawn so no fallible `?` can fire after a live child exists (orphan-leak guard).
+    // `instance_dir` resolves to `<app_data>/instances/<id>`, the instance root
+    // expected by `crate::playtime::record_session_at`.
+    let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
+
     let mut child = crate::process::spawn_minecraft(
         &java_path,
         &argv,
@@ -399,12 +399,6 @@ pub async fn start(
     let version_id_owned = effective_version_id.to_string();
     let log_path_owned = log_path.clone();
 
-    // Resolve the instance root BEFORE registering the live process. This `?`
-    // must not fire after `insert`, or we would leak a registered process with
-    // no exit-watcher. `instance_dir` resolves to `<app_data>/instances/<id>`,
-    // the instance root expected by `crate::playtime::record_session_at`.
-    let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
-
     // Snapshot liveness BEFORE this instance is registered so the tray hide
     // fires only for the first running instance.
     let was_any_running_before = registry().is_any_running();
@@ -413,7 +407,6 @@ pub async fn start(
         &instance.id,
         pid,
         ClientRun {
-            log_path: log_path_owned.clone(),
             max_heap_mb: heap_mb,
         },
     );
@@ -514,6 +507,9 @@ pub fn kill_all_running() {
     for (id, pid, _heap) in running_snapshot() {
         mark_stop_requested(&id);
         crate::platform::kill_process_tree(pid);
+        // record playtime ourselves: we remove the registry entry below, so the
+        // exit-watcher's remove_if_pid will no-op and skip note_session_end
+        note_session_end(&id);
         registry().remove(&id);
     }
 }
