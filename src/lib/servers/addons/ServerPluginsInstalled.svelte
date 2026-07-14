@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { commands, type ModSummary, type ModVersion } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type ModSummary,
+    type ModUpdateState,
+    type ModVersion,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { modProjectUrl } from '$lib/mods/project-url';
@@ -19,12 +24,18 @@
   } from '$lib/mods/installed/installed-filters.svelte';
   import ServerInstalledRow from './ServerInstalledRow.svelte';
   import { createServerInstalledData, type ServerRow } from './server-installed-data.svelte';
+  import {
+    autoUpdateTargets,
+    countAutoUpdatable,
+    externalUpdateUrl,
+    hasUpdate,
+    isAutoUpdatable,
+  } from './plugin-update-actions';
 
   let { serverId, reloadToken = 0 }: { serverId: string; reloadToken?: number } = $props();
 
   // Enriched Installed list. Plugins carry no quarantine reason (rows' `reason`
-  // is always null → ServerInstalledRow shows no badge). `updateState` stays
-  // unset — plugin update-check is a separate session's work.
+  // is always null → ServerInstalledRow shows no badge).
   const data = createServerInstalledData(
     () => serverId,
     'plugin',
@@ -35,6 +46,22 @@
   // shared client composable. No status predicates — plugins have no
   // updates / issues / incompatible views, so those chips stay at 0. Server
   // rows carry no install timestamp, so the sort is name-only.
+  // Per-plugin update-check results, keyed by sha1 (identity that survives an
+  // enable/disable rename).
+  let updateChecks = $state(new Map<string, ModUpdateState>());
+  let checkingUpdates = $state(false);
+  // Per-row in-flight guard: `serverUpdatePluginOne` is a filesystem-mutating
+  // swap with no backend concurrent-same-plugin guard. Keyed by sha1.
+  let updatingShas = $state(new Set<string>());
+  let updatingAll = $state(false);
+
+  // A different server's checks must never bleed across a switch (sha1 keys can
+  // collide across servers). Reset on serverId change.
+  $effect(() => {
+    void serverId;
+    updateChecks = new Map();
+  });
+
   const filters = createInstalledFilters(
     () => data.rows,
     (r) => ({
@@ -44,6 +71,7 @@
       sortKey: '',
       source: r.card.installed.source,
     }),
+    { isUpdatable: (id) => hasUpdate(updateChecks.get(id)) },
   );
   onDestroy(() => {
     data.dispose();
@@ -74,6 +102,17 @@
       tone: 'muted' as const,
       count: filters.counts.disabled,
     },
+    ...(filters.counts.updates > 0
+      ? [
+          {
+            value: 'updates',
+            label: $t('mods.installed.filterUpdatesLabel'),
+            tone: 'warning' as const,
+            icon: 'arrowUp' as const,
+            count: filters.counts.updates,
+          },
+        ]
+      : []),
   ]);
 
   let actionError = $state<string | null>(null);
@@ -109,6 +148,92 @@
   const isPluginCore = $derived(server !== null && pluginCapable(server.loader));
   const isRunning = $derived(server?.running ?? false);
   const canManage = $derived(isPluginCore && !isRunning);
+
+  // Non-external pending updates drive the "Update all" label + enablement.
+  // External-hosted targets open a page individually and are excluded here.
+  const updatableCount = $derived(countAutoUpdatable(data.rows, updateChecks));
+
+  // Read-only scan: classify every identity-bearing plugin against its platform.
+  async function checkUpdates() {
+    checkingUpdates = true;
+    actionError = null;
+    try {
+      const res = await commands.serverCheckPluginUpdates(serverId);
+      if (res.status === 'ok') {
+        const m = new Map<string, ModUpdateState>();
+        for (const c of res.data) m.set(c.sha1, c.state);
+        updateChecks = m;
+      } else actionError = formatError(res.error);
+    } finally {
+      checkingUpdates = false;
+    }
+  }
+
+  // Apply one pending update. Externally-hosted targets (Hangar) can't be
+  // auto-downloaded — open the project/external page instead and leave the row
+  // flagged. Otherwise swap the jar via the backend, then drop the stale check.
+  async function updateOne(row: ServerRow) {
+    const state = updateChecks.get(row.sha1);
+    if (!hasUpdate(state)) return;
+    if (!isAutoUpdatable(state)) {
+      const url = externalUpdateUrl(state.target, row.card.summary);
+      if (url) openUrl(url);
+      else actionError = $t('servers.plugins.externalDownload', { name: row.card.installed.name });
+      return;
+    }
+    // A stale badge can survive a server start — refuse the swap the backend
+    // would reject anyway, with a clear message.
+    if (!canManage) {
+      actionError = $t('servers.plugins.stopToManage');
+      return;
+    }
+    if (updatingShas.has(row.sha1)) return;
+    updatingShas = new Set(updatingShas).add(row.sha1);
+    actionError = null;
+    try {
+      const res = await commands.serverUpdatePluginOne(serverId, row.sha1, state.target);
+      if (res.status === 'ok') {
+        const next = new Map(updateChecks);
+        next.delete(row.sha1);
+        updateChecks = next;
+        await data.refresh();
+      } else actionError = formatError(res.error);
+    } finally {
+      const s = new Set(updatingShas);
+      s.delete(row.sha1);
+      updatingShas = s;
+    }
+  }
+
+  // Apply every auto-updatable pending update in one sequential batch (each swap
+  // mutates the plugins dir, so applies MUST stay serial). External-hosted rows
+  // are skipped (they open a page individually) and remain flagged.
+  async function updateAll() {
+    if (!canManage) {
+      actionError = $t('servers.plugins.stopToManage');
+      return;
+    }
+    const targets = autoUpdateTargets(data.rows, updateChecks);
+    if (targets.length === 0) return;
+    actionError = null;
+    updatingAll = true;
+    try {
+      for (const { sha, target } of targets) {
+        const res = await commands.serverUpdatePluginOne(serverId, sha, target);
+        if (res.status === 'error') {
+          actionError = formatError(res.error);
+          break;
+        }
+      }
+      // Drop only the applied (auto-updatable) checks; keep external ones flagged.
+      const next = new Map(updateChecks);
+      for (const { sha } of targets) next.delete(sha);
+      updateChecks = next;
+      await data.refresh();
+    } finally {
+      updatingAll = false;
+    }
+  }
 
   // Toggle enable/disable — MUST use `on_disk_filename` (a disabled plugin lives
   // at `<name>.jar.disabled`), never the base display filename.
@@ -160,6 +285,24 @@
       <BusyButton class="btn-secondary btn-sm" busy={busyFolder} onclick={() => void openFolder()}>
         <Icon name="folderOpen" size={14} />
         {$t('servers.plugins.openFolder')}
+      </BusyButton>
+      <BusyButton
+        class="btn-secondary btn-sm"
+        data-testid="server-plugins-check-updates"
+        busy={checkingUpdates}
+        disabled={!canManage}
+        onclick={() => void checkUpdates()}
+      >
+        {$t('servers.plugins.checkUpdates')}
+      </BusyButton>
+      <BusyButton
+        class="btn-warning btn-sm"
+        data-testid="server-plugins-update-all"
+        busy={updatingAll}
+        disabled={!canManage || updatableCount === 0}
+        onclick={() => void updateAll()}
+      >
+        {$t('mods.installed.updateAll', { count: updatableCount })}
       </BusyButton>
     </div>
 
@@ -216,9 +359,12 @@
             <ServerInstalledRow
               card={row.card}
               canToggle={canManage}
+              checking={checkingUpdates}
+              updateState={canManage ? (updateChecks.get(row.sha1) ?? null) : null}
               onOpenDetail={() => {
                 if (row.card.summary) detail = row.card.summary;
               }}
+              onUpdate={() => void updateOne(row)}
               onToggle={() => void toggle(row)}
               onUninstall={() => {
                 // ModCard's trash button can't be gated per-row (no prop for it),

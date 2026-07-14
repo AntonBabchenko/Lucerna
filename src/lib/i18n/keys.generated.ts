@@ -1627,6 +1627,7 @@ export type TranslationKey =
   | 'servers.overview.memory'
   | 'servers.overview.serverCard'
   | 'servers.overview.version'
+  | 'servers.plugins.checkUpdates'
   | 'servers.plugins.delete'
   | 'servers.plugins.deleteConfirm'
   | 'servers.plugins.disable'
