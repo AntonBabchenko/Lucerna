@@ -47,6 +47,7 @@ const base = () => ({
   onToggle() {},
   onUninstall() {},
   onUpdate() {},
+  onShowChangelog() {},
   onSelectChange() {},
   onInstallDep() {},
   onJump() {},

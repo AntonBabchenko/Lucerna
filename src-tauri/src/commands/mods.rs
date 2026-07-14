@@ -123,6 +123,27 @@ pub async fn mods_versions(
         .await
 }
 
+/// Cumulative changelog for an update: every version in `(base_version_id,
+/// target_version_id]` of `project_id`, newest→oldest, each `body_html`
+/// sanitized. Lazy — only called when the user opens the changelog. Unsupported
+/// sources (FTB/ATLauncher) short-circuit to `ChangelogUnsupported`; the FE
+/// gates the button so that is only a backstop.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_changelog(
+    source: ModSource,
+    project_id: String,
+    target_version_id: String,
+    base_version_id: Option<String>,
+) -> crate::error::Result<crate::mods::changelog::ChangelogResult> {
+    if !crate::mods::platform::changelog_supported(source) {
+        return Err(crate::error::Error::ChangelogUnsupported);
+    }
+    platform_for(source)
+        .changelog_range(&project_id, &target_version_id, base_version_id.as_deref())
+        .await
+}
+
 /// Every plugin build of `project_id` compatible with the given server core's
 /// plugin-loader lineage (bukkit/spigot/paper/purpur), newest-first. The plugin
 /// twin of [`mods_versions`]: it resolves the compatible loader slugs from the

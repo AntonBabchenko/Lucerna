@@ -14,6 +14,7 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount } from 'svelte';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
+  import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
   import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
@@ -278,6 +279,30 @@
   function openDetailMod(source: ModSource, projectId: string) {
     detail = { source, projectId };
   }
+
+  // Cumulative changelog for a pending mod update. The row exposes the button
+  // only when an update is available from a supported source; this builds the
+  // (installed → target) request from the update-check result.
+  let changelogReq = $state<{
+    source: ModSource;
+    projectId: string;
+    title: string;
+    target: string;
+    base: string | null;
+  } | null>(null);
+  function openChangelog(row: Row) {
+    const c = updates.updateChecks.get(row.installed.sha1);
+    if (!c || c.state.kind !== 'update_available') return;
+    const { source, project_id, version_id } = row.installed;
+    if (!source || !project_id) return;
+    changelogReq = {
+      source,
+      projectId: project_id,
+      title: `${rowDisplayName(row)} ${row.installed.version_number ?? ''} → ${c.state.target.version_number}`,
+      target: c.state.target.version_id,
+      base: version_id,
+    };
+  }
   const detailInstalledVersionId = $derived.by(() => {
     if (!detail) return null;
     const r = data.rows.find(
@@ -504,6 +529,7 @@
           onToggle={() => toggle(row.installed)}
           onUninstall={() => uninstall(row.installed)}
           onUpdate={() => updates.updateOne(row.installed)}
+          onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
@@ -532,6 +558,17 @@
       installedVersionId={detailInstalledVersionId}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}
+    />
+  {/if}
+
+  {#if changelogReq}
+    <ChangelogModal
+      source={changelogReq.source}
+      projectId={changelogReq.projectId}
+      title={changelogReq.title}
+      targetVersionId={changelogReq.target}
+      baseVersionId={changelogReq.base}
+      onClose={() => (changelogReq = null)}
     />
   {/if}
 

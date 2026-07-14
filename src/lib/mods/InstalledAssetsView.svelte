@@ -24,6 +24,8 @@
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
+  import ChangelogModal from './ChangelogModal.svelte';
+  import { changelogSupported } from './changelog-supported';
   import { mapLimit } from './concurrency';
   import { get } from 'svelte/store';
   import { tooltip } from '$lib/ui/tooltip';
@@ -48,6 +50,25 @@
   let detail = $state<{ source: ModSource; projectId: string; versionId: string | null } | null>(
     null,
   );
+  // Cumulative changelog for a pending asset update (built from the installed
+  // version → the offered `latest`). Shown only for supported sources.
+  let changelogReq = $state<{
+    source: ModSource;
+    projectId: string;
+    title: string;
+    target: string;
+    base: string | null;
+  } | null>(null);
+  function openAssetChangelog(asset: InstalledAsset, latest: ModVersion) {
+    if (!asset.source || !asset.project_id) return;
+    changelogReq = {
+      source: asset.source as ModSource,
+      projectId: asset.project_id,
+      title: `${asset.name} ${asset.version_number ?? ''} → ${latest.version_number}`,
+      target: latest.version_id,
+      base: asset.version_id,
+    };
+  }
 
   let assets = $state<InstalledAsset[]>([]);
   let loading = $state(false);
@@ -306,6 +327,17 @@
               <Icon name="warning" size={15} />
             </span>
           {/if}
+          {#if latest && asset.source && asset.project_id && changelogSupported(asset.source)}
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              disabled={busy}
+              onclick={() => openAssetChangelog(asset, latest)}
+              aria-label={$t('mods.changelog.view')}
+              data-testid="asset-changelog-btn"
+              use:tooltip={$t('mods.changelog.view')}><Icon name="scrollText" size={15} /></button
+            >
+          {/if}
           {#if latest}
             <button
               type="button"
@@ -338,6 +370,17 @@
       installedVersionId={detail.versionId}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}
+    />
+  {/if}
+
+  {#if changelogReq}
+    <ChangelogModal
+      source={changelogReq.source}
+      projectId={changelogReq.projectId}
+      title={changelogReq.title}
+      targetVersionId={changelogReq.target}
+      baseVersionId={changelogReq.base}
+      onClose={() => (changelogReq = null)}
     />
   {/if}
 </div>

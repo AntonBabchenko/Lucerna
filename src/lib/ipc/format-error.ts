@@ -104,6 +104,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_distribution_disabled: 'clean',
   mods_not_found: 'clean',
   mods_platform_unsupported: 'clean',
+  changelog_unsupported: 'clean',
   mods_sha1_unavailable: 'clean',
   mods_sha1_mismatch: 'clean',
   mods_dependency_unresolvable: 'clean',
@@ -479,6 +480,8 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
+    case 'changelog_unsupported':
+      return translate('errors.changelogUnsupported');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of
