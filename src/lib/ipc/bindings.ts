@@ -1316,6 +1316,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverInstallPlugin: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_plugin", { id, source, projectId, versionId })),
 	/**
+	 *  Check every identity-bearing server plugin for a newer version. The plugin
+	 *  twin of [`server_check_mod_updates`]: gate on the core being plugin-capable
+	 *  (Paper/Purpur) before any network, reconcile `runtime/plugins/`, query each
+	 *  plugin's platform via `plugin_versions` (plugin-loader slug lineage, not a
+	 *  `LoaderKind`), and classify with the shared `classify_update`. Per-plugin
+	 *  failure → that row's `CheckFailed`.
+	 */
+	serverCheckPluginUpdates: (id: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_plugin_updates", { id })),
+	/**
+	 *  Apply one server-plugin update: install `target` (+ its required dependency
+	 *  closure) into `runtime/plugins/` via the shared plugin kernel, remove the old
+	 *  jar (honoring its `.disabled` suffix), preserve set-aside state, and swap the
+	 *  registry rows. The plugin twin of [`server_update_one`] — differs in the
+	 *  install dir (`plugins`), the kernel (`install_plugin_into_dir`, which pushes
+	 *  the primary FIRST), and the plugin-capable gate. Server must be stopped.
+	 */
+	serverUpdatePluginOne: (id: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_update_plugin_one", { id, oldSha1, target })),
+	/**
 	 *  Install a local plugin `.jar` (chosen via the file picker) into the
 	 *  server's `runtime/plugins/`. Mirrors `server_install_local` (path-based —
 	 *  no heavy bytes over IPC). Validates the jar carries `plugin.yml` /

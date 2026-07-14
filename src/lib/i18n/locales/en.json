@@ -2193,6 +2193,7 @@
       "note": "Plugins run on the server only. Players join with a plain vanilla client.",
       "requiresCore": "Plugins need a Paper or Purpur core. You can switch this server's core in the Settings tab.",
       "openFolder": "Open folder",
+      "checkUpdates": "Check for updates",
       "stopToManage": "Stop the server to change its plugins.",
       "searchPlaceholder": "Search plugins…",
       "noResults": "No results.",
