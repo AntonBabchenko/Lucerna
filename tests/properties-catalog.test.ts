@@ -1,5 +1,7 @@
 // tests/properties-catalog.test.ts
 import { describe, expect, it } from 'vitest';
+import en from '$lib/i18n/locales/en.json';
+import ru from '$lib/i18n/locales/ru.json';
 import {
   keyToI18n,
   PROP_GROUP_ORDER,
@@ -49,3 +51,28 @@ function assertDefaultValid(s: PropSpec): void {
       break;
   }
 }
+
+function leaf(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)?.[k], obj);
+}
+
+describe('properties catalog i18n', () => {
+  for (const locale of [
+    { name: 'en', dict: en },
+    { name: 'ru', dict: ru },
+  ]) {
+    it(`${locale.name} has label+desc for every key`, () => {
+      for (const s of PROPERTIES_CATALOG) {
+        const base = `servers.props.${keyToI18n(s.key)}`;
+        expect(leaf(locale.dict, `${base}.label`), `${locale.name} ${base}.label`).toBeTruthy();
+        expect(leaf(locale.dict, `${base}.desc`), `${locale.name} ${base}.desc`).toBeTruthy();
+      }
+    });
+
+    it(`${locale.name} has every group title`, () => {
+      for (const g of PROP_GROUP_ORDER) {
+        expect(leaf(locale.dict, `servers.propGroups.${g}`), `${locale.name} ${g}`).toBeTruthy();
+      }
+    });
+  }
+});
