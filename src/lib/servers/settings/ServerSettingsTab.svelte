@@ -1,21 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { formatHeapLabel } from '$lib/instances/heap';
   import BusyButton from '$lib/ui/BusyButton.svelte';
-  import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
-  import { getProperty, setProperty } from '$lib/servers/properties-edit';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import { displayCore, switchTargets } from '$lib/servers/core-display';
   import SwitchCoreModal from '$lib/servers/SwitchCoreModal.svelte';
   import DeleteServerDialog from '$lib/servers/DeleteServerDialog.svelte';
   import { SavedForm } from './saved-form.svelte';
+  import ServerPropertiesEditor from './ServerPropertiesEditor.svelte';
 
   // The merged Settings tab: two independent save sections (launcher-side
   // launch config vs the server.properties file) because they persist through
@@ -67,104 +64,6 @@
       launchSaved.markSaved(launchSig);
     } finally {
       launchBusy = false;
-    }
-  }
-
-  // ── server.properties section ───────────────────────────────────────────────
-  let raw = $state('');
-  let loadError = $state<string | null>(null);
-  let propsError = $state<string | null>(null);
-  let propsBusy = $state(false);
-  const propsSaved = new SavedForm();
-
-  let port = $state('25565');
-  let motd = $state('A Minecraft Server');
-  let gamemode = $state('survival');
-  let difficulty = $state('easy');
-  let maxPlayers = $state('20');
-  let onlineMode = $state(true);
-  let pvp = $state(true);
-  let whitelist = $state(false);
-
-  const gamemodeOptions = $derived<SelectOption[]>([
-    { value: 'survival', label: $t('servers.settings.gamemodeOptions.survival') },
-    { value: 'creative', label: $t('servers.settings.gamemodeOptions.creative') },
-    { value: 'adventure', label: $t('servers.settings.gamemodeOptions.adventure') },
-    { value: 'spectator', label: $t('servers.settings.gamemodeOptions.spectator') },
-  ]);
-  const difficultyOptions = $derived<SelectOption[]>([
-    { value: 'peaceful', label: $t('servers.settings.difficultyOptions.peaceful') },
-    { value: 'easy', label: $t('servers.settings.difficultyOptions.easy') },
-    { value: 'normal', label: $t('servers.settings.difficultyOptions.normal') },
-    { value: 'hard', label: $t('servers.settings.difficultyOptions.hard') },
-  ]);
-
-  function syncFromRaw(text: string) {
-    port = getProperty(text, 'server-port') ?? '25565';
-    motd = getProperty(text, 'motd') ?? 'A Minecraft Server';
-    gamemode = getProperty(text, 'gamemode') ?? 'survival';
-    difficulty = getProperty(text, 'difficulty') ?? 'easy';
-    maxPlayers = getProperty(text, 'max-players') ?? '20';
-    onlineMode = (getProperty(text, 'online-mode') ?? 'true') !== 'false';
-    pvp = (getProperty(text, 'pvp') ?? 'true') !== 'false';
-    whitelist = (getProperty(text, 'white-list') ?? 'false') === 'true';
-  }
-
-  const propsSig = $derived(
-    JSON.stringify({
-      port,
-      motd,
-      gamemode,
-      difficulty,
-      maxPlayers,
-      onlineMode,
-      pvp,
-      whitelist,
-      raw,
-    }),
-  );
-  $effect(() => propsSaved.sync(propsSig));
-
-  // Tab bodies are {#if}-mounted by ServersPanel, so this runs on EVERY tab
-  // activation — that is load-bearing: the Connect card (allow-offline), the
-  // game itself, and server_start all rewrite server.properties, and a stale
-  // `raw` snapshot would clobber their changes on the next save here.
-  onMount(async () => {
-    const res = await commands.serverReadProperties(serverId);
-    if (res.status === 'ok') {
-      raw = res.data;
-      syncFromRaw(raw);
-    } else {
-      loadError = formatError(res.error);
-    }
-  });
-
-  async function saveProps() {
-    propsBusy = true;
-    propsError = null;
-    try {
-      // Apply curated field edits on top of the current raw text so that any
-      // advanced raw edits are preserved and curated fields win on conflicts
-      // (last setProperty wins per key).
-      let merged = raw;
-      merged = setProperty(merged, 'server-port', port);
-      merged = setProperty(merged, 'motd', motd);
-      merged = setProperty(merged, 'gamemode', gamemode);
-      merged = setProperty(merged, 'difficulty', difficulty);
-      merged = setProperty(merged, 'max-players', maxPlayers);
-      merged = setProperty(merged, 'online-mode', onlineMode ? 'true' : 'false');
-      merged = setProperty(merged, 'pvp', pvp ? 'true' : 'false');
-      merged = setProperty(merged, 'white-list', whitelist ? 'true' : 'false');
-
-      const res = await commands.serverWriteProperties(serverId, merged);
-      if (res.status === 'ok') {
-        raw = merged;
-        propsSaved.markSaved(propsSig);
-      } else {
-        propsError = formatError(res.error);
-      }
-    } finally {
-      propsBusy = false;
     }
   }
 
@@ -251,148 +150,8 @@
   </section>
 
   <!-- server.properties -->
-  <section class="flex flex-col gap-4 border-t border-border-subtle pt-4">
-    <h3 class="font-semibold">{$t('servers.settings.propertiesSection')}</h3>
-
-    {#if loadError}
-      <p class="text-sm text-danger">{loadError}</p>
-    {/if}
-
-    <!-- Curated fields -->
-    <div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3 text-sm">
-      <!-- Port -->
-      <label class="text-secondary whitespace-nowrap" for="sp-port">
-        {$t('servers.settings.port')}
-      </label>
-      <input
-        id="sp-port"
-        type="number"
-        min="1"
-        max="65535"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        bind:value={port}
-      />
-
-      <!-- MOTD -->
-      <label class="text-secondary whitespace-nowrap" for="sp-motd">
-        {$t('servers.settings.motd')}
-      </label>
-      <input
-        id="sp-motd"
-        type="text"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        bind:value={motd}
-      />
-
-      <!-- Game mode -->
-      <label class="text-secondary whitespace-nowrap" for="sp-gamemode">
-        {$t('servers.settings.gamemode')}
-      </label>
-      <Select
-        id="sp-gamemode"
-        value={gamemode}
-        options={gamemodeOptions}
-        onChange={(v) => (gamemode = String(v))}
-        ariaLabel={$t('servers.settings.gamemode')}
-      />
-
-      <!-- Difficulty -->
-      <label class="text-secondary whitespace-nowrap" for="sp-difficulty">
-        {$t('servers.settings.difficulty')}
-      </label>
-      <Select
-        id="sp-difficulty"
-        value={difficulty}
-        options={difficultyOptions}
-        onChange={(v) => (difficulty = String(v))}
-        ariaLabel={$t('servers.settings.difficulty')}
-      />
-
-      <!-- Max players -->
-      <label class="text-secondary whitespace-nowrap" for="sp-max-players">
-        {$t('servers.settings.maxPlayers')}
-      </label>
-      <input
-        id="sp-max-players"
-        type="number"
-        min="1"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        bind:value={maxPlayers}
-      />
-
-      <!-- Online mode -->
-      <label class="text-secondary whitespace-nowrap" for="sp-online-mode">
-        {$t('servers.settings.onlineMode')}
-      </label>
-      <div class="flex items-center gap-2">
-        <input
-          id="sp-online-mode"
-          type="checkbox"
-          class="accent-accent cursor-pointer"
-          bind:checked={onlineMode}
-        />
-      </div>
-
-      <!-- PvP -->
-      <label class="text-secondary whitespace-nowrap" for="sp-pvp">
-        {$t('servers.settings.pvp')}
-      </label>
-      <div class="flex items-center gap-2">
-        <input
-          id="sp-pvp"
-          type="checkbox"
-          class="accent-accent cursor-pointer"
-          bind:checked={pvp}
-        />
-      </div>
-
-      <!-- Whitelist -->
-      <label class="text-secondary whitespace-nowrap" for="sp-whitelist">
-        {$t('servers.settings.whitelist')}
-      </label>
-      <div class="flex items-center gap-2">
-        <input
-          id="sp-whitelist"
-          type="checkbox"
-          class="accent-accent cursor-pointer"
-          bind:checked={whitelist}
-        />
-      </div>
-    </div>
-
-    <!-- Advanced raw editor -->
-    <details class="mt-2">
-      <summary class="inline-flex items-center cursor-pointer text-sm text-secondary select-none">
-        <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
-        {$t('servers.settings.raw')}
-      </summary>
-      <textarea
-        class="mt-2 w-full rounded border border-border-emphasis bg-base px-2 py-1 font-mono text-xs text-primary"
-        rows="12"
-        bind:value={raw}
-      ></textarea>
-    </details>
-
-    {#if running}
-      <p class="text-xs text-warning-text">{$t('servers.settings.restartToApply')}</p>
-    {/if}
-
-    <div class="flex items-center gap-3">
-      <BusyButton
-        class="btn-primary btn-sm"
-        busy={propsBusy}
-        data-testid="settings-properties-save"
-        onclick={() => void saveProps()}
-      >
-        {$t('servers.settings.save')}
-      </BusyButton>
-      {#if propsSaved.saved}
-        <span class="text-xs text-success">{$t('servers.settings.saved')}</span>
-      {/if}
-      {#if propsError}
-        <span class="text-xs text-danger">{propsError}</span>
-      {/if}
-    </div>
+  <section class="border-t border-border-subtle pt-4">
+    <ServerPropertiesEditor {serverId} {running} />
   </section>
 
   {#if server}

@@ -2133,32 +2133,7 @@
       "dropzoneDatapack": "Перетащите .zip датапака сюда или нажмите для выбора файла"
     },
     "settings": {
-      "save": "Сохранить",
-      "saved": "Сохранено",
-      "launchSection": "Запуск",
-      "propertiesSection": "server.properties",
-      "restartToApply": "Перезапустите сервер, чтобы применить изменения server.properties.",
-      "raw": "Дополнительно (сырой файл)",
-      "port": "Порт",
-      "motd": "MOTD",
-      "gamemode": "Режим игры",
-      "difficulty": "Сложность",
-      "maxPlayers": "Макс. игроков",
-      "onlineMode": "Online-режим",
-      "pvp": "PvP",
-      "whitelist": "Белый список",
-      "gamemodeOptions": {
-        "survival": "Выживание",
-        "creative": "Творческий",
-        "adventure": "Приключение",
-        "spectator": "Наблюдатель"
-      },
-      "difficultyOptions": {
-        "peaceful": "Мирный",
-        "easy": "Лёгкий",
-        "normal": "Нормальный",
-        "hard": "Сложный"
-      }
+      "launchSection": "Запуск"
     },
     "propsUi": {
       "title": "Параметры сервера",

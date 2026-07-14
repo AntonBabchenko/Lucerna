@@ -2133,32 +2133,7 @@
       "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file"
     },
     "settings": {
-      "save": "Save",
-      "saved": "Saved",
-      "launchSection": "Launch",
-      "propertiesSection": "server.properties",
-      "restartToApply": "Restart the server to apply changes to server.properties.",
-      "raw": "Advanced (raw file)",
-      "port": "Port",
-      "motd": "MOTD",
-      "gamemode": "Game mode",
-      "difficulty": "Difficulty",
-      "maxPlayers": "Max players",
-      "onlineMode": "Online mode",
-      "pvp": "PvP",
-      "whitelist": "Whitelist",
-      "gamemodeOptions": {
-        "survival": "Survival",
-        "creative": "Creative",
-        "adventure": "Adventure",
-        "spectator": "Spectator"
-      },
-      "difficultyOptions": {
-        "peaceful": "Peaceful",
-        "easy": "Easy",
-        "normal": "Normal",
-        "hard": "Hard"
-      }
+      "launchSection": "Launch"
     },
     "propsUi": {
       "title": "Server properties",

@@ -87,37 +87,6 @@ describe('ServerSettingsTab', () => {
     });
   });
 
-  it('loads server.properties on mount and prefills the curated fields', async () => {
-    serverReadProperties.mockResolvedValue({ status: 'ok', data: 'server-port=25570\nmotd=Hi\n' });
-    await seedList([makeServer('srv-1', false)]);
-
-    render(ServerSettingsTab, { props: { serverId: 'srv-1' } });
-
-    const portInput = (await screen.findByLabelText('Port')) as HTMLInputElement;
-    await waitFor(() => expect(portInput.value).toBe('25570'));
-  });
-
-  it('properties save merges curated fields over raw and writes the file', async () => {
-    serverReadProperties.mockResolvedValue({
-      status: 'ok',
-      data: 'custom-key=1\nserver-port=25565\n',
-    });
-    serverWriteProperties.mockResolvedValue({ status: 'ok', data: null });
-    await seedList([makeServer('srv-1', false)]);
-
-    render(ServerSettingsTab, { props: { serverId: 'srv-1' } });
-
-    const portInput = (await screen.findByLabelText('Port')) as HTMLInputElement;
-    await waitFor(() => expect(portInput.value).toBe('25565'));
-    await fireEvent.input(portInput, { target: { value: '25999' } });
-    await fireEvent.click(screen.getByTestId('settings-properties-save'));
-
-    await waitFor(() => expect(serverWriteProperties).toHaveBeenCalled());
-    const written = serverWriteProperties.mock.calls[0][1] as string;
-    expect(written).toContain('custom-key=1'); // raw edits preserved
-    expect(written).toContain('server-port=25999'); // curated wins
-  });
-
   it('the two sections have independent Saved pills', async () => {
     // Save the launch section only → exactly one "Saved" pill appears.
     serverReadProperties.mockResolvedValue({ status: 'ok', data: '' });
