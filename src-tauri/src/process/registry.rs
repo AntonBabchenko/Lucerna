@@ -29,14 +29,13 @@ pub struct ProcessRegistry<T> {
 pub struct StartClaim<'r, T> {
     registry: &'r ProcessRegistry<T>,
     id: String,
-    committed: bool,
 }
 
 impl<'r, T> StartClaim<'r, T> {
-    /// Mark the claim as fulfilled (entry inserted) so `Drop` does not clear it.
-    pub fn commit(mut self) {
-        self.committed = true;
-    }
+    /// Release the claim now, removing the id from `starting`. Call after the
+    /// running entry is inserted so the reservation isn't held for the rest of
+    /// the caller's scope. (Equivalent to letting the claim drop.)
+    pub fn commit(self) {}
 }
 
 impl<'r, T> Drop for StartClaim<'r, T> {
@@ -46,9 +45,6 @@ impl<'r, T> Drop for StartClaim<'r, T> {
             .lock()
             .expect("registry starting set poisoned")
             .remove(&self.id);
-        if !self.committed {
-            // Start failed before insert: nothing to remove from `running`.
-        }
     }
 }
 
@@ -74,7 +70,6 @@ impl<T> ProcessRegistry<T> {
         Some(StartClaim {
             registry: self,
             id: id.to_string(),
-            committed: false,
         })
     }
 
@@ -98,7 +93,9 @@ impl<T> ProcessRegistry<T> {
         }
     }
 
-    /// Unconditionally remove `id` (used by a forced stop after kill).
+    /// Unconditionally remove `id`, returning its pid. NOT ABA-safe: call only
+    /// when you hold proof (e.g. a just-checked `pid_of`) that no intervening
+    /// `claim_start` could have replaced the entry; otherwise use `remove_if_pid`.
     pub fn remove(&self, id: &str) -> Option<u32> {
         self.running
             .lock()
