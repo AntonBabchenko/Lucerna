@@ -15,6 +15,7 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import Select from '$lib/ui/Select.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
@@ -361,7 +362,9 @@
       <p class="text-sm text-danger">{actionError}</p>
     {/if}
 
-    {#if data.rows.length === 0 && !data.error && !data.loading}
+    {#if data.loading && data.rows.length === 0}
+      <LoadingPanel label={$t('mods.installed.loading')} />
+    {:else if data.rows.length === 0 && !data.error}
       <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
     {:else if data.rows.length > 0}
       <!-- Filter toolbar: search + all/enabled/disabled(+updates) + sort. Gated
