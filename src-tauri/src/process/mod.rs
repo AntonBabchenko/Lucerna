@@ -4,6 +4,8 @@
 //! `docs/PRINCIPLES.md` Appendix A. Enforced by the structural test
 //! `tests/structural_no_raw_spawn.rs`.
 
+pub mod registry;
+
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 
