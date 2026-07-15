@@ -68,6 +68,7 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import {
     addonsKind,
@@ -168,16 +169,33 @@
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
-  let running = $state<{ pid: number; version_id: string } | null>(null);
-  let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
+  // Client (game) processes, keyed by instance_id — multiple instances can run
+  // at once. `exited` mirrors it: the LAST exit per instance (crash / exit
+  // status + diagnosis), retained per-instance so switching context shows the
+  // correct instance's status even while others run or exit.
+  let running = new SvelteMap<string, { pid: number; version_id: string }>();
+  let exited = new SvelteMap<string, { code: number; user_requested: boolean; log_path: string }>();
+  // True when the given instance's game process is up.
+  const isRunning = (instanceId: string | undefined): boolean =>
+    instanceId !== undefined && running.has(instanceId);
+  // Selected-instance projections: the primary Play/Stop button, Overview
+  // status, and the props threaded to children are all about the instance
+  // currently on screen (the active one), not "any instance running".
+  const selectedRunning = $derived(isRunning(activeInstance?.id));
+  const selectedExited = $derived(activeInstance ? exited.get(activeInstance.id) : undefined);
   // Client (game) status for the ModeSwitcher's Client segment, so a crash is
   // visible while the user is in Servers mode. Mirrors the servers segment:
   // pulse while running, red after a crash. The red source is `exited` +
   // classifyExit (same lifecycle as the Overview's crash status — clears on
   // relaunch or instance switch), NOT the dismissible `crashReport` banner. A
-  // user-requested Stop classifies as `stopped`, never `crashed`.
+  // user-requested Stop classifies as `stopped`, never `crashed`. Reflects the
+  // SELECTED instance for now; an aggregate pill is a later task.
   const clientNav = $derived<NavStatusKind>(
-    running ? 'running' : exited && classifyExit(exited).kind === 'crashed' ? 'crashed' : 'idle',
+    selectedRunning
+      ? 'running'
+      : selectedExited && classifyExit(selectedExited).kind === 'crashed'
+        ? 'crashed'
+        : 'idle',
   );
   // Tauri event unlisteners, captured so the listeners are torn down on unmount
   // rather than leaking across the page's lifetime. (This is a long-lived
@@ -258,7 +276,9 @@
   // Whenever the active instance changes, clear per-instance error banners.
   // They refer to the previously-active instance and confuse the user when
   // they switch context (e.g. fix one instance's setup by switching to
-  // another, only to still see the old error).
+  // another, only to still see the old error). Exit status is NOT cleared
+  // here — it is keyed per-instance (`exited` map), so `selectedExited`
+  // already surfaces the newly-active instance's own last exit.
   let lastActiveId: string | null = null;
   $effect(() => {
     const newId = activeInstance?.id ?? null;
@@ -267,7 +287,6 @@
         lastActiveId = newId;
         installError = null;
         modsError = null;
-        exited = null;
         crashReport = null;
         void stats.refreshInstalledStats(newId);
         void stats.refreshIncompatible(newId, instances);
@@ -359,7 +378,7 @@
   const quickPlayDisabledReason = $derived.by(() => {
     const key = quickPlayDisabledKey({
       ready: activeInstance?.ready ?? false,
-      running: running !== null,
+      running: selectedRunning,
       supported: quickPlaySupported,
     });
     return key === null ? null : get(t)(key);
@@ -380,7 +399,7 @@
   // Quick Play supported by this MC version, the instance installed, and the
   // game not already running.
   const quickPlayMenuEnabled = $derived(
-    quickPlaySupported && (activeInstance?.ready ?? false) && running === null,
+    quickPlaySupported && (activeInstance?.ready ?? false) && !selectedRunning,
   );
 
   // Load the cheap world list when the active instance is eligible; drop it
@@ -470,8 +489,10 @@
 
     events.processSpawned
       .listen((event) => {
-        running = { pid: event.payload.pid, version_id: event.payload.version_id };
-        exited = null;
+        const id = event.payload.instance_id;
+        running.set(id, { pid: event.payload.pid, version_id: event.payload.version_id });
+        // A fresh spawn supersedes any prior exit status for THIS instance.
+        exited.delete(id);
       })
       .then((u) => {
         spawnUnlisten = u;
@@ -509,23 +530,35 @@
 
     events.processExited
       .listen(async (event) => {
-        running = null;
-        // Apply any repairs the user queued while the game was running (their
-        // files were locked); now the instance is free.
-        void drainDeferredRepairs();
-        // A new log was written — refresh the diagnosis indicator.
-        if (activeInstance) void refreshDiagnosis(activeInstance.id);
-        exited = {
+        const id = event.payload.instance_id;
+        running.delete(id);
+        exited.set(id, {
           code: event.payload.code,
           user_requested: event.payload.user_requested,
           log_path: event.payload.log_path,
-        };
+        });
+        // Apply any repairs the user queued while the game was running (their
+        // files were locked); now the instance is free. Global drain.
+        void drainDeferredRepairs();
+        // Instance list carries persisted per-instance status → always refresh.
         void refreshInstances();
-        void stats.refreshPlaytime(activeInstance?.id ?? null);
+
+        // The remaining side-effects drive SINGLE-VALUED, active-instance
+        // display state (latest-log diagnosis, Overview playtime, crash
+        // banner). Only the instance currently on screen owns those, so a
+        // BACKGROUND instance's exit must not refresh/clobber them — the active
+        // instance's own data is unchanged by another instance exiting, and
+        // each instance's diagnosis/playtime refreshes when it is next selected
+        // (the activeInstance effect).
+        if (activeInstance?.id !== id) return;
+
+        // A new log was written — refresh the diagnosis indicator.
+        void refreshDiagnosis(id);
+        void stats.refreshPlaytime(id);
         // A user-requested Stop force-kills the process (non-zero exit code),
         // but it is not a crash — don't surface a crash diagnosis for it.
-        if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
-          const result = await commands.latestCrash(activeInstance.id);
+        if (event.payload.code !== 0 && !event.payload.user_requested) {
+          const result = await commands.latestCrash(id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
           }
@@ -654,7 +687,7 @@
     }
     await refreshInstances();
     // The $effect watching activeInstance.id clears per-instance error
-    // banners (installError, modsError, exited, crashReport) automatically.
+    // banners (installError, modsError, crashReport) automatically.
   }
 
   async function onInstall() {
@@ -896,7 +929,7 @@
         logsInitialPath = null;
         logsOpen = !logsOpen;
       }}
-      {running}
+      running={activeInstance ? (running.get(activeInstance.id) ?? null) : null}
       {clientNav}
       {installing}
       {onPlay}
@@ -1004,9 +1037,9 @@
               playtime={stats.playtime}
               incompatibleCount={stats.incompatibleCount}
               missingModsCount={stats.unresolvedMissing.length}
-              running={running !== null}
+              running={selectedRunning}
               {installing}
-              {exited}
+              exited={selectedExited ?? null}
               {installError}
               {modsError}
               errors={{
@@ -1089,7 +1122,7 @@
     instanceName={activeInstance?.name ?? null}
     mcVersion={activeInstance?.mc_version ?? null}
     loader={activeInstance?.loader ?? null}
-    gameRunning={running !== null}
+    gameRunning={selectedRunning}
   />
 
   <ManageInstancesModal
@@ -1098,7 +1131,7 @@
     bind:activeInstance
     versions={mcv.value}
     onChanged={refreshInstances}
-    isRunning={running !== null}
+    isRunning={selectedRunning}
     initialSelectedId={manageInitialId}
   />
 
@@ -1140,7 +1173,7 @@
     {savedServersLoading}
     busy={quickJoinBusy}
     connectDisabledReason={quickPlayDisabledReason}
-    addDisabledReason={running !== null ? $t('worlds.quickPlay.disabledRunning') : null}
+    addDisabledReason={selectedRunning ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
     onConnect={(address) => void connectToAddress(address)}
     onSave={onServerSave}
