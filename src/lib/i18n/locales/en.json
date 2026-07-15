@@ -390,6 +390,13 @@
       }
     }
   },
+  "launch": {
+    "warning": {
+      "ram": "Running instances reserve ~{reserved} GB of {total} GB.",
+      "accountMicrosoft": "Account {account} is already in use by a running instance; joining an online server may drop that session.",
+      "accountOffline": "Account {account} is already in use by a running instance; a server may reject a duplicate username."
+    }
+  },
   "mods": {
     "changelog": {
       "view": "Changelog",
