@@ -187,6 +187,7 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
             input,
             file.handled_log_sig.as_deref(),
             alive_ours,
+            last_exit_code,
         )
     };
     ServerWithStatus::from_file(
@@ -831,7 +832,7 @@ pub async fn server_diagnose(
     id: String,
 ) -> Result<crate::logs::diagnose::server::ServerDiagnosis> {
     use crate::logs::diagnose::server::{
-        classify_client_only_mods, diagnose_server_log, dist_crash_tokens, extract_missing_dep_ids,
+        classify_client_only_mods, diagnose_server_run, dist_crash_tokens, extract_missing_dep_ids,
         forge_client_skip_count, pick_diagnosable, server_repair_for, ServerDiagnosis,
         ServerRepairTag,
     };
@@ -872,7 +873,12 @@ pub async fn server_diagnose(
     }
     let diag_input = pick_diagnosable(&content, crash_text.as_deref());
     let signature = crate::logs::diagnose::log_signature(diag_input);
-    let diagnosis = diagnose_server_log(diag_input);
+    // Gate the log verdict on the recorded exit code: Forge's `invalid dist
+    // DEDICATED_SERVER` warning is non-fatal, so a server the user stopped before
+    // it finished loading would otherwise mis-report as a client-mod crash. A
+    // clean (0) or force-killed (-1) exit proves it was stopped, not crashed.
+    let exit_code = crate::servers_runtime::exit_state::read(&p.runtime);
+    let diagnosis = diagnose_server_run(diag_input, exit_code);
 
     let mut mods: Vec<(String, crate::mods::local::ModEnvironment)> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&p.mods) {
@@ -916,7 +922,7 @@ pub async fn server_diagnose(
         // The log/crash text didn't match any pattern and there's no pre-spawn
         // blocker — but if the run still exited with a crash code, explain that
         // rather than returning an unhelpful "no diagnosis".
-        if let Some(code) = crate::servers_runtime::exit_state::read(&p.runtime) {
+        if let Some(code) = exit_code {
             if let Some(d) = crate::logs::diagnose::server::diagnosis_from_exit_code(code) {
                 return Ok(d);
             }

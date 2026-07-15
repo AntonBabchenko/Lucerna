@@ -63,4 +63,10 @@ describe('runtime-extra: crash state (#18 / C1)', () => {
     expect(isCrashed(makeServer({ running: false, last_exit_code: null }))).toBe(false);
     expect(lastExitCodeOf(makeServer())).toBeNull();
   });
+
+  it('the force-kill sentinel (-1) is a stop, not a crash', () => {
+    // The backend writes -1 when it force-kills a server (a graceful Stop that
+    // timed out — e.g. stopping a server still loading). Mirrors is_crash_exit.
+    expect(isCrashed(makeServer({ running: false, last_exit_code: -1 }))).toBe(false);
+  });
 });

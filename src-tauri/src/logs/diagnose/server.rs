@@ -287,6 +287,37 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
     None
 }
 
+/// Log diagnosis, corrected by the process exit code. Every verdict except the
+/// client-only-mod crash is a pure log signal and passes through unchanged;
+/// `server-client-only-mod-crash` is additionally required to be a *real* crash.
+///
+/// Forge logs `for invalid dist DEDICATED_SERVER` as a NON-FATAL warning while
+/// loading many working modpacks, and [`diagnose_server_log`] filters the benign
+/// case only when the server went on to fully load (`Done … For help`). A server
+/// the user STOPPED before it finished loading carries that warning, lacks the
+/// success line, yet never crashed — the false positive this corrects. The
+/// reliable, version-independent signal that the server actually crashed is the
+/// exit code: a clean `0` or our force-kill sentinel `-1` (`!is_crash_exit`) is a
+/// user/launcher stop, so the client-crash verdict is dropped. An unknown exit
+/// (`None` — e.g. a server adopted across a launcher restart, where no code was
+/// recorded) leaves the verdict unchanged.
+pub fn diagnose_server_run(log: &str, exit_code: Option<i32>) -> Option<Diagnosis> {
+    let d = diagnose_server_log(log)?;
+    if d.pattern_id == "server-client-only-mod-crash"
+        && client_crash_contradicted_by_exit(exit_code)
+    {
+        return None;
+    }
+    Some(d)
+}
+
+/// True iff a recorded `exit_code` shows the run did not crash — a clean `0` or
+/// the force-kill sentinel `-1` (`!is_crash_exit`). `None` (no recorded exit)
+/// never contradicts, so a legacy/adopted run keeps its log-only verdict.
+fn client_crash_contradicted_by_exit(exit_code: Option<i32>) -> bool {
+    matches!(exit_code, Some(c) if !is_crash_exit(c))
+}
+
 /// Map a server `pattern_id` to the one-click fix the banner should offer, or
 /// `None` for advisory-only patterns (world corruption, java-too-old, wrong
 /// loader). The command layer calls this to attach `server_repair`.
@@ -316,14 +347,17 @@ pub fn server_repair_for(pattern_id: &str) -> Option<ServerRepairTag> {
 /// param-dependent tags (stop-orphan, install-missing-dep) count only when their
 /// target actually exists, so we never badge a no-op fix. `handled` (the acted-on
 /// log signature) suppresses an already-fixed log; `has_live_orphan` is whether a
-/// leftover owned JVM is alive (the caller checks the persisted PID).
+/// leftover owned JVM is alive (the caller checks the persisted PID). `exit_code`
+/// is the run's recorded process exit, so a client-only-mod crash the user
+/// actually just stopped mid-load is not badged (see [`diagnose_server_run`]).
 pub fn classify_server_status(
     log: &str,
     handled: Option<&str>,
     has_live_orphan: bool,
+    exit_code: Option<i32>,
 ) -> crate::logs::diagnose::DiagnosisStatus {
     use crate::logs::diagnose::DiagnosisStatus;
-    let Some(d) = diagnose_server_log(log) else {
+    let Some(d) = diagnose_server_run(log, exit_code) else {
         return DiagnosisStatus::None;
     };
     let signature = crate::logs::diagnose::log_signature(log);
@@ -672,11 +706,16 @@ mod tests {
         use crate::logs::diagnose::DiagnosisStatus;
         // No diagnosable problem → no badge.
         assert_eq!(
-            classify_server_status("", None, false),
+            classify_server_status("", None, false, None),
             DiagnosisStatus::None
         );
         assert_eq!(
-            classify_server_status("[Server] Done (1.2s)! For help, type \"help\"", None, false),
+            classify_server_status(
+                "[Server] Done (1.2s)! For help, type \"help\"",
+                None,
+                false,
+                None
+            ),
             DiagnosisStatus::None
         );
     }
@@ -687,25 +726,51 @@ mod tests {
         // OOM carries a one-click RaiseHeap fix → Actionable.
         let oom = "java.lang.OutOfMemoryError: Java heap space\n\tat x.y(Z.java:1)";
         assert_eq!(
-            classify_server_status(oom, None, false),
+            classify_server_status(oom, None, false, None),
             DiagnosisStatus::Actionable
         );
         // Same log, already acted on (matching signature) → Handled (no badge).
         let sig = crate::logs::diagnose::log_signature(oom);
         assert_eq!(
-            classify_server_status(oom, Some(&sig), false),
+            classify_server_status(oom, Some(&sig), false, None),
             DiagnosisStatus::Handled
         );
         // Session-lock with no live orphan → Advisory (don't badge a no-op fix).
         let lock = "Failed to check session lock for this world";
         assert_eq!(
-            classify_server_status(lock, None, false),
+            classify_server_status(lock, None, false, None),
             DiagnosisStatus::Advisory
         );
         // World corruption has no one-click fix → Advisory.
         assert_eq!(
-            classify_server_status("Failed to load world", None, false),
+            classify_server_status("Failed to load world", None, false, None),
             DiagnosisStatus::Advisory
+        );
+    }
+
+    #[test]
+    fn classify_server_status_suppresses_client_crash_on_user_stop() {
+        use crate::logs::diagnose::DiagnosisStatus;
+        // A server STOPPED mid-load carries Forge's benign invalid-dist warning
+        // (no "Done" line), but did not crash. With a non-crash exit code (clean 0
+        // or the force-kill sentinel -1) it must not be badged as a client-mod crash.
+        assert_eq!(
+            classify_server_status(CLIENT_CRASH_LOG, None, false, Some(0)),
+            DiagnosisStatus::None
+        );
+        assert_eq!(
+            classify_server_status(CLIENT_CRASH_LOG, None, false, Some(-1)),
+            DiagnosisStatus::None
+        );
+        // A real crash exit keeps the actionable badge.
+        assert_eq!(
+            classify_server_status(CLIENT_CRASH_LOG, None, false, Some(1)),
+            DiagnosisStatus::Actionable
+        );
+        // Unknown exit (adopted run) leaves the log verdict unchanged.
+        assert_eq!(
+            classify_server_status(CLIENT_CRASH_LOG, None, false, None),
+            DiagnosisStatus::Actionable
         );
     }
 
@@ -769,12 +834,51 @@ mod tests {
     const ETF_CRASH: &str = "Caused by: java.lang.RuntimeException: Attempted to load class net/minecraft/client/gui/screens/Screen for invalid dist DEDICATED_SERVER\n\tat TRANSFORMER/minecraft@1.20.1/net.minecraft.resources.ResourceLocation.handler$zpl000$etf$illegalPathOverride(ResourceLocation.java:525)\n";
     const PORT: &str = "[Server thread/WARN]: **** FAILED TO BIND TO PORT!\njava.net.BindException: Address already in use: bind\n";
     const EULA: &str = "[main/WARN]: You need to agree to the EULA in order to run the server. Go to eula.txt for more info.\n";
+    // A server mid-load that the user then STOPPED: Forge's benign invalid-dist
+    // warning is present, but there is no "Done … For help" success line. The
+    // log-only diagnoser flags this as a client-mod crash; the exit code is what
+    // proves it never actually crashed.
+    const CLIENT_CRASH_LOG: &str = "[Server thread/WARN] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/Foo for invalid dist DEDICATED_SERVER\n";
 
     #[test]
     fn detects_client_only_crash() {
         let d = diagnose_server_log(ETF_CRASH).unwrap();
         assert_eq!(d.pattern_id, "server-client-only-mod-crash");
         assert!(d.repair.is_some());
+    }
+    #[test]
+    fn diagnose_server_run_drops_client_crash_on_non_crash_exit() {
+        // The bug: a user who stops a server before it finishes loading leaves the
+        // benign invalid-dist warning in the log with no "Done" line. A clean exit
+        // (0) or the force-kill sentinel (-1) proves it was stopped, not crashed —
+        // the client-mod-crash verdict must be dropped.
+        assert!(diagnose_server_run(CLIENT_CRASH_LOG, Some(0)).is_none());
+        assert!(diagnose_server_run(CLIENT_CRASH_LOG, Some(-1)).is_none());
+    }
+    #[test]
+    fn diagnose_server_run_keeps_client_crash_on_real_crash_exit() {
+        // A genuine client-mod crash exits with a real crash code — keep the verdict.
+        assert_eq!(
+            diagnose_server_run(CLIENT_CRASH_LOG, Some(1)).map(|d| d.pattern_id),
+            Some("server-client-only-mod-crash".into())
+        );
+    }
+    #[test]
+    fn diagnose_server_run_keeps_client_crash_on_unknown_exit() {
+        // No recorded exit (adopted run) → leave the log-only verdict unchanged.
+        assert_eq!(
+            diagnose_server_run(CLIENT_CRASH_LOG, None).map(|d| d.pattern_id),
+            Some("server-client-only-mod-crash".into())
+        );
+    }
+    #[test]
+    fn diagnose_server_run_passes_through_non_client_verdicts() {
+        // A non-crash exit must NOT suppress an unrelated diagnosis (e.g. a port
+        // conflict): the exit-code gate is scoped to the client-mod-crash verdict.
+        assert_eq!(
+            diagnose_server_run(PORT, Some(0)).map(|d| d.pattern_id),
+            Some("server-port-in-use".into())
+        );
     }
     #[test]
     fn client_only_warning_suppressed_when_server_started() {
