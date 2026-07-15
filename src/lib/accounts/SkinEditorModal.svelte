@@ -5,7 +5,7 @@
   // from); both views write it and flip skin.map.needsUpdate. All logic lives
   // in the pure skin-editor/* modules — this file only wires DOM and WebGL.
   // See the skin-editor spec (docs/superpowers/specs, local-only).
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -48,6 +48,8 @@
     PANEL_MAX_WIDTH,
     PANEL_MIN_WIDTH,
   } from '$lib/accounts/skin-editor/panel-resize';
+  import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
+  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
 
   let {
     account,
@@ -96,18 +98,6 @@
 
   const variantToModel = (v: SkinVariant): 'default' | 'slim' =>
     v === 'slim' ? 'slim' : 'default';
-  const PALETTE: Rgba[] = [
-    [224, 224, 224, 255],
-    [60, 60, 60, 255],
-    [176, 125, 86, 255], // skin tone
-    [122, 82, 52, 255], // darker skin tone
-    [70, 49, 31, 255], // hair brown
-    [46, 122, 158, 255], // shirt blue
-    [58, 74, 138, 255], // trouser blue
-    [163, 45, 45, 255], // red
-    [59, 109, 17, 255], // green
-    [239, 159, 39, 255], // amber
-  ];
 
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
@@ -134,6 +124,60 @@
     Number.parseInt(hex.slice(5, 7), 16),
     255,
   ];
+
+  // --- custom palette --------------------------------------------------------
+  let editIndex = $state<number | null>(null);
+  let editColorInput: HTMLInputElement | null = null;
+  let dragIndex: number | null = null;
+
+  function addCurrentColour(): void {
+    skinPalette.add(colour);
+  }
+
+  async function beginEditSwatch(i: number): Promise<void> {
+    editIndex = i;
+    await tick(); // let the hidden picker's value bind before we open it
+    editColorInput?.click();
+  }
+
+  function onEditColour(hex: string): void {
+    if (editIndex !== null) skinPalette.replace(editIndex, hexToRgba(hex));
+    editIndex = null;
+  }
+
+  function resetPalette(): void {
+    if (window.confirm($t('skinEditor.paletteResetConfirm'))) skinPalette.reset();
+  }
+
+  function swatchMenu(i: number): ContextMenuItem[] {
+    return [
+      { label: $t('skinEditor.paletteEdit'), icon: 'edit', onSelect: () => beginEditSwatch(i) },
+      {
+        label: $t('skinEditor.paletteMoveLeft'),
+        icon: 'chevronLeft',
+        disabled: i === 0,
+        onSelect: () => skinPalette.move(i, i - 1),
+      },
+      {
+        label: $t('skinEditor.paletteMoveRight'),
+        icon: 'chevronRight',
+        disabled: i === skinPalette.swatches.length - 1,
+        onSelect: () => skinPalette.move(i, i + 1),
+      },
+      {
+        label: $t('skinEditor.paletteRemove'),
+        icon: 'trash',
+        danger: true,
+        separatorBefore: true,
+        onSelect: () => skinPalette.remove(i),
+      },
+    ];
+  }
+
+  function onSwatchDrop(target: number): void {
+    if (dragIndex !== null && dragIndex !== target) skinPalette.move(dragIndex, target);
+    dragIndex = null;
+  }
 
   const POSE_LABEL: Record<PoseName, TranslationKey> = {
     default: 'skinEditor.poseDefault',
@@ -1018,15 +1062,47 @@
         class="w-6 h-6 rounded border border-border-emphasis inline-block"
         style="background:{rgbaToHex(colour)}"
       ></span>
-      {#each PALETTE as swatch (rgbaToHex(swatch))}
+      <div class="flex items-center gap-1 flex-wrap">
+        {#each skinPalette.swatches as swatch, i (i)}
+          <ContextMenu items={swatchMenu(i)} ariaLabel={$t('skinEditor.paletteSwatchMenu')}>
+            <button
+              type="button"
+              class="w-[18px] h-[18px] rounded border border-border-subtle {rgbaToHex(swatch) ===
+              rgbaToHex(colour)
+                ? 'outline outline-2 outline-accent -outline-offset-2'
+                : ''}"
+              style="background:{rgbaToHex(swatch)}"
+              draggable="true"
+              aria-label={rgbaToHex(swatch)}
+              onclick={() => (colour = swatch)}
+              ondragstart={() => (dragIndex = i)}
+              ondragover={(e) => e.preventDefault()}
+              ondrop={() => onSwatchDrop(i)}
+            ></button>
+          </ContextMenu>
+        {/each}
         <button
           type="button"
-          class="w-[18px] h-[18px] rounded border border-border-subtle"
-          style="background:{rgbaToHex(swatch)}"
-          aria-label={rgbaToHex(swatch)}
-          onclick={() => (colour = swatch)}
-        ></button>
-      {/each}
+          class="w-[18px] h-[18px] rounded border border-dashed border-border-emphasis inline-flex items-center justify-center text-muted disabled:opacity-40"
+          disabled={skinPalette.isFull}
+          aria-label={$t('skinEditor.paletteAdd')}
+          use:tooltip={skinPalette.isFull
+            ? $t('skinEditor.paletteFull')
+            : $t('skinEditor.paletteAdd')}
+          onclick={addCurrentColour}
+        >
+          <Icon name="plus" size={12} />
+        </button>
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm"
+          aria-label={$t('skinEditor.paletteReset')}
+          use:tooltip={$t('skinEditor.paletteReset')}
+          onclick={resetPalette}
+        >
+          <Icon name="refresh" size={14} />
+        </button>
+      </div>
       <label class="inline-flex items-center gap-1 text-xs text-secondary">
         <input
           type="color"
@@ -1036,6 +1112,15 @@
           class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
         />
       </label>
+      <input
+        type="color"
+        class="sr-only"
+        tabindex={-1}
+        aria-hidden="true"
+        bind:this={editColorInput}
+        value={editIndex !== null ? rgbaToHex(skinPalette.swatches[editIndex]) : '#000000'}
+        oninput={(e) => onEditColour(e.currentTarget.value)}
+      />
       <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
       {#each [1, 3, 5] as b (b)}
         <button

@@ -12,6 +12,7 @@
   // sidebar tooltip showing over an open dialog). While closed it stays in
   // normal flow, so any modal correctly covers it.
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
 
   let {
@@ -88,7 +89,7 @@
     aria-controls={popoverId}
     onclick={toggle}
   >
-    (?)
+    <Icon name="info" size={14} />
   </button>
   {#if open}
     <!-- Click-outside backdrop -->
