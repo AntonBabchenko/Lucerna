@@ -127,7 +127,7 @@
   }
 </script>
 
-<details>
+<details open>
   <summary class="inline-flex items-center gap-2 cursor-pointer select-none font-semibold py-1">
     <span class="disclosure-caret"><Icon name="caret" size={14} /></span>
     {$t('servers.propsUi.title')}
