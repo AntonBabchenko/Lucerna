@@ -33,14 +33,21 @@
 
 <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,320px)] items-start gap-x-4 gap-y-1 py-2">
   <div class="flex flex-col gap-0.5 min-w-0">
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1.5">
       <label class="text-sm font-medium text-primary" for={fieldId}>{label}</label>
+      <button
+        type="button"
+        class="shrink-0 cursor-help text-muted hover:text-secondary"
+        aria-label={desc}
+        use:tooltip={{ text: desc, describe: false }}
+      >
+        <Icon name="help" size={13} />
+      </button>
       <code class="text-[11px] text-muted truncate">{spec.key}</code>
       {#if changed}
         <span class="text-[10px] text-accent">• {$t('servers.propsUi.changed')}</span>
       {/if}
     </div>
-    <p class="text-xs text-secondary">{desc}</p>
     <p class="text-[11px] text-muted">
       {$t('servers.propsUi.default', {
         value: spec.type.kind === 'string' && spec.default === '' ? '∅' : spec.default,

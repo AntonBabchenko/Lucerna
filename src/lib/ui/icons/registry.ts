@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleHelp,
   CircleX,
   Copy,
   Crop,
@@ -86,6 +87,7 @@ export const ICONS = {
   close: X,
   warning: TriangleAlert,
   info: Info, // informational marker (e.g. skipped-override notices)
+  help: CircleHelp, // inline help/description affordance (e.g. server.properties field tooltip)
   success: Check,
   download: Download,
   upload: Upload, // share/upload action (Logs → Share to mclo.gs)
