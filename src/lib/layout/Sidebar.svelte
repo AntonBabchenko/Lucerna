@@ -47,6 +47,9 @@
     onOpenLauncherImport,
     running,
     clientNav = 'idle',
+    runningCount = 0,
+    instanceName = (id: string) => id,
+    onOpenInstance = () => {},
     installing,
     onPlay,
     onStop,
@@ -102,6 +105,14 @@
     // Client (game) status for the ModeSwitcher's Client segment, derived in
     // +page.svelte from running/exited and threaded through as an opaque enum.
     clientNav?: NavStatusKind;
+    // Aggregate running-instances pill inputs, threaded straight through to
+    // ModeSwitcher (Sidebar is only the conduit — client game state stays
+    // page-local in +page.svelte). runningCount is the page's reactive
+    // `running.size`; instanceName resolves an id to its display name; and
+    // onOpenInstance jumps to a running instance (select + Client mode).
+    runningCount?: number;
+    instanceName?: (id: string) => string;
+    onOpenInstance?: (id: string) => void;
     installing: boolean;
     onPlay: () => void;
     onStop: () => void;
@@ -251,7 +262,7 @@
       </button>
     </div>
 
-    <ModeSwitcher {clientNav} />
+    <ModeSwitcher {clientNav} {runningCount} {instanceName} {onOpenInstance} />
 
     <!--
       Account is a purely client-side concept: which player identity launches

@@ -6,6 +6,7 @@
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
+  import RunningInstancesPopover from '$lib/layout/RunningInstancesPopover.svelte';
 
   // Top-level launcher mode switch (Client | Servers). Two aria-pressed
   // buttons styled like SegmentedControl's boxed variant — a dedicated
@@ -19,7 +20,23 @@
   // module like serverState), so its status arrives as an opaque NavStatusKind
   // prop threaded +page → Sidebar → here; the servers status is read directly
   // from serverState. Defaults to 'idle' so no-prop mounts render unchanged.
-  let { clientNav = 'idle' }: { clientNav?: NavStatusKind } = $props();
+  //
+  // The aggregate running-instances pill is threaded the same way: `runningCount`
+  // (the page's reactive `running.size`), an id→name resolver, and a jump
+  // callback. When runningCount > 0 the pill shows in BOTH modes (the switcher is
+  // persistent). Defaults keep no-prop mounts (tests) rendering unchanged — with
+  // runningCount 0 the pill never mounts.
+  let {
+    clientNav = 'idle',
+    runningCount = 0,
+    instanceName = (id: string) => id,
+    onOpenInstance = () => {},
+  }: {
+    clientNav?: NavStatusKind;
+    runningCount?: number;
+    instanceName?: (id: string) => string;
+    onOpenInstance?: (id: string) => void;
+  } = $props();
 
   const clientVisual = $derived(navVisual(clientNav));
   const clientStatusLabel = $derived(
@@ -42,64 +59,72 @@
   );
 </script>
 
-<!-- Inset-track segmented control: a recessed bg-black/20 gutter (reads as an
+<!-- Row wrapper: the segmented control takes the available width; the aggregate
+     running-instances pill (when any instance is running) sits in the switcher
+     chrome to its right, visible in both modes. -->
+<div class="flex items-center gap-2">
+  <!-- Inset-track segmented control: a recessed bg-black/20 gutter (reads as an
      inset over bg-base in BOTH themes) with one aria-hidden bg-surface pill
      sliding under the active segment (transform only — compositor-friendly;
      state lives on aria-pressed, not on the pill). Activity is conveyed by
      elevation + text weight, deliberately not an accent fill. -->
-<div
-  class="relative flex rounded-lg bg-black/20 p-[3px]"
-  role="group"
-  aria-label={$t('sidebar.mode.ariaLabel')}
-  data-tour-ctx="servers-mode-switch"
->
   <div
-    class="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-md bg-surface shadow transition-transform duration-150 ease-out motion-reduce:transition-none {serversUi.mode ===
-    'servers'
-      ? 'translate-x-full'
-      : ''}"
-    aria-hidden="true"
-  ></div>
-  <button
-    type="button"
-    class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
-    'client'
-      ? 'text-primary font-semibold'
-      : 'text-muted hover:text-secondary'}"
-    aria-pressed={serversUi.mode === 'client'}
-    data-testid="mode-switch-client"
-    onclick={() => serversUi.setMode('client')}
+    class="relative flex flex-1 rounded-lg bg-black/20 p-[3px]"
+    role="group"
+    aria-label={$t('sidebar.mode.ariaLabel')}
+    data-tour-ctx="servers-mode-switch"
   >
-    <NavStatusIcon
-      name="monitor"
-      size={14}
-      iconClass={clientVisual.iconClass}
-      statusLabel={clientStatusLabel}
-    />
-    {$t('sidebar.mode.client')}
-  </button>
-  <button
-    type="button"
-    class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
-    'servers'
-      ? 'text-primary font-semibold'
-      : 'text-muted hover:text-secondary'}"
-    aria-pressed={serversUi.mode === 'servers'}
-    data-testid="mode-switch-servers"
-    onclick={() => serversUi.setMode('servers')}
-  >
-    <NavStatusIcon
-      name="server"
-      size={14}
-      iconClass={serversVisual.iconClass}
-      statusLabel={serversStatusLabel}
-    />
-    {$t('sidebar.servers')}
-    {#if serversVisual.wrench}
-      <NavFixWrench label={$t('sidebar.serversFixAvailable')} testid="mode-servers-fix-badge" />
-    {/if}
-    {#if anyUploading}
-      <NavUploadBadge label={$t('sidebar.serversUploading')} testid="mode-servers-upload-badge" />
-    {/if}
-  </button>
+    <div
+      class="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-md bg-surface shadow transition-transform duration-150 ease-out motion-reduce:transition-none {serversUi.mode ===
+      'servers'
+        ? 'translate-x-full'
+        : ''}"
+      aria-hidden="true"
+    ></div>
+    <button
+      type="button"
+      class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
+      'client'
+        ? 'text-primary font-semibold'
+        : 'text-muted hover:text-secondary'}"
+      aria-pressed={serversUi.mode === 'client'}
+      data-testid="mode-switch-client"
+      onclick={() => serversUi.setMode('client')}
+    >
+      <NavStatusIcon
+        name="monitor"
+        size={14}
+        iconClass={clientVisual.iconClass}
+        statusLabel={clientStatusLabel}
+      />
+      {$t('sidebar.mode.client')}
+    </button>
+    <button
+      type="button"
+      class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
+      'servers'
+        ? 'text-primary font-semibold'
+        : 'text-muted hover:text-secondary'}"
+      aria-pressed={serversUi.mode === 'servers'}
+      data-testid="mode-switch-servers"
+      onclick={() => serversUi.setMode('servers')}
+    >
+      <NavStatusIcon
+        name="server"
+        size={14}
+        iconClass={serversVisual.iconClass}
+        statusLabel={serversStatusLabel}
+      />
+      {$t('sidebar.servers')}
+      {#if serversVisual.wrench}
+        <NavFixWrench label={$t('sidebar.serversFixAvailable')} testid="mode-servers-fix-badge" />
+      {/if}
+      {#if anyUploading}
+        <NavUploadBadge label={$t('sidebar.serversUploading')} testid="mode-servers-upload-badge" />
+      {/if}
+    </button>
+  </div>
+  {#if runningCount > 0}
+    <RunningInstancesPopover {runningCount} {instanceName} {onOpenInstance} />
+  {/if}
 </div>

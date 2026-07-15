@@ -207,6 +207,15 @@
       "ok": "Got it"
     }
   },
+  "running": {
+    "pill": {
+      "label": "{count} running"
+    },
+    "popover": {
+      "title": "Running instances",
+      "open": "Open"
+    }
+  },
   "instance": {
     "manage": {
       "title": "Manage Instances",

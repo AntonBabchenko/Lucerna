@@ -199,6 +199,18 @@
         ? 'crashed'
         : 'idle',
   );
+  // Aggregate running-instances pill (ModeSwitcher): the reactive count of live
+  // client processes, and an id→name resolver over the page-local instances
+  // list. Threaded +page → Sidebar → ModeSwitcher → RunningInstancesPopover.
+  const runningCount = $derived(running.size);
+  const instanceName = (id: string): string => instances.find((i) => i.id === id)?.name ?? id;
+  // Jump from the popover to a running instance: switch to Client mode (the pill
+  // is visible in Servers mode too) and select it. Mirrors the ServersPanel
+  // "open instance" path below (setMode('client') + onSelectInstance).
+  const onOpenRunningInstance = (id: string): void => {
+    serversUi.setMode('client');
+    void onSelectInstance(id);
+  };
   // Tauri event unlisteners, captured so the listeners are torn down on unmount
   // rather than leaking across the page's lifetime. (This is a long-lived
   // single-page shell, but the listeners still need explicit cleanup — an
@@ -1011,6 +1023,9 @@
       }}
       running={activeInstance ? (running.get(activeInstance.id) ?? null) : null}
       {clientNav}
+      {runningCount}
+      {instanceName}
+      onOpenInstance={onOpenRunningInstance}
       {installing}
       {onPlay}
       {onStop}
