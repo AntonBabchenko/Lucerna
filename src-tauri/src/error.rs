@@ -44,8 +44,8 @@ pub enum Error {
     #[error("Java spawn failed: {details}")]
     JavaSpawn { details: String },
 
-    #[error("Minecraft is already running")]
-    AlreadyRunning,
+    #[error("instance {instance_id} is already running")]
+    AlreadyRunning { instance_id: String },
 
     #[error("Account not set — enter your name first")]
     AccountNotSet,
@@ -535,10 +535,15 @@ mod tests {
 
     #[test]
     fn mods_network_falls_back_to_display_for_non_network_cause() {
-        let e = Error::mods_network("https://x", Error::AlreadyRunning);
+        let e = Error::mods_network(
+            "https://x",
+            Error::AlreadyRunning {
+                instance_id: "abc".into(),
+            },
+        );
         match e {
             Error::ModsNetwork { details, .. } => {
-                assert_eq!(details, "Minecraft is already running");
+                assert_eq!(details, "instance abc is already running");
             }
             other => panic!("expected ModsNetwork, got {other:?}"),
         }

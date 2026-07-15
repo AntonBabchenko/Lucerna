@@ -113,8 +113,8 @@ export const commands = {
 	 *  the UI simply hides the entry points.
 	 */
 	instanceQuickPlaySupport: (instanceId: string) => typedError<boolean, Error>(__TAURI_INVOKE("instance_quick_play_support", { instanceId })),
-	/**  Kill the running Minecraft process if any. Idempotent. */
-	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
+	/**  Kill the running Minecraft process for `instance_id` if any. Idempotent. */
+	stopInstance: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("stop_instance", { instanceId })),
 	/**
 	 *  List every log file under `instance_id`'s three documented roots.
 	 *  Sorted by mtime descending.
@@ -443,6 +443,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	instanceIcon: (instanceId: string) => typedError<{
 	png_base64: string,
 } | null, Error>(__TAURI_INVOKE("instance_icon", { instanceId })),
+	/**
+	 *  Soft, non-blocking pre-launch warnings for `instance_id`. The UI decides
+	 *  whether to proceed; `launch_instance` does NOT re-run these checks.
+	 */
+	preLaunchCheck: (instanceId: string) => typedError<PreLaunchCheck, Error>(__TAURI_INVOKE("pre_launch_check", { instanceId })),
+	/**  Every running instance, for the aggregate popover. */
+	runningInstances: () => __TAURI_INVOKE<RunningInstanceInfo[]>("running_instances"),
 	/**
 	 *  Read accumulated playtime stats for `instance_id`.
 	 *  Returns zeros when no sessions have been recorded yet.
@@ -1471,6 +1478,21 @@ export type Account = {
 	expires_at: number | null,
 };
 
+/**
+ *  The active account is already launching a running instance — the same
+ *  account can't hold two live online sessions on a real server.
+ */
+export type AccountConflict = {
+	account_name: string,
+	running_instance_id: string,
+	/**
+	 *  The candidate account's kind. The FE picks the warning copy from this:
+	 *  Microsoft means a real online-session drop; Offline means only a
+	 *  same-name collision risk on `online-mode=false` servers.
+	 */
+	account_kind: AccountKind,
+};
+
 /**  Discriminator for account type. */
 export type AccountKind = "offline" | "microsoft";
 
@@ -1979,7 +2001,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  Курируемое поле server.properties не прошло валидацию. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Попытка собрать/запустить сервер без принятого EULA. */
@@ -3368,6 +3390,12 @@ export type PlaytimeStats = {
 	last_session_unix_ms: number | null,
 };
 
+/**  Aggregate of the soft, non-blocking warnings shown before a launch. */
+export type PreLaunchCheck = {
+	resource_warning: RamWarning | null,
+	account_conflict: AccountConflict | null,
+};
+
 /**  Aggregated result of the dependency pre-flight scan. */
 export type PreflightReport = {
 	/**  All detected violations. Empty means no problems found. */
@@ -3388,24 +3416,18 @@ export type ProblemArtifact = {
 };
 
 export type ProcessExited = {
+	instance_id: string,
 	version_id: string,
-	/**
-	 *  Process exit code. `-1` when the process was terminated by a
-	 *  signal (no code available from the OS).
-	 */
+	/**  Process exit code. `-1` when the process was terminated by a signal. */
 	code: number,
-	/**
-	 *  True when this exit was caused by the user pressing Stop (the
-	 *  launcher killed the process tree itself). Lets the UI show
-	 *  "Stopped" instead of presenting the force-kill exit code as a
-	 *  crash, and suppresses the crash-diagnosis fetch.
-	 */
+	/**  True when the exit was caused by the user pressing Stop. */
 	user_requested: boolean,
 	/**  Absolute path to the launch log file for this run. */
 	log_path: string,
 };
 
 export type ProcessSpawned = {
+	instance_id: string,
 	version_id: string,
 	pid: number,
 };
@@ -3437,6 +3459,15 @@ export type QuarantineReport = {
  *  address (`host` or `host:port`).
  */
 export type QuickPlay = { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string };
+
+/**
+ *  Non-blocking pre-launch RAM warning payload (surfaced to the UI, which owns
+ *  the confirm decision). Megabytes.
+ */
+export type RamWarning = {
+	reserved_mb: number,
+	total_mb: number,
+};
 
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
@@ -3575,6 +3606,19 @@ export type RestoreMode = "replace" | "as_copy";
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+/**  One currently-running instance, for the aggregate running-instances popover. */
+export type RunningInstanceInfo = {
+	instance_id: string,
+	pid: number,
+	max_heap_mb: number,
+	/**
+	 *  Unix ms the in-flight playtime session started (for live elapsed
+	 *  display). `f64` not `i64` — specta forbids BigInt-style exports; a
+	 *  millisecond timestamp is exact in `f64` (well under 2^53).
+	 */
+	started_unix_ms: number | null,
 };
 
 /**  One saved server, surfaced to the UI. `address` mirrors the NBT `ip` field. */

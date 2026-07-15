@@ -9,13 +9,12 @@ use tauri_specta::Event;
 
 /// True if any Minecraft instance process is currently live, or any saved
 /// server reports a running status. Reuses the existing liveness
-/// chokepoints — `launch::spawn::is_running` (the same check `stop_minecraft`
-/// and `repair_instance` use for the single-instance game process) and
-/// `commands::server_list`'s per-server `running` field (the same
+/// chokepoints — `launch::spawn::is_any_running` (any running client instance)
+/// and `commands::server_list`'s per-server `running` field (the same
 /// PID-reconciled status the Servers UI and preflight diagnosis use) — so
 /// this introduces no new process bookkeeping.
 pub fn any_game_running(app: &AppHandle) -> bool {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_any_running() {
         return true;
     }
     crate::commands::server_list(app.clone())

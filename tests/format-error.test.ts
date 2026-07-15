@@ -55,7 +55,9 @@ describe('formatError', () => {
   });
 
   it('formats unit variants without field interpolation', () => {
-    expect(formatError({ kind: 'already_running' })).toBe('Minecraft is already running');
+    expect(formatError({ kind: 'already_running', instance_id: 'abc' })).toBe(
+      'Minecraft is already running',
+    );
     expect(formatError({ kind: 'account_not_set' })).toBe(
       'Account not set — enter your name first',
     );
@@ -176,7 +178,7 @@ describe('formatError', () => {
 
   it('formats a known error in Russian', () => {
     locale.set('ru');
-    const msg = formatError({ kind: 'already_running' });
+    const msg = formatError({ kind: 'already_running', instance_id: 'abc' });
     expect(msg).toBe('Minecraft уже запущен');
     locale.set('en');
   });
@@ -198,7 +200,7 @@ describe('formatError', () => {
       update_install_failed: { kind: 'update_install_failed', details: 'd' },
       hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
       java_spawn: { kind: 'java_spawn', details: 'no java' },
-      already_running: { kind: 'already_running' },
+      already_running: { kind: 'already_running', instance_id: 'abc' },
       account_not_set: { kind: 'account_not_set' },
       instance_busy: { kind: 'instance_busy' },
       auth_cancelled: { kind: 'auth_cancelled' },

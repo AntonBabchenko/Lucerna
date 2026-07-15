@@ -56,6 +56,8 @@
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
+  import { warningLines } from '$lib/launch/pre-launch-warning';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
@@ -68,6 +70,7 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import {
     addonsKind,
@@ -168,17 +171,46 @@
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
-  let running = $state<{ pid: number; version_id: string } | null>(null);
-  let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
+  // Client (game) processes, keyed by instance_id — multiple instances can run
+  // at once. `exited` mirrors it: the LAST exit per instance (crash / exit
+  // status + diagnosis), retained per-instance so switching context shows the
+  // correct instance's status even while others run or exit.
+  let running = new SvelteMap<string, { pid: number; version_id: string }>();
+  let exited = new SvelteMap<string, { code: number; user_requested: boolean; log_path: string }>();
+  // True when the given instance's game process is up.
+  const isRunning = (instanceId: string | undefined): boolean =>
+    instanceId !== undefined && running.has(instanceId);
+  // Selected-instance projections: the primary Play/Stop button, Overview
+  // status, and the props threaded to children are all about the instance
+  // currently on screen (the active one), not "any instance running".
+  const selectedRunning = $derived(isRunning(activeInstance?.id));
+  const selectedExited = $derived(activeInstance ? exited.get(activeInstance.id) : undefined);
   // Client (game) status for the ModeSwitcher's Client segment, so a crash is
   // visible while the user is in Servers mode. Mirrors the servers segment:
   // pulse while running, red after a crash. The red source is `exited` +
   // classifyExit (same lifecycle as the Overview's crash status — clears on
   // relaunch or instance switch), NOT the dismissible `crashReport` banner. A
-  // user-requested Stop classifies as `stopped`, never `crashed`.
+  // user-requested Stop classifies as `stopped`, never `crashed`. Reflects the
+  // SELECTED instance for now; an aggregate pill is a later task.
   const clientNav = $derived<NavStatusKind>(
-    running ? 'running' : exited && classifyExit(exited).kind === 'crashed' ? 'crashed' : 'idle',
+    selectedRunning
+      ? 'running'
+      : selectedExited && classifyExit(selectedExited).kind === 'crashed'
+        ? 'crashed'
+        : 'idle',
   );
+  // Aggregate running-instances pill (ModeSwitcher): the reactive count of live
+  // client processes, and an id→name resolver over the page-local instances
+  // list. Threaded +page → Sidebar → ModeSwitcher → RunningInstancesPopover.
+  const runningCount = $derived(running.size);
+  const instanceName = (id: string): string => instances.find((i) => i.id === id)?.name ?? id;
+  // Jump from the popover to a running instance: switch to Client mode (the pill
+  // is visible in Servers mode too) and select it. Mirrors the ServersPanel
+  // "open instance" path below (setMode('client') + onSelectInstance).
+  const onOpenRunningInstance = (id: string): void => {
+    serversUi.setMode('client');
+    void onSelectInstance(id);
+  };
   // Tauri event unlisteners, captured so the listeners are torn down on unmount
   // rather than leaking across the page's lifetime. (This is a long-lived
   // single-page shell, but the listeners still need explicit cleanup — an
@@ -217,6 +249,18 @@
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
   let gateBusy = $state(false);
+
+  // Soft pre-launch warning (RAM over-commit / same-account). When launching
+  // ANOTHER instance would over-commit memory or reuse a running account,
+  // surface a non-blocking confirm before the real launch. `launchWarningLines`
+  // holds the human-readable lines to render (null = no dialog); `pendingLaunch`
+  // captures the deferred launch so "Launch anyway" can re-dispatch it — mirrors
+  // the dependency-preflight gate above (gateReport + onGateLaunchAnyway).
+  // `pendingAbort` is an optional cleanup run only if the user CANCELS the
+  // warning (e.g. resetting the Quick Join busy flag that was set synchronously).
+  let launchWarningLines = $state<string[] | null>(null);
+  let pendingLaunch: (() => Promise<void>) | null = null;
+  let pendingAbort: (() => void) | null = null;
 
   let logsOpen = $state(false);
   let screenshotsGalleryOpen = $state(false);
@@ -258,7 +302,9 @@
   // Whenever the active instance changes, clear per-instance error banners.
   // They refer to the previously-active instance and confuse the user when
   // they switch context (e.g. fix one instance's setup by switching to
-  // another, only to still see the old error).
+  // another, only to still see the old error). Exit status is NOT cleared
+  // here — it is keyed per-instance (`exited` map), so `selectedExited`
+  // already surfaces the newly-active instance's own last exit.
   let lastActiveId: string | null = null;
   $effect(() => {
     const newId = activeInstance?.id ?? null;
@@ -267,7 +313,6 @@
         lastActiveId = newId;
         installError = null;
         modsError = null;
-        exited = null;
         crashReport = null;
         void stats.refreshInstalledStats(newId);
         void stats.refreshIncompatible(newId, instances);
@@ -359,7 +404,7 @@
   const quickPlayDisabledReason = $derived.by(() => {
     const key = quickPlayDisabledKey({
       ready: activeInstance?.ready ?? false,
-      running: running !== null,
+      running: selectedRunning,
       supported: quickPlaySupported,
     });
     return key === null ? null : get(t)(key);
@@ -380,7 +425,7 @@
   // Quick Play supported by this MC version, the instance installed, and the
   // game not already running.
   const quickPlayMenuEnabled = $derived(
-    quickPlaySupported && (activeInstance?.ready ?? false) && running === null,
+    quickPlaySupported && (activeInstance?.ready ?? false) && !selectedRunning,
   );
 
   // Load the cheap world list when the active instance is eligible; drop it
@@ -470,8 +515,10 @@
 
     events.processSpawned
       .listen((event) => {
-        running = { pid: event.payload.pid, version_id: event.payload.version_id };
-        exited = null;
+        const id = event.payload.instance_id;
+        running.set(id, { pid: event.payload.pid, version_id: event.payload.version_id });
+        // A fresh spawn supersedes any prior exit status for THIS instance.
+        exited.delete(id);
       })
       .then((u) => {
         spawnUnlisten = u;
@@ -509,23 +556,35 @@
 
     events.processExited
       .listen(async (event) => {
-        running = null;
-        // Apply any repairs the user queued while the game was running (their
-        // files were locked); now the instance is free.
-        void drainDeferredRepairs();
-        // A new log was written — refresh the diagnosis indicator.
-        if (activeInstance) void refreshDiagnosis(activeInstance.id);
-        exited = {
+        const id = event.payload.instance_id;
+        running.delete(id);
+        exited.set(id, {
           code: event.payload.code,
           user_requested: event.payload.user_requested,
           log_path: event.payload.log_path,
-        };
+        });
+        // Apply any repairs the user queued while the game was running (their
+        // files were locked); now the instance is free. Global drain.
+        void drainDeferredRepairs();
+        // Instance list carries persisted per-instance status → always refresh.
         void refreshInstances();
-        void stats.refreshPlaytime(activeInstance?.id ?? null);
+
+        // The remaining side-effects drive SINGLE-VALUED, active-instance
+        // display state (latest-log diagnosis, Overview playtime, crash
+        // banner). Only the instance currently on screen owns those, so a
+        // BACKGROUND instance's exit must not refresh/clobber them — the active
+        // instance's own data is unchanged by another instance exiting, and
+        // each instance's diagnosis/playtime refreshes when it is next selected
+        // (the activeInstance effect).
+        if (activeInstance?.id !== id) return;
+
+        // A new log was written — refresh the diagnosis indicator.
+        void refreshDiagnosis(id);
+        void stats.refreshPlaytime(id);
         // A user-requested Stop force-kills the process (non-zero exit code),
         // but it is not a crash — don't surface a crash diagnosis for it.
-        if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
-          const result = await commands.latestCrash(activeInstance.id);
+        if (event.payload.code !== 0 && !event.payload.user_requested) {
+          const result = await commands.latestCrash(id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
           }
@@ -654,7 +713,7 @@
     }
     await refreshInstances();
     // The $effect watching activeInstance.id clears per-instance error
-    // banners (installError, modsError, exited, crashReport) automatically.
+    // banners (installError, modsError, crashReport) automatically.
   }
 
   async function onInstall() {
@@ -710,13 +769,13 @@
       return;
     }
 
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   // Gate dialog handlers
   async function onGateLaunchAnyway() {
     gateReport = null;
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   async function onGateUpdateLaunch() {
@@ -733,11 +792,58 @@
       return;
     }
     gateReport = null;
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   function onGateCancel() {
     gateReport = null;
+  }
+
+  // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
+  // warnings (RAM over-commit / same-account), defers `proceed` behind the confirm
+  // dialog (with an optional `onAbort` cleanup run only if the user cancels) and
+  // returns; otherwise runs `proceed` now. This sits AFTER the dependency
+  // preflight, so the deps gate (if any) is resolved first and this is the final
+  // advisory check before launch.
+  async function gateLaunch(proceed: () => Promise<void>, onAbort?: () => void) {
+    if (!activeInstance) return;
+    const check = await commands.preLaunchCheck(activeInstance.id);
+    if (check.status === 'error') {
+      // Fail-open: the RAM/account check is advisory; if it errors, proceed and
+      // let launch_instance do the authoritative gating (mirrors the sibling
+      // dependency-preflight, which also fails open). Do not surface it as a
+      // launch failure.
+      console.warn('[+page] preLaunchCheck failed; proceeding without warning', check.error);
+      await proceed();
+      return;
+    }
+    const lines = warningLines(check.data);
+    if (lines.length === 0) {
+      await proceed();
+      return;
+    }
+    pendingLaunch = proceed;
+    pendingAbort = onAbort ?? null;
+    launchWarningLines = lines;
+  }
+
+  function onLaunchWarningConfirm() {
+    const proceed = pendingLaunch;
+    // The launch proceeds — drop the abort cleanup WITHOUT running it (the
+    // proceed thunk owns its own success/reset path).
+    pendingLaunch = null;
+    pendingAbort = null;
+    launchWarningLines = null;
+    void proceed?.();
+  }
+
+  function onLaunchWarningCancel() {
+    const abort = pendingAbort;
+    pendingLaunch = null;
+    pendingAbort = null;
+    launchWarningLines = null;
+    // Run the caller's cancel cleanup (e.g. reset the Quick Join busy flag).
+    abort?.();
   }
 
   async function onQuickPlayWorld(folderName: string) {
@@ -748,14 +854,19 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
-    installError = null;
-    const result = await commands.launchInstance(activeInstance.id, {
-      kind: 'singleplayer',
-      world: folderName,
+    // activeInstance.id is read live inside the thunk; the modal backdrop blocks
+    // instance switching while the warning dialog is open, so it can't drift.
+    await gateLaunch(async () => {
+      if (!activeInstance) return;
+      installError = null;
+      const result = await commands.launchInstance(activeInstance.id, {
+        kind: 'singleplayer',
+        world: folderName,
+      });
+      if (result.status === 'error') {
+        installError = formatError(result.error);
+      }
     });
-    if (result.status === 'error') {
-      installError = formatError(result.error);
-    }
   }
 
   async function connectToAddress(address: string) {
@@ -766,18 +877,32 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
+    // Disable the Connect button SYNCHRONOUSLY (before the preLaunchCheck IPC
+    // round-trip) so a fast second click can't fire a second launch. The thunk's
+    // finally-style reset covers the launch/no-warning/confirm paths; the
+    // gateLaunch onAbort resets it if the user CANCELS the warning.
     quickJoinBusy = true;
-    installError = null;
-    const result = await commands.launchInstance(activeInstance.id, {
-      kind: 'multiplayer',
-      address,
-    });
-    quickJoinBusy = false;
-    if (result.status === 'error') {
-      installError = formatError(result.error);
-    } else {
-      quickJoinOpen = false;
-    }
+    // activeInstance.id is read live inside the thunk; the modal backdrop blocks
+    // instance switching while the warning dialog is open, so it can't drift.
+    await gateLaunch(
+      async () => {
+        if (!activeInstance) return;
+        installError = null;
+        const result = await commands.launchInstance(activeInstance.id, {
+          kind: 'multiplayer',
+          address,
+        });
+        quickJoinBusy = false;
+        if (result.status === 'error') {
+          installError = formatError(result.error);
+        } else {
+          quickJoinOpen = false;
+        }
+      },
+      () => {
+        quickJoinBusy = false;
+      },
+    );
   }
 
   async function onServerSave(name: string, address: string): Promise<boolean> {
@@ -823,9 +948,23 @@
   }
 
   async function onStop() {
-    const result = await commands.stopMinecraft();
+    if (!activeInstance) return;
+    const result = await commands.stopInstance(activeInstance.id);
     if (result.status === 'error') {
       installError = formatError(result.error);
+    }
+  }
+
+  // Stop a SPECIFIC instance by id — the sidebar row's inline Stop (any running
+  // instance, not just the active one). Mirrors RunningInstancesPopover.stop:
+  // fire the command and surface a failure as a warning toast (a non-active
+  // instance's error has no inline banner to land in). On success the
+  // processExited event clears the instance's `running` entry, so its row badge
+  // and inline Stop disappear reactively.
+  async function onStopInstance(id: string) {
+    const result = await commands.stopInstance(id);
+    if (result.status === 'error') {
+      pushWarning(get(t)('sidebar.stop'), [formatError(result.error)]);
     }
   }
 
@@ -895,8 +1034,13 @@
         logsInitialPath = null;
         logsOpen = !logsOpen;
       }}
-      {running}
+      running={activeInstance ? (running.get(activeInstance.id) ?? null) : null}
       {clientNav}
+      {runningCount}
+      {instanceName}
+      onOpenInstance={onOpenRunningInstance}
+      {isRunning}
+      {onStopInstance}
       {installing}
       {onPlay}
       {onStop}
@@ -1003,9 +1147,9 @@
               playtime={stats.playtime}
               incompatibleCount={stats.incompatibleCount}
               missingModsCount={stats.unresolvedMissing.length}
-              running={running !== null}
+              running={selectedRunning}
               {installing}
-              {exited}
+              exited={selectedExited ?? null}
               {installError}
               {modsError}
               errors={{
@@ -1088,7 +1232,7 @@
     instanceName={activeInstance?.name ?? null}
     mcVersion={activeInstance?.mc_version ?? null}
     loader={activeInstance?.loader ?? null}
-    gameRunning={running !== null}
+    gameRunning={selectedRunning}
   />
 
   <ManageInstancesModal
@@ -1097,7 +1241,7 @@
     bind:activeInstance
     versions={mcv.value}
     onChanged={refreshInstances}
-    isRunning={running !== null}
+    isRunning={selectedRunning}
     initialSelectedId={manageInitialId}
   />
 
@@ -1139,7 +1283,7 @@
     {savedServersLoading}
     busy={quickJoinBusy}
     connectDisabledReason={quickPlayDisabledReason}
-    addDisabledReason={running !== null ? $t('worlds.quickPlay.disabledRunning') : null}
+    addDisabledReason={selectedRunning ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
     onConnect={(address) => void connectToAddress(address)}
     onSave={onServerSave}
@@ -1154,6 +1298,16 @@
       onUpdateLaunch={onGateUpdateLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
+    />
+  {/if}
+  {#if launchWarningLines}
+    <ConfirmDialog
+      title={$t('launch.warning.title')}
+      bodyText={launchWarningLines}
+      confirmLabel={$t('launch.warning.launchAnyway')}
+      confirmTestid="launch-warning-confirm"
+      onCancel={onLaunchWarningCancel}
+      onConfirm={onLaunchWarningConfirm}
     />
   {/if}
   {#if exportDialogOpen && activeInstance}

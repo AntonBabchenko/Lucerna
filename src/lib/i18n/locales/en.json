@@ -216,6 +216,16 @@
       "ok": "Got it"
     }
   },
+  "running": {
+    "pill": {
+      "label": "{count} running"
+    },
+    "popover": {
+      "title": "Running instances",
+      "serversTitle": "Running servers",
+      "open": "Open"
+    }
+  },
   "instance": {
     "manage": {
       "title": "Manage Instances",
@@ -397,6 +407,15 @@
         "recovering_identities": "Identifying mods…",
         "done": "Done."
       }
+    }
+  },
+  "launch": {
+    "warning": {
+      "title": "Launch another instance?",
+      "launchAnyway": "Launch anyway",
+      "ram": "Running instances reserve ~{reserved} GB of {total} GB.",
+      "accountMicrosoft": "Account {account} is already in use by a running instance; joining an online server may drop that session.",
+      "accountOffline": "Account {account} is already in use by a running instance; a server may reject a duplicate username."
     }
   },
   "mods": {
