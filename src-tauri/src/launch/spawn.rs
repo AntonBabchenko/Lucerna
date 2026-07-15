@@ -49,10 +49,13 @@ pub struct ProcessExited {
 }
 
 /// Per-running-instance data. `pid` lives in the registry entry; this carries
-/// what the RAM guardrail needs.
+/// what the RAM guardrail and the account-conflict check need.
 #[derive(Clone)]
 struct ClientRun {
     max_heap_mb: u32,
+    /// Account id this instance was launched with — lets `account_in_use`
+    /// warn when the same account is about to be used by a second instance.
+    account_id: String,
 }
 
 fn registry() -> &'static ProcessRegistry<ClientRun> {
@@ -77,6 +80,17 @@ pub fn running_snapshot() -> Vec<(String, u32, u32)> {
         .into_iter()
         .map(|(id, pid, run)| (id, pid, run.max_heap_mb))
         .collect()
+}
+
+/// The instance_id of a currently-running instance launched with `account_id`,
+/// if any. Used to warn about the same account being used by two running
+/// instances (online-session conflict on real servers).
+pub fn account_in_use(account_id: &str) -> Option<String> {
+    registry()
+        .snapshot()
+        .into_iter()
+        .find(|(_, _, run)| run.account_id == account_id)
+        .map(|(id, _, _)| id)
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +170,16 @@ fn note_session_end(instance_id: &str) {
             start.instance_root.display()
         );
     }
+}
+
+/// Wall-clock start time (unix ms) of the in-flight playtime session for
+/// `instance_id`, if it is running. Lets the UI show live elapsed playtime.
+pub fn session_started_ms(instance_id: &str) -> Option<i64> {
+    sessions()
+        .lock()
+        .expect("playtime session mutex poisoned")
+        .get(instance_id)
+        .map(|s| s.started_unix_ms)
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +432,7 @@ pub async fn start(
         pid,
         ClientRun {
             max_heap_mb: heap_mb,
+            account_id: account.id.clone(),
         },
     );
     // Registry now holds the live process; the exit-watcher owns teardown.
@@ -686,5 +711,51 @@ mod tests {
         assert!(should_hide_on_launch(true, false));
         assert!(!should_hide_on_launch(true, true));
         assert!(!should_hide_on_launch(false, false));
+    }
+
+    // These two touch the process-wide registry/sessions singletons; each owns
+    // a unique instance id and cleans up its own entry so it never interferes
+    // with another test's view of global run state.
+
+    #[test]
+    fn account_in_use_finds_matching_running_instance() {
+        let id = "inst-account-in-use-unit-test";
+        let account_id = "account-in-use-unit-test-xyz";
+        assert_eq!(account_in_use(account_id), None, "no entry initially");
+        registry().insert(
+            id,
+            424_242,
+            ClientRun {
+                max_heap_mb: 2048,
+                account_id: account_id.to_string(),
+            },
+        );
+        assert_eq!(account_in_use(account_id).as_deref(), Some(id));
+        assert_eq!(
+            account_in_use("some-other-account-unit-test"),
+            None,
+            "a different account is not reported in use"
+        );
+        registry().remove(id);
+        assert_eq!(account_in_use(account_id), None, "removal clears the entry");
+    }
+
+    #[test]
+    fn session_started_ms_reports_running_session_start() {
+        let id = "inst-session-started-unit-test";
+        assert_eq!(session_started_ms(id), None, "no session initially");
+        note_session_start(
+            id,
+            std::path::PathBuf::from("/nonexistent/session-unit-test"),
+        );
+        let ms = session_started_ms(id).expect("running session has a start ms");
+        assert!(ms > 0, "start ms is a real unix timestamp");
+        // Remove directly (not via note_session_end) to avoid the bogus-root
+        // playtime write; we only need to clear the global map entry.
+        sessions()
+            .lock()
+            .expect("playtime session mutex poisoned")
+            .remove(id);
+        assert_eq!(session_started_ms(id), None, "removal clears the session");
     }
 }

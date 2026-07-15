@@ -444,6 +444,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	png_base64: string,
 } | null, Error>(__TAURI_INVOKE("instance_icon", { instanceId })),
 	/**
+	 *  Soft, non-blocking pre-launch warnings for `instance_id`. The UI decides
+	 *  whether to proceed; `launch_instance` does NOT re-run these checks.
+	 */
+	preLaunchCheck: (instanceId: string) => typedError<PreLaunchCheck, Error>(__TAURI_INVOKE("pre_launch_check", { instanceId })),
+	/**  Every running instance, for the aggregate popover. */
+	runningInstances: () => __TAURI_INVOKE<RunningInstanceInfo[]>("running_instances"),
+	/**
 	 *  Read accumulated playtime stats for `instance_id`.
 	 *  Returns zeros when no sessions have been recorded yet.
 	 */
@@ -1469,6 +1476,15 @@ export type Account = {
 	 *  `expires_at <= now + 5 minutes`.
 	 */
 	expires_at: number | null,
+};
+
+/**
+ *  The active account is already launching a running instance — the same
+ *  account can't hold two live online sessions on a real server.
+ */
+export type AccountConflict = {
+	account_name: string,
+	running_instance_id: string,
 };
 
 /**  Discriminator for account type. */
@@ -3368,6 +3384,12 @@ export type PlaytimeStats = {
 	last_session_unix_ms: number | null,
 };
 
+/**  Aggregate of the soft, non-blocking warnings shown before a launch. */
+export type PreLaunchCheck = {
+	resource_warning: RamWarning | null,
+	account_conflict: AccountConflict | null,
+};
+
 /**  Aggregated result of the dependency pre-flight scan. */
 export type PreflightReport = {
 	/**  All detected violations. Empty means no problems found. */
@@ -3431,6 +3453,15 @@ export type QuarantineReport = {
  *  address (`host` or `host:port`).
  */
 export type QuickPlay = { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string };
+
+/**
+ *  Non-blocking pre-launch RAM warning payload (surfaced to the UI, which owns
+ *  the confirm decision). Megabytes.
+ */
+export type RamWarning = {
+	reserved_mb: number,
+	total_mb: number,
+};
 
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
@@ -3569,6 +3600,19 @@ export type RestoreMode = "replace" | "as_copy";
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+/**  One currently-running instance, for the aggregate running-instances popover. */
+export type RunningInstanceInfo = {
+	instance_id: string,
+	pid: number,
+	max_heap_mb: number,
+	/**
+	 *  Unix ms the in-flight playtime session started (for live elapsed
+	 *  display). `f64` not `i64` — specta forbids BigInt-style exports; a
+	 *  millisecond timestamp is exact in `f64` (well under 2^53).
+	 */
+	started_unix_ms: number | null,
 };
 
 /**  One saved server, surfaced to the UI. `address` mirrors the NBT `ip` field. */

@@ -137,6 +137,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_instance_icon,
             commands::clear_instance_icon,
             commands::instance_icon,
+            commands::pre_launch_check,
+            commands::running_instances,
             commands::get_playtime,
             commands::window_set_compact,
             commands::window_set_expanded_floor,
