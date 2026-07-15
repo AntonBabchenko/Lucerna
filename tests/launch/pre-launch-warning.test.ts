@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { locale } from '$lib/i18n';
 import type { PreLaunchCheck } from '$lib/ipc/bindings';
 import { warningLines } from '$lib/launch/pre-launch-warning';
+
+// Pin the locale so the English-text assertions below are deterministic
+// regardless of the process/OS default the i18n bootstrap resolves to.
+beforeEach(() => {
+  locale.set('en');
+});
 
 describe('warningLines', () => {
   it('returns empty when no warnings', () => {
@@ -8,15 +15,18 @@ describe('warningLines', () => {
     expect(warningLines(check)).toEqual([]);
   });
 
-  it('includes a resource line when over threshold', () => {
+  it('includes a resource line with reserved/total GB when over threshold', () => {
     const check: PreLaunchCheck = {
       resource_warning: { reserved_mb: 14336, total_mb: 16384 },
       account_conflict: null,
     };
-    expect(warningLines(check)).toHaveLength(1);
+    const lines = warningLines(check);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('14.0'); // 14336 / 1024
+    expect(lines[0]).toContain('16.0'); // 16384 / 1024
   });
 
-  it('includes an account line for a microsoft conflict', () => {
+  it('includes the Microsoft copy for a microsoft conflict', () => {
     const check: PreLaunchCheck = {
       resource_warning: null,
       account_conflict: {
@@ -25,10 +35,14 @@ describe('warningLines', () => {
         account_kind: 'microsoft',
       },
     };
-    expect(warningLines(check)).toHaveLength(1);
+    const lines = warningLines(check);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('Steve');
+    expect(lines[0]).toContain('online server');
+    expect(lines[0]).not.toContain('duplicate username');
   });
 
-  it('includes an account line for an offline conflict', () => {
+  it('includes the offline copy for an offline conflict', () => {
     const check: PreLaunchCheck = {
       resource_warning: null,
       account_conflict: {
@@ -37,7 +51,11 @@ describe('warningLines', () => {
         account_kind: 'offline',
       },
     };
-    expect(warningLines(check)).toHaveLength(1);
+    const lines = warningLines(check);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('Steve');
+    expect(lines[0]).toContain('duplicate username');
+    expect(lines[0]).not.toContain('online server');
   });
 
   it('includes both lines when resource + account both present', () => {
@@ -49,6 +67,10 @@ describe('warningLines', () => {
         account_kind: 'microsoft',
       },
     };
-    expect(warningLines(check)).toHaveLength(2);
+    const lines = warningLines(check);
+    expect(lines).toHaveLength(2);
+    // Both branches exercised: one line carries the RAM figures, the other the account name.
+    expect(lines.some((l) => l.includes('16.0'))).toBe(true);
+    expect(lines.some((l) => l.includes('Steve'))).toBe(true);
   });
 });
