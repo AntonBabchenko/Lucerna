@@ -41,7 +41,7 @@
         aria-label={desc}
         use:tooltip={{ text: desc, describe: false }}
       >
-        <Icon name="help" size={13} />
+        <Icon name="info" size={13} />
       </button>
       <code class="text-[11px] text-muted truncate">{spec.key}</code>
       {#if changed}
