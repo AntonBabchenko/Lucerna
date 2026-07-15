@@ -2546,8 +2546,6 @@
       "portForwardGeneric": "To let friends join over the internet, forward TCP port {port} on your router to this PC.",
       "onlineModeOn": "online-mode is ON: only friends signed in with a Microsoft/Mojang account can join.",
       "onlineModeOff": "online-mode is OFF: offline/cracked accounts can join, but anyone can impersonate any name — only use on a trusted/LAN network.",
-      "allowOffline": "Let offline players join (restarts server)",
-      "offlineEnabled": "online-mode turned off — restarting so offline players can join.",
       "noLan": "Couldn't detect a LAN address.",
       "firewall": {
         "blockedTitle": "Windows Firewall may be blocking friends",
