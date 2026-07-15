@@ -56,6 +56,8 @@
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
+  import { warningLines } from '$lib/launch/pre-launch-warning';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
@@ -235,6 +237,15 @@
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
   let gateBusy = $state(false);
+
+  // Soft pre-launch warning (RAM over-commit / same-account). When launching
+  // ANOTHER instance would over-commit memory or reuse a running account,
+  // surface a non-blocking confirm before the real launch. `launchWarningLines`
+  // holds the human-readable lines to render (null = no dialog); `pendingLaunch`
+  // captures the deferred launch so "Launch anyway" can re-dispatch it — mirrors
+  // the dependency-preflight gate above (gateReport + onGateLaunchAnyway).
+  let launchWarningLines = $state<string[] | null>(null);
+  let pendingLaunch: (() => Promise<void>) | null = null;
 
   let logsOpen = $state(false);
   let screenshotsGalleryOpen = $state(false);
@@ -743,13 +754,13 @@
       return;
     }
 
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   // Gate dialog handlers
   async function onGateLaunchAnyway() {
     gateReport = null;
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   async function onGateUpdateLaunch() {
@@ -766,11 +777,45 @@
       return;
     }
     gateReport = null;
-    await doLaunch();
+    await gateLaunch(doLaunch);
   }
 
   function onGateCancel() {
     gateReport = null;
+  }
+
+  // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
+  // warnings (RAM over-commit / same-account), defers `proceed` behind the confirm
+  // dialog and returns; otherwise runs it now. On a command error it surfaces the
+  // error and aborts (mirrors doLaunch's installError handling) rather than
+  // launching blind. This sits AFTER the dependency preflight, so the deps gate
+  // (if any) is resolved first and this is the final check before launch.
+  async function gateLaunch(proceed: () => Promise<void>) {
+    if (!activeInstance) return;
+    const check = await commands.preLaunchCheck(activeInstance.id);
+    if (check.status === 'error') {
+      installError = formatError(check.error);
+      return;
+    }
+    const lines = warningLines(check.data);
+    if (lines.length === 0) {
+      await proceed();
+      return;
+    }
+    pendingLaunch = proceed;
+    launchWarningLines = lines;
+  }
+
+  function onLaunchWarningConfirm() {
+    const proceed = pendingLaunch;
+    pendingLaunch = null;
+    launchWarningLines = null;
+    void proceed?.();
+  }
+
+  function onLaunchWarningCancel() {
+    pendingLaunch = null;
+    launchWarningLines = null;
   }
 
   async function onQuickPlayWorld(folderName: string) {
@@ -781,14 +826,17 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
-    installError = null;
-    const result = await commands.launchInstance(activeInstance.id, {
-      kind: 'singleplayer',
-      world: folderName,
+    await gateLaunch(async () => {
+      if (!activeInstance) return;
+      installError = null;
+      const result = await commands.launchInstance(activeInstance.id, {
+        kind: 'singleplayer',
+        world: folderName,
+      });
+      if (result.status === 'error') {
+        installError = formatError(result.error);
+      }
     });
-    if (result.status === 'error') {
-      installError = formatError(result.error);
-    }
   }
 
   async function connectToAddress(address: string) {
@@ -799,18 +847,21 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
-    quickJoinBusy = true;
-    installError = null;
-    const result = await commands.launchInstance(activeInstance.id, {
-      kind: 'multiplayer',
-      address,
+    await gateLaunch(async () => {
+      if (!activeInstance) return;
+      quickJoinBusy = true;
+      installError = null;
+      const result = await commands.launchInstance(activeInstance.id, {
+        kind: 'multiplayer',
+        address,
+      });
+      quickJoinBusy = false;
+      if (result.status === 'error') {
+        installError = formatError(result.error);
+      } else {
+        quickJoinOpen = false;
+      }
     });
-    quickJoinBusy = false;
-    if (result.status === 'error') {
-      installError = formatError(result.error);
-    } else {
-      quickJoinOpen = false;
-    }
   }
 
   async function onServerSave(name: string, address: string): Promise<boolean> {
@@ -1188,6 +1239,16 @@
       onUpdateLaunch={onGateUpdateLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
+    />
+  {/if}
+  {#if launchWarningLines}
+    <ConfirmDialog
+      title={$t('launch.warning.title')}
+      bodyText={launchWarningLines}
+      confirmLabel={$t('launch.warning.launchAnyway')}
+      confirmTestid="launch-warning-confirm"
+      onCancel={onLaunchWarningCancel}
+      onConfirm={onLaunchWarningConfirm}
     />
   {/if}
   {#if exportDialogOpen && activeInstance}
