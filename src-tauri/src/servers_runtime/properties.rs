@@ -62,15 +62,50 @@ impl ServerProperties {
             "server-port" | "query.port" | "rcon.port" => {
                 value.parse::<u16>().map(|n| n >= 1).unwrap_or(false)
             }
-            "max-players" | "view-distance" | "simulation-distance" => value.parse::<u32>().is_ok(),
+            // Unsigned counts / levels / timeouts.
+            "max-players"
+            | "view-distance"
+            | "simulation-distance"
+            | "spawn-protection"
+            | "op-permission-level"
+            | "function-permission-level"
+            | "player-idle-timeout"
+            | "max-world-size"
+            | "entity-broadcast-range-percentage"
+            | "max-chained-neighbor-updates"
+            | "pause-when-empty-seconds"
+            | "rate-limit" => value.parse::<u32>().is_ok(),
+            // Signed, where -1 disables the feature.
+            "max-tick-time" | "network-compression-threshold" => value.parse::<i64>().is_ok(),
             "difficulty" => matches!(value, "peaceful" | "easy" | "normal" | "hard"),
             "gamemode" => matches!(value, "survival" | "creative" | "adventure" | "spectator"),
             "pvp"
             | "online-mode"
             | "white-list"
             | "spawn-monsters"
+            | "spawn-animals"
+            | "spawn-npcs"
             | "allow-flight"
-            | "enable-command-block" => matches!(value, "true" | "false"),
+            | "allow-nether"
+            | "hardcore"
+            | "force-gamemode"
+            | "generate-structures"
+            | "enable-command-block"
+            | "enforce-whitelist"
+            | "enforce-secure-profile"
+            | "hide-online-players"
+            | "prevent-proxy-connections"
+            | "use-native-transport"
+            | "enable-status"
+            | "accepts-transfers"
+            | "enable-rcon"
+            | "broadcast-rcon-to-ops"
+            | "enable-query"
+            | "require-resource-pack"
+            | "enable-jmx-monitoring"
+            | "broadcast-console-to-ops"
+            | "log-ips"
+            | "sync-chunk-writes" => matches!(value, "true" | "false"),
             _ => true,
         }
     }
@@ -211,5 +246,40 @@ mod tests {
         ok.set("server-port", "25565");
         ok.set("custom-unknown", "whatever");
         assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn set_validated_accepts_new_bool_keys() {
+        let mut p = ServerProperties::default();
+        for k in [
+            "hardcore",
+            "enforce-whitelist",
+            "enable-rcon",
+            "sync-chunk-writes",
+        ] {
+            assert!(p.set_validated(k, "true").is_ok(), "{k} true");
+            assert!(p.set_validated(k, "false").is_ok(), "{k} false");
+            assert!(p.set_validated(k, "yes").is_err(), "{k} yes");
+        }
+    }
+
+    #[test]
+    fn set_validated_checks_signed_disable_keys() {
+        let mut p = ServerProperties::default();
+        // -1 disables the watchdog / compression — must be accepted.
+        assert!(p.set_validated("max-tick-time", "-1").is_ok());
+        assert!(p
+            .set_validated("network-compression-threshold", "-1")
+            .is_ok());
+        assert!(p.set_validated("max-tick-time", "60000").is_ok());
+        assert!(p.set_validated("max-tick-time", "abc").is_err());
+    }
+
+    #[test]
+    fn set_validated_checks_new_count_keys() {
+        let mut p = ServerProperties::default();
+        assert!(p.set_validated("spawn-protection", "16").is_ok());
+        assert!(p.set_validated("op-permission-level", "4").is_ok());
+        assert!(p.set_validated("player-idle-timeout", "-3").is_err()); // u32
     }
 }
