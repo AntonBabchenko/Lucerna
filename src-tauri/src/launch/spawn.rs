@@ -83,13 +83,18 @@ pub fn running_snapshot() -> Vec<(String, u32, u32)> {
 }
 
 /// The instance_id of a currently-running instance launched with `account_id`,
-/// if any. Used to warn about the same account being used by two running
-/// instances (online-session conflict on real servers).
-pub fn account_in_use(account_id: &str) -> Option<String> {
+/// if any, excluding `exclude_instance_id` (the candidate about to launch — it
+/// must never be reported as conflicting with itself). Used to warn about the
+/// same account being used by two running instances (online-session conflict on
+/// real servers).
+///
+/// If multiple running instances share the account, which one is named is
+/// arbitrary (HashMap order); the conflict statement is true regardless.
+pub fn account_in_use(account_id: &str, exclude_instance_id: &str) -> Option<String> {
     registry()
         .snapshot()
         .into_iter()
-        .find(|(_, _, run)| run.account_id == account_id)
+        .find(|(id, _, run)| id != exclude_instance_id && run.account_id == account_id)
         .map(|(id, _, _)| id)
 }
 
@@ -720,8 +725,13 @@ mod tests {
     #[test]
     fn account_in_use_finds_matching_running_instance() {
         let id = "inst-account-in-use-unit-test";
+        let other = "inst-account-in-use-unit-test-OTHER";
         let account_id = "account-in-use-unit-test-xyz";
-        assert_eq!(account_in_use(account_id), None, "no entry initially");
+        assert_eq!(
+            account_in_use(account_id, other),
+            None,
+            "no entry initially"
+        );
         registry().insert(
             id,
             424_242,
@@ -730,14 +740,25 @@ mod tests {
                 account_id: account_id.to_string(),
             },
         );
-        assert_eq!(account_in_use(account_id).as_deref(), Some(id));
+        // Excluding a DIFFERENT instance still reports the match.
+        assert_eq!(account_in_use(account_id, other).as_deref(), Some(id));
+        // Excluding the matching instance's OWN id must not report a self-conflict.
         assert_eq!(
-            account_in_use("some-other-account-unit-test"),
+            account_in_use(account_id, id),
+            None,
+            "an instance never conflicts with itself"
+        );
+        assert_eq!(
+            account_in_use("some-other-account-unit-test", other),
             None,
             "a different account is not reported in use"
         );
         registry().remove(id);
-        assert_eq!(account_in_use(account_id), None, "removal clears the entry");
+        assert_eq!(
+            account_in_use(account_id, other),
+            None,
+            "removal clears the entry"
+        );
     }
 
     #[test]

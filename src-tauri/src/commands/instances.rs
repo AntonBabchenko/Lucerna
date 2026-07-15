@@ -499,6 +499,10 @@ pub fn instance_icon(
 pub struct AccountConflict {
     pub account_name: String,
     pub running_instance_id: String,
+    /// The candidate account's kind. The FE picks the warning copy from this:
+    /// Microsoft means a real online-session drop; Offline means only a
+    /// same-name collision risk on `online-mode=false` servers.
+    pub account_kind: crate::accounts::AccountKind,
 }
 
 /// Aggregate of the soft, non-blocking warnings shown before a launch.
@@ -524,18 +528,26 @@ pub struct RunningInstanceInfo {
 /// whether to proceed; `launch_instance` does NOT re-run these checks.
 #[tauri::command]
 #[specta::specta]
-pub async fn pre_launch_check(
+pub fn pre_launch_check(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<PreLaunchCheck, crate::error::Error> {
+    // Advisory read-only check: intentionally does NOT call
+    // data_root::reject_if_fallen_back — the real launch_instance still gates on it.
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     // `total_system_ram_mb` is `Option<u64>` (None when the OS query fails).
     // `clamp_heap_mb` consumes the Option directly; `ram_warning` wants a plain
     // `u64` and treats 0 as "unknown → never warn", so map None to 0.
     let total_ram_mb = crate::platform::total_system_ram_mb();
     let candidate_mb = crate::launch::args::clamp_heap_mb(inst.max_heap_mb, total_ram_mb);
-    let running = crate::launch::spawn::running_snapshot();
-    let running_heaps: Vec<u32> = running.iter().map(|(_, _, h)| *h).collect();
+    // Exclude the candidate itself: a double-click Play (before the button
+    // flips) or a future "restart" must not count its own heap or conflict with
+    // its own account.
+    let running_heaps: Vec<u32> = crate::launch::spawn::running_snapshot()
+        .iter()
+        .filter(|(id, _, _)| id != &instance_id)
+        .map(|(_, _, h)| *h)
+        .collect();
     let resource_warning = ram_warning(
         &running_heaps,
         candidate_mb,
@@ -547,12 +559,13 @@ pub async fn pre_launch_check(
     // active account (see `commands::launch_instance`). A missing active account
     // is not a conflict here (the launch itself will surface `AccountNotSet`).
     let account_conflict = match crate::accounts::get_active_account(&app)? {
-        Some(acct) => crate::launch::spawn::account_in_use(&acct.id).map(|running_instance_id| {
-            AccountConflict {
+        Some(acct) => crate::launch::spawn::account_in_use(&acct.id, &instance_id).map(
+            |running_instance_id| AccountConflict {
                 account_name: acct.name.clone(),
                 running_instance_id,
-            }
-        }),
+                account_kind: acct.kind,
+            },
+        ),
         None => None,
     };
 

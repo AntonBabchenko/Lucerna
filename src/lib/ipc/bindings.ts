@@ -1485,6 +1485,12 @@ export type Account = {
 export type AccountConflict = {
 	account_name: string,
 	running_instance_id: string,
+	/**
+	 *  The candidate account's kind. The FE picks the warning copy from this:
+	 *  Microsoft means a real online-session drop; Offline means only a
+	 *  same-name collision risk on `online-mode=false` servers.
+	 */
+	account_kind: AccountKind,
 };
 
 /**  Discriminator for account type. */
