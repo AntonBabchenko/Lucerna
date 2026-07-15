@@ -1316,6 +1316,7 @@ export type TranslationKey =
   | 'quickJoin.title'
   | 'running.pill.label'
   | 'running.popover.open'
+  | 'running.popover.serversTitle'
   | 'running.popover.title'
   | 'screenshots.applyCrop'
   | 'screenshots.cancelCrop'

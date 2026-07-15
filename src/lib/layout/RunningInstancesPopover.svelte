@@ -33,6 +33,7 @@
     runningCount,
     instanceName,
     onOpenInstance,
+    compact = false,
   }: {
     // Reactive number of running instances (the page's `running.size`). Drives
     // the pill's count; the parent only mounts this when it is > 0.
@@ -42,6 +43,10 @@
     // Jump to an instance: select it and switch to Client mode. Closes the
     // popover. Implemented in +page.svelte.
     onOpenInstance: (id: string) => void;
+    // Compact trigger — a tiny superscript count badge (variant F2) pinned over
+    // the ModeSwitcher Client segment's status icon, instead of the standalone
+    // h-7 pill.
+    compact?: boolean;
   } = $props();
 
   const GAP = 4;
@@ -54,6 +59,9 @@
   let listEl: HTMLElement | undefined = $state();
   let popoverTop = $state(0);
   let popoverLeft = $state(0);
+  // Effective popover width — shrunk to fit narrow (compact/mini) windows so a
+  // fixed 288px popover never overflows the viewport. Computed on open.
+  let popWidth = $state(WIDTH);
 
   let rows = $state<RunningInstanceInfo[]>([]);
   // Ids currently being stopped, so the Stop button disarms until the exit
@@ -66,10 +74,13 @@
     if (!trigger) return;
     const r = trigger.getBoundingClientRect();
     popoverTop = r.bottom + GAP;
-    const maxLeft = window.innerWidth - WIDTH - MARGIN;
-    // Right-align the popover to the pill when possible (the pill sits near the
-    // right edge of the switcher), but never past the viewport margins.
-    const preferred = r.right - WIDTH;
+    // Never wider than the viewport minus both margins — in compact/mini mode
+    // the window shrinks to hug the sidebar, so the full 288px would overflow.
+    popWidth = Math.min(WIDTH, window.innerWidth - 2 * MARGIN);
+    const maxLeft = window.innerWidth - popWidth - MARGIN;
+    // Left-align to the trigger (it sits on the LEFT, in the sidebar), so the
+    // popover opens rightward/below — but never past the viewport margins.
+    const preferred = r.left;
     popoverLeft = Math.min(Math.max(preferred, MARGIN), Math.max(MARGIN, maxLeft));
   }
 
@@ -174,7 +185,9 @@
   <button
     bind:this={trigger}
     type="button"
-    class="relative inline-flex items-center gap-1 rounded-full bg-black/20 px-2 h-7 text-xs font-semibold text-secondary hover:text-primary transition-colors"
+    class={compact
+      ? 'flex items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold leading-none text-white h-[15px] min-w-[15px]'
+      : 'relative inline-flex items-center gap-1 rounded-full bg-black/20 px-2 h-7 text-xs font-semibold text-secondary transition-colors hover:text-primary'}
     class:z-50={open}
     aria-label={$t('running.pill.label', { count: runningCount })}
     aria-expanded={open}
@@ -182,7 +195,9 @@
     data-testid="running-instances-pill"
     onclick={toggle}
   >
-    <Icon name="play" size={10} class="text-success" />
+    {#if !compact}
+      <Icon name="play" size={10} class="text-success" />
+    {/if}
     {runningCount}
   </button>
 
@@ -193,7 +208,7 @@
     <div
       id={popoverId}
       class="fixed z-[var(--z-popover)] bg-surface border border-border-subtle rounded shadow-md"
-      style="top: {popoverTop}px; left: {popoverLeft}px; width: {WIDTH}px;"
+      style="top: {popoverTop}px; left: {popoverLeft}px; width: {popWidth}px;"
       data-testid="running-instances-popover"
     >
       <div class="flex items-center justify-between px-3 py-2 border-b border-border-subtle">

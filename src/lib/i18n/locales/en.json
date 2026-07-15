@@ -213,6 +213,7 @@
     },
     "popover": {
       "title": "Running instances",
+      "serversTitle": "Running servers",
       "open": "Open"
     }
   },

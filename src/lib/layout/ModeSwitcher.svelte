@@ -7,6 +7,7 @@
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
   import RunningInstancesPopover from '$lib/layout/RunningInstancesPopover.svelte';
+  import RunningServersPopover from '$lib/layout/RunningServersPopover.svelte';
 
   // Top-level launcher mode switch (Client | Servers). Two aria-pressed
   // buttons styled like SegmentedControl's boxed variant — a dedicated
@@ -50,6 +51,10 @@
   const serversNav = $derived(serverState.serversNavStatus);
   const serversVisual = $derived(navVisual(serversNav));
   const anyUploading = $derived(serverState.anyUploading);
+  // Servers mirror of the client running-instances count. Read directly from
+  // serverState (the servers side needs no prop threading — unlike the client's
+  // page-local model). Drives the superscript badge on the Servers segment icon.
+  const runningServersCount = $derived(serverState.list.filter((s) => s.running).length);
   const serversStatusLabel = $derived(
     serversNav === 'running'
       ? $t('sidebar.serverRunning')
@@ -59,28 +64,30 @@
   );
 </script>
 
-<!-- Row wrapper: the segmented control takes the available width; the aggregate
-     running-instances pill (when any instance is running) sits in the switcher
-     chrome to its right, visible in both modes. -->
-<div class="flex items-center gap-2">
-  <!-- Inset-track segmented control: a recessed bg-black/20 gutter (reads as an
+<!-- Inset-track segmented control: a recessed bg-black/20 gutter (reads as an
      inset over bg-base in BOTH themes) with one aria-hidden bg-surface pill
      sliding under the active segment (transform only — compositor-friendly;
      state lives on aria-pressed, not on the pill). Activity is conveyed by
-     elevation + text weight, deliberately not an accent fill. -->
+     elevation + text weight, deliberately not an accent fill.
+     Variant F2: each segment's running-count badge (a real button → popover) is
+     an ABSOLUTE superscript pinned over the top-right corner of that segment's
+     status icon — out of flow, so it never pushes or crowds the label. It sits
+     as a SIBLING of the segment button inside the cell (never nested — nested
+     buttons are invalid) and only mounts when that segment has a running count. -->
+<div
+  class="relative flex rounded-lg bg-black/20 p-[3px]"
+  role="group"
+  aria-label={$t('sidebar.mode.ariaLabel')}
+  data-tour-ctx="servers-mode-switch"
+>
   <div
-    class="relative flex flex-1 rounded-lg bg-black/20 p-[3px]"
-    role="group"
-    aria-label={$t('sidebar.mode.ariaLabel')}
-    data-tour-ctx="servers-mode-switch"
-  >
-    <div
-      class="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-md bg-surface shadow transition-transform duration-150 ease-out motion-reduce:transition-none {serversUi.mode ===
-      'servers'
-        ? 'translate-x-full'
-        : ''}"
-      aria-hidden="true"
-    ></div>
+    class="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-md bg-surface shadow transition-transform duration-150 ease-out motion-reduce:transition-none {serversUi.mode ===
+    'servers'
+      ? 'translate-x-full'
+      : ''}"
+    aria-hidden="true"
+  ></div>
+  <div class="relative flex flex-1 items-center">
     <button
       type="button"
       class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
@@ -99,6 +106,17 @@
       />
       {$t('sidebar.mode.client')}
     </button>
+    {#if runningCount > 0}
+      <!-- Variant F2: count badge pinned to the segment's top-right corner,
+             matching the Servers badge (both trailing) — a sibling of the button
+             (not nested), out of flow, in the empty corner so it never overlaps
+             the centred icon/label. A real button, keyboard-reachable. -->
+      <div class="absolute right-0 top-0 z-10">
+        <RunningInstancesPopover compact {runningCount} {instanceName} {onOpenInstance} />
+      </div>
+    {/if}
+  </div>
+  <div class="relative flex flex-1 items-center">
     <button
       type="button"
       class="relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-sm transition-colors {serversUi.mode ===
@@ -123,8 +141,14 @@
         <NavUploadBadge label={$t('sidebar.serversUploading')} testid="mode-servers-upload-badge" />
       {/if}
     </button>
+    {#if runningServersCount > 0}
+      <!-- Variant F2 mirror: count badge pinned to the segment's OUTER (top-right)
+             corner — a sibling of the button (not nested), out of flow, in the
+             empty corner so it never overlaps the centred icon/"Серверы" label. A
+             real button, keyboard-reachable. -->
+      <div class="absolute right-0 top-0 z-10">
+        <RunningServersPopover compact runningCount={runningServersCount} />
+      </div>
+    {/if}
   </div>
-  {#if runningCount > 0}
-    <RunningInstancesPopover {runningCount} {instanceName} {onOpenInstance} />
-  {/if}
 </div>
