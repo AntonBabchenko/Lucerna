@@ -955,6 +955,19 @@
     }
   }
 
+  // Stop a SPECIFIC instance by id — the sidebar row's inline Stop (any running
+  // instance, not just the active one). Mirrors RunningInstancesPopover.stop:
+  // fire the command and surface a failure as a warning toast (a non-active
+  // instance's error has no inline banner to land in). On success the
+  // processExited event clears the instance's `running` entry, so its row badge
+  // and inline Stop disappear reactively.
+  async function onStopInstance(id: string) {
+    const result = await commands.stopInstance(id);
+    if (result.status === 'error') {
+      pushWarning(get(t)('sidebar.stop'), [formatError(result.error)]);
+    }
+  }
+
   function openCrashInLogs() {
     if (!crashReport) return;
     logsInitialPath = crashReport.path;
@@ -1026,6 +1039,8 @@
       {runningCount}
       {instanceName}
       onOpenInstance={onOpenRunningInstance}
+      {isRunning}
+      {onStopInstance}
       {installing}
       {onPlay}
       {onStop}

@@ -50,6 +50,8 @@
     runningCount = 0,
     instanceName = (id: string) => id,
     onOpenInstance = () => {},
+    isRunning = () => false,
+    onStopInstance = () => {},
     installing,
     onPlay,
     onStop,
@@ -113,6 +115,16 @@
     runningCount?: number;
     instanceName?: (id: string) => string;
     onOpenInstance?: (id: string) => void;
+    // Per-instance running state for the sidebar's instance rows. `isRunning`
+    // mirrors the `instanceName` function-prop: it reads the page's reactive
+    // `running` SvelteMap (running.has(id)) across the component boundary, so a
+    // row's badge appears / disappears live as instances spawn / exit.
+    // `onStopInstance` stops a specific instance by id (mirrors
+    // RunningInstancesPopover's Stop — commands.stopInstance + a toast on error,
+    // implemented in +page.svelte). Defaults keep no-prop mounts (tests)
+    // rendering unchanged: nothing is ever "running".
+    isRunning?: (id: string) => boolean;
+    onStopInstance?: (id: string) => void;
     installing: boolean;
     onPlay: () => void;
     onStop: () => void;
@@ -417,23 +429,75 @@
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
               {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
-              <button
-                type="button"
-                tabindex="-1"
-                class="btn-icon btn-icon-sm flex-shrink-0"
-                data-testid="sidebar-manage-instance-{inst.id}"
-                aria-label={manageLabel}
-                use:tooltip={{ text: manageLabel, describe: false }}
-                onmousedown={() => onManageInstance(inst.id)}
-              >
-                <Icon name="sliders" size={14} />
-              </button>
+              <span class="flex flex-shrink-0 items-center gap-1">
+                {#if isRunning(inst.id)}
+                  <!-- Inline Stop for a running row. Hidden at rest, revealed on
+                       row hover AND keyboard-arrow focus (the Select marks the
+                       active row `.is-active`) — the literal Tailwind variants must
+                       live in this file for the JIT scanner. tabindex=-1 keeps the
+                       Select's aria-activedescendant focus model intact (focus
+                       stays on the trigger, like the Manage / trash row actions).
+                       Its mousedown is stopped so it does NOT commit / switch the
+                       row — clicking Stop must not select the instance. Fully
+                       keyboard-operable stop for ANY running instance already
+                       exists on the aggregate running-instances pill. -->
+                  <button
+                    type="button"
+                    tabindex="-1"
+                    class="btn-icon btn-icon-sm btn-icon-danger opacity-0 group-hover:opacity-100 group-[.is-active]:opacity-100"
+                    data-testid="sidebar-stop-instance-{inst.id}"
+                    aria-label={$t('sidebar.stop')}
+                    use:tooltip={{ text: $t('sidebar.stop'), describe: false }}
+                    onmousedown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onclick={() => onStopInstance(inst.id)}
+                  >
+                    <Icon name="stop" size={14} />
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  tabindex="-1"
+                  class="btn-icon btn-icon-sm"
+                  data-testid="sidebar-manage-instance-{inst.id}"
+                  aria-label={manageLabel}
+                  use:tooltip={{ text: manageLabel, describe: false }}
+                  onmousedown={() => onManageInstance(inst.id)}
+                >
+                  <Icon name="sliders" size={14} />
+                </button>
+              </span>
             {/if}
           {/snippet}
           {#snippet instanceLeading(opt: SelectOption)}
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
-              <InstanceAvatar instance={inst} size={20} />
+              <span class="relative inline-flex flex-shrink-0">
+                <InstanceAvatar instance={inst} size={20} />
+                {#if isRunning(inst.id)}
+                  <!-- Per-instance "running" badge, overlaid on the avatar corner.
+                       Reuses the running vocabulary verbatim: `bg-current` ties the
+                       fill to `color`, `text-success` sets the green, and
+                       `nav-icon-running` pulses `color` (so the fill pulses too),
+                       resting saturated under reduced motion — the same keyframe
+                       the ModeSwitcher status icons use. The ring matches the row
+                       surface so the dot reads as a badge, not part of the icon.
+                       Because this snippet is BOTH optionLeading AND valueLeading,
+                       the dot also shows on the closed Select trigger's selected
+                       instance — the only always-visible instance icon, incl.
+                       compact / mini mode (which shrinks the window but keeps this
+                       trigger, so a running selected instance stays visible). -->
+                  <span
+                    class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-current text-success nav-icon-running ring-2 ring-surface"
+                    role="img"
+                    aria-label={$t('sidebar.clientRunning')}
+                    use:tooltip={{ text: $t('sidebar.clientRunning'), describe: false }}
+                    data-testid="sidebar-instance-running-dot-{inst.id}"
+                  ></span>
+                {/if}
+              </span>
             {/if}
           {/snippet}
           <div data-tour="instance-picker">
