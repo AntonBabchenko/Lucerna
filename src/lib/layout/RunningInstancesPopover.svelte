@@ -75,6 +75,13 @@
 
   async function refresh() {
     rows = await commands.runningInstances();
+    // Prune the stopping-set: a row that's gone (stopped, or exited) must not
+    // keep a stale entry, or a relaunched instance would get a permanently
+    // -disabled Stop button (the set otherwise only resets on full unmount, i.e.
+    // count→0). Iterate a snapshot since we delete during iteration.
+    for (const id of [...stopping]) {
+      if (!rows.some((r) => r.instance_id === id)) stopping.delete(id);
+    }
     // Race guard: if everything exited between open and this resolve, there is
     // nothing to show — close. (The parent also unmounts us once the count
     // reaches zero; this covers the in-flight window.)

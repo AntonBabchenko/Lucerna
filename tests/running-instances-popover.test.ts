@@ -22,6 +22,13 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import RunningInstancesPopover from '$lib/layout/RunningInstancesPopover.svelte';
 
+// Captured event callbacks the component registers on open, so a test can fire
+// a spawn/exit and drive the resulting refresh (the component's listener bodies
+// ignore the payload and just re-fetch, but we pass a realistic one anyway).
+type EventCb = (event: { payload: { instance_id: string } }) => void;
+let capturedSpawn: EventCb | null = null;
+let capturedExit: EventCb | null = null;
+
 const NAMES: Record<string, string> = { a: 'Alpha', b: 'Beta' };
 
 function makeRow(id: string, startedMsAgo: number | null): RunningInstanceInfo {
@@ -53,9 +60,18 @@ describe('RunningInstancesPopover', () => {
     runningInstances.mockReset();
     stopInstance.mockReset();
     stopInstance.mockResolvedValue({ status: 'ok', data: null });
-    // Each event listener resolves to a no-op unlisten fn.
-    spawnListen.mockReset().mockResolvedValue(() => {});
-    exitListen.mockReset().mockResolvedValue(() => {});
+    // Each event listener captures the callback it's given (so a test can fire
+    // it) and resolves to a no-op unlisten fn.
+    capturedSpawn = null;
+    capturedExit = null;
+    spawnListen.mockReset().mockImplementation((cb: EventCb) => {
+      capturedSpawn = cb;
+      return Promise.resolve(() => {});
+    });
+    exitListen.mockReset().mockImplementation((cb: EventCb) => {
+      capturedExit = cb;
+      return Promise.resolve(() => {});
+    });
   });
 
   it('renders the pill with the count and an accessible label', () => {
@@ -104,5 +120,55 @@ describe('RunningInstancesPopover', () => {
     await fireEvent.click(screen.getByTestId('running-instances-pill'));
     await waitFor(() => expect(runningInstances).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByTestId('running-instances-popover')).toBeNull());
+  });
+
+  // Regression: after Stop A → A exits → A relaunches, A's Stop button must be
+  // re-armed. The stopping-set is pruned on each refresh (a row that's gone
+  // drops its stale entry); without that prune the relaunched row would keep a
+  // permanently-disabled Stop button until the count hit 0 and the component
+  // unmounted — breaking exactly the multi-instance flow this feature exists for.
+  it('re-arms Stop for a relaunched instance (stop → exit → relaunch)', async () => {
+    const rowA = makeRow('a', 60_000);
+    const rowB = makeRow('b', 60_000);
+    runningInstances.mockResolvedValue([rowA, rowB]);
+    render(RunningInstancesPopover, {
+      props: {
+        runningCount: 2,
+        instanceName: (id: string) => NAMES[id] ?? id,
+        onOpenInstance: () => {},
+      },
+    });
+
+    // Open → both rows present.
+    await fireEvent.click(screen.getByTestId('running-instances-pill'));
+    const stopA = await screen.findByTestId('running-instances-stop-a');
+    expect(screen.getByTestId('running-instances-stop-b')).toBeTruthy();
+
+    // Stop A → command fired; A's button disarms optimistically until refresh.
+    await fireEvent.click(stopA);
+    expect(stopInstance).toHaveBeenCalledWith('a');
+    await waitFor(() =>
+      expect((screen.getByTestId('running-instances-stop-a') as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
+    );
+
+    // A exits: backend now reports only B; fire the exit listener → refresh
+    // drops A's row (and prunes 'a' from the stopping-set).
+    runningInstances.mockResolvedValue([rowB]);
+    expect(capturedExit).toBeTypeOf('function');
+    capturedExit?.({ payload: { instance_id: 'a' } });
+    await waitFor(() => expect(screen.queryByTestId('running-instances-stop-a')).toBeNull());
+
+    // A relaunches: backend reports A + B again; fire the spawn listener →
+    // refresh brings A's row back.
+    runningInstances.mockResolvedValue([rowA, rowB]);
+    expect(capturedSpawn).toBeTypeOf('function');
+    capturedSpawn?.({ payload: { instance_id: 'a' } });
+
+    // A's Stop button is back AND NOT disabled — the stale stopping entry was
+    // pruned, so the relaunched instance is stoppable again.
+    const stopAAgain = await screen.findByTestId('running-instances-stop-a');
+    expect((stopAAgain as HTMLButtonElement).disabled).toBe(false);
   });
 });
