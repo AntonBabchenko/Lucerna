@@ -85,7 +85,7 @@ export const ICONS = {
   chevronUp: ChevronUp,
   close: X,
   warning: TriangleAlert,
-  info: Info, // informational marker (e.g. skipped-override notices)
+  info: Info, // informational marker (e.g. skipped-override notices, inline help/description affordances)
   success: Check,
   download: Download,
   upload: Upload, // share/upload action (Logs → Share to mclo.gs)

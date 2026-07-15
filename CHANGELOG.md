@@ -16,6 +16,7 @@ release is **0.9.0**.
   network, world corruption, and more) get a marker in the log viewer and the
   server console; hovering the line shows what the error means and how to fix
   it, in English and Russian.
+- Server Settings: the server.properties block is now a full, searchable editor covering every vanilla key, each with an inline description and its default value.
 
 ## [0.18.0] — 2026-07-12
 
