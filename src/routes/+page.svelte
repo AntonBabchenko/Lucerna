@@ -244,8 +244,11 @@
   // holds the human-readable lines to render (null = no dialog); `pendingLaunch`
   // captures the deferred launch so "Launch anyway" can re-dispatch it — mirrors
   // the dependency-preflight gate above (gateReport + onGateLaunchAnyway).
+  // `pendingAbort` is an optional cleanup run only if the user CANCELS the
+  // warning (e.g. resetting the Quick Join busy flag that was set synchronously).
   let launchWarningLines = $state<string[] | null>(null);
   let pendingLaunch: (() => Promise<void>) | null = null;
+  let pendingAbort: (() => void) | null = null;
 
   let logsOpen = $state(false);
   let screenshotsGalleryOpen = $state(false);
@@ -786,15 +789,20 @@
 
   // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
   // warnings (RAM over-commit / same-account), defers `proceed` behind the confirm
-  // dialog and returns; otherwise runs it now. On a command error it surfaces the
-  // error and aborts (mirrors doLaunch's installError handling) rather than
-  // launching blind. This sits AFTER the dependency preflight, so the deps gate
-  // (if any) is resolved first and this is the final check before launch.
-  async function gateLaunch(proceed: () => Promise<void>) {
+  // dialog (with an optional `onAbort` cleanup run only if the user cancels) and
+  // returns; otherwise runs `proceed` now. This sits AFTER the dependency
+  // preflight, so the deps gate (if any) is resolved first and this is the final
+  // advisory check before launch.
+  async function gateLaunch(proceed: () => Promise<void>, onAbort?: () => void) {
     if (!activeInstance) return;
     const check = await commands.preLaunchCheck(activeInstance.id);
     if (check.status === 'error') {
-      installError = formatError(check.error);
+      // Fail-open: the RAM/account check is advisory; if it errors, proceed and
+      // let launch_instance do the authoritative gating (mirrors the sibling
+      // dependency-preflight, which also fails open). Do not surface it as a
+      // launch failure.
+      console.warn('[+page] preLaunchCheck failed; proceeding without warning', check.error);
+      await proceed();
       return;
     }
     const lines = warningLines(check.data);
@@ -803,19 +811,27 @@
       return;
     }
     pendingLaunch = proceed;
+    pendingAbort = onAbort ?? null;
     launchWarningLines = lines;
   }
 
   function onLaunchWarningConfirm() {
     const proceed = pendingLaunch;
+    // The launch proceeds — drop the abort cleanup WITHOUT running it (the
+    // proceed thunk owns its own success/reset path).
     pendingLaunch = null;
+    pendingAbort = null;
     launchWarningLines = null;
     void proceed?.();
   }
 
   function onLaunchWarningCancel() {
+    const abort = pendingAbort;
     pendingLaunch = null;
+    pendingAbort = null;
     launchWarningLines = null;
+    // Run the caller's cancel cleanup (e.g. reset the Quick Join busy flag).
+    abort?.();
   }
 
   async function onQuickPlayWorld(folderName: string) {
@@ -826,6 +842,8 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
+    // activeInstance.id is read live inside the thunk; the modal backdrop blocks
+    // instance switching while the warning dialog is open, so it can't drift.
     await gateLaunch(async () => {
       if (!activeInstance) return;
       installError = null;
@@ -847,21 +865,32 @@
     }
     if (quickPlayDisabledReason !== null) return;
     if (dataLocation.fellBack) return;
-    await gateLaunch(async () => {
-      if (!activeInstance) return;
-      quickJoinBusy = true;
-      installError = null;
-      const result = await commands.launchInstance(activeInstance.id, {
-        kind: 'multiplayer',
-        address,
-      });
-      quickJoinBusy = false;
-      if (result.status === 'error') {
-        installError = formatError(result.error);
-      } else {
-        quickJoinOpen = false;
-      }
-    });
+    // Disable the Connect button SYNCHRONOUSLY (before the preLaunchCheck IPC
+    // round-trip) so a fast second click can't fire a second launch. The thunk's
+    // finally-style reset covers the launch/no-warning/confirm paths; the
+    // gateLaunch onAbort resets it if the user CANCELS the warning.
+    quickJoinBusy = true;
+    // activeInstance.id is read live inside the thunk; the modal backdrop blocks
+    // instance switching while the warning dialog is open, so it can't drift.
+    await gateLaunch(
+      async () => {
+        if (!activeInstance) return;
+        installError = null;
+        const result = await commands.launchInstance(activeInstance.id, {
+          kind: 'multiplayer',
+          address,
+        });
+        quickJoinBusy = false;
+        if (result.status === 'error') {
+          installError = formatError(result.error);
+        } else {
+          quickJoinOpen = false;
+        }
+      },
+      () => {
+        quickJoinBusy = false;
+      },
+    );
   }
 
   async function onServerSave(name: string, address: string): Promise<boolean> {
