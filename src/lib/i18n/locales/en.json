@@ -2094,7 +2094,8 @@
     "action": {
       "start": "Start",
       "stop": "Stop",
-      "restart": "Restart"
+      "restart": "Restart",
+      "forceStop": "Force stop now"
     },
     "console": {
       "inputPlaceholder": "Type a command (e.g. say hi, op Steve, stop)",

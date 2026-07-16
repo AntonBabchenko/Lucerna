@@ -57,6 +57,11 @@ let uploads = $state<Map<string, UploadState>>(new Map());
 export type ServerAction = 'start' | 'stop' | 'restart';
 let actionBusy = $state<Map<string, ServerAction>>(new Map());
 let actionErrors = $state<Map<string, unknown>>(new Map());
+// Force-stop ("kill") is tracked separately from actionBusy: it is the
+// escalation OUT of an in-flight graceful stop, so it must NOT be gated by
+// actionBusy (which is already 'stop' at that point). Its own flag only
+// prevents a double force-kill click.
+let killBusy = $state<Set<string>>(new Set());
 
 function setUploadState(id: string, patch: Partial<UploadState>): void {
   const m = new Map(uploads);
@@ -235,6 +240,48 @@ async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boo
     return { ok: true };
   } finally {
     setActionBusy(id, null);
+  }
+}
+
+function setKillBusy(id: string, busy: boolean): void {
+  const s = new Set(killBusy);
+  if (busy) s.add(id);
+  else s.delete(id);
+  killBusy = s;
+}
+
+// Force-stop NOW: skip the graceful wait and hard-kill the process. Kept out of
+// runLifecycle on purpose so it can fire WHILE a graceful stop() is in flight
+// (actionBusy === 'stop') — that's the whole point of the escalation. The
+// backend records the -1 stop sentinel, so the row settles to "Stopped", not
+// "Crashed". Errors land in actionErrors like the other lifecycle actions.
+async function kill(id: string): Promise<{ ok: boolean }> {
+  if (killBusy.has(id)) return { ok: false }; // no double force-kill
+  setKillBusy(id, true);
+  setActionError(id, null);
+  try {
+    let res: Awaited<ReturnType<typeof commands.serverKill>>;
+    try {
+      res = await commands.serverKill(id);
+    } catch (e) {
+      setActionError(id, e);
+      return { ok: false };
+    }
+    if (res.status !== 'ok') {
+      // A force-stop that raced with the graceful stop finishing reports
+      // ServerNotRunning — the server is already gone, which is exactly the
+      // intended outcome, so treat it as success rather than a spurious error.
+      if ((res.error as { kind?: string })?.kind === 'server_not_running') {
+        await refresh();
+        return { ok: true };
+      }
+      setActionError(id, res.error);
+      return { ok: false };
+    }
+    await refresh();
+    return { ok: true };
+  } finally {
+    setKillBusy(id, false);
   }
 }
 
@@ -695,6 +742,10 @@ export const serverState = {
   start: (id: string) => runLifecycle(id, 'start'),
   stop: (id: string) => runLifecycle(id, 'stop'),
   restart: (id: string) => runLifecycle(id, 'restart'),
+  kill,
+  isKilling(id: string): boolean {
+    return killBusy.has(id);
+  },
   actionFor(id: string): ServerAction | null {
     return actionBusy.get(id) ?? null;
   },

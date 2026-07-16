@@ -1357,6 +1357,7 @@ export type TranslationKey =
   | 'screenshots.undo'
   | 'screenshots.zoomIn'
   | 'screenshots.zoomOut'
+  | 'servers.action.forceStop'
   | 'servers.action.restart'
   | 'servers.action.start'
   | 'servers.action.stop'

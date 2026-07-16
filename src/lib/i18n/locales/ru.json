@@ -2094,7 +2094,8 @@
     "action": {
       "start": "Запустить",
       "stop": "Остановить",
-      "restart": "Перезапустить"
+      "restart": "Перезапустить",
+      "forceStop": "Завершить сейчас"
     },
     "console": {
       "inputPlaceholder": "Введите команду (напр., say hi, op Steve, stop)",

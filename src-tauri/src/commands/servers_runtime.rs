@@ -425,6 +425,16 @@ pub async fn server_stop(app: AppHandle, id: String) -> Result<()> {
     crate::servers_runtime::runtime::stop(&app, &id).await
 }
 
+/// Принудительно завершить сервер СЕЙЧАС: force-kill без graceful-ожидания.
+/// Эскалация из идущего `server_stop`, когда сервер завис/ещё грузится и не
+/// обрабатывает `stop`. Пишет код выхода `-1` (наш sentinel), так что это
+/// «Остановлен», а не «Аварийно завершён».
+#[tauri::command]
+#[specta::specta]
+pub fn server_kill(app: AppHandle, id: String) -> Result<()> {
+    crate::servers_runtime::runtime::kill(&app, &id)
+}
+
 /// Перезапустить сервер (stop если запущен, затем start).
 #[tauri::command]
 #[specta::specta]
