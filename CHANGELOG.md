@@ -10,18 +10,75 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-07-16
+
 ### Added
 
+- **Run several instances at once.** Minecraft is no longer one-at-a-time: you
+  can launch different instances concurrently — for example a modded world on
+  one account and a vanilla world on another — and each keeps its own playtime.
+  The Play/Stop button follows the selected instance, the sidebar shows a
+  per-instance running badge with an inline Stop, and the Client / Servers
+  switcher carries a running-count badge that opens a popover to stop, restart,
+  or jump to any running client or server. Launching warns (without blocking) if
+  the combined memory reservation would over-commit your RAM, or if two copies
+  would share one account; starting the *same* instance twice is blocked with a
+  clear message. English and Russian throughout.
+- **Server Add-ons reach client parity.** The Servers → Add-ons → Installed pane
+  now renders enriched cards (icon, name, version) for both mods and plugins
+  instead of a bare filename list, with enable / disable / delete and a details
+  view. It gains **update-checking** — a scan, a per-row **Update**, and **Update
+  all** — for server *mods* (Fabric/Quilt/Forge/NeoForge) and server *plugins*
+  (Paper/Purpur) alike, plus search / enabled / disabled / sort filters. The
+  Browse side now shows what is already installed instead of offering to
+  re-install it, with a **Show installed** toggle. Plugins hosted externally on
+  Hangar open their project page to download (and are skipped by Update all),
+  matching the plugin browser.
+- **In-launcher changelog for updates.** Wherever an update is offered — an
+  installed mod, a resource pack or shader, or an imported modpack — a 📜
+  **Changelog** affordance lets you read what changed before applying it,
+  cumulatively across every version between the one you have and the update
+  target. Works for Modrinth and CurseForge sources.
+- Server Settings: the `server.properties` block is now a full, searchable
+  editor covering every vanilla key, each with an inline description and its
+  default value.
 - **Inline hints in logs.** Well-known errors (mod conflicts, memory, drivers,
   network, world corruption, and more) get a marker in the log viewer and the
   server console; hovering the line shows what the error means and how to fix
   it, in English and Russian.
-- Server Settings: the server.properties block is now a full, searchable editor covering every vanilla key, each with an inline description and its default value.
+- **Skin editor: symmetry mirror and viewport upgrades.** The editor gains a
+  geometrically-correct left↔right body mirror (paint one arm and the other
+  follows), a resizable 2D texture panel, static pose presets (Default / T-pose
+  / Walk / Sit), odd-sized brushes centred on the cursor with a live hover
+  footprint shown on both the 2D texture and the 3D model, and companion
+  zoom / pan. Saving now strips stray pixels outside the UV layout.
+- **Skin editor: an editable colour palette.** The fixed palette is replaced by
+  one you fully control — add the current colour, edit a swatch in place,
+  reorder by drag or keyboard, and delete — with the palette persisted between
+  sessions and a reset back to the defaults.
+- **Skin editor without a Microsoft account.** Offline and no-account users can
+  open the pixel skin editor and export a PNG; only uploading the result to a
+  Minecraft profile still requires a Microsoft sign-in.
+- **Quick access to a server's add-on folder.** The Servers-mode sidebar gains a
+  button that opens the selected server's `mods/` (Fabric/Quilt/Forge/NeoForge)
+  or `plugins/` (Paper/Purpur) folder in the OS file manager; it is hidden for
+  vanilla servers.
 - **Force stop for servers.** When a graceful stop drags on — a still-loading or
   hung server that isn't responding to the shutdown command — a **Force stop now**
   button appears under Stop after a few seconds, ending the server immediately
   instead of waiting out the graceful-shutdown window. A force-stopped server is
   reported as stopped, not crashed.
+
+### Changed
+
+- The skin & cape dialogs now fit smaller, non-maximized windows (a bounded
+  height with a scrolling body) and use compact cape tiles.
+- Deleting a world now matches deleting a server — a single confirmation dialog,
+  without the extra type-"Delete" step. Whole-instance deletion keeps its
+  stronger inline confirmation.
+- The out-of-place "Allow offline players" button was removed from the server
+  Connect card, where it read as a network toggle; online-mode is still toggled
+  from Server Settings.
 
 ### Fixed
 
@@ -29,6 +86,14 @@ release is **0.9.0**.
   "a client-only mod crashed the server". A server you stop — including one the
   launcher force-kills after the graceful-shutdown window times out — is now
   reported as stopped, not crashed.
+- The server Add-ons → Installed pane no longer blanks out and reloads for
+  several seconds each time you switch between Browse and Installed: it stays
+  mounted, shows a spinner while loading, and caches file hashes between lists.
+- In Servers mode the sidebar no longer shows the client-only Account section or
+  the instance Logs button, neither of which applies to a dedicated server.
+- Screen readers now announce the body text of a confirmation dialog, and the
+  Minecraft-version picker reports the committed selection rather than the
+  keyboard-highlighted row.
 
 ## [0.18.0] — 2026-07-12
 
@@ -637,7 +702,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.1...v0.16.0
