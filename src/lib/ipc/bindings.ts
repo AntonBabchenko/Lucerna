@@ -987,6 +987,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverStart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_start", { id })),
 	/**  Остановить сервер (graceful stop, затем принудительное завершение при необходимости). */
 	serverStop: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_stop", { id })),
+	/**
+	 *  Принудительно завершить сервер СЕЙЧАС: force-kill без graceful-ожидания.
+	 *  Эскалация из идущего `server_stop`, когда сервер завис/ещё грузится и не
+	 *  обрабатывает `stop`. Пишет код выхода `-1` (наш sentinel), так что это
+	 *  «Остановлен», а не «Аварийно завершён».
+	 */
+	serverKill: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_kill", { id })),
 	/**  Перезапустить сервер (stop если запущен, затем start). */
 	serverRestart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_restart", { id })),
 	/**  Отправить консольную команду на stdin работающего сервера. */

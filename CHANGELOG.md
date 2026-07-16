@@ -17,6 +17,18 @@ release is **0.9.0**.
   server console; hovering the line shows what the error means and how to fix
   it, in English and Russian.
 - Server Settings: the server.properties block is now a full, searchable editor covering every vanilla key, each with an inline description and its default value.
+- **Force stop for servers.** When a graceful stop drags on — a still-loading or
+  hung server that isn't responding to the shutdown command — a **Force stop now**
+  button appears under Stop after a few seconds, ending the server immediately
+  instead of waiting out the graceful-shutdown window. A force-stopped server is
+  reported as stopped, not crashed.
+
+### Fixed
+
+- Stopping a server before it finished loading no longer falsely reports that
+  "a client-only mod crashed the server". A server you stop — including one the
+  launcher force-kills after the graceful-shutdown window times out — is now
+  reported as stopped, not crashed.
 
 ## [0.18.0] — 2026-07-12
 

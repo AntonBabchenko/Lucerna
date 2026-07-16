@@ -468,28 +468,52 @@ pub async fn stop(app: &AppHandle, server_id: &str) -> Result<()> {
         }
         tokio::time::sleep(std::time::Duration::from_millis(GRACEFUL_STOP_INTERVAL_MS)).await;
     }
-    // Timed out: force-kill, then clear our own in-memory state immediately so an
-    // immediate restart()'s start() isn't rejected with ServerAlreadyRunning. The
-    // exit watcher is pid-matched, so it will no-op on the now-gone entry; we
-    // therefore also do its bookkeeping (clear pid, record the forced exit, emit).
-    if let Some(pid) = running_pid(server_id) {
-        crate::platform::kill_process_tree(pid);
-        state()
-            .lock()
-            .expect("server state poisoned")
-            .remove(server_id);
-        if let Ok(base) = crate::paths::app_dir(app) {
-            let p = crate::paths::server_paths(&base, server_id);
-            crate::servers_runtime::pid::clear_pid(&p.pid);
-            crate::servers_runtime::exit_state::write(&p.runtime, -1);
-        }
-        let _ = ServerExited {
-            server_id: server_id.to_string(),
-            code: -1,
-        }
-        .emit(app);
-    }
+    // Timed out: force-kill as a fallback. The graceful `stop` didn't take (a
+    // still-loading or hung server never processed it), so escalate exactly like
+    // the explicit `kill()` — same bookkeeping, same -1 stop sentinel.
+    force_kill_tracked(app, server_id);
     Ok(())
+}
+
+/// Force-stop NOW, skipping the graceful `stop` handshake: terminate the process
+/// immediately instead of waiting out `GRACEFUL_STOP_POLLS`. Mirrors `stop()`'s
+/// dispatch — a tracked server goes through [`force_kill_tracked`]; an untracked
+/// (adopted) one through [`stop_persisted`]. Records the `-1` stop sentinel, so a
+/// force-stopped server reads as "Stopped", not "Crashed". Safe to call while a
+/// graceful `stop()` is mid-wait: it removes the map entry, so that loop's next
+/// poll sees the server gone and returns `Ok` (no double force-kill).
+pub fn kill(app: &AppHandle, server_id: &str) -> Result<()> {
+    if !is_running(server_id) {
+        return stop_persisted(app, server_id);
+    }
+    force_kill_tracked(app, server_id);
+    Ok(())
+}
+
+/// Force-kill a tracked-and-running server's process tree and perform the exit
+/// bookkeeping the pid-matched exit watcher would otherwise do (it no-ops once
+/// the map entry is gone): clear the in-memory entry + persisted PID, record the
+/// force-kill sentinel exit (`-1`), and emit `ServerExited`. Shared by `stop()`'s
+/// graceful-timeout fallback and `kill()`. No-op if the server isn't tracked.
+fn force_kill_tracked(app: &AppHandle, server_id: &str) {
+    let Some(pid) = running_pid(server_id) else {
+        return;
+    };
+    crate::platform::kill_process_tree(pid);
+    state()
+        .lock()
+        .expect("server state poisoned")
+        .remove(server_id);
+    if let Ok(base) = crate::paths::app_dir(app) {
+        let p = crate::paths::server_paths(&base, server_id);
+        crate::servers_runtime::pid::clear_pid(&p.pid);
+        crate::servers_runtime::exit_state::write(&p.runtime, -1);
+    }
+    let _ = ServerExited {
+        server_id: server_id.to_string(),
+        code: -1,
+    }
+    .emit(app);
 }
 
 /// Stop a server that is NOT tracked in this session's map by force-killing its

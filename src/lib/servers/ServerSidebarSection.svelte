@@ -30,6 +30,25 @@
   );
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
+  const killing = $derived(selected ? serverState.isKilling(selected.id) : false);
+
+  // The "Force stop now" escalation appears a few seconds into a graceful stop,
+  // so a normal quick shutdown never flashes it — it only surfaces when the wait
+  // actually drags (a still-loading or hung server that never processed `stop`).
+  // Reset the instant the stop ends or the timer is superseded.
+  const FORCE_STOP_HINT_DELAY_MS = 3500;
+  let showForceStop = $state(false);
+  $effect(() => {
+    const stopping = (selected?.running ?? false) && action === 'stop';
+    if (!stopping) {
+      showForceStop = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      showForceStop = true;
+    }, FORCE_STOP_HINT_DELAY_MS);
+    return () => clearTimeout(timer);
+  });
 
   // Which add-on folder this server exposes: plugin cores (Paper/Purpur) keep
   // jars in runtime/plugins, mod cores (Fabric/Quilt/Forge/NeoForge) in
@@ -76,6 +95,12 @@
     const id = selected?.id;
     if (!id) return;
     await serverState.stop(id);
+  }
+
+  async function killSelected(): Promise<void> {
+    const id = selected?.id;
+    if (!id) return;
+    await serverState.kill(id);
   }
 
   async function openAddonsFolder(): Promise<void> {
@@ -163,6 +188,18 @@
         <Icon name="stop" size={16} />
         {$t('servers.action.stop')}
       </BusyButton>
+      {#if showForceStop}
+        <!-- Escalation out of a stuck graceful stop: skip the wait, hard-kill now.
+             Surfaces only after FORCE_STOP_HINT_DELAY_MS so a normal stop is clean. -->
+        <BusyButton
+          class="btn-ghost-danger flex items-center justify-center"
+          busy={killing}
+          data-testid="sidebar-server-force-stop"
+          onclick={() => void killSelected()}
+        >
+          {$t('servers.action.forceStop')}
+        </BusyButton>
+      {/if}
     {:else}
       <span
         class="inline-flex w-full"
