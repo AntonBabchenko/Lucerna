@@ -9,7 +9,7 @@ Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
 The launcher itself is open-source under GPL-3.0-or-later; the Java runtime and Minecraft
 files come straight from Mojang and are never modified.
 
-> **Lucerna** /luˈkɛr.na/ — Latin for "lamp / light-bearer". Formerly named "FTlauncher"; renamed in 2026-05.
+> **Lucerna** /luˈkɛr.na/ — Latin for "lamp / light-bearer".
 
 Lucerna integrates the official Modrinth and CurseForge APIs for mod and modpack
 browsing, supports Fabric / Quilt / Forge / NeoForge, isolates every Minecraft install
