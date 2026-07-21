@@ -8,9 +8,9 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 1. **Reproducible builds are a goal, not a release blocker.** The target: any third party can rebuild the binary from a tagged commit and get the same SHA256. Tauri has known sources of nondeterminism (embedded assets, bundle timestamps); these are documented as they are discovered and the gaps are closed over time. Until full reproducibility is achieved, the pipeline still ships — the gap is honest, not hidden.
 
-2. **All releases come from GitHub Actions, never local machines.** The release workflow is public; its logs and its inputs (the tagged commit, the lockfile, the cached dependencies) are public. **Status: implemented in `.github/workflows/release.yml`** — it builds every pushed `v*` tag on a GitHub-hosted runner; `v0.9.0` will be the first release it produces. (The legacy `v0.1.0` tag predates this and was built locally.)
+2. **All releases come from GitHub Actions, never local machines.** The release workflow is public; its logs and its inputs (the tagged commit, the lockfile, the cached dependencies) are public. **Status: implemented in `.github/workflows/release.yml`** — it builds every pushed `v*` tag on a GitHub-hosted runner, and has done so since `v0.9.0`. (The legacy `v0.1.0` tag predates this and was built locally.)
 
-3. **Software Bill of Materials.** The release workflow runs `cargo-cyclonedx` to generate a CycloneDX SBOM and attaches it as a release asset. **Status: implemented in `release.yml`; first produced for the v0.9.0 release.**
+3. **Software Bill of Materials.** The release workflow runs `cargo-cyclonedx` to generate a CycloneDX SBOM and attaches it as a release asset. **Status: implemented in `release.yml`; produced for every release since v0.9.0.**
 
 4. **Advisory scanning in CI (the `cargo-audit` equivalent).** **Status: implemented** — the `cargo-deny` job in `.github/workflows/ci.yml` runs `cargo deny check`, which includes the `advisories` check against the RustSec advisory database (the same DB `cargo-audit` uses). It runs on every push and PR and is ungated, so a newly-published advisory can trip it even when `Cargo.lock` has not changed. A PR that introduces a vulnerable dependency is blocked.
 
@@ -26,7 +26,7 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 ## Part B — Signing
 
-1. **Starting position (implemented in `release.yml`, first applied to the v0.9.0 release):**
+1. **Starting position (implemented in `release.yml`, applied to every release since v0.9.0):**
    - `SHA256SUMS` is published with every release.
    - `cosign` keyless signatures via sigstore are produced for every release artifact. The signer identity is the GitHub Actions OIDC token issued to this repo — verifiable by anyone against the public sigstore transparency log. No long-lived signing key is required.
 
@@ -35,7 +35,8 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 3. **OS-level code signing when certificates exist:**
    - Windows: an EV or OV code-signing certificate (without one, SmartScreen flags unsigned binaries). Status: not acquired yet.
    - macOS: Developer ID certificate + Apple notarization. Status: not acquired yet.
-   - Until certificates are acquired, binaries ship unsigned at the OS level. Release notes link to verification instructions for `cosign` and `SHA256SUMS`.
+   - Linux: no OS-level signing scheme applies to the `.AppImage` / `.deb` / `.rpm` artifacts we publish; integrity rests on cosign + `SHA256SUMS`.
+   - Until those certificates are acquired, Windows binaries ship unsigned at the OS level and SmartScreen warns on first run. macOS builds are **ad-hoc signed** (`codesign -s -`, asserted by a CI guard in `release.yml`) — enough to run, but not notarized, so Gatekeeper quarantines a downloaded copy until the user clears it with `xattr -dr com.apple.quarantine /Applications/Lucerna.app`. Every artifact on every platform is cosign-signed regardless; release notes link to verification instructions for `cosign` and `SHA256SUMS`.
 
 ## Part C — Network audit
 
@@ -48,6 +49,8 @@ The product value "no hidden phone-home" is enforced in code, not merely display
 3. **Single source of truth for the allowlist.** The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the source of truth. The table in `docs/PRINCIPLES.md` Part A mirrors it for human readers and is kept in sync by code review — there is no markdown-parsing build step (an earlier plan to add one was dropped as brittle).
 
 4. **Content Security Policy applies only to production builds.** The CSP declared in `src-tauri/tauri.conf.json` (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; …`) is enforced on the `asset://` custom protocol used by `tauri build`. **It is NOT injected into `pnpm tauri dev`**, which loads `http://localhost:1420` via Vite without the CSP header. A developer adding a new image CDN host and testing only in dev mode will not see a CSP violation; the violation surfaces in production. Always smoke-test new external hosts against a `tauri build` artifact before submitting.
+
+5. **`LUCERNA_*` environment overrides stay live in release builds — deliberately.** The test-seam module (`src-tauri/src/test_seam.rs`) resolves a small set of `LUCERNA_*` environment variables (e.g. `LUCERNA_EXTRA_ALLOWED_HOSTS`, per-endpoint URL overrides for the auth chain and loader metadata) in production as well as under test, so an operator can point a release binary at a mirror or staging endpoint. This is an explicit, documented trade-off: anyone who can set environment variables for the process can already modify the binary or its config, so the overrides add no privilege an attacker doesn't have — but they DO widen what a mis-configured environment can change (including extending the network allowlist and redirecting the Microsoft/XSTS auth endpoints). The full override list lives in `test_seam.rs`; treat additions to it as security-relevant and review them against this section.
 
 ## Part D — Disclosure
 

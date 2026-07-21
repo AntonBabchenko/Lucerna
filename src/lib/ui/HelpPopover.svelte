@@ -12,6 +12,8 @@
   // sidebar tooltip showing over an open dialog). While closed it stays in
   // normal flow, so any modal correctly covers it.
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
+  import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
 
   let {
     body,
@@ -54,12 +56,11 @@
   }
 
   // A fixed popover does not follow the trigger when the layout shifts, so close
-  // it on scroll/resize while open. `scroll` is captured (third arg `true`) so
-  // it also catches a scrollable host's own scroll (scroll does not bubble).
-  // Escape also dismisses it, matching every other popover/menu in the app.
+  // it on scroll/resize while open (shared helper). Escape dismisses it too, but
+  // it also refocuses the trigger (keyboard dismiss), so it stays a bespoke
+  // handler rather than routing through the helper.
   $effect(() => {
     if (!open) return;
-    const close = () => (open = false);
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -67,13 +68,11 @@
         trigger?.focus();
       }
     };
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
     window.addEventListener('keydown', onKeydown);
+    const detach = attachPopoverDismiss({ onDismiss: () => (open = false) });
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
       window.removeEventListener('keydown', onKeydown);
+      detach();
     };
   });
 </script>
@@ -90,7 +89,7 @@
     aria-controls={popoverId}
     onclick={toggle}
   >
-    (?)
+    <Icon name="info" size={14} />
   </button>
   {#if open}
     <!-- Click-outside backdrop -->
@@ -98,7 +97,7 @@
     <div role="presentation" class="fixed inset-0 z-30" onclick={() => (open = false)}></div>
     <div
       id={popoverId}
-      class="fixed z-40 normal-case tracking-normal bg-surface border border-border-subtle rounded shadow-md p-2.5"
+      class="fixed z-[var(--z-popover)] normal-case tracking-normal bg-surface border border-border-subtle rounded shadow-md p-2.5"
       style="top: {popoverTop}px; left: {popoverLeft}px; width: {width}px;"
     >
       <div class="absolute top-1 right-1">

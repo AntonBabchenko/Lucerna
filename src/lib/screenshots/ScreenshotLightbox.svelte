@@ -2,6 +2,7 @@
   import { commands, type Screenshot } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import Modal from '$lib/ui/Modal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
   import { copyToClipboard, saveAnnotated, reveal, deleteScreenshot } from './actions';
@@ -66,10 +67,12 @@
   function next() {
     index = (index + 1) % shots.length;
   }
+  // Escape is owned by Modal's topmost-only open-stack (so closing the
+  // lightbox never also closes the gallery modal under it); this window
+  // handler only adds the arrow-key navigation.
   function onKey(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
-    else if (e.key === 'Escape') close();
   }
   async function onDelete() {
     const s = current;
@@ -79,15 +82,17 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div
-  class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/60 p-6"
-  role="dialog"
-  aria-modal="true"
+<Modal
+  onClose={close}
+  bare
+  ariaLabel={$t('screenshots.viewerTitle')}
+  panelClass="relative flex flex-col items-center justify-center gap-4 p-6"
 >
-  <!-- Full-bleed backdrop: a real <button>, so click + Enter/Space close it (Esc
-       via onKey) with zero a11y warnings. It sits behind the image and controls,
-       which are lifted above it with z-10 — so a click on any dark area closes,
-       while clicks on the image / arrows / toolbar hit those instead. -->
+  <!-- Full-bleed backdrop: a real <button>, so click + Enter/Space close it
+       (Esc via Modal) with zero a11y warnings. It sits behind the image and
+       controls, which are lifted above it with z-10 — so a click on any dark
+       area closes, while clicks on the image / arrows / toolbar hit those
+       instead. -->
   <button
     type="button"
     class="absolute inset-0 cursor-default"
@@ -165,4 +170,4 @@
       onclick={onDelete}><Icon name="trash" size={16} /></button
     >
   </div>
-</div>
+</Modal>

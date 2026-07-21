@@ -2,8 +2,7 @@
   import { commands, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import Modal from '$lib/ui/Modal.svelte';
-  import BusyButton from '$lib/ui/BusyButton.svelte';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 
   let {
     instanceId,
@@ -17,16 +16,11 @@
     onDeleted: () => void;
   } = $props();
 
-  let typed = $state('');
+  // Single-confirm danger dialog — no type-to-confirm gate, matching
+  // DeleteServerDialog. titleSize="lg" preserves this dialog's original heading
+  // (it predates the text-base forward rule — new dialogs should omit it).
   let busy = $state(false);
   let error = $state<string | null>(null);
-
-  // Confirm by typing the literal word "Delete" rather than the folder
-  // name — players name their worlds anything (long, unicode, emoji,
-  // accidental whitespace) and re-typing it as a safety gate becomes
-  // user-hostile.
-  const CONFIRM_WORD = 'Delete';
-  const canDelete = $derived(typed === CONFIRM_WORD && !busy);
 
   async function onConfirm() {
     busy = true;
@@ -41,45 +35,15 @@
   }
 </script>
 
-<Modal
-  ariaLabelledby="delete-world-title"
-  {onClose}
-  panelClass="max-w-md w-full p-4"
-  closeOnBackdrop={!busy}
-  closeOnEscape={!busy}
->
-  <h3 id="delete-world-title" class="font-semibold text-lg text-primary mb-2">
-    {$t('worlds.delete.title', { world: world.folder_name })}
-  </h3>
-  <p class="text-sm text-secondary mb-3">
-    {$t('worlds.delete.description')}
-  </p>
-  <label class="block text-xs text-secondary mb-1" for="del-world-confirm">
-    {$t('worlds.delete.typeToConfirm', { word: CONFIRM_WORD })}
-  </label>
-  <input
-    id="del-world-confirm"
-    class="border rounded px-2 py-1 w-full mb-3"
-    bind:value={typed}
-    disabled={busy}
-    placeholder={CONFIRM_WORD}
-    autocomplete="off"
-  />
-  {#if error}
-    <p class="text-xs text-danger mb-2">{error}</p>
-  {/if}
-  <div class="flex justify-end gap-2">
-    <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
-      {$t('common.cancel')}
-    </button>
-    <BusyButton
-      {busy}
-      type="button"
-      class="btn-danger btn-sm"
-      disabled={!canDelete}
-      onclick={() => void onConfirm()}
-    >
-      {$t('worlds.delete.deleteBtn')}
-    </BusyButton>
-  </div>
-</Modal>
+<ConfirmDialog
+  title={$t('worlds.delete.title', { world: world.folder_name })}
+  bodyText={$t('worlds.delete.description')}
+  titleSize="lg"
+  variant="danger"
+  confirmLabel={$t('worlds.delete.deleteBtn')}
+  {busy}
+  {error}
+  panelClass="max-w-md w-full p-4 flex flex-col gap-3"
+  onCancel={onClose}
+  onConfirm={() => void onConfirm()}
+/>

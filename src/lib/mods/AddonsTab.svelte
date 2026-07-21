@@ -32,7 +32,9 @@
   import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
+  import { debounceTrailing } from '$lib/ui/debounce';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
 
@@ -93,8 +95,6 @@
   onDestroy(() => {
     modBrowseOpenProject.value = null;
     addonsKind.value = 'mod';
-    for (const u of shaderModUnlisteners) u();
-    shaderModUnlisteners = [];
   });
 
   // i18n labels for the kind switch — order mirrors CONTENT_KINDS. Instance
@@ -236,15 +236,16 @@
     void refreshInstalledShaderMods();
   });
 
-  let shaderModUnlisteners: Array<() => void> = [];
-  onMount(async () => {
-    const handlers = [
-      events.modInstalled.listen(() => void refreshInstalledShaderMods()),
-      events.modUninstalled.listen(() => void refreshInstalledShaderMods()),
-      events.modToggle.listen(() => void refreshInstalledShaderMods()),
-    ];
-    for (const p of handlers) shaderModUnlisteners.push(await p);
-  });
+  // Race-safe registration/teardown (a fast tab flip can unmount this
+  // component before listen() resolves) + burst coalescing: a with-deps
+  // install emits one event per jar.
+  const debouncedShaderModsRefresh = debounceTrailing(() => void refreshInstalledShaderMods(), 150);
+  onDestroy(debouncedShaderModsRefresh.cancel);
+  listenUntilDestroyed([
+    events.modInstalled.listen(debouncedShaderModsRefresh.call),
+    events.modUninstalled.listen(debouncedShaderModsRefresh.call),
+    events.modToggle.listen(debouncedShaderModsRefresh.call),
+  ]);
 
   // Shader loaders that work on this instance's loader, and which of them are
   // already installed. The banner shows only when none are.

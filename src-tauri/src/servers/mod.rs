@@ -82,8 +82,9 @@ pub fn add_saved_server(
     name: &str,
     address: &str,
 ) -> Result<()> {
-    // Global single-process model: if any instance is running we block, because Minecraft rewrites servers.dat on exit.
-    if crate::launch::is_running() {
+    // servers.dat is per-instance: block only while THIS instance is running,
+    // because its Minecraft rewrites this file on exit and would clobber our write.
+    if crate::launch::is_running(instance_id) {
         return Err(Error::InstanceBusy);
     }
     validate_server_name(name)?;
@@ -107,8 +108,9 @@ pub fn remove_saved_server(
     index: usize,
     expected_address: &str,
 ) -> Result<()> {
-    // Global single-process model: if any instance is running we block, because Minecraft rewrites servers.dat on exit.
-    if crate::launch::is_running() {
+    // servers.dat is per-instance: block only while THIS instance is running,
+    // because its Minecraft rewrites this file on exit and would clobber our write.
+    if crate::launch::is_running(instance_id) {
         return Err(Error::InstanceBusy);
     }
     let path = servers_dat_path(app, instance_id)?;

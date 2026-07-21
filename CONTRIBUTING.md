@@ -54,13 +54,14 @@ pnpm tauri dev      # run the launcher in development
 Run the full local gate before opening a PR:
 
 ```powershell
-cd src-tauri
-cargo test -- --test-threads=1
-cd ..
+cargo test --manifest-path src-tauri/Cargo.toml
 pnpm typecheck
 pnpm lint
 pnpm test
 ```
+
+See [`docs/TESTING.md`](docs/TESTING.md) for the full test layout, including
+when a single-threaded run is required.
 
 ## Microsoft sign-in (Azure app)
 

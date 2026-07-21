@@ -1,7 +1,8 @@
 //! Tauri-команды фичи «Свой сервер» (План 1: создание/список/удаление).
 
 use crate::error::{Error, Result};
-use crate::mods::platform::ServerSideSupport;
+use crate::mods::platform::{InstalledMod, ModVersion, ServerSideSupport};
+use crate::mods::updates::{classify_update, ModUpdateCheck, ModUpdateState};
 use crate::servers_runtime::schema::{ServerCore, ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{backup, create, import, store};
 use std::collections::HashMap;
@@ -36,6 +37,26 @@ pub struct ServerModEntry {
     pub disabled: bool,
     /// Sidecar reason for a disabled jar (e.g. `client_only`); `None` otherwise.
     pub reason: Option<String>,
+}
+
+/// `ServerModEntry` + the install-identity overlay (sha1-keyed registry).
+/// Identity fields are `Option`: locally-dropped jars carry no record until
+/// enriched. `name`/`version_number` are hints; the UI resolves the display
+/// name from the platform by `project_id`.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerModEntryEnriched {
+    pub filename: String,
+    /// Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+    /// (delete/enable/disable) MUST join this, not the base `filename`.
+    pub on_disk_filename: String,
+    pub disabled: bool,
+    pub reason: Option<String>,
+    pub sha1: String,
+    pub source: Option<crate::mods::platform::ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub name: Option<String>,
+    pub version_number: Option<String>,
 }
 
 /// Build `filename -> server_side` for an *instance's* mods by reading its
@@ -84,21 +105,31 @@ async fn server_side_by_instance_mods(
 async fn server_side_by_server_mods(
     mods_dir: &std::path::Path,
 ) -> HashMap<String, ServerSideSupport> {
-    use sha1::{Digest, Sha1};
     let mut out: HashMap<String, ServerSideSupport> = HashMap::new();
-    let mut sha_by_file: HashMap<String, String> = HashMap::new();
-    let Ok(rd) = std::fs::read_dir(mods_dir) else {
-        return out;
+    // Whole-jar reads + SHA-1 on a blocking thread (same rationale as
+    // `enrich_server_dir`): a modded server's `mods/` is gigabytes.
+    let sha_by_file: HashMap<String, String> = {
+        let dir = mods_dir.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            use sha1::{Digest, Sha1};
+            let mut sha_by_file: HashMap<String, String> = HashMap::new();
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                return sha_by_file;
+            };
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !name.to_ascii_lowercase().ends_with(".jar") {
+                    continue;
+                }
+                if let Ok(bytes) = std::fs::read(e.path()) {
+                    sha_by_file.insert(name, hex::encode(Sha1::digest(&bytes)));
+                }
+            }
+            sha_by_file
+        })
+        .await
+        .unwrap_or_default()
     };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
-        if !name.to_ascii_lowercase().ends_with(".jar") {
-            continue;
-        }
-        if let Ok(bytes) = std::fs::read(e.path()) {
-            sha_by_file.insert(name, hex::encode(Sha1::digest(&bytes)));
-        }
-    }
     if sha_by_file.is_empty() {
         return out;
     }
@@ -126,9 +157,9 @@ async fn server_side_by_server_mods(
     out
 }
 
-/// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
-/// port) + флага наличия пароля в keyring. Единый источник для list/rename/
-/// update — чтобы не дублировать логику обогащения статуса.
+/// Build a `ServerWithStatus` from the file + live runtime status (running/
+/// pid/port) + the keyring password-presence flag. Single source for list/
+/// rename/update so the status-enrichment logic isn't duplicated.
 fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
     let rp = crate::paths::server_paths(base, &file.id);
     // Reconcile against the persisted PID so a server still alive after a
@@ -166,6 +197,7 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
             input,
             file.handled_log_sig.as_deref(),
             alive_ours,
+            last_exit_code,
         )
     };
     ServerWithStatus::from_file(
@@ -343,7 +375,7 @@ pub async fn server_create(
             .map_err(|e| crate::error::Error::io("<instance_mods_dir>", e))?;
         let dest = crate::paths::server_paths(&base, &file.id).mods;
         let copied = crate::servers_runtime::create::copy_instance_mods(&src, &dest)?;
-        eprintln!("servers: copied {copied} mods from instance {inst_id}");
+        crate::diag!("servers: copied {copied} mods from instance {inst_id}");
         // Proactively set aside client-only mods so a modpack server can start
         // instead of crashing one client mod at a time. Best-effort — never
         // fails creation; a metadata miss degrades to offline detection.
@@ -351,11 +383,11 @@ pub async fn server_create(
         match crate::servers_runtime::quarantine::quarantine_with_metadata(&dest, &side_map) {
             Ok((disabled, _)) => {
                 if !disabled.is_empty() {
-                    eprintln!("servers: quarantined {} client mods", disabled.len());
+                    crate::diag!("servers: quarantined {} client mods", disabled.len());
                 }
                 quarantined = disabled;
             }
-            Err(e) => eprintln!("servers: client-mod quarantine skipped: {e}"),
+            Err(e) => crate::diag!("servers: client-mod quarantine skipped: {e}"),
         }
     }
     cleanup.keep();
@@ -401,6 +433,16 @@ pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
 #[specta::specta]
 pub async fn server_stop(app: AppHandle, id: String) -> Result<()> {
     crate::servers_runtime::runtime::stop(&app, &id).await
+}
+
+/// Принудительно завершить сервер СЕЙЧАС: force-kill без graceful-ожидания.
+/// Эскалация из идущего `server_stop`, когда сервер завис/ещё грузится и не
+/// обрабатывает `stop`. Пишет код выхода `-1` (наш sentinel), так что это
+/// «Остановлен», а не «Аварийно завершён».
+#[tauri::command]
+#[specta::specta]
+pub fn server_kill(app: AppHandle, id: String) -> Result<()> {
+    crate::servers_runtime::runtime::kill(&app, &id)
 }
 
 /// Перезапустить сервер (stop если запущен, затем start).
@@ -568,20 +610,233 @@ pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<ServerModEntry
         .collect())
 }
 
+/// Like `server_list_mods`, but each jar carries its registry identity. Uses
+/// `reconcile_on_list` (sha1-keyed) so identity survives enable/disable renames.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_mods_enriched(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ServerModEntryEnriched>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
+    let entries = crate::servers_runtime::installed::reconcile_on_list(&mods)?;
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let disabled = !e.enabled;
+            // Current on-disk name: base `filename` + `.disabled` when disabled.
+            // Used both for the quarantine-reason lookup and as `on_disk_filename`
+            // so mutation commands join the real file, not the base name.
+            let on_disk = if disabled {
+                format!("{}.disabled", e.record.filename)
+            } else {
+                e.record.filename.clone()
+            };
+            let reason = if disabled {
+                reasons.get(&on_disk).cloned()
+            } else {
+                None
+            };
+            ServerModEntryEnriched {
+                filename: e.record.filename,
+                on_disk_filename: on_disk,
+                disabled,
+                reason,
+                sha1: e.record.sha1,
+                source: e.record.source,
+                project_id: e.record.project_id,
+                version_id: e.record.version_id,
+                name: e.record.name,
+                version_number: e.record.version_number,
+            }
+        })
+        .collect())
+}
+
+/// Pure resolve + tie-break + one-shot gate for a scope of lowercased sha1s.
+/// `home = Modrinth` tie-break: a sha present in both platform maps resolves to
+/// Modrinth. The gate marks a sha `attempted` only when every *tried* platform
+/// returned OK (a partial failure leaves the whole scope un-attempted so the
+/// next pass retries), while still surfacing any identities that DID resolve.
+/// Extracted from `enrich_server_dir` so the branchy logic is unit-testable
+/// without a network or filesystem.
+fn resolve_and_gate(
+    scope_shas: &[String],
+    mr_hits: &std::collections::HashMap<String, crate::mods::modrinth::HashVersion>,
+    mr_ok: bool,
+    cf_hits: &std::collections::HashMap<String, crate::mods::curseforge::FingerprintFile>,
+    cf_ok: bool,
+    cf_tried: bool,
+) -> (
+    std::collections::HashMap<String, crate::servers_runtime::installed::ResolvedServerIdentity>,
+    std::collections::HashSet<String>,
+) {
+    use crate::servers_runtime::installed::ResolvedServerIdentity;
+    let mut resolved = std::collections::HashMap::new();
+    for sha in scope_shas {
+        let id = match (mr_hits.get(sha), cf_hits.get(sha)) {
+            (Some(mr), _) => ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Modrinth,
+                project_id: mr.project_id.clone(),
+                version_id: Some(mr.version_id.clone()),
+                name: Some(mr.name.clone()),
+                version_number: Some(mr.version_number.clone()),
+            },
+            (None, Some(cf)) => ResolvedServerIdentity {
+                source: crate::mods::platform::ModSource::Curseforge,
+                project_id: cf.project_id.clone(),
+                version_id: Some(cf.version_id.clone()),
+                name: None,
+                version_number: cf.version_number.clone(),
+            },
+            (None, None) => continue,
+        };
+        resolved.insert(sha.clone(), id);
+    }
+    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
+    let attempted = if all_tried_succeeded {
+        scope_shas.iter().cloned().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+    (resolved, attempted)
+}
+
+/// Hash-enrich untracked jars in a server dir, mirroring
+/// `mods::enrich::enrich_untracked`: SHA-1 → Modrinth (`versions_by_hashes`)
+/// for both dirs; Murmur2 → CurseForge (`files_by_fingerprint`) for mods only.
+/// `home = Modrinth` tie-break. Best-effort: a failure degrades to "no match"
+/// and does NOT mark the jar attempted (so the next pass retries).
+///
+/// Hangar has NO hash-lookup endpoint, so plugins resolve via Modrinth's
+/// plugin index only; unresolved plugins keep `source = None` but are still
+/// marked attempted so they aren't re-queried every pass.
+///
+/// The blocking work (directory scan + sha1/Murmur2 hashing, and the final
+/// sidecar write) runs on `spawn_blocking` threads so the async executor is
+/// never blocked on disk I/O; the two network calls stay on the async task.
+async fn enrich_server_dir(dir: &std::path::Path, use_cf: bool) -> Result<u32> {
+    use std::collections::HashMap;
+
+    // Blocking phase 1: reconcile the sidecar against disk, filter to untracked
+    // jars, and (for the CF path) fingerprint each jar's bytes. Runs off the
+    // async executor since it is pure disk I/O + hashing.
+    let scan_dir = dir.to_path_buf();
+    let (scope_shas, fingerprints): (Vec<String>, Vec<(u32, String)>) =
+        tokio::task::spawn_blocking(move || -> Result<(Vec<String>, Vec<(u32, String)>)> {
+            let entries = crate::servers_runtime::installed::reconcile_on_list(&scan_dir)?;
+            let in_scope: Vec<_> = entries
+                .into_iter()
+                .filter(|e| e.record.source.is_none() && !e.record.enrich_attempted)
+                .collect();
+            let mut shas: Vec<String> = Vec::new();
+            let mut fingerprints: Vec<(u32, String)> = Vec::new();
+            for e in &in_scope {
+                // Enabled jars are `*.jar`; set-aside jars are `*.jar.disabled`.
+                let on_disk = if e.enabled {
+                    e.record.filename.clone()
+                } else {
+                    format!("{}.disabled", e.record.filename)
+                };
+                let sha = e.record.sha1.to_ascii_lowercase();
+                shas.push(sha.clone());
+                if use_cf {
+                    // Already on a blocking thread → sync read is correct here.
+                    if let Ok(bytes) = std::fs::read(scan_dir.join(&on_disk)) {
+                        fingerprints
+                            .push((crate::mods::enrich::curseforge_fingerprint(&bytes), sha));
+                    }
+                }
+            }
+            Ok((shas, fingerprints))
+        })
+        .await
+        .map_err(|e| Error::io("<enrich-scan>", e))??;
+
+    if scope_shas.is_empty() {
+        return Ok(0);
+    }
+
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let shas_ref: Vec<&str> = scope_shas.iter().map(String::as_str).collect();
+    let (mr_hits, mr_ok) = match mr.versions_by_hashes(&shas_ref).await {
+        Ok(m) => (m, true),
+        Err(_) => (HashMap::new(), false),
+    };
+
+    let cf_tried = use_cf;
+    let (cf_hits, cf_ok) = if use_cf {
+        let cf = crate::mods::curseforge::CurseForgeClient::new();
+        match cf.files_by_fingerprint(&fingerprints).await {
+            Ok(m) => (m, true),
+            Err(_) => (HashMap::new(), false),
+        }
+    } else {
+        (HashMap::new(), true) // not tried => vacuous success
+    };
+
+    let (resolved, attempted) =
+        resolve_and_gate(&scope_shas, &mr_hits, mr_ok, &cf_hits, cf_ok, cf_tried);
+
+    let n = resolved.len() as u32;
+    // Blocking phase 2: persist the identities + attempted flags off the executor.
+    let apply_dir = dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::installed::apply_enrichment(&apply_dir, &resolved, &attempted)
+    })
+    .await
+    .map_err(|e| Error::io("<enrich-apply>", e))??;
+    Ok(n)
+}
+
+/// Hash-enrich a server's `runtime/mods/` (Modrinth + CurseForge). Returns the
+/// count newly resolved. Best-effort — never blocks the UI.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_enrich_mods(app: AppHandle, id: String) -> Result<u32> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let use_cf = crate::mods::curseforge::keyring::resolve().is_some();
+    enrich_server_dir(&p.mods, use_cf).await
+}
+
+/// Hash-enrich a server's `runtime/plugins/` via Modrinth only (Hangar has no
+/// hash endpoint; CurseForge has no plugin registry).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_enrich_plugins(app: AppHandle, id: String) -> Result<u32> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    enrich_server_dir(&p.plugins, /* use_cf = */ false).await
+}
+
 /// Удалить мод из папки `mods/` сервера по имени файла.
 /// Идемпотентно: файл уже удалён → `Ok`.
 /// Отклоняет небезопасные имена (path traversal).
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    // Match server_delete_plugin: never delete a jar out from under a running
+    // server. Closes the gap the plugin twin's doc comment previously flagged.
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(crate::error::Error::ServerAlreadyRunning { id });
+    }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(crate::error::Error::io("<mod>", "invalid filename"));
+        return Err(crate::error::Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
     let path = mods.join(&filename);
     if !path.starts_with(&mods) {
-        return Err(crate::error::Error::io("<mod>", "path escapes mods dir"));
+        return Err(crate::error::Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes mods dir",
+        ));
     }
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
@@ -603,7 +858,7 @@ pub async fn server_diagnose(
     id: String,
 ) -> Result<crate::logs::diagnose::server::ServerDiagnosis> {
     use crate::logs::diagnose::server::{
-        classify_client_only_mods, diagnose_server_log, dist_crash_tokens, extract_missing_dep_ids,
+        classify_client_only_mods, diagnose_server_run, dist_crash_tokens, extract_missing_dep_ids,
         forge_client_skip_count, pick_diagnosable, server_repair_for, ServerDiagnosis,
         ServerRepairTag,
     };
@@ -644,22 +899,37 @@ pub async fn server_diagnose(
     }
     let diag_input = pick_diagnosable(&content, crash_text.as_deref());
     let signature = crate::logs::diagnose::log_signature(diag_input);
-    let diagnosis = diagnose_server_log(diag_input);
+    // Gate the log verdict on the recorded exit code: Forge's `invalid dist
+    // DEDICATED_SERVER` warning is non-fatal, so a server the user stopped before
+    // it finished loading would otherwise mis-report as a client-mod crash. A
+    // clean (0) or force-killed (-1) exit proves it was stopped, not crashed.
+    let exit_code = crate::servers_runtime::exit_state::read(&p.runtime);
+    let diagnosis = diagnose_server_run(diag_input, exit_code);
 
-    let mut mods: Vec<(String, crate::mods::local::ModEnvironment)> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&p.mods) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if !name.to_ascii_lowercase().ends_with(".jar") {
-                continue;
+    // Reads + zip-parses every jar in `mods/` — blocking disk/CPU work, so run
+    // the pass on a blocking thread (same rationale as `enrich_server_dir`).
+    let mods: Vec<(String, crate::mods::local::ModEnvironment)> = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut mods = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if !name.to_ascii_lowercase().ends_with(".jar") {
+                        continue;
+                    }
+                    let env = std::fs::read(e.path())
+                        .ok()
+                        .map(|b| crate::mods::local::read_jar_environment(&b))
+                        .unwrap_or(crate::mods::local::ModEnvironment::Unknown);
+                    mods.push((name, env));
+                }
             }
-            let env = std::fs::read(e.path())
-                .ok()
-                .map(|b| crate::mods::local::read_jar_environment(&b))
-                .unwrap_or(crate::mods::local::ModEnvironment::Unknown);
-            mods.push((name, env));
-        }
-    }
+            mods
+        })
+        .await
+        .unwrap_or_default()
+    };
     let tokens = dist_crash_tokens(diag_input);
     let is_client_crash = diagnosis
         .as_ref()
@@ -688,7 +958,7 @@ pub async fn server_diagnose(
         // The log/crash text didn't match any pattern and there's no pre-spawn
         // blocker — but if the run still exited with a crash code, explain that
         // rather than returning an unhelpful "no diagnosis".
-        if let Some(code) = crate::servers_runtime::exit_state::read(&p.runtime) {
+        if let Some(code) = exit_code {
             if let Some(d) = crate::logs::diagnose::server::diagnosis_from_exit_code(code) {
                 return Ok(d);
             }
@@ -891,11 +1161,14 @@ pub async fn server_remove_mods(
     }
     for f in &filenames {
         if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
-            return Err(Error::io("<mod>", "invalid filename"));
+            return Err(Error::server_file_invalid(f.as_str(), "invalid filename"));
         }
         let path = p.mods.join(f);
         if !path.starts_with(&p.mods) {
-            return Err(Error::io("<mod>", "path escapes mods dir"));
+            return Err(Error::server_file_invalid(
+                f.as_str(),
+                "path escapes mods dir",
+            ));
         }
         match std::fs::remove_file(&path) {
             Ok(()) => {}
@@ -1013,11 +1286,14 @@ pub async fn server_disable_mods(
     }
     for f in &filenames {
         if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
-            return Err(Error::io("<mod>", "invalid filename"));
+            return Err(Error::server_file_invalid(f.as_str(), "invalid filename"));
         }
         let src = p.mods.join(f);
         if !src.starts_with(&p.mods) {
-            return Err(Error::io("<mod>", "path escapes mods dir"));
+            return Err(Error::server_file_invalid(
+                f.as_str(),
+                "path escapes mods dir",
+            ));
         }
         let dst = p.mods.join(format!("{f}.disabled"));
         match std::fs::rename(&src, &dst) {
@@ -1044,7 +1320,9 @@ fn require_mod_loader(file: &ServerFile) -> Result<crate::instances::schema::Loa
     file.loader
         .as_loader_kind()
         .filter(|_| file.loader.mod_capable())
-        .ok_or_else(|| Error::io("<mod>", "this server core does not load mods"))
+        .ok_or_else(|| Error::ServerCoreUnsupported {
+            reason: "this server core does not load mods".into(),
+        })
 }
 
 /// Install missing dependency mods into the server's `mods/` (B9/B10 fix).
@@ -1558,21 +1836,20 @@ async fn provision_loader(
         }
         ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;
-            let (url, label) = if matches!(file.loader, ServerCore::Forge) {
-                (
-                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
-                    "forge",
-                )
+            let (flavor, label) = if matches!(file.loader, ServerCore::Forge) {
+                (crate::forge::ForgeFlavor::Forge, "forge")
             } else {
-                (
-                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
-                    "neoforge",
-                )
+                (crate::forge::ForgeFlavor::NeoForge, "neoforge")
             };
+            // Same fetch as the client instance path: maven `.sha1` sidecar
+            // verification + shared on-disk installer cache.
+            let bytes =
+                crate::forge::meta::fetch_installer_bytes(flavor, &file.mc_version, &lv, app)
+                    .await?;
             let component = create::resolve_server_java_component(&file.mc_version).await?;
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
-            create::create_installer_server(base, file, &url, &java_bin, label).await?;
+            create::create_installer_server(base, file, &bytes, &java_bin, label).await?;
         }
         ServerCore::Paper => {
             let jar = crate::servers_runtime::paper::PaperClient::new()
@@ -1726,11 +2003,21 @@ pub fn server_list_logs(app: AppHandle, id: String) -> Result<Vec<serverlog::Ser
 #[specta::specta]
 pub fn server_read_log(app: AppHandle, id: String, file_name: String) -> Result<String> {
     if !serverlog::is_safe_log_name(&file_name) {
-        return Err(Error::io("<log>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            file_name.as_str(),
+            "invalid log filename",
+        ));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let path = crate::paths::server_paths(&base, &id).logs.join(&file_name);
-    Ok(crate::logs::read::read_with_cap(&path, 1024 * 1024).unwrap_or_default())
+    // A log the server hasn't produced yet is "empty", not an error (the
+    // console backfill reads server-latest.log right after first start).
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    // But a real read failure (permission, lock) propagates instead of
+    // rendering as an empty log — sibling commands in `commands::logs` do too.
+    crate::logs::read::read_with_cap(&path, 1024 * 1024)
 }
 
 /// Открыть папку `runtime/logs/` сервера в системном файловом менеджере.
@@ -1752,20 +2039,93 @@ pub async fn server_open_logs_folder(app: AppHandle, id: String) -> Result<()> {
 
 /// Create a snapshot. If the server is running, flush + pause world saves
 /// around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
+/// Console markers a server prints when `save-all flush` completes. Modern
+/// vanilla/Paper log "Saved the game"; pre-1.13 era logs "Saved the world".
+/// Matched case-insensitively as substrings of the console line.
+const SAVE_CONFIRMATION_MARKERS: [&str; 2] = ["saved the game", "saved the world"];
+
+/// True iff this console line confirms a completed `save-all flush`.
+fn is_save_confirmation(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    SAVE_CONFIRMATION_MARKERS.iter().any(|m| l.contains(m))
+}
+
+/// Upper bound on waiting for the save confirmation. A huge modded world can
+/// flush for a while; past this we proceed (having waited far longer than the
+/// old fixed 800 ms guess) rather than hang the backup.
+const SAVE_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Flush + pause world saves on a RUNNING server before zipping — the dance
+/// shared by the manual backup and the auto-backup scheduler. `save-all flush`
+/// is asynchronous (the server confirms with a console line), so subscribe to
+/// console output and await the marker instead of sleeping a guessed interval.
+/// Best-effort by design (the backup itself must still happen), but every
+/// failure is recorded via `diag!` — a torn or autosave-live snapshot should
+/// never be silent.
+async fn pause_saves_for_backup(id: &str) {
+    use crate::servers_runtime::runtime;
+    // Subscribe BEFORE sending the command so the confirmation can't slip
+    // through between send and subscribe.
+    let mut rx = runtime::subscribe_lines(id);
+    match runtime::send_command(id, "save-all flush").await {
+        Err(e) => crate::diag!("server backup: {id}: save-all flush failed: {e}"),
+        Ok(()) => {
+            let confirmed = tokio::time::timeout(SAVE_FLUSH_TIMEOUT, async {
+                loop {
+                    match rx.recv().await {
+                        Ok(line) if is_save_confirmation(&line) => return true,
+                        Ok(_) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return false,
+                    }
+                }
+            })
+            .await;
+            match confirmed {
+                Ok(true) => {}
+                Ok(false) => crate::diag!(
+                    "server backup: {id}: console closed before save confirmation \
+                     (server stopping?) — proceeding"
+                ),
+                Err(_) => crate::diag!(
+                    "server backup: {id}: no save confirmation within {}s — proceeding",
+                    SAVE_FLUSH_TIMEOUT.as_secs()
+                ),
+            }
+        }
+    }
+    if let Err(e) = runtime::send_command(id, "save-off").await {
+        crate::diag!("server backup: {id}: save-off failed — snapshot may be torn: {e}");
+    }
+}
+
+/// Re-enable autosave after a hot backup. Failure is diag-logged: a server left
+/// with autosave off keeps running but stops persisting the world.
+async fn resume_saves_after_backup(id: &str) {
+    if let Err(e) = crate::servers_runtime::runtime::send_command(id, "save-on").await {
+        crate::diag!("server backup: {id}: save-on failed — autosave may stay off: {e}");
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn server_backup_create(app: AppHandle, id: String) -> Result<backup::BackupInfo> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let running = crate::servers_runtime::runtime::is_running(&id);
     if running {
-        let _ = crate::servers_runtime::runtime::send_command(&id, "save-all flush").await;
-        let _ = crate::servers_runtime::runtime::send_command(&id, "save-off").await;
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        pause_saves_for_backup(&id).await;
     }
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    let res = backup::create_backup(&base, &id, &stamp);
+    // Sync walk + zip of a potentially GB-scale runtime — off the async runtime.
+    let res = {
+        let base = base.clone();
+        let id_task = id.clone();
+        tokio::task::spawn_blocking(move || backup::create_backup(&base, &id_task, &stamp))
+            .await
+            .map_err(|e| Error::io("<server_backup_create>", format!("join: {e}")))?
+    };
     if running {
-        let _ = crate::servers_runtime::runtime::send_command(&id, "save-on").await;
+        resume_saves_after_backup(&id).await;
     }
     res
 }
@@ -1794,8 +2154,14 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
     // the backup set is already at the cap and `file_name` is the oldest, an
     // unprotected prune would delete the very zip we're about to restore from.
     let stamp = format!("prerestore-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-    backup::create_backup_protecting(&base, &id, &stamp, Some(&file_name))?;
-    backup::restore_backup(&base, &id, &file_name)
+    // Sync zip + tree replace of a potentially GB-scale runtime — off the
+    // async runtime (same as server_backup_create).
+    tokio::task::spawn_blocking(move || {
+        backup::create_backup_protecting(&base, &id, &stamp, Some(&file_name))?;
+        backup::restore_backup(&base, &id, &file_name)
+    })
+    .await
+    .map_err(|e| Error::io("<server_backup_restore>", format!("join: {e}")))?
 }
 
 /// Read the server's automatic-backup policy (#29). Absent → disabled default.
@@ -1881,11 +2247,20 @@ fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_
             let t = chrono::Utc::now();
             let now = t.timestamp_millis() as f64;
             let stamp = format!("auto-{}", t.format("%Y%m%d-%H%M%S"));
-            let _ = crate::servers_runtime::runtime::send_command(&id, "save-all flush").await;
-            let _ = crate::servers_runtime::runtime::send_command(&id, "save-off").await;
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-            let res = crate::servers_runtime::backup::maybe_auto_backup(&base, &id, now, &stamp);
-            let _ = crate::servers_runtime::runtime::send_command(&id, "save-on").await;
+            pause_saves_for_backup(&id).await;
+            let res = {
+                let base = base.clone();
+                let id_task = id.clone();
+                match tokio::task::spawn_blocking(move || {
+                    crate::servers_runtime::backup::maybe_auto_backup(&base, &id_task, now, &stamp)
+                })
+                .await
+                {
+                    Ok(r) => r,
+                    Err(e) => Err(Error::io("<auto-backup>", format!("join: {e}"))),
+                }
+            };
+            resume_saves_after_backup(&id).await;
             if let Err(e) = res {
                 crate::diag!("auto-backup: {id}: {e}");
             }
@@ -2150,7 +2525,7 @@ pub async fn server_install_mod(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let loader = require_mod_loader(&file)?;
-    crate::commands::install_version_into_dir(
+    let report = crate::commands::install_version_into_dir(
         &base,
         &p.mods,
         source,
@@ -2159,7 +2534,491 @@ pub async fn server_install_mod(
         &file.mc_version,
         loader,
     )
+    .await?;
+
+    // Record the user-picked primary's identity so the enriched list can show it.
+    // The mods kernel pushes the primary LAST (deps first). Best-effort AND off the
+    // async executor: `sha1_of` does a full-file jar read and `upsert` writes the
+    // sidecar — both blocking, so run them in `spawn_blocking` (mirrors
+    // `install_local_plugin`). A sidecar failure must never fail an install already
+    // completed on disk.
+    // Fast-follow: `copy_version_into_dir` already verifies this sha1 during the
+    // download; a future change could thread it out of `InstallMissingReport` to
+    // skip this re-read (deferred — that struct is shared with the client path).
+    if let Some(primary) = report.installed.last() {
+        let dir = p.mods.clone();
+        let primary = primary.clone();
+        let (src, pid, vid) = (source, project_id, version_id);
+        let _ = tokio::task::spawn_blocking(move || {
+            let jar = dir.join(&primary);
+            if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+                let _ = crate::servers_runtime::installed::upsert(
+                    &dir,
+                    crate::servers_runtime::installed::ServerInstalledRecord {
+                        filename: primary,
+                        sha1: sha1.to_ascii_lowercase(),
+                        source: Some(src),
+                        project_id: Some(pid),
+                        version_id: Some(vid),
+                        name: None,
+                        version_number: None,
+                        enrich_attempted: false,
+                    },
+                );
+            }
+        })
+        .await;
+    }
+    Ok(report)
+}
+
+/// Adapt a registry record (identity-bearing) into the `InstalledMod` shape
+/// `classify_update` consumes. `classify_update` reads only `version_id`, but
+/// map faithfully so it stays correct if the classifier widens.
+fn record_as_installed(
+    r: &crate::servers_runtime::installed::ServerInstalledRecord,
+    enabled: bool,
+) -> InstalledMod {
+    InstalledMod {
+        filename: r.filename.clone(),
+        sha1: r.sha1.clone(),
+        source: r.source,
+        project_id: r.project_id.clone(),
+        version_id: r.version_id.clone(),
+        name: r.name.clone().unwrap_or_else(|| r.filename.clone()),
+        version_number: r.version_number.clone(),
+        installed_at: String::new(),
+        enabled,
+        enrich_attempted: r.enrich_attempted,
+        requires: Vec::new(),
+    }
+}
+
+/// Check every identity-bearing server mod for a newer version. Mirrors
+/// `mods_check_updates`: resolve mc_version + loader from `server.json`, query
+/// each mod's platform, classify with the shared `classify_update`. Per-mod
+/// failure → that row's `CheckFailed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_check_mod_updates(app: AppHandle, id: String) -> Result<Vec<ModUpdateCheck>> {
+    use futures_util::stream::{self, StreamExt};
+
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?; // rejects vanilla/plugin cores pre-network
+    let mc_version = file.mc_version;
+
+    // Reconcile the sidecar against disk off the async executor: it does a full
+    // byte read + Sha1 of every jar (mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    // Only records with full platform identity are checkable. Enumerate first
+    // (mirrors the client `mods_check_updates`): the paired index restores the
+    // installed order after the unordered concurrent poll.
+    let eligible: Vec<(
+        usize,
+        InstalledMod,
+        crate::mods::platform::ModSource,
+        String,
+    )> = entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, e)| {
+            match (
+                e.record.source,
+                e.record.project_id.clone(),
+                e.record.version_id.clone(),
+            ) {
+                (Some(source), Some(pid), Some(_vid)) => {
+                    Some((i, record_as_installed(&e.record, e.enabled), source, pid))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+
+    const CONCURRENCY: usize = 6;
+    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
+        .map(|(i, m, source, project_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let platform = super::platform_for(source);
+                let state = match platform
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (
+                    i,
+                    ModUpdateCheck {
+                        sha1: m.sha1.clone(),
+                        name: m.name.clone(),
+                        source,
+                        project_id,
+                        current_version_id: m.version_id.clone().unwrap_or_default(),
+                        current_version_number: m.version_number.clone(),
+                        state,
+                    },
+                )
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+    results.sort_by_key(|(i, _)| *i);
+    Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
+/// Check every identity-bearing server plugin for a newer version. The plugin
+/// twin of [`server_check_mod_updates`]: gate on the core being plugin-capable
+/// (Paper/Purpur) before any network, reconcile `runtime/plugins/`, query each
+/// plugin's platform via `plugin_versions` (plugin-loader slug lineage, not a
+/// `LoaderKind`), and classify with the shared `classify_update`. Per-plugin
+/// failure → that row's `CheckFailed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_check_plugin_updates(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ModUpdateCheck>> {
+    use futures_util::stream::{self, StreamExt};
+
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    // Reject vanilla / mod cores before any network — plugins only load on
+    // Bukkit-family cores (Paper/Purpur).
+    if !file.loader.plugin_capable() {
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
+    }
+    let core = file.loader;
+    let mc_version = file.mc_version;
+
+    // Reconcile the sidecar against disk off the async executor (full byte read
+    // + Sha1 of every jar, mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.plugins.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    // Only records with full platform identity are checkable. Enumerate first so
+    // the paired index restores installed order after the unordered poll.
+    let eligible: Vec<(
+        usize,
+        InstalledMod,
+        crate::mods::platform::ModSource,
+        String,
+    )> = entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, e)| {
+            match (
+                e.record.source,
+                e.record.project_id.clone(),
+                e.record.version_id.clone(),
+            ) {
+                (Some(source), Some(pid), Some(_vid)) => {
+                    Some((i, record_as_installed(&e.record, e.enabled), source, pid))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+
+    const CONCURRENCY: usize = 6;
+    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
+        .map(|(i, m, source, project_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let platform = super::platform_for(source);
+                let state = match platform
+                    .plugin_versions(&project_id, Some(&mc), core.plugin_loader_slugs())
+                    .await
+                {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (
+                    i,
+                    ModUpdateCheck {
+                        sha1: m.sha1.clone(),
+                        name: m.name.clone(),
+                        source,
+                        project_id,
+                        current_version_id: m.version_id.clone().unwrap_or_default(),
+                        current_version_number: m.version_number.clone(),
+                        state,
+                    },
+                )
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+    results.sort_by_key(|(i, _)| *i);
+    Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
+/// Idempotent, path-guarded removal of one file under a server's `mods/`.
+fn remove_server_mod_file(mods_dir: &std::path::Path, on_disk_name: &str) -> Result<()> {
+    if !crate::servers_runtime::runtime::is_safe_mod_name(on_disk_name) {
+        return Err(Error::server_file_invalid(on_disk_name, "invalid filename"));
+    }
+    let path = mods_dir.join(on_disk_name);
+    if !path.starts_with(mods_dir) {
+        return Err(Error::server_file_invalid(
+            on_disk_name,
+            "path escapes mods dir",
+        ));
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// Decide the file/registry swap for an update. `new_name` is the actual
+/// installed primary's on-disk name (always enabled `<base>.jar`). Returns
+/// (old on-disk file to delete or None if it's the same file we just wrote,
+///  whether to re-disable the new primary, the new registry record).
+fn plan_swap(
+    old_enabled: bool,
+    old_base_filename: &str,
+    new_name: &str,
+    new_sha1: &str,
+    target: &ModVersion,
+) -> (
+    Option<String>,
+    bool,
+    crate::servers_runtime::installed::ServerInstalledRecord,
+) {
+    let old_on_disk = if old_enabled {
+        old_base_filename.to_string()
+    } else {
+        format!("{old_base_filename}.disabled")
+    };
+    let delete_old = if old_on_disk != new_name {
+        Some(old_on_disk)
+    } else {
+        None
+    };
+    let record = crate::servers_runtime::installed::ServerInstalledRecord {
+        filename: new_name.to_string(),
+        sha1: new_sha1.to_ascii_lowercase(),
+        source: Some(target.source),
+        project_id: Some(target.project_id.clone()),
+        version_id: Some(target.version_id.clone()),
+        name: Some(target.name.clone()),
+        version_number: Some(target.version_number.clone()),
+        enrich_attempted: true,
+    };
+    (delete_old, !old_enabled, record)
+}
+
+/// Apply one server-mod update: install `target` (+ required deps) via the
+/// shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
+/// set-aside state, and swap the registry rows. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_update_one(
+    app: AppHandle,
+    id: String,
+    old_sha1: String,
+    target: ModVersion,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let loader = require_mod_loader(&file)?;
+
+    // Reconcile the sidecar against disk off the async executor: it does a full
+    // byte read + Sha1 of every jar (mirrors `enrich_server_dir`).
+    let entries = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    let old = entries
+        .into_iter()
+        .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
+        .ok_or_else(|| Error::ServerContentStale)?;
+
+    let report = crate::commands::install_version_into_dir(
+        &base,
+        &p.mods,
+        target.source,
+        &target.project_id,
+        &target.version_id,
+        &file.mc_version,
+        loader,
+    )
+    .await?;
+
+    // Derive the swap from the ACTUAL installed primary, never the caller's
+    // `target`: `install_version_into_dir` re-resolves the version server-side
+    // and writes whatever THAT returns, so the client-echoed filename/sha1 can
+    // differ (targeting the wrong file → a silently-swallowed NotFound → a
+    // set-aside mod coming back enabled, or a registry row that doesn't match
+    // disk). The mods kernel pushes the primary LAST (deps first).
+    let Some(new_name) = report.installed.last().cloned() else {
+        // Install succeeded but reported no primary — nothing to reconcile.
+        return Ok(report);
+    };
+    // File + registry bookkeeping off the async executor (jar hash + fs + sidecar).
+    let mods = p.mods.clone();
+    let old_enabled = old.enabled;
+    let old_base = old.record.filename.clone();
+    let old_record_sha1 = old.record.sha1.clone();
+    let target_for_record = target.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let new_sha1 = crate::servers_runtime::installed::sha1_of(&mods.join(&new_name))?;
+        let (delete_old, redisable, new_record) = plan_swap(
+            old_enabled,
+            &old_base,
+            &new_name,
+            &new_sha1,
+            &target_for_record,
+        );
+        if let Some(on_disk) = delete_old {
+            remove_server_mod_file(&mods, &on_disk)?;
+        }
+        if redisable {
+            // `new_name` is the REAL installed file, so a NotFound here is a true
+            // invariant violation — do NOT swallow it.
+            let src = mods.join(&new_name);
+            let dst = mods.join(format!("{new_name}.disabled"));
+            if src.starts_with(&mods) && dst.starts_with(&mods) {
+                std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
+            }
+        }
+        crate::servers_runtime::installed::remove(&mods, &old_record_sha1)?;
+        crate::servers_runtime::installed::upsert(&mods, new_record)?;
+        Ok(())
+    })
     .await
+    .map_err(|e| Error::io("<update-swap>", e))??;
+    Ok(report)
+}
+
+/// Apply one server-plugin update: install `target` (+ its required dependency
+/// closure) into `runtime/plugins/` via the shared plugin kernel, remove the old
+/// jar (honoring its `.disabled` suffix), preserve set-aside state, and swap the
+/// registry rows. The plugin twin of [`server_update_one`] — differs in the
+/// install dir (`plugins`), the kernel (`install_plugin_into_dir`, which pushes
+/// the primary FIRST), and the plugin-capable gate. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_update_plugin_one(
+    app: AppHandle,
+    id: String,
+    old_sha1: String,
+    target: ModVersion,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    if !file.loader.plugin_capable() {
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
+    }
+
+    // Reconcile the sidecar against disk off the async executor.
+    let entries = {
+        let dir = p.plugins.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+
+    let old = entries
+        .into_iter()
+        .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
+        .ok_or_else(|| Error::ServerContentStale)?;
+
+    let report = crate::commands::install_plugin_into_dir(
+        &base,
+        &p.plugins,
+        target.source,
+        &target.project_id,
+        &target.version_id,
+        &file.mc_version,
+        file.loader,
+    )
+    .await?;
+
+    // The PLUGIN kernel pushes the primary FIRST (index 0), then appends deps —
+    // the mirror of the mods twin's `.last()`. An empty list means the
+    // already-installed short-circuit fired: nothing to reconcile.
+    let Some(new_name) = report.installed.first().cloned() else {
+        return Ok(report);
+    };
+
+    // File + registry bookkeeping off the async executor (jar hash + fs + sidecar).
+    let plugins = p.plugins.clone();
+    let old_enabled = old.enabled;
+    let old_base = old.record.filename.clone();
+    let old_record_sha1 = old.record.sha1.clone();
+    let target_for_record = target.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let new_sha1 = crate::servers_runtime::installed::sha1_of(&plugins.join(&new_name))?;
+        let (delete_old, redisable, new_record) = plan_swap(
+            old_enabled,
+            &old_base,
+            &new_name,
+            &new_sha1,
+            &target_for_record,
+        );
+        if let Some(on_disk) = delete_old {
+            remove_server_mod_file(&plugins, &on_disk)?;
+        }
+        if redisable {
+            let src = plugins.join(&new_name);
+            let dst = plugins.join(format!("{new_name}.disabled"));
+            if src.starts_with(&plugins) && dst.starts_with(&plugins) {
+                std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
+            }
+        }
+        crate::servers_runtime::installed::remove(&plugins, &old_record_sha1)?;
+        crate::servers_runtime::installed::upsert(&plugins, new_record)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<update-swap>", e))??;
+    Ok(report)
 }
 
 /// Install a chosen plugin version + its required dependency closure into the
@@ -2184,12 +3043,11 @@ pub async fn server_install_plugin(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
-    crate::commands::install_plugin_into_dir(
+    let report = crate::commands::install_plugin_into_dir(
         &base,
         &p.plugins,
         source,
@@ -2198,7 +3056,38 @@ pub async fn server_install_plugin(
         &file.mc_version,
         file.loader,
     )
-    .await
+    .await?;
+
+    // The PLUGIN kernel pushes the primary FIRST (index 0), then appends deps.
+    // Best-effort AND off the async executor: `sha1_of` reads the whole jar and
+    // `upsert` writes the sidecar — both blocking, so run them in `spawn_blocking`
+    // (mirrors `install_local_plugin`). A sidecar failure never fails an install
+    // already completed on disk.
+    if let Some(primary) = report.installed.first() {
+        let dir = p.plugins.clone();
+        let primary = primary.clone();
+        let (src, pid, vid) = (source, project_id, version_id);
+        let _ = tokio::task::spawn_blocking(move || {
+            let jar = dir.join(&primary);
+            if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
+                let _ = crate::servers_runtime::installed::upsert(
+                    &dir,
+                    crate::servers_runtime::installed::ServerInstalledRecord {
+                        filename: primary,
+                        sha1: sha1.to_ascii_lowercase(),
+                        source: Some(src),
+                        project_id: Some(pid),
+                        version_id: Some(vid),
+                        name: None,
+                        version_number: None,
+                        enrich_attempted: false,
+                    },
+                );
+            }
+        })
+        .await;
+    }
+    Ok(report)
 }
 
 /// Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
@@ -2211,18 +3100,29 @@ pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result
         return Err(Error::ServerAlreadyRunning { id });
     }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<mod>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     let stripped = match filename.strip_suffix(".disabled") {
         Some(s) => s.to_string(),
-        None => return Err(Error::io("<mod>", "not a disabled mod")),
+        None => {
+            return Err(Error::server_file_invalid(
+                filename.as_str(),
+                "not a disabled mod",
+            ))
+        }
     };
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
     let src = mods.join(&filename);
     let dst = mods.join(&stripped);
     if !src.starts_with(&mods) || !dst.starts_with(&mods) {
-        return Err(Error::io("<mod>", "path escapes mods dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes mods dir",
+        ));
     }
     match std::fs::rename(&src, &dst) {
         Ok(()) => {}
@@ -2233,6 +3133,40 @@ pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result
     // "set aside" reason. Best-effort: a missing/locked sidecar is non-fatal.
     crate::servers_runtime::quarantine::forget_reason(&mods, &filename);
     Ok(())
+}
+
+/// Disable (rename to `*.disabled`) a single mod in the server's `mods/`.
+/// The mirror of `server_disable_plugin` for the mods dir: a user-initiated
+/// disable, so — unlike `server_disable_mods`' client-only quarantine — it
+/// writes NO quarantine `reason` sidecar. Single-file, no dependency guard.
+/// Rejects unsafe filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_disable_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let src = mods.join(&filename);
+    if !src.starts_with(&mods) {
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes mods dir",
+        ));
+    }
+    let dst = mods.join(format!("{filename}.disabled"));
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(src.display().to_string(), e)),
+    }
 }
 
 /// Install a local mod `.jar` (chosen via the file picker) into the server's
@@ -2249,19 +3183,30 @@ pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) 
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::to_string)
-        .ok_or_else(|| Error::io("<mod>", "dropped path has no filename"))?;
+        .ok_or_else(|| {
+            Error::server_file_invalid(jar_path.as_str(), "dropped path has no filename")
+        })?;
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<mod>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     if !filename.to_ascii_lowercase().ends_with(".jar") {
-        return Err(Error::io("<mod>", "mod must be a .jar"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "mod must be a .jar",
+        ));
     }
     let bytes = tokio::fs::read(&jar_path)
         .await
         .map_err(|e| Error::io(jar_path.clone(), e))?;
     // Validate it parses as a jar (a zip) before committing — reject junk.
     if crate::mods::local::read_jar_meta(&bytes).is_err() {
-        return Err(Error::io("<mod>", "not a valid mod jar"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "not a valid mod jar",
+        ));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
@@ -2270,7 +3215,10 @@ pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) 
         .map_err(|e| Error::io(mods.display().to_string(), e))?;
     let dest = mods.join(&filename);
     if !dest.starts_with(&mods) {
-        return Err(Error::io("<mod>", "path escapes mods dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes mods dir",
+        ));
     }
     tokio::fs::write(&dest, &bytes)
         .await
@@ -2331,6 +3279,22 @@ pub struct ServerPluginEntry {
     pub disabled: bool,
 }
 
+/// `ServerPluginEntry` + the install-identity overlay (no quarantine reason).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerPluginEntryEnriched {
+    pub filename: String,
+    /// Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+    /// (delete/enable/disable) MUST join this, not the base `filename`.
+    pub on_disk_filename: String,
+    pub disabled: bool,
+    pub sha1: String,
+    pub source: Option<crate::mods::platform::ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub name: Option<String>,
+    pub version_number: Option<String>,
+}
+
 /// List the `.jar` / `.jar.disabled` plugins installed for a server's
 /// `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
 #[tauri::command]
@@ -2341,6 +3305,42 @@ pub fn server_list_plugins(app: AppHandle, id: String) -> Result<Vec<ServerPlugi
     Ok(crate::servers_runtime::plugins::list_plugins(&dir)
         .into_iter()
         .map(|(filename, disabled)| ServerPluginEntry { filename, disabled })
+        .collect())
+}
+
+/// Plugin twin of `server_list_mods_enriched` (no quarantine reason).
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_plugins_enriched(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ServerPluginEntryEnriched>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).plugins;
+    let entries = crate::servers_runtime::installed::reconcile_on_list(&dir)?;
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let disabled = !e.enabled;
+            // Current on-disk name so mutation commands join the real file, not
+            // the base name (a disabled plugin lives at `<name>.jar.disabled`).
+            let on_disk = if disabled {
+                format!("{}.disabled", e.record.filename)
+            } else {
+                e.record.filename.clone()
+            };
+            ServerPluginEntryEnriched {
+                filename: e.record.filename,
+                on_disk_filename: on_disk,
+                disabled,
+                sha1: e.record.sha1,
+                source: e.record.source,
+                project_id: e.record.project_id,
+                version_id: e.record.version_id,
+                name: e.record.name,
+                version_number: e.record.version_number,
+            }
+        })
         .collect())
 }
 
@@ -2365,10 +3365,9 @@ pub async fn server_install_plugin_local(
     // `server.json` first so a mod-core server never grows a `runtime/plugins/`.
     let file = store::read_server_json(&p.json)?;
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
     let dir = p.plugins;
     let src = std::path::PathBuf::from(jar_path);
@@ -2391,18 +3390,29 @@ pub fn server_enable_plugin(app: AppHandle, id: String, filename: String) -> Res
         return Err(Error::ServerAlreadyRunning { id });
     }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<plugin>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     let stripped = match filename.strip_suffix(".disabled") {
         Some(s) => s.to_string(),
-        None => return Err(Error::io("<plugin>", "not a disabled plugin")),
+        None => {
+            return Err(Error::server_file_invalid(
+                filename.as_str(),
+                "not a disabled plugin",
+            ))
+        }
     };
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let dir = crate::paths::server_paths(&base, &id).plugins;
     let src = dir.join(&filename);
     let dst = dir.join(&stripped);
     if !src.starts_with(&dir) || !dst.starts_with(&dir) {
-        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes plugins dir",
+        ));
     }
     match std::fs::rename(&src, &dst) {
         Ok(()) => Ok(()),
@@ -2422,13 +3432,19 @@ pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Re
         return Err(Error::ServerAlreadyRunning { id });
     }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<plugin>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let dir = crate::paths::server_paths(&base, &id).plugins;
     let src = dir.join(&filename);
     if !src.starts_with(&dir) {
-        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes plugins dir",
+        ));
     }
     let dst = dir.join(format!("{filename}.disabled"));
     match std::fs::rename(&src, &dst) {
@@ -2440,11 +3456,9 @@ pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Re
 
 /// Delete a plugin from the server's `runtime/plugins/` by filename.
 /// Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
-/// traversal). Unlike `server_delete_mod` this HAS an is_running guard —
-/// deleting a live plugin's jar out from under a running Bukkit-family server
-/// is a class of foot-gun the mods twin doesn't need to worry about the same
-/// way (mods are only ever touched while stopped in practice); kept here
-/// deliberately rather than propagating the mods twin's gap.
+/// traversal). Refuses while the server is running — symmetric with
+/// `server_delete_mod` — so a live plugin's jar is never deleted out from
+/// under a running Bukkit-family server.
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
@@ -2452,13 +3466,19 @@ pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Res
         return Err(Error::ServerAlreadyRunning { id });
     }
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<plugin>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let dir = crate::paths::server_paths(&base, &id).plugins;
     let path = dir.join(&filename);
     if !path.starts_with(&dir) {
-        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes plugins dir",
+        ));
     }
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
@@ -2475,6 +3495,26 @@ pub async fn server_open_plugins_folder(app: AppHandle, id: String) -> Result<()
     use tauri_plugin_opener::OpenerExt;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let dir = crate::paths::server_paths(&base, &id).plugins;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
+/// Open the server's `runtime/mods/` folder in the system file manager.
+/// Creates the folder if it doesn't exist yet. Mirrors `server_open_plugins_folder`
+/// (and the client's `open_mods_folder`) so the sidebar can drop a mod-loader
+/// server's operator directly into its mods directory. `server_open_folder`
+/// intentionally lands one level up in `runtime/`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_mods_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).mods;
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
@@ -2507,7 +3547,9 @@ pub async fn server_switch_core(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     if !core_switch_allowed(file.loader, target) {
-        return Err(Error::io("<core>", "unsupported core switch"));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "unsupported core switch".into(),
+        });
     }
     // Mandatory fresh backup before anything changes on disk.
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -2534,7 +3576,9 @@ pub async fn server_switch_core(
         | ServerCore::Quilt
         | ServerCore::Forge
         | ServerCore::NeoForge => {
-            return Err(Error::io("<core>", "unsupported core switch"));
+            return Err(Error::ServerCoreUnsupported {
+                reason: "unsupported core switch".into(),
+            });
         }
     };
     crate::network::download::download_no_emit_with(
@@ -2559,7 +3603,9 @@ pub async fn server_switch_core(
     // the FRESH loader too — it may have changed while we were downloading.
     let mut fresh = crate::servers_runtime::store::read_server_json(&p.json)?;
     if !core_switch_allowed(fresh.loader, target) {
-        return Err(Error::io("<core>", "unsupported core switch"));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "unsupported core switch".into(),
+        });
     }
     fresh.loader = target;
     fresh.loader_version = Some(jar.build);
@@ -2594,13 +3640,40 @@ pub async fn server_core_versions(
         | ServerCore::Fabric
         | ServerCore::Quilt
         | ServerCore::Forge
-        | ServerCore::NeoForge => Err(Error::io("<core>", "core has no version catalogue")),
+        | ServerCore::NeoForge => Err(Error::ServerCoreUnsupported {
+            reason: "core has no version catalogue".into(),
+        }),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_confirmation_matches_modern_and_legacy_lines() {
+        // Modern vanilla / Paper (with typical log prefix).
+        assert!(is_save_confirmation(
+            "[12:00:01] [Server thread/INFO]: Saved the game"
+        ));
+        // Pre-1.13 wording.
+        assert!(is_save_confirmation(
+            "[12:00:01] [Server thread/INFO]: Saved the world"
+        ));
+        // Case-insensitive.
+        assert!(is_save_confirmation("SAVED THE GAME"));
+    }
+
+    #[test]
+    fn save_confirmation_ignores_unrelated_lines() {
+        assert!(!is_save_confirmation(
+            "[12:00:00] [Server thread/INFO]: Saving the game (this may take a moment!)"
+        ));
+        assert!(!is_save_confirmation(
+            "[12:00:00] [Server thread/INFO]: Automatic saving is now disabled"
+        ));
+        assert!(!is_save_confirmation("Steve joined the game"));
+    }
 
     #[test]
     fn valid_public_ip_accepts_ipv4_and_trims() {
@@ -2659,6 +3732,87 @@ mod tests {
         let missing = dir.path().join("no-such-crash-reports");
         assert_eq!(newest_crash_text(&missing, 1024, None), None);
     }
+
+    #[test]
+    fn record_as_installed_maps_version_id_and_name_fallback() {
+        let r = crate::servers_runtime::installed::ServerInstalledRecord {
+            filename: "m.jar".into(),
+            sha1: "ab".into(),
+            source: Some(crate::mods::platform::ModSource::Modrinth),
+            project_id: Some("p".into()),
+            version_id: Some("v".into()),
+            name: None,
+            version_number: None,
+            enrich_attempted: true,
+        };
+        let im = super::record_as_installed(&r, true);
+        assert_eq!(im.version_id.as_deref(), Some("v"));
+        assert_eq!(im.name, "m.jar"); // filename fallback when name is None
+        assert!(im.enabled);
+    }
+
+    fn plan_swap_target() -> crate::mods::platform::ModVersion {
+        crate::mods::platform::ModVersion {
+            source: crate::mods::platform::ModSource::Modrinth,
+            project_id: "proj".into(),
+            version_id: "ver".into(),
+            name: "Cool Mod".into(),
+            version_number: "2.0".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![crate::mods::platform::LoaderKind::Fabric],
+            primary_file: crate::mods::platform::ModFile {
+                filename: "cool-2.jar".into(),
+                url: "https://example/cool-2.jar".into(),
+                sha1: Some("CC".into()),
+                size: 1.0,
+                distribution_allowed: true,
+                sha256: None,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn plan_swap_enabled_same_name() {
+        // Re-install wrote the same filename: nothing to delete, stays enabled.
+        let (delete_old, redisable, record) =
+            super::plan_swap(true, "a.jar", "a.jar", "ab", &plan_swap_target());
+        assert_eq!(delete_old, None);
+        assert!(!redisable);
+        assert_eq!(record.filename, "a.jar");
+    }
+
+    #[test]
+    fn plan_swap_enabled_diff_name() {
+        // Enabled old jar under a different name → delete it, keep new enabled.
+        let (delete_old, redisable, _record) =
+            super::plan_swap(true, "a.jar", "b.jar", "ab", &plan_swap_target());
+        assert_eq!(delete_old.as_deref(), Some("a.jar"));
+        assert!(!redisable);
+    }
+
+    #[test]
+    fn plan_swap_disabled_diff_name() {
+        // Set-aside old jar → delete its `.disabled` file, re-disable the new
+        // primary, and stamp the new record with the target's identity + the
+        // file-derived sha1 (lowercased).
+        let (delete_old, redisable, record) =
+            super::plan_swap(false, "a.jar", "b.jar", "AB", &plan_swap_target());
+        assert_eq!(delete_old.as_deref(), Some("a.jar.disabled"));
+        assert!(redisable);
+        assert_eq!(record.filename, "b.jar");
+        assert_eq!(record.sha1, "ab"); // lowercased
+        assert_eq!(
+            record.source,
+            Some(crate::mods::platform::ModSource::Modrinth)
+        );
+        assert_eq!(record.project_id.as_deref(), Some("proj"));
+        assert_eq!(record.version_id.as_deref(), Some("ver"));
+        assert_eq!(record.name.as_deref(), Some("Cool Mod"));
+        assert_eq!(record.version_number.as_deref(), Some("2.0"));
+        assert!(record.enrich_attempted);
+    }
 }
 
 #[cfg(test)]
@@ -2709,5 +3863,105 @@ mod password_ux_tests {
         )
         .unwrap();
         assert_eq!(got, "");
+    }
+}
+
+#[cfg(test)]
+mod enrich_resolve_tests {
+    use super::resolve_and_gate;
+    use crate::mods::curseforge::FingerprintFile;
+    use crate::mods::modrinth::HashVersion;
+    use crate::mods::platform::ModSource;
+    use std::collections::{HashMap, HashSet};
+
+    fn mr(project: &str) -> HashVersion {
+        HashVersion {
+            project_id: project.into(),
+            version_id: "mr-ver".into(),
+            version_number: "1.0.0".into(),
+            name: "Modrinth Mod".into(),
+        }
+    }
+
+    fn cf(project: &str) -> FingerprintFile {
+        FingerprintFile {
+            project_id: project.into(),
+            version_id: "cf-file".into(),
+            version_number: Some("cf-1.2".into()),
+        }
+    }
+
+    #[test]
+    fn modrinth_wins_tie_break() {
+        let shas = vec!["aa".to_string()];
+        let mr_hits = HashMap::from([("aa".to_string(), mr("mr-proj"))]);
+        let cf_hits = HashMap::from([("aa".to_string(), cf("cf-proj"))]);
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        let id = resolved.get("aa").expect("sha resolved");
+        assert_eq!(id.source, ModSource::Modrinth);
+        assert_eq!(id.project_id, "mr-proj");
+    }
+
+    #[test]
+    fn cf_only_hit_resolves_curseforge() {
+        let shas = vec!["bb".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits = HashMap::from([("bb".to_string(), cf("cf-proj"))]);
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        let id = resolved.get("bb").expect("sha resolved");
+        assert_eq!(id.source, ModSource::Curseforge);
+        assert_eq!(id.project_id, "cf-proj");
+        assert!(id.name.is_none());
+        assert_eq!(id.version_number.as_deref(), Some("cf-1.2"));
+    }
+
+    #[test]
+    fn gate_marks_attempted_when_all_tried_ok() {
+        // Modrinth-only path (plugin dir / no CF key): cf_tried=false is a
+        // vacuous success, so the whole scope is marked attempted.
+        let shas = vec!["aa".to_string(), "bb".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (_, attempted) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, false);
+        let expected: HashSet<String> = shas.into_iter().collect();
+        assert_eq!(attempted, expected);
+    }
+
+    #[test]
+    fn gate_skips_attempted_on_platform_failure() {
+        // Modrinth failed (mr_ok=false) → nothing is marked attempted, but any
+        // identity that DID resolve (e.g. from CF) still lands.
+        let shas = vec!["aa".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits = HashMap::from([("aa".to_string(), cf("cf-proj"))]);
+        let (resolved, attempted) = resolve_and_gate(&shas, &mr_hits, false, &cf_hits, true, true);
+        assert!(attempted.is_empty());
+        assert!(
+            resolved.contains_key("aa"),
+            "partial-success identity lands"
+        );
+    }
+
+    #[test]
+    fn unmatched_sha_is_neither_resolved_nor_forced() {
+        let shas = vec!["cc".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (resolved, _) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, true, true);
+        assert!(!resolved.contains_key("cc"));
+    }
+
+    #[test]
+    fn gate_skips_attempted_when_cf_failed_though_mr_ok() {
+        // CF was tried and failed (cf_ok=false) even though Modrinth succeeded:
+        // the whole scope must stay un-attempted so the next pass retries CF.
+        let shas = vec!["aa".to_string()];
+        let mr_hits: HashMap<String, HashVersion> = HashMap::new();
+        let cf_hits: HashMap<String, FingerprintFile> = HashMap::new();
+        let (_resolved, attempted) = resolve_and_gate(&shas, &mr_hits, true, &cf_hits, false, true);
+        assert!(
+            attempted.is_empty(),
+            "cf failure must leave the scope un-attempted for retry"
+        );
     }
 }

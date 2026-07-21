@@ -104,6 +104,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_distribution_disabled: 'clean',
   mods_not_found: 'clean',
   mods_platform_unsupported: 'clean',
+  changelog_unsupported: 'clean',
   mods_sha1_unavailable: 'clean',
   mods_sha1_mismatch: 'clean',
   mods_dependency_unresolvable: 'clean',
@@ -147,6 +148,9 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   upload_cancelled: 'clean',
   server_not_running: 'clean',
   server_mod_required_by_other: 'clean',
+  server_file_invalid: 'clean',
+  server_core_unsupported: 'clean',
+  server_content_stale: 'clean',
   server_name_invalid: 'clean',
   upload_not_configured: 'clean',
   sftp_auth_failed: 'clean',
@@ -449,6 +453,15 @@ export function formatError(e: IpcError): string {
         filename: e.filename,
         requiredBy: e.required_by,
       });
+    case 'server_file_invalid':
+      return translate('errors.serverFileInvalid', {
+        filename: e.filename,
+        reason: e.reason,
+      });
+    case 'server_core_unsupported':
+      return translate('errors.serverCoreUnsupported', { reason: e.reason });
+    case 'server_content_stale':
+      return translate('errors.serverContentStale');
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':
@@ -479,6 +492,8 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
+    case 'changelog_unsupported':
+      return translate('errors.changelogUnsupported');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

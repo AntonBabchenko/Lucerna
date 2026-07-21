@@ -57,6 +57,11 @@ let uploads = $state<Map<string, UploadState>>(new Map());
 export type ServerAction = 'start' | 'stop' | 'restart';
 let actionBusy = $state<Map<string, ServerAction>>(new Map());
 let actionErrors = $state<Map<string, unknown>>(new Map());
+// Force-stop ("kill") is tracked separately from actionBusy: it is the
+// escalation OUT of an in-flight graceful stop, so it must NOT be gated by
+// actionBusy (which is already 'stop' at that point). Its own flag only
+// prevents a double force-kill click.
+let killBusy = $state<Set<string>>(new Set());
 
 function setUploadState(id: string, patch: Partial<UploadState>): void {
   const m = new Map(uploads);
@@ -110,15 +115,43 @@ function lineFor(id: string): string[] {
   return lines.get(id) ?? [];
 }
 
-function pushLine(id: string, line: string): void {
-  const next = appendCapped(lines.get(id) ?? [], line, MAX_CONSOLE_LINES);
-  // Reassign the Map so Svelte 5 $state reactivity fires.
+// Console lines arrive one Tauri event per line — hundreds per second during
+// a modded server boot. Committing each line separately re-copied the whole
+// Map (all servers' buffers) and re-ran the console's derived chain per line.
+// Coalesce instead: buffer per server, flush once per frame-ish tick.
+const LINE_FLUSH_MS = 50;
+const pendingLines = new Map<string, string[]>();
+let lineFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushPendingLines(): void {
+  lineFlushTimer = null;
+  if (pendingLines.size === 0) return;
   const m = new Map(lines);
-  m.set(id, next);
+  for (const [id, batch] of pendingLines) {
+    let next = m.get(id) ?? [];
+    for (const line of batch) {
+      next = appendCapped(next, line, MAX_CONSOLE_LINES);
+    }
+    m.set(id, next);
+  }
+  pendingLines.clear();
+  // Reassign the Map so Svelte 5 $state reactivity fires — once per flush.
   lines = m;
 }
 
+function pushLine(id: string, line: string): void {
+  const batch = pendingLines.get(id);
+  if (batch) batch.push(line);
+  else pendingLines.set(id, [line]);
+  if (lineFlushTimer === null) {
+    lineFlushTimer = setTimeout(flushPendingLines, LINE_FLUSH_MS);
+  }
+}
+
 function clearLines(id: string): void {
+  // Drop any buffered-but-unflushed lines too, or the next flush would
+  // resurrect output from before the clear.
+  pendingLines.delete(id);
   const m = new Map(lines);
   m.set(id, []);
   lines = m;
@@ -235,6 +268,48 @@ async function runLifecycle(id: string, action: ServerAction): Promise<{ ok: boo
     return { ok: true };
   } finally {
     setActionBusy(id, null);
+  }
+}
+
+function setKillBusy(id: string, busy: boolean): void {
+  const s = new Set(killBusy);
+  if (busy) s.add(id);
+  else s.delete(id);
+  killBusy = s;
+}
+
+// Force-stop NOW: skip the graceful wait and hard-kill the process. Kept out of
+// runLifecycle on purpose so it can fire WHILE a graceful stop() is in flight
+// (actionBusy === 'stop') — that's the whole point of the escalation. The
+// backend records the -1 stop sentinel, so the row settles to "Stopped", not
+// "Crashed". Errors land in actionErrors like the other lifecycle actions.
+async function kill(id: string): Promise<{ ok: boolean }> {
+  if (killBusy.has(id)) return { ok: false }; // no double force-kill
+  setKillBusy(id, true);
+  setActionError(id, null);
+  try {
+    let res: Awaited<ReturnType<typeof commands.serverKill>>;
+    try {
+      res = await commands.serverKill(id);
+    } catch (e) {
+      setActionError(id, e);
+      return { ok: false };
+    }
+    if (res.status !== 'ok') {
+      // A force-stop that raced with the graceful stop finishing reports
+      // ServerNotRunning — the server is already gone, which is exactly the
+      // intended outcome, so treat it as success rather than a spurious error.
+      if ((res.error as { kind?: string })?.kind === 'server_not_running') {
+        await refresh();
+        return { ok: true };
+      }
+      setActionError(id, res.error);
+      return { ok: false };
+    }
+    await refresh();
+    return { ok: true };
+  } finally {
+    setKillBusy(id, false);
   }
 }
 
@@ -612,8 +687,25 @@ async function readLog(id: string, fileName: string): Promise<{ ok: boolean; tex
   return { ok: false };
 }
 
-async function openLogsFolder(id: string): Promise<void> {
-  await commands.serverOpenLogsFolder(id);
+// The open-folder helpers return the failure (if any) instead of swallowing
+// it — the Installed panes surface the same operations' errors inline, so a
+// sidebar/console click failing silently was an inconsistency, not a policy.
+async function openLogsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenLogsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
+}
+
+// Open a mod-loader server's `runtime/mods/` folder. Mirrors openLogsFolder.
+// The sidebar only offers this for mod-capable cores (see core-display.ts).
+async function openModsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenModsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
+}
+
+// Open a plugin server's `runtime/plugins/` folder (Paper/Purpur cores).
+async function openPluginsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenPluginsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 export const serverState = {
@@ -675,6 +767,8 @@ export const serverState = {
   listLogs,
   readLog,
   openLogsFolder,
+  openModsFolder,
+  openPluginsFolder,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
@@ -682,6 +776,10 @@ export const serverState = {
   start: (id: string) => runLifecycle(id, 'start'),
   stop: (id: string) => runLifecycle(id, 'stop'),
   restart: (id: string) => runLifecycle(id, 'restart'),
+  kill,
+  isKilling(id: string): boolean {
+    return killBusy.has(id);
+  },
   actionFor(id: string): ServerAction | null {
     return actionBusy.get(id) ?? null;
   },

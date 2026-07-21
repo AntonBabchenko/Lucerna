@@ -17,6 +17,12 @@ let mockAnyUploading = false;
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
+    // ModeSwitcher derives the running-servers count from `list`; this test
+    // only exercises the upload badge, so an empty list is enough (no running
+    // servers → the running-servers pill never mounts).
+    get list() {
+      return [];
+    },
     get serversNavStatus() {
       return 'idle';
     },

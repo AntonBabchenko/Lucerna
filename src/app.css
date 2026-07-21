@@ -27,9 +27,52 @@
   --success-bg: 240 253 244; /* green-50 */
   --success-muted: 48 132 79; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 220 38 38; /* red-600 */
-  --danger-bg: 254 226 226; /* red-100 */
+  /* red-50 — every other *-bg light token is the -50 tier; kept the family
+     consistent (was red-100, the lone outlier). */
+  --danger-bg: 254 242 242; /* red-50 */
   --warning-bg: 255 251 235; /* amber-50 */
   --warning-text: 146 64 14; /* amber-800 */
+
+  /* ── Scale tokens ─────────────────────────────────────────────────────────
+     Theme-independent design-system scales (raw custom props, so no Tailwind
+     `colors` registration needed — only --focus-ring optionally does). These
+     are the single source of truth DESIGN.md's "Known gaps" calls for; the
+     layering / radius / motion migrations that consume them land with the
+     popover-engine and Banner work (P2). --focus-ring is already live below
+     via the global *:focus-visible rule. */
+
+  /* Layering — one source of truth for stacked overlays. Popovers/menus share
+     the modal tier (50): an inline popover opened inside a modal is a DOM
+     descendant of the modal panel, so DOM order — not a higher z — keeps it
+     above the panel, exactly as the z-50 Select/Menu did before unification; a
+     page-level popover at this tier sits above ordinary content. Consumed via
+     z-[var(--z-popover)] by Select / Menu / HelpPopover / McVersionCombobox;
+     their click-scrims sit one step below. Toasts float above modals; the
+     tooltip layer stays highest (both are root-mounted, outside modal contexts). */
+  --z-popover: 50;
+  --z-modal: 50;
+  /* Contextual tours sit above modals (spotlight 100 / tour popover 101);
+     toasts must beat tours; the tooltip layer stays highest. These values
+     mirror what ToastHost / ContextualTour / TooltipLayer actually ship —
+     keep them in sync when adding a new overlay tier. */
+  --z-tour: 100;
+  --z-tour-popover: 101;
+  --z-toast: 200;
+  --z-tooltip: 210;
+
+  /* Motion — replaces inline literals (0.15s / 0.5s / 120ms scattered today). */
+  --duration-fast: 120ms; /* icon hover-zoom */
+  --duration-base: 150ms; /* button transition-colors, caret rotate */
+  --duration-slow: 500ms; /* refresh spin */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Radius — one scale; kills the banner rounded/rounded-xl split. */
+  --radius-sm: 0.25rem; /*  4px — buttons, inputs, chips */
+  --radius-md: 0.5rem; /*   8px — cards, popovers, inline boxes */
+  --radius-lg: 0.75rem; /* 12px — banners, modals */
+
+  /* Focus ring — defaults to the accent, but now retunable on its own. */
+  --focus-ring: 37 99 235; /* = --accent (blue-600) */
   /* Tell the UA which scheme to render native controls in (select,
      scrollbars, dropdown popups, checkboxes). Without it WebKitGTK draws
      them with the system light widget regardless of our CSS — e.g. the
@@ -72,6 +115,7 @@
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;
+  --focus-ring: 59 130 246; /* = --accent (blue-500) */
   color-scheme: dark;
 }
 
@@ -153,7 +197,7 @@ body {
      define their own crisper ring; this rule covers hand-rolled
      <button>s, links, and inputs until they migrate (B2). */
   *:focus-visible {
-    outline: 2px solid rgb(var(--accent));
+    outline: 2px solid rgb(var(--focus-ring));
     outline-offset: 2px;
   }
 }
@@ -338,8 +382,17 @@ body[data-tour-active] .tour-overlay {
 .btn-danger {
   @apply bg-danger text-white hover:bg-danger;
 }
+/* text-surface (not text-white) is deliberate: the fill is --warning-text,
+   which flips lightness across themes (dark amber in light, light amber in
+   dark). text-surface tracks that flip and stays legible; a hardcoded
+   text-white would be unreadable on the dark-theme light-amber fill. */
 .btn-warning {
-  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-text text-surface hover:bg-warning-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-text text-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+}
+/* hover:bg-warning-text was a no-op (same colour as rest). A brightness nudge
+   reads as real feedback on the amber fill in both themes. */
+.btn-warning:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 /* Soft warning banner — light bg, dark text, thin border. For full-width
    info-banners where a solid .btn-warning would be too loud (e.g. Overview

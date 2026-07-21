@@ -9,6 +9,7 @@ import { markSeen } from '$lib/onboarding/contextual-tours';
 // on a missing command/event, and add the new asset-install command.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsSearch: vi
       .fn()

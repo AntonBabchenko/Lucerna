@@ -32,27 +32,38 @@ pub fn install_local_plugin(dir: &Path, src_jar: &Path) -> Result<String> {
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::to_string)
-        .ok_or_else(|| Error::io("<plugin>", "source path has no filename"))?;
+        .ok_or_else(|| {
+            Error::server_file_invalid(src_jar.display().to_string(), "source path has no filename")
+        })?;
     if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<plugin>", "invalid filename"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "invalid filename",
+        ));
     }
     if !filename.to_ascii_lowercase().ends_with(".jar") {
-        return Err(Error::io("<plugin>", "plugin must be a .jar"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "plugin must be a .jar",
+        ));
     }
     let mut bytes = Vec::new();
     std::fs::File::open(src_jar)
         .and_then(|mut f| f.read_to_end(&mut bytes).map(|_| ()))
         .map_err(|e| Error::io(src_jar.display().to_string(), e))?;
     if !jar_is_plugin(&bytes) {
-        return Err(Error::io(
-            "<plugin>",
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
             "not a plugin jar (no plugin.yml / paper-plugin.yml at the jar root)",
         ));
     }
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let dest = dir.join(&filename);
     if !dest.starts_with(dir) {
-        return Err(Error::io("<plugin>", "path escapes plugins dir"));
+        return Err(Error::server_file_invalid(
+            filename.as_str(),
+            "path escapes plugins dir",
+        ));
     }
     std::fs::write(&dest, &bytes).map_err(|e| Error::io(dest.display().to_string(), e))?;
     Ok(filename)

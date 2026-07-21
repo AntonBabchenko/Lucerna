@@ -113,8 +113,8 @@ export const commands = {
 	 *  the UI simply hides the entry points.
 	 */
 	instanceQuickPlaySupport: (instanceId: string) => typedError<boolean, Error>(__TAURI_INVOKE("instance_quick_play_support", { instanceId })),
-	/**  Kill the running Minecraft process if any. Idempotent. */
-	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
+	/**  Kill the running Minecraft process for `instance_id` if any. Idempotent. */
+	stopInstance: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("stop_instance", { instanceId })),
 	/**
 	 *  List every log file under `instance_id`'s three documented roots.
 	 *  Sorted by mtime descending.
@@ -124,7 +124,9 @@ export const commands = {
 	 *  Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 	 *  `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
 	 *  under one of SOME instance's allowed log roots — anything else is
-	 *  rejected with `Error::Io`.
+	 *  rejected with `Error::Io`. Async + `spawn_blocking` (mirrors
+	 *  `annotate_log_file`): up to 100 MB off disk must not run on the IPC
+	 *  thread.
 	 */
 	readLogFile: (path: string, maxBytes: number | null) => typedError<string, Error>(__TAURI_INVOKE("read_log_file", { path, maxBytes })),
 	/**
@@ -166,6 +168,19 @@ export const commands = {
 	 *  handled-signature.
 	 */
 	diagnoseLatest: (instanceId: string) => typedError<LatestDiagnosis, Error>(__TAURI_INVOKE("diagnose_latest", { instanceId })),
+	/**
+	 *  Per-line inline-hint annotations for a log FILE. Reads the file with
+	 *  the SAME `max_bytes` clamp as `read_log_file` so the line indices
+	 *  align with the content the viewer displays (both reads tail on
+	 *  overflow). Path validation mirrors `read_log_file`.
+	 */
+	annotateLogFile: (path: string, maxBytes: number | null, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_file", { path, maxBytes, side })),
+	/**
+	 *  Per-line inline-hint annotations for TEXT the UI already holds (the
+	 *  live server console buffer / an archive blob). Input is truncated at
+	 *  a defensive cap; annotation output is capped inside `annotate_lines`.
+	 */
+	annotateLogText: (text: string, side: AnnotateSide) => typedError<AnnotateResult, Error>(__TAURI_INVOKE("annotate_log_text", { text, side })),
 	/**
 	 *  Build a concrete, confirmable repair plan for a diagnosed log, or
 	 *  `None` when no safe fix can be constructed (the UI then keeps the
@@ -431,6 +446,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	png_base64: string,
 } | null, Error>(__TAURI_INVOKE("instance_icon", { instanceId })),
 	/**
+	 *  Soft, non-blocking pre-launch warnings for `instance_id`. The UI decides
+	 *  whether to proceed; `launch_instance` does NOT re-run these checks.
+	 */
+	preLaunchCheck: (instanceId: string) => typedError<PreLaunchCheck, Error>(__TAURI_INVOKE("pre_launch_check", { instanceId })),
+	/**  Every running instance, for the aggregate popover. */
+	runningInstances: () => __TAURI_INVOKE<RunningInstanceInfo[]>("running_instances"),
+	/**
 	 *  Read accumulated playtime stats for `instance_id`.
 	 *  Returns zeros when no sessions have been recorded yet.
 	 */
@@ -460,6 +482,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsProjects: (source: ModSource, projectIds: string[]) => typedError<ModSummary[], Error>(__TAURI_INVOKE("mods_projects", { source, projectIds })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion_Serialize[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	/**
+	 *  Cumulative changelog for an update: every version in `(base_version_id,
+	 *  target_version_id]` of `project_id`, newest→oldest, each `body_html`
+	 *  sanitized. Lazy — only called when the user opens the changelog. Unsupported
+	 *  sources (FTB/ATLauncher) short-circuit to `ChangelogUnsupported`; the FE
+	 *  gates the button so that is only a backstop.
+	 */
+	modsChangelog: (source: ModSource, projectId: string, targetVersionId: string, baseVersionId: string | null) => typedError<ChangelogResult, Error>(__TAURI_INVOKE("mods_changelog", { source, projectId, targetVersionId, baseVersionId })),
 	/**
 	 *  Every plugin build of `project_id` compatible with the given server core's
 	 *  plugin-loader lineage (bukkit/spigot/paper/purpur), newest-first. The plugin
@@ -967,6 +997,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverStart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_start", { id })),
 	/**  Остановить сервер (graceful stop, затем принудительное завершение при необходимости). */
 	serverStop: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_stop", { id })),
+	/**
+	 *  Принудительно завершить сервер СЕЙЧАС: force-kill без graceful-ожидания.
+	 *  Эскалация из идущего `server_stop`, когда сервер завис/ещё грузится и не
+	 *  обрабатывает `stop`. Пишет код выхода `-1` (наш sentinel), так что это
+	 *  «Остановлен», а не «Аварийно завершён».
+	 */
+	serverKill: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_kill", { id })),
 	/**  Перезапустить сервер (stop если запущен, затем start). */
 	serverRestart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_restart", { id })),
 	/**  Отправить консольную команду на stdin работающего сервера. */
@@ -987,6 +1024,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Отсортировано по имени. Если папка отсутствует — пустой список.
 	 */
 	serverListMods: (id: string) => typedError<ServerModEntry[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
+	/**
+	 *  Like `server_list_mods`, but each jar carries its registry identity. Uses
+	 *  `reconcile_on_list` (sha1-keyed) so identity survives enable/disable renames.
+	 */
+	serverListModsEnriched: (id: string) => typedError<ServerModEntryEnriched[], Error>(__TAURI_INVOKE("server_list_mods_enriched", { id })),
+	/**
+	 *  Hash-enrich a server's `runtime/mods/` (Modrinth + CurseForge). Returns the
+	 *  count newly resolved. Best-effort — never blocks the UI.
+	 */
+	serverEnrichMods: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_mods", { id })),
+	/**
+	 *  Hash-enrich a server's `runtime/plugins/` via Modrinth only (Hangar has no
+	 *  hash endpoint; CurseForge has no plugin registry).
+	 */
+	serverEnrichPlugins: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_enrich_plugins", { id })),
 	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
@@ -1155,10 +1207,6 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  is detection + manual guidance only: NO UPnP / automatic port mapping.
 	 */
 	serverPublicAddress: (id: string) => typedError<ServerPublicAddress, Error>(__TAURI_INVOKE("server_public_address", { id })),
-	/**
-	 *  Create a snapshot. If the server is running, flush + pause world saves
-	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
-	 */
 	serverBackupCreate: (id: string) => typedError<BackupInfo, Error>(__TAURI_INVOKE("server_backup_create", { id })),
 	serverBackupList: (id: string) => typedError<BackupInfo[], Error>(__TAURI_INVOKE("server_backup_list", { id })),
 	/**
@@ -1225,11 +1273,32 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverInstallMod: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_mod", { id, source, projectId, versionId })),
 	/**
+	 *  Check every identity-bearing server mod for a newer version. Mirrors
+	 *  `mods_check_updates`: resolve mc_version + loader from `server.json`, query
+	 *  each mod's platform, classify with the shared `classify_update`. Per-mod
+	 *  failure → that row's `CheckFailed`.
+	 */
+	serverCheckModUpdates: (id: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_mod_updates", { id })),
+	/**
+	 *  Apply one server-mod update: install `target` (+ required deps) via the
+	 *  shared kernel, remove the old jar (honoring its `.disabled` suffix), preserve
+	 *  set-aside state, and swap the registry rows. Server must be stopped.
+	 */
+	serverUpdateOne: (id: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_update_one", { id, oldSha1, target })),
+	/**
 	 *  Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
 	 *  Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
 	 *  filenames / path escapes. Server must be stopped.
 	 */
 	serverEnableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_mod", { id, filename })),
+	/**
+	 *  Disable (rename to `*.disabled`) a single mod in the server's `mods/`.
+	 *  The mirror of `server_disable_plugin` for the mods dir: a user-initiated
+	 *  disable, so — unlike `server_disable_mods`' client-only quarantine — it
+	 *  writes NO quarantine `reason` sidecar. Single-file, no dependency guard.
+	 *  Rejects unsafe filenames / path escapes. Server must be stopped.
+	 */
+	serverDisableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_disable_mod", { id, filename })),
 	/**
 	 *  Install a local mod `.jar` (chosen via the file picker) into the server's
 	 *  `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
@@ -1255,6 +1324,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
 	 */
 	serverListPlugins: (id: string) => typedError<ServerPluginEntry[], Error>(__TAURI_INVOKE("server_list_plugins", { id })),
+	/**  Plugin twin of `server_list_mods_enriched` (no quarantine reason). */
+	serverListPluginsEnriched: (id: string) => typedError<ServerPluginEntryEnriched[], Error>(__TAURI_INVOKE("server_list_plugins_enriched", { id })),
 	/**
 	 *  Install a chosen plugin version + its required dependency closure into the
 	 *  server's `runtime/plugins/`. The plugin twin of [`server_install_mod`]:
@@ -1264,6 +1335,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Returns the jars written + any dependency that could not be resolved.
 	 */
 	serverInstallPlugin: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_plugin", { id, source, projectId, versionId })),
+	/**
+	 *  Check every identity-bearing server plugin for a newer version. The plugin
+	 *  twin of [`server_check_mod_updates`]: gate on the core being plugin-capable
+	 *  (Paper/Purpur) before any network, reconcile `runtime/plugins/`, query each
+	 *  plugin's platform via `plugin_versions` (plugin-loader slug lineage, not a
+	 *  `LoaderKind`), and classify with the shared `classify_update`. Per-plugin
+	 *  failure → that row's `CheckFailed`.
+	 */
+	serverCheckPluginUpdates: (id: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_plugin_updates", { id })),
+	/**
+	 *  Apply one server-plugin update: install `target` (+ its required dependency
+	 *  closure) into `runtime/plugins/` via the shared plugin kernel, remove the old
+	 *  jar (honoring its `.disabled` suffix), preserve set-aside state, and swap the
+	 *  registry rows. The plugin twin of [`server_update_one`] — differs in the
+	 *  install dir (`plugins`), the kernel (`install_plugin_into_dir`, which pushes
+	 *  the primary FIRST), and the plugin-capable gate. Server must be stopped.
+	 */
+	serverUpdatePluginOne: (id: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_update_plugin_one", { id, oldSha1, target })),
 	/**
 	 *  Install a local plugin `.jar` (chosen via the file picker) into the
 	 *  server's `runtime/plugins/`. Mirrors `server_install_local` (path-based —
@@ -1287,11 +1376,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Delete a plugin from the server's `runtime/plugins/` by filename.
 	 *  Idempotent: file already gone → `Ok`. Rejects unsafe filenames (path
-	 *  traversal). Unlike `server_delete_mod` this HAS an is_running guard —
-	 *  deleting a live plugin's jar out from under a running Bukkit-family server
-	 *  is a class of foot-gun the mods twin doesn't need to worry about the same
-	 *  way (mods are only ever touched while stopped in practice); kept here
-	 *  deliberately rather than propagating the mods twin's gap.
+	 *  traversal). Refuses while the server is running — symmetric with
+	 *  `server_delete_mod` — so a live plugin's jar is never deleted out from
+	 *  under a running Bukkit-family server.
 	 */
 	serverDeletePlugin: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete_plugin", { id, filename })),
 	/**
@@ -1299,6 +1386,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Creates the folder if it doesn't exist yet. Mirrors `server_open_logs_folder`.
 	 */
 	serverOpenPluginsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_plugins_folder", { id })),
+	/**
+	 *  Open the server's `runtime/mods/` folder in the system file manager.
+	 *  Creates the folder if it doesn't exist yet. Mirrors `server_open_plugins_folder`
+	 *  (and the client's `open_mods_folder`) so the sidebar can drop a mod-loader
+	 *  server's operator directly into its mods directory. `server_open_folder`
+	 *  intentionally lands one level up in `runtime/`.
+	 */
+	serverOpenModsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_mods_folder", { id })),
 	/**
 	 *  Switch a server's core. Allowed: Vanilla -> Paper|Purpur,
 	 *  Paper <-> Purpur (checked by `core_switch_allowed` — the UI only offers
@@ -1396,6 +1491,21 @@ export type Account = {
 	expires_at: number | null,
 };
 
+/**
+ *  The active account is already launching a running instance — the same
+ *  account can't hold two live online sessions on a real server.
+ */
+export type AccountConflict = {
+	account_name: string,
+	running_instance_id: string,
+	/**
+	 *  The candidate account's kind. The FE picks the warning copy from this:
+	 *  Microsoft means a real online-session drop; Offline means only a
+	 *  same-name collision risk on `online-mode=false` servers.
+	 */
+	account_kind: AccountKind,
+};
+
 /**  Discriminator for account type. */
 export type AccountKind = "offline" | "microsoft";
 
@@ -1407,6 +1517,30 @@ export type AccountSkin = {
 	uuid: string,
 	texture_url: string,
 	skin_png_base64: string,
+};
+
+/**
+ *  The wire result: per-line hits plus copy for each distinct pattern
+ *  that matched (deduplicated — spam-heavy logs stay cheap).
+ */
+export type AnnotateResult = {
+	annotations: LineAnnotation[],
+	patterns: AnnotatedPatternCopy[],
+};
+
+/**  Which surface is asking. Command input — maps onto `Side` scoping. */
+export type AnnotateSide = "client" | "server";
+
+/**
+ *  English fallback copy for one matched pattern — mirrors how
+ *  `Diagnosis` ships its strings so the UI never renders an empty card
+ *  when an i18n key lags behind the Rust catalog.
+ */
+export type AnnotatedPatternCopy = {
+	id: string,
+	title: string,
+	explanation: string,
+	recommendation: string,
 };
 
 export type AppFile = AppFile_Serialize | AppFile_Deserialize;
@@ -1575,6 +1709,27 @@ export type CategoryReport = {
 	ok: number,
 	missing: number,
 	corrupt: number,
+};
+
+/**
+ *  The full cumulative changelog for one update. `sections` are newest→oldest.
+ *  `truncated` is `Some(total)` when the window exceeded the cap.
+ */
+export type ChangelogResult = {
+	sections: ChangelogSection[],
+	truncated: number | null,
+};
+
+/**
+ *  One version's changelog, ready to render. `body_html` is already sanitized
+ *  (Modrinth markdown → HTML, CurseForge HTML → sanitized); empty when the
+ *  author published no notes.
+ */
+export type ChangelogSection = {
+	version_id: string,
+	version_number: string,
+	published_at: string | null,
+	body_html: string,
 };
 
 export type CitedKind = "missing" | "version_mismatch";
@@ -1859,44 +2014,60 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
-/**  Курируемое поле server.properties не прошло валидацию. */
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+/**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
-/**  Попытка собрать/запустить сервер без принятого EULA. */
+/**  Attempt to build/start a server without an accepted EULA. */
 { kind: "server_eula_not_accepted" } | 
 /**
- *  Не удалось определить источник серверного jar (нет server-download
- *  в манифесте, или лоадер/версия без серверной сборки).
+ *  Could not resolve the server jar source (no server download in the
+ *  manifest, or a loader/version without a server build).
  */
 { kind: "server_jar_unavailable"; loader: string; mc_version: string; reason: string } | 
-/**  installServer (Forge/NeoForge) упал или не запустился. */
+/**  installServer (Forge/NeoForge) failed or did not start. */
 { kind: "server_installer_failed"; loader: string; details: string } | 
-/**  Серверный процесс не удалось запустить. */
+/**  The server process failed to spawn. */
 { kind: "server_spawn_failed"; details: string } | 
-/**  Сервер уже запущен. */
+/**  The server is already running. */
 { kind: "server_already_running"; id: string } | 
-/**  Операция требует, чтобы заливка на хостинг не шла, но она идёт. */
+/**  The operation requires that no hosting upload is in flight, but one is. */
 { kind: "server_upload_in_progress"; id: string } | 
-/**  Заливка на хостинг была отменена пользователем. */
+/**  The hosting upload was cancelled by the user. */
 { kind: "upload_cancelled" } | 
-/**  Операция требует запущенного сервера, но он не запущен. */
+/**  The operation requires a running server, but it is not running. */
 { kind: "server_not_running"; id: string } | 
-/**  Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное). */
+/**  The server name failed validation (empty / duplicate / too long). */
 { kind: "server_name_invalid"; reason: string } | 
 /**
- *  Мод нельзя удалить/отключить — он является зависимостью другого мода,
- *  который остаётся на сервере (защита от поломки рабочего мода).
+ *  The mod can't be removed/disabled — another mod that remains on the
+ *  server depends on it (protects a working install from breakage).
  */
-{ kind: "server_mod_required_by_other"; filename: string; required_by: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
-/**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
+{ kind: "server_mod_required_by_other"; filename: string; required_by: string } | 
+/**
+ *  A server mod/plugin file operation was rejected by validation (unsafe
+ *  name, path escape, not a `.jar`, …) — a policy refusal, not a
+ *  filesystem failure, so it must not masquerade as `Io`.
+ */
+{ kind: "server_file_invalid"; filename: string; reason: string } | 
+/**
+ *  The operation is not available for this server core (e.g. installing
+ *  mods on a plugin core, or an unsupported core switch).
+ */
+{ kind: "server_core_unsupported"; reason: string } | 
+/**
+ *  A lookup keyed on the installed mod/plugin list missed — the list
+ *  changed since the UI fetched it. Refresh and retry.
+ */
+{ kind: "server_content_stale" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+/**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
-/**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
+/**  Could not establish the SSH/SFTP connection to the user's server. */
 { kind: "sftp_connect_failed"; details: string } | 
-/**  Аутентификация по паролю на SFTP-сервере не прошла. */
+/**  Password authentication against the SFTP server failed. */
 { kind: "sftp_auth_failed"; details: string } | 
-/**  Отпечаток host-ключа изменился относительно ранее доверенного (TOFU). */
+/**  The host-key fingerprint changed from the previously trusted one (TOFU). */
 { kind: "sftp_host_key_mismatch"; expected: string; got: string } | 
-/**  Ошибка во время передачи файлов по SFTP (создание каталога/запись). */
+/**  A failure during SFTP file transfer (directory creation / write). */
 { kind: "sftp_transfer_failed"; details: string } | 
 /**  A data-root relocation was requested while a game or server is running. */
 { kind: "data_location_busy" } | 
@@ -2383,6 +2554,12 @@ export type LatestDiagnosis = {
 	diagnosis: Diagnosis | null,
 	path: string | null,
 	signature: string | null,
+};
+
+/**  One annotated line: 0-based index into the text split by '\n'. */
+export type LineAnnotation = {
+	line: number,
+	pattern_id: string,
 };
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
@@ -3283,6 +3460,12 @@ export type PlaytimeStats = {
 	last_session_unix_ms: number | null,
 };
 
+/**  Aggregate of the soft, non-blocking warnings shown before a launch. */
+export type PreLaunchCheck = {
+	resource_warning: RamWarning | null,
+	account_conflict: AccountConflict | null,
+};
+
 /**  Aggregated result of the dependency pre-flight scan. */
 export type PreflightReport = {
 	/**  All detected violations. Empty means no problems found. */
@@ -3303,24 +3486,18 @@ export type ProblemArtifact = {
 };
 
 export type ProcessExited = {
+	instance_id: string,
 	version_id: string,
-	/**
-	 *  Process exit code. `-1` when the process was terminated by a
-	 *  signal (no code available from the OS).
-	 */
+	/**  Process exit code. `-1` when the process was terminated by a signal. */
 	code: number,
-	/**
-	 *  True when this exit was caused by the user pressing Stop (the
-	 *  launcher killed the process tree itself). Lets the UI show
-	 *  "Stopped" instead of presenting the force-kill exit code as a
-	 *  crash, and suppresses the crash-diagnosis fetch.
-	 */
+	/**  True when the exit was caused by the user pressing Stop. */
 	user_requested: boolean,
 	/**  Absolute path to the launch log file for this run. */
 	log_path: string,
 };
 
 export type ProcessSpawned = {
+	instance_id: string,
 	version_id: string,
 	pid: number,
 };
@@ -3352,6 +3529,15 @@ export type QuarantineReport = {
  *  address (`host` or `host:port`).
  */
 export type QuickPlay = { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string };
+
+/**
+ *  Non-blocking pre-launch RAM warning payload (surfaced to the UI, which owns
+ *  the confirm decision). Megabytes.
+ */
+export type RamWarning = {
+	reserved_mb: number,
+	total_mb: number,
+};
 
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
@@ -3490,6 +3676,19 @@ export type RestoreMode = "replace" | "as_copy";
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+/**  One currently-running instance, for the aggregate running-instances popover. */
+export type RunningInstanceInfo = {
+	instance_id: string,
+	pid: number,
+	max_heap_mb: number,
+	/**
+	 *  Unix ms the in-flight playtime session started (for live elapsed
+	 *  display). `f64` not `i64` — specta forbids BigInt-style exports; a
+	 *  millisecond timestamp is exact in `f64` (well under 2^53).
+	 */
+	started_unix_ms: number | null,
 };
 
 /**  One saved server, surfaced to the UI. `address` mirrors the NBT `ip` field. */
@@ -3667,12 +3866,52 @@ export type ServerModEntry = {
 };
 
 /**
+ *  `ServerModEntry` + the install-identity overlay (sha1-keyed registry).
+ *  Identity fields are `Option`: locally-dropped jars carry no record until
+ *  enriched. `name`/`version_number` are hints; the UI resolves the display
+ *  name from the platform by `project_id`.
+ */
+export type ServerModEntryEnriched = {
+	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
+	disabled: boolean,
+	reason: string | null,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
+};
+
+/**
  *  One entry in `server_list_plugins`. Unlike mods there is no quarantine
  *  sidecar — plugins have no client/server ambiguity — so no reason field.
  */
 export type ServerPluginEntry = {
 	filename: string,
 	disabled: boolean,
+};
+
+/**  `ServerPluginEntry` + the install-identity overlay (no quarantine reason). */
+export type ServerPluginEntryEnriched = {
+	filename: string,
+	/**
+	 *  Current on-disk name (`filename` + `.disabled` when disabled). Mutations
+	 *  (delete/enable/disable) MUST join this, not the base `filename`.
+	 */
+	on_disk_filename: string,
+	disabled: boolean,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
 };
 
 /**

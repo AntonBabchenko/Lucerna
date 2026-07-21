@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import type { ServerLogInfo } from '$lib/ipc/bindings';
+  import type { AnnotateResult, Error as IpcError, ServerLogInfo } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
-  import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import type { SelectOption } from '$lib/ui/Select.svelte';
@@ -13,6 +14,15 @@
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import LogHintBadge from '$lib/logs/LogHintBadge.svelte';
+  import LogHintCard from '$lib/logs/LogHintCard.svelte';
+  import {
+    annotationMap,
+    createLogHintHover,
+    fallbackCopyMap,
+    resolveHintCopy,
+    type ActiveHint,
+  } from '$lib/logs/log-hints.svelte';
   import {
     countLevels,
     filterLevels,
@@ -129,6 +139,8 @@
     archivedText = null;
     readError = null;
     backfillText = null;
+    annotateResult = null;
+    hints.close();
   });
 
   // Build picker options: "Current session" + one entry per archive.
@@ -272,6 +284,58 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Inline hint annotations — debounced re-annotation of whatever lines the
+  // view currently shows (live buffer ≤500 lines, archive blob, or backfill).
+  // 500 ms trailing: the live console appends every tick; per-append IPC would
+  // be waste. Best-effort — failures degrade to "no badges".
+  // ---------------------------------------------------------------------------
+  let annotateResult = $state<AnnotateResult | null>(null);
+  const annotations = $derived(annotationMap(annotateResult));
+  const hintFallbacks = $derived(fallbackCopyMap(annotateResult));
+  // When the current view has any annotations, every row reserves a uniform
+  // left gutter and the badge sits absolutely inside it — annotated lines'
+  // text must not shift out of column alignment.
+  const hintGutter = $derived(annotations.size > 0);
+  const hints = createLogHintHover();
+  onDestroy(() => hints.dispose());
+
+  const ANNOTATE_DEBOUNCE_MS = 500;
+  $effect(() => {
+    const text = viewLines.join('\n');
+    if (!text) {
+      annotateResult = null;
+      return;
+    }
+    const id = setTimeout(() => {
+      void commands.annotateLogText(text, 'server').then((r) => {
+        if (r.status !== 'ok') {
+          // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
+          console.warn('[ServerConsole] annotate_log_text failed:', r.error);
+          return;
+        }
+        // Stale guard: the debounced result may land after `viewLines` moved on
+        // (e.g. archive → live switch mid-flight) — only commit if the view
+        // still shows the same text.
+        if (viewLines.join('\n') === text) annotateResult = r.data;
+      });
+    }, ANNOTATE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  });
+
+  function activateHint(patternId: string, el: HTMLElement, viaFocus: boolean): void {
+    const copy = resolveHintCopy(patternId, hintFallbacks, get(t));
+    if (!copy) return;
+    const r = el.getBoundingClientRect();
+    const hint: ActiveHint = {
+      patternId,
+      copy,
+      anchor: { top: r.top, left: r.left, width: r.width, height: r.height, bottom: r.bottom },
+    };
+    if (viaFocus) hints.openFromFocus(hint);
+    else hints.rowEnter(hint);
+  }
+
+  // ---------------------------------------------------------------------------
   // Share to mclo.gs (reuses the instance share command — content is anonymised
   // server-side before upload). Shares the archive being viewed, or the latest
   // session when on the live console.
@@ -318,19 +382,40 @@
   }
 
   const archives = $derived(logs.filter((l) => !l.is_latest));
+
+  async function openLogsFolder() {
+    const r = await serverState.openLogsFolder(serverId);
+    if (!r.ok) {
+      pushWarning(get(t)('servers.logs.openFolder'), [formatError(r.error as IpcError)]);
+    }
+  }
 </script>
 
 {#snippet lineList(dim: boolean)}
   {#each visible as line, i (i)}
-    <div class="whitespace-pre-wrap break-all leading-5 {dim ? 'text-secondary' : ''}">
+    {@const hintId = annotations.get(line.index)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -- pointer handlers only arm/disarm
+         the hover card; the keyboard-accessible path is the badge button below (focus/blur),
+         same split LogHintCard.svelte uses. -->
+    <div
+      class="whitespace-pre-wrap break-all leading-5 {dim ? 'text-secondary' : ''}"
+      class:relative={hintGutter}
+      class:pl-5={hintGutter}
+      class:console-row-hint={hintId}
+      onpointerenter={hintId
+        ? (e) => activateHint(hintId, e.currentTarget as HTMLElement, false)
+        : undefined}
+      onpointerleave={hintId ? () => hints.rowLeave() : undefined}
+    >
+      {#if hintId}
+        <LogHintBadge
+          onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+          onLeave={() => hints.rowLeave()}
+        />
+      {/if}
       {#if debouncedSearch}
         <!-- highlightConsoleLine HTML-escapes the text; only its own <mark> wrappers are raw. -->
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightConsoleLine(
-          line.text,
-          i,
-          matches,
-          currentMatchIndex,
-        )}
+        {@html highlightConsoleLine(line.text, i, matches, currentMatchIndex)}
       {:else}
         {line.text}
       {/if}
@@ -344,7 +429,7 @@
     <button
       type="button"
       class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
-      onclick={() => void serverState.openLogsFolder(serverId)}
+      onclick={openLogsFolder}
     >
       <Icon name="folderOpen" size={14} />{$t('servers.logs.openFolder')}
     </button>
@@ -523,4 +608,16 @@
       </button>
     </div>
   {/if}
+  <LogHintCard hover={hints} />
 </div>
+
+<style>
+  /* Subtle left-edge tint marking a line with an inline hint annotation.
+     Uses the same `--accent` RGB triplet the rest of the design system reads
+     through Tailwind's `accent`/`accent-soft` utilities (see app.css).
+     The badge's own styles live in LogHintBadge.svelte (scoped styles here
+     could not reach a child component's internals). */
+  .console-row-hint {
+    background-image: linear-gradient(to right, rgb(var(--accent) / 12%), transparent 60%);
+  }
+</style>

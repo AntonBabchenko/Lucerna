@@ -44,8 +44,7 @@
 //     error block — text-danger
 //   DeleteWorldDialog (extension beyond cluster D):
 //     dialog role="dialog" aria-modal="true" container classes
-//     confirm input has id="del-world-confirm" and placeholder
-//     world folder_name appears in title
+//     world folder_name appears in title (aria-labelledby-linked heading)
 //     warning body text has text-secondary class
 //     error block uses text-danger
 
@@ -624,7 +623,7 @@ describe('RestoreBackupDialog — error block uses text-danger', () => {
 // ── DeleteWorldDialog — dialog container (extension beyond cluster D) ─────────
 
 describe('DeleteWorldDialog — dialog container classes (beyond D Cancel/Delete)', () => {
-  it('dialog has role="dialog" aria-modal="true" aria-labelledby="delete-world-title"', () => {
+  it('dialog has role="dialog" aria-modal="true" and an aria-labelledby-linked title', () => {
     render(DeleteWorldDialog, {
       props: {
         instanceId: 'inst-1',
@@ -635,7 +634,13 @@ describe('DeleteWorldDialog — dialog container classes (beyond D Cancel/Delete
     });
     const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-labelledby')).toBe('delete-world-title');
+    // The shared ConfirmDialog/DialogTitle own the heading id now (generated),
+    // so assert the link resolves to a heading naming the world rather than a
+    // hard-coded id.
+    const labelId = dialog.getAttribute('aria-labelledby');
+    expect(labelId).toBeTruthy();
+    const heading = labelId ? document.getElementById(labelId) : null;
+    expect(heading?.textContent).toContain('DeadWorld');
   });
 
   it('dialog inner panel has the shared Modal surface classes', () => {
@@ -661,7 +666,7 @@ describe('DeleteWorldDialog — dialog container classes (beyond D Cancel/Delete
 // ── DeleteWorldDialog — title and confirm input ────────────────────────────────
 
 describe('DeleteWorldDialog — title contains world folder_name', () => {
-  it('title text contains world folder_name', () => {
+  it('title heading contains world folder_name', () => {
     render(DeleteWorldDialog, {
       props: {
         instanceId: 'inst-1',
@@ -670,24 +675,7 @@ describe('DeleteWorldDialog — title contains world folder_name', () => {
         onDeleted: () => {},
       },
     });
-    const title = document.getElementById('delete-world-title');
-    expect(title?.textContent).toContain('GoneWorld');
-  });
-});
-
-describe('DeleteWorldDialog — confirm input has correct id and placeholder', () => {
-  it('confirm input has id="del-world-confirm" and placeholder="Delete"', () => {
-    render(DeleteWorldDialog, {
-      props: {
-        instanceId: 'inst-1',
-        world: makeWorld({ folder_name: 'ConfirmWorld' }),
-        onClose: () => {},
-        onDeleted: () => {},
-      },
-    });
-    const input = document.getElementById('del-world-confirm') as HTMLInputElement | null;
-    expect(input).not.toBeNull();
-    expect(input?.placeholder).toBe('Delete');
+    expect(screen.getByRole('heading', { name: /GoneWorld/ })).toBeTruthy();
   });
 });
 
@@ -705,26 +693,6 @@ describe('DeleteWorldDialog — warning body text has text-secondary class', () 
     });
     const warning = screen.getByText(/permanently delete the world folder/i);
     expect(warning.className).toContain('text-secondary');
-  });
-});
-
-// ── DeleteWorldDialog — label uses text-secondary ────────────────────────────
-
-describe('DeleteWorldDialog — confirm label has text-secondary class', () => {
-  it('confirm label has text-xs text-secondary class', () => {
-    render(DeleteWorldDialog, {
-      props: {
-        instanceId: 'inst-1',
-        world: makeWorld({ folder_name: 'LabelWorld' }),
-        onClose: () => {},
-        onDeleted: () => {},
-      },
-    });
-    const label = document.querySelector('label[for="del-world-confirm"]');
-    expect(label).not.toBeNull();
-    const cls = label?.className ?? '';
-    expect(cls).toContain('text-secondary');
-    expect(cls).toContain('text-xs');
   });
 });
 

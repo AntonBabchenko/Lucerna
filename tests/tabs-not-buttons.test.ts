@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ── SettingsModal needs real inner panels stubbed (they fire IPC on mount) ──
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // SettingsModal / CurseForgeKeyForm / StoragePanel
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'missing' }),
     modsSetCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

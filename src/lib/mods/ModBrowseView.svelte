@@ -11,10 +11,11 @@
     type ModSummary,
     type ModVersion,
   } from '$lib/ipc/bindings';
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
+  import { debounceTrailing } from '$lib/ui/debounce';
   import { displayLoader } from '$lib/instances/loader-display';
   import {
     formatLoaderLatestList,
@@ -61,14 +62,11 @@
   //     mount (via mods_get_curseforge_key_status) and on demand if a
   //     search returns ModsPlatformAuth.
   //   - Drive the install flow: fetch versions → resolve deps. If no
-  //     deps surface, install directly. Otherwise open the dependency
-  //     dialog (which lands in Task 16; for now we just hold the
-  //     prompt state).
+  //     deps surface, install directly. Otherwise open DependencyDialog.
   //
-  // ModDetailDrawer (Task 15) and DependencyDialog (Task 16) will read
-  // `drawerProject` and `depPrompt` respectively. Their state lives
-  // here so this file is the single source of truth for those flows
-  // once those tasks land.
+  // ModDetailModal and DependencyDialog read `drawerProject` and `depPrompt`
+  // respectively; their state lives here so this file is the single source
+  // of truth for those flows.
 
   let {
     source,
@@ -233,8 +231,8 @@
 
   async function refreshInstalled() {
     // Capture the instance; drop the result if the user switches mid-flight
-    // (the per-mod project lookups below are slow) so a stale list can't
-    // overwrite the current instance's installed-badge state.
+    // so a stale list can't overwrite the current instance's installed-badge
+    // state.
     const reqId = instanceId;
     if (!reqId) {
       installedMods = [];
@@ -242,21 +240,36 @@
     }
     const r = await commands.modsListInstalled(reqId);
     if (instanceId !== reqId || r.status !== 'ok') return;
-    // Look up project names with bounded concurrency (not all at once).
-    // Manual mods (source: null) skip the call and keep projectName: null —
-    // they only ever match via the exact-id path anyway.
-    const next = await mapLimit(r.data, 6, async (m): Promise<InstalledRow> => {
-      if (m.source === null || m.project_id === null) {
-        return { installed: m, projectName: null };
+    // Resolve project names in a few batched requests grouped by source
+    // (mirrors installed-data.svelte.ts): the old per-mod `modsProject`
+    // fan-out fired hundreds of calls per refresh and was a 429 source on
+    // large instances. Manual mods (source: null) skip the lookup and keep
+    // projectName: null — they only ever match via the exact-id path anyway.
+    const idsBySource = new Map<ModSource, Set<string>>();
+    for (const m of r.data) {
+      if (m.source !== null && m.project_id !== null) {
+        const set = idsBySource.get(m.source) ?? new Set<string>();
+        set.add(m.project_id);
+        idsBySource.set(m.source, set);
       }
-      const p = await commands.modsProject(m.source as ModSource, m.project_id);
-      return {
-        installed: m,
-        projectName: p.status === 'ok' ? p.data.summary.name : null,
-      };
-    });
+    }
+    const nameByKey = new Map<string, string>();
+    await Promise.all(
+      [...idsBySource].map(async ([src, ids]) => {
+        const res = await commands.modsProjects(src, [...ids]);
+        if (res.status === 'ok') {
+          for (const s of res.data) nameByKey.set(`${src}:${s.project_id}`, s.name);
+        }
+      }),
+    );
     if (instanceId !== reqId) return;
-    installedMods = next;
+    installedMods = r.data.map((m) => ({
+      installed: m,
+      projectName:
+        m.source !== null && m.project_id !== null
+          ? (nameByKey.get(`${m.source}:${m.project_id}`) ?? null)
+          : null,
+    }));
     // pageHits derives from installedMods via installedFor, so the current
     // page's badges (and the optional local hide-installed filter) update
     // reactively once this list resolves — no refetch needed.
@@ -296,19 +309,47 @@
   // Mods can be enabled/disabled/uninstalled from the Installed tab (a sibling
   // view kept mounted alongside this one). Listen for those events so the
   // Browse pane's "Installed / Disable / Uninstall" badges stay in sync
-  // instead of going stale until a remount.
-  let installedUnlisteners: Array<() => void> = [];
-  onMount(async () => {
-    const handlers = [
-      events.modInstalled.listen(() => void refreshInstalled()),
-      events.modUninstalled.listen(() => void refreshInstalled()),
-      events.modToggle.listen(() => void refreshInstalled()),
-    ];
-    for (const p of handlers) installedUnlisteners.push(await p);
+  // instead of going stale until a remount. Debounced: a with-deps install
+  // emits one event per jar — collapse the burst into one refresh. Listener
+  // registration/teardown is race-safe via listenUntilDestroyed (this view is
+  // re-keyed on every kind switch, so racing unmounts are routine).
+  const debouncedRefreshInstalled = debounceTrailing(() => void refreshInstalled(), 150);
+  onDestroy(debouncedRefreshInstalled.cancel);
+  listenUntilDestroyed([
+    events.modInstalled.listen(debouncedRefreshInstalled.call),
+    events.modUninstalled.listen(debouncedRefreshInstalled.call),
+    events.modToggle.listen(debouncedRefreshInstalled.call),
+  ]);
+
+  // O(1) lookups for installedFor: rebuilt once per installedMods/assets
+  // commit instead of two linear scans per card per render (a 100-card page
+  // over 200 installed mods was ~20k `.find` steps every re-render, and mod
+  // events re-render often).
+  const installedById = $derived.by(() => {
+    const map = new Map<string, InstalledMod>();
+    for (const r of installedMods) {
+      if (r.installed.source !== null && r.installed.project_id !== null) {
+        map.set(`${r.installed.source}:${r.installed.project_id}`, r.installed);
+      }
+    }
+    return map;
   });
-  onDestroy(() => {
-    for (const u of installedUnlisteners) u();
-    installedUnlisteners = [];
+  const installedByNameKey = $derived.by(() => {
+    const map = new Map<string, InstalledMod>();
+    for (const r of installedMods) {
+      if (r.projectName !== null) {
+        const k = nameKey(r.projectName);
+        if (k !== '' && !map.has(k)) map.set(k, r.installed);
+      }
+    }
+    return map;
+  });
+  const assetById = $derived.by(() => {
+    const map = new Map<string, InstalledAsset>();
+    for (const a of installedAssets) {
+      map.set(`${a.source}:${a.project_id}`, a);
+    }
+    return map;
   });
 
   function installedFor(card: ModSummary): InstalledMod | null {
@@ -318,9 +359,7 @@
     // have no enable/disable, no deps, and no enrichment — those fields are
     // filled with inert defaults (enabled: true so the badge reads "Installed").
     if (!isMod) {
-      const a = installedAssets.find(
-        (x) => x.source === card.source && x.project_id === card.project_id,
-      );
+      const a = assetById.get(`${card.source}:${card.project_id}`);
       if (!a) return null;
       return {
         filename: a.filename,
@@ -337,10 +376,8 @@
       };
     }
     // Exact platform-and-id match first.
-    const exact = installedMods.find(
-      (r) => r.installed.source === card.source && r.installed.project_id === card.project_id,
-    );
-    if (exact) return exact.installed;
+    const exact = installedById.get(`${card.source}:${card.project_id}`);
+    if (exact) return exact;
     // Cross-platform fallback against the fetched project name. We
     // normalize both sides (strip platform suffixes, lowercase,
     // alphanumeric-only) so "Cloth Config API" matches "Cloth Config
@@ -349,10 +386,7 @@
     // "Sodium Extra" still differ.
     const cardKey = nameKey(card.name);
     if (cardKey === '') return null;
-    return (
-      installedMods.find((r) => r.projectName !== null && nameKey(r.projectName) === cardKey)
-        ?.installed ?? null
-    );
+    return installedByNameKey.get(cardKey) ?? null;
   }
 
   // The current server page, re-ranked so title matches come first (see

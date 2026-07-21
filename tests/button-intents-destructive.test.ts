@@ -9,6 +9,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     // ImportedDetailDrawer calls these at mount
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProject: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { summary: { name: 'x' }, description: '', website_url: null },

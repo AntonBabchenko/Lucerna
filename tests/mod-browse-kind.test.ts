@@ -13,6 +13,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProject: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {

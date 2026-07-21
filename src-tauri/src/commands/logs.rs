@@ -11,31 +11,51 @@ pub fn list_log_files(
     crate::logs::files::list_log_files(&app, &instance_id)
 }
 
+/// Union of every instance's allowed log roots. Shared by the commands
+/// that accept a caller-supplied path and must confine it (read, open
+/// folder, delete, annotate).
+fn all_instance_log_roots(
+    app: &tauri::AppHandle,
+) -> Result<Vec<std::path::PathBuf>, crate::error::Error> {
+    let all = crate::instances::list_instances_with_status(app)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for inst in &all {
+        let mut r = crate::logs::files::allowed_roots(app, &inst.id)?;
+        roots.append(&mut r);
+    }
+    Ok(roots)
+}
+
+/// Sanitize the UI-supplied f64 byte cap: non-finite / negative → 0
+/// (which `read_with_cap` maps to its 5 MB default).
+fn sanitize_cap(max_bytes: f64) -> u64 {
+    if !max_bytes.is_finite() || max_bytes < 0.0 {
+        0
+    } else {
+        max_bytes as u64
+    }
+}
+
 /// Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 /// `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
 /// under one of SOME instance's allowed log roots — anything else is
-/// rejected with `Error::Io`.
+/// rejected with `Error::Io`. Async + `spawn_blocking` (mirrors
+/// `annotate_log_file`): up to 100 MB off disk must not run on the IPC
+/// thread.
 #[tauri::command]
 #[specta::specta]
-pub fn read_log_file(
+pub async fn read_log_file(
     app: tauri::AppHandle,
     path: String,
     max_bytes: f64,
 ) -> Result<String, crate::error::Error> {
-    let all = crate::instances::list_instances_with_status(&app)?;
-    let mut roots: Vec<std::path::PathBuf> = Vec::new();
-    for inst in &all {
-        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
-        roots.append(&mut r);
-    }
+    let roots = all_instance_log_roots(&app)?;
     let path = std::path::PathBuf::from(&path);
     crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
-    let cap = if !max_bytes.is_finite() || max_bytes < 0.0 {
-        0
-    } else {
-        max_bytes as u64
-    };
-    crate::logs::read::read_with_cap(&path, cap)
+    let cap = sanitize_cap(max_bytes);
+    tokio::task::spawn_blocking(move || crate::logs::read::read_with_cap(&path, cap))
+        .await
+        .map_err(|e| crate::error::Error::io("<read_log_file>", format!("join: {e}")))?
 }
 
 /// Newest crash report (if any) for `instance_id`. Used by the UI to
@@ -124,6 +144,65 @@ pub async fn diagnose_log(
         Some(d) => Ok(Some(d)),
         None => Ok(None),
     }
+}
+
+/// Cap for `annotate_log_text` input. The live server console holds at
+/// most 500 lines; archives read through `server_read_log` are already
+/// capped upstream. This is a defensive backstop, not a tuning knob.
+const ANNOTATE_TEXT_CAP: usize = 25 * 1024 * 1024;
+
+/// Truncate to at most `cap` bytes, snapping DOWN to a char boundary.
+/// Head-keeping (unlike `read_with_cap`, which keeps the tail) — this is
+/// a never-expected backstop, not a windowing policy.
+fn truncate_at_char_boundary(text: &str, cap: usize) -> &str {
+    if text.len() <= cap {
+        return text;
+    }
+    let mut end = cap;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Per-line inline-hint annotations for a log FILE. Reads the file with
+/// the SAME `max_bytes` clamp as `read_log_file` so the line indices
+/// align with the content the viewer displays (both reads tail on
+/// overflow). Path validation mirrors `read_log_file`.
+#[tauri::command]
+#[specta::specta]
+pub async fn annotate_log_file(
+    app: tauri::AppHandle,
+    path: String,
+    max_bytes: f64,
+    side: crate::logs::diagnose::annotate::AnnotateSide,
+) -> Result<crate::logs::diagnose::annotate::AnnotateResult, crate::error::Error> {
+    let roots = all_instance_log_roots(&app)?;
+    let path = std::path::PathBuf::from(&path);
+    crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
+    let cap = sanitize_cap(max_bytes);
+    // Read + scan off the IPC thread: up to 100 MB × ~43 patterns is real CPU.
+    tokio::task::spawn_blocking(move || {
+        let content = crate::logs::read::read_with_cap(&path, cap)?;
+        Ok(crate::logs::diagnose::annotate::annotate_lines(
+            &content, side,
+        ))
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<annotate_log_file>", format!("join: {e}")))?
+}
+
+/// Per-line inline-hint annotations for TEXT the UI already holds (the
+/// live server console buffer / an archive blob). Input is truncated at
+/// a defensive cap; annotation output is capped inside `annotate_lines`.
+#[tauri::command]
+#[specta::specta]
+pub fn annotate_log_text(
+    text: String,
+    side: crate::logs::diagnose::annotate::AnnotateSide,
+) -> Result<crate::logs::diagnose::annotate::AnnotateResult, crate::error::Error> {
+    let slice = truncate_at_char_boundary(&text, ANNOTATE_TEXT_CAP);
+    Ok(crate::logs::diagnose::annotate::annotate_lines(slice, side))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
@@ -432,9 +511,8 @@ pub async fn execute_repair(
 ) -> Result<(), crate::error::Error> {
     use crate::logs::diagnose::repair::RepairChoice;
 
-    // Reject while a game is running — can't mutate an instance whose files
-    // are in use.
-    if crate::launch::spawn::is_running() {
+    // gates on ANY running instance: repair/verify touch SHARED libraries/versions dirs, not per-instance files
+    if crate::launch::spawn::is_any_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Hold the repair guard for the whole rewrite. ReinstallLoader/Reinstall
@@ -526,12 +604,7 @@ pub async fn open_log_folder(
 ) -> Result<(), crate::error::Error> {
     use tauri_plugin_opener::OpenerExt;
     let path = std::path::PathBuf::from(&path);
-    let all = crate::instances::list_instances_with_status(&app)?;
-    let mut roots: Vec<std::path::PathBuf> = Vec::new();
-    for inst in &all {
-        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
-        roots.append(&mut r);
-    }
+    let roots = all_instance_log_roots(&app)?;
     crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
     let dir = path.parent().ok_or_else(|| {
         crate::error::Error::io(path.display().to_string(), "log file has no parent dir")
@@ -549,12 +622,7 @@ pub async fn open_log_folder(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_log_file(app: tauri::AppHandle, path: String) -> Result<(), crate::error::Error> {
-    let all = crate::instances::list_instances_with_status(&app)?;
-    let mut roots: Vec<std::path::PathBuf> = Vec::new();
-    for inst in &all {
-        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
-        roots.append(&mut r);
-    }
+    let roots = all_instance_log_roots(&app)?;
     crate::logs::retention::delete_one(&std::path::PathBuf::from(&path), &roots)?;
     Ok(())
 }
@@ -580,4 +648,26 @@ pub fn apply_log_retention(
     instance_id: String,
 ) -> Result<crate::logs::retention::CleanupResult, crate::error::Error> {
     crate::logs::retention::apply_from_settings(&app, &instance_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_passes_through_ascii_at_exact_cap() {
+        let text = "abcdef";
+        assert_eq!(truncate_at_char_boundary(text, 6), "abcdef");
+        assert_eq!(truncate_at_char_boundary(text, 4), "abcd");
+    }
+
+    #[test]
+    fn truncate_snaps_down_at_multibyte_boundary() {
+        // "héllo wörld": é = 2 bytes (1..3), ö = 2 bytes (8..10). A cap of
+        // 9 lands mid-ö and must snap DOWN to 8 without panicking.
+        let text = "héllo wörld";
+        assert_eq!(truncate_at_char_boundary(text, 9), "héllo w");
+        // Cap of 2 lands mid-é → snaps to 1.
+        assert_eq!(truncate_at_char_boundary(text, 2), "h");
+    }
 }

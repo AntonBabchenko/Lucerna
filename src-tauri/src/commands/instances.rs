@@ -1,4 +1,5 @@
 use super::*;
+use crate::launch::guardrail::{ram_warning, RamWarning, RAM_WARN_PERCENT};
 
 /// Install (idempotently) the given instance's version. Does NOT launch
 /// — the UI shows an Install button when the instance is not ready and
@@ -140,7 +141,8 @@ pub async fn verify_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    // gates on ANY running instance: repair/verify touch SHARED libraries/versions dirs, not per-instance files
+    if crate::launch::spawn::is_any_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
@@ -161,7 +163,8 @@ pub async fn repair_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::verify::VerifyReport, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    // gates on ANY running instance: repair/verify touch SHARED libraries/versions dirs, not per-instance files
+    if crate::launch::spawn::is_any_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Mark repair-in-progress for the whole rewrite so a concurrent launch is
@@ -179,11 +182,11 @@ pub async fn repair_instance(
     Ok(report)
 }
 
-/// Kill the running Minecraft process if any. Idempotent.
+/// Kill the running Minecraft process for `instance_id` if any. Idempotent.
 #[tauri::command]
 #[specta::specta]
-pub fn stop_minecraft() -> Result<(), crate::error::Error> {
-    crate::launch::stop()
+pub fn stop_instance(instance_id: String) -> Result<(), crate::error::Error> {
+    crate::launch::spawn::stop(&instance_id)
 }
 
 /// All instances on disk with precomputed `ready` status. Sorted
@@ -249,7 +252,7 @@ pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::e
     // Refuse while a game is running: on Windows the live JVM holds OS locks on
     // the instance dir, so remove_dir_all can partially fail and corrupt it.
     // Mirrors the verify/repair guards in this file.
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::delete_instance(&app, &id)
@@ -281,7 +284,7 @@ pub async fn change_instance_mc(
     use crate::instances::{self, LoaderDecision, LoaderOutcome};
     use crate::versions::loaders::{list_loaders, Loader};
 
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     let current = instances::read_instance(&app, &id)?;
@@ -337,7 +340,7 @@ pub fn set_instance_loader(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::set_instance_loader(&app, &id, loader, loader_version)
@@ -409,7 +412,7 @@ pub fn detach_instance_pack(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running() {
+    if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::detach_instance_pack(&app, &id)
@@ -484,4 +487,110 @@ pub fn instance_icon(
     let path = crate::paths::instance_icon_png(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
     crate::instances::icon::read_icon(&path)
+}
+
+// ---------------------------------------------------------------------------
+// Multi-instance launch: soft pre-launch checks + running-instance snapshot
+// ---------------------------------------------------------------------------
+
+/// The active account is already launching a running instance — the same
+/// account can't hold two live online sessions on a real server.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct AccountConflict {
+    pub account_name: String,
+    pub running_instance_id: String,
+    /// The candidate account's kind. The FE picks the warning copy from this:
+    /// Microsoft means a real online-session drop; Offline means only a
+    /// same-name collision risk on `online-mode=false` servers.
+    pub account_kind: crate::accounts::AccountKind,
+}
+
+/// Aggregate of the soft, non-blocking warnings shown before a launch.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PreLaunchCheck {
+    pub resource_warning: Option<RamWarning>,
+    pub account_conflict: Option<AccountConflict>,
+}
+
+/// One currently-running instance, for the aggregate running-instances popover.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct RunningInstanceInfo {
+    pub instance_id: String,
+    pub pid: u32,
+    pub max_heap_mb: u32,
+    /// Unix ms the in-flight playtime session started (for live elapsed
+    /// display). `f64` not `i64` — specta forbids BigInt-style exports; a
+    /// millisecond timestamp is exact in `f64` (well under 2^53).
+    pub started_unix_ms: Option<f64>,
+}
+
+/// Soft, non-blocking pre-launch warnings for `instance_id`. The UI decides
+/// whether to proceed; `launch_instance` does NOT re-run these checks.
+#[tauri::command]
+#[specta::specta]
+pub fn pre_launch_check(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<PreLaunchCheck, crate::error::Error> {
+    // Advisory read-only check: intentionally does NOT call
+    // data_root::reject_if_fallen_back — the real launch_instance still gates on it.
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    // `total_system_ram_mb` is `Option<u64>` (None when the OS query fails).
+    // `clamp_heap_mb` consumes the Option directly; `ram_warning` wants a plain
+    // `u64` and treats 0 as "unknown → never warn", so map None to 0.
+    let total_ram_mb = crate::platform::total_system_ram_mb();
+    let candidate_mb = crate::launch::args::clamp_heap_mb(inst.max_heap_mb, total_ram_mb);
+    // Exclude the candidate itself: a double-click Play (before the button
+    // flips) or a future "restart" must not count its own heap or conflict with
+    // its own account.
+    let running_heaps: Vec<u32> = crate::launch::spawn::running_snapshot()
+        .iter()
+        .filter(|(id, _, _)| id != &instance_id)
+        .map(|(_, _, h)| *h)
+        .collect();
+    let resource_warning = ram_warning(
+        &running_heaps,
+        candidate_mb,
+        total_ram_mb.unwrap_or(0),
+        RAM_WARN_PERCENT,
+    );
+
+    // Determine the candidate account the SAME way `launch_instance` does — the
+    // active account (see `commands::launch_instance`). A missing active account
+    // is not a conflict here (the launch itself will surface `AccountNotSet`).
+    let account_conflict = match crate::accounts::get_active_account(&app)? {
+        Some(acct) => crate::launch::spawn::account_in_use(&acct.id, &instance_id).map(
+            |running_instance_id| AccountConflict {
+                account_name: acct.name.clone(),
+                running_instance_id,
+                account_kind: acct.kind,
+            },
+        ),
+        None => None,
+    };
+
+    Ok(PreLaunchCheck {
+        resource_warning,
+        account_conflict,
+    })
+}
+
+/// Every running instance, for the aggregate popover.
+#[tauri::command]
+#[specta::specta]
+pub fn running_instances() -> Vec<RunningInstanceInfo> {
+    crate::launch::spawn::running_snapshot()
+        .into_iter()
+        .map(|(instance_id, pid, max_heap_mb)| {
+            // i64 session start → f64 for the IPC boundary (lossless for ms).
+            let started_unix_ms =
+                crate::launch::spawn::session_started_ms(&instance_id).map(|ms| ms as f64);
+            RunningInstanceInfo {
+                instance_id,
+                pid,
+                max_heap_mb,
+                started_unix_ms,
+            }
+        })
+        .collect()
 }

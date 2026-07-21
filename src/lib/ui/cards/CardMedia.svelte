@@ -22,7 +22,16 @@
 </script>
 
 {#if iconUrl}
-  <img src={iconUrl} alt="" class={`${BOX[size]} rounded object-cover flex-shrink-0`} />
+  <!-- lazy + async: a 100-card browse page fires up to 100 remote icon
+       fetches on every page/filter change — let below-fold ones wait.
+       The box is CSS-fixed, so lazy-loading causes no layout shift. -->
+  <img
+    src={iconUrl}
+    alt=""
+    loading="lazy"
+    decoding="async"
+    class={`${BOX[size]} rounded object-cover flex-shrink-0`}
+  />
 {:else}
   <div
     class={`${BOX[size]} rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0`}

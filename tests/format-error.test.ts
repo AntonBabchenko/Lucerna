@@ -55,7 +55,9 @@ describe('formatError', () => {
   });
 
   it('formats unit variants without field interpolation', () => {
-    expect(formatError({ kind: 'already_running' })).toBe('Minecraft is already running');
+    expect(formatError({ kind: 'already_running', instance_id: 'abc' })).toBe(
+      'Minecraft is already running',
+    );
     expect(formatError({ kind: 'account_not_set' })).toBe(
       'Account not set — enter your name first',
     );
@@ -176,7 +178,7 @@ describe('formatError', () => {
 
   it('formats a known error in Russian', () => {
     locale.set('ru');
-    const msg = formatError({ kind: 'already_running' });
+    const msg = formatError({ kind: 'already_running', instance_id: 'abc' });
     expect(msg).toBe('Minecraft уже запущен');
     locale.set('en');
   });
@@ -198,7 +200,7 @@ describe('formatError', () => {
       update_install_failed: { kind: 'update_install_failed', details: 'd' },
       hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
       java_spawn: { kind: 'java_spawn', details: 'no java' },
-      already_running: { kind: 'already_running' },
+      already_running: { kind: 'already_running', instance_id: 'abc' },
       account_not_set: { kind: 'account_not_set' },
       instance_busy: { kind: 'instance_busy' },
       auth_cancelled: { kind: 'auth_cancelled' },
@@ -247,6 +249,7 @@ describe('formatError', () => {
       },
       mods_not_found: { kind: 'mods_not_found', source: 'modrinth' },
       mods_platform_unsupported: { kind: 'mods_platform_unsupported', source: 'ftb' },
+      changelog_unsupported: { kind: 'changelog_unsupported' },
       mods_decode: { kind: 'mods_decode', source: 'modrinth', details: 'd' },
       mods_sha1_unavailable: { kind: 'mods_sha1_unavailable' },
       mods_sha1_mismatch: { kind: 'mods_sha1_mismatch', expected: 'a', got: 'b' },
@@ -393,6 +396,16 @@ describe('formatError', () => {
         filename: 'libraryferret.jar',
         required_by: 'bettervillage.jar',
       },
+      server_file_invalid: {
+        kind: 'server_file_invalid',
+        filename: 'C:evil.jar',
+        reason: 'invalid filename',
+      },
+      server_core_unsupported: {
+        kind: 'server_core_unsupported',
+        reason: 'this server core does not load mods',
+      },
+      server_content_stale: { kind: 'server_content_stale' },
       server_name_invalid: { kind: 'server_name_invalid', reason: 'duplicate' },
       upload_not_configured: { kind: 'upload_not_configured' },
       sftp_connect_failed: { kind: 'sftp_connect_failed', details: 'connection refused' },

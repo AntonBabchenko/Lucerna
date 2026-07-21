@@ -97,6 +97,50 @@ pub fn is_running(id: &str) -> bool {
         .contains_key(id)
 }
 
+/// In-process subscribers to a server's console output, keyed by server id.
+/// `spawn_pump` forwards every line here in addition to the `ServerLogLine`
+/// UI event, so backend code can await a specific console response — e.g. the
+/// backup flow waits for the save-confirmation line instead of sleeping a
+/// guessed interval. Entries are dropped wherever the running entry is
+/// removed (exit watcher, force-kill, kill-all) — see [`drop_line_watcher`].
+fn line_watchers() -> &'static Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>> {
+    static W: OnceLock<Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>>> =
+        OnceLock::new();
+    W.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Drop the console-line watcher channel for `id` so subscribers observe
+/// `RecvError::Closed` promptly. MUST be called from every path that removes
+/// the server's running entry — a missed call leaves a subscriber (e.g. a
+/// backup awaiting the save confirmation) blocked until its own timeout.
+fn drop_line_watcher(id: &str) {
+    line_watchers()
+        .lock()
+        .expect("line watchers poisoned")
+        .remove(id);
+}
+
+/// Subscribe to the raw console lines of server `id`. A slow subscriber may
+/// observe `RecvError::Lagged` (bounded channel) — callers scanning for one
+/// marker line should just keep receiving. For a server that is not running,
+/// returns an already-closed receiver instead of resurrecting a map entry the
+/// exit bookkeeping has already cleaned up. (A server exiting between the
+/// check and the insert can still leak one entry until the same id next runs;
+/// that window is a few instructions and the entry is reused on restart.)
+pub fn subscribe_lines(id: &str) -> tokio::sync::broadcast::Receiver<String> {
+    if !is_running(id) {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        drop(tx);
+        return rx;
+    }
+    line_watchers()
+        .lock()
+        .expect("line watchers poisoned")
+        .entry(id.to_string())
+        .or_insert_with(|| tokio::sync::broadcast::channel(256).0)
+        .subscribe()
+}
+
 /// PID of the running server, if any.
 pub fn running_pid(id: &str) -> Option<u32> {
     state()
@@ -122,8 +166,9 @@ pub fn running_ids_snapshot() -> Vec<(String, u32)> {
 /// launcher's exit hook so server children are never orphaned (Bug A root).
 /// Best-effort: the in-memory map is cleared so a repeat call is a no-op.
 pub fn kill_all_running() {
-    for (_id, pid) in running_ids_snapshot() {
+    for (id, pid) in running_ids_snapshot() {
         crate::platform::kill_process_tree(pid);
+        drop_line_watcher(&id);
     }
     state().lock().expect("server state poisoned").clear();
 }
@@ -383,6 +428,8 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
         };
         if was_current {
             crate::servers_runtime::pid::clear_pid(&pid_path);
+            // Drop the console-line watcher channel — subscribers see Closed.
+            drop_line_watcher(&id_exit);
             // Record the exit code so server_list can show "Crashed" vs "Stopped" (#18).
             crate::servers_runtime::exit_state::write(&runtime_path, code);
             let _ = ServerExited {
@@ -407,6 +454,15 @@ where
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(mut f) = log.lock() {
                 let _ = writeln!(f, "{line}");
+            }
+            // Forward to in-process watchers (`subscribe_lines`). Send without
+            // receivers is a cheap no-op error; the per-line lock is uncontended.
+            if let Some(tx) = line_watchers()
+                .lock()
+                .expect("line watchers poisoned")
+                .get(&id)
+            {
+                let _ = tx.send(line.clone());
             }
             let _ = ServerLogLine {
                 server_id: id.clone(),
@@ -468,28 +524,56 @@ pub async fn stop(app: &AppHandle, server_id: &str) -> Result<()> {
         }
         tokio::time::sleep(std::time::Duration::from_millis(GRACEFUL_STOP_INTERVAL_MS)).await;
     }
-    // Timed out: force-kill, then clear our own in-memory state immediately so an
-    // immediate restart()'s start() isn't rejected with ServerAlreadyRunning. The
-    // exit watcher is pid-matched, so it will no-op on the now-gone entry; we
-    // therefore also do its bookkeeping (clear pid, record the forced exit, emit).
-    if let Some(pid) = running_pid(server_id) {
-        crate::platform::kill_process_tree(pid);
-        state()
-            .lock()
-            .expect("server state poisoned")
-            .remove(server_id);
-        if let Ok(base) = crate::paths::app_dir(app) {
-            let p = crate::paths::server_paths(&base, server_id);
-            crate::servers_runtime::pid::clear_pid(&p.pid);
-            crate::servers_runtime::exit_state::write(&p.runtime, -1);
-        }
-        let _ = ServerExited {
-            server_id: server_id.to_string(),
-            code: -1,
-        }
-        .emit(app);
-    }
+    // Timed out: force-kill as a fallback. The graceful `stop` didn't take (a
+    // still-loading or hung server never processed it), so escalate exactly like
+    // the explicit `kill()` — same bookkeeping, same -1 stop sentinel.
+    force_kill_tracked(app, server_id);
     Ok(())
+}
+
+/// Force-stop NOW, skipping the graceful `stop` handshake: terminate the process
+/// immediately instead of waiting out `GRACEFUL_STOP_POLLS`. Mirrors `stop()`'s
+/// dispatch — a tracked server goes through [`force_kill_tracked`]; an untracked
+/// (adopted) one through [`stop_persisted`]. Records the `-1` stop sentinel, so a
+/// force-stopped server reads as "Stopped", not "Crashed". Safe to call while a
+/// graceful `stop()` is mid-wait: it removes the map entry, so that loop's next
+/// poll sees the server gone and returns `Ok` (no double force-kill).
+pub fn kill(app: &AppHandle, server_id: &str) -> Result<()> {
+    if !is_running(server_id) {
+        return stop_persisted(app, server_id);
+    }
+    force_kill_tracked(app, server_id);
+    Ok(())
+}
+
+/// Force-kill a tracked-and-running server's process tree and perform the exit
+/// bookkeeping the pid-matched exit watcher would otherwise do (it no-ops once
+/// the map entry is gone): clear the in-memory entry + persisted PID, record the
+/// force-kill sentinel exit (`-1`), and emit `ServerExited`. Shared by `stop()`'s
+/// graceful-timeout fallback and `kill()`. No-op if the server isn't tracked.
+fn force_kill_tracked(app: &AppHandle, server_id: &str) {
+    let Some(pid) = running_pid(server_id) else {
+        return;
+    };
+    crate::platform::kill_process_tree(pid);
+    state()
+        .lock()
+        .expect("server state poisoned")
+        .remove(server_id);
+    // The exit watcher no-ops once the map entry is gone (was_current=false),
+    // so its watcher cleanup must happen here too — a subscriber mid-await
+    // (backup waiting for the save confirmation) must see Closed, not hang.
+    drop_line_watcher(server_id);
+    if let Ok(base) = crate::paths::app_dir(app) {
+        let p = crate::paths::server_paths(&base, server_id);
+        crate::servers_runtime::pid::clear_pid(&p.pid);
+        crate::servers_runtime::exit_state::write(&p.runtime, -1);
+    }
+    let _ = ServerExited {
+        server_id: server_id.to_string(),
+        code: -1,
+    }
+    .emit(app);
 }
 
 /// Stop a server that is NOT tracked in this session's map by force-killing its
@@ -525,24 +609,12 @@ pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
 }
 
 /// True iff `name` is a single safe path component (no separators, no `..`,
-/// no drive/root prefix). Rejecting anything that isn't exactly one
-/// `Component::Normal` blocks `/`, `\`, `..`, AND Windows drive-relative names
-/// like `C:evil.jar` (which `Path::join` would otherwise resolve OUTSIDE the
-/// mods dir by discarding the base).
+/// no drive/root prefix) to join under `mods/`/`plugins/`. Delegates to the
+/// shared [`crate::pathsafe::is_safe_filename`] gate (which documents the
+/// cross-OS `\`/`:` screening rationale) so the client and server screens
+/// can't drift.
 pub(crate) fn is_safe_mod_name(name: &str) -> bool {
-    // This guard screens a name (from a directory listing or user input) before
-    // it is joined under `mods/`, so it must reject every escape vector on
-    // *every* host OS — not just the one we happen to be running on. `\` is a
-    // path separator and `C:` a drive prefix on Windows, but both are legal
-    // filename characters on Unix, so `std::path::Path` parsing alone would let
-    // `a\b.jar` / `C:evil.jar` slip through on Unix. Screen those explicitly.
-    if name.contains('\\') || name.contains(':') {
-        return false;
-    }
-    // On the current platform, `Path::components` then catches `/`, `..`, `.`,
-    // absolute paths, and empty: a safe name is exactly one Normal component.
-    let mut comps = std::path::Path::new(name).components();
-    matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none()
+    crate::pathsafe::is_safe_filename(name)
 }
 
 #[cfg(test)]

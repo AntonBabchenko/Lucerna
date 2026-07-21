@@ -16,6 +16,7 @@ const decideModInstall = vi.fn();
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsVersions: (...a: unknown[]) => modsVersions(...a),
     modsResolveInstallPlan: (...a: unknown[]) => modsResolveInstallPlan(...a),
     modsInstallWithDeps: (...a: unknown[]) => modsInstallWithDeps(...a),

@@ -73,12 +73,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::install_instance,
             commands::launch_instance,
             commands::instance_quick_play_support,
-            commands::stop_minecraft,
+            commands::stop_instance,
             commands::list_log_files,
             commands::read_log_file,
             commands::latest_crash,
             commands::diagnose_log,
             commands::diagnose_latest,
+            commands::annotate_log_file,
+            commands::annotate_log_text,
             commands::build_repair_plan,
             commands::execute_repair,
             commands::share_log_to_mclogs,
@@ -135,6 +137,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_instance_icon,
             commands::clear_instance_icon,
             commands::instance_icon,
+            commands::pre_launch_check,
+            commands::running_instances,
             commands::get_playtime,
             commands::window_set_compact,
             commands::window_set_expanded_floor,
@@ -143,6 +147,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_project,
             commands::mods_projects,
             commands::mods_versions,
+            commands::mods_changelog,
             commands::mods_plugin_versions,
             commands::mods_filter_satisfying,
             commands::mods_resolve_deps,
@@ -217,6 +222,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 2: process management):
             commands::server_start,
             commands::server_stop,
+            commands::server_kill,
             commands::server_restart,
             commands::server_send_command,
             // Own server (Plan 3: properties read/write):
@@ -224,6 +230,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_write_properties,
             // Own server (Plan 3: mod management + folder open):
             commands::server_list_mods,
+            commands::server_list_mods_enriched,
+            commands::server_enrich_mods,
+            commands::server_enrich_plugins,
             commands::server_delete_mod,
             commands::server_open_folder,
             // Own server (Plan 4: diagnosis + repair):
@@ -283,19 +292,26 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (S2: mod content management — browse-install, enable,
             // local install, datapacks):
             commands::server_install_mod,
+            commands::server_check_mod_updates,
+            commands::server_update_one,
             commands::server_enable_mod,
+            commands::server_disable_mod,
             commands::server_install_local,
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
             // Own server (plugin management: Paper/Purpur runtime/plugins/):
             commands::server_list_plugins,
+            commands::server_list_plugins_enriched,
             commands::server_install_plugin,
+            commands::server_check_plugin_updates,
+            commands::server_update_plugin_one,
             commands::server_install_plugin_local,
             commands::server_enable_plugin,
             commands::server_disable_plugin,
             commands::server_delete_plugin,
             commands::server_open_plugins_folder,
+            commands::server_open_mods_folder,
             // Own server (core switch: Vanilla->Paper/Purpur, Paper<->Purpur):
             commands::server_switch_core,
             commands::server_core_versions,
@@ -528,6 +544,9 @@ pub fn run() {
             // hold its world lock.
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 crate::servers_runtime::runtime::kill_all_running();
+                // Same for client Minecraft processes: never orphan a running
+                // game when the launcher exits.
+                crate::launch::spawn::kill_all_running();
                 if let Ok(dir) = crate::paths::servers_dir(app_handle) {
                     crate::servers_runtime::runtime::kill_persisted_orphans(&dir);
                 }

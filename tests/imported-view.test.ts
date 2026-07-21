@@ -12,6 +12,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

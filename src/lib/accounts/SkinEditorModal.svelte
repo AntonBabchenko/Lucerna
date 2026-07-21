@@ -5,7 +5,8 @@
   // from); both views write it and flip skin.map.needsUpdate. All logic lives
   // in the pure skin-editor/* modules — this file only wires DOM and WebGL.
   // See the skin-editor spec (docs/superpowers/specs, local-only).
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -13,10 +14,16 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { commands, type Account, type SkinVariant } from '$lib/ipc/bindings';
   import type { SkinViewer } from 'skinview3d';
-  import type { Object3D } from 'three';
+  import type { Mesh, Object3D, Vector3 } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
-  import { allFaceRects, faceRectAt, mirrorInFace } from '$lib/accounts/skin-editor/atlas';
   import {
+    allFaceRects,
+    faceRectAt,
+    mirrorBlockAnchor,
+    mirrorTexel,
+  } from '$lib/accounts/skin-editor/atlas';
+  import {
+    clearOutsideAtlas,
     dodgeBurn,
     eraser,
     fill,
@@ -25,15 +32,25 @@
     pickColour,
   } from '$lib/accounts/skin-editor/tools';
   import { SkinHistory } from '$lib/accounts/skin-editor/history';
-  import { pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import { footprintForTexel, pickTexel } from '$lib/accounts/skin-editor/paint3d';
+  import {
+    createBrushCursor,
+    disposeBrushCursor,
+    updateBrushCursor,
+  } from '$lib/accounts/skin-editor/brush-cursor';
+  import { createCenterlineGuide, disposeGuide } from '$lib/accounts/skin-editor/centerline';
+  import { POSE_NAMES, resolvePose, type PoseName } from '$lib/accounts/skin-editor/poses';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import {
     clampPanelWidth,
+    companionCell,
     PANEL_KEY_STEP,
     PANEL_MAX_WIDTH,
     PANEL_MIN_WIDTH,
   } from '$lib/accounts/skin-editor/panel-resize';
+  import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
+  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
 
   let {
     account,
@@ -42,7 +59,7 @@
     onClose,
     onApplied,
   }: {
-    account: Account;
+    account: Account | null;
     initialSkinB64: string | null;
     initialVariant: SkinVariant;
     onClose: () => void;
@@ -61,6 +78,7 @@
   let colour = $state<Rgba>([224, 224, 224, 255]);
   let brush = $state(1);
   let mirror = $state(false);
+  let pose = $state<PoseName>('default');
   let showGrid = $state(true);
   let fullscreen = $state(false);
   let bg = $state<'dark' | 'light' | 'mid'>('dark');
@@ -70,33 +88,32 @@
   let dirty = $state(false);
   let canUndo = $state(false);
   let canRedo = $state(false);
-  let zoom = $state(4); // 2D companion texel size in px (4 / 6 / 8)
+  let companionBoxWidth = $state(240); // measured companion box width (px), drives backing
+  let resizeRowWidth = $state(880); // measured width of the 3D↔panel row
+  // Let the panel grow to half the row (so in fullscreen the border reaches the
+  // screen middle), but never below the fixed 640 default.
+  let maxPanelWidth = $derived(Math.max(PANEL_MAX_WIDTH, Math.floor(resizeRowWidth / 2)));
 
-  const isMicrosoft = $derived(account.kind === 'microsoft');
+  const isMicrosoft = $derived(account?.kind === 'microsoft');
   const history = new SkinHistory(50);
 
   const variantToModel = (v: SkinVariant): 'default' | 'slim' =>
     v === 'slim' ? 'slim' : 'default';
-  const PALETTE: Rgba[] = [
-    [224, 224, 224, 255],
-    [60, 60, 60, 255],
-    [176, 125, 86, 255], // skin tone
-    [122, 82, 52, 255], // darker skin tone
-    [70, 49, 31, 255], // hair brown
-    [46, 122, 158, 255], // shirt blue
-    [58, 74, 138, 255], // trouser blue
-    [163, 45, 45, 255], // red
-    [59, 109, 17, 255], // green
-    [239, 159, 39, 255], // amber
-  ];
 
   let viewerCanvas: HTMLCanvasElement | null = null;
   let viewer: SkinViewer | null = null;
+  let centerline: Mesh | null = null;
   let viewerBuilding = false;
   let disposeControls: (() => void) | null = null;
   let viewportBox: HTMLElement | null = null;
   let panelWidth = $state(300);
   let companion: HTMLCanvasElement | null = null;
+  let companionBox: HTMLElement | null = null;
+  let companionZoom = $state(1); // 2D companion magnification (1x–8x), wheel-controlled
+  let companionPanning = false;
+  let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+  let hoverTexel: { x: number; y: number } | null = null; // brush footprint preview anchor
+  let brushCursor: Mesh | null = null; // per-texel footprint highlight on the model surface
   let painting = false;
   let companionPainting = false;
 
@@ -108,6 +125,67 @@
     Number.parseInt(hex.slice(5, 7), 16),
     255,
   ];
+
+  // --- custom palette --------------------------------------------------------
+  let editIndex = $state<number | null>(null);
+  let editColorInput: HTMLInputElement | null = null;
+  let dragIndex: number | null = null;
+
+  function addCurrentColour(): void {
+    skinPalette.add(colour);
+  }
+
+  async function beginEditSwatch(i: number): Promise<void> {
+    editIndex = i;
+    await tick(); // let the hidden picker's value bind before we open it
+    editColorInput?.click();
+  }
+
+  function onEditColour(hex: string): void {
+    if (editIndex !== null) skinPalette.replace(editIndex, hexToRgba(hex));
+    editIndex = null;
+  }
+
+  function resetPalette(): void {
+    if (window.confirm($t('skinEditor.paletteResetConfirm'))) skinPalette.reset();
+  }
+
+  function swatchMenu(i: number): ContextMenuItem[] {
+    return [
+      { label: $t('skinEditor.paletteEdit'), icon: 'edit', onSelect: () => beginEditSwatch(i) },
+      {
+        label: $t('skinEditor.paletteMoveLeft'),
+        icon: 'chevronLeft',
+        disabled: i === 0,
+        onSelect: () => skinPalette.move(i, i - 1),
+      },
+      {
+        label: $t('skinEditor.paletteMoveRight'),
+        icon: 'chevronRight',
+        disabled: i === skinPalette.swatches.length - 1,
+        onSelect: () => skinPalette.move(i, i + 1),
+      },
+      {
+        label: $t('skinEditor.paletteRemove'),
+        icon: 'trash',
+        danger: true,
+        separatorBefore: true,
+        onSelect: () => skinPalette.remove(i),
+      },
+    ];
+  }
+
+  function onSwatchDrop(target: number): void {
+    if (dragIndex !== null && dragIndex !== target) skinPalette.move(dragIndex, target);
+    dragIndex = null;
+  }
+
+  const POSE_LABEL: Record<PoseName, TranslationKey> = {
+    default: 'skinEditor.poseDefault',
+    tpose: 'skinEditor.poseTpose',
+    walk: 'skinEditor.poseWalk',
+    sit: 'skinEditor.poseSit',
+  };
 
   const skinCtx = (): CanvasRenderingContext2D | null =>
     viewer?.skinCanvas.getContext('2d', { willReadFrequently: true }) ?? null;
@@ -180,8 +258,21 @@
       await viewer.loadSkin(url, { model: variantToModel(variant) });
       renderCompanion();
       fitViewport();
+      syncCenterline();
+      applyPose(pose);
     } finally {
       viewerBuilding = false;
+    }
+  }
+
+  function syncCenterline(): void {
+    if (!viewer) return;
+    if (mirror && !centerline) {
+      centerline = createCenterlineGuide();
+      viewer.scene.add(centerline);
+    } else if (!mirror && centerline) {
+      disposeGuide(centerline);
+      centerline = null;
     }
   }
 
@@ -190,6 +281,14 @@
     void buildViewer();
     return {
       destroy() {
+        if (centerline) {
+          disposeGuide(centerline);
+          centerline = null;
+        }
+        if (brushCursor) {
+          disposeBrushCursor(brushCursor);
+          brushCursor = null;
+        }
         disposeControls?.();
         disposeControls = null;
         viewer?.dispose();
@@ -218,6 +317,25 @@
     };
   }
 
+  function observeResizeRow(node: HTMLElement) {
+    const ro = new ResizeObserver(() => {
+      const w = node.clientWidth;
+      resizeRowWidth = w;
+      // Re-clamp when the window shrinks or fullscreen is toggled off.
+      panelWidth = clampPanelWidth(
+        panelWidth,
+        PANEL_MIN_WIDTH,
+        Math.max(PANEL_MAX_WIDTH, Math.floor(w / 2)),
+      );
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+      },
+    };
+  }
+
   function startPanelResize(e: PointerEvent): void {
     if (e.button !== 0) return;
     const startX = e.clientX;
@@ -226,7 +344,11 @@
     handle.setPointerCapture(e.pointerId);
     const onMove = (ev: PointerEvent): void => {
       // Panel is on the right: dragging left (smaller clientX) widens it.
-      panelWidth = clampPanelWidth(startWidth - (ev.clientX - startX));
+      panelWidth = clampPanelWidth(
+        startWidth - (ev.clientX - startX),
+        PANEL_MIN_WIDTH,
+        maxPanelWidth,
+      );
     };
     const onUp = (ev: PointerEvent): void => {
       if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
@@ -240,8 +362,10 @@
   }
 
   function onPanelResizeKey(e: KeyboardEvent): void {
-    if (e.key === 'ArrowLeft') panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP);
-    else if (e.key === 'ArrowRight') panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP);
+    if (e.key === 'ArrowLeft')
+      panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
+    else if (e.key === 'ArrowRight')
+      panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
     else return;
     e.preventDefault();
   }
@@ -291,10 +415,15 @@
           return;
       }
     };
-    paintOne(x, y);
+    const off = Math.floor((brush - 1) / 2);
+    if (tool === 'fill') paintOne(x, y);
+    else paintOne(x - off, y - off);
     if (mirror) {
-      const m = mirrorInFace(x, y, variant);
-      if (m.x !== x || m.y !== y) paintOne(m.x, m.y);
+      const m = mirrorTexel(x, y, variant);
+      if (m && (m.x !== x || m.y !== y)) {
+        const anchor = tool === 'fill' ? m : mirrorBlockAnchor(m, brush);
+        paintOne(anchor.x, anchor.y);
+      }
     }
     ctx.putImageData(img, 0, 0);
     const tex = viewer.playerObject.skin.map;
@@ -338,13 +467,31 @@
     // controls.enabled is false — so the model can't rotate mid-paint.
     viewer.controls.enabled = false;
     painting = true;
+    syncBrushCursor(null);
     viewerCanvas?.setPointerCapture(e.pointerId);
     beginStroke();
     paintFromViewerEvent(e);
   }
 
   function onViewerMove(e: PointerEvent): void {
-    if (painting) paintFromViewerEvent(e);
+    if (painting) {
+      paintFromViewerEvent(e);
+      return;
+    }
+    if (!viewer || !viewerCanvas) return;
+    if (tool !== 'pencil' && tool !== 'eraser') {
+      clearHover();
+      return;
+    }
+    const texel = pickTexel(
+      viewer.camera,
+      activeMeshes(),
+      e.clientX,
+      e.clientY,
+      viewerCanvas.getBoundingClientRect(),
+    );
+    setHoverTexel(texel);
+    syncBrushCursor(texel ? footprintQuads(texel, brush) : null);
   }
 
   function onViewerUp(e: PointerEvent): void {
@@ -359,7 +506,8 @@
 
   function renderCompanion(): void {
     if (!companion || !viewer) return;
-    const size = SKIN_SIZE * zoom;
+    const cell = companionCell(companionBoxWidth);
+    const size = SKIN_SIZE * cell;
     if (companion.width !== size) {
       companion.width = size;
       companion.height = size;
@@ -369,18 +517,138 @@
     c.imageSmoothingEnabled = false;
     c.clearRect(0, 0, size, size);
     c.drawImage(viewer.skinCanvas, 0, 0, SKIN_SIZE, SKIN_SIZE, 0, 0, size, size);
-    if (showGrid && zoom >= 4) {
-      c.strokeStyle = 'rgba(128,128,128,0.25)';
+    if (showGrid && cell >= 4) {
+      c.strokeStyle = 'rgba(128,128,128,0.15)';
       c.lineWidth = 1;
       c.beginPath();
       for (let i = 1; i < SKIN_SIZE; i++) {
-        c.moveTo(i * zoom + 0.5, 0);
-        c.lineTo(i * zoom + 0.5, size);
-        c.moveTo(0, i * zoom + 0.5);
-        c.lineTo(size, i * zoom + 0.5);
+        c.moveTo(i * cell + 0.5, 0);
+        c.lineTo(i * cell + 0.5, size);
+        c.moveTo(0, i * cell + 0.5);
+        c.lineTo(size, i * cell + 0.5);
       }
       c.stroke();
     }
+    if (mirror) {
+      c.strokeStyle = 'rgba(96,165,250,0.6)';
+      c.lineWidth = 1;
+      c.beginPath();
+      for (const r of allFaceRects(variant)) {
+        if (r.part !== 'head' && r.part !== 'body') continue;
+        if (r.face !== 'front' && r.face !== 'back' && r.face !== 'top' && r.face !== 'bottom') {
+          continue;
+        }
+        const cx = (r.x + r.w / 2) * cell;
+        c.moveTo(cx + 0.5, r.y * cell);
+        c.lineTo(cx + 0.5, (r.y + r.h) * cell);
+      }
+      c.stroke();
+    }
+    if (hoverTexel && (tool === 'pencil' || tool === 'eraser')) {
+      const off = Math.floor((brush - 1) / 2);
+      const bx = (hoverTexel.x - off) * cell;
+      const by = (hoverTexel.y - off) * cell;
+      const bs = brush * cell;
+      // Thin 1px outline in difference mode: always contrasts, never bulky.
+      c.save();
+      c.globalCompositeOperation = 'difference';
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = 1;
+      c.strokeRect(bx + 0.5, by + 0.5, bs - 1, bs - 1);
+      c.restore();
+    }
+  }
+
+  function setHoverTexel(t: { x: number; y: number } | null): void {
+    if (t?.x === hoverTexel?.x && t?.y === hoverTexel?.y) return;
+    hoverTexel = t;
+    renderCompanion();
+  }
+
+  function syncBrushCursor(quads: Vector3[][] | null): void {
+    if (!viewer) return;
+    if (quads && quads.length > 0) {
+      if (!brushCursor) {
+        brushCursor = createBrushCursor();
+        viewer.scene.add(brushCursor);
+      }
+      updateBrushCursor(brushCursor, quads);
+    } else if (brushCursor) {
+      disposeBrushCursor(brushCursor);
+      brushCursor = null;
+    }
+  }
+
+  // World-space quads for every texel of the centred brush footprint, each placed
+  // on its own model face — so the highlight wraps around edges. Off-atlas or
+  // hidden-layer texels are skipped.
+  function footprintQuads(center: { x: number; y: number }, size: number): Vector3[][] {
+    const off = Math.floor((size - 1) / 2);
+    const quads: Vector3[][] = [];
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        const tx = center.x - off + dx;
+        const ty = center.y - off + dy;
+        if (tx < 0 || tx >= SKIN_SIZE || ty < 0 || ty >= SKIN_SIZE) continue;
+        const mesh = meshForTexel({ x: tx, y: ty });
+        if (!mesh) continue;
+        const corners = footprintForTexel(mesh, { x: tx, y: ty }, 1);
+        if (corners) quads.push(corners);
+      }
+    }
+    return quads;
+  }
+
+  function clearHover(): void {
+    setHoverTexel(null);
+    syncBrushCursor(null);
+  }
+
+  // The visible layer mesh that a texel lives on, for outlining a 2D-hovered
+  // brush on the 3D model. Null if the texel is off-atlas or its mesh is hidden.
+  function meshForTexel(texel: { x: number; y: number }): Mesh | null {
+    if (!viewer) return null;
+    const r = faceRectAt(texel.x, texel.y, variant);
+    if (!r) return null;
+    const s = viewer.playerObject.skin;
+    const parts = {
+      head: s.head,
+      body: s.body,
+      rightArm: s.rightArm,
+      leftArm: s.leftArm,
+      rightLeg: s.rightLeg,
+      leftLeg: s.leftLeg,
+    };
+    const mesh = (r.layer === 'base' ? parts[r.part].innerLayer : parts[r.part].outerLayer) as Mesh;
+    return mesh.visible ? mesh : null;
+  }
+
+  function observeCompanionBox(node: HTMLElement) {
+    companionBox = node;
+    companionBoxWidth = node.clientWidth;
+    const ro = new ResizeObserver(() => {
+      companionBoxWidth = node.clientWidth;
+      renderCompanion();
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+        companionBox = null;
+      },
+    };
+  }
+
+  function onCompanionWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.25 : 0.8;
+    companionZoom = Math.min(8, Math.max(1, companionZoom * factor));
+  }
+
+  function toggleMirror(): void {
+    mirror = !mirror;
+    renderCompanion();
+    syncCenterline();
   }
 
   function companionTexel(e: PointerEvent): { x: number; y: number } | null {
@@ -393,7 +661,23 @@
   }
 
   function onCompanionDown(e: PointerEvent): void {
-    if (busy || tool === 'pan') return;
+    if (busy) return;
+    // Left button draws; right/middle (or the pan tool) pan the zoomed view.
+    const wantsPan = e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'pan');
+    if (wantsPan) {
+      if (!companionBox) return;
+      e.preventDefault(); // suppress middle-button autoscroll / text selection
+      companionPanning = true;
+      companion?.setPointerCapture(e.pointerId);
+      panStart = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: companionBox.scrollLeft,
+        scrollTop: companionBox.scrollTop,
+      };
+      return;
+    }
+    if (e.button !== 0) return;
     companionPainting = true;
     companion?.setPointerCapture(e.pointerId);
     beginStroke();
@@ -402,12 +686,25 @@
   }
 
   function onCompanionMove(e: PointerEvent): void {
-    if (!companionPainting) return;
+    if (companionPanning && companionBox) {
+      companionBox.scrollLeft = panStart.scrollLeft - (e.clientX - panStart.x);
+      companionBox.scrollTop = panStart.scrollTop - (e.clientY - panStart.y);
+      return;
+    }
     const texel = companionTexel(e);
+    const brushHover = tool === 'pencil' || tool === 'eraser' ? texel : null;
+    setHoverTexel(brushHover);
+    syncBrushCursor(brushHover ? footprintQuads(brushHover, brush) : null);
+    if (!companionPainting) return;
     if (texel) applyToolAt(texel.x, texel.y);
   }
 
   function onCompanionUp(e: PointerEvent): void {
+    if (companionPanning) {
+      companionPanning = false;
+      companion?.releasePointerCapture(e.pointerId);
+      return;
+    }
     if (!companionPainting) return;
     companionPainting = false;
     companion?.releasePointerCapture(e.pointerId);
@@ -442,6 +739,24 @@
     if (variant === v || !viewer) return;
     variant = v;
     viewer.playerObject.skin.modelType = variantToModel(v);
+    applyPose(pose);
+  }
+
+  function applyPose(name: PoseName): void {
+    if (!viewer) return;
+    const rot = resolvePose(name);
+    const s = viewer.playerObject.skin;
+    s.head.rotation.set(rot.head.x, rot.head.y, rot.head.z);
+    s.body.rotation.set(rot.body.x, rot.body.y, rot.body.z);
+    s.rightArm.rotation.set(rot.rightArm.x, rot.rightArm.y, rot.rightArm.z);
+    s.leftArm.rotation.set(rot.leftArm.x, rot.leftArm.y, rot.leftArm.z);
+    s.rightLeg.rotation.set(rot.rightLeg.x, rot.rightLeg.y, rot.rightLeg.z);
+    s.leftLeg.rotation.set(rot.leftLeg.x, rot.leftLeg.y, rot.leftLeg.z);
+  }
+
+  function setPose(name: PoseName): void {
+    pose = name;
+    applyPose(name);
   }
 
   function applyVisibility(): void {
@@ -461,13 +776,6 @@
   function toggleOverlay(): void {
     overlayVisible = !overlayVisible;
     applyVisibility();
-  }
-
-  function setZoom(delta: number): void {
-    const steps = [4, 6, 8];
-    const i = steps.indexOf(zoom);
-    zoom = steps[Math.min(steps.length - 1, Math.max(0, i + delta))];
-    renderCompanion();
   }
 
   // --- import / export / apply -------------------------------------------------
@@ -505,17 +813,37 @@
     input.click();
   }
 
+  // Wipe painted texels that fall outside the UV layout (atlas gaps that never
+  // render) before saving, so exported/uploaded skins carry no dead pixels.
+  // Undoable — snapshots the pre-cleanup canvas.
+  function cleanupTexture(): void {
+    const ctx = skinCtx();
+    if (!ctx || !viewer) return;
+    const img = ctx.getImageData(0, 0, SKIN_SIZE, SKIN_SIZE);
+    if (!clearOutsideAtlas(img.data, allFaceRects(variant))) return;
+    beginStroke();
+    ctx.putImageData(img, 0, 0);
+    const tex = viewer.playerObject.skin.map;
+    if (tex) tex.needsUpdate = true;
+    dirty = true;
+    syncHistoryFlags();
+    renderCompanion();
+  }
+
   function exportPng(): void {
     if (!viewer) return;
+    cleanupTexture();
     const url = viewer.skinCanvas.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${account.name}-skin.png`;
+    a.download = account ? `${account.name}-skin.png` : 'skin.png';
     a.click();
   }
 
   async function apply(): Promise<void> {
-    if (busy || !isMicrosoft || !viewer) return;
+    if (busy || !viewer) return;
+    if (account?.kind !== 'microsoft') return; // narrows account to non-null
+    cleanupTexture();
     busy = true;
     saveError = null;
     applied = false;
@@ -560,14 +888,16 @@
   closeOnBackdrop={false}
   panelClass={fullscreen
     ? 'w-[calc(100vw-2rem)] h-[calc(100vh-2rem)] max-w-none p-0 flex flex-col'
-    : 'w-[880px] max-w-[calc(100vw-2rem)] p-0 flex flex-col'}
+    : 'w-[880px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] p-0 flex flex-col'}
 >
   <div class="flex items-center px-5 py-3 border-b border-border-subtle shrink-0">
     <div>
       <h3 id="skin-editor-title" class="font-medium text-primary text-base">
         {$t('skinEditor.title')}
       </h3>
-      <p class="text-xs text-muted">{account.name}</p>
+      {#if account}
+        <p class="text-xs text-muted">{account.name}</p>
+      {/if}
     </div>
     <div class="ml-auto flex items-center gap-1.5 text-secondary">
       <button
@@ -579,18 +909,11 @@
       >
         <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
       </button>
-      <button
-        type="button"
-        class="btn-icon btn-icon-sm"
-        aria-label={$t('common.close')}
-        onclick={requestClose}
-      >
-        <Icon name="close" size={18} />
-      </button>
+      <CloseButton class="btn-icon-sm" onClick={requestClose} />
     </div>
   </div>
 
-  <div class="flex min-h-0 flex-1">
+  <div use:observeResizeRow class="flex min-h-0 flex-1">
     <!-- Tool rail -->
     <div class="flex flex-col gap-1 p-2 border-r border-border-subtle text-secondary shrink-0">
       {#each TOOLS as tdef (tdef.id)}
@@ -614,7 +937,7 @@
         aria-pressed={mirror}
         aria-label={$t('skinEditor.toolMirror')}
         use:tooltip={$t('skinEditor.toolMirror')}
-        onclick={() => (mirror = !mirror)}
+        onclick={toggleMirror}
       >
         <Icon name="mirror" size={16} />
       </button>
@@ -657,47 +980,10 @@
           onpointermove={onViewerMove}
           onpointerup={onViewerUp}
           onpointercancel={onViewerUp}
+          onpointerleave={clearHover}
         ></canvas>
       </div>
       <span class="text-xs text-muted text-center">{$t('skinEditor.dragToPaint')}</span>
-      <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs text-muted">{$t('skinEditor.colour')}</span>
-        <span
-          class="w-6 h-6 rounded border border-border-emphasis inline-block"
-          style="background:{rgbaToHex(colour)}"
-        ></span>
-        {#each PALETTE as swatch (rgbaToHex(swatch))}
-          <button
-            type="button"
-            class="w-[18px] h-[18px] rounded border border-border-subtle"
-            style="background:{rgbaToHex(swatch)}"
-            aria-label={rgbaToHex(swatch)}
-            onclick={() => (colour = swatch)}
-          ></button>
-        {/each}
-        <label class="inline-flex items-center gap-1 text-xs text-secondary">
-          <input
-            type="color"
-            value={rgbaToHex(colour)}
-            oninput={(e) => (colour = hexToRgba(e.currentTarget.value))}
-            aria-label={$t('skinEditor.customColour')}
-            class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
-          />
-        </label>
-        <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
-        {#each [1, 2, 3] as b (b)}
-          <button
-            type="button"
-            class="px-2 py-0.5 text-xs rounded border {brush === b
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={brush === b}
-            onclick={() => (brush = b)}
-          >
-            {b}
-          </button>
-        {/each}
-      </div>
     </div>
 
     <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
@@ -710,7 +996,7 @@
       aria-label={$t('skinEditor.resizeViewport')}
       aria-valuenow={panelWidth}
       aria-valuemin={PANEL_MIN_WIDTH}
-      aria-valuemax={PANEL_MAX_WIDTH}
+      aria-valuemax={maxPanelWidth}
       tabindex={0}
       class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
       onpointerdown={startPanelResize}
@@ -722,44 +1008,149 @@
       <div>
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
-          <span class="ml-auto flex gap-0.5">
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              aria-label={$t('skinEditor.zoomOut')}
-              use:tooltip={$t('skinEditor.zoomOut')}
-              onclick={() => setZoom(-1)}
-            >
-              <Icon name="zoomOut" size={14} />
-            </button>
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              aria-label={$t('skinEditor.zoomIn')}
-              use:tooltip={$t('skinEditor.zoomIn')}
-              onclick={() => setZoom(1)}
-            >
-              <Icon name="zoomIn" size={14} />
-            </button>
-          </span>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm ml-auto"
+            class:text-accent={showGrid}
+            aria-pressed={showGrid}
+            aria-label={$t('skinEditor.grid')}
+            use:tooltip={$t('skinEditor.grid')}
+            onclick={() => {
+              showGrid = !showGrid;
+              renderCompanion();
+            }}
+          >
+            <Icon name="grid" size={14} />
+          </button>
         </div>
-        <div class="max-h-[264px] max-w-[264px] overflow-auto rounded border border-border-subtle">
+        <div
+          use:observeCompanionBox
+          class="w-full max-w-[calc(100vh-19rem)] aspect-square mx-auto overflow-auto rounded border border-border-subtle"
+        >
           <canvas
             bind:this={companion}
-            class="block touch-none"
-            style="image-rendering:pixelated"
+            class="block touch-none {tool === 'pan'
+              ? 'cursor-grab active:cursor-grabbing'
+              : 'cursor-crosshair'}"
+            style="image-rendering:pixelated;aspect-ratio:1/1;width:{companionZoom * 100}%"
             aria-label={$t('skinEditor.companionHeading')}
+            onwheel={onCompanionWheel}
+            oncontextmenu={(e) => e.preventDefault()}
             onpointerdown={onCompanionDown}
             onpointermove={onCompanionMove}
             onpointerup={onCompanionUp}
             onpointercancel={onCompanionUp}
+            onpointerleave={clearHover}
           ></canvas>
         </div>
         <p class="text-[11px] text-muted mt-1">{$t('skinEditor.companionHint')}</p>
       </div>
+    </div>
+  </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.paintOn')}</div>
+  <div class="flex flex-col gap-3 px-5 py-3 border-t border-border-subtle shrink-0">
+    <!-- Colour + brush -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-muted">{$t('skinEditor.colour')}</span>
+      <span
+        class="w-6 h-6 rounded border border-border-emphasis inline-block"
+        style="background:{rgbaToHex(colour)}"
+      ></span>
+      <div class="flex items-center gap-1 flex-wrap">
+        {#each skinPalette.swatches as swatch, i (i)}
+          <ContextMenu items={swatchMenu(i)} ariaLabel={$t('skinEditor.paletteSwatchMenu')}>
+            <button
+              type="button"
+              class="w-[18px] h-[18px] rounded border border-border-subtle {rgbaToHex(swatch) ===
+              rgbaToHex(colour)
+                ? 'outline outline-2 outline-accent -outline-offset-2'
+                : ''}"
+              style="background:{rgbaToHex(swatch)}"
+              draggable="true"
+              aria-label={rgbaToHex(swatch)}
+              onclick={() => (colour = swatch)}
+              ondragstart={() => (dragIndex = i)}
+              ondragover={(e) => e.preventDefault()}
+              ondrop={() => onSwatchDrop(i)}
+            ></button>
+          </ContextMenu>
+        {/each}
+        <button
+          type="button"
+          class="w-[18px] h-[18px] rounded border border-dashed border-border-emphasis inline-flex items-center justify-center text-muted disabled:opacity-40"
+          disabled={skinPalette.isFull}
+          aria-label={$t('skinEditor.paletteAdd')}
+          use:tooltip={skinPalette.isFull
+            ? $t('skinEditor.paletteFull')
+            : $t('skinEditor.paletteAdd')}
+          onclick={addCurrentColour}
+        >
+          <Icon name="plus" size={12} />
+        </button>
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm"
+          aria-label={$t('skinEditor.paletteReset')}
+          use:tooltip={$t('skinEditor.paletteReset')}
+          onclick={resetPalette}
+        >
+          <Icon name="refresh" size={14} />
+        </button>
+      </div>
+      <label class="inline-flex items-center gap-1 text-xs text-secondary">
+        <input
+          type="color"
+          value={rgbaToHex(colour)}
+          oninput={(e) => (colour = hexToRgba(e.currentTarget.value))}
+          aria-label={$t('skinEditor.customColour')}
+          class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
+        />
+      </label>
+      <input
+        type="color"
+        class="sr-only"
+        tabindex={-1}
+        aria-hidden="true"
+        bind:this={editColorInput}
+        value={editIndex !== null ? rgbaToHex(skinPalette.swatches[editIndex]) : '#000000'}
+        oninput={(e) => onEditColour(e.currentTarget.value)}
+      />
+      <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
+      {#each [1, 3, 5] as b (b)}
+        <button
+          type="button"
+          class="w-7 h-7 rounded border inline-flex items-center justify-center {brush === b
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={brush === b}
+          aria-label={`${$t('skinEditor.brushSize')} ${b}`}
+          onclick={() => (brush = b)}
+        >
+          <span class="rounded-full bg-current" style="width:{b * 2}px;height:{b * 2}px"></span>
+        </button>
+      {/each}
+    </div>
+
+    <!-- Pose · paint layer · visibility · model · background -->
+    <div class="flex items-center gap-x-4 gap-y-2 flex-wrap">
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.poseHeading')}</span>
+        {#each POSE_NAMES as p (p)}
+          <button
+            type="button"
+            class="px-2 py-0.5 text-xs rounded border {pose === p
+              ? 'bg-accent-soft text-accent border-transparent'
+              : 'text-secondary border-border-subtle'}"
+            aria-pressed={pose === p}
+            onclick={() => setPose(p)}
+          >
+            {$t(POSE_LABEL[p])}
+          </button>
+        {/each}
+      </div>
+
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.paintOn')}</span>
         <div class="inline-flex border border-border-subtle rounded overflow-hidden">
           <button
             type="button"
@@ -784,36 +1175,34 @@
         </div>
       </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.layerVisibility')}</div>
-        <div class="flex gap-1.5">
-          <button
-            type="button"
-            class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {baseVisible
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={baseVisible}
-            onclick={toggleBase}
-          >
-            <Icon name={baseVisible ? 'eye' : 'eyeOff'} size={13} />
-            {$t('skinEditor.layerBase')}
-          </button>
-          <button
-            type="button"
-            class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {overlayVisible
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={overlayVisible}
-            onclick={toggleOverlay}
-          >
-            <Icon name={overlayVisible ? 'eye' : 'eyeOff'} size={13} />
-            {$t('skinEditor.layerOverlay')}
-          </button>
-        </div>
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.layerVisibility')}</span>
+        <button
+          type="button"
+          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {baseVisible
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={baseVisible}
+          onclick={toggleBase}
+        >
+          <Icon name={baseVisible ? 'eye' : 'eyeOff'} size={13} />
+          {$t('skinEditor.layerBase')}
+        </button>
+        <button
+          type="button"
+          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {overlayVisible
+            ? 'bg-accent-soft text-accent border-transparent'
+            : 'text-secondary border-border-subtle'}"
+          aria-pressed={overlayVisible}
+          onclick={toggleOverlay}
+        >
+          <Icon name={overlayVisible ? 'eye' : 'eyeOff'} size={13} />
+          {$t('skinEditor.layerOverlay')}
+        </button>
       </div>
 
-      <div>
-        <div class="text-xs text-muted mb-1">{$t('skinEditor.model')}</div>
+      <div class="inline-flex items-center gap-1.5">
+        <span class="text-xs text-muted">{$t('skinEditor.model')}</span>
         <div class="inline-flex border border-border-subtle rounded overflow-hidden">
           <button
             type="button"
@@ -836,59 +1225,55 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-3 flex-wrap">
-        <label class="inline-flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showGrid}
-            onchange={() => {
-              showGrid = !showGrid;
-              renderCompanion();
-            }}
-          />
-          {$t('skinEditor.grid')}
-        </label>
-        <div class="inline-flex items-center gap-1 text-xs text-secondary">
-          {$t('skinEditor.background')}
-          <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
-            {#each ['dark', 'mid', 'light'] as const as b (b)}
-              <button
-                type="button"
-                class="w-6 h-5 {BG_CLASS[b]} {bg === b
-                  ? 'outline outline-2 outline-accent -outline-offset-2'
-                  : ''}"
-                aria-pressed={bg === b}
-                aria-label={b}
-                onclick={() => (bg = b)}
-              ></button>
-            {/each}
-          </div>
+      <div class="inline-flex items-center gap-1 text-xs text-secondary">
+        {$t('skinEditor.background')}
+        <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
+          {#each ['dark', 'mid', 'light'] as const as b (b)}
+            <button
+              type="button"
+              class="w-6 h-5 {BG_CLASS[b]} {bg === b
+                ? 'outline outline-2 outline-accent -outline-offset-2'
+                : ''}"
+              aria-pressed={bg === b}
+              aria-label={b}
+              onclick={() => (bg = b)}
+            ></button>
+          {/each}
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="flex items-center gap-2 px-5 py-3 border-t border-border-subtle shrink-0">
-    <button type="button" class="btn-secondary btn-sm" onclick={loadPng} disabled={busy}>
-      <Icon name="upload" size={14} />
-      {$t('skinEditor.loadPng')}
-    </button>
-    <button type="button" class="btn-secondary btn-sm" onclick={exportPng} disabled={busy}>
-      <Icon name="download" size={14} />
-      {$t('skinEditor.savePng')}
-    </button>
-    {#if saveError}
-      <span class="text-xs text-danger">{saveError}</span>
-    {/if}
-    {#if applied}
-      <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
-    {/if}
-    {#if isMicrosoft}
-      <button type="button" class="btn-primary btn-sm ml-auto" onclick={apply} disabled={busy}>
-        {$t('skinEditor.apply')}
+    <!-- Actions -->
+    <div class="flex items-center gap-2">
+      <button type="button" class="btn-secondary btn-sm" onclick={loadPng} disabled={busy}>
+        <Icon name="upload" size={14} />
+        {$t('skinEditor.loadPng')}
       </button>
-    {:else}
-      <span class="text-xs text-muted ml-auto max-w-[360px]">{$t('skinEditor.offlineHint')}</span>
-    {/if}
+      <button type="button" class="btn-secondary btn-sm" onclick={exportPng} disabled={busy}>
+        <Icon name="download" size={14} />
+        {$t('skinEditor.savePng')}
+      </button>
+      {#if saveError}
+        <span class="text-xs text-danger">{saveError}</span>
+      {/if}
+      {#if applied}
+        <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
+      {/if}
+      <span
+        class="ml-auto"
+        use:tooltip={isMicrosoft
+          ? undefined
+          : { text: $t('skinEditor.offlineHint'), describe: false }}
+      >
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          onclick={apply}
+          disabled={busy || !isMicrosoft}
+        >
+          {$t('skinEditor.apply')}
+        </button>
+      </span>
+    </div>
   </div>
 </Modal>

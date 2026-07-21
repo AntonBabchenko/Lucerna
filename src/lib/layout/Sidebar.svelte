@@ -47,6 +47,11 @@
     onOpenLauncherImport,
     running,
     clientNav = 'idle',
+    runningCount = 0,
+    instanceName = (id: string) => id,
+    onOpenInstance = () => {},
+    isRunning = () => false,
+    onStopInstance = () => {},
     installing,
     onPlay,
     onStop,
@@ -61,6 +66,7 @@
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
     onOpenGallery = () => {},
+    onOpenSkinEditor = () => {},
     playBlockedReason = null,
     createBlockedReason = null,
     launcherImportBlockedReason = null,
@@ -101,6 +107,24 @@
     // Client (game) status for the ModeSwitcher's Client segment, derived in
     // +page.svelte from running/exited and threaded through as an opaque enum.
     clientNav?: NavStatusKind;
+    // Aggregate running-instances pill inputs, threaded straight through to
+    // ModeSwitcher (Sidebar is only the conduit — client game state stays
+    // page-local in +page.svelte). runningCount is the page's reactive
+    // `running.size`; instanceName resolves an id to its display name; and
+    // onOpenInstance jumps to a running instance (select + Client mode).
+    runningCount?: number;
+    instanceName?: (id: string) => string;
+    onOpenInstance?: (id: string) => void;
+    // Per-instance running state for the sidebar's instance rows. `isRunning`
+    // mirrors the `instanceName` function-prop: it reads the page's reactive
+    // `running` SvelteMap (running.has(id)) across the component boundary, so a
+    // row's badge appears / disappears live as instances spawn / exit.
+    // `onStopInstance` stops a specific instance by id (mirrors
+    // RunningInstancesPopover's Stop — commands.stopInstance + a toast on error,
+    // implemented in +page.svelte). Defaults keep no-prop mounts (tests)
+    // rendering unchanged: nothing is ever "running".
+    isRunning?: (id: string) => boolean;
+    onStopInstance?: (id: string) => void;
     installing: boolean;
     onPlay: () => void;
     onStop: () => void;
@@ -115,6 +139,7 @@
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
     onOpenGallery?: () => void;
+    onOpenSkinEditor?: (account: Account | null) => void;
     // Non-null while the configured data root is unavailable (§7 fallback
     // gating): disables Play/Install (with an explanatory tooltip) and the
     // empty-state "Create instance" shortcut. See data-root-gating.ts.
@@ -249,113 +274,127 @@
       </button>
     </div>
 
-    <ModeSwitcher {clientNav} />
+    <ModeSwitcher {clientNav} {runningCount} {instanceName} {onOpenInstance} />
 
-    <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
-      <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
-      {#if accounts.length === 0}
-        <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
-      {:else}
-        {#snippet accountLeading(opt: SelectOption)}
-          {@const acc = accounts.find((a) => a.id === opt.value)}
-          {#if acc}
-            <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
-            {#if acc.kind === 'offline' && validateOfflineName(acc.name) !== null}
-              <span
-                class="text-warning-text flex-shrink-0"
-                use:tooltip={{ text: $t('sidebar.offlineNameUnsupported'), describe: false }}
-              >
-                <Icon name="warning" size={14} />
-              </span>
+    <!--
+      Account is a purely client-side concept: which player identity launches
+      the game and owns skins/capes. Hosting a server needs no account, so the
+      account section shares the instance section's client-mode gate below —
+      servers mode shows only ServerSidebarSection. The onboarding tour +
+      account-hint anchor on [data-tour="account-section"], so state.svelte.ts
+      forces client mode before showing them (initOnboarding / showAccountHint).
+    -->
+    {#if serversUi.mode === 'client'}
+      <div
+        class="flex flex-col gap-1 pt-3 border-t border-border-subtle"
+        data-tour="account-section"
+      >
+        <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
+        {#if accounts.length === 0}
+          <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
+        {:else}
+          {#snippet accountLeading(opt: SelectOption)}
+            {@const acc = accounts.find((a) => a.id === opt.value)}
+            {#if acc}
+              <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
+              {#if acc.kind === 'offline' && validateOfflineName(acc.name) !== null}
+                <span
+                  class="text-warning-text flex-shrink-0"
+                  use:tooltip={{ text: $t('sidebar.offlineNameUnsupported'), describe: false }}
+                >
+                  <Icon name="warning" size={14} />
+                </span>
+              {/if}
             {/if}
-          {/if}
-        {/snippet}
-        <!-- Per-row trash inside the open dropdown: always visible, neutral at
+          {/snippet}
+          <!-- Per-row trash inside the open dropdown: always visible, neutral at
            rest, red on hover/focus (btn-icon-danger, §6 delete-icon model).
            Removes that specific account (gated by the confirm dialog in
            +page.svelte). onmousedown is stopped so clicking the trash does not
            also commit/select the row; Delete on the active row routes through
            Select's onDeleteOption. -->
-        {#snippet accountTrailing(opt: SelectOption)}
-          {@const acc = accounts.find((a) => a.id === opt.value)}
-          {#if acc}
-            {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
-            <button
-              type="button"
-              tabindex="-1"
-              class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
-              aria-label={removeLabel}
-              use:tooltip={{ text: removeLabel, describe: false }}
-              onmousedown={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-              }}
-              onclick={() => onRemoveAccount(acc.id)}
-            >
-              <Icon name="trash" size={14} />
-            </button>
-          {/if}
-        {/snippet}
-        <Select
-          class="w-full text-sm"
-          value={activeAccount?.id ?? ''}
-          options={accountOptions}
-          onChange={(v) => onSelectAccount(String(v))}
-          ariaLabel={$t('sidebar.account')}
-          optionLeading={accountLeading}
-          valueLeading={accountLeading}
-          optionTrailing={accountTrailing}
-          onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
-        />
-      {/if}
-      <!--
-        Skin & cape cosmetics — a labeled, always-visible entry point for the
-        ACTIVE Microsoft account (offline accounts have no server-side cosmetics
-        to edit). Sits in the account action cluster so it reads as an
-        account-scoped action, next to Add / Sign in.
+          {#snippet accountTrailing(opt: SelectOption)}
+            {@const acc = accounts.find((a) => a.id === opt.value)}
+            {#if acc}
+              {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
+              <button
+                type="button"
+                tabindex="-1"
+                class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
+                aria-label={removeLabel}
+                use:tooltip={{ text: removeLabel, describe: false }}
+                onmousedown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onclick={() => onRemoveAccount(acc.id)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            {/if}
+          {/snippet}
+          <Select
+            class="w-full text-sm"
+            value={activeAccount?.id ?? ''}
+            options={accountOptions}
+            onChange={(v) => onSelectAccount(String(v))}
+            ariaLabel={$t('sidebar.account')}
+            optionLeading={accountLeading}
+            valueLeading={accountLeading}
+            optionTrailing={accountTrailing}
+            onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
+          />
+        {/if}
+        <!--
+        Skin entry point — one adaptive button in the account action cluster,
+        always visible in client mode (even with zero accounts). A Microsoft
+        account opens the full Skin & cape modal (server-side cosmetics + the
+        editor); everyone else (offline or no account) opens the standalone
+        pixel skin editor directly. Only uploading a skin to Mojang needs a
+        Microsoft login.
       -->
-      {#if activeAccount?.kind === 'microsoft'}
         <button
           type="button"
           class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-          onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
+          onclick={() =>
+            activeAccount?.kind === 'microsoft'
+              ? onOpenCosmetics(activeAccount)
+              : onOpenSkinEditor(activeAccount)}
         >
-          <Icon name="shirt" size={14} />
-          {$t('cosmetics.title')}
+          <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
+          {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
         </button>
-      {/if}
-      <!--
+        <!--
         Force the account-add buttons visible when there are no accounts, even
         if the user hid `account_actions` in Settings — otherwise an
         account-less launcher is a dead end: the empty-state text says "add one
         below" but there is nothing to add with, and there is no way to sign in.
         Once an account exists the hidden preference is honoured again.
       -->
-      {#if isVisible('account_actions') || accounts.length === 0}
-        <ContextMenu
-          items={hideMenuItems('account_actions')}
-          ariaLabel={$t('sidebar.contextMenuAria')}
-        >
-          <button
-            type="button"
-            class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-            onclick={() => onAddOffline()}
+        {#if isVisible('account_actions') || accounts.length === 0}
+          <ContextMenu
+            items={hideMenuItems('account_actions')}
+            ariaLabel={$t('sidebar.contextMenuAria')}
           >
-            <Icon name="userPlus" size={14} />
-            {$t('sidebar.addOffline')}
-          </button>
-          <div class="mt-2">
-            <MicrosoftSignInButton
-              bind:signingIn={msSigningIn}
-              onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
-              onError={(err) => onMicrosoftError?.(err)}
-            />
-          </div>
-        </ContextMenu>
-      {/if}
-    </div>
+            <button
+              type="button"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+              onclick={() => onAddOffline()}
+            >
+              <Icon name="userPlus" size={14} />
+              {$t('sidebar.addOffline')}
+            </button>
+            <div class="mt-2">
+              <MicrosoftSignInButton
+                bind:signingIn={msSigningIn}
+                onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+                onError={(err) => onMicrosoftError?.(err)}
+              />
+            </div>
+          </ContextMenu>
+        {/if}
+      </div>
 
-    {#if serversUi.mode === 'client'}
       <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
         <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
           <span>{$t('sidebar.instance')}</span>
@@ -390,23 +429,75 @@
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
               {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
-              <button
-                type="button"
-                tabindex="-1"
-                class="btn-icon btn-icon-sm flex-shrink-0"
-                data-testid="sidebar-manage-instance-{inst.id}"
-                aria-label={manageLabel}
-                use:tooltip={{ text: manageLabel, describe: false }}
-                onmousedown={() => onManageInstance(inst.id)}
-              >
-                <Icon name="sliders" size={14} />
-              </button>
+              <span class="flex flex-shrink-0 items-center gap-1">
+                {#if isRunning(inst.id)}
+                  <!-- Inline Stop for a running row. Hidden at rest, revealed on
+                       row hover AND keyboard-arrow focus (the Select marks the
+                       active row `.is-active`) — the literal Tailwind variants must
+                       live in this file for the JIT scanner. tabindex=-1 keeps the
+                       Select's aria-activedescendant focus model intact (focus
+                       stays on the trigger, like the Manage / trash row actions).
+                       Its mousedown is stopped so it does NOT commit / switch the
+                       row — clicking Stop must not select the instance. Fully
+                       keyboard-operable stop for ANY running instance already
+                       exists on the aggregate running-instances pill. -->
+                  <button
+                    type="button"
+                    tabindex="-1"
+                    class="btn-icon btn-icon-sm btn-icon-danger opacity-0 group-hover:opacity-100 group-[.is-active]:opacity-100"
+                    data-testid="sidebar-stop-instance-{inst.id}"
+                    aria-label={$t('sidebar.stop')}
+                    use:tooltip={{ text: $t('sidebar.stop'), describe: false }}
+                    onmousedown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onclick={() => onStopInstance(inst.id)}
+                  >
+                    <Icon name="stop" size={14} />
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  tabindex="-1"
+                  class="btn-icon btn-icon-sm"
+                  data-testid="sidebar-manage-instance-{inst.id}"
+                  aria-label={manageLabel}
+                  use:tooltip={{ text: manageLabel, describe: false }}
+                  onmousedown={() => onManageInstance(inst.id)}
+                >
+                  <Icon name="sliders" size={14} />
+                </button>
+              </span>
             {/if}
           {/snippet}
           {#snippet instanceLeading(opt: SelectOption)}
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
-              <InstanceAvatar instance={inst} size={20} />
+              <span class="relative inline-flex flex-shrink-0">
+                <InstanceAvatar instance={inst} size={20} />
+                {#if isRunning(inst.id)}
+                  <!-- Per-instance "running" badge, overlaid on the avatar corner.
+                       Reuses the running vocabulary verbatim: `bg-current` ties the
+                       fill to `color`, `text-success` sets the green, and
+                       `nav-icon-running` pulses `color` (so the fill pulses too),
+                       resting saturated under reduced motion — the same keyframe
+                       the ModeSwitcher status icons use. The ring matches the row
+                       surface so the dot reads as a badge, not part of the icon.
+                       Because this snippet is BOTH optionLeading AND valueLeading,
+                       the dot also shows on the closed Select trigger's selected
+                       instance — the only always-visible instance icon, incl.
+                       compact / mini mode (which shrinks the window but keeps this
+                       trigger, so a running selected instance stays visible). -->
+                  <span
+                    class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-current text-success nav-icon-running ring-2 ring-surface"
+                    role="img"
+                    aria-label={$t('sidebar.clientRunning')}
+                    use:tooltip={{ text: $t('sidebar.clientRunning'), describe: false }}
+                    data-testid="sidebar-instance-running-dot-{inst.id}"
+                  ></span>
+                {/if}
+              </span>
             {/if}
           {/snippet}
           <div data-tour="instance-picker">
@@ -652,7 +743,10 @@
         {/if}
       {/if}
       <div class="flex gap-1">
-        {#if isVisible('logs')}
+        <!-- Logs opens the active INSTANCE's game logs — a client concept. In
+             servers mode the server's own console lives on the Overview tab, so
+             this client Logs button is hidden there (only Settings remains). -->
+        {#if serversUi.mode === 'client' && isVisible('logs')}
           <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button
               type="button"

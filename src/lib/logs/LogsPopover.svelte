@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import {
     commands,
+    type AnnotateResult,
     type Diagnosis,
     type LoaderKind,
     type LogFileMeta,
@@ -35,6 +37,15 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { DIAGNOSIS_COPY } from '$lib/logs/diagnosis-copy';
+  import LogHintBadge from '$lib/logs/LogHintBadge.svelte';
+  import LogHintCard from '$lib/logs/LogHintCard.svelte';
+  import {
+    annotationMap,
+    createLogHintHover,
+    fallbackCopyMap,
+    resolveHintCopy,
+    type ActiveHint,
+  } from '$lib/logs/log-hints.svelte';
   import {
     groupStackFolds,
     maybeParseCrashReport,
@@ -120,6 +131,34 @@
   const inlineRedundant = $derived(
     inlineDiagnosisRedundant(selectedPath, latestLogDiagnosis, bannerDismissed),
   );
+
+  // ---------------------------------------------------------------------------
+  // Inline hint annotations (per-line badges + hover card)
+  // ---------------------------------------------------------------------------
+
+  let annotateResult = $state<AnnotateResult | null>(null);
+  const annotations = $derived(annotationMap(annotateResult));
+  const hintFallbacks = $derived(fallbackCopyMap(annotateResult));
+  // When the current file has any annotations, EVERY row (line + fold, both
+  // views) reserves a uniform left gutter and the badge sits absolutely inside
+  // it — annotated lines' text must not shift out of column alignment.
+  const hintGutter = $derived(annotations.size > 0);
+  const hints = createLogHintHover();
+  onDestroy(() => hints.dispose());
+
+  function activateHint(patternId: string, el: HTMLElement, viaFocus: boolean) {
+    const copy = resolveHintCopy(patternId, hintFallbacks, $t);
+    if (!copy) return;
+    const r = el.getBoundingClientRect();
+    const hint: ActiveHint = {
+      patternId,
+      copy,
+      anchor: { top: r.top, left: r.left, width: r.width, height: r.height, bottom: r.bottom },
+    };
+    if (viaFocus) hints.openFromFocus(hint);
+    else hints.rowEnter(hint);
+  }
+
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -163,7 +202,6 @@
 
   // Clear share pill when a different file is opened
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedPath; // reactive dependency
     shareUrl = null;
     shareConfirm = false;
@@ -198,9 +236,9 @@
 
   // Reset when switching files
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedPath;
     rawView = false;
+    hints.close();
   });
 
   // ---------------------------------------------------------------------------
@@ -224,7 +262,6 @@
 
   // Reset fold/section maps when content changes
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedContent;
     foldExpanded = new Map();
     sectionExpanded = new Map();
@@ -353,12 +390,18 @@
     loadingContent = true;
     contentError = null;
     diagnosis = null;
+    annotateResult = null;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
+    // The user may have switched files while we awaited — a stale resolution
+    // must not clobber the newer selection's state. Re-check after EVERY await
+    // that precedes a state commit.
+    if (selectedPath !== path) return;
     if (result.status === 'ok') {
       selectedContent = result.data;
       if (instanceId) {
         const d = await commands.diagnoseLog(instanceId, path);
+        if (selectedPath !== path) return;
         if (d.status === 'ok') {
           diagnosis = d.data;
         } else {
@@ -366,6 +409,17 @@
           console.warn('[LogsPopover] diagnose_log failed:', d.error);
           diagnosis = null;
         }
+      }
+      // Inline hint badges don't need an instance — annotate whatever content
+      // was just loaded. Best-effort: a failure here degrades to no badges,
+      // never blocks the log body from displaying (already set above).
+      const a = await commands.annotateLogFile(path, capBytes, 'client');
+      if (selectedPath !== path) return;
+      if (a.status === 'ok') {
+        annotateResult = a.data;
+      } else {
+        // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
+        console.warn('[LogsPopover] annotate_log_file failed:', a.error);
       }
     } else {
       contentError = JSON.stringify(result.error);
@@ -456,7 +510,12 @@
     const tagged = tagWithSeverity(lines);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+      : tagged.map((l) => ({
+          kind: 'line' as const,
+          text: l.text,
+          level: l.level,
+          index: l.index,
+        }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   });
 
@@ -601,7 +660,7 @@
     const locs: MatchLocation[] = [];
     if (isStructured && crashSections) {
       for (let si = 0; si < crashSections.length; si++) {
-        const units = sectionRenderUnits(crashSections[si].body);
+        const units = sectionRenderUnits(crashSections[si].body, crashSections[si].startLine);
         for (let ui = 0; ui < units.length; ui++) {
           const unit = units[ui];
           const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
@@ -623,9 +682,7 @@
 
   // Reset current index when the committed search or content changes
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     debouncedSearch;
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedContent;
     currentMatchIndex = 0;
   });
@@ -673,23 +730,38 @@
   // Highlight helpers
   // ---------------------------------------------------------------------------
 
+  // Per-unit match index, built in ONE pass over `allMatches` with the global
+  // index assigned during collection. The old shape re-filtered `allMatches`
+  // per rendered unit and ran a per-match `findIndex` over the whole match set
+  // — O(units×matches) + O(matches²) per next/prev press, a multi-second
+  // freeze on a 5 MB log with a common search token.
+  const matchesByUnit = $derived.by(() => {
+    const map = new Map<number, Array<{ loc: MatchLocation; globalIdx: number }>>();
+    for (let i = 0; i < allMatches.length; i++) {
+      const m = allMatches[i];
+      const arr = map.get(m.unitKey);
+      if (arr) arr.push({ loc: m, globalIdx: i });
+      else map.set(m.unitKey, [{ loc: m, globalIdx: i }]);
+    }
+    return map;
+  });
+
   /**
    * Render a line's text with search match highlighting.
    * Active match: bg-accent text-white; others: <mark> (yellow).
    * Returns HTML string.
    */
-  function highlightLine(text: string, unitKey: number, matchesForUnit: MatchLocation[]): string {
-    if (!debouncedSearch || matchesForUnit.length === 0) return escapeHtml(text);
+  function highlightLine(
+    text: string,
+    unitMatches: Array<{ loc: MatchLocation; globalIdx: number }>,
+  ): string {
+    if (!debouncedSearch || unitMatches.length === 0) return escapeHtml(text);
     let result = '';
     let pos = 0;
-    for (const loc of matchesForUnit) {
+    for (const { loc, globalIdx } of unitMatches) {
       result += escapeHtml(text.slice(pos, loc.charStart));
       const matchText = escapeHtml(text.slice(loc.charStart, loc.charEnd));
-      const globalIdx = allMatches.findIndex(
-        (m) => m.unitKey === unitKey && m.charStart === loc.charStart,
-      );
-      const isActive = globalIdx === currentMatchIndex;
-      if (isActive) {
+      if (globalIdx === currentMatchIndex) {
         result += `<mark class="bg-accent text-white" data-match-active="true">${matchText}</mark>`;
       } else {
         result += `<mark>${matchText}</mark>`;
@@ -700,28 +772,32 @@
     return result;
   }
 
-  function matchesForUnit(unitKey: number): MatchLocation[] {
-    return allMatches.filter((m) => m.unitKey === unitKey);
+  function matchesForUnit(unitKey: number): Array<{ loc: MatchLocation; globalIdx: number }> {
+    return matchesByUnit.get(unitKey) ?? [];
   }
 
   // ---------------------------------------------------------------------------
   // Severity CSS classes
   // ---------------------------------------------------------------------------
 
-  function severityLineClass(level: Severity): string {
+  // `gutter` (per-file, not per-line) swaps the base padding for a wider
+  // `relative pl-6` gutter that the absolutely-positioned hint badge sits in —
+  // uniform across ALL rows so annotated lines stay column-aligned.
+  function severityLineClass(level: Severity, gutter: boolean): string {
+    const pad = gutter ? 'relative pl-6' : 'pl-2';
     switch (level) {
       case 'error':
       case 'fatal':
-        return 'border-l-2 pl-2 border-danger bg-danger-bg';
+        return `border-l-2 ${pad} border-danger bg-danger-bg`;
       case 'warn':
-        return 'border-l-2 pl-2 border-warning-text bg-warning-bg/30';
+        return `border-l-2 ${pad} border-warning-text bg-warning-bg/30`;
       case 'debug':
       case 'trace':
-        return 'border-l-2 pl-2 border-border-subtle text-muted';
+        return `border-l-2 ${pad} border-border-subtle text-muted`;
       case 'info':
-        return 'border-l-2 pl-2 border-border-subtle';
+        return `border-l-2 ${pad} border-border-subtle`;
       default:
-        return 'border-l-2 pl-2 border-transparent';
+        return `border-l-2 ${pad} border-transparent`;
     }
   }
 
@@ -735,12 +811,17 @@
     return false;
   }
 
-  function sectionRenderUnits(body: string): RenderUnit[] {
+  function sectionRenderUnits(body: string, startLine: number): RenderUnit[] {
     const lines = body.split('\n');
-    const tagged = tagWithSeverity(lines);
+    const tagged = tagWithSeverity(lines, startLine);
     const units = fold
       ? groupStackFolds(tagged)
-      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+      : tagged.map((l) => ({
+          kind: 'line' as const,
+          text: l.text,
+          level: l.level,
+          index: l.index,
+        }));
     return units.filter((u) => !hiddenLevels.has(u.level));
   }
 
@@ -1127,7 +1208,7 @@
                 {#each crashSections as section, si}
                   {@const defaultOpen = isSectionDefaultOpen(section)}
                   {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
-                  {@const units = sectionRenderUnits(section.body)}
+                  {@const units = sectionRenderUnits(section.body, section.startLine)}
                   <div class="border rounded overflow-hidden">
                     <button
                       type="button"
@@ -1144,20 +1225,38 @@
                         {#each units as unit, ui}
                           {@const unitKey = unitKeyFor(si, ui)}
                           {#if unit.kind === 'line'}
-                            <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                            {@const hintId = annotations.get(unit.index)}
+                            <!-- svelte-ignore a11y_no_static_element_interactions -- pointer
+                                 handlers only arm/disarm the hover card; the keyboard-accessible
+                                 path is the badge button below (focus/blur), same split
+                                 LogHintCard.svelte uses. -->
+                            <div
+                              class={severityLineClass(unit.level, hintGutter)}
+                              class:min-w-max={!wrap}
+                              class:log-row-hint={hintId}
+                              onpointerenter={hintId
+                                ? (e) => activateHint(hintId, e.currentTarget as HTMLElement, false)
+                                : undefined}
+                              onpointerleave={hintId ? () => hints.rowLeave() : undefined}
+                            >
+                              {#if hintId}
+                                <LogHintBadge
+                                  onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+                                  onLeave={() => hints.rowLeave()}
+                                />
+                              {/if}
                               <span
                                 class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                                ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                                  unit.text,
-                                  unitKey,
-                                  matchesForUnit(unitKey),
-                                )}</span
+                                >{@html highlightLine(unit.text, matchesForUnit(unitKey))}</span
                               >
                             </div>
                           {:else}
                             {@const foldKey = unitKey}
                             {@const isExpanded = foldExpanded.get(foldKey) ?? false}
-                            <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                            <div
+                              class={severityLineClass(unit.level, hintGutter)}
+                              class:min-w-max={!wrap}
+                            >
                               <button
                                 type="button"
                                 class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
@@ -1202,21 +1301,38 @@
                 {#each renderModel as unit, ui}
                   {@const unitKey = unitKeyFor(-1, ui)}
                   {#if unit.kind === 'line'}
-                    <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
+                    {@const hintId = annotations.get(unit.index)}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -- pointer handlers
+                         only arm/disarm the hover card; the keyboard-accessible path is the
+                         badge button below (focus/blur), same split LogHintCard.svelte uses. -->
+                    <div
+                      class="log-row {severityLineClass(unit.level, hintGutter)}"
+                      class:min-w-max={!wrap}
+                      class:log-row-hint={hintId}
+                      onpointerenter={hintId
+                        ? (e) => activateHint(hintId, e.currentTarget as HTMLElement, false)
+                        : undefined}
+                      onpointerleave={hintId ? () => hints.rowLeave() : undefined}
+                    >
+                      {#if hintId}
+                        <LogHintBadge
+                          onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+                          onLeave={() => hints.rowLeave()}
+                        />
+                      {/if}
                       <span class="text-placeholder select-none"
                         >{(ui + 1).toString().padStart(6, ' ')}:
                       </span><span
                         class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                        ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                          unit.text,
-                          unitKey,
-                          matchesForUnit(unitKey),
-                        )}</span
+                        >{@html highlightLine(unit.text, matchesForUnit(unitKey))}</span
                       >
                     </div>
                   {:else}
                     {@const isExpanded = foldExpanded.get(ui) ?? false}
-                    <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
+                    <div
+                      class="log-row {severityLineClass(unit.level, hintGutter)}"
+                      class:min-w-max={!wrap}
+                    >
                       <button
                         type="button"
                         class="btn-tertiary text-left w-full"
@@ -1256,6 +1372,7 @@
       </section>
     </div>
     <ContextualTour id="logs" steps={LOGS_STEPS} />
+    <LogHintCard hover={hints} />
   </Modal>
 {/if}
 
@@ -1274,5 +1391,14 @@
   .log-row {
     content-visibility: auto;
     contain-intrinsic-size: auto 1.25em;
+  }
+
+  /* Subtle left-edge tint marking a line with an inline hint annotation.
+     Uses the same `--accent` RGB triplet the rest of the design system reads
+     through Tailwind's `accent`/`accent-soft` utilities (see app.css).
+     The badge's own styles live in LogHintBadge.svelte (scoped styles here
+     could not reach a child component's internals). */
+  .log-row-hint {
+    background-image: linear-gradient(to right, rgb(var(--accent) / 12%), transparent 60%);
   }
 </style>

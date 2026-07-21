@@ -18,6 +18,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // ModDetailModal (opened by the Iris deep-link) loads a project + versions.
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProject: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {

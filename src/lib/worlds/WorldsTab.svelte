@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands, events, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { relativeTime } from '$lib/format/relative-time';
   import { formatSize } from '$lib/format/size';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -63,19 +64,9 @@
 
   // Refresh after MC exits — size + mtime + backup_count can change
   // (a backup taken pre-launch, a new region file written by the game).
-  // Subscribe-and-cleanup so multiple WorldsTab mounts don't pile up
-  // listeners.
-  $effect(() => {
-    let unlisten: (() => void) | null = null;
-    void events.processExited
-      .listen(() => void reload())
-      .then((u) => {
-        unlisten = u;
-      });
-    return () => {
-      if (unlisten) unlisten();
-    };
-  });
+  // Race-safe subscribe: the old late-assigned-unlisten effect leaked the
+  // listener when the tab unmounted before listen() resolved.
+  listenUntilDestroyed([events.processExited.listen(() => void reload())]);
 
   async function onBackupNow(w: World) {
     if (!instanceId) return;

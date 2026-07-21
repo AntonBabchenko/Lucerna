@@ -17,11 +17,16 @@
 //! - `evilmojang.com` (suffix matches but no dot boundary)
 //! - `xmojang.com` (ditto)
 //!
-//! ## Env override (tests only)
+//! ## Env override
 //!
 //! `LUCERNA_EXTRA_ALLOWED_HOSTS=h1,h2,…` adds extra patterns at
-//! runtime. Empty in production. Used by integration tests so
-//! wiremock URLs (`127.0.0.1`) aren't flagged as violations.
+//! runtime. Its purpose is integration tests, so wiremock URLs
+//! (`127.0.0.1`) aren't flagged as violations — but it resolves via
+//! `test_seam`, which falls back to the real process env, so an
+//! operator-set value takes effect in release builds too. It is
+//! unset unless someone sets it deliberately. Documented as an
+//! accepted trade-off in `docs/SECURITY.md` Part C and qualified in
+//! `docs/PRINCIPLES.md` Part A commitment 1 and `PRIVACY.md` §3.
 
 /// Mirror of `docs/PRINCIPLES.md` Part A item #2. The redundant
 /// `piston-*.mojang.com` rows are intentional: they protect against

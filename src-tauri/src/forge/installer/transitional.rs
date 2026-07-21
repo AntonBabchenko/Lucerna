@@ -418,9 +418,15 @@ pub async fn resolve_data(
                 fv: "<unknown>".into(),
                 details: format!("read {rel}: {e}"),
             })?;
+        // `rel` comes from the installer archive; a path ending in `..` has no
+        // file name — treat it as corruption, same as every failure above.
         let basename = std::path::Path::new(rel)
             .file_name()
-            .unwrap()
+            .ok_or_else(|| Error::ForgeInstallerCorrupted {
+                mc: "<unknown>".into(),
+                fv: "<unknown>".into(),
+                details: format!("installer entry has no file name: {rel}"),
+            })?
             .to_string_lossy()
             .to_string();
         let dest = std::path::PathBuf::from(cache_dir).join(&basename);

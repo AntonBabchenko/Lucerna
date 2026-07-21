@@ -85,17 +85,9 @@ pub fn slugify(name: &str, fallback_base: &str) -> String {
 ///
 /// Because slugs never contain a `.`, matching the whole slug is sufficient
 /// (the "reserved name with any extension is also reserved" rule can't apply).
+/// Delegates to the shared list in `pathsafe` so the two gates can't drift.
 pub fn is_reserved(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    match lower.as_str() {
-        "con" | "prn" | "aux" | "nul" => true,
-        // com1..=com9 / lpt1..=lpt9 (com0/lpt0 are NOT reserved).
-        _ => {
-            (lower.starts_with("com") || lower.starts_with("lpt"))
-                && lower.len() == 4
-                && matches!(lower.as_bytes()[3], b'1'..=b'9')
-        }
-    }
+    crate::pathsafe::is_reserved_windows_name(name)
 }
 
 /// Ordered candidate stream: `base`, `base-2`, `base-3`, … up to [`MAX_SUFFIX`].

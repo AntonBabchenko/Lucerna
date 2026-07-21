@@ -15,6 +15,15 @@ pub struct ModrinthClient {
     base: String,
 }
 
+/// The full identity of a Modrinth version matched by file hash.
+#[derive(Debug, Clone)]
+pub struct HashVersion {
+    pub project_id: String,
+    pub version_id: String,
+    pub version_number: String,
+    pub name: String,
+}
+
 impl ModrinthClient {
     pub fn new() -> Self {
         Self {
@@ -187,6 +196,65 @@ impl ModrinthClient {
         }
         Ok(out)
     }
+
+    /// Like `project_ids_by_hash`, but returns the full matched-version
+    /// identity. Same endpoint (`POST /v2/version_files`), same `BATCH_CHUNK`
+    /// batching, no API key. Keyed by lowercased sha1.
+    pub async fn versions_by_hashes(
+        &self,
+        shas: &[&str],
+    ) -> Result<HashMap<String, HashVersion>, Error> {
+        #[derive(serde::Deserialize)]
+        struct VersionLite {
+            id: String,
+            project_id: String,
+            version_number: String,
+            name: String,
+        }
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let url = format!("{}/v2/version_files", self.base);
+            let body = serde_json::to_vec(&serde_json::json!({
+                "hashes": chunk,
+                "algorithm": "sha1",
+            }))
+            .expect("a fixed-shape JSON object always serializes");
+            let resp = crate::network::request::post(
+                &url,
+                &[("user-agent", UA), ("content-type", "application/json")],
+                &body,
+                "mods",
+            )
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let map: HashMap<String, VersionLite> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            for (sha, v) in map {
+                out.insert(
+                    sha.to_ascii_lowercase(),
+                    HashVersion {
+                        project_id: v.project_id,
+                        version_id: v.id,
+                        version_number: v.version_number,
+                        name: v.name,
+                    },
+                );
+            }
+        }
+        Ok(out)
+    }
 }
 
 impl Default for ModrinthClient {
@@ -199,6 +267,7 @@ impl Default for ModrinthClient {
 impl ModPlatform for ModrinthClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
         let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader, q.plugin_core);
+        // Serializing Vec<Vec<String>> cannot fail. Per CLAUDE.md `.unwrap()` rule.
         let facets_json = serde_json::to_string(&facets).unwrap();
         let url = format!(
             "{}/v2/search?query={}&limit={}&offset={}&index={}&facets={}",
@@ -467,6 +536,85 @@ impl ModPlatform for ModrinthClient {
             out.extend(raws.into_iter().map(convert_version));
         }
         Ok(out)
+    }
+
+    async fn changelog_range(
+        &self,
+        project_id: &str,
+        target_version_id: &str,
+        base_version_id: Option<&str>,
+    ) -> Result<crate::mods::changelog::ChangelogResult, Error> {
+        use crate::mods::changelog::{changelog_window, ChangelogResult, ChangelogSection};
+
+        // The version object already carries `changelog` (markdown), so one
+        // list fetch covers the whole cumulative window — no per-version calls.
+        let url = format!("{}/v2/project/{}/version", self.base, project_id);
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        if resp.status == 404 {
+            return Err(Error::ModsNotFound {
+                platform: "modrinth".into(),
+            });
+        }
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
+        }
+        let mut list: Vec<types::Version> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
+        // Ensure newest-first so the window math is correct regardless of
+        // upstream ordering (Modrinth returns date-descending, but be explicit).
+        list.sort_by(|a, b| b.date_published.cmp(&a.date_published));
+
+        // Restrict to the TARGET's release lineage — versions sharing at least
+        // one loader AND one game version with the target. Without this, a
+        // project that publishes many loaders / MC versions (e.g. a 1.20.4
+        // backport released after newer 1.21 builds) would pull every unrelated
+        // build published between `base` and `target` by date into the window.
+        // The target defines the lineage, so it is always present — no empty
+        // window. When the target can't be found (shouldn't happen), keep all.
+        let (t_mcs, t_loaders): (Vec<String>, Vec<String>) = list
+            .iter()
+            .find(|v| v.id == target_version_id)
+            .map(|t| (t.game_versions.clone(), t.loaders.clone()))
+            .unwrap_or_default();
+        let lineage: Vec<&types::Version> = if t_mcs.is_empty() && t_loaders.is_empty() {
+            list.iter().collect()
+        } else {
+            list.iter()
+                .filter(|v| {
+                    v.loaders.iter().any(|l| t_loaders.contains(l))
+                        && v.game_versions.iter().any(|g| t_mcs.contains(g))
+                })
+                .collect()
+        };
+
+        let ids: Vec<&str> = lineage.iter().map(|v| v.id.as_str()).collect();
+        let (start, end, full) = changelog_window(&ids, target_version_id, base_version_id);
+        let sections: Vec<ChangelogSection> = lineage[start..end]
+            .iter()
+            .map(|v| ChangelogSection {
+                version_id: v.id.clone(),
+                version_number: v.version_number.clone(),
+                published_at: v.date_published.clone(),
+                body_html: v
+                    .changelog
+                    .as_deref()
+                    .map(crate::mods::render::markdown_to_safe_html)
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let truncated = (end - start < full).then_some(full as u32);
+        Ok(ChangelogResult {
+            sections,
+            truncated,
+        })
     }
 }
 
@@ -925,6 +1073,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn changelog_range_windows_and_renders_markdown() {
+        let s = server().await;
+        // newest → oldest, each with a markdown changelog.
+        Mock::given(method("GET"))
+            .and(path("/v2/project/sodium/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"[
+                  {"id":"v3","project_id":"sodium","name":"0.6.0","version_number":"0.6.0",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-06-03T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"# 0.6.0\n- new renderer"},
+                  {"id":"v2","project_id":"sodium","name":"0.5.9","version_number":"0.5.9",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"- bugfixes"},
+                  {"id":"v1","project_id":"sodium","name":"0.5.8","version_number":"0.5.8",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-04-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":null}
+                ]"##,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // installed v1, target v3 → sections for v3 and v2 (v1 excluded).
+        let res = c.changelog_range("sodium", "v3", Some("v1")).await.unwrap();
+        assert_eq!(res.sections.len(), 2);
+        assert_eq!(res.sections[0].version_id, "v3");
+        assert!(
+            res.sections[0].body_html.contains("<h1>"),
+            "markdown rendered to HTML"
+        );
+        assert_eq!(res.sections[1].version_id, "v2");
+        assert_eq!(res.truncated, None);
+    }
+
+    #[tokio::test]
+    async fn changelog_range_base_none_returns_only_target() {
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/sodium/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":"v3","project_id":"sodium","name":"0.6.0","version_number":"0.6.0",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-06-03T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"notes"},
+                  {"id":"v2","project_id":"sodium","name":"0.5.9","version_number":"0.5.9",
+                   "game_versions":["1.21.4"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"old"}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let res = c.changelog_range("sodium", "v3", None).await.unwrap();
+        assert_eq!(res.sections.len(), 1);
+        assert_eq!(res.sections[0].version_id, "v3");
+    }
+
+    #[tokio::test]
+    async fn changelog_range_restricts_to_target_loader_and_mc_lineage() {
+        // Real ImmediatelyFast shape: a 1.20.4-neoforge backport published AFTER
+        // newer fabric/26.2 builds. Windowing by date alone would drag the fabric
+        // build into the range; the lineage filter (target's loader + MC) must
+        // keep only the 1.20.4-neoforge releases.
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/imf/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"[
+                  {"id":"n5","project_id":"imf","name":"1.5.5","version_number":"1.5.5+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-06-30T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.5"},
+                  {"id":"fab","project_id":"imf","name":"1.16.1","version_number":"1.16.1+26.2-fabric",
+                   "game_versions":["26.2"],"loaders":["fabric"],"date_published":"2026-06-27T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"fabric build"},
+                  {"id":"n4","project_id":"imf","name":"1.5.4","version_number":"1.5.4+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.4"},
+                  {"id":"n3","project_id":"imf","name":"1.5.3","version_number":"1.5.3+1.20.4-neoforge",
+                   "game_versions":["1.20.4"],"loaders":["neoforge"],"date_published":"2026-04-01T00:00:00Z",
+                   "files":[],"dependencies":[],"changelog":"neoforge 1.5.3"}
+                ]"##,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // installed n3, target n5 → only n5, n4 (base n3 excluded); fabric build dropped.
+        let res = c.changelog_range("imf", "n5", Some("n3")).await.unwrap();
+        let ids: Vec<&str> = res.sections.iter().map(|s| s.version_id.as_str()).collect();
+        assert_eq!(ids, vec!["n5", "n4"]);
+        assert_eq!(res.truncated, None);
+    }
+
+    #[tokio::test]
     async fn versions_drops_neoforge_jar_mistagged_as_forge() {
         // Real Xaero's Minimap 1.20.4 data: the author tags BOTH the Forge and
         // the NeoForge build with the `forge` loader, and the NeoForge build is
@@ -1149,6 +1395,30 @@ mod tests {
         let m = c.project_ids_by_hash(&["AABBCC", "ddeeff"]).await.unwrap();
         assert_eq!(m.get("aabbcc"), Some(&"betterf3".to_string()));
         assert_eq!(m.get("ddeeff"), Some(&"jei".to_string()));
+    }
+
+    #[tokio::test]
+    async fn versions_by_hashes_returns_full_identity() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                  "aabbcc":{"project_id":"betterf3","id":"v1","version_number":"1.0.0","name":"v1"}
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        // Uppercase input: the returned map key is lowercased.
+        let out = c.versions_by_hashes(&["AABBCC"]).await.unwrap();
+        let hit = out.get("aabbcc").unwrap();
+        assert_eq!(hit.project_id, "betterf3");
+        assert_eq!(hit.version_id, "v1");
+        assert_eq!(hit.version_number, "1.0.0");
+        assert_eq!(hit.name, "v1");
     }
 
     #[tokio::test]

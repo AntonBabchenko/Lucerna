@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
@@ -56,8 +58,8 @@
       if (!viewerCanvas || url === null) return;
       viewer = new skinview3d.SkinViewer({
         canvas: viewerCanvas,
-        width: 200,
-        height: 260,
+        width: 180,
+        height: 240,
         skin: url,
         model: modelOf(variant),
       });
@@ -252,31 +254,24 @@
 <Modal
   ariaLabelledby="cosmetics-title"
   {onClose}
-  panelClass="w-[560px] max-w-full p-0 flex flex-col"
+  panelClass="w-[560px] max-w-full max-h-[calc(100vh-2rem)] p-0 flex flex-col"
 >
-  <div class="flex items-center px-5 py-3.5 border-b border-border-subtle">
+  <div class="flex items-center px-5 py-3.5 border-b border-border-subtle shrink-0">
     <div>
       <h3 id="cosmetics-title" class="font-medium text-primary text-base">
         {$t('cosmetics.title')}
       </h3>
       <p class="text-xs text-muted">{account.name}</p>
     </div>
-    <button
-      type="button"
-      class="ml-auto text-secondary hover:text-primary"
-      aria-label={$t('common.close')}
-      onclick={onClose}
-    >
-      <Icon name="close" size={18} />
-    </button>
+    <CloseButton class="ml-auto" onClick={onClose} />
   </div>
 
-  <div class="p-5">
+  <div class="p-5 flex-1 min-h-0 overflow-y-auto">
     {#if loading}
-      <p class="text-sm text-muted">{$t('common.loading')}</p>
+      <Spinner label={$t('common.loading')} labelPlacement="below" />
     {:else if loadError}
       <div class="flex items-center gap-3">
-        <p class="text-sm text-danger">{$t('cosmetics.loadError')}</p>
+        <p class="text-sm text-danger" role="alert">{$t('cosmetics.loadError')}</p>
         <button type="button" class="btn-secondary btn-xs" onclick={() => load()}
           >{$t('cosmetics.retry')}</button
         >
@@ -286,11 +281,11 @@
         <div class="text-sm font-medium text-primary">{$t('cosmetics.capeHeading')}</div>
         <div class="text-xs text-muted">{$t('cosmetics.capeHint')}</div>
       </div>
-      <div class="grid gap-2.5" style="grid-template-columns:repeat(auto-fit,minmax(88px,1fr))">
+      <div class="flex flex-wrap gap-2">
         {#each capes as cape (cape.id)}
           <button
             type="button"
-            class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {cape.is_active
+            class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
               ? 'border-transparent outline outline-2 outline-accent'
               : 'border-border-subtle hover:border-border-emphasis'}"
             onclick={() => pickCape(cape.id)}
@@ -298,7 +293,7 @@
           >
             <canvas
               use:renderCape={cape.texture_url}
-              class="h-[70px]"
+              class="h-[46px]"
               style="image-rendering:pixelated"
             ></canvas>
             <span class="text-xs text-secondary truncate w-full text-center"
@@ -308,16 +303,16 @@
         {/each}
         <button
           type="button"
-          class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {noCapeActive
+          class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
             ? 'border-transparent outline outline-2 outline-accent'
             : 'border-border-subtle hover:border-border-emphasis'}"
           onclick={() => pickCape(null)}
           disabled={busy}
         >
           <span
-            class="h-[70px] w-11 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
+            class="h-[46px] w-8 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
           >
-            <Icon name="close" size={20} />
+            <Icon name="close" size={16} />
           </span>
           <span class="text-xs text-secondary">{$t('cosmetics.noCape')}</span>
         </button>
@@ -332,20 +327,22 @@
         <div class="text-sm font-medium text-primary">{$t('cosmetics.skinHeading')}</div>
         <div class="text-xs text-muted">{$t('cosmetics.skinHint')}</div>
       </div>
-      <div class="flex gap-[18px] items-start flex-wrap">
-        <div class="bg-subtle rounded-[10px] px-3 py-3 flex flex-col items-center gap-2">
+      <div class="flex gap-4 items-start">
+        <div class="bg-subtle rounded-[10px] p-2 flex flex-col items-center gap-1.5 shrink-0">
           <canvas
             use:mountViewer
-            class="w-[200px] h-[260px] cursor-grab active:cursor-grabbing"
+            class="w-[180px] h-[240px] cursor-grab active:cursor-grabbing"
             aria-label={$t('cosmetics.currentSkin')}
           ></canvas>
-          <span class="text-xs text-muted">{$t('cosmetics.dragToRotate')}</span>
+          <span class="text-[11px] text-muted text-center max-w-[180px]">
+            {$t('cosmetics.dragToRotate')}
+          </span>
         </div>
-        <div class="flex-1 min-w-[200px] flex flex-col gap-3.5">
-          <div class="flex gap-2 flex-wrap">
+        <div class="flex-1 min-w-0 flex flex-col gap-3">
+          <div class="flex gap-2">
             <button
               type="button"
-              class="btn-secondary btn-sm"
+              class="btn-secondary btn-sm flex-1 justify-center"
               onclick={chooseSkinFile}
               disabled={busy}
             >
@@ -353,7 +350,7 @@
             </button>
             <button
               type="button"
-              class="btn-secondary btn-sm flex items-center gap-1.5"
+              class="btn-secondary btn-sm flex-1 flex items-center justify-center gap-1.5"
               onclick={() => (editing = true)}
               disabled={busy}
             >
@@ -363,17 +360,17 @@
           </div>
           <div>
             <div class="text-xs text-muted mb-1.5">{$t('cosmetics.model')}</div>
-            <div class="inline-flex border border-border-subtle rounded overflow-hidden">
+            <div class="flex w-full border border-border-subtle rounded overflow-hidden">
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'classic'
+                class="flex-1 px-4 py-1.5 text-sm {variant === 'classic'
                   ? 'bg-accent-soft text-accent'
                   : 'text-secondary'}"
                 onclick={() => setVariant('classic')}>{$t('cosmetics.modelClassic')}</button
               >
               <button
                 type="button"
-                class="px-4 py-1.5 text-sm {variant === 'slim'
+                class="flex-1 px-4 py-1.5 text-sm {variant === 'slim'
                   ? 'bg-accent-soft text-accent'
                   : 'text-secondary'}"
                 onclick={() => setVariant('slim')}>{$t('cosmetics.modelSlim')}</button
@@ -405,7 +402,7 @@
           {:else}
             <button
               type="button"
-              class="btn-secondary btn-sm self-start"
+              class="btn-secondary btn-sm w-full justify-center"
               onclick={requestReset}
               disabled={busy}
             >
@@ -415,7 +412,7 @@
           {#if undoSkin}
             <button
               type="button"
-              class="btn-secondary btn-sm self-start flex items-center gap-1.5"
+              class="btn-secondary btn-sm w-full flex items-center justify-center gap-1.5"
               onclick={restorePreviousSkin}
               disabled={busy}
             >
@@ -427,7 +424,7 @@
       </div>
 
       {#if saveError}
-        <p class="mt-3 text-sm text-danger">{saveError}</p>
+        <p class="mt-3 text-sm text-danger" role="alert">{saveError}</p>
       {/if}
     {/if}
   </div>

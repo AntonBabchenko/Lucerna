@@ -1,6 +1,6 @@
 <!-- src/lib/servers/ServerSidebarSection.svelte -->
 <script lang="ts">
-  import type { ServerWithStatus } from '$lib/ipc/bindings';
+  import type { Error as IpcError, ServerWithStatus } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -8,10 +8,13 @@
   import { navVisual } from '$lib/layout/nav-status';
   import { serverState, serverNavStatus } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { displayCore } from '$lib/servers/core-display';
+  import { displayCore, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { compactState, setCompact } from '$lib/layout/compact.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { t } from '$lib/i18n';
+  import { get } from 'svelte/store';
+  import { formatError } from '$lib/ipc/format-error';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
@@ -30,6 +33,35 @@
   );
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);
   const uploading = $derived(selected ? serverState.isUploading(selected.id) : false);
+  const killing = $derived(selected ? serverState.isKilling(selected.id) : false);
+
+  // The "Force stop now" escalation appears a few seconds into a graceful stop,
+  // so a normal quick shutdown never flashes it — it only surfaces when the wait
+  // actually drags (a still-loading or hung server that never processed `stop`).
+  // Reset the instant the stop ends or the timer is superseded.
+  const FORCE_STOP_HINT_DELAY_MS = 3500;
+  let showForceStop = $state(false);
+  $effect(() => {
+    const stopping = (selected?.running ?? false) && action === 'stop';
+    if (!stopping) {
+      showForceStop = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      showForceStop = true;
+    }, FORCE_STOP_HINT_DELAY_MS);
+    return () => clearTimeout(timer);
+  });
+
+  // Which add-on folder this server exposes: plugin cores (Paper/Purpur) keep
+  // jars in runtime/plugins, mod cores (Fabric/Quilt/Forge/NeoForge) in
+  // runtime/mods. Vanilla has neither — the button stays hidden there.
+  const addonKind = $derived.by((): 'mods' | 'plugins' | null => {
+    if (!selected) return null;
+    if (pluginCapable(selected.loader)) return 'plugins';
+    if (modCapable(selected.loader)) return 'mods';
+    return null;
+  });
 
   // §7 fallback gating: creating a server while the data root is unavailable
   // would write it into the wrong (temporary default) root. See
@@ -66,6 +98,27 @@
     const id = selected?.id;
     if (!id) return;
     await serverState.stop(id);
+  }
+
+  async function killSelected(): Promise<void> {
+    const id = selected?.id;
+    if (!id) return;
+    await serverState.kill(id);
+  }
+
+  async function openAddonsFolder(): Promise<void> {
+    const id = selected?.id;
+    if (!id) return;
+    const key = addonKind === 'plugins' ? 'servers.plugins.openFolder' : 'servers.mods.openFolder';
+    const r =
+      addonKind === 'plugins'
+        ? await serverState.openPluginsFolder(id)
+        : addonKind === 'mods'
+          ? await serverState.openModsFolder(id)
+          : null;
+    if (r && !r.ok) {
+      pushWarning(get(t)(key), [formatError(r.error as IpcError)]);
+    }
   }
 </script>
 
@@ -123,6 +176,18 @@
   </span>
 
   {#if selected}
+    {#if addonKind}
+      <button
+        type="button"
+        class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+        data-testid="sidebar-server-addons-folder"
+        onclick={() => void openAddonsFolder()}
+      >
+        <Icon name="folderOpen" size={14} />
+        {addonKind === 'plugins' ? $t('sidebar.plugins') : $t('sidebar.mods')}
+      </button>
+    {/if}
+
     {#if selected.running}
       <BusyButton
         class="btn-danger btn-lg flex items-center justify-center"
@@ -134,6 +199,18 @@
         <Icon name="stop" size={16} />
         {$t('servers.action.stop')}
       </BusyButton>
+      {#if showForceStop}
+        <!-- Escalation out of a stuck graceful stop: skip the wait, hard-kill now.
+             Surfaces only after FORCE_STOP_HINT_DELAY_MS so a normal stop is clean. -->
+        <BusyButton
+          class="btn-ghost-danger flex items-center justify-center"
+          busy={killing}
+          data-testid="sidebar-server-force-stop"
+          onclick={() => void killSelected()}
+        >
+          {$t('servers.action.forceStop')}
+        </BusyButton>
+      {/if}
     {:else}
       <span
         class="inline-flex w-full"

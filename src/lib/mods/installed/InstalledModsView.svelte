@@ -12,8 +12,11 @@
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
+  import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
+  import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
   import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
@@ -38,7 +41,7 @@
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { modKey } from './row-utils';
+  import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
@@ -67,9 +70,18 @@
   );
   const filters = createInstalledFilters(
     () => data.rows,
-    () => updates.updatableShas,
-    () => deps.missingShas,
-    () => compat.incompatibleShas,
+    (r) => ({
+      id: r.installed.sha1,
+      name: rowDisplayName(r),
+      enabled: r.installed.enabled,
+      sortKey: r.installed.installed_at,
+      source: r.installed.source,
+    }),
+    {
+      isUpdatable: (id) => updates.updatableShas.has(id),
+      hasIssue: (id) => deps.missingShas.has(id),
+      isIncompatible: (id) => compat.incompatibleShas.has(id),
+    },
   );
   const deps = createDepGraph(
     () => instanceId,
@@ -269,6 +281,30 @@
   function openDetailMod(source: ModSource, projectId: string) {
     detail = { source, projectId };
   }
+
+  // Cumulative changelog for a pending mod update. The row exposes the button
+  // only when an update is available from a supported source; this builds the
+  // (installed → target) request from the update-check result.
+  let changelogReq = $state<{
+    source: ModSource;
+    projectId: string;
+    title: string;
+    target: string;
+    base: string | null;
+  } | null>(null);
+  function openChangelog(row: Row) {
+    const c = updates.updateChecks.get(row.installed.sha1);
+    if (!c || c.state.kind !== 'update_available') return;
+    const { source, project_id, version_id } = row.installed;
+    if (!source || !project_id) return;
+    changelogReq = {
+      source,
+      projectId: project_id,
+      title: `${rowDisplayName(row)} ${row.installed.version_number ?? ''} → ${c.state.target.version_number}`,
+      target: c.state.target.version_id,
+      base: version_id,
+    };
+  }
   const detailInstalledVersionId = $derived.by(() => {
     if (!detail) return null;
     const r = data.rows.find(
@@ -349,45 +385,29 @@
   // (and the Installed view would disagree with the Overview indicator, which
   // already reacts to these events). The re-scan is cheap (offline) and the
   // auto-confirm step skips shas already decided this session.
-  // Keep the raw listen() promises, not just the resolved unlisteners: if the
-  // view unmounts before a promise resolves, awaiting it in onMount would never
-  // run (the component is gone), leaking the listener. onDestroy instead cleans
-  // up via each promise's .then, and `destroyed` guards the case where the
-  // promise resolves AFTER unmount — we unlisten immediately in that path.
-  let destroyed = false;
-  let listenerPromises: Array<Promise<() => void>> = [];
-  onMount(() => {
-    listenerPromises = [
-      events.modInstalled.listen(() => {
-        void data.refresh();
-        deps.reloadGraph();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-      events.modUninstalled.listen(() => {
-        void data.refresh();
-        deps.reloadGraph();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-      events.modToggle.listen(() => {
-        void data.refresh();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-    ];
-    // If the view is already gone by the time a listener registers, tear it down
-    // on arrival rather than waiting for an onDestroy that has already fired.
-    for (const p of listenerPromises) {
-      void p.then((un) => {
-        if (destroyed) un();
-      });
-    }
-  });
+  // Registration/teardown is race-safe via listenUntilDestroyed (the pattern
+  // was born here and is now the shared helper). Handlers are debounced: a
+  // with-deps install emits one event per jar, and each un-coalesced event
+  // used to trigger a full refresh + preflight resolve + compat scan.
+  const debouncedSetChanged = debounceTrailing(() => {
+    void data.refresh();
+    deps.reloadGraph();
+    preflight.invalidate();
+    void compat.runOfflineScan();
+  }, 150);
+  const debouncedToggle = debounceTrailing(() => {
+    void data.refresh();
+    preflight.invalidate();
+    void compat.runOfflineScan();
+  }, 150);
+  listenUntilDestroyed([
+    events.modInstalled.listen(debouncedSetChanged.call),
+    events.modUninstalled.listen(debouncedSetChanged.call),
+    events.modToggle.listen(debouncedToggle.call),
+  ]);
   onDestroy(() => {
-    destroyed = true;
-    for (const p of listenerPromises) void p.then((un) => un());
-    listenerPromises = [];
+    debouncedSetChanged.cancel();
+    debouncedToggle.cancel();
     data.dispose();
     filters.dispose();
     updates.dispose();
@@ -495,6 +515,7 @@
           onToggle={() => toggle(row.installed)}
           onUninstall={() => uninstall(row.installed)}
           onUpdate={() => updates.updateOne(row.installed)}
+          onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
@@ -523,6 +544,17 @@
       installedVersionId={detailInstalledVersionId}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}
+    />
+  {/if}
+
+  {#if changelogReq}
+    <ChangelogModal
+      source={changelogReq.source}
+      projectId={changelogReq.projectId}
+      title={changelogReq.title}
+      targetVersionId={changelogReq.target}
+      baseVersionId={changelogReq.base}
+      onClose={() => (changelogReq = null)}
     />
   {/if}
 

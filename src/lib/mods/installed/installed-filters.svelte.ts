@@ -1,22 +1,44 @@
 import { untrack } from 'svelte';
-import type { Row } from './installed-data.svelte';
-import { rowDisplayName } from './row-utils';
 
 // A single mutually-exclusive view filter — exactly one is active at a time, so
 // picking any chip simply shows that subset (no AND-combination to reason about).
-// 'updates' / 'issues' are status views; 'enabled' / 'disabled' are state views.
+// 'updates' / 'issues' / 'incompatible' are status views; 'enabled' / 'disabled'
+// are state views.
 export type ViewFilter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues' | 'incompatible';
 export type SortBy = 'name-asc' | 'name-desc' | 'recent' | 'source';
 
-// Owns the filter / sort / pagination math for the installed list. `filtered`
-// is the whole matching set (selection + dep graph span this); `paged` is just
-// the rendered slice. `getUpdatableShas` / `getMissingShas` feed the
-// updates / issues quick-filters and the toolbar counts.
-export function createInstalledFilters(
-  getRows: () => Row[],
-  getUpdatableShas: () => Set<string>,
-  getMissingShas: () => Set<string>,
-  getIncompatibleShas: () => Set<string> = () => new Set<string>(),
+// The abstract projection every caller's row is reduced to. Keeping the filter /
+// sort / count math over this domain-agnostic shape lets the client (mods) and
+// the server panes (mods / plugins) share one composable while their `filtered`
+// / `paged` still yield the caller's own row type `R` untouched.
+export type FilterRow = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  // Opaque sort key for the 'recent' order (newest first). Callers with no
+  // timestamp pass '' so 'recent' collapses to the stable input order.
+  sortKey: string;
+  source: string | null;
+};
+
+// Optional status predicates keyed by the row's `id`. The client injects its
+// updates / issues / incompatible predicates; server panes pass none (or only
+// `isUpdatable`), so the corresponding chips stay at 0 and can't activate.
+export type StatusPredicates = {
+  isUpdatable?: (id: string) => boolean;
+  hasIssue?: (id: string) => boolean;
+  isIncompatible?: (id: string) => boolean;
+};
+
+// Owns the filter / sort / pagination math for an installed list. `filtered` is
+// the whole matching set (selection + dep graph span this); `paged` is just the
+// rendered slice. `toFilterRow` projects each caller row `R` to the abstract
+// FilterRow; `status` feeds the updates / issues / incompatible quick-filters
+// and the toolbar counts.
+export function createInstalledFilters<R>(
+  getRows: () => R[],
+  toFilterRow: (row: R) => FilterRow,
+  status: StatusPredicates = {},
 ) {
   let filter = $state('');
   let viewFilter = $state<ViewFilter>('all');
@@ -24,68 +46,72 @@ export function createInstalledFilters(
   let pageSize = $state<number>(50);
   let page = $state(0);
 
+  const isUpdatable = (id: string) => status.isUpdatable?.(id) ?? false;
+  const hasIssue = (id: string) => status.hasIssue?.(id) ?? false;
+  const isIncompatible = (id: string) => status.isIncompatible?.(id) ?? false;
+
+  const projected = $derived.by(() => getRows().map((row) => ({ row, fr: toFilterRow(row) })));
+
   const sorted = $derived.by(() => {
-    const xs = [...getRows()];
-    const nameLower = (r: Row) => rowDisplayName(r).toLowerCase();
+    const xs = [...projected];
+    const nameLower = (p: { fr: FilterRow }) => p.fr.name.toLowerCase();
     switch (sortBy) {
       case 'name-asc':
         return xs.sort((a, b) => nameLower(a).localeCompare(nameLower(b)));
       case 'name-desc':
         return xs.sort((a, b) => nameLower(b).localeCompare(nameLower(a)));
       case 'recent':
-        return xs.sort((a, b) => b.installed.installed_at.localeCompare(a.installed.installed_at));
+        return xs.sort((a, b) => b.fr.sortKey.localeCompare(a.fr.sortKey));
       case 'source':
         return xs.sort((a, b) => {
-          const sa = a.installed.source ?? 'zz-manual';
-          const sb = b.installed.source ?? 'zz-manual';
+          const sa = a.fr.source ?? 'zz-manual';
+          const sb = b.fr.source ?? 'zz-manual';
           if (sa !== sb) return sa.localeCompare(sb);
           return nameLower(a).localeCompare(nameLower(b));
         });
     }
   });
 
-  const filtered = $derived.by(() => {
-    const updatable = getUpdatableShas();
-    const missing = getMissingShas();
-    return (
-      sorted
-        .filter((r) => {
-          switch (viewFilter) {
-            case 'enabled':
-              return r.installed.enabled;
-            case 'disabled':
-              return !r.installed.enabled;
-            case 'updates':
-              return updatable.has(r.installed.sha1);
-            case 'issues':
-              return missing.has(r.installed.sha1);
-            case 'incompatible':
-              return getIncompatibleShas().has(r.installed.sha1);
-            default:
-              return true; // 'all'
-          }
-        })
-        // Text search is orthogonal and always applies on top of the view filter.
-        .filter(
-          (r) =>
-            filter.trim() === '' || rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
-        )
-    );
-  });
+  const filteredPairs = $derived.by(() =>
+    sorted
+      .filter(({ fr }) => {
+        switch (viewFilter) {
+          case 'enabled':
+            return fr.enabled;
+          case 'disabled':
+            return !fr.enabled;
+          case 'updates':
+            return isUpdatable(fr.id);
+          case 'issues':
+            return hasIssue(fr.id);
+          case 'incompatible':
+            return isIncompatible(fr.id);
+          default:
+            return true; // 'all'
+        }
+      })
+      // Text search is orthogonal and always applies on top of the view filter.
+      .filter(
+        ({ fr }) => filter.trim() === '' || fr.name.toLowerCase().includes(filter.toLowerCase()),
+      ),
+  );
 
+  const filtered = $derived(filteredPairs.map((p) => p.row));
   const pageCount = $derived(Math.max(1, Math.ceil(filtered.length / pageSize)));
   const paged = $derived(filtered.slice(page * pageSize, page * pageSize + pageSize));
 
   const counts = $derived.by(() => {
-    const rows = getRows();
-    const enabled = rows.filter((r) => r.installed.enabled).length;
+    const frs = projected.map((p) => p.fr);
+    const enabled = frs.filter((fr) => fr.enabled).length;
     return {
-      total: rows.length,
+      total: frs.length,
       enabled,
-      disabled: rows.length - enabled,
-      updates: getUpdatableShas().size,
-      issues: getMissingShas().size,
-      incompatible: getIncompatibleShas().size,
+      disabled: frs.length - enabled,
+      // Only count a status when its predicate was injected — an absent
+      // predicate means the caller has no such view, so the chip stays at 0.
+      updates: status.isUpdatable ? frs.filter((fr) => isUpdatable(fr.id)).length : 0,
+      issues: status.hasIssue ? frs.filter((fr) => hasIssue(fr.id)).length : 0,
+      incompatible: status.isIncompatible ? frs.filter((fr) => isIncompatible(fr.id)).length : 0,
     };
   });
 
@@ -105,14 +131,15 @@ export function createInstalledFilters(
       $effect(() => {
         if (page > pageCount - 1) page = Math.max(0, pageCount - 1);
       });
-      // When the active updates/issues view empties out (user fixed the last
-      // dependency problem or applied the last update), its chip disappears — so
-      // auto-reset to 'all' instead of stranding an empty list with the now-gone
-      // filter still active.
+      // When the active updates/issues/incompatible view empties out (user fixed
+      // the last dependency problem or applied the last update), its chip
+      // disappears — so auto-reset to 'all' instead of stranding an empty list
+      // with the now-gone filter still active.
       $effect(() => {
-        const resetUpdates = viewFilter === 'updates' && getUpdatableShas().size === 0;
-        const resetIssues = viewFilter === 'issues' && getMissingShas().size === 0;
-        const resetIncompat = viewFilter === 'incompatible' && getIncompatibleShas().size === 0;
+        const c = counts;
+        const resetUpdates = viewFilter === 'updates' && c.updates === 0;
+        const resetIssues = viewFilter === 'issues' && c.issues === 0;
+        const resetIncompat = viewFilter === 'incompatible' && c.incompatible === 0;
         // Wrap the self-referential write so the effect doesn't register
         // `viewFilter` as a dependency of its own assignment (it already depends
         // on it via the reads above; this keeps the update strictly one-shot).

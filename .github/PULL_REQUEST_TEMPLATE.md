@@ -18,7 +18,7 @@ Closes #
 ## Checklist
 
 - [ ] Branch is off `main`; commits follow Conventional Commits.
-- [ ] `cargo test -- --test-threads=1` passes (in `src-tauri/`).
+- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes.
 - [ ] `pnpm typecheck`, `pnpm lint`, and `pnpm test` pass.
 - [ ] No new outbound host except through `network::` + the allowlist (justified below if added).
 - [ ] No new subprocess except through the `process::` module.
