@@ -12,7 +12,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
 
 2. **No modification of the Minecraft client.** No jar patching. No injection into the main menu. No replaced splash screens. No mods bundled by default. The Minecraft we run is the Minecraft Mojang ships.
 
-3. **No hidden processes.** Every process the launcher spawns is documented in this file (Appendix A) and constructed through the single `process::` module — the one place in the backend a subprocess `Command` is built. A structural test (`src-tauri/tests/structural_no_raw_spawn.rs`) fails the build if a raw `Command` is constructed anywhere else, so the documented list cannot silently fall out of date.
+3. **No hidden processes.** Every process the launcher spawns is documented in this file (Appendix A) and constructed through the single `process::` module — the one place in the backend a subprocess `Command` is built. A structural test (`src-tauri/tests/structural_no_raw_spawn.rs`) fails the build if a raw `Command` is constructed anywhere else, so no spawn can be added outside the chokepoint. Note what that guard does and does not buy: it constrains *where* a process may be spawned, but it cannot read this table, so keeping Appendix A complete is a review responsibility. Adding a spawn site without adding its row is a reviewable defect, not something CI will catch.
 
 4. **No bundled adware, installer junk, or third-party offers.** The installer ships only the launcher and what it strictly needs to run.
 
@@ -20,7 +20,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
 
 ### Positive commitments — what we do
 
-1. **No hidden network calls — enforced, not displayed.** Every outbound HTTP request is funnelled through the single `network::` module, which refuses any host not on the allowlist below *before the request is sent* (`network::allowlist`). A structural test (`src-tauri/tests/structural_no_raw_http.rs`) fails the build if an HTTP client is constructed outside `network::`. The launcher cannot reach a host that is not on this list — that is a property of the code, verifiable by reading it, not a promise.
+1. **No hidden network calls — enforced, not displayed.** Every outbound HTTP request is funnelled through the single `network::` module, which refuses any host not on the allowlist below *before the request is sent* (`network::allowlist`). A structural test (`src-tauri/tests/structural_no_raw_http.rs`) fails the build if an HTTP client is constructed outside `network::`. The launcher cannot reach a host that is not on this list — that is a property of the code, verifiable by reading it, not a promise. One deliberate escape hatch qualifies that absolute: the `LUCERNA_EXTRA_ALLOWED_HOSTS` environment variable adds patterns at runtime, so integration tests can point the launcher at a local mock server. It is empty unless an operator sets it, and it is documented as an accepted trade-off in [`SECURITY.md`](SECURITY.md) Part C.
 
 2. **Allowed network destinations.** This list is compiled into the binary as `network::allowlist::ALLOWED_PATTERNS` and enforced at the chokepoint (Part A positive commitment 1). None are hidden; the table below mirrors the code for human readers.
 
@@ -28,7 +28,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    |---|---|---|
    | `*.minecraft.net`, `*.mojang.com` | Microsoft / Mojang auth, profile, assets | on |
    | `piston-meta.mojang.com`, `piston-data.mojang.com` | Version manifest, libraries | on |
-   | `api.github.com/repos/AntonBabchenko/Lucerna/releases` | Launcher self-update check | on |
+   | `api.github.com` | Launcher self-update check (release lookup for this repo; the allowlist matches on host, not path) | on |
    | `github.com` | Self-update installer / `SHA256SUMS` / `.cosign.bundle` download (release-asset `browser_download_url`; redirects to a GitHub CDN, which reqwest follows internally — integrity rests on the cosign + SHA-256 verification of the bytes, not on the transport host) | on (only when the user clicks Update) |
    | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
@@ -64,14 +64,14 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
 
 4. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
 
-4. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
+5. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
 
 ### Appendix A — documented processes
 
 | Process | Purpose | Spawn site | Lifetime | Stdin / stdout / stderr |
 |---|---|---|---|---|
-| `javaw.exe` (bundled JRE) | Runs the Minecraft client | `launch::spawn::start` | Until the user closes MC or clicks Stop in the launcher | stdin closed; stdout+stderr → `<instance>/logs/launch-<timestamp>.log` |
-| `taskkill.exe` (Windows built-in) | Terminates the running `javaw.exe` and its children when the user clicks Stop | `launch::spawn::stop` | One-shot; exits as soon as the kill request is issued | stdin/stdout/stderr not captured (one-shot system utility) |
+| `javaw.exe` (bundled JRE) | Runs the Minecraft client. **One per running instance** — several instances can run at once, tracked in a process registry keyed by instance id | `process::spawn_minecraft` (via `launch::spawn::start`) | Until the user closes that instance's MC or clicks Stop for it | stdin closed; stdout+stderr → `<instance>/logs/launch-<timestamp>.log` |
+| `taskkill.exe` (Windows built-in) | Terminates one instance's `javaw.exe` and its children when the user clicks Stop | `process::taskkill_tree` (via `platform::kill_process_tree`, from `launch::spawn::stop`) | One-shot; exits as soon as the kill request is issued | stdin/stdout/stderr not captured (one-shot system utility) |
 | `Lucerna_<ver>_x64-setup.exe` (the official NSIS update installer, downloaded to the app's `updates/` dir and **cosign + SHA-256 verified** before launch) | Installs a newer launcher version when the user clicks Update | `process::spawn_installer` (from `update::install`) | One-shot; the launcher exits immediately after so the installer can replace the locked binary. Windows-only. Never launched for an unverified binary. | inherits the installer's own console (visible NSIS wizard) |
 | `explorer.exe` (or OS-default file manager) | Opens a user-clicked folder (currently `<instance>/.minecraft/mods/`) in the OS file manager | `tauri_plugin_opener::OpenerExt::open_path` via the `open_mods_folder` Tauri command | One-shot; the file manager opens (or focuses) a window and the spawn handle exits immediately | stdin/stdout/stderr not captured (GUI process) |
 | `explorer.exe` (or OS-default file manager) | Opens the screenshots folder, or reveals a specific screenshot, in the OS file manager (screenshot viewer) | `tauri_plugin_opener::OpenerExt::open_path` / `reveal_item_in_dir` via the `open_screenshots_folder` / `reveal_screenshot` Tauri commands | One-shot; the file manager opens (or focuses) a window and the spawn handle exits immediately | stdin/stdout/stderr not captured (GUI process) |
@@ -80,6 +80,12 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
 | `java.exe` (bundled JRE, via `-cp`) | Runs AutoRenamingTool (ART) — NeoForge's bytecode remapper for modern-era (1.20.1+) install. | `process::run_java_processor` (from `forge::patcher::art::run`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
 | `java.exe` (bundled JRE, via `-cp`) | Runs the binarypatcher ConsoleTool — applies Forge/NeoForge pre-computed binary patches (binarypatcher ≥ 1.2.0). | `process::run_java_processor` (from `forge::patcher::binarypatcher::run_via_java`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
 | `java.exe` (bundled JRE, via `-cp`) | Runs the installertools ConsoleTool `PROCESS_MINECRAFT_JAR` task — NeoForge ≥ 21.10's combined remap + binary-patch step. | `process::run_java_processor` (from `forge::patcher::installertools`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
+| `java.exe` (bundled JRE) | Runs a **Minecraft server** the user created in Servers mode | `process::spawn_server` (from `servers_runtime::runtime`) | Until the user stops the server or it exits | stdin **piped** — this is the console command channel, unlike the client, whose stdin is closed; stdout+stderr piped into the live console and the server log. `CREATE_NO_WINDOW` on Windows so the console `java.exe` does not flash a window |
+| `java.exe` (bundled JRE) | Runs a server loader's `installServer` step when creating a Fabric / Quilt / Forge / NeoForge server | `process::install_server` (from `servers_runtime::create`) | One-shot; exits when the server install completes | stdout+stderr captured and surfaced as a create error on non-zero exit |
+| `ipconfig` (Windows built-in) | Reads the machine's local IPv4 addresses to show the LAN address for a server you host | `process::local_ipv4_addresses` | One-shot | stdout captured and parsed; nothing is sent anywhere |
+| `netsh` (Windows built-in) | Checks whether the launcher's inbound firewall rule for a hosted server already exists | `process::firewall_rule_present` | One-shot | stdout captured and matched against the rule name |
+| `powershell` → `netsh` (Windows built-ins) | Adds or removes the inbound firewall rule for a server you host. Runs **elevated** (`Start-Process -Verb RunAs`) because creating a firewall rule requires administrator rights, and with `-WindowStyle Hidden` so the elevated helper does not flash a console. Windows shows its own UAC consent prompt — the launcher cannot suppress it, and nothing happens if you decline. | `process::firewall_add_rule_elevated` / `process::firewall_remove_rule_elevated` | One-shot | not captured (separate elevated process) |
+| `sh` (Linux) | Waits for the launcher's own PID to exit, then `exec`s the newly downloaded AppImage — the self-update handoff on Linux | `process::spawn_appimage_relaunch` | Detached; outlives the launcher process by design, exits once the new AppImage takes over | detached; not captured |
 
 **Selective Java subprocess invocation during install.** Five Forge/NeoForge install processors need byte-fidelity output that Forge's pre-computed binary patches reference by byte offset, so they shell out to the canonical Java implementation rather than a Rust reimplementation: SpecialSource, FART, ART, the binarypatcher ConsoleTool (binarypatcher ≥ 1.2.0 / NeoForge 2.1.2), and the installertools ConsoleTool `PROCESS_MINECRAFT_JAR` task (NeoForge ≥ 21.10). Each is a single processor invocation with bounded args, constructed through `process::run_java_processor`, and listed in the table above.
 
@@ -89,6 +95,22 @@ Whether the binarypatcher and installertools Java steps could be returned to pur
 
 The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary watchdog, no helper process. The Java runtime is exactly the one Mojang publishes via the JRE manifest (slice 5), and the Minecraft jar is exactly the one Mojang serves at `piston-data.mojang.com` (slice 4).
 
+### Appendix B — structural guards
+
+The commitments above are not honour-system rules; most are enforced by tests in `src-tauri/tests/` that fail the build when bypassed. The full set:
+
+| Guard | Enforces |
+|---|---|
+| `structural_no_raw_http.rs` | No HTTP client construction outside `network::` (Part A commitment 1) |
+| `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`, plus an allowlist for `tauri_plugin_opener` call sites (Hard rule 3) |
+| `structural_no_raw_sftp.rs` | No SFTP session construction outside `servers_runtime::transfer` (Part A commitment 3) |
+| `structural_platform_chokepoint.rs` | OS-specific behaviour stays behind the `platform::` seam rather than leaking `#[cfg(windows)]` across the codebase |
+| `structural_no_env_mutation.rs` | No `std::env::set_var` in production code — env overrides go through `test_seam` (this is what removed the need for single-threaded test runs) |
+| `structural_installer_branding.rs` | The NSIS installer keeps Lucerna branding assets wired up |
+| `structural_installmode_currentuser.rs` | The installer stays per-user (`currentUser`), so updating never needs administrator rights |
+
+These guards constrain *where* code may do a thing. They cannot verify that this document's tables are complete — that remains a code-review responsibility.
+
 ## Part B — Technical principles
 
 1. **Stack is fixed:** Rust + Tauri 2.x. **SvelteKit** (Svelte 5 with runes, `adapter-static` in SPA mode) + **TypeScript** + **Tailwind CSS** in the webview. Type-safe IPC via `tauri-specta` (Rust signatures are the single source of truth; TS bindings regenerated on debug build; drift caught at typecheck time).
@@ -97,13 +119,13 @@ The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary w
 
 3. **Module isolation.** Each module exposes a narrow public API; internals are changeable without touching consumers. Initial module sketch (subject to a later architecture brainstorm):
 
-   - `auth` — Microsoft OAuth + offline account model
+   - `accounts` — Microsoft OAuth + offline account model
    - `versions` — version manifest fetch and parse
    - `instances` — per-instance filesystem isolation, configuration
    - `network` — every outbound HTTP request goes through here (single chokepoint for the allowlist)
    - `launch` — JVM argument construction, process spawn, lifecycle
    - `mods` — Modrinth / CurseForge integration
-   - `ui_bridge` — Tauri command surface exposed to the UI
+   - `commands` — Tauri command surface exposed to the UI
 
    A file approaching ~500 lines is a signal to split. Not a hard limit; a smell.
 
@@ -111,7 +133,7 @@ The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary w
 
 5. **Dependencies are deliberate.**
    - A new crate requires PR justification: why needed, what alternatives were considered, dependency tree size impact (`cargo tree | wc -l` before and after).
-   - `cargo-deny` is intended to block non-FOSS licenses, known-vulnerable versions, duplicate crates, and unapproved source registries *(planned — not yet wired into CI; see `docs/SECURITY.md` Part A)*.
+   - `cargo-deny` blocks non-FOSS licenses, known-vulnerable versions, duplicate crates, and unapproved source registries. It is configured in `src-tauri/deny.toml` and enforced by the `cargo-deny` job in `.github/workflows/ci.yml`, which is a required check (see `docs/SECURITY.md` Part A).
    - No hard cap on total dependency tree size, but more than 500 transitive crates is a red flag worth pausing for.
    - **npm deps follow the same rule.** A new package requires PR justification (why, alternatives, tree size). `strict-peer-dependencies=true` in `.npmrc`. Build scripts run only when explicitly allowed in `pnpm-workspace.yaml` (`pnpm approve-builds`). Telemetry-shipping packages are rejected outright.
 
