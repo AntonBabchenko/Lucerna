@@ -29,6 +29,7 @@ pub fn anonymise(input: &str) -> String {
     static WIN_USER_PATH_FWD: Lazy<Regex> =
         Lazy::new(|| Regex::new(r#"(?i)([A-Z]:/Users/)([^/:*?"<>|]+)(/)"#).unwrap());
     static MAC_USER_PATH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(/Users/)([^/]+)(/)").unwrap());
+    static LINUX_USER_PATH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(/home/)([^/]+)(/)").unwrap());
     static SETTING_USER_TOKEN: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?i)(Setting user:\s+\S+\s+)([A-Za-z0-9]{30,})").unwrap());
     static ACCESS_TOKEN_FLAG: Lazy<Regex> =
@@ -52,6 +53,7 @@ pub fn anonymise(input: &str) -> String {
         .replace_all(&out, "$1<user>$3")
         .into_owned();
     out = MAC_USER_PATH.replace_all(&out, "$1<user>$3").into_owned();
+    out = LINUX_USER_PATH.replace_all(&out, "$1<user>$3").into_owned();
     out = SETTING_USER_TOKEN
         .replace_all(&out, "$1<redacted>")
         .into_owned();
@@ -148,6 +150,21 @@ mod tests {
         let out = anonymise(input);
         assert!(!out.contains("/player/"));
         assert!(out.contains("/Users/<user>/"));
+    }
+
+    #[test]
+    fn anonymise_strips_linux_user_path() {
+        let input = "/home/player/.minecraft/logs/latest.log";
+        let out = anonymise(input);
+        assert!(!out.contains("/player/"));
+        assert!(out.contains("/home/<user>/"));
+    }
+
+    #[test]
+    fn anonymise_keeps_home_without_user_segment() {
+        // Nothing that looks like a username follows `/home/`, so there is
+        // nothing to scrub and the text must survive untouched.
+        assert!(anonymise("reading /home/ directory").contains("/home/ "));
     }
 
     #[test]
