@@ -37,6 +37,7 @@
     panelClass = 'max-w-lg w-full',
     closeOnBackdrop = true,
     closeOnEscape = true,
+    bare = false,
     dataTestid,
     children,
   }: {
@@ -50,6 +51,12 @@
     panelClass?: string;
     closeOnBackdrop?: boolean;
     closeOnEscape?: boolean;
+    /** Full-bleed dialogs (the screenshot lightbox): the panel fills the
+        viewport with no surface chrome, and the scrim darkens to bg-black/60.
+        The panel covers the backdrop, so provide your own click-to-close
+        surface inside if backdrop-click dismissal is wanted. Everything else
+        (Escape stack, focus trap, role/aria) works as usual. */
+    bare?: boolean;
     /** Optional `data-testid` forwarded to the dialog panel element. */
     dataTestid?: string;
     children: Snippet;
@@ -106,7 +113,9 @@
      require the press AND release to land on the backdrop. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+  class={bare
+    ? 'fixed inset-0 z-50 bg-black/60'
+    : 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'}
   onmousedown={onBackdropMouseDown}
   onmouseup={onBackdropMouseUp}
 >
@@ -119,7 +128,9 @@
     aria-describedby={ariaDescribedby}
     data-testid={dataTestid}
     tabindex="-1"
-    class="bg-surface rounded-lg shadow-xl outline-none {panelClass}"
+    class={bare
+      ? `h-full w-full outline-none ${panelClass}`
+      : `bg-surface rounded-lg shadow-xl outline-none ${panelClass}`}
   >
     {@render children()}
   </div>

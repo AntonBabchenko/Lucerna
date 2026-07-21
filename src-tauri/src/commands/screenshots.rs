@@ -20,30 +20,47 @@ pub fn list_all_screenshots(
     crate::screenshots::list_all_screenshots(&app)
 }
 
+// Thumbnail/preview/clipboard commands are `async` + `spawn_blocking`: on a
+// cache miss they PNG-decode a full-resolution (up to 4K) screenshot, resize,
+// and re-encode — 100-300 ms of pure CPU that a sync command would spend on
+// the main thread. A gallery's first open fires dozens of these at once.
+
 #[tauri::command]
 #[specta::specta]
-pub fn screenshot_thumbnail(
+pub async fn screenshot_thumbnail(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
 ) -> Result<String, crate::error::Error> {
     let path = crate::screenshots::screenshot_path(&app, &instance_id, &file_name)?;
-    crate::screenshots::thumb::render_data_url(&app, &path, crate::screenshots::thumb::Tier::Thumb)
+    tokio::task::spawn_blocking(move || {
+        crate::screenshots::thumb::render_data_url(
+            &app,
+            &path,
+            crate::screenshots::thumb::Tier::Thumb,
+        )
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<screenshot_thumbnail>", format!("join: {e}")))?
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn screenshot_preview(
+pub async fn screenshot_preview(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
 ) -> Result<String, crate::error::Error> {
     let path = crate::screenshots::screenshot_path(&app, &instance_id, &file_name)?;
-    crate::screenshots::thumb::render_data_url(
-        &app,
-        &path,
-        crate::screenshots::thumb::Tier::Preview,
-    )
+    tokio::task::spawn_blocking(move || {
+        crate::screenshots::thumb::render_data_url(
+            &app,
+            &path,
+            crate::screenshots::thumb::Tier::Preview,
+        )
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<screenshot_preview>", format!("join: {e}")))?
 }
 
 #[tauri::command]
@@ -98,13 +115,17 @@ pub async fn open_screenshots_folder(
 
 #[tauri::command]
 #[specta::specta]
-pub fn copy_screenshot_to_clipboard(
+pub async fn copy_screenshot_to_clipboard(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
 ) -> Result<(), crate::error::Error> {
     let path = crate::screenshots::screenshot_path(&app, &instance_id, &file_name)?;
-    let image = crate::screenshots::thumb::clipboard_image(&path)?;
+    // Full-image decode off the main thread; the clipboard write itself is cheap.
+    let image =
+        tokio::task::spawn_blocking(move || crate::screenshots::thumb::clipboard_image(&path))
+            .await
+            .map_err(|e| crate::error::Error::io("<clipboard>", format!("join: {e}")))??;
     app.clipboard()
         .write_image(&image)
         .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))

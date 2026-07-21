@@ -41,7 +41,7 @@
     id={TOOLTIP_ID}
     role="tooltip"
     transition:reveal={{ placement: tooltipState.placement }}
-    class="fixed z-[210] max-w-xs pointer-events-none normal-case tracking-normal
+    class="fixed z-[var(--z-tooltip)] max-w-xs pointer-events-none normal-case tracking-normal
            rounded-md border border-border-subtle bg-surface px-2.5 py-1.5
            text-xs font-medium leading-snug text-secondary shadow-lg"
     style="top: {tooltipState.top}px; left: {tooltipState.left}px; transform-origin: {tooltipState.placement ===

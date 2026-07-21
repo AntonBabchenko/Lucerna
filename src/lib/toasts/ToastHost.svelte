@@ -15,7 +15,7 @@
   });
 
   // Renders the active toast stack in the top-right corner. Mounted once
-  // at the app root (`src/routes/+page.svelte`). z-[200] keeps toasts
+  // at the app root (`src/routes/+page.svelte`). z-[var(--z-toast)] (200) keeps toasts
   // above EVERYTHING — modals (z-40-50), contextual tour overlays
   // (z-100/101), drag-drop dropzone highlights. Toasts are the only
   // chrome that announces transient state; they must never be obscured.
@@ -30,7 +30,7 @@
      each newly-added toast is announced on its own rather than re-reading the
      whole stack. -->
 <div
-  class="fixed top-4 right-4 z-[200] flex flex-col gap-2"
+  class="fixed top-4 right-4 z-[var(--z-toast)] flex flex-col gap-2"
   data-testid="toast-host"
   aria-live="polite"
   aria-atomic="false"

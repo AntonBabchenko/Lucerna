@@ -699,7 +699,10 @@
       "checkFailed": "Не удалось проверить обновления",
       "installedToast": "Установлено {name}",
       "updatedToast": "Обновлено {name}",
-      "removedToast": "Удалено {name}"
+      "removedToast": "Удалено {name}",
+      "installFailedToast": "Не удалось установить",
+      "updateFailedToast": "Не удалось обновить",
+      "removeFailedToast": "Не удалось удалить"
     }
   },
   "modpacks": {
@@ -914,6 +917,7 @@
     "toastDeleted": "Скриншот перемещён в корзину",
     "saveDialogTitle": "Сохранить копию скриншота",
     "galleryTitle": "Галерея скриншотов",
+    "viewerTitle": "Просмотр скриншота",
     "galleryClose": "Закрыть галерею",
     "filterInstance": "Профиль",
     "filterAll": "Все профили",
@@ -1697,6 +1701,9 @@
     "serverAlreadyRunning": "Этот сервер уже запущен",
     "serverNotRunning": "Этот сервер не запущен",
     "serverModRequiredByOther": "Нельзя удалить {filename} — он нужен моду {requiredBy}. Удалите и тот мод, либо оставьте этот.",
+    "serverFileInvalid": "Файл {filename} отклонён: {reason}",
+    "serverCoreUnsupported": "Не поддерживается этим ядром сервера: {reason}",
+    "serverContentStale": "Список установленного изменился — обновите и повторите",
     "serverNameInvalid": "Это имя сервера нельзя использовать — оно пустое, слишком длинное или уже занято.",
     "uploadNotConfigured": "Сначала настройте подключение к хостингу",
     "sftpConnectFailed": "Не удалось подключиться к хосту",

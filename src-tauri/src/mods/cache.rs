@@ -5,13 +5,26 @@
 //! out of the cache (cheap) rather than linking, so per-instance
 //! deletion never affects the cache.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use sha1::{Digest, Sha1};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use crate::error::Error;
+
+/// Process-lifetime memo of cache entries already SHA-verified this session,
+/// keyed by path → (mtime, size). The cache is content-addressed and written
+/// only through SHA-guarded paths, so while a file's (mtime, size) are
+/// unchanged a re-verify would re-hash identical bytes. This mattered during
+/// modpack installs: after the concurrent pre-warm, every per-file
+/// `fetch_to_cache` re-read the whole jar just to confirm the hash — a full
+/// second pass over the pack. A memo hit turns that into one `stat`.
+static VERIFIED: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn cache_root(data_dir: &Path) -> PathBuf {
     data_dir.join("mod-cache")
@@ -24,17 +37,37 @@ pub fn cache_path_for(data_dir: &Path, sha1_lower: &str) -> PathBuf {
 /// True if a cache entry exists and its SHA-1 matches `expected`. If
 /// the entry exists but the hash mismatches (rare; concurrent write or
 /// disk corruption), delete it and return false so the caller falls
-/// back to the cold path.
+/// back to the cold path. Entries verified once this session are trusted
+/// by (mtime, size) — see [`VERIFIED`].
 pub async fn verify_or_evict(data_dir: &Path, expected_sha1: &str) -> Result<bool, Error> {
     let path = cache_path_for(data_dir, expected_sha1);
-    if !fs::try_exists(&path).await.map_err(io_to_cache_err)? {
-        return Ok(false);
+    let meta = match fs::metadata(&path).await {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(io_to_cache_err(e)),
+    };
+    let stamp = meta.modified().ok().map(|mtime| (mtime, meta.len()));
+    if let Some(stamp) = stamp {
+        let memo = VERIFIED.lock().unwrap_or_else(|p| p.into_inner());
+        if memo.get(&path) == Some(&stamp) {
+            return Ok(true);
+        }
     }
     let bytes = fs::read(&path).await.map_err(io_to_cache_err)?;
     let got = hex::encode(Sha1::digest(&bytes));
     if got.eq_ignore_ascii_case(expected_sha1) {
+        if let Some(stamp) = stamp {
+            VERIFIED
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(path, stamp);
+        }
         Ok(true)
     } else {
+        VERIFIED
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&path);
         fs::remove_file(&path).await.map_err(io_to_cache_err)?;
         Ok(false)
     }
@@ -87,6 +120,8 @@ pub async fn size_bytes(data_dir: &Path) -> Result<u64, Error> {
 }
 
 pub async fn clear(data_dir: &Path) -> Result<u64, Error> {
+    // Files are about to disappear — drop the session verify memo wholesale.
+    VERIFIED.lock().unwrap_or_else(|p| p.into_inner()).clear();
     let root = cache_root(data_dir);
     if !fs::try_exists(&root).await.map_err(io_to_cache_err)? {
         return Ok(0);

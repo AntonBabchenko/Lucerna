@@ -35,10 +35,13 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+const { pushSuccess } = vi.hoisted(() => ({ pushSuccess: vi.fn() }));
+vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess }));
+
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
 
 describe('StoragePanel', () => {
-  it('shows size, clears cache, shows toast, and disables Clear once empty', async () => {
+  it('shows size, clears cache, pushes a success toast, and disables Clear once empty', async () => {
     const mod = await import('$lib/ipc/bindings');
     (mod.commands.modsCacheSizeBytes as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ status: 'ok', data: 2048 })
@@ -64,7 +67,9 @@ describe('StoragePanel', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mod.commands.modsClearCache).toHaveBeenCalled();
-    expect(screen.getByText(/Cache cleared/)).toBeTruthy();
+    // Success is announced through the global toast store (auto-dismissing),
+    // not an inline box that lingered forever.
+    expect(pushSuccess).toHaveBeenCalledWith(expect.stringMatching(/Cache cleared/));
     // Second refresh reported zero bytes — the button must now be disabled.
     expect(
       (screen.getByRole('button', { name: 'Clear cache' }) as HTMLButtonElement).disabled,

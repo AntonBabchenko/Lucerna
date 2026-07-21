@@ -29,6 +29,7 @@ const { serverList } = vi.hoisted(() => ({ serverList: vi.fn() }));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     serverList,
     // ServerCreateWizard children (MemorySlider / core + loader pickers) are
     // imported at module level by ServersPanel even when the wizard is closed.

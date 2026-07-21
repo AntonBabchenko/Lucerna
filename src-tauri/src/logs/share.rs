@@ -22,6 +22,8 @@ use serde::Deserialize;
 /// based, no semantic understanding. The Share UI warns the user to
 /// double-check the body before sharing.
 pub fn anonymise(input: &str) -> String {
+    // All patterns below are static literals validated by the unit tests —
+    // `Regex::new` cannot fail at runtime. Per CLAUDE.md `.unwrap()` rule.
     static WIN_USER_PATH: Lazy<Regex> =
         Lazy::new(|| Regex::new(r#"(?i)([A-Z]:\\Users\\)([^\\/:*?"<>|]+)(\\)"#).unwrap());
     static WIN_USER_PATH_FWD: Lazy<Regex> =

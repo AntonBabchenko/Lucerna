@@ -354,25 +354,40 @@ async fn enrich_selected(
         .iter()
         .map(|m| m.sha1.to_ascii_lowercase())
         .collect();
-    let mut fingerprints: Vec<(u32, String)> = Vec::new();
-    for m in in_scope {
-        let path = if m.enabled {
-            mods_dir.join(&m.filename)
-        } else {
-            mods_dir.join(format!("{}.disabled", m.filename))
-        };
-        match tokio::fs::read(&path).await {
-            Ok(bytes) => {
-                fingerprints.push((curseforge_fingerprint(&bytes), m.sha1.to_ascii_lowercase()));
-            }
-            Err(e) => {
-                crate::diag!(
-                    "[enrich] cannot read {} for fingerprinting: {e}",
-                    path.display()
-                );
+    // Whole-jar reads + Murmur2 fingerprinting are blocking disk/CPU work —
+    // run the batch on a blocking thread, mirroring `enrich_server_dir` (the
+    // server twin), instead of stalling the async runtime once per jar. On a
+    // large modpack this loop is a full pass over gigabytes.
+    let fingerprint_targets: Vec<(std::path::PathBuf, String)> = in_scope
+        .iter()
+        .map(|m| {
+            let path = if m.enabled {
+                mods_dir.join(&m.filename)
+            } else {
+                mods_dir.join(format!("{}.disabled", m.filename))
+            };
+            (path, m.sha1.to_ascii_lowercase())
+        })
+        .collect();
+    let fingerprints: Vec<(u32, String)> = tokio::task::spawn_blocking(move || {
+        let mut out = Vec::with_capacity(fingerprint_targets.len());
+        for (path, sha) in fingerprint_targets {
+            match std::fs::read(&path) {
+                Ok(bytes) => out.push((curseforge_fingerprint(&bytes), sha)),
+                Err(e) => {
+                    crate::diag!(
+                        "[enrich] cannot read {} for fingerprinting: {e}",
+                        path.display()
+                    );
+                }
             }
         }
-    }
+        out
+    })
+    .await
+    .map_err(|e| Error::ModsCacheIo {
+        details: format!("fingerprint task join: {e}"),
+    })?;
 
     let cf_tried = cf_key.is_some();
     let (mr, mr_ok) = resolve_modrinth(modrinth_base, &shas).await;

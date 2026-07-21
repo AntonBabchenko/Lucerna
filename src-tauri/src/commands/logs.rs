@@ -39,10 +39,12 @@ fn sanitize_cap(max_bytes: f64) -> u64 {
 /// Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 /// `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
 /// under one of SOME instance's allowed log roots — anything else is
-/// rejected with `Error::Io`.
+/// rejected with `Error::Io`. Async + `spawn_blocking` (mirrors
+/// `annotate_log_file`): up to 100 MB off disk must not run on the IPC
+/// thread.
 #[tauri::command]
 #[specta::specta]
-pub fn read_log_file(
+pub async fn read_log_file(
     app: tauri::AppHandle,
     path: String,
     max_bytes: f64,
@@ -50,7 +52,10 @@ pub fn read_log_file(
     let roots = all_instance_log_roots(&app)?;
     let path = std::path::PathBuf::from(&path);
     crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
-    crate::logs::read::read_with_cap(&path, sanitize_cap(max_bytes))
+    let cap = sanitize_cap(max_bytes);
+    tokio::task::spawn_blocking(move || crate::logs::read::read_with_cap(&path, cap))
+        .await
+        .map_err(|e| crate::error::Error::io("<read_log_file>", format!("join: {e}")))?
 }
 
 /// Newest crash report (if any) for `instance_id`. Used by the UI to

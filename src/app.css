@@ -51,7 +51,14 @@
      tooltip layer stays highest (both are root-mounted, outside modal contexts). */
   --z-popover: 50;
   --z-modal: 50;
-  --z-toast: 60;
+  /* Contextual tours sit above modals (spotlight 100 / tour popover 101);
+     toasts must beat tours; the tooltip layer stays highest. These values
+     mirror what ToastHost / ContextualTour / TooltipLayer actually ship —
+     keep them in sync when adding a new overlay tier. */
+  --z-tour: 100;
+  --z-tour-popover: 101;
+  --z-toast: 200;
+  --z-tooltip: 210;
 
   /* Motion — replaces inline literals (0.15s / 0.5s / 120ms scattered today). */
   --duration-fast: 120ms; /* icon hover-zoom */

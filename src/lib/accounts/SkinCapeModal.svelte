@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
@@ -261,22 +263,15 @@
       </h3>
       <p class="text-xs text-muted">{account.name}</p>
     </div>
-    <button
-      type="button"
-      class="ml-auto text-secondary hover:text-primary"
-      aria-label={$t('common.close')}
-      onclick={onClose}
-    >
-      <Icon name="close" size={18} />
-    </button>
+    <CloseButton class="ml-auto" onClick={onClose} />
   </div>
 
   <div class="p-5 flex-1 min-h-0 overflow-y-auto">
     {#if loading}
-      <p class="text-sm text-muted">{$t('common.loading')}</p>
+      <Spinner label={$t('common.loading')} labelPlacement="below" />
     {:else if loadError}
       <div class="flex items-center gap-3">
-        <p class="text-sm text-danger">{$t('cosmetics.loadError')}</p>
+        <p class="text-sm text-danger" role="alert">{$t('cosmetics.loadError')}</p>
         <button type="button" class="btn-secondary btn-xs" onclick={() => load()}
           >{$t('cosmetics.retry')}</button
         >
@@ -429,7 +424,7 @@
       </div>
 
       {#if saveError}
-        <p class="mt-3 text-sm text-danger">{saveError}</p>
+        <p class="mt-3 text-sm text-danger" role="alert">{saveError}</p>
       {/if}
     {/if}
   </div>

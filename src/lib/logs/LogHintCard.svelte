@@ -64,7 +64,7 @@
     bind:this={card}
     aria-label={$t('logs.hints.cardAriaLabel')}
     data-testid="log-hint-card"
-    class="fixed z-[210] w-max max-w-sm rounded-md border border-border-subtle bg-surface
+    class="fixed z-[var(--z-tooltip)] w-max max-w-sm rounded-md border border-border-subtle bg-surface
            p-3 text-xs leading-snug shadow-lg selectable"
     style="top: {top}px; left: {left}px;"
     onpointerenter={() => hover.cardEnter()}

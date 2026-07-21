@@ -70,6 +70,7 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { debounceTrailing } from '$lib/ui/debounce';
   import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import {
@@ -191,7 +192,8 @@
   // classifyExit (same lifecycle as the Overview's crash status — clears on
   // relaunch or instance switch), NOT the dismissible `crashReport` banner. A
   // user-requested Stop classifies as `stopped`, never `crashed`. Reflects the
-  // SELECTED instance for now; an aggregate pill is a later task.
+  // SELECTED instance; the aggregate view is the running-instances pill
+  // (RunningInstancesPopover), which tracks every process.
   const clientNav = $derived<NavStatusKind>(
     selectedRunning
       ? 'running'
@@ -441,13 +443,16 @@
   });
 
   async function refreshAccounts() {
-    const list = await commands.listAccounts();
+    // Independent reads — one round-trip instead of two serial ones.
+    const [list, active] = await Promise.all([
+      commands.listAccounts(),
+      commands.getActiveAccount(),
+    ]);
     if (list.status === 'ok') {
       accounts = list.data;
     } else {
       listAccountsError = formatError(list.error);
     }
-    const active = await commands.getActiveAccount();
     if (active.status === 'ok') {
       activeAccount = active.data;
     }
@@ -504,6 +509,22 @@
     };
   });
 
+  // Overview-stat refreshes for the mod events registered in onMount below.
+  // Trailing-debounced so a multi-jar install burst collapses to one refresh.
+  const debouncedModSetStats = debounceTrailing(() => {
+    void stats.refreshInstalledStats(activeInstance?.id ?? null);
+    void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+    void stats.refreshPackStatus(activeInstance?.id ?? null);
+  }, 150);
+  const debouncedModToggleStats = debounceTrailing(() => {
+    void stats.refreshInstalledStats(activeInstance?.id ?? null);
+    void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+  }, 150);
+  onDestroy(() => {
+    debouncedModSetStats.cancel();
+    debouncedModToggleStats.cancel();
+  });
+
   onMount(async () => {
     void dataLocation.init();
     void refreshInstances();
@@ -527,32 +548,17 @@
     // Mod-install events refresh the Overview stats so the user can
     // see the Total / Enabled / Disabled numbers tick up after install
     // from the Mod browser without bouncing back through this view.
-    events.modInstalled
-      .listen(() => {
-        void stats.refreshInstalledStats(activeInstance?.id ?? null);
-        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-        void stats.refreshPackStatus(activeInstance?.id ?? null);
-      })
-      .then((u) => {
-        modInstalledUnlisten = u;
-      });
-    events.modUninstalled
-      .listen(() => {
-        void stats.refreshInstalledStats(activeInstance?.id ?? null);
-        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-        void stats.refreshPackStatus(activeInstance?.id ?? null);
-      })
-      .then((u) => {
-        modUninstalledUnlisten = u;
-      });
-    events.modToggle
-      .listen(() => {
-        void stats.refreshInstalledStats(activeInstance?.id ?? null);
-        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-      })
-      .then((u) => {
-        modToggleUnlisten = u;
-      });
+    // Debounced: a with-deps install emits one event per jar; without
+    // coalescing an 8-jar install fired 8 × 3 stat commands in ~2 s.
+    events.modInstalled.listen(debouncedModSetStats.call).then((u) => {
+      modInstalledUnlisten = u;
+    });
+    events.modUninstalled.listen(debouncedModSetStats.call).then((u) => {
+      modUninstalledUnlisten = u;
+    });
+    events.modToggle.listen(debouncedModToggleStats.call).then((u) => {
+      modToggleUnlisten = u;
+    });
 
     events.processExited
       .listen(async (event) => {
@@ -596,6 +602,13 @@
         exitUnlisten = u;
       });
 
+    // Independent of settings — start these before the settings round-trip so
+    // the MC version-manifest fetch and the account reads overlap it instead
+    // of queueing behind it (cold start used to serialize 4 IPC hops before
+    // the manifest fetch even began).
+    void mcv.load();
+    const accountsReady = refreshAccounts();
+
     const settingsResult = await commands.appSettingsGet();
     if (settingsResult.status === 'ok') {
       initTheme(settingsResult.data.general.theme ?? 'system');
@@ -638,12 +651,7 @@
       })();
     }
 
-    await refreshAccounts();
-
-    // Fire-and-forget: the composable owns the fetch, publishes the list to the
-    // shared `mcVersions` rune, and self-heals a transient failure (online event
-    // + bounded backoff) instead of leaving a stale error banner.
-    void mcv.load();
+    await accountsReady;
 
     void initOnboarding();
   });
@@ -688,14 +696,18 @@
 
   async function refreshInstances() {
     instancesError = null;
-    const list = await commands.listInstances();
+    // Independent reads — runs on startup AND after every process exit /
+    // instance switch, so the serial second hop was paid constantly.
+    const [list, active] = await Promise.all([
+      commands.listInstances(),
+      commands.getActiveInstance(),
+    ]);
     if (list.status === 'ok') {
       instances = list.data;
     } else {
       instancesError = formatError(list.error);
       instances = [];
     }
-    const active = await commands.getActiveInstance();
     if (active.status === 'ok') {
       activeInstance = active.data;
     } else {

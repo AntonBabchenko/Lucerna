@@ -35,7 +35,7 @@ pub fn get(
     mc: &str,
     loader: LoaderKind,
 ) -> Option<Vec<ModVersion>> {
-    let s = store().lock().unwrap();
+    let s = store().lock().expect("version cache mutex poisoned");
     s.get(&key(source, project_id, mc, loader)).and_then(|e| {
         if Instant::now().saturating_duration_since(e.fetched_at) < TTL {
             Some(e.versions.clone())
@@ -53,13 +53,16 @@ pub fn put(
     loader: LoaderKind,
     versions: Vec<ModVersion>,
 ) {
-    store().lock().unwrap().insert(
-        key(source, project_id, mc, loader),
-        Entry {
-            versions,
-            fetched_at: Instant::now(),
-        },
-    );
+    store()
+        .lock()
+        .expect("version cache mutex poisoned")
+        .insert(
+            key(source, project_id, mc, loader),
+            Entry {
+                versions,
+                fetched_at: Instant::now(),
+            },
+        );
 }
 
 #[cfg(test)]

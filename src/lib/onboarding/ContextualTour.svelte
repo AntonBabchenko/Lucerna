@@ -185,7 +185,7 @@
 {#if active}
   {#if rect && step.targetSelector}
     <div
-      class="fixed pointer-events-none transition-all duration-200 rounded-md z-[100]"
+      class="fixed pointer-events-none transition-all duration-200 rounded-md z-[var(--z-tour)]"
       style="
         left: {rect.x - PADDING}px;
         top: {rect.y - PADDING}px;
@@ -195,7 +195,7 @@
       "
     ></div>
   {:else}
-    <div class="fixed inset-0 bg-black/55 z-[100] pointer-events-none"></div>
+    <div class="fixed inset-0 bg-black/55 z-[var(--z-tour)] pointer-events-none"></div>
   {/if}
 
   <div
@@ -203,7 +203,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="ctx-tour-title-{id}"
-    class="fixed z-[101] bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
+    class="fixed z-[var(--z-tour-popover)] bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
     style={popoverStyle(rect, step.anchor)}
     data-testid="contextual-tour-popover"
     data-ctx-tour-root

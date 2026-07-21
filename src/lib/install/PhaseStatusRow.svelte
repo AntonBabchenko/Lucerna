@@ -8,71 +8,48 @@
     type ModInstallProgress,
   } from '$lib/ipc/bindings';
   import { get } from 'svelte/store';
-  import { onMount } from 'svelte';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
   import Spinner from '$lib/ui/Spinner.svelte';
 
   let progress = $state<InstallProgress | null>(null);
   let modProgress = $state<ModInstallProgress | null>(null);
-  let unlisteners: Array<() => void> = [];
 
-  onMount(() => {
-    events.installProgress
-      .listen((event) => {
-        progress = event.payload;
-      })
-      .then((u) => unlisteners.push(u));
-
+  listenUntilDestroyed([
+    events.installProgress.listen((event) => {
+      progress = event.payload;
+    }),
     // Clear install progress when MC starts — the install context is
     // over once a process is spawned.
-    events.processSpawned
-      .listen(() => {
-        progress = null;
-        modProgress = null;
-      })
-      .then((u) => unlisteners.push(u));
-
+    events.processSpawned.listen(() => {
+      progress = null;
+      modProgress = null;
+    }),
     // Also clear on exit — covers the crash-before-menu-marker case
     // where progress.phase was 'complete' but the row would otherwise
     // linger with "click Play to launch" competing with the crash
     // banner for attention.
-    events.processExited
-      .listen(() => {
-        progress = null;
-        modProgress = null;
-      })
-      .then((u) => unlisteners.push(u));
-
+    events.processExited.listen(() => {
+      progress = null;
+      modProgress = null;
+    }),
     // Mod install pipeline — streamed phases per mod (downloading /
     // verifying / copying). Sequence length isn't known up front
     // (mods_install_with_deps doesn't emit a "start" event), so we
     // just show the phase string. Counter dropped for v1.
-    events.modInstallProgress
-      .listen((event) => {
-        modProgress = event.payload;
-      })
-      .then((u) => unlisteners.push(u));
-
+    events.modInstallProgress.listen((event) => {
+      modProgress = event.payload;
+    }),
     // Clear mod state once the per-mod install completes — the next
     // modInstallProgress event will refresh it for the next mod in the
     // dep sequence (if any).
-    events.modInstalled
-      .listen(() => {
-        modProgress = null;
-      })
-      .then((u) => unlisteners.push(u));
-
+    events.modInstalled.listen(() => {
+      modProgress = null;
+    }),
     // Clear on failure so the row doesn't linger after an error.
-    events.modInstallFailed
-      .listen(() => {
-        modProgress = null;
-      })
-      .then((u) => unlisteners.push(u));
-
-    return () => {
-      for (const u of unlisteners) u();
-      unlisteners = [];
-    };
-  });
+    events.modInstallFailed.listen(() => {
+      modProgress = null;
+    }),
+  ]);
 
   function phaseLabel(p: InstallPhase): string {
     const tr = get(t);

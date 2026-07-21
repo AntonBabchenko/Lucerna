@@ -1,11 +1,8 @@
 //! Regression shield for the modern-era install pipeline.
 //! Mirrors `forge_transitional_era_integration.rs` shape.
 
-use lucerna_lib::forge::installer::transitional::{
-    parse_install_profile, substitute_args, DataEntry,
-};
+use lucerna_lib::forge::installer::transitional::{parse_install_profile, substitute_args};
 use lucerna_lib::forge::installer::{detect_era, Era};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 const FIXTURE: &str = "tests/fixtures/forge/installers/forge-1.20.4-49.0.49-installer.jar";
@@ -170,10 +167,4 @@ async fn substitute_args_modern_side_data_split_uses_client() {
         data.client, data.server,
         "expected modern profile to split MOJMAPS_SHA across sides"
     );
-}
-
-// Suppress unused-import warnings when fixture is absent (CI without fetch.ps1).
-#[allow(dead_code)]
-fn _unused_imports_workaround() {
-    let _ = HashMap::<String, DataEntry>::new();
 }

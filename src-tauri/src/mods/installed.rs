@@ -42,6 +42,26 @@ const FILE_VERSION: u32 = 4;
 static HASH_CACHE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64, String)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Seed [`HASH_CACHE`] for a freshly-written `mods/` file whose digest the
+/// caller already knows (the install path SHA-verifies every byte it writes).
+/// Without this, the first `list()` after an install/import re-reads and
+/// re-hashes every new jar — on a large modpack that is a full extra pass
+/// over gigabytes. Best-effort: a failed stat just means `reconcile()` hashes
+/// the file the slow way, as before.
+pub(crate) fn seed_hash_cache(path: &Path, sha1: &str) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return;
+    };
+    let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    cache.insert(
+        path.to_path_buf(),
+        (mtime, meta.len(), sha1.to_ascii_lowercase()),
+    );
+}
+
 /// SHA-1 of the file at `path`, re-using the cached digest when
 /// `(mtime, size)` are unchanged since it was last hashed. `read_and_hash`
 /// is only awaited on a miss. The lock is never held across the await.

@@ -176,11 +176,17 @@ pub async fn latest_quilt_installer(mc_version: &str) -> Result<String> {
 
 // ---------------------------------------------------------------- Forge / NeoForge
 
-/// Forge/NeoForge: качаем installer, запускаем `--installServer` в runtime/.
+/// Forge/NeoForge: записать заранее полученный installer, запустить
+/// `--installServer` в runtime/.
+///
+/// Байты обязаны приходить из `forge::meta::fetch_installer_bytes` — там
+/// SHA-1-верификация по maven-sidecar (No-TOFU, Principle B.6), legacy-квирк
+/// maven-путей и общий с клиентом дисковый кеш. Раньше этот путь качал
+/// installer сам и без верификации.
 pub async fn create_installer_server(
     base: &Path,
     file: &ServerFile,
-    installer_url: &str,
+    installer_bytes: &[u8],
     java_bin: &std::path::Path,
     loader_label: &str,
 ) -> Result<()> {
@@ -190,7 +196,9 @@ pub async fn create_installer_server(
         .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
     crate::servers_runtime::store::write_server_json(&p.json, file)?;
     let installer = p.runtime.join("installer.jar");
-    crate::network::download::download_no_emit(installer_url, &installer, "", "servers").await?;
+    tokio::fs::write(&installer, installer_bytes)
+        .await
+        .map_err(|e| Error::io(installer.display().to_string(), e))?;
     crate::process::install_server(java_bin, &installer, &p.runtime, loader_label).await?;
     seed_server_properties(&p.runtime, &file.name);
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;

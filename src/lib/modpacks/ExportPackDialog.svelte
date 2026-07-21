@@ -129,7 +129,7 @@
 
   <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
     {#if loadError}
-      <p class="text-sm text-danger">{loadError}</p>
+      <p class="text-sm text-danger" role="alert">{loadError}</p>
     {:else if !preview}
       <LoadingPanel label={$t('modpacks.export.loading')} />
     {:else}

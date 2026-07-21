@@ -14,9 +14,9 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 // Surfaces:
 //   - `modsListInstalled`: IPC the drawer hits at mount to populate
 //     the Mods section.
-//   - `modsProject`: per-mod project lookup used to recover display
-//     names ("Xaero's Minimap" instead of "25.3.14") — mirrors the
-//     same pattern as src/lib/mods/InstalledModsView.svelte.
+//   - `modsProjects`: batched project lookup (grouped by source) used
+//     to recover display names ("Xaero's Minimap" instead of
+//     "25.3.14") — same batch shape as installed-data.svelte.ts.
 //   - `modpackStatus`: pack-origin snapshot + live diff so the drawer
 //     can badge each row by provenance and surface a Removed-from-
 //     pack section. Default mock returns `{ data: null }` so tests
@@ -57,10 +57,7 @@ vi.mock('$lib/ipc/bindings', () => ({
         },
       ],
     }),
-    modsProject: vi.fn().mockResolvedValue({
-      status: 'ok',
-      data: { summary: { name: 'Resolved Name' }, description: '', website_url: null },
-    }),
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackRestoreFile: vi.fn().mockResolvedValue({
       status: 'ok',
@@ -292,11 +289,11 @@ describe('ImportedDetailDrawer', () => {
 
   // Bundle 2 — provenance badges + restore + name enrichment.
 
-  it('recovers display name via modsProject (sub-3 workaround)', async () => {
-    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+  it('recovers display name via the batched modsProjects lookup', async () => {
+    vi.mocked(commands.modsProjects).mockResolvedValueOnce({
       status: 'ok',
-      data: {
-        summary: {
+      data: [
+        {
           source: 'modrinth',
           project_id: 'p1',
           slug: 'xaeros-minimap',
@@ -307,10 +304,7 @@ describe('ImportedDetailDrawer', () => {
           author: '',
           updated_at: null,
         },
-        body_html: '',
-        gallery: [],
-        website_url: null,
-      },
+      ],
     });
     vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
       status: 'ok',

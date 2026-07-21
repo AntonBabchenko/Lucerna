@@ -194,8 +194,18 @@ pub fn delete_world(
             folder_name: world_folder_name.into(),
         });
     }
-    std::fs::remove_dir_all(&world_path)
-        .map_err(|e| Error::io(world_path.display().to_string(), e))?;
+    std::fs::remove_dir_all(&world_path).map_err(|e| {
+        // A running Minecraft holds region/lock files open — surface that as
+        // the friendly typed WorldInUse instead of a raw IO error. Windows:
+        // sharing violation (32) / lock violation (33) / access denied (5).
+        if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+            Error::WorldInUse {
+                folder_name: world_folder_name.to_string(),
+            }
+        } else {
+            Error::io(world_path.display().to_string(), e)
+        }
+    })?;
     // Cascade: drop the backups dir for this world if it exists.
     let backups_for_world = backups_root(app, instance_id)?.join(world_folder_name);
     if backups_for_world.exists() {

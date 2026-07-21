@@ -30,6 +30,7 @@ const { serverList, serverInstallLocal, serverInstallPluginLocal, serverInstallD
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     serverList,
     serverInstallLocal,
     serverInstallPluginLocal,

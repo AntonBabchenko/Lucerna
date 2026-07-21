@@ -267,6 +267,7 @@ impl Default for ModrinthClient {
 impl ModPlatform for ModrinthClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
         let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader, q.plugin_core);
+        // Serializing Vec<Vec<String>> cannot fail. Per CLAUDE.md `.unwrap()` rule.
         let facets_json = serde_json::to_string(&facets).unwrap();
         let url = format!(
             "{}/v2/search?query={}&limit={}&offset={}&index={}&facets={}",

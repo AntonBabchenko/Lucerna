@@ -396,6 +396,16 @@ describe('formatError', () => {
         filename: 'libraryferret.jar',
         required_by: 'bettervillage.jar',
       },
+      server_file_invalid: {
+        kind: 'server_file_invalid',
+        filename: 'C:evil.jar',
+        reason: 'invalid filename',
+      },
+      server_core_unsupported: {
+        kind: 'server_core_unsupported',
+        reason: 'this server core does not load mods',
+      },
+      server_content_stale: { kind: 'server_content_stale' },
       server_name_invalid: { kind: 'server_name_invalid', reason: 'duplicate' },
       upload_not_configured: { kind: 'upload_not_configured' },
       sftp_connect_failed: { kind: 'sftp_connect_failed', details: 'connection refused' },

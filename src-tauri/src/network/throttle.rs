@@ -64,7 +64,7 @@ impl HostGate {
 
     /// Freeze the host (no grants) for `dur` from now — set on a 429.
     pub fn freeze(&self, dur: Duration) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("throttle gate mutex poisoned");
         inner.frozen_until = Some(Instant::now() + dur);
     }
 
@@ -84,7 +84,7 @@ impl HostGate {
     pub async fn acquire(&self, priority: Priority) {
         let me = Arc::new(Notify::new());
         {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().expect("throttle gate mutex poisoned");
             match priority {
                 Priority::Interactive => inner.interactive.push_back(me.clone()),
                 Priority::Background => inner.background.push_back(me.clone()),
@@ -101,7 +101,7 @@ impl HostGate {
         };
         loop {
             let wait = {
-                let mut inner = self.inner.lock().unwrap();
+                let mut inner = self.inner.lock().expect("throttle gate mutex poisoned");
                 let now = Instant::now();
                 Self::refill(&mut inner, now);
 
@@ -177,7 +177,11 @@ struct WaiterGuard<'a> {
 
 impl Drop for WaiterGuard<'_> {
     fn drop(&mut self) {
-        let mut inner = self.gate.inner.lock().unwrap();
+        let mut inner = self
+            .gate
+            .inner
+            .lock()
+            .expect("throttle gate mutex poisoned");
         let q = match self.priority {
             Priority::Interactive => &mut inner.interactive,
             Priority::Background => &mut inner.background,
@@ -231,7 +235,7 @@ fn registry() -> &'static std::sync::Mutex<HashMap<String, Arc<HostGate>>> {
 
 /// Get (or lazily create) the gate for `host`.
 pub fn gate_for(host: &str) -> Arc<HostGate> {
-    let mut reg = registry().lock().unwrap();
+    let mut reg = registry().lock().expect("throttle registry mutex poisoned");
     if let Some(g) = reg.get(host) {
         return g.clone();
     }

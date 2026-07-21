@@ -202,7 +202,6 @@
 
   // Clear share pill when a different file is opened
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedPath; // reactive dependency
     shareUrl = null;
     shareConfirm = false;
@@ -237,7 +236,6 @@
 
   // Reset when switching files
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedPath;
     rawView = false;
     hints.close();
@@ -264,7 +262,6 @@
 
   // Reset fold/section maps when content changes
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedContent;
     foldExpanded = new Map();
     sectionExpanded = new Map();
@@ -685,9 +682,7 @@
 
   // Reset current index when the committed search or content changes
   $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     debouncedSearch;
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedContent;
     currentMatchIndex = 0;
   });
@@ -735,23 +730,38 @@
   // Highlight helpers
   // ---------------------------------------------------------------------------
 
+  // Per-unit match index, built in ONE pass over `allMatches` with the global
+  // index assigned during collection. The old shape re-filtered `allMatches`
+  // per rendered unit and ran a per-match `findIndex` over the whole match set
+  // — O(units×matches) + O(matches²) per next/prev press, a multi-second
+  // freeze on a 5 MB log with a common search token.
+  const matchesByUnit = $derived.by(() => {
+    const map = new Map<number, Array<{ loc: MatchLocation; globalIdx: number }>>();
+    for (let i = 0; i < allMatches.length; i++) {
+      const m = allMatches[i];
+      const arr = map.get(m.unitKey);
+      if (arr) arr.push({ loc: m, globalIdx: i });
+      else map.set(m.unitKey, [{ loc: m, globalIdx: i }]);
+    }
+    return map;
+  });
+
   /**
    * Render a line's text with search match highlighting.
    * Active match: bg-accent text-white; others: <mark> (yellow).
    * Returns HTML string.
    */
-  function highlightLine(text: string, unitKey: number, matchesForUnit: MatchLocation[]): string {
-    if (!debouncedSearch || matchesForUnit.length === 0) return escapeHtml(text);
+  function highlightLine(
+    text: string,
+    unitMatches: Array<{ loc: MatchLocation; globalIdx: number }>,
+  ): string {
+    if (!debouncedSearch || unitMatches.length === 0) return escapeHtml(text);
     let result = '';
     let pos = 0;
-    for (const loc of matchesForUnit) {
+    for (const { loc, globalIdx } of unitMatches) {
       result += escapeHtml(text.slice(pos, loc.charStart));
       const matchText = escapeHtml(text.slice(loc.charStart, loc.charEnd));
-      const globalIdx = allMatches.findIndex(
-        (m) => m.unitKey === unitKey && m.charStart === loc.charStart,
-      );
-      const isActive = globalIdx === currentMatchIndex;
-      if (isActive) {
+      if (globalIdx === currentMatchIndex) {
         result += `<mark class="bg-accent text-white" data-match-active="true">${matchText}</mark>`;
       } else {
         result += `<mark>${matchText}</mark>`;
@@ -762,8 +772,8 @@
     return result;
   }
 
-  function matchesForUnit(unitKey: number): MatchLocation[] {
-    return allMatches.filter((m) => m.unitKey === unitKey);
+  function matchesForUnit(unitKey: number): Array<{ loc: MatchLocation; globalIdx: number }> {
+    return matchesByUnit.get(unitKey) ?? [];
   }
 
   // ---------------------------------------------------------------------------
@@ -1237,11 +1247,7 @@
                               {/if}
                               <span
                                 class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                                ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                                  unit.text,
-                                  unitKey,
-                                  matchesForUnit(unitKey),
-                                )}</span
+                                >{@html highlightLine(unit.text, matchesForUnit(unitKey))}</span
                               >
                             </div>
                           {:else}
@@ -1318,11 +1324,7 @@
                         >{(ui + 1).toString().padStart(6, ' ')}:
                       </span><span
                         class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                        ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                          unit.text,
-                          unitKey,
-                          matchesForUnit(unitKey),
-                        )}</span
+                        >{@html highlightLine(unit.text, matchesForUnit(unitKey))}</span
                       >
                     </div>
                   {:else}

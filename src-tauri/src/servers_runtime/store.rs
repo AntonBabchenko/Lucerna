@@ -41,7 +41,7 @@ pub fn list_all(base: &Path) -> Result<Vec<ServerFile>> {
         let json = entry.path().join("server.json");
         match read_server_json(&json) {
             Ok(s) => out.push(s),
-            Err(e) => eprintln!("servers: skipping {}: {e}", json.display()),
+            Err(e) => crate::diag!("servers: skipping {}: {e}", json.display()),
         }
     }
     out.sort_by(|a, b| {

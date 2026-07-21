@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import ScreenshotGrid from './ScreenshotGrid.svelte';
@@ -83,21 +84,14 @@
         ariaLabel={$t('screenshots.filterInstance')}
       />
     {/if}
-    <button
-      type="button"
-      class="btn-icon"
-      aria-label={$t('screenshots.galleryClose')}
-      onclick={onClose}
-    >
-      <Icon name="close" size={20} />
-    </button>
+    <CloseButton ariaLabel={$t('screenshots.galleryClose')} onClick={onClose} />
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     {#if loading}
       <LoadingPanel label={$t('screenshots.loading')} />
     {:else if listError}
-      <p class="p-4 text-sm text-danger">{listError}</p>
+      <p class="p-4 text-sm text-danger" role="alert">{listError}</p>
     {:else if filtered.length === 0}
       <p class="p-8 text-center text-sm text-muted">{$t('screenshots.emptyGallery')}</p>
     {:else}

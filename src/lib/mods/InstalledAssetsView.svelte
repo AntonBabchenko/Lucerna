@@ -26,7 +26,6 @@
   import ModDetailModal from './ModDetailModal.svelte';
   import ChangelogModal from './ChangelogModal.svelte';
   import { changelogSupported } from './changelog-supported';
-  import { mapLimit } from './concurrency';
   import { get } from 'svelte/store';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -117,16 +116,34 @@
     })();
   });
 
-  // Resolve each platform asset's project summary (icon_url) the same way the
-  // installed-mods view does — bounded concurrency, guarded against a stale
-  // instance/kind switch via the generation counter.
+  // Resolve the platform assets' project summaries (icon_url) via the batched
+  // modsProjects command grouped by source — same shape as
+  // installed-data.svelte.ts, instead of one lookup per asset. Guarded
+  // against a stale instance/kind switch via the generation counter.
   async function enrich(list: InstalledAsset[], gen: number) {
+    const idsBySource = new Map<ModSource, Set<string>>();
+    for (const a of list) {
+      if (a.source && a.project_id) {
+        const set = idsBySource.get(a.source as ModSource) ?? new Set<string>();
+        set.add(a.project_id);
+        idsBySource.set(a.source as ModSource, set);
+      }
+    }
+    const byProject = new Map<string, ModSummary>();
+    await Promise.all(
+      [...idsBySource].map(async ([src, ids]) => {
+        const res = await commands.modsProjects(src, [...ids]);
+        if (res.status === 'ok') {
+          for (const s of res.data) byProject.set(`${src}:${s.project_id}`, s);
+        }
+      }),
+    );
     const map = new Map<string, ModSummary>();
-    await mapLimit(list, 6, async (a) => {
-      if (!a.source || !a.project_id) return;
-      const p = await commands.modsProject(a.source as ModSource, a.project_id);
-      if (p.status === 'ok') map.set(a.filename, p.data.summary);
-    });
+    for (const a of list) {
+      if (!a.source || !a.project_id) continue;
+      const s = byProject.get(`${a.source}:${a.project_id}`);
+      if (s) map.set(a.filename, s);
+    }
     if (gen !== generation) return;
     summaries = map;
   }
@@ -160,7 +177,7 @@
     try {
       const res = await commands.assetInstall(instanceId, v, kind);
       if (res.status === 'error') {
-        pushWarning(formatError(res.error));
+        pushWarning(get(t)('addons.installed.installFailedToast'), [formatError(res.error)]);
         return;
       }
       await refresh();
@@ -178,7 +195,7 @@
     try {
       const res = await commands.assetUninstall(instanceId, kind, asset.filename);
       if (res.status === 'error') {
-        pushWarning(formatError(res.error));
+        pushWarning(get(t)('addons.installed.removeFailedToast'), [formatError(res.error)]);
         return;
       }
       assets = assets.filter((a) => a.filename !== asset.filename);
@@ -200,7 +217,7 @@
     try {
       const res = await commands.assetsCheckUpdates(instanceId, kind);
       if (res.status === 'error') {
-        pushWarning(formatError(res.error));
+        pushWarning(get(t)('addons.installed.checkFailed'), [formatError(res.error)]);
         return;
       }
       const map = new Map<string, AssetUpdateState>();
@@ -209,7 +226,9 @@
       const anyUpdate = res.data.some((c) => c.state.kind === 'update_available');
       if (!anyUpdate) pushSuccess(get(t)('addons.installed.upToDateToast'));
     } catch (e: unknown) {
-      pushWarning(e instanceof Error ? e.message : String(e));
+      pushWarning(get(t)('addons.installed.checkFailed'), [
+        e instanceof Error ? e.message : String(e),
+      ]);
     } finally {
       checking = false;
     }
@@ -222,7 +241,7 @@
     try {
       const res = await commands.assetInstall(instanceId, latest, kind);
       if (res.status === 'error') {
-        pushWarning(formatError(res.error));
+        pushWarning(get(t)('addons.installed.updateFailedToast'), [formatError(res.error)]);
         return;
       }
       // The freshly installed version is now current — drop its badge and re-list
