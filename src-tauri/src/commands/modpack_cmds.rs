@@ -551,6 +551,11 @@ pub async fn modpack_apply_update(
         .iter()
         .chain(diff.updated.iter().map(|e| &e.new))
         .collect();
+    // Concurrent pre-warm (same 8-way fan-out as fresh import). A major pack
+    // bump changes hundreds of files; fetching them one-by-one was the single
+    // largest wall-clock cost of an update. The serial loop below stays the
+    // source of truth for per-file success/failure — it just hits warm cache.
+    crate::mods::modpack::import::prewarm_cache(&dd, &to_fetch, &install_progress).await;
     let total = to_fetch.len() as u32;
     for (idx, f) in to_fetch.iter().enumerate() {
         let _ = on_progress.send(ModpackProgress::InstallingFile {

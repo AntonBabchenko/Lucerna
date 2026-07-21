@@ -6,6 +6,7 @@
   // in the pure skin-editor/* modules — this file only wires DOM and WebGL.
   // See the skin-editor spec (docs/superpowers/specs, local-only).
   import { onDestroy, tick } from 'svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -908,14 +909,7 @@
       >
         <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
       </button>
-      <button
-        type="button"
-        class="btn-icon btn-icon-sm"
-        aria-label={$t('common.close')}
-        onclick={requestClose}
-      >
-        <Icon name="close" size={18} />
-      </button>
+      <CloseButton class="btn-icon-sm" onClick={requestClose} />
     </div>
   </div>
 

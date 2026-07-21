@@ -699,7 +699,10 @@
       "checkFailed": "Update check failed",
       "installedToast": "Installed {name}",
       "updatedToast": "Updated {name}",
-      "removedToast": "Removed {name}"
+      "removedToast": "Removed {name}",
+      "installFailedToast": "Install failed",
+      "updateFailedToast": "Update failed",
+      "removeFailedToast": "Remove failed"
     }
   },
   "modpacks": {
@@ -914,6 +917,7 @@
     "toastDeleted": "Screenshot moved to recycle bin",
     "saveDialogTitle": "Save screenshot copy",
     "galleryTitle": "Screenshot gallery",
+    "viewerTitle": "Screenshot viewer",
     "galleryClose": "Close gallery",
     "filterInstance": "Instance",
     "filterAll": "All instances",
@@ -1697,6 +1701,9 @@
     "serverAlreadyRunning": "This server is already running",
     "serverNotRunning": "This server is not running",
     "serverModRequiredByOther": "Can't remove {filename} — {requiredBy} needs it. Remove that mod too, or keep this one.",
+    "serverFileInvalid": "Server file {filename} was rejected: {reason}",
+    "serverCoreUnsupported": "Not supported by this server core: {reason}",
+    "serverContentStale": "The installed list changed — refresh and try again",
     "serverNameInvalid": "That server name can't be used — it may be empty, too long, or already taken.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host",

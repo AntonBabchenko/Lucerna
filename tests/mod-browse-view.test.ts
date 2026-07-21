@@ -11,6 +11,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // refreshInstalled enriches each installed entry by fetching the
     // project's display name (so cross-platform matching works).
     // Default mock returns the same name for any lookup; specific tests

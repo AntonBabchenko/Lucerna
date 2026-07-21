@@ -124,7 +124,9 @@ export const commands = {
 	 *  Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 	 *  `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
 	 *  under one of SOME instance's allowed log roots — anything else is
-	 *  rejected with `Error::Io`.
+	 *  rejected with `Error::Io`. Async + `spawn_blocking` (mirrors
+	 *  `annotate_log_file`): up to 100 MB off disk must not run on the IPC
+	 *  thread.
 	 */
 	readLogFile: (path: string, maxBytes: number | null) => typedError<string, Error>(__TAURI_INVOKE("read_log_file", { path, maxBytes })),
 	/**
@@ -1197,10 +1199,6 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  is detection + manual guidance only: NO UPnP / automatic port mapping.
 	 */
 	serverPublicAddress: (id: string) => typedError<ServerPublicAddress, Error>(__TAURI_INVOKE("server_public_address", { id })),
-	/**
-	 *  Create a snapshot. If the server is running, flush + pause world saves
-	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
-	 */
 	serverBackupCreate: (id: string) => typedError<BackupInfo, Error>(__TAURI_INVOKE("server_backup_create", { id })),
 	serverBackupList: (id: string) => typedError<BackupInfo[], Error>(__TAURI_INVOKE("server_backup_list", { id })),
 	/**
@@ -2009,43 +2007,59 @@ export type DownloadProgress = {
 export type EnvSupport = "required" | "optional" | "unsupported";
 
 export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
-/**  Курируемое поле server.properties не прошло валидацию. */
+/**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
-/**  Попытка собрать/запустить сервер без принятого EULA. */
+/**  Attempt to build/start a server without an accepted EULA. */
 { kind: "server_eula_not_accepted" } | 
 /**
- *  Не удалось определить источник серверного jar (нет server-download
- *  в манифесте, или лоадер/версия без серверной сборки).
+ *  Could not resolve the server jar source (no server download in the
+ *  manifest, or a loader/version without a server build).
  */
 { kind: "server_jar_unavailable"; loader: string; mc_version: string; reason: string } | 
-/**  installServer (Forge/NeoForge) упал или не запустился. */
+/**  installServer (Forge/NeoForge) failed or did not start. */
 { kind: "server_installer_failed"; loader: string; details: string } | 
-/**  Серверный процесс не удалось запустить. */
+/**  The server process failed to spawn. */
 { kind: "server_spawn_failed"; details: string } | 
-/**  Сервер уже запущен. */
+/**  The server is already running. */
 { kind: "server_already_running"; id: string } | 
-/**  Операция требует, чтобы заливка на хостинг не шла, но она идёт. */
+/**  The operation requires that no hosting upload is in flight, but one is. */
 { kind: "server_upload_in_progress"; id: string } | 
-/**  Заливка на хостинг была отменена пользователем. */
+/**  The hosting upload was cancelled by the user. */
 { kind: "upload_cancelled" } | 
-/**  Операция требует запущенного сервера, но он не запущен. */
+/**  The operation requires a running server, but it is not running. */
 { kind: "server_not_running"; id: string } | 
-/**  Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное). */
+/**  The server name failed validation (empty / duplicate / too long). */
 { kind: "server_name_invalid"; reason: string } | 
 /**
- *  Мод нельзя удалить/отключить — он является зависимостью другого мода,
- *  который остаётся на сервере (защита от поломки рабочего мода).
+ *  The mod can't be removed/disabled — another mod that remains on the
+ *  server depends on it (protects a working install from breakage).
  */
-{ kind: "server_mod_required_by_other"; filename: string; required_by: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
-/**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
+{ kind: "server_mod_required_by_other"; filename: string; required_by: string } | 
+/**
+ *  A server mod/plugin file operation was rejected by validation (unsafe
+ *  name, path escape, not a `.jar`, …) — a policy refusal, not a
+ *  filesystem failure, so it must not masquerade as `Io`.
+ */
+{ kind: "server_file_invalid"; filename: string; reason: string } | 
+/**
+ *  The operation is not available for this server core (e.g. installing
+ *  mods on a plugin core, or an unsupported core switch).
+ */
+{ kind: "server_core_unsupported"; reason: string } | 
+/**
+ *  A lookup keyed on the installed mod/plugin list missed — the list
+ *  changed since the UI fetched it. Refresh and retry.
+ */
+{ kind: "server_content_stale" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+/**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
-/**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
+/**  Could not establish the SSH/SFTP connection to the user's server. */
 { kind: "sftp_connect_failed"; details: string } | 
-/**  Аутентификация по паролю на SFTP-сервере не прошла. */
+/**  Password authentication against the SFTP server failed. */
 { kind: "sftp_auth_failed"; details: string } | 
-/**  Отпечаток host-ключа изменился относительно ранее доверенного (TOFU). */
+/**  The host-key fingerprint changed from the previously trusted one (TOFU). */
 { kind: "sftp_host_key_mismatch"; expected: string; got: string } | 
-/**  Ошибка во время передачи файлов по SFTP (создание каталога/запись). */
+/**  A failure during SFTP file transfer (directory creation / write). */
 { kind: "sftp_transfer_failed"; details: string } | 
 /**  A data-root relocation was requested while a game or server is running. */
 { kind: "data_location_busy" } | 

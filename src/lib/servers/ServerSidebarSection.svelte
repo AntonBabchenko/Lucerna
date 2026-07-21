@@ -1,6 +1,6 @@
 <!-- src/lib/servers/ServerSidebarSection.svelte -->
 <script lang="ts">
-  import type { ServerWithStatus } from '$lib/ipc/bindings';
+  import type { Error as IpcError, ServerWithStatus } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -12,6 +12,9 @@
   import { compactState, setCompact } from '$lib/layout/compact.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { t } from '$lib/i18n';
+  import { get } from 'svelte/store';
+  import { formatError } from '$lib/ipc/format-error';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
@@ -106,8 +109,16 @@
   async function openAddonsFolder(): Promise<void> {
     const id = selected?.id;
     if (!id) return;
-    if (addonKind === 'plugins') await serverState.openPluginsFolder(id);
-    else if (addonKind === 'mods') await serverState.openModsFolder(id);
+    const key = addonKind === 'plugins' ? 'servers.plugins.openFolder' : 'servers.mods.openFolder';
+    const r =
+      addonKind === 'plugins'
+        ? await serverState.openPluginsFolder(id)
+        : addonKind === 'mods'
+          ? await serverState.openModsFolder(id)
+          : null;
+    if (r && !r.ok) {
+      pushWarning(get(t)(key), [formatError(r.error as IpcError)]);
+    }
   }
 </script>
 

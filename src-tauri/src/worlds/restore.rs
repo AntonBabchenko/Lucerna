@@ -82,12 +82,23 @@ async fn restore_replace(
     let tmp_suffix: String = (0..8)
         .map(|_| {
             let n = (Utc::now().timestamp_nanos_opt().unwrap_or(0) as u32) % 16;
+            // n % 16 is always a valid base-16 digit. Per CLAUDE.md `.unwrap()` rule.
             std::char::from_digit(n, 16).unwrap()
         })
         .collect();
     let tmp_path = saves.join(format!(".tmp-restoring-{tmp_suffix}"));
-    std::fs::rename(&world_path, &tmp_path)
-        .map_err(|e| Error::io(world_path.display().to_string(), e))?;
+    std::fs::rename(&world_path, &tmp_path).map_err(|e| {
+        // A running Minecraft holds the world's lock file open — surface the
+        // friendly typed WorldInUse instead of a raw IO error. Windows:
+        // sharing violation (32) / lock violation (33) / access denied (5).
+        if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+            Error::WorldInUse {
+                folder_name: world_folder.to_string(),
+            }
+        } else {
+            Error::io(world_path.display().to_string(), e)
+        }
+    })?;
 
     // 3. Extract the backup into a SEPARATE staging dir, verify it contains
     //    exactly the expected `<world_folder>/` root, then rename that inner

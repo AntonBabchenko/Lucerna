@@ -4,9 +4,9 @@
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import type { AnnotateResult, ServerLogInfo } from '$lib/ipc/bindings';
+  import type { AnnotateResult, Error as IpcError, ServerLogInfo } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
-  import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import type { SelectOption } from '$lib/ui/Select.svelte';
@@ -382,6 +382,13 @@
   }
 
   const archives = $derived(logs.filter((l) => !l.is_latest));
+
+  async function openLogsFolder() {
+    const r = await serverState.openLogsFolder(serverId);
+    if (!r.ok) {
+      pushWarning(get(t)('servers.logs.openFolder'), [formatError(r.error as IpcError)]);
+    }
+  }
 </script>
 
 {#snippet lineList(dim: boolean)}
@@ -408,12 +415,7 @@
       {/if}
       {#if debouncedSearch}
         <!-- highlightConsoleLine HTML-escapes the text; only its own <mark> wrappers are raw. -->
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightConsoleLine(
-          line.text,
-          i,
-          matches,
-          currentMatchIndex,
-        )}
+        {@html highlightConsoleLine(line.text, i, matches, currentMatchIndex)}
       {:else}
         {line.text}
       {/if}
@@ -427,7 +429,7 @@
     <button
       type="button"
       class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
-      onclick={() => void serverState.openLogsFolder(serverId)}
+      onclick={openLogsFolder}
     >
       <Icon name="folderOpen" size={14} />{$t('servers.logs.openFolder')}
     </button>

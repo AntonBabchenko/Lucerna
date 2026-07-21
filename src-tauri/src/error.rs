@@ -344,7 +344,7 @@ pub enum Error {
     #[error("The saved server list changed — refresh and try again")]
     SavedServerListChanged,
 
-    /// Курируемое поле server.properties не прошло валидацию.
+    /// A curated `server.properties` field failed validation.
     #[error("invalid server property {key}={value}: {reason}")]
     ServerInvalidProperty {
         key: String,
@@ -352,12 +352,12 @@ pub enum Error {
         reason: String,
     },
 
-    /// Попытка собрать/запустить сервер без принятого EULA.
+    /// Attempt to build/start a server without an accepted EULA.
     #[error("Minecraft EULA not accepted for this server")]
     ServerEulaNotAccepted,
 
-    /// Не удалось определить источник серверного jar (нет server-download
-    /// в манифесте, или лоадер/версия без серверной сборки).
+    /// Could not resolve the server jar source (no server download in the
+    /// manifest, or a loader/version without a server build).
     #[error("server jar unavailable for {loader} {mc_version}: {reason}")]
     ServerJarUnavailable {
         loader: String,
@@ -365,41 +365,57 @@ pub enum Error {
         reason: String,
     },
 
-    /// installServer (Forge/NeoForge) упал или не запустился.
+    /// installServer (Forge/NeoForge) failed or did not start.
     #[error("server installer failed for {loader}: {details}")]
     ServerInstallerFailed { loader: String, details: String },
 
-    /// Серверный процесс не удалось запустить.
+    /// The server process failed to spawn.
     #[error("server process spawn failed: {details}")]
     ServerSpawnFailed { details: String },
 
-    /// Сервер уже запущен.
+    /// The server is already running.
     #[error("server already running: {id}")]
     ServerAlreadyRunning { id: String },
 
-    /// Операция требует, чтобы заливка на хостинг не шла, но она идёт.
+    /// The operation requires that no hosting upload is in flight, but one is.
     #[error("server upload in progress: {id}")]
     ServerUploadInProgress { id: String },
 
-    /// Заливка на хостинг была отменена пользователем.
+    /// The hosting upload was cancelled by the user.
     #[error("upload cancelled")]
     UploadCancelled,
 
-    /// Операция требует запущенного сервера, но он не запущен.
+    /// The operation requires a running server, but it is not running.
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },
 
-    /// Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное).
+    /// The server name failed validation (empty / duplicate / too long).
     #[error("invalid server name: {reason}")]
     ServerNameInvalid { reason: String },
 
-    /// Мод нельзя удалить/отключить — он является зависимостью другого мода,
-    /// который остаётся на сервере (защита от поломки рабочего мода).
+    /// The mod can't be removed/disabled — another mod that remains on the
+    /// server depends on it (protects a working install from breakage).
     #[error("cannot remove {filename}: required by {required_by}")]
     ServerModRequiredByOther {
         filename: String,
         required_by: String,
     },
+
+    /// A server mod/plugin file operation was rejected by validation (unsafe
+    /// name, path escape, not a `.jar`, …) — a policy refusal, not a
+    /// filesystem failure, so it must not masquerade as `Io`.
+    #[error("server file '{filename}' rejected: {reason}")]
+    ServerFileInvalid { filename: String, reason: String },
+
+    /// The operation is not available for this server core (e.g. installing
+    /// mods on a plugin core, or an unsupported core switch).
+    #[error("not supported for this server core: {reason}")]
+    ServerCoreUnsupported { reason: String },
+
+    /// A lookup keyed on the installed mod/plugin list missed — the list
+    /// changed since the UI fetched it. Refresh and retry.
+    #[error("installed server content changed — refresh and try again")]
+    ServerContentStale,
 
     #[error("Import source is not a .zip file or a folder")]
     ServerImportUnsupportedSource,
@@ -416,23 +432,23 @@ pub enum Error {
     #[error("Server import session expired or was already used: {token}")]
     ServerImportStagingExpired { token: String },
 
-    /// Загрузка сервера по SFTP не настроена (нет `UploadConfig`).
+    /// Server SFTP upload is not configured (no `UploadConfig`).
     #[error("server upload not configured")]
     UploadNotConfigured,
 
-    /// Не удалось установить SSH/SFTP-соединение с сервером пользователя.
+    /// Could not establish the SSH/SFTP connection to the user's server.
     #[error("SFTP connect failed: {details}")]
     SftpConnectFailed { details: String },
 
-    /// Аутентификация по паролю на SFTP-сервере не прошла.
+    /// Password authentication against the SFTP server failed.
     #[error("SFTP authentication failed: {details}")]
     SftpAuthFailed { details: String },
 
-    /// Отпечаток host-ключа изменился относительно ранее доверенного (TOFU).
+    /// The host-key fingerprint changed from the previously trusted one (TOFU).
     #[error("SFTP host key changed (possible MITM) — expected {expected}, got {got}")]
     SftpHostKeyMismatch { expected: String, got: String },
 
-    /// Ошибка во время передачи файлов по SFTP (создание каталога/запись).
+    /// A failure during SFTP file transfer (directory creation / write).
     #[error("SFTP transfer failed: {details}")]
     SftpTransferFailed { details: String },
 
@@ -493,6 +509,16 @@ impl Error {
         Self::Io {
             path: path.into(),
             details: cause.to_string(),
+        }
+    }
+
+    /// Validation refusal for a server mod/plugin file operation. Use this —
+    /// not `Error::io` with a placeholder path — so the UI gets a typed,
+    /// cleanly-rendered error instead of a fake filesystem failure.
+    pub fn server_file_invalid(filename: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::ServerFileInvalid {
+            filename: filename.into(),
+            reason: reason.into(),
         }
     }
 }

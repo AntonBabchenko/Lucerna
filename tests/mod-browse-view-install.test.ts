@@ -12,6 +12,7 @@ const {
   modsGetCurseforgeKeyStatus,
   modsListInstalled,
   modsProject,
+  modsProjects,
   modsVersions,
   modsResolveInstallPlan,
   modsInstallWithDeps,
@@ -26,6 +27,7 @@ const {
   modsGetCurseforgeKeyStatus: vi.fn(),
   modsListInstalled: vi.fn(),
   modsProject: vi.fn(),
+  modsProjects: vi.fn(),
   modsVersions: vi.fn(),
   modsResolveInstallPlan: vi.fn(),
   modsInstallWithDeps: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus,
     modsListInstalled,
     modsProject,
+    modsProjects,
     modsVersions,
     modsResolveInstallPlan,
     modsInstallWithDeps,
@@ -159,6 +162,7 @@ beforeEach(() => {
   modsSearch.mockResolvedValue(ok({ hits: [], total: 0, offset: 0, page_size: 20 }));
   modsGetCurseforgeKeyStatus.mockResolvedValue(ok('set'));
   modsListInstalled.mockResolvedValue(ok([]));
+  modsProjects.mockResolvedValue(ok([]));
   modsProject.mockResolvedValue(project('Sodium'));
   modsInstallWithDeps.mockResolvedValue(ok(null));
   modsUninstall.mockResolvedValue(ok(null));

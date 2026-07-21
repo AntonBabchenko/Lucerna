@@ -12,7 +12,7 @@ const {
   assetUninstall,
   assetsCheckUpdates,
   assetInstall,
-  modsProject,
+  modsProjects,
   pushWarning,
   pushSuccess,
 } = vi.hoisted(() => ({
@@ -20,7 +20,7 @@ const {
   assetUninstall: vi.fn(),
   assetsCheckUpdates: vi.fn(),
   assetInstall: vi.fn(),
-  modsProject: vi.fn(),
+  modsProjects: vi.fn(),
   pushWarning: vi.fn(),
   pushSuccess: vi.fn(),
 }));
@@ -31,7 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetUninstall,
     assetsCheckUpdates,
     assetInstall,
-    modsProject,
+    modsProjects,
   },
 }));
 
@@ -64,10 +64,10 @@ describe('InstalledAssetsView busy state', () => {
     assetUninstall.mockReset();
     assetsCheckUpdates.mockReset();
     assetInstall.mockReset();
-    modsProject.mockReset();
-    modsProject.mockResolvedValue(
-      ok({
-        summary: {
+    modsProjects.mockReset();
+    modsProjects.mockResolvedValue(
+      ok([
+        {
           source: 'modrinth',
           project_id: 'proj-1',
           slug: 'faithful',
@@ -78,7 +78,7 @@ describe('InstalledAssetsView busy state', () => {
           author: 'a',
           updated_at: null,
         },
-      }),
+      ]),
     );
     pushWarning.mockReset();
     pushSuccess.mockReset();

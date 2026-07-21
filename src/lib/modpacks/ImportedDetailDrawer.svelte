@@ -64,13 +64,12 @@
   // is missing from `installed_shas`, render it under the installed
   // list with a Restore button that calls modpack_restore_file.
   //
-  // Project-name enrichment (bundle 2): mirrors the workaround in
-  // src/lib/mods/InstalledModsView.svelte — the registry stores a
+  // Project-name enrichment (bundle 2): the registry stores a
   // version-shaped string in `m.name` for some mods (the Modrinth
   // version manifest doesn't always carry the display title). We
-  // re-fetch via mods_project per installed-with-source mod, in
-  // parallel, store the canonical title in a Map<sha1, name>, and use
-  // it as the display name with fallback to `m.name`. Failures here
+  // resolve canonical titles via the batched mods_projects command
+  // (grouped by source), store them in a Map<sha1, name>, and use
+  // them as display names with fallback to `m.name`. Failures here
   // are silent — a transient lookup error keeps the registry name.
   //
   // Delete confirm overlay copy spells out the consequences (worlds,
@@ -222,21 +221,36 @@
       status = null;
     }
 
-    // Project-name enrichment. Same shape as InstalledModsView: fetch
-    // ModProject per installed mod with a source, drop errors silently,
-    // build a map sha1 -> canonical name. Concurrent across all rows.
-    // Always reassign `nameMap` (an empty map when there are no mods) so
-    // a silent refresh down to zero mods can't leave stale entries.
-    const next = new Map<string, string>();
+    // Project-name enrichment via the batched mods_projects command,
+    // grouped by source (mirrors installed-data.svelte.ts) — the old
+    // per-mod mods_project fan-out fired one call per mod on every
+    // drawer open and was a 429 source on large packs. Errors are
+    // silent: a failed batch keeps the registry names. Always reassign
+    // `nameMap` (an empty map when there are no mods) so a silent
+    // refresh down to zero mods can't leave stale entries.
+    const idsBySource = new Map<ModSource, Set<string>>();
+    for (const m of mods) {
+      if (m.source != null && m.project_id != null) {
+        const set = idsBySource.get(m.source) ?? new Set<string>();
+        set.add(m.project_id);
+        idsBySource.set(m.source, set);
+      }
+    }
+    const nameByProject = new Map<string, string>();
     await Promise.all(
-      mods.map(async (m) => {
-        if (m.source == null || m.project_id == null) return;
-        const p = await commands.modsProject(m.source as ModSource, m.project_id);
-        if (p.status === 'ok') {
-          next.set(m.sha1, p.data.summary.name);
+      [...idsBySource].map(async ([src, ids]) => {
+        const res = await commands.modsProjects(src, [...ids]);
+        if (res.status === 'ok') {
+          for (const s of res.data) nameByProject.set(`${src}:${s.project_id}`, s.name);
         }
       }),
     );
+    const next = new Map<string, string>();
+    for (const m of mods) {
+      if (m.source == null || m.project_id == null) continue;
+      const name = nameByProject.get(`${m.source}:${m.project_id}`);
+      if (name !== undefined) next.set(m.sha1, name);
+    }
     nameMap = next;
     // Store shallow copies of the collections so a later in-place
     // mutation of this drawer's own `mods` / `nameMap` can't reach back

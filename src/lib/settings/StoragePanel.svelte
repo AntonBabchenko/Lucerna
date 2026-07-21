@@ -26,6 +26,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
@@ -35,7 +36,6 @@
   let bytes = $state<number | null>(null);
   let clearing = $state(false);
   let error = $state<string | null>(null);
-  let toast = $state<string | null>(null);
 
   const DEFAULT_RETENTION: Required<LogRetentionPolicy> = {
     enabled: false,
@@ -238,11 +238,12 @@
   async function clear() {
     clearing = true;
     error = null;
-    toast = null;
     const result = await commands.modsClearCache();
     if (result.status === 'ok') {
       const freed = result.data ?? 0;
-      toast = $t('settings.storage.cleared', { freed: fmt(freed) });
+      // Route through the global toast system (auto-dismiss + live region)
+      // instead of the old hand-rolled inline box that never went away.
+      pushSuccess($t('settings.storage.cleared', { freed: fmt(freed) }));
       await refresh();
     } else {
       error = formatError(result.error);
@@ -261,16 +262,13 @@
   </p>
 
   {#if error}
-    <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2">
+    <div
+      class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2"
+      role="alert"
+    >
       {error}
     </div>
   {/if}
-  {#if toast}
-    <div class="bg-success-bg border border-success text-success text-sm rounded p-2 mb-2">
-      {toast}
-    </div>
-  {/if}
-
   <BusyButton
     type="button"
     class="btn-secondary btn-sm"

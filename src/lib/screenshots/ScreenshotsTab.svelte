@@ -1,7 +1,10 @@
 <script lang="ts">
   import { commands, events, type Screenshot } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
   import { t } from '$lib/i18n';
+  import { get } from 'svelte/store';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ScreenshotGrid from './ScreenshotGrid.svelte';
@@ -33,18 +36,17 @@
     void reload();
   });
 
-  // New screenshots appear once a play session ends.
-  $effect(() => {
-    let unlisten: (() => void) | null = null;
-    void events.processExited.listen(() => void reload()).then((u) => (unlisten = u));
-    return () => {
-      if (unlisten) unlisten();
-    };
-  });
+  // New screenshots appear once a play session ends. Race-safe subscribe:
+  // the old late-assigned-unlisten effect leaked the listener when the tab
+  // unmounted before listen() resolved.
+  listenUntilDestroyed([events.processExited.listen(() => void reload())]);
 
   async function openFolder() {
     if (!instanceId) return;
-    await commands.openScreenshotsFolder(instanceId);
+    const r = await commands.openScreenshotsFolder(instanceId);
+    if (r.status !== 'ok') {
+      pushWarning(get(t)('screenshots.openFolder'), [formatError(r.error)]);
+    }
   }
 </script>
 

@@ -97,6 +97,29 @@ pub fn is_running(id: &str) -> bool {
         .contains_key(id)
 }
 
+/// In-process subscribers to a server's console output, keyed by server id.
+/// `spawn_pump` forwards every line here in addition to the `ServerLogLine`
+/// UI event, so backend code can await a specific console response — e.g. the
+/// backup flow waits for the save-confirmation line instead of sleeping a
+/// guessed interval. Entries are dropped when the process exits.
+fn line_watchers() -> &'static Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>> {
+    static W: OnceLock<Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>>> =
+        OnceLock::new();
+    W.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Subscribe to the raw console lines of server `id`. A slow subscriber may
+/// observe `RecvError::Lagged` (bounded channel) — callers scanning for one
+/// marker line should just keep receiving.
+pub fn subscribe_lines(id: &str) -> tokio::sync::broadcast::Receiver<String> {
+    line_watchers()
+        .lock()
+        .expect("line watchers poisoned")
+        .entry(id.to_string())
+        .or_insert_with(|| tokio::sync::broadcast::channel(256).0)
+        .subscribe()
+}
+
 /// PID of the running server, if any.
 pub fn running_pid(id: &str) -> Option<u32> {
     state()
@@ -383,6 +406,11 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
         };
         if was_current {
             crate::servers_runtime::pid::clear_pid(&pid_path);
+            // Drop the console-line watcher channel — subscribers see Closed.
+            line_watchers()
+                .lock()
+                .expect("line watchers poisoned")
+                .remove(&id_exit);
             // Record the exit code so server_list can show "Crashed" vs "Stopped" (#18).
             crate::servers_runtime::exit_state::write(&runtime_path, code);
             let _ = ServerExited {
@@ -407,6 +435,15 @@ where
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(mut f) = log.lock() {
                 let _ = writeln!(f, "{line}");
+            }
+            // Forward to in-process watchers (`subscribe_lines`). Send without
+            // receivers is a cheap no-op error; the per-line lock is uncontended.
+            if let Some(tx) = line_watchers()
+                .lock()
+                .expect("line watchers poisoned")
+                .get(&id)
+            {
+                let _ = tx.send(line.clone());
             }
             let _ = ServerLogLine {
                 server_id: id.clone(),
@@ -549,24 +586,12 @@ pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
 }
 
 /// True iff `name` is a single safe path component (no separators, no `..`,
-/// no drive/root prefix). Rejecting anything that isn't exactly one
-/// `Component::Normal` blocks `/`, `\`, `..`, AND Windows drive-relative names
-/// like `C:evil.jar` (which `Path::join` would otherwise resolve OUTSIDE the
-/// mods dir by discarding the base).
+/// no drive/root prefix) to join under `mods/`/`plugins/`. Delegates to the
+/// shared [`crate::pathsafe::is_safe_filename`] gate (which documents the
+/// cross-OS `\`/`:` screening rationale) so the client and server screens
+/// can't drift.
 pub(crate) fn is_safe_mod_name(name: &str) -> bool {
-    // This guard screens a name (from a directory listing or user input) before
-    // it is joined under `mods/`, so it must reject every escape vector on
-    // *every* host OS — not just the one we happen to be running on. `\` is a
-    // path separator and `C:` a drive prefix on Windows, but both are legal
-    // filename characters on Unix, so `std::path::Path` parsing alone would let
-    // `a\b.jar` / `C:evil.jar` slip through on Unix. Screen those explicitly.
-    if name.contains('\\') || name.contains(':') {
-        return false;
-    }
-    // On the current platform, `Path::components` then catches `/`, `..`, `.`,
-    // absolute paths, and empty: a safe name is exactly one Normal component.
-    let mut comps = std::path::Path::new(name).components();
-    matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none()
+    crate::pathsafe::is_safe_filename(name)
 }
 
 #[cfg(test)]

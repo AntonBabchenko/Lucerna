@@ -9,6 +9,7 @@
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
   import { shouldWarnVanillaWithMods } from '$lib/instances/import/vanilla-mods-warning';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
@@ -352,16 +353,15 @@
         {$t('instances.import.browseFolder')}
       </button>
       <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="btn-ghost btn-sm inline-flex items-center gap-1.5"
+        <BusyButton
+          class="btn-ghost btn-sm"
+          busy={discovering}
           onclick={discover}
-          disabled={discovering}
           data-testid="discover-btn"
         >
-          <Icon name="refresh" size={14} class={discovering ? 'animate-spin' : ''} />
+          {#if !discovering}<Icon name="refresh" size={14} />{/if}
           {$t('instances.import.discover')}
-        </button>
+        </BusyButton>
         <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
           {$t('common.cancel')}
         </button>

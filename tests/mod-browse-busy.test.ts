@@ -52,6 +52,7 @@ vi.mock('$lib/ipc/bindings', () => {
         data: { hits: [hit], total: 1, offset: 0, page_size: 20 },
       }),
       modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+      modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
       modsProject: vi.fn().mockResolvedValue({ status: 'ok', data: { summary: hit } }),
       // Install flow
       modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [version] }),

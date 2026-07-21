@@ -354,7 +354,7 @@
   {#if error}
     <p class="text-sm text-danger">{error}</p>
   {:else if loading && hits.length === 0}
-    <LoadingPanel label={$t('servers.mods.searching')} />
+    <LoadingPanel label={$t('servers.mods.searching')} delayMs={0} />
   {:else if hits.length === 0}
     <p class="py-6 text-center text-sm text-muted">{$t('servers.plugins.noResults')}</p>
   {:else}

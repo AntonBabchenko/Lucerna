@@ -12,7 +12,9 @@
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
+  import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
   import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
@@ -383,45 +385,29 @@
   // (and the Installed view would disagree with the Overview indicator, which
   // already reacts to these events). The re-scan is cheap (offline) and the
   // auto-confirm step skips shas already decided this session.
-  // Keep the raw listen() promises, not just the resolved unlisteners: if the
-  // view unmounts before a promise resolves, awaiting it in onMount would never
-  // run (the component is gone), leaking the listener. onDestroy instead cleans
-  // up via each promise's .then, and `destroyed` guards the case where the
-  // promise resolves AFTER unmount — we unlisten immediately in that path.
-  let destroyed = false;
-  let listenerPromises: Array<Promise<() => void>> = [];
-  onMount(() => {
-    listenerPromises = [
-      events.modInstalled.listen(() => {
-        void data.refresh();
-        deps.reloadGraph();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-      events.modUninstalled.listen(() => {
-        void data.refresh();
-        deps.reloadGraph();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-      events.modToggle.listen(() => {
-        void data.refresh();
-        preflight.invalidate();
-        void compat.runOfflineScan();
-      }),
-    ];
-    // If the view is already gone by the time a listener registers, tear it down
-    // on arrival rather than waiting for an onDestroy that has already fired.
-    for (const p of listenerPromises) {
-      void p.then((un) => {
-        if (destroyed) un();
-      });
-    }
-  });
+  // Registration/teardown is race-safe via listenUntilDestroyed (the pattern
+  // was born here and is now the shared helper). Handlers are debounced: a
+  // with-deps install emits one event per jar, and each un-coalesced event
+  // used to trigger a full refresh + preflight resolve + compat scan.
+  const debouncedSetChanged = debounceTrailing(() => {
+    void data.refresh();
+    deps.reloadGraph();
+    preflight.invalidate();
+    void compat.runOfflineScan();
+  }, 150);
+  const debouncedToggle = debounceTrailing(() => {
+    void data.refresh();
+    preflight.invalidate();
+    void compat.runOfflineScan();
+  }, 150);
+  listenUntilDestroyed([
+    events.modInstalled.listen(debouncedSetChanged.call),
+    events.modUninstalled.listen(debouncedSetChanged.call),
+    events.modToggle.listen(debouncedToggle.call),
+  ]);
   onDestroy(() => {
-    destroyed = true;
-    for (const p of listenerPromises) void p.then((un) => un());
-    listenerPromises = [];
+    debouncedSetChanged.cancel();
+    debouncedToggle.cancel();
     data.dispose();
     filters.dispose();
     updates.dispose();

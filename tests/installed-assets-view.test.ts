@@ -13,7 +13,7 @@ const {
   assetUninstall,
   assetsCheckUpdates,
   assetInstall,
-  modsProject,
+  modsProjects,
   pushWarning,
   pushSuccess,
 } = vi.hoisted(() => ({
@@ -21,12 +21,12 @@ const {
   assetUninstall: vi.fn(),
   assetsCheckUpdates: vi.fn(),
   assetInstall: vi.fn(),
-  modsProject: vi.fn(),
+  modsProjects: vi.fn(),
   pushWarning: vi.fn(),
   pushSuccess: vi.fn(),
 }));
 
-const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, modsProject };
+const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, modsProjects };
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -34,7 +34,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetUninstall,
     assetsCheckUpdates,
     assetInstall,
-    modsProject,
+    modsProjects,
   },
 }));
 
@@ -106,7 +106,7 @@ describe('InstalledAssetsView', () => {
     pushSuccess.mockReset();
     // Enrichment resolves each platform asset's project summary (icon). Default
     // to a resolved summary so the icon loads; individual tests can override.
-    modsProject.mockResolvedValue(ok({ summary: makeSummary() }));
+    modsProjects.mockResolvedValue(ok([makeSummary()]));
     // The assetsChanged rune is module-global and shared across tests — reset
     // it so a bump from one test can't leak into the next.
     assetsChanged.value = 0;

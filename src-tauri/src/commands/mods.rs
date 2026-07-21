@@ -490,7 +490,8 @@ fn enabled_jar_filenames(dir: &std::path::Path) -> std::collections::HashSet<Str
 
 /// Download `v` through `network::` and copy its jar into `dest` (created if
 /// absent), returning the written filename. The platform-supplied filename is
-/// guarded BEFORE any join. No registry, no events — the server has neither.
+/// guarded BEFORE any join. Registry/event bookkeeping is the caller's job —
+/// the server commands reconcile their own sidecar registry after the copy.
 async fn copy_version_into_dir(
     data_dir: &std::path::Path,
     dest: &std::path::Path,
@@ -702,8 +703,9 @@ pub(crate) async fn install_version_into_dir(
 /// content-addressed cache key) straight into `dest`, verifying the sha256.
 /// Returns the written filename. The platform-supplied filename is guarded
 /// BEFORE any join, then the join is re-asserted for containment — the same
-/// two-layer path-safety pattern as [`copy_version_into_dir`]. No registry, no
-/// events — the server has neither.
+/// two-layer path-safety pattern as [`copy_version_into_dir`]. Registry/event
+/// bookkeeping is the caller's job (the server commands reconcile their own
+/// sidecar registry after the copy).
 async fn download_plugin_sha256_into_dir(
     dest: &std::path::Path,
     v: &ModVersion,
@@ -1584,27 +1586,55 @@ pub async fn check_instance_mod_compat(
     loader: crate::instances::schema::LoaderKind,
 ) -> crate::error::Result<Vec<crate::mods::compat::ModCompat>> {
     use crate::mods::updates::eligible_identity;
+    use futures_util::stream::{self, StreamExt};
+
+    // Same bound as `mods_check_updates` — dozens of simultaneous requests
+    // intermittently trip per-IP rate limits.
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
 
     let inst_root = instance_root(&app, &id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
-    let mut out = Vec::new();
-    for m in &installed {
-        let status = match eligible_identity(m, pack_origin.as_ref()) {
-            None => crate::mods::compat::ModCompatStatus::Unknown,
-            Some((source, project_id, _vid)) => {
-                let platform = platform_for(source);
-                crate::mods::compat::classify_compat(
-                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader).await,
-                )
-            }
-        };
-        out.push(crate::mods::compat::ModCompat {
+    // Every mod starts Unknown; the bounded poll below overwrites the ones
+    // with a platform identity. Output order == installed order by index.
+    let mut out: Vec<crate::mods::compat::ModCompat> = installed
+        .iter()
+        .map(|m| crate::mods::compat::ModCompat {
             sha1: m.sha1.clone(),
             name: m.name.clone(),
-            status,
-        });
+            status: crate::mods::compat::ModCompatStatus::Unknown,
+        })
+        .collect();
+
+    let eligible: Vec<(usize, ModSource, String)> = installed
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| {
+            eligible_identity(m, pack_origin.as_ref())
+                .map(|(source, project_id, _vid)| (i, source, project_id))
+        })
+        .collect();
+
+    // Bounded-concurrency platform poll — same shape as `mods_check_updates`.
+    // The prior sequential loop paid one round-trip per mod, which on a large
+    // pack with a cold version cache was minutes of serial waiting.
+    let results: Vec<(usize, crate::mods::compat::ModCompatStatus)> = stream::iter(eligible)
+        .map(|(i, source, project_id)| {
+            let mc = mc.clone();
+            async move {
+                let platform = platform_for(source);
+                let status = crate::mods::compat::classify_compat(
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader).await,
+                );
+                (i, status)
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    for (i, status) in results {
+        out[i].status = status;
     }
     Ok(out)
 }

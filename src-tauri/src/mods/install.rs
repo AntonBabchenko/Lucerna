@@ -255,6 +255,11 @@ pub async fn install_one(
             })?;
     }
 
+    // The bytes at `dest` were SHA-verified above (fresh copy) or matched by
+    // digest (idempotent re-install) — seed the reconcile hash cache so the
+    // next `list()` stats instead of re-reading the whole jar.
+    installed::seed_hash_cache(&dest, &sha_lower);
+
     // 4. Record
     installed::add(
         instance_root,

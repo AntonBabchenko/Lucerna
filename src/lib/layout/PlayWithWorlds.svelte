@@ -202,7 +202,7 @@
       aria-label={menuLabel ?? label}
       tabindex="-1"
       data-testid="play-worlds-menu"
-      class="fixed z-50 overflow-y-auto bg-surface border border-success border-t-0 rounded-b shadow-md py-1 outline-none"
+      class="fixed z-[var(--z-popover)] overflow-y-auto bg-surface border border-success border-t-0 rounded-b shadow-md py-1 outline-none"
       style="top: {top}px; left: {left}px; width: {width}px; max-height: {maxHeight}px;"
     >
       {#each worlds as w, i (w.folder_name)}

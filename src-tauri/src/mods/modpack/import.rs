@@ -549,6 +549,29 @@ pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error>
 /// The lowercasing mirrors `install_one`/`install_asset`, which both
 /// `sha.to_ascii_lowercase()` before `fetch_to_cache` — matching the key
 /// guarantees the serial loop's fetch is an instant cache hit.
+/// Concurrent cache pre-warm for a set of pack files — see the HIGH-5 comment
+/// in `install_resolved_pack` for the rationale. Dedups by sha1; md5-keyed and
+/// empty-sha files are excluded; errors are swallowed (the caller's serial
+/// apply loop stays the single source of truth for per-file success/failure).
+/// Shared by fresh import and `modpack_apply_update`.
+pub async fn prewarm_cache(
+    data_dir: &std::path::Path,
+    files: &[&ModpackFile],
+    progress: &crate::mods::install::ProgressFn,
+) {
+    let targets = prewarm_targets(files);
+    if targets.is_empty() {
+        return;
+    }
+    stream::iter(targets)
+        .map(|(url, sha, size)| async move {
+            let _ = fetch_to_cache(data_dir, &url, &sha, size, "modpacks", progress).await;
+        })
+        .buffer_unordered(MODPACK_PREWARM_CONCURRENCY)
+        .collect::<Vec<()>>()
+        .await;
+}
+
 fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -743,19 +766,7 @@ pub async fn install_resolved_pack(
     // safety, distribution, path-escape) also stay in the serial loop;
     // pre-warm only populates the SHA-verified, content-addressed cache, never
     // the instance. (ATLauncher md5 files are excluded — see `prewarm_targets`.)
-    let prewarm = prewarm_targets(&selected);
-    if !prewarm.is_empty() {
-        let data_dir_ref = &data_dir;
-        let progress_ref = &install_progress;
-        stream::iter(prewarm)
-            .map(|(url, sha, size)| async move {
-                let _ =
-                    fetch_to_cache(data_dir_ref, &url, &sha, size, "modpacks", progress_ref).await;
-            })
-            .buffer_unordered(MODPACK_PREWARM_CONCURRENCY)
-            .collect::<Vec<()>>()
-            .await;
-    }
+    prewarm_cache(&data_dir, &selected, &install_progress).await;
 
     for (idx, file) in selected.iter().enumerate() {
         on_progress(ModpackProgress::InstallingFile {
@@ -931,8 +942,19 @@ pub async fn install_resolved_pack(
     // is surfaced for transparency only. Loader-family only, so it never
     // false-positives on a bundled multi-loader or descriptor-less jar.
     let mods_dir = instance_root.join(".minecraft").join("mods");
-    let inert_loader_jars =
-        classify_inert_loader_jars(&mods_dir, summary.loader, &summary.game_version);
+    // Reads + zip-parses every jar in `mods/` — a full pass over the pack, so
+    // run it on a blocking thread instead of the async runtime. Join failure
+    // degrades to "no inert jars found" (the scan is best-effort anyway).
+    let inert_loader_jars = {
+        let mods_dir = mods_dir.clone();
+        let loader = summary.loader;
+        let game_version = summary.game_version.clone();
+        tokio::task::spawn_blocking(move || {
+            classify_inert_loader_jars(&mods_dir, loader, &game_version)
+        })
+        .await
+        .unwrap_or_default()
+    };
 
     // Record the skipped oversized overrides so the Imported drawer can
     // show the informational "skipped" note after a restart (the Done

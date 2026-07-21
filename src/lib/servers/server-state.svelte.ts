@@ -115,15 +115,43 @@ function lineFor(id: string): string[] {
   return lines.get(id) ?? [];
 }
 
-function pushLine(id: string, line: string): void {
-  const next = appendCapped(lines.get(id) ?? [], line, MAX_CONSOLE_LINES);
-  // Reassign the Map so Svelte 5 $state reactivity fires.
+// Console lines arrive one Tauri event per line — hundreds per second during
+// a modded server boot. Committing each line separately re-copied the whole
+// Map (all servers' buffers) and re-ran the console's derived chain per line.
+// Coalesce instead: buffer per server, flush once per frame-ish tick.
+const LINE_FLUSH_MS = 50;
+const pendingLines = new Map<string, string[]>();
+let lineFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushPendingLines(): void {
+  lineFlushTimer = null;
+  if (pendingLines.size === 0) return;
   const m = new Map(lines);
-  m.set(id, next);
+  for (const [id, batch] of pendingLines) {
+    let next = m.get(id) ?? [];
+    for (const line of batch) {
+      next = appendCapped(next, line, MAX_CONSOLE_LINES);
+    }
+    m.set(id, next);
+  }
+  pendingLines.clear();
+  // Reassign the Map so Svelte 5 $state reactivity fires — once per flush.
   lines = m;
 }
 
+function pushLine(id: string, line: string): void {
+  const batch = pendingLines.get(id);
+  if (batch) batch.push(line);
+  else pendingLines.set(id, [line]);
+  if (lineFlushTimer === null) {
+    lineFlushTimer = setTimeout(flushPendingLines, LINE_FLUSH_MS);
+  }
+}
+
 function clearLines(id: string): void {
+  // Drop any buffered-but-unflushed lines too, or the next flush would
+  // resurrect output from before the clear.
+  pendingLines.delete(id);
   const m = new Map(lines);
   m.set(id, []);
   lines = m;
@@ -659,19 +687,25 @@ async function readLog(id: string, fileName: string): Promise<{ ok: boolean; tex
   return { ok: false };
 }
 
-async function openLogsFolder(id: string): Promise<void> {
-  await commands.serverOpenLogsFolder(id);
+// The open-folder helpers return the failure (if any) instead of swallowing
+// it — the Installed panes surface the same operations' errors inline, so a
+// sidebar/console click failing silently was an inconsistency, not a policy.
+async function openLogsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenLogsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Open a mod-loader server's `runtime/mods/` folder. Mirrors openLogsFolder.
 // The sidebar only offers this for mod-capable cores (see core-display.ts).
-async function openModsFolder(id: string): Promise<void> {
-  await commands.serverOpenModsFolder(id);
+async function openModsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenModsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Open a plugin server's `runtime/plugins/` folder (Paper/Purpur cores).
-async function openPluginsFolder(id: string): Promise<void> {
-  await commands.serverOpenPluginsFolder(id);
+async function openPluginsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverOpenPluginsFolder(id);
+  return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 export const serverState = {
