@@ -6,7 +6,7 @@ This file is the working agreement between the human maintainer and Codex. Codex
 
 ## What this project is
 
-Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain works end-to-end: Microsoft approved Lucerna's Azure app, so live sign-in is functional. A typed pending-approval response is retained as a defensive fallback should the registration ever lapse; offline play is a first-class option regardless.) The UI ships in English and Russian, switchable live in-app (Settings → Appearance).
+Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows, with beta builds for Linux and macOS. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain works end-to-end: Microsoft approved Lucerna's Azure app, so live sign-in is functional. A typed pending-approval response is retained as a defensive fallback should the registration ever lapse; offline play is a first-class option regardless.) The UI ships in English and Russian, switchable live in-app (Settings → Appearance).
 
 The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes. The UI design system — tokens, component vocabulary, and which variant/element to use when — is documented in [`docs/DESIGN.md`](docs/DESIGN.md); consult it before UI changes.
 
@@ -40,16 +40,23 @@ No "small fix" exception. A bugfix is still a feature in this sense — it still
 
 ```
 src-tauri/                          Rust backend — launcher core, Tauri shell
-src-tauri/src/commands.rs           Tauri commands exposed to UI (typed via tauri-specta)
+src-tauri/src/commands/             Tauri commands exposed to UI (typed via tauri-specta)
 src-tauri/src/accounts/microsoft/   Microsoft Xbox Live → Minecraft Services auth chain
 src-tauri/src/accounts/keychain.rs  OS keyring wrapper for MS refresh + MC access tokens
+src-tauri/src/launch/               Launch pipeline + running-instance registry
+src-tauri/src/instances/            Instance model, storage, import
+src-tauri/src/servers_runtime/      Own-server lifecycle: cores, plugins, backups, properties
+src-tauri/src/verify/               Instance integrity scan + repair
+src-tauri/src/data_root/            Relocatable data root (resolve, migrate, fallback)
 src-tauri/src/network/              HTTP chokepoint + host allowlist
 src-tauri/src/process/              Subprocess chokepoint
 src-tauri/tests/                    Rust integration tests (incl. structural guards)
 src/                                SvelteKit UI (Svelte 5 runes + TypeScript)
 src/routes/                         SvelteKit file-based routes (single-page launcher)
 src/lib/ipc/bindings.ts             Generated TS bindings from tauri-specta — do not edit
-src/lib/accounts/                   MS sign-in button + signing-in modal + logo
+src/lib/accounts/                   Accounts UI + skins/capes + skin-editor/
+src/lib/i18n/                       Locales (en, ru) + generated key union
+src/lib/ui/                         Shared design-system primitives
 src/app.css                         Tailwind imports + minimal global CSS
 src/app.html                        SvelteKit HTML shell (page title lives here)
 static/                             Static assets served at root
@@ -57,7 +64,7 @@ tools/                              Small CI/dev helper scripts (Node, .mjs)
 tests/                              Vitest unit tests
 tests-e2e/                          Playwright e2e tests
 docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
-.github/workflows/ci.yml            CI: rust-ubuntu/windows/macos, linux-bundle, frontend, lint, coverage (SHA-pinned)
+.github/workflows/ci.yml            CI: rust-ubuntu/windows/macos, linux-bundle, frontend, e2e, lint, coverage-frontend/rust, cargo-deny, ci-gate (SHA-pinned)
 ```
 
 ## Entry-point commands
@@ -68,6 +75,8 @@ docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, T
 - `pnpm typecheck`         svelte-kit sync + svelte-check.
 - `pnpm test`              run Vitest once.
 - `pnpm test:watch`        Vitest watch mode.
+- `pnpm test:e2e`          Playwright e2e (functional specs run in CI).
+- `pnpm i18n:keys`         regenerate the i18n key union after editing en.json — CI enforces `i18n:keys:check`.
 - `pnpm lint`              Biome + Prettier (Svelte) + no-network-calls gate.
 - `pnpm lint:no-network`   only the no-network-calls gate.
 - `pnpm format`            auto-format with Biome + Prettier (Svelte).
@@ -88,5 +97,5 @@ These distill the principles from `docs/PRINCIPLES.md` and `docs/SECURITY.md` in
 - `unwrap()` in production code without a comment proving the case is unreachable.
 - Any analytics, telemetry, or fingerprinting code path — including "anonymous" or "opt-out" variants.
 - Any code path that modifies the Minecraft client at runtime (main menu injection, splash override, default-bundled mods).
-- Any HTTP client construction outside the `network::` module (caught by `tests/structural_no_raw_http.rs`).
-- Any subprocess spawn outside the `process::` module (caught by `tests/structural_no_raw_spawn.rs`).
+- Any HTTP client construction outside the `network::` module (caught by `src-tauri/tests/structural_no_raw_http.rs`).
+- Any subprocess spawn outside the `process::` module (caught by `src-tauri/tests/structural_no_raw_spawn.rs`).

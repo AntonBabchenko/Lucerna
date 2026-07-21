@@ -17,16 +17,26 @@ expect(tab).not.toHaveBtnVariant('secondary'); // negative for tabs
 ```
 
 **Adding a new intent-critical button.** When you add a new prominent
-button in `src/`, add a one-line assertion in the relevant
-`tests/button-intents-*.test.ts` file. Pick the variant that matches the
-button's intent, consistent with the existing assertions there.
+button in `src/`, add a one-line assertion in the intent suite. Most
+assertions now live in `tests/intent/*.test.ts`, grouped by surface
+(`dialogs`, `mod-browser`, `settings`, `worlds`, …); the older
+`tests/button-intents-*.test.ts` files still exist. Put the assertion in
+the `tests/intent/` file matching your surface, and pick the variant that
+matches the button's intent.
 
 ## Layer 2 — Playwright visual snapshots
 
 For "render" regressions like "the toast background went translucent".
-Runs locally via `pnpm test:e2e`. The spec files live under
-`tests-e2e/visual/`; baseline PNGs (`*-snapshots/`) are **not yet seeded
-or committed** — see the note below.
+The **visual** specs live under `tests-e2e/visual/` and run locally via
+`pnpm test:e2e`; baseline PNGs (`*-snapshots/`) are **not yet seeded or
+committed** — see the note below.
+
+The **functional** Playwright specs sit at the `tests-e2e/` top level
+(`mod-install`, `i18n-switch`, `servers-mode`, `tooltip`,
+`export-button-gating`, `sidebar-tooltip-clip`, `tour-pointer-events`).
+Those **do** run in CI — the `e2e (functional)` job runs
+`playwright test --project=chromium 'tests-e2e/(?!visual/)'` and is a
+required `ci-gate` dependency.
 
 **Updating baselines after an intentional visual change:**
 
@@ -44,10 +54,11 @@ Ubuntu). Windows local runs include `test.skip(process.platform !==
 `pnpm test:e2e` shows skipped visual tests, that's the expected
 behavior.
 
-**The CI visual job is currently disabled.** It is gated off in
-`.github/workflows/ci.yml` pending committed Linux baselines, and the
-`frontend` job runs only typecheck + `i18n:keys:check` + `pnpm test`
-(not `test:e2e`). Once baselines are seeded on Linux and committed, the
+**The CI *visual* job is currently disabled** (the functional e2e job
+above is not). It is gated off in `.github/workflows/ci.yml` pending
+committed Linux baselines; the `frontend` job itself runs typecheck +
+`i18n:keys:check` + `pnpm test`, and the separate `e2e`,
+`coverage-frontend` and `lint` jobs cover the rest. Once baselines are seeded on Linux and committed, the
 job can be re-enabled to upload diff PNGs as a `playwright-report.zip`
 artifact on failure. Until then, visual regressions are caught only by a
 local `pnpm test:e2e` run on Linux.
