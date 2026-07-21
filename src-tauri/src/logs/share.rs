@@ -24,12 +24,64 @@ use serde::Deserialize;
 pub fn anonymise(input: &str) -> String {
     // All patterns below are static literals validated by the unit tests —
     // `Regex::new` cannot fail at runtime. Per CLAUDE.md `.unwrap()` rule.
+    // Home paths come in two shapes and need one rule each.
+    //
+    // `*_USER_PATH` — username followed by a separator. The username class is
+    // permissive (anything but path punctuation) so it keeps working for the two
+    // cases that matter in practice: Windows account names containing SPACES
+    // (`C:\Users\John Smith\`) and non-ASCII names (Cyrillic on ru-RU installs).
+    // The trailing separator is what bounds the match, so a permissive class is
+    // safe here.
+    //
+    // `*_USER_PATH_END` — username that ends at the line, or is closed by
+    // punctuation rather than a separator: `HOME=/home/player`,
+    // `-Duser.home=/home/player]`. `regex` 1.12 has no look-around, so there is
+    // nothing to assert about what follows; the bound has to live in the class,
+    // which means WHITESPACE MUST BE EXCLUDED. Without that the greedy run walks
+    // straight past the username through the rest of the line
+    // (`C:\Users\Player -Djava.io.tmpdir=C:\Users\Player\...` would consume up to
+    // the next `:` and strand the second path unscrubbed). Quotes and backticks are
+    // excluded for the same reason — logs quote paths (`HOME="/home/player"`,
+    // JSON-ish dumps) and swallowing the closing quote corrupts the very text the
+    // maintainer is meant to read. The final character is additionally barred from
+    // being `,;)]}` so `player,` yields `<user>,` rather than eating the comma.
+    //
+    // Order matters: the separator rules run first, so a space-containing name is
+    // consumed as a whole before the whitespace-free rules ever see it. `<` and `>`
+    // are excluded everywhere, so an already-substituted `<user>` never re-matches.
     static WIN_USER_PATH: Lazy<Regex> =
         Lazy::new(|| Regex::new(r#"(?i)([A-Z]:\\Users\\)([^\\/:*?"<>|]+)(\\)"#).unwrap());
     static WIN_USER_PATH_FWD: Lazy<Regex> =
         Lazy::new(|| Regex::new(r#"(?i)([A-Z]:/Users/)([^/:*?"<>|]+)(/)"#).unwrap());
-    static MAC_USER_PATH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(/Users/)([^/]+)(/)").unwrap());
-    static LINUX_USER_PATH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(/home/)([^/]+)(/)").unwrap());
+    // The POSIX separator rules exclude whitespace where the Windows ones cannot.
+    // A POSIX username genuinely cannot contain a space (`useradd` rejects it, and
+    // macOS home dirs use ASCII short names), and without that exclusion `[^/]+`
+    // has nothing to stop it: on `HOME=/home/alice OTHERHOME=/home/bob` the run
+    // crosses the space and closes on the *second* path's separator, deleting
+    // ` OTHERHOME=` from the log. The Windows rules avoid this only by accident —
+    // their class excludes `:`, which the next drive letter supplies.
+    //
+    // The cost is symmetric to the documented Windows one: a POSIX path segment
+    // that *does* contain a space (`/Users/John Smith/`) is now only partially
+    // scrubbed. That is accepted because such a directory is not an account home —
+    // `useradd` rejects spaces and macOS derives the home dir from the space-free
+    // short name — whereas `C:\Users\John Smith\` is an ordinary Windows layout,
+    // which is why the Windows class keeps permitting spaces. Pinned by
+    // `anonymise_posix_space_in_segment_is_partial_known_limitation`.
+    static MAC_USER_PATH: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(/Users/)([^/\s<>]+)(/)").unwrap());
+    static LINUX_USER_PATH: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(/home/)([^/\s<>]+)(/)").unwrap());
+    static WIN_USER_PATH_END: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"(?i)([A-Z]:\\Users\\)([^\\/:*?"<>|\s'`]*[^\\/:*?"<>|\s'`,;)\]}])"#).unwrap()
+    });
+    static WIN_USER_PATH_FWD_END: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"(?i)([A-Z]:/Users/)([^/:*?"<>|\s'`]*[^/:*?"<>|\s'`,;)\]}])"#).unwrap()
+    });
+    static MAC_USER_PATH_END: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"(/Users/)([^/\s<>"'`]*[^/\s<>"'`,;)\]}])"#).unwrap());
+    static LINUX_USER_PATH_END: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"(/home/)([^/\s<>"'`]*[^/\s<>"'`,;)\]}])"#).unwrap());
     static SETTING_USER_TOKEN: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?i)(Setting user:\s+\S+\s+)([A-Za-z0-9]{30,})").unwrap());
     static ACCESS_TOKEN_FLAG: Lazy<Regex> =
@@ -54,6 +106,14 @@ pub fn anonymise(input: &str) -> String {
         .into_owned();
     out = MAC_USER_PATH.replace_all(&out, "$1<user>$3").into_owned();
     out = LINUX_USER_PATH.replace_all(&out, "$1<user>$3").into_owned();
+    out = WIN_USER_PATH_END.replace_all(&out, "$1<user>").into_owned();
+    out = WIN_USER_PATH_FWD_END
+        .replace_all(&out, "$1<user>")
+        .into_owned();
+    out = MAC_USER_PATH_END.replace_all(&out, "$1<user>").into_owned();
+    out = LINUX_USER_PATH_END
+        .replace_all(&out, "$1<user>")
+        .into_owned();
     out = SETTING_USER_TOKEN
         .replace_all(&out, "$1<redacted>")
         .into_owned();
@@ -165,6 +225,265 @@ mod tests {
         // Nothing that looks like a username follows `/home/`, so there is
         // nothing to scrub and the text must survive untouched.
         assert!(anonymise("reading /home/ directory").contains("/home/ "));
+    }
+
+    // --- home paths with no trailing separator (JVM crash dumps, launch args) ---
+
+    #[test]
+    fn anonymise_strips_linux_home_at_end_of_line() {
+        let out = anonymise("HOME=/home/player");
+        assert!(!out.contains("player"));
+        assert!(out.ends_with("/home/<user>"));
+    }
+
+    #[test]
+    fn anonymise_strips_linux_home_before_bracket() {
+        let out = anonymise("-Duser.home=/home/player]");
+        assert!(!out.contains("player]"));
+        assert!(out.contains("/home/<user>]"));
+    }
+
+    #[test]
+    fn anonymise_strips_macos_home_at_end_of_line() {
+        let out = anonymise("user.home = /Users/player");
+        assert!(!out.contains("player"));
+        assert!(out.ends_with("/Users/<user>"));
+    }
+
+    #[test]
+    fn anonymise_strips_windows_home_at_end_of_line() {
+        let out = anonymise(r"USERPROFILE=C:\Users\Player");
+        assert!(!out.contains("Player"));
+        assert!(out.ends_with(r"C:\Users\<user>"));
+    }
+
+    // --- regression guards: these describe behaviour that ALREADY works and
+    // that a careless tightening of the username class would silently break ---
+
+    #[test]
+    fn anonymise_strips_windows_user_with_space() {
+        // Windows account names routinely contain spaces.
+        let out = anonymise(r"C:\Users\John Smith\AppData\Roaming");
+        assert!(!out.contains("Smith"));
+        assert!(out.contains(r"C:\Users\<user>\AppData"));
+    }
+
+    #[test]
+    fn anonymise_space_in_name_at_end_of_line_is_partial_known_limitation() {
+        // KNOWN LIMITATION, pinned deliberately rather than left to chance.
+        // `C:\Users\John Smith` (no trailing separator) is textually
+        // indistinguishable from `C:\Users\Player is running out of memory` —
+        // nothing in the string says whether the second word is a surname or
+        // prose. Consuming past the space would scrub the name but silently eat
+        // real log content in the far more common prose case, so the rule stops
+        // at the space: the first token is scrubbed, the rest survives.
+        // Separator-terminated `C:\Users\John Smith\...` is handled in full by
+        // WIN_USER_PATH and is the case that actually occurs in paths.
+        let out = anonymise(r"USERPROFILE=C:\Users\John Smith");
+        assert!(!out.contains("John"));
+        assert!(out.contains(r"C:\Users\<user> Smith"));
+    }
+
+    #[test]
+    fn anonymise_strips_windows_non_ascii_user() {
+        // ru-RU installs have Cyrillic account names, and the negated classes must
+        // keep matching them rather than truncating at the first non-ASCII byte.
+        let out = anonymise(r"C:\Users\Антон\AppData\Roaming");
+        assert!(!out.contains("Антон"));
+        assert!(out.contains(r"C:\Users\<user>\AppData"));
+    }
+
+    // --- boundaries ---
+
+    #[test]
+    fn anonymise_strips_both_paths_on_one_line() {
+        // Regression guard for the review finding: a bare path followed by a
+        // second, separator-terminated path on the SAME line. A username class
+        // that permits whitespace runs past the first name to the next `:` and
+        // strands the second path unscrubbed.
+        let out = anonymise(
+            r"-Duser.home=C:\Users\Player -Djava.io.tmpdir=C:\Users\Player\AppData\Local\Temp",
+        );
+        assert!(!out.contains("Player"), "username leaked: {out}");
+        assert!(out.contains(r"C:\Users\<user> -Djava"));
+        assert!(out.contains(r"C:\Users\<user>\AppData"));
+    }
+
+    #[test]
+    fn anonymise_strips_two_linux_paths_on_one_line() {
+        // The POSIX class must stop at the space; otherwise the run closes on the
+        // SECOND path's separator and ` OTHERHOME=` is silently deleted.
+        let out = anonymise("HOME=/home/alice OTHERHOME=/home/bob");
+        assert!(!out.contains("alice") && !out.contains("bob"));
+        assert!(out.contains("OTHERHOME="), "log content destroyed: {out}");
+        assert_eq!(out, "HOME=/home/<user> OTHERHOME=/home/<user>");
+    }
+
+    #[test]
+    fn anonymise_strips_two_macos_paths_on_one_line() {
+        let out = anonymise("a=/Users/alice b=/Users/bob");
+        assert!(!out.contains("alice") && !out.contains("bob"));
+        assert_eq!(out, "a=/Users/<user> b=/Users/<user>");
+    }
+
+    #[test]
+    fn anonymise_keeps_quotes_balanced_around_paths() {
+        let out = anonymise("cmd /home/alice \"/home/alice/logs\"");
+        assert!(!out.contains("alice"));
+        assert_eq!(out.matches('"').count(), 2, "quote destroyed: {out}");
+    }
+
+    #[test]
+    fn anonymise_keeps_closing_quote_on_bare_path() {
+        // A path that ends at the quote goes through the *_END rules, which must
+        // not swallow the quote — logs and JSON-ish dumps quote paths routinely.
+        let out = anonymise("export HOME=\"/home/alice\"");
+        assert!(!out.contains("alice"));
+        assert_eq!(out, "export HOME=\"/home/<user>\"");
+    }
+
+    #[test]
+    fn anonymise_keeps_closing_quote_on_bare_windows_path() {
+        let out = anonymise("USERPROFILE='C:\\Users\\Player'");
+        assert!(!out.contains("Player"));
+        assert_eq!(out, "USERPROFILE='C:\\Users\\<user>'");
+    }
+
+    #[test]
+    fn anonymise_keeps_json_structure_intact() {
+        let out = anonymise("{\"home\":\"/home/alice\"}");
+        assert!(!out.contains("alice"));
+        assert_eq!(out, "{\"home\":\"/home/<user>\"}");
+    }
+
+    #[test]
+    fn anonymise_posix_space_in_segment_is_partial_known_limitation() {
+        // KNOWN LIMITATION, pinned deliberately — the mirror of the Windows one.
+        // Excluding whitespace from the POSIX separator class is what stops a run
+        // from crossing into the next path and deleting log content; the cost is
+        // that a POSIX segment containing a space scrubs only its first token.
+        // Accepted because such a directory is not an account home: `useradd`
+        // rejects spaces and macOS derives the home dir from the space-free short
+        // name, so this is a hand-made directory rather than a real username.
+        let out = anonymise("/Users/John Smith/Library");
+        assert!(!out.contains("John"));
+        assert!(out.contains("/Users/<user> Smith/Library"));
+    }
+
+    #[test]
+    fn anonymise_keeps_prose_after_windows_path() {
+        // The log is the thing the user wants read — over-matching must not eat it.
+        let out = anonymise(r"C:\Users\Player is running out of memory");
+        assert!(!out.contains("Player is"));
+        assert!(out.contains("is running out of memory"));
+    }
+
+    #[test]
+    fn anonymise_keeps_following_lines() {
+        let out = anonymise("user.home=C:\\Users\\Player\n[12:00:01] Loading world\n");
+        assert!(out.contains("Loading world"));
+        assert!(out.contains(r"C:\Users\<user>"));
+    }
+
+    #[test]
+    fn anonymise_strips_macos_non_ascii_user() {
+        // An ASCII-only username class would emit `/Users/<user>é/` — worse than
+        // doing nothing, because it looks redacted while still leaking.
+        let out = anonymise("/Users/José/Desktop");
+        assert!(!out.contains("os"), "non-ASCII remainder leaked: {out}");
+        assert!(out.contains("/Users/<user>/Desktop"));
+    }
+
+    #[test]
+    fn anonymise_strips_linux_non_ascii_user_at_end_of_line() {
+        let out = anonymise("HOME=/home/José");
+        assert!(!out.contains("os"), "non-ASCII remainder leaked: {out}");
+        assert!(out.ends_with("/home/<user>"));
+    }
+
+    #[test]
+    fn anonymise_strips_windows_user_with_parenthetical() {
+        // Windows creates `Player (2)` for duplicate profile names.
+        let out = anonymise(r"C:\Users\Player (2)\Desktop");
+        assert!(!out.contains("Player"));
+        assert!(out.contains(r"C:\Users\<user>\Desktop"));
+    }
+
+    #[test]
+    fn anonymise_keeps_trailing_punctuation() {
+        let out = anonymise("path /home/player, and then");
+        assert!(!out.contains("player"));
+        assert!(out.contains("/home/<user>, and then"));
+    }
+
+    #[test]
+    fn anonymise_leaves_no_username_in_realistic_log_lines() {
+        // Battery over the shapes that actually appear in JVM crash dumps, env
+        // blocks and launch-arg lines. Every entry uses the same sentinel name, so
+        // any surviving occurrence is a leak regardless of which rule should have
+        // caught it. Three review rounds each found a leak the targeted tests
+        // missed; this exists so the next new shape is caught by construction.
+        const SENTINEL: &str = "zealot";
+        let lines = [
+            "HOME=/home/zealot",
+            "HOME=/home/zealot/",
+            "user.home=/home/zealot/.minecraft",
+            "-Duser.home=/home/zealot]",
+            "-Duser.home=/home/zealot -Dfoo=/home/zealot/x",
+            "export HOME=\"/home/zealot\"",
+            "path is `/home/zealot` here",
+            "{\"home\":\"/home/zealot\"}",
+            "a=/home/zealot b=/home/zealot",
+            "/home/zealot|/home/zealot",
+            "at java.base/java.io.File.<init>(/home/zealot/x)",
+            "/Users/zealot",
+            "/Users/zealot/Library/Application Support",
+            "a=/Users/zealot b=/Users/zealot",
+            r"C:\Users\zealot",
+            r"C:\Users\zealot\AppData\Roaming",
+            r"-Duser.home=C:\Users\zealot -Dtmp=C:\Users\zealot\Temp",
+            r"USERPROFILE='C:\Users\zealot'",
+            "file:/C:/Users/zealot/AppData",
+            "mixed C:/Users/zealot and /home/zealot on one line",
+        ];
+        for line in lines {
+            let out = anonymise(line);
+            assert!(
+                !out.contains(SENTINEL),
+                "username leaked\n  in : {line}\n  out: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn anonymise_preserves_surrounding_log_content() {
+        // The counterpart to the leak battery: scrubbing must not eat the log.
+        // Each case pins a fragment that has to survive next to the redaction.
+        let cases = [
+            ("HOME=/home/zealot OTHERHOME=/home/other", "OTHERHOME="),
+            ("/home/zealot is out of memory", "is out of memory"),
+            ("export HOME=\"/home/zealot\" && run", "\" && run"),
+            ("{\"home\":\"/home/zealot\",\"n\":1}", "\",\"n\":1}"),
+            (
+                "user.home=/home/zealot\n[12:00] Loading world",
+                "Loading world",
+            ),
+            (r"C:\Users\zealot is out of memory", "is out of memory"),
+        ];
+        for (input, must_survive) in cases {
+            let out = anonymise(input);
+            assert!(
+                out.contains(must_survive),
+                "log content destroyed\n  in : {input}\n  out: {out}\n  lost: {must_survive}"
+            );
+        }
+    }
+
+    #[test]
+    fn anonymise_is_idempotent() {
+        let input = r"C:\Users\Player\AppData and /home/player/.minecraft and /Users/player";
+        let once = anonymise(input);
+        assert_eq!(anonymise(&once), once);
     }
 
     #[test]
