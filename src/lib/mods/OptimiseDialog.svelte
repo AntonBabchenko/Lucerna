@@ -7,6 +7,7 @@
   import { t } from '$lib/i18n';
   import { displayLoader } from '$lib/instances/loader-display';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import DialogTitle from '$lib/ui/DialogTitle.svelte';
   import Modal from '$lib/ui/Modal.svelte';
 
   let {
@@ -51,13 +52,13 @@
 <!-- While installing, block implicit close paths — the in-flight IPC per mod
      cannot be aborted mid-run. -->
 <Modal
-  ariaLabel={$t('optimise.dialogTitle')}
+  ariaLabelledby="optimise-title"
   onClose={onCancel}
   closeOnBackdrop={!installing}
   closeOnEscape={!installing}
 >
   <header class="p-4 border-b">
-    <h2 class="text-base font-semibold">{$t('optimise.dialogTitle')}</h2>
+    <DialogTitle id="optimise-title">{$t('optimise.dialogTitle')}</DialogTitle>
     <p class="text-sm text-muted mt-1">
       {$t('optimise.intro', { loader: displayLoader(loader) })}
     </p>
@@ -66,7 +67,7 @@
   <div class="p-4 flex flex-col gap-4 max-h-[55vh] overflow-y-auto">
     {#if willInstall.length > 0}
       <section class="flex flex-col gap-1">
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+        <div class="text-xs uppercase tracking-wider text-muted">
           {$t('optimise.sectionInstall')}
         </div>
         {#each willInstall as e (e.key)}
@@ -85,7 +86,7 @@
 
     {#if alreadyInstalled.length > 0}
       <section class="flex flex-col gap-1">
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+        <div class="text-xs uppercase tracking-wider text-muted">
           {$t('optimise.sectionInstalled')}
         </div>
         {#each alreadyInstalled as e (e.key)}
@@ -96,7 +97,7 @@
 
     {#if skipped.length > 0}
       <section class="flex flex-col gap-1">
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+        <div class="text-xs uppercase tracking-wider text-muted">
           {$t('optimise.sectionSkipped')}
         </div>
         {#each skipped as e (e.key)}
