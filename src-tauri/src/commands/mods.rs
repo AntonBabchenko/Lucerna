@@ -177,6 +177,36 @@ pub async fn mods_resolve_deps(
         .await
 }
 
+/// Resolve the curated one-click Optimise set for an instance: classify each
+/// catalog performance mod against the instance's loader+MC and installed mods
+/// (skip already-installed, suppress the renderer when OptiFine is present).
+/// Pure classification lives in `mods::optimise::resolve`; this only wires the
+/// live Modrinth platform + the installed list into it.
+#[tauri::command]
+#[specta::specta]
+pub async fn optimise_resolve(
+    app: tauri::AppHandle,
+    instance_id: String,
+    mc_version: String,
+    loader: LoaderKind,
+) -> crate::error::Result<crate::mods::optimise::OptimisePlan> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let optifine = crate::mods::optimise::has_optifine_public(&installed);
+
+    let mc = mc_version.clone();
+    let plan = crate::mods::optimise::resolve(loader, &mc_version, &installed, optifine, |mid| {
+        let mc = mc.clone();
+        async move {
+            platform_for(crate::mods::platform::ModSource::Modrinth)
+                .versions(mid, Some(&mc), Some(loader))
+                .await
+        }
+    })
+    .await;
+    Ok(plan)
+}
+
 /// Install `primary` plus the TRANSITIVE required closure of the primary and
 /// each chosen optional, deduped, installed deps-first, then primary, then
 /// chosen optionals. Emits:

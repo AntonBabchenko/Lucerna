@@ -10,6 +10,16 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+
+- **One-click Optimise.** A new **Optimise** button on an instance's Overview
+  installs a curated, loader- and version-aware set of performance mods (Sodium,
+  Lithium, Embeddium, ImmediatelyFast, Entity Culling, FerriteCore, Dynamic FPS
+  — resolved live against the instance's loader and Minecraft version). It
+  previews exactly what will install, skips mods you already have, avoids the
+  rendering optimizer when OptiFine is present, and installs the rest through the
+  normal dependency-aware pipeline. Disabled on vanilla instances (no mod loader).
+
 ## [0.19.0] — 2026-07-16
 
 ### Added

@@ -45,6 +45,8 @@
     onDismissModsError,
     onOpenLogs,
     onOpenServers,
+    onOptimise = () => {},
+    optimiseResolving = false,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -70,6 +72,8 @@
     onDismissModsError: () => void;
     onOpenLogs: () => void;
     onOpenServers: () => void;
+    onOptimise?: () => void;
+    optimiseResolving?: boolean;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -232,6 +236,18 @@
             </button>
           {/if}
         {/if}
+        <!-- One-click Optimise: install a curated performance-mod set. Disabled
+             on vanilla (no loader to run the mods). -->
+        <button
+          type="button"
+          class="btn-secondary btn-sm self-start"
+          disabled={activeInstance.loader === 'vanilla' || optimiseResolving}
+          title={activeInstance.loader === 'vanilla' ? $t('optimise.vanillaTooltip') : undefined}
+          data-testid="optimise-btn"
+          onclick={onOptimise}
+        >
+          {optimiseResolving ? $t('optimise.resolving') : $t('optimise.button')}
+        </button>
       </div>
 
       <!-- Modpack (pack instances only, full width) -->

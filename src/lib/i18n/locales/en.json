@@ -2079,6 +2079,25 @@
       "mbPerSec": "{n} MB/s"
     }
   },
+  "optimise": {
+    "button": "Optimise",
+    "vanillaTooltip": "Add a mod loader (Fabric/Forge/…) to use Optimise",
+    "dialogTitle": "Optimise performance",
+    "intro": "A curated set of performance mods for {loader}. Already-installed and version-incompatible mods are skipped.",
+    "sectionInstall": "Will install",
+    "sectionInstalled": "Already installed",
+    "sectionSkipped": "Not applied",
+    "statusUnavailable": "No build for Minecraft {mc}",
+    "statusConflictOptifine": "Conflicts with OptiFine",
+    "statusUnknown": "Couldn't check right now",
+    "noteSinglePlayerTick": "Biggest gains in singleplayer / LAN",
+    "nothingToInstall": "This instance is already optimised.",
+    "install": "Install {count}",
+    "cancel": "Cancel",
+    "toastDone": "Optimise done — installed {installed}, skipped {skipped}",
+    "toastSomeFailed": "Optimise finished — installed {installed}, {failed} failed",
+    "resolving": "Checking…"
+  },
   "servers": {
     "create": "Create server",
     "empty": "No servers yet",
