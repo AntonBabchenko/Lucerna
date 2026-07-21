@@ -101,17 +101,38 @@ pub fn is_running(id: &str) -> bool {
 /// `spawn_pump` forwards every line here in addition to the `ServerLogLine`
 /// UI event, so backend code can await a specific console response — e.g. the
 /// backup flow waits for the save-confirmation line instead of sleeping a
-/// guessed interval. Entries are dropped when the process exits.
+/// guessed interval. Entries are dropped wherever the running entry is
+/// removed (exit watcher, force-kill, kill-all) — see [`drop_line_watcher`].
 fn line_watchers() -> &'static Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>> {
     static W: OnceLock<Mutex<HashMap<String, tokio::sync::broadcast::Sender<String>>>> =
         OnceLock::new();
     W.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Drop the console-line watcher channel for `id` so subscribers observe
+/// `RecvError::Closed` promptly. MUST be called from every path that removes
+/// the server's running entry — a missed call leaves a subscriber (e.g. a
+/// backup awaiting the save confirmation) blocked until its own timeout.
+fn drop_line_watcher(id: &str) {
+    line_watchers()
+        .lock()
+        .expect("line watchers poisoned")
+        .remove(id);
+}
+
 /// Subscribe to the raw console lines of server `id`. A slow subscriber may
 /// observe `RecvError::Lagged` (bounded channel) — callers scanning for one
-/// marker line should just keep receiving.
+/// marker line should just keep receiving. For a server that is not running,
+/// returns an already-closed receiver instead of resurrecting a map entry the
+/// exit bookkeeping has already cleaned up. (A server exiting between the
+/// check and the insert can still leak one entry until the same id next runs;
+/// that window is a few instructions and the entry is reused on restart.)
 pub fn subscribe_lines(id: &str) -> tokio::sync::broadcast::Receiver<String> {
+    if !is_running(id) {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        drop(tx);
+        return rx;
+    }
     line_watchers()
         .lock()
         .expect("line watchers poisoned")
@@ -145,8 +166,9 @@ pub fn running_ids_snapshot() -> Vec<(String, u32)> {
 /// launcher's exit hook so server children are never orphaned (Bug A root).
 /// Best-effort: the in-memory map is cleared so a repeat call is a no-op.
 pub fn kill_all_running() {
-    for (_id, pid) in running_ids_snapshot() {
+    for (id, pid) in running_ids_snapshot() {
         crate::platform::kill_process_tree(pid);
+        drop_line_watcher(&id);
     }
     state().lock().expect("server state poisoned").clear();
 }
@@ -407,10 +429,7 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
         if was_current {
             crate::servers_runtime::pid::clear_pid(&pid_path);
             // Drop the console-line watcher channel — subscribers see Closed.
-            line_watchers()
-                .lock()
-                .expect("line watchers poisoned")
-                .remove(&id_exit);
+            drop_line_watcher(&id_exit);
             // Record the exit code so server_list can show "Crashed" vs "Stopped" (#18).
             crate::servers_runtime::exit_state::write(&runtime_path, code);
             let _ = ServerExited {
@@ -541,6 +560,10 @@ fn force_kill_tracked(app: &AppHandle, server_id: &str) {
         .lock()
         .expect("server state poisoned")
         .remove(server_id);
+    // The exit watcher no-ops once the map entry is gone (was_current=false),
+    // so its watcher cleanup must happen here too — a subscriber mid-await
+    // (backup waiting for the save confirmation) must see Closed, not hang.
+    drop_line_watcher(server_id);
     if let Ok(base) = crate::paths::app_dir(app) {
         let p = crate::paths::server_paths(&base, server_id);
         crate::servers_runtime::pid::clear_pid(&p.pid);

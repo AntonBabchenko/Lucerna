@@ -2701,10 +2701,9 @@ pub async fn server_check_plugin_updates(
     // Reject vanilla / mod cores before any network — plugins only load on
     // Bukkit-family cores (Paper/Purpur).
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
     let core = file.loader;
     let mc_version = file.mc_version;
@@ -2950,10 +2949,9 @@ pub async fn server_update_plugin_one(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
 
     // Reconcile the sidecar against disk off the async executor.
@@ -3045,10 +3043,9 @@ pub async fn server_install_plugin(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
     let report = crate::commands::install_plugin_into_dir(
         &base,
@@ -3368,10 +3365,9 @@ pub async fn server_install_plugin_local(
     // `server.json` first so a mod-core server never grows a `runtime/plugins/`.
     let file = store::read_server_json(&p.json)?;
     if !file.loader.plugin_capable() {
-        return Err(Error::io(
-            "<plugin>",
-            "this server core does not load plugins",
-        ));
+        return Err(Error::ServerCoreUnsupported {
+            reason: "this server core does not load plugins".into(),
+        });
     }
     let dir = p.plugins;
     let src = std::path::PathBuf::from(jar_path);

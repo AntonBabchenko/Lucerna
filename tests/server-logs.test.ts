@@ -10,7 +10,9 @@ import ServerConsole from '$lib/servers/ServerConsole.svelte';
 // the vi.mock factory callback (Vitest hoists vi.mock calls to top of file).
 // ---------------------------------------------------------------------------
 const { mockOpenLogsFolder, mockListLogs, mockReadLog } = vi.hoisted(() => ({
-  mockOpenLogsFolder: vi.fn().mockResolvedValue(undefined),
+  // openLogsFolder now returns { ok, error? } so the console can surface a
+  // failure toast — the mock must match the real shape.
+  mockOpenLogsFolder: vi.fn().mockResolvedValue({ ok: true }),
   mockListLogs: vi.fn(),
   mockReadLog: vi.fn(),
 }));

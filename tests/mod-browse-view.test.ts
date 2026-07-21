@@ -12,10 +12,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    // refreshInstalled enriches each installed entry by fetching the
-    // project's display name (so cross-platform matching works).
-    // Default mock returns the same name for any lookup; specific tests
-    // override per call as needed.
+    // refreshInstalled enriches installed entries with display names via the
+    // BATCHED modsProjects lookup (mocked above; cross-platform tests
+    // override it). modsProject remains only for the single-project detail
+    // flow. Default single-lookup mock below returns one fixed name.
     modsProject: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {
@@ -111,14 +111,14 @@ describe('ModBrowseView', () => {
       ],
     });
 
-    // refreshInstalled enriches via modsProject to recover the project's
-    // display name. Make the lookup return "Cloth Config API" for the
+    // refreshInstalled enriches via the batched modsProjects lookup to
+    // recover the project's display name. Return "Cloth Config API" for the
     // Modrinth project id so installedFor's cross-platform name match
     // finds it.
-    (mod.commands.modsProject as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (mod.commands.modsProjects as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: {
-        summary: {
+      data: [
+        {
           source: 'modrinth',
           project_id: '9s6osm5g',
           slug: 'cloth-config',
@@ -129,9 +129,7 @@ describe('ModBrowseView', () => {
           author: '',
           updated_at: null,
         },
-        description: '',
-        website_url: null,
-      },
+      ],
     });
 
     render(ModBrowseView, {
@@ -204,13 +202,13 @@ describe('ModBrowseView', () => {
       ],
     });
 
-    // CF's project.summary.name for Cloth Config is the loader-suffixed
+    // CF's batched project name for Cloth Config is the loader-suffixed
     // variant. The matcher must reduce this to the same key as the
     // Modrinth card's "Cloth Config API".
-    (mod.commands.modsProject as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (mod.commands.modsProjects as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: {
-        summary: {
+      data: [
+        {
           source: 'curseforge',
           project_id: '348521',
           slug: 'cloth-config',
@@ -221,9 +219,7 @@ describe('ModBrowseView', () => {
           author: '',
           updated_at: null,
         },
-        description: '',
-        website_url: null,
-      },
+      ],
     });
 
     render(ModBrowseView, {
