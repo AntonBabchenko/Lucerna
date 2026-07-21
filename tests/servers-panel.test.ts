@@ -53,6 +53,7 @@ const { serverList, serverStart, serverStop, serverRestart, serverDiagnose, getD
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     serverList,
     serverStart,
     serverStop,

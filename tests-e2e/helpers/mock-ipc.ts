@@ -387,13 +387,30 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           });
           return { primary_name: name, installed_dependencies: [] };
         },
-        // refreshInstalled() looks up each installed mod's display name.
+        // Single-project lookup (detail modal / drawer flows).
         mods_project: (args) => ({
           summary: {
             name: `Project ${(args as { project_id?: string })?.project_id ?? ''}`,
             slug: null,
           },
         }),
+        // Batched display-name lookup — refreshInstalled() resolves names for
+        // the installed-badge match through this (grouped by source).
+        mods_projects: (args) => {
+          const a = args as { source?: string; projectIds?: string[]; project_ids?: string[] };
+          const ids = a.projectIds ?? a.project_ids ?? [];
+          return ids.map((id) => ({
+            source: a.source ?? 'modrinth',
+            project_id: id,
+            slug: null,
+            name: `Project ${id}`,
+            summary: '',
+            icon_url: null,
+            downloads: 0,
+            author: '',
+            updated_at: null,
+          }));
+        },
         get_playtime: () => ({
           total_seconds: 0,
           session_count: 0,

@@ -10,6 +10,7 @@ import { markSeen } from '$lib/onboarding/contextual-tours';
 // command stubs moved to tests/sidebar.test.ts.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsSearch: vi
       .fn()

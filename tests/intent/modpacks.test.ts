@@ -81,6 +81,7 @@ import type {
 // vi.mock is hoisted before imports.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // ModpackBrowseView
     modpackSearch: vi.fn().mockResolvedValue({
       status: 'ok',
