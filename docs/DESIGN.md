@@ -22,7 +22,7 @@ When you add a token: store the bare triple, register it in `tailwind.config.cjs
 | `--text-primary` | `23 23 23` (neutral-900) | `245 245 245` | Body & heading text (`text-primary`). Also `html/body` colour and the `h1–h6` inherit target. |
 | `--text-secondary` | `64 64 64` (neutral-700) | `212 212 212` | Secondary labels, captions; rest colour of `.btn-tertiary` / `.btn-ghost` / `.btn-icon` (`text-secondary`). |
 | `--text-muted` | `115 115 115` (neutral-500) | `163 163 163` | Hints, metadata (`text-muted`). |
-| `--text-placeholder` | `163 163 163` (neutral-400) | `115 115 115` | Form-field placeholder text (`text-placeholder`). |
+| `--text-placeholder` | `115 115 115` (neutral-500) | `163 163 163` (neutral-400) | Placeholder text, informative hints, axis labels (`text-placeholder`). Deliberately **not** neutral-400 in light mode — that is ~2.5:1 on white and fails WCAG AA for the hints that share this token. |
 | `--border-subtle` | `229 229 229` (neutral-200) | `64 64 64` (neutral-700) | Default hairline; also `borderColor.DEFAULT`, so bare `border` follows the theme. |
 | `--border-emphasis` | `212 212 212` (neutral-300) | `115 115 115` (neutral-500) | Stronger borders: inputs, `.btn-secondary`, `.filter-control`. |
 | `--accent` | `37 99 235` (blue-600) | `59 130 246` | Primary brand/interactive blue: `.btn-primary` fill, focus rings, links. |
@@ -30,9 +30,20 @@ When you add a token: store the bare triple, register it in `tailwind.config.cjs
 | `--success` | `22 163 74` (green-600) | `34 197 94` | Play / enabled green: `.btn-success`, `.btn-icon-success`. |
 | `--success-bg` | `240 253 244` (green-50) | `20 83 45` (green-900) | Soft success surfaces / banners (`bg-success-bg`). |
 | `--danger` | `220 38 38` (red-600) | `239 68 68` | Stop / Delete / error red: `.btn-danger`, `.btn-icon-danger` hover. |
-| `--danger-bg` | `254 226 226` (red-100) | `127 29 29` (red-900) | Soft danger surfaces / error boxes (`bg-danger-bg`). |
+| `--danger-bg` | `254 242 242` (red-50) | `127 29 29` (red-900) | Soft danger surfaces / error boxes (`bg-danger-bg`). |
 | `--warning-bg` | `255 251 235` (amber-50) | `120 53 15` (amber-900) | Soft warning banners (`bg-warning-bg`). |
 | `--warning-text` | `146 64 14` (amber-800) | `252 211 77` | Warning foreground **and** the solid `.btn-warning` fill, the `.bg-highlight` glow source. |
+
+Beyond colour, `src/app.css` defines three scale families used by the same token discipline. They are single-source too — never hardcode an equivalent literal:
+
+| Family | Tokens |
+|---|---|
+| Stacking | `--z-popover: 50`, `--z-modal: 50`, `--z-tour: 100`, `--z-tour-popover: 101`, `--z-toast: 200`, `--z-tooltip: 210` |
+| Motion | `--duration-fast`, `--duration-base`, `--duration-slow`, `--ease-standard` |
+| Radius | `--radius-sm`, `--radius-md`, `--radius-lg` |
+| Focus | `--focus-ring` (see §13) |
+
+`--z-popover` and `--z-modal` are deliberately the *same* value: a popover opened from inside a modal must not sit under it, and both are above every in-page surface. Tours, toasts and tooltips escalate from there.
 
 The `colors` vs `textColor` split matters: surface/border/accent/state tokens drive `bg-*` / `border-*` / `ring-*`, while text tokens live in a separate `textColor` map keyed `primary`/`secondary`/`muted`/`placeholder`. That is why `text-muted` resolves to `--text-muted` and `bg-muted` resolves to `--bg-muted` — same bare name, different token. Use `bg-muted` for the surface fill and `text-muted` for muted text; they are not interchangeable.
 
@@ -46,7 +57,7 @@ The `colors` vs `textColor` split matters: surface/border/accent/state tokens dr
   - `input, textarea` get `--bg-surface` background, `--text-primary` colour, `--border-emphasis` border, `--text-placeholder` placeholder, and opt back into `user-select: text`.
   - Bare `<button>` is `background-color: transparent; color: inherit` so hand-rolled buttons follow the surface instead of native white. `.btn-*` classes override.
   - `img` is drag-disabled (`-webkit-user-drag: none`) — mod icons, pack covers, world thumbnails are display-only.
-  - `*:focus-visible` draws a `2px solid rgb(var(--accent))` outline at `2px` offset (the global keyboard-nav fallback ring).
+  - `*:focus-visible` draws a `2px solid rgb(var(--focus-ring))` outline at `2px` offset (the global keyboard-nav fallback ring).
 
 ## 3. Typography
 
@@ -243,7 +254,7 @@ Severity is expressed entirely through the token families from §1 — never ad-
 
 **Nested repair cards** (rendered *inside* an already-amber banner) drop to a quieter container — `mt-3 rounded border border-warning-text/40 bg-surface p-3` — neutral surface bg + faint amber border, so they don't double up the parent's amber wash. Footer: `.btn-primary.btn-sm` confirm + `.btn-secondary.btn-sm` Cancel.
 
-**Danger** has no banner primitive; inline form errors use a red soft box: `bg-danger-bg border border-danger text-danger text-sm rounded p-2`. Note `.bg-highlight` (an 18% amber `color-mix` wash) is *not* a banner — it is the DepTree hover/cross-highlight.
+**Danger** uses `StatusMessage` (`src/lib/ui/StatusMessage.svelte`) for inline form errors and live-region status — it takes `tone: danger|warning|info`, picks the right `aria-live` politeness automatically, and can reserve vertical space to avoid layout shift. Prefer it over hand-rolling the underlying red soft box: `bg-danger-bg border border-danger text-danger text-sm rounded p-2`. Note `.bg-highlight` (an 18% amber `color-mix` wash) is *not* a banner — it is the DepTree hover/cross-highlight.
 
 **Inline status words.** A single-word state label reuses the §1 token families *on text*: `set` → `text-success`, `invalid` → `text-danger`, `unverified` → `text-warning-text`, `missing`/quiet → `text-secondary`, `checking` → `text-placeholder` + a `Spinner`. The split between `unverified` (amber — reachability failure, validity unknown) and `invalid` (red — a genuine rejection) is deliberate: don't collapse the two.
 
@@ -274,7 +285,7 @@ Two hard rules govern all motion: animate only `transform` / `opacity` / `color`
 
 A11y is convention-driven and centralized in shared primitives:
 
-- **Focus rings.** Global `*:focus-visible` draws a `2px` accent outline at `2px` offset; `.btn-*` classes mirror it (destructive buttons use a danger outline). There is no dedicated focus-ring token — focus reuses `--accent`, so it can't be retuned independently of the primary accent, and the app uses `outline-accent`, not Tailwind `ring-*` utilities (which are unthemed). Known debt (**B2**): hand-rolled controls still rely on the global fallback ring rather than the crisper button rings.
+- **Focus rings.** Global `*:focus-visible` draws a `2px` accent outline at `2px` offset; `.btn-*` classes mirror it (destructive buttons use a danger outline). The global ring has its own token, `--focus-ring`, so it can be retuned independently of the primary accent; the `.btn-*` classes still `@apply outline-accent` directly, so retuning `--focus-ring` alone moves the global ring but not the button rings. The app uses `outline-*`, not Tailwind `ring-*` utilities (which are unthemed). Known debt (**B2**): hand-rolled controls still rely on the global fallback ring rather than the crisper button rings.
 - **Keyboard-operable custom controls.** Any non-`<button>` element given `role="button"` + `tabindex` must wire an `Enter`/`Space` `keydown` handler so it works without a mouse — `FileDropzone` is the reference implementation. Known debt: a few `role="button"` rows (e.g. in `WorldsTab`) still rely on click only.
 - **Modal a11y.** Dialogs render through `Modal` (`role="dialog"`, `aria-modal`, `tabindex="-1"`, `aria-labelledby`/`aria-label`, focus trap + restore, topmost-only Escape stack).
 - **WAI-ARIA roles for composite widgets:** tabs use `tablist`/`tab` with roving tabindex + arrow keys; the custom `Select` uses `combobox`/`listbox`/`option` with `aria-activedescendant`; menus use `menu`/`menuitem`; chip groups use `radiogroup`/`radio`.
@@ -286,7 +297,7 @@ A11y is convention-driven and centralized in shared primitives:
 Lucerna is a single SvelteKit route (`src/routes/+page.svelte` holds the whole app — sidebar, tabs, all modals); navigation is state-driven, not client routing. The thin `+layout.svelte` imports `app.css`, mounts the singleton `TooltipLayer`, blocks the native WebView context menu, and toggles the root `.fx-icon-zoom` class.
 
 - **App shell grid.** `<main class="grid h-screen overflow-hidden">` with columns set reactively from compact state — expanded is `240px 1fr` (sidebar + content), compact is a single `1fr` column — and rows `1fr auto` (content row + a bottom status/phase strip). When expanded the sidebar spans both rows (`1 / -1`) so the status strip sits only under the content column; the right content column unmounts entirely in compact mode.
-- **Tab navigation.** Two patterns: `MainTabs` hand-rolls the per-instance Overview / Add-ons / Worlds tablist inline, while `TabBar` is the reusable underline-tab primitive for modals and sub-tabs. Both use the same WAI-ARIA roving-tabindex + activation-follows-focus model and the same active recipe (`border-accent text-primary font-semibold`). They drift in chrome, though: `MainTabs` tabs are `text-base` on a `px-3 bg-surface` strip, while `TabBar` is `text-sm` on a bare strip — a future tab-style change must touch both (see Known gaps).
+- **Tab navigation.** Two patterns: `MainTabs` hand-rolls the per-instance Overview / Add-ons / Worlds / Screenshots tablist inline, while `TabBar` is the reusable underline-tab primitive for modals and sub-tabs. Both use the same WAI-ARIA roving-tabindex + activation-follows-focus model and the same active recipe (`border-accent text-primary font-semibold`). They drift in chrome, though: `MainTabs` tabs are `text-base` on a `px-3 bg-surface` strip, while `TabBar` is `text-sm` on a bare strip — a future tab-style change must touch both (see Known gaps).
 - **Sidebar rhythm.** `<aside data-sidebar … p-3>` wraps a `flex flex-col gap-3` column. Sections are `flex flex-col gap-1` blocks separated by `pt-3 border-t border-border-subtle`, each prefixed with a `text-xs uppercase tracking-wide text-muted` heading. The `data-sidebar` / `data-sidebar-content` hooks are required — the compact-mode `ResizeObserver` measures content height to size the OS window.
 - **Compact/expanded** is a `$state` rune (`compact.svelte.ts`) that reshapes the grid and resizes the window; opening any wide overlay (Manage / Modpacks / Logs / Settings / Export / MS sign-in) auto-expands.
 - **Sidebar attention badges.** A nav button signals state through its **leading icon's colour** plus an optional **inline wrench** after the label — not a corner dot. Servers resolves `fixable > crashed > running > idle` (via `serversNavStatus`): `fixable` (a crash with a one-click fix) → amber icon (`text-warning-text`) + `<NavFixWrench>`; `crashed` (a crash, no fix) → red icon (`text-danger`); `running` → green icon breathing **saturation** via `.nav-icon-running` (`--success` ↔ `--success-muted`, same hue/lightness; `motion-reduce` rests at `--success`); `idle` → neutral. Logs resolves `actionable` (amber icon + wrench) `> advisory` (amber icon) `> idle`. The same kernel drives the **`ModeSwitcher`'s two segments**: the Servers segment mirrors `serversNavStatus` (icon colour + wrench/upload badges), and the Client segment mirrors the game's own `running`/`crashed` status (green pulse / red icon, **no wrench** — the client's crash-fix lives in the in-panel banner + diagnoser) so a crash stays visible while the user is in Servers mode; its `clientNav` is derived page-locally in `+page.svelte` and threaded through `Sidebar` as an opaque `NavStatusKind`. The shared kernel is [`nav-status.ts`](../src/lib/layout/nav-status.ts) (`navVisual`), `NavStatusIcon.svelte`, and `NavFixWrench.svelte`; status is never colour-only — the coloured icon carries `role="img"` + `aria-label` + tooltip. Modpacks uses a count pill instead.
@@ -312,3 +323,6 @@ This doc is honest about the inconsistencies the codebase carries today:
 - **Decorative icon FX are gated two different ways.** Hover-zoom is switched by one root `.fx-icon-zoom` class; rainbow is opted in per-icon by callers adding `.icon-rainbow-hover`. Same intent, two mechanisms, backed by near-duplicate persisted-boolean fx stores (`iconZoomFx` / `rainbowFx`) — not unified.
 - **`HelpPopover` is less keyboard-accessible than `Modal`.** It has no focus trap, doesn't auto-focus its `CloseButton`, and has no Escape-to-close (only click-outside / scroll / resize dismiss it).
 - **A few one-offs:** `role="alert"` is used liberally on persistent server error paragraphs (risking redundant assertive announcements). Resolved in the design-system pass: `Modal` now takes `aria-describedby` (so confirms announce their warning); `--danger-bg` dropped to the `-50` tier like every other `*-bg`; `.btn-warning` gained a real brightness hover (its `hover:bg-warning-text` was a no-op); and `.btn-warning`'s `text-surface` is documented as intentional — it tracks the theme-flipping amber fill where a hardcoded `text-white` would fail dark-theme contrast.
+- **Surfaces this document does not yet cover.** The skin editor (`src/lib/accounts/SkinEditorModal.svelte` plus the 13 modules in `skin-editor/`) and the screenshots gallery (`src/lib/screenshots/`, including `ScreenshotAnnotator`) both ship their own tool/colour vocabulary — the skin editor even has a user-editable persisted palette — and neither is described here. Until they are, treat their internals as outside the shared system rather than as precedent. Three `src/lib/ui/` members are likewise undocumented: `ImageGallery` (detail-modal carousel), `select-placement.ts` and `debounce.ts`.
+- **Running-state corner dots.** §13 frames status signalling as "the leading icon's colour, not a corner dot", but the concurrent-launch work added exactly that — a `nav-icon-running` dot on sidebar instance buttons and the mode switcher. The rule still holds for content rows; it needs a stated exception for nav-level running indicators.
+
