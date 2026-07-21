@@ -1,16 +1,18 @@
 # Lucerna Privacy Policy
 
-_Last updated: 2026-07-02_
+_Last updated: 2026-07-21_
 
 ## 1. Summary
 
 Lucerna does not transmit anything to Lucerna servers — there
 are no such servers. All launcher state lives on your machine.
 Third-party APIs are called only for documented purposes: the Mojang
-version manifest and downloads, Microsoft / Xbox Live sign-in (when
-you choose to use it), Modrinth and CurseForge mod and modpack
-browsing, optional log sharing via mclo.gs (only when you click
-Share), and an optional GitHub Releases check for launcher updates.
+version manifest and downloads, Microsoft / Xbox Live sign-in and
+profile changes (when you choose to use them), mod and modpack
+browsing (Modrinth, CurseForge, FTB, ATLauncher), server cores and
+plugins (Paper, Purpur, Hangar), optional log sharing via mclo.gs
+(only when you click Share), and an optional GitHub Releases check
+for launcher updates. Section 3 lists every host individually.
 
 ## 2. What data is stored on your machine
 
@@ -26,7 +28,21 @@ Share), and an optional GitHub Releases check for launcher updates.
   Mojang reference launcher's `.minecraft` folder, but isolated to
   one instance.
 - Mod and modpack download caches.
+- Cached skin and cape images (`skins/`, `capes/`) for the accounts
+  you have signed in with, so the account panel and 3D preview do
+  not re-download them each time.
+- Per-server state in `servers/<server-id>/`, including
+  `server.json`. If you have set up an "own server" SFTP upload,
+  that file holds the host, port, and username you entered — the
+  password goes to the OS keyring, never to disk.
+- Custom instance icons you have uploaded.
+- Installers downloaded by the in-app updater (`updates/`).
 - A few recent session logs from the launcher itself.
+
+All of the above lives under the launcher's data root, which
+defaults to `%APPDATA%/com.lucerna.app/` but can be moved anywhere
+from Settings → Storage. A small `data-location.json` pointer stays
+in the default location so the launcher can find a relocated root.
 
 Nothing in the list above leaves your machine unless you explicitly
 trigger a share action.
@@ -40,14 +56,30 @@ A request to any host not on this list is refused before it's sent.
 The list is mirrored in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part A item #2.
 
+One documented exception: the `LUCERNA_EXTRA_ALLOWED_HOSTS`
+environment variable adds patterns to this list at runtime. It exists
+so integration tests can point the launcher at a local mock server,
+and it is empty unless someone running the launcher sets it
+deliberately. It is described in
+[`docs/SECURITY.md`](docs/SECURITY.md) Part C.
+
 - **Mojang.** `*.mojang.com`, `*.minecraft.net`,
   `piston-meta.mojang.com`, `piston-data.mojang.com` — version
   manifest, libraries, assets, the JRE manifest, and the Minecraft
-  client jar.
+  client jar. `textures.minecraft.net` also serves the skin and cape
+  images shown in the account panel and the 3D preview; those are
+  cached locally so they aren't re-fetched every time.
 - **Microsoft sign-in chain.** `login.microsoftonline.com`,
   `login.live.com`, `user.auth.xboxlive.com`,
-  `xsts.auth.xboxlive.com`, `api.minecraftservices.com` — only when
-  you click "Sign in with Microsoft".
+  `xsts.auth.xboxlive.com`, `api.minecraftservices.com` — when you
+  click "Sign in with Microsoft".
+- **Microsoft profile changes.** `api.minecraftservices.com` is also
+  used when you change your appearance: selecting a cape sends the
+  cape id, and uploading a skin **sends the image file itself** to
+  Microsoft. Both happen only on your explicit action in the Skins
+  and capes panel, and both go to the same Minecraft Services
+  account API that owns your profile. Editing a skin locally sends
+  nothing — only pressing Upload does.
 - **Modrinth.** `api.modrinth.com`, `cdn.modrinth.com` — mod /
   modpack browse and download.
 - **CurseForge.** `api.curseforge.com`, `edge.forgecdn.net`,
@@ -72,13 +104,25 @@ The list is mirrored in
   download (installer / `SHA256SUMS` / cosign bundle) when you click
   Update; it redirects to a GitHub CDN, and update integrity rests on
   cosign + SHA-256 verification of the bytes, not the transport host.
+- **Paper and Purpur server cores.** `fill.papermc.io`,
+  `fill-data.papermc.io` (Paper build metadata and the jar CDN) and
+  `api.purpurmc.org` (Purpur builds) — only when you create or update
+  a server on one of those cores.
+- **Hangar plugin repository.** `hangar.papermc.io`,
+  `hangarcdn.papermc.io` — plugin search, version listings, and the
+  plugin files themselves. Requested when you open the plugin browser
+  for a server, not on launcher start.
 - **Public-IP echo.** `api.ipify.org` — returns only your public IP
   address as plain text (no cookies, no request body). Called only
   when you open the "own server" hosting view and ask for your public
   address to set up port forwarding; never automatic.
 - **mclo.gs paste service.** `api.mclo.gs`, `mclo.gs` — only when
-  you click Share in the Logs viewer. The shared log is anonymised
-  (Windows user-path scrubbing) and shown to you before upload.
+  you click Share in the Logs viewer. Before upload the log is
+  scrubbed of Windows and macOS user paths, access tokens, session
+  identifiers, and private LAN IP addresses, and the result is shown
+  to you in full first. Linux `/home/<user>/` paths are a known gap
+  in that scrubbing and are being fixed; until then, review a shared
+  log carefully on Linux.
 
 Beyond this HTTP allowlist there is one further, user-initiated
 outbound channel: **SFTP upload** to a host **you provide**. It is used
@@ -104,8 +148,8 @@ upload.
 These guarantees are enforced two ways: a lint job in CI
 (`tools/check-no-network-calls.mjs`) refuses commits that introduce
 forbidden network APIs in the frontend; build-failing structural
-tests (`tests/structural_no_raw_http.rs`,
-`tests/structural_no_raw_spawn.rs`) refuse any HTTP client
+tests (`src-tauri/tests/structural_no_raw_http.rs`,
+`src-tauri/tests/structural_no_raw_spawn.rs`) refuse any HTTP client
 construction or subprocess spawn outside the documented chokepoint
 modules.
 
@@ -125,7 +169,10 @@ modules.
 - You can use offline-only accounts (no Microsoft sign-in
   required) for LAN and single-player.
 - To erase all Lucerna data: uninstall the launcher, delete
-  `%APPDATA%/com.lucerna.app/`, and remove the relevant entries
+  `%APPDATA%/com.lucerna.app/` — **and, if you moved the data root
+  from Settings → Storage, delete that location too; the default
+  folder only holds a small pointer file once the root has been
+  relocated** — then remove the relevant entries
   from Windows Credential Manager (Control Panel → Credential
   Manager → Generic Credentials → look for these entries:
   the CurseForge API key (network address `lucerna`, username

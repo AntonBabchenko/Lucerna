@@ -26,7 +26,8 @@ What you expected to happen instead.
 ## Environment
 
 - Lucerna version:
-- Windows version:
+- OS and version (e.g. Windows 11 23H2, Ubuntu 24.04, macOS 15.2):
+- How you installed it (NSIS .exe / .AppImage / .deb / .rpm / .dmg / in-app update):
 - Minecraft version / mod loader (if relevant):
 - Instance details (vanilla / modpack name, etc.):
 

@@ -1,6 +1,6 @@
 # Lucerna Terms of Service
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-07-21_
 
 ## 1. License
 
@@ -48,8 +48,12 @@ allowlisted upstream, and don't redistribute Microsoft credentials.
 ## 5. Warranty disclaimer (AS-IS)
 
 The launcher is provided **as-is**, without warranty of any kind.
-The binary is not code-signed; you may see Windows SmartScreen
-warnings on first install. Per GPL-3.0 section 15, there is no
+The binary is not signed with a paid OS code-signing certificate:
+on Windows you may see a SmartScreen warning on first install, and
+on macOS the app is only ad-hoc signed and not notarized, so
+Gatekeeper quarantines a downloaded copy until you clear it. Every
+released artifact is cosign-signed and listed in `SHA256SUMS` so you
+can verify it yourself. Per GPL-3.0 section 15, there is no
 warranty for the program to the extent permitted by applicable law.
 The full GPL warranty disclaimer applies and is not narrowed by
 this document.
@@ -57,8 +61,9 @@ this document.
 ## 6. No service guarantees
 
 Lucerna does not operate any server. We do not guarantee
-uptime, compatibility with any specific Minecraft / Forge /
-NeoForge / Fabric / Quilt version, or successful sign-in to
+uptime, compatibility with any specific Minecraft, mod-loader
+(Forge / NeoForge / Fabric / Quilt) or server-core (Paper / Purpur)
+version, or successful sign-in to
 Microsoft services. Upstream service availability and policy
 changes are outside our control.
 

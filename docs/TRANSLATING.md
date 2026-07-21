@@ -18,7 +18,12 @@ same platform Prism Launcher uses). Everything happens in your browser:
    merges it. After the next build, your language appears in
    **Settings → Appearance → Language** automatically.
 
-Partial translations are fine — any untranslated string falls back to English.
+Partial translations are fine for a **new** language — any untranslated string
+falls back to English.
+
+Russian is the exception: because it ships alongside English, `tests/i18n-parity.test.ts`
+requires `ru.json` to carry exactly the same keys as `en.json`, with no empty values
+and matching `{placeholders}`. A partial `ru.json` fails `pnpm test` and CI.
 
 ## The manual way — edit JSON + PR
 
@@ -26,6 +31,10 @@ Partial translations are fine — any untranslated string falls back to English.
    (BCP-47 code, e.g. `de.json`, `pt-BR.json`).
 2. Translate the values. Keep the keys and any `{placeholders}` unchanged.
 3. Open a pull request. The file is auto-discovered — no registration needed.
+
+> If you edited `en.json` (rather than only adding a new language file), run
+> `pnpm i18n:keys` to regenerate `src/lib/i18n/keys.generated.ts` and commit the
+> result — CI runs `pnpm i18n:keys:check` and fails if it is stale.
 
 > Add a display label for your language in `LOCALE_LABELS` in
 > `src/lib/settings/AppearancePanel.svelte` (otherwise the picker shows the raw

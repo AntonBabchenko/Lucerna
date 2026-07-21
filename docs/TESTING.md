@@ -7,13 +7,16 @@ Lucerna uses a layered test strategy. Each layer targets a different class of fa
 | Layer | Location | `cargo test` includes by default | Run-time | Catches |
 |---|---|---|---|---|
 | Unit | `#[cfg(test)] mod tests` in every `src-tauri/src/**/*.rs` | yes | <1 s | logic bugs in pure functions, parsers, sort keys, dedup invariants |
-| Integration | `src-tauri/tests/*_integration.rs` | yes | a few seconds | module-boundary regressions, wiremock'd network paths, fixture-driven parser checks |
+| Integration | `src-tauri/tests/*.rs` (not only `*_integration.rs` — also the `structural_*`, `servers_*` and single-purpose regression files) | yes | a few seconds | module-boundary regressions, wiremock'd network paths, fixture-driven parser checks |
 | **Single-MC e2e** (`#[ignore]`) | `src-tauri/tests/forge_*_era_e2e.rs` | **no** | ~40 s + ~50 MB download | install-pipeline correctness for one era against the real reference Forge installer |
 | **Loader matrix e2e** (`#[ignore]`) | `src-tauri/tests/loader_matrix_e2e.rs` | **no** | 17 min cached / ~3 h cold | cross-product regressions across MC versions × loaders; production library/launch path bugs that only surface for specific combos |
+| Frontend unit | `tests/**/*.test.ts` (327 files, Vitest) | n/a — `pnpm test` | a few seconds | store/composable logic, formatting, i18n parity, button-intent contracts |
+| Frontend e2e (functional) | `tests-e2e/*.spec.ts` (Playwright) | n/a — `pnpm test:e2e` | ~1 min | real UI flows: mod install, i18n switch, servers mode, tooltips |
+| Frontend e2e (visual) | `tests-e2e/visual/*.spec.ts` | n/a | ~1 min | pixel regressions — Linux-pinned, baselines not yet seeded, not in CI |
 | UI typecheck + lint | `pnpm typecheck` / `pnpm lint` | n/a | ~10 s | TS errors, Svelte a11y warnings, no-network-call audit |
 | Manual UI | `pnpm tauri dev` | n/a | minutes | UI plumbing (modal flows, error banner state, dropdown rendering) |
 
-`cargo test` runs the first two layers fully. Everything else is on-demand.
+`cargo test` runs the first two Rust layers fully; `pnpm test` runs the frontend unit layer. The `#[ignore]`-gated Rust e2e layers and the visual specs are on-demand. Everything else in this table runs in CI on every PR.
 
 ## Running each layer
 
@@ -23,7 +26,7 @@ Lucerna uses a layered test strategy. Each layer targets a different class of fa
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Expected: 800+ lib tests + integration tests, all pass. Anything failing here is a regression — investigate before continuing.
+Expected: 2000+ lib tests + integration tests, all pass. Anything failing here is a regression — investigate before continuing.
 
 ### UI checks
 
@@ -42,7 +45,7 @@ Pre-existing lint warnings exist in three files inherited from v0.1.0 (`PhaseSta
 # Regenerate in place after changing a #[specta::specta] command or exported type:
 cargo run --manifest-path src-tauri/Cargo.toml -- --export-bindings
 
-# Freshness guard (exit 1 if stale, no write) — usable in CI:
+# Freshness guard (exit 1 if stale, no write) — runs in CI on the rust (ubuntu) job:
 cargo run --manifest-path src-tauri/Cargo.toml -- --export-bindings --check
 ```
 
@@ -100,6 +103,22 @@ Run the real launcher and click around. Reserve for changes affecting UI plumbin
 pnpm tauri dev
 ```
 
+## Coverage
+
+Both suites have enforced coverage floors. They are real gates, not advisory numbers.
+
+```powershell
+pnpm test:coverage        # frontend (Vitest v8) — thresholds in vitest.config.ts
+pnpm test:coverage:rust   # Rust (cargo-llvm-cov)
+```
+
+| Suite | Floor | Enforced by |
+|---|---|---|
+| Frontend | lines 70 / statements 73 / functions 67 / branches 54 | `coverage-frontend` job, runs on every PR |
+| Rust | lines 70 | `coverage-rust` job — pushes only, and deliberately **not** a `ci-gate` dependency |
+
+The Rust coverage run is the one place `--test-threads=1` is still required: `cargo-llvm-cov` re-runs the suite under instrumentation, and the serialization keeps the env-seam tests deterministic there. The ordinary `cargo test` sweep does not need it — see the `test_seam` section below.
+
 ## When to run what
 
 | Change | Run before commit |
@@ -109,7 +128,7 @@ pnpm tauri dev
 | Loader meta layer (Fabric/Quilt/Forge) | unit + integration + matrix subset for that loader |
 | Install pipeline (forge installer, processors) | unit + integration + single-era e2e (the era you touched) |
 | Anything that changes `versions::resolve`, `versions::libraries`, or `launch::args` | unit + integration + **matrix** (these touch every combo) |
-| UI only | typecheck + lint + manual UI smoke |
+| UI only | typecheck + lint + `pnpm test`; `pnpm test:e2e` if you touched a flow it covers |
 
 ## The `#[ignore]` gate pattern
 
@@ -118,6 +137,16 @@ Several tests are gated behind `#[ignore]` because they:
 - Need ~50 MB to ~10 GB disk.
 - Need an installed JRE on PATH or system Java.
 - Take minutes to hours.
+
+The full set of `#[ignore]`-gated files:
+
+| File | What it needs |
+|---|---|
+| `forge_transitional_era_e2e.rs`, `forge_modern_era_e2e.rs` | network + ~50 MB per era, real reference Forge installer |
+| `neoforge_e2e.rs` | same, for NeoForge |
+| `loader_matrix_e2e.rs` | the cross-loader matrix — 17 min cached, ~3 h cold |
+| `mods_matrix_e2e.rs` | live Modrinth mod-install matrix (`LUCERNA_MOD_MATRIX_MC` / `_LOADER` / `_N` overrides) |
+| `forge_patcher_integration.rs` | mostly runs by default; two golden-bytecode tests inside it are `#[ignore]`-gated |
 
 CI doesn't run them by default. The maintainer runs them locally before merges that touch install/launch paths. Phase 2 and Phase 3 had a strict pre-merge protocol of "run the era-specific `_e2e` test green before squash". Phase 3 raised the bar to "the cross-loader matrix green".
 
@@ -187,3 +216,7 @@ integration works.
 - **Bytecode golden fixtures** (small, checked-in) live under `src-tauri/tests/fixtures/specialsource/`. They're optional — tests skip cleanly if absent.
 
 Adding a new fixture: append a SHA1SUMS row and verify `fetch.ps1` finds the upstream URL. The `<mc>-<fv>-<mc>` legacy quirk (1.7.10 et al) is hardcoded in `fetch.ps1`'s allowlist.
+
+## Structural guards
+
+Seven tests in `src-tauri/tests/structural_*.rs` enforce architectural rules by failing the build rather than by review vigilance — HTTP only via `network::`, subprocesses only via `process::`, SFTP only via `servers_runtime::transfer`, OS branching only behind `platform::`, no `std::env::set_var` in production code, and two installer-shape guards. They are listed with what each one enforces in [`PRINCIPLES.md`](PRINCIPLES.md) Appendix B.
