@@ -83,6 +83,7 @@ const baseProps = {
 // 'servers' is intentionally absent: it is no longer a sidebar-button id —
 // the (non-hideable) mode switcher replaced the bottom Servers button.
 const ALL_IDS = [
+  'skin',
   'account_actions',
   'manage',
   'mods',
@@ -98,10 +99,22 @@ describe('Sidebar button visibility', () => {
 
   it('renders every candidate button by default', () => {
     render(Sidebar, { props: baseProps });
+    expect(screen.getByTestId('sidebar-open-skin')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-modpacks')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-launcher-import')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-gallery')).toBeTruthy();
     expect(screen.getByTestId('sidebar-open-logs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /add offline/i })).toBeTruthy();
+  });
+
+  it('hides the skin entry button when skin is in the hidden set', () => {
+    // The skin button is a convenience entry point (opens cosmetics or the
+    // pixel editor), not required to launch, so unlike account_actions it has
+    // no dead-end guard — hiding it simply removes it.
+    initSidebarButtons(['skin']);
+    render(Sidebar, { props: baseProps });
+    expect(screen.queryByTestId('sidebar-open-skin')).toBeNull();
+    // Account add buttons stay: hiding skin must not touch the account cluster.
     expect(screen.getByRole('button', { name: /add offline/i })).toBeTruthy();
   });
 

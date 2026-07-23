@@ -1756,6 +1756,7 @@
         "sidebarButtons": {
           "title": "Sidebar buttons",
           "description": "Hide buttons you don't use. Applies in both normal and compact mode.",
+          "skin": "Skins and capes",
           "accountActions": "Add account (offline and Microsoft)",
           "manage": "Manage",
           "mods": "Mods",

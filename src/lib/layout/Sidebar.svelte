@@ -346,24 +346,30 @@
           />
         {/if}
         <!--
-        Skin entry point — one adaptive button in the account action cluster,
-        always visible in client mode (even with zero accounts). A Microsoft
-        account opens the full Skin & cape modal (server-side cosmetics + the
-        editor); everyone else (offline or no account) opens the standalone
-        pixel skin editor directly. Only uploading a skin to Mojang needs a
-        Microsoft login.
+        Skin entry point — one adaptive button in the account action cluster.
+        A Microsoft account opens the full Skin & cape modal (server-side
+        cosmetics + the editor); everyone else (offline or no account) opens the
+        standalone pixel skin editor directly. Only uploading a skin to Mojang
+        needs a Microsoft login. Hideable like the other secondary buttons
+        (right-click → hide, or Settings → Appearance): it is a convenience
+        entry point, not required to launch, so hiding it traps nobody.
       -->
-        <button
-          type="button"
-          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-          onclick={() =>
-            activeAccount?.kind === 'microsoft'
-              ? onOpenCosmetics(activeAccount)
-              : onOpenSkinEditor(activeAccount)}
-        >
-          <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
-          {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
-        </button>
+        {#if isVisible('skin')}
+          <ContextMenu items={hideMenuItems('skin')} ariaLabel={$t('sidebar.contextMenuAria')}>
+            <button
+              type="button"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+              data-testid="sidebar-open-skin"
+              onclick={() =>
+                activeAccount?.kind === 'microsoft'
+                  ? onOpenCosmetics(activeAccount)
+                  : onOpenSkinEditor(activeAccount)}
+            >
+              <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
+              {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
+            </button>
+          </ContextMenu>
+        {/if}
         <!--
         Force the account-add buttons visible when there are no accounts, even
         if the user hid `account_actions` in Settings — otherwise an

@@ -7,6 +7,7 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 
 export type SidebarButtonId =
+  | 'skin'
   | 'account_actions'
   | 'manage'
   | 'mods'
@@ -22,6 +23,7 @@ export interface SidebarButtonDescriptor {
 }
 
 export const SIDEBAR_BUTTONS: readonly SidebarButtonDescriptor[] = [
+  { id: 'skin', labelKey: 'settings.general.appearance.sidebarButtons.skin' },
   { id: 'account_actions', labelKey: 'settings.general.appearance.sidebarButtons.accountActions' },
   { id: 'manage', labelKey: 'settings.general.appearance.sidebarButtons.manage' },
   { id: 'mods', labelKey: 'settings.general.appearance.sidebarButtons.mods' },
