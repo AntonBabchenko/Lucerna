@@ -416,12 +416,105 @@ describe('ImportPickerDialog selection', () => {
     expect(getByText(/Install 2 selected/)).toBeTruthy();
   });
 
-  it('shows a soft warning when a required file is unchecked', async () => {
+  it('shows a soft warning when a required mod is unchecked', async () => {
     const { getByText, getByLabelText, queryByText } = render(ImportPickerDialog, {
       props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
     });
-    expect(queryByText(/Required files unchecked/)).toBeNull();
+    expect(queryByText(/Required mods unchecked/)).toBeNull();
     await fireEvent.click(getByLabelText(/Install Sodium/)); // Sodium is required
-    expect(getByText(/Required files unchecked: 1/)).toBeTruthy();
+    expect(getByText(/Required mods unchecked: 1/)).toBeTruthy();
+  });
+});
+
+// ── Required-signal scoping ──────────────────────────────────────────────
+// `env_client: 'required'` means "shipped by the author", not "needed to
+// launch" — the .mrpack parser defaults to it when `env` is absent, and FTB /
+// ATLauncher tag every file that way. Only a dropped mod can break the launch,
+// so the "may not launch" warning and the Required badge are mods-only.
+describe('ImportPickerDialog required-signal scoping', () => {
+  // A required shaderpack alongside a required mod — the shaderpack must never
+  // claim it can stop the game from starting.
+  const withShader = {
+    ...baseSummary,
+    files: [
+      baseSummary.files[0], // Sodium — required mod
+      {
+        project_id: 'sp',
+        version_id: 'spv',
+        name: 'ComplementaryReimagined',
+        filename: 'ComplementaryReimagined.zip',
+        install_path: 'shaderpacks/ComplementaryReimagined.zip',
+        sha1: 'shsha',
+        url: 'https://cdn.modrinth.com/ComplementaryReimagined.zip',
+        size: 534_000,
+        env_client: 'required' as const,
+        source: 'modrinth' as const,
+      },
+    ],
+  };
+
+  it('unchecking a required shaderpack does NOT claim the pack may not launch', async () => {
+    const { getByText, getByLabelText, queryByText } = render(ImportPickerDialog, {
+      props: { summary: withShader, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install ComplementaryReimagined/));
+    expect(queryByText(/may not launch/)).toBeNull();
+    expect(getByText(/Pack files unchecked: 1/)).toBeTruthy();
+  });
+
+  it('unchecking a required mod still warns about the launch', async () => {
+    const { getByText, getByLabelText, queryByText } = render(ImportPickerDialog, {
+      props: { summary: withShader, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install Sodium/));
+    expect(getByText(/Required mods unchecked: 1 — the pack may not launch/)).toBeTruthy();
+    expect(queryByText(/Pack files unchecked/)).toBeNull();
+  });
+
+  it('counts the two categories independently when both are unchecked', async () => {
+    const { getByText, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: withShader, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install Sodium/));
+    await fireEvent.click(getByLabelText(/Install ComplementaryReimagined/));
+    expect(getByText(/Required mods unchecked: 1/)).toBeTruthy();
+    expect(getByText(/Pack files unchecked: 1/)).toBeTruthy();
+  });
+
+  it('renders the Required badge on mods but not on non-mod files', () => {
+    const { getAllByText } = render(ImportPickerDialog, {
+      props: { summary: withShader, onCancel: () => {}, onConfirm: () => {} },
+    });
+    // Both files are env_client: 'required'; only the mod row earns the badge.
+    expect(getAllByText('Required')).toHaveLength(1);
+  });
+
+  it('counts a duplicated FTB sha1 once, not once per install path', async () => {
+    // FTB packs repeat a sha1 across install paths and the checkboxes are keyed
+    // by sha1, so one click unchecks both rows. The banner must say 1, not 2.
+    const dupeSummary = {
+      ...baseSummary,
+      files: [
+        { ...baseSummary.files[0], install_path: 'mods/mod-a.jar', name: 'Mod A', sha1: 'dupe' },
+        { ...baseSummary.files[0], install_path: 'mods/mod-b.jar', name: 'Mod B', sha1: 'dupe' },
+      ],
+    };
+    const { getByText, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: dupeSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install Mod A/));
+    expect(getByText(/Required mods unchecked: 1/)).toBeTruthy();
+  });
+
+  it('keeps the unchecked notices inside a persistent live region', async () => {
+    const { container, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: withShader, onCancel: () => {}, onConfirm: () => {} },
+    });
+    // The region exists before any banner does, so a later appearance is announced.
+    const region = container.querySelector('[role="status"][aria-atomic="true"]');
+    expect(region).toBeTruthy();
+    expect(region?.textContent?.trim()).toBe('');
+    await fireEvent.click(getByLabelText(/Install Sodium/));
+    expect(region?.textContent).toContain('may not launch');
   });
 });
