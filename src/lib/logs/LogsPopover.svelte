@@ -218,12 +218,23 @@
     }
   }
 
-  async function openLogFolder() {
-    if (!selectedPath) return;
-    const r = await commands.openLogFolder(selectedPath);
+  async function openLogFolder(path: string) {
+    const r = await commands.openLogFolder(path);
     if (r.status !== 'ok') {
       pushWarning($t('logs.openFolder.errorToast'), [formatError(r.error)]);
     }
+  }
+
+  // Row-level share: select the file first so the confirm dialog uploads the
+  // file the user clicked, then open the dialog. Ordering matters — the
+  // selectedPath $effect above resets shareConfirm, and it has already re-run
+  // by the time the awaited selectFile resolves.
+  async function shareFile(path: string) {
+    if (selectedPath !== path) {
+      await selectFile(path);
+    }
+    if (!selectedContent) return; // load failed — the viewer already shows the error
+    shareConfirm = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -1061,6 +1072,23 @@
                       <div class="text-[10px] text-muted">
                         {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
                       </div>
+                    </button>
+                    <button
+                      class="btn-icon btn-icon-sm shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+                      aria-label={$t('logs.share.shareBtn')}
+                      use:tooltip={$t('logs.share.shareBtn')}
+                      disabled={shareUploading}
+                      onclick={() => void shareFile(f.path)}
+                    >
+                      <Icon name="upload" size={14} />
+                    </button>
+                    <button
+                      class="btn-icon btn-icon-sm shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+                      aria-label={$t('logs.toolbar.openFolder')}
+                      use:tooltip={$t('logs.toolbar.openFolder')}
+                      onclick={() => void openLogFolder(f.path)}
+                    >
+                      <Icon name="folderOpen" size={14} />
                     </button>
                     <button
                       class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
