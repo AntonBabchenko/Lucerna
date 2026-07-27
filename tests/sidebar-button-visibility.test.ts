@@ -154,4 +154,32 @@ describe('Sidebar button visibility', () => {
     expect(screen.getByRole('button', { name: /mods/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /manage/i })).toBeNull();
   });
+
+  it('renders the Content and View section headings by default', () => {
+    render(Sidebar, { props: baseProps });
+    expect(screen.getByTestId('sidebar-section-content')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-section-view')).toBeTruthy();
+  });
+
+  it('suppresses the Content heading when both its buttons are hidden', () => {
+    initSidebarButtons(['browse_modpacks', 'import_launcher']);
+    render(Sidebar, { props: baseProps });
+    expect(screen.queryByTestId('sidebar-section-content')).toBeNull();
+    expect(screen.getByTestId('sidebar-section-view')).toBeTruthy();
+  });
+
+  it('keeps the Content heading when only one of its buttons is hidden', () => {
+    initSidebarButtons(['browse_modpacks']);
+    render(Sidebar, { props: baseProps });
+    expect(screen.getByTestId('sidebar-section-content')).toBeTruthy();
+    expect(screen.queryByTestId('sidebar-open-modpacks')).toBeNull();
+    expect(screen.getByTestId('sidebar-open-launcher-import')).toBeTruthy();
+  });
+
+  it('suppresses the View heading when both Gallery and Logs are hidden', () => {
+    initSidebarButtons(['gallery', 'logs']);
+    render(Sidebar, { props: baseProps });
+    expect(screen.queryByTestId('sidebar-section-view')).toBeNull();
+    expect(screen.getByTestId('sidebar-section-content')).toBeTruthy();
+  });
 });

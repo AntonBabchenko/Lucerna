@@ -656,17 +656,19 @@
     {/if}
 
     <!--
-    This action group clusters directly under the Install/Play block (no
-    mt-auto) so the controls read as one unit; empty space pools at the
-    bottom of the sidebar rather than between the button and these actions.
-  -->
-    <div class="flex flex-col gap-3 pt-3 border-t border-border-subtle">
-      <!--
-      Modpacks live at the sidebar level (not the per-instance tab strip)
-      because installing a pack creates a NEW instance, so there's nothing
-      "current instance" about the action.
+      Content section (§14 sidebar rhythm): the instance-creating actions —
+      Browse modpacks (install a new pack → a new instance) and Import from
+      launcher. Client-only. Section + heading render only when ≥1 member is
+      visible, so a hidden pair leaves no orphaned heading.
     -->
-      {#if serversUi.mode === 'client'}
+    {#if serversUi.mode === 'client' && (isVisible('browse_modpacks') || isVisible('import_launcher'))}
+      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+        <div
+          class="text-xs uppercase tracking-wide text-muted"
+          data-testid="sidebar-section-content"
+        >
+          {$t('sidebar.sectionContent')}
+        </div>
         {#if isVisible('browse_modpacks')}
           <ContextMenu
             items={hideMenuItems('browse_modpacks')}
@@ -674,15 +676,15 @@
           >
             <button
               type="button"
-              class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
               data-tour="open-modpacks"
               data-testid="sidebar-open-modpacks"
               onclick={onOpenModpacks}
             >
-              <span class="relative inline-flex items-center gap-1.5">
+              <span class="relative inline-flex items-center gap-1">
                 <Icon
                   name="package"
-                  size={16}
+                  size={14}
                   class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
                 />
                 {$t('sidebar.browseModpacks')}
@@ -713,50 +715,59 @@
               >
                 <button
                   type="button"
-                  class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+                  class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
                   data-testid="sidebar-open-launcher-import"
                   disabled
                 >
-                  <Icon name="download" size={16} />
+                  <Icon name="download" size={14} />
                   {$t('sidebar.importLauncher')}
                 </button>
               </span>
             {:else}
               <button
                 type="button"
-                class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+                class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
                 data-testid="sidebar-open-launcher-import"
                 onclick={onOpenLauncherImport}
               >
-                <Icon name="download" size={16} />
+                <Icon name="download" size={14} />
                 {$t('sidebar.importLauncher')}
               </button>
             {/if}
           </ContextMenu>
         {/if}
+      </div>
+    {/if}
+
+    <!--
+      View section: look at what your play produced — Gallery (your
+      screenshots) and Logs (the active instance's game logs). Both are
+      client concepts. Section + heading render only when ≥1 member is
+      visible.
+    -->
+    {#if serversUi.mode === 'client' && (isVisible('gallery') || isVisible('logs'))}
+      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+        <div class="text-xs uppercase tracking-wide text-muted" data-testid="sidebar-section-view">
+          {$t('sidebar.sectionView')}
+        </div>
         {#if isVisible('gallery')}
           <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button
               type="button"
-              class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
               data-testid="sidebar-open-gallery"
               onclick={onOpenGallery}
             >
-              <Icon name="gallery" size={16} />
+              <Icon name="gallery" size={14} />
               {$t('sidebar.gallery')}
             </button>
           </ContextMenu>
         {/if}
-      {/if}
-      <div class="flex gap-1">
-        <!-- Logs opens the active INSTANCE's game logs — a client concept. In
-             servers mode the server's own console lives on the Overview tab, so
-             this client Logs button is hidden there (only Settings remains). -->
-        {#if serversUi.mode === 'client' && isVisible('logs')}
+        {#if isVisible('logs')}
           <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
             <button
               type="button"
-              class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
               data-testid="sidebar-open-logs"
               onclick={onOpenLogs}
             >
@@ -776,15 +787,25 @@
             </button>
           </ContextMenu>
         {/if}
-        <button
-          type="button"
-          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-          onclick={() => (settingsOpen.value = { tab: 'appearance' })}
-        >
-          <Icon name="settings" size={14} />
-          {$t('settings.title')}
-        </button>
       </div>
+    {/if}
+
+    <!--
+      Settings footer: app-level config. The only heading-less lower section —
+      that is what reads it as a footer (uniform divider, no mt-auto; empty
+      space still pools below it). Not hideable, so it always renders,
+      including in servers mode where Content/View are hidden as client
+      concepts.
+    -->
+    <div class="pt-3 border-t border-border-subtle">
+      <button
+        type="button"
+        class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+        onclick={() => (settingsOpen.value = { tab: 'appearance' })}
+      >
+        <Icon name="settings" size={14} />
+        {$t('settings.title')}
+      </button>
     </div>
   </div>
 </aside>

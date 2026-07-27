@@ -166,6 +166,8 @@
     "removeAccountLabel": "Удалить {name}",
     "playerNamePlaceholder": "Имя игрока",
     "instance": "Профиль",
+    "sectionContent": "Сборки",
+    "sectionView": "Просмотр",
     "noInstances": "Нет профилей.",
     "createInstance": "+ Создать",
     "pickMcVersion": "(выбрать версию MC)",
