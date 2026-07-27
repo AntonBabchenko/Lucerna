@@ -777,7 +777,6 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     // Wait for the file list to load (sidebar shows the files).
     await screen.findByText('latest.log');
-    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -793,7 +792,6 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     });
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     await screen.findByText('latest.log');
-    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     await fireEvent.click(btn);
@@ -813,7 +811,6 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     });
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     await screen.findByText('latest.log');
-    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     await fireEvent.click(screen.getByTestId('clear-old-logs'));
     // Click the primary "Clear old" action inside the confirm dialog.
     const confirmDialog = screen.getByTestId('clear-old-confirm');
@@ -859,7 +856,6 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
 
     // Wait for the old file's content to appear in the viewer.
     await screen.findByText(/old log content/i);
-    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
 
     // Trigger clear-old and confirm.
     await fireEvent.click(screen.getByTestId('clear-old-logs'));

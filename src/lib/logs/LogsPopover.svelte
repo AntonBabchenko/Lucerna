@@ -30,8 +30,6 @@
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
-  import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
-  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -556,32 +554,6 @@
     hiddenLevels = next;
   }
 
-  // Overflow (⋯) menu: Share / Open folder / Clear old. Each item reuses the
-  // exact handler + disabled guard the old header buttons used.
-  const overflowItems = $derived<ContextMenuItem[]>([
-    {
-      label: $t('logs.share.shareBtn'),
-      icon: 'upload',
-      disabled: !selectedContent || shareUploading,
-      onSelect: () => (shareConfirm = true),
-    },
-    {
-      label: $t('logs.toolbar.openFolder'),
-      icon: 'folderOpen',
-      disabled: !selectedPath,
-      onSelect: () => void openLogFolder(),
-    },
-    {
-      label: $t('logs.manage.clearOld'),
-      icon: 'eraser',
-      danger: true,
-      separatorBefore: true,
-      disabled: clearOldStats.count === 0,
-      testId: 'clear-old-logs',
-      onSelect: () => (clearOldOpen = true),
-    },
-  ]);
-
   // Map a parsed severity to the shared ToggleChip tone palette. error/fatal →
   // danger; warn → warning; debug/trace → muted; everything else → neutral.
   function levelChipTone(lv: Severity): 'danger' | 'warning' | 'muted' | 'neutral' {
@@ -859,9 +831,17 @@
             <Icon name="refresh" class="icon-spin-hover" />
           </button>
 
-          <span data-tour-ctx="logs-overflow">
-            <OverflowMenu items={overflowItems} ariaLabel={$t('logs.toolbar.moreActions')} />
-          </span>
+          <button
+            type="button"
+            class="btn-icon btn-icon-danger"
+            data-testid="clear-old-logs"
+            aria-label={$t('logs.manage.clearOld')}
+            use:tooltip={$t('logs.manage.clearOld')}
+            disabled={clearOldStats.count === 0}
+            onclick={() => (clearOldOpen = true)}
+          >
+            <Icon name="eraser" />
+          </button>
 
           <CloseButton
             onClick={() => (open = false)}

@@ -1006,8 +1006,7 @@
       "wrapLines": "Переносить строки",
       "collapseStacks": "Сворачивать трассировки",
       "showLevels": "Показать:",
-      "rawView": "Исходный вид",
-      "moreActions": "Ещё действия"
+      "rawView": "Исходный вид"
     },
     "severity": {
       "game": "Логи игры",

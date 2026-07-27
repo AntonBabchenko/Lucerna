@@ -636,7 +636,6 @@ export type TranslationKey =
   | 'logs.sourceHint.gameConsole'
   | 'logs.sourceHint.launcher'
   | 'logs.toolbar.collapseStacks'
-  | 'logs.toolbar.moreActions'
   | 'logs.toolbar.openFolder'
   | 'logs.toolbar.rawView'
   | 'logs.toolbar.readCap'
