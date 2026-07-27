@@ -27,6 +27,7 @@
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
@@ -235,6 +236,30 @@
     }
     if (!selectedContent) return; // load failed — the viewer already shows the error
     shareConfirm = true;
+  }
+
+  // Right-click / Shift+F10 menu on a file row — mirrors the row's icon actions.
+  function rowMenuItems(f: LogFileMeta): ContextMenuItem[] {
+    return [
+      {
+        label: $t('logs.share.shareBtn'),
+        icon: 'upload',
+        disabled: shareUploading,
+        onSelect: () => void shareFile(f.path),
+      },
+      {
+        label: $t('logs.toolbar.openFolder'),
+        icon: 'folderOpen',
+        onSelect: () => void openLogFolder(f.path),
+      },
+      {
+        label: $t('logs.manage.delete'),
+        icon: 'trash',
+        danger: true,
+        separatorBefore: true,
+        onSelect: () => (confirmingDeletePath = f.path),
+      },
+    ];
   }
 
   // ---------------------------------------------------------------------------
@@ -1064,40 +1089,42 @@
                       ? 'bg-accent-soft'
                       : ''}"
                   >
-                    <button
-                      class="flex-1 min-w-0 text-left px-3 py-1"
-                      onclick={() => void selectFile(f.path)}
-                    >
-                      <div class="font-mono text-xs truncate">{f.name}</div>
-                      <div class="text-[10px] text-muted">
-                        {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
-                      </div>
-                    </button>
-                    <button
-                      class="btn-icon btn-icon-sm shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
-                      aria-label={$t('logs.share.shareBtn')}
-                      use:tooltip={$t('logs.share.shareBtn')}
-                      disabled={shareUploading}
-                      onclick={() => void shareFile(f.path)}
-                    >
-                      <Icon name="upload" size={14} />
-                    </button>
-                    <button
-                      class="btn-icon btn-icon-sm shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
-                      aria-label={$t('logs.toolbar.openFolder')}
-                      use:tooltip={$t('logs.toolbar.openFolder')}
-                      onclick={() => void openLogFolder(f.path)}
-                    >
-                      <Icon name="folderOpen" size={14} />
-                    </button>
-                    <button
-                      class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
-                      aria-label={$t('logs.manage.delete')}
-                      use:tooltip={$t('logs.manage.delete')}
-                      onclick={() => (confirmingDeletePath = f.path)}
-                    >
-                      <Icon name="trash" size={14} />
-                    </button>
+                    <ContextMenu items={rowMenuItems(f)} ariaLabel={$t('logs.rowMenu.aria')}>
+                      <button
+                        class="flex-1 min-w-0 text-left px-3 py-1"
+                        onclick={() => void selectFile(f.path)}
+                      >
+                        <div class="font-mono text-xs truncate">{f.name}</div>
+                        <div class="text-[10px] text-muted">
+                          {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
+                        </div>
+                      </button>
+                      <button
+                        class="btn-icon btn-icon-sm shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+                        aria-label={$t('logs.share.shareBtn')}
+                        use:tooltip={$t('logs.share.shareBtn')}
+                        disabled={shareUploading}
+                        onclick={() => void shareFile(f.path)}
+                      >
+                        <Icon name="upload" size={14} />
+                      </button>
+                      <button
+                        class="btn-icon btn-icon-sm shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
+                        aria-label={$t('logs.toolbar.openFolder')}
+                        use:tooltip={$t('logs.toolbar.openFolder')}
+                        onclick={() => void openLogFolder(f.path)}
+                      >
+                        <Icon name="folderOpen" size={14} />
+                      </button>
+                      <button
+                        class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
+                        aria-label={$t('logs.manage.delete')}
+                        use:tooltip={$t('logs.manage.delete')}
+                        onclick={() => (confirmingDeletePath = f.path)}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </ContextMenu>
                   </li>
                 {/each}
               </ul>

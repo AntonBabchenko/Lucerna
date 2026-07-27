@@ -210,6 +210,29 @@ describe('LogsPopover — per-row Share and Open-folder actions', () => {
       expect(screen.getByText('Share log to mclo.gs?')).not.toBeNull();
     });
   });
+
+  it('right-click on a row opens Share / Open folder / Delete; Delete opens the confirm', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValue({
+      status: 'ok',
+      data: [makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' })],
+    });
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    await screen.findByText('latest.log');
+
+    // Fire on the row's file-name button — the ContextMenu wrapper listens on a
+    // display:contents div INSIDE the <li>, so the event must originate within it.
+    await fireEvent.contextMenu(screen.getByText('latest.log'));
+
+    const menu = screen.getByRole('menu', { name: 'Log file actions' });
+    const labels = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent?.trim());
+    expect(labels).toEqual(['Share', 'Open folder', 'Delete']);
+
+    await fireEvent.click(within(menu).getByRole('menuitem', { name: /^delete$/i }));
+    expect(screen.getByTestId('delete-log-confirm')).not.toBeNull();
+  });
 });
 
 // ── CloseButton (header) ──────────────────────────────────────────────────────

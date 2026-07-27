@@ -613,6 +613,7 @@ export type TranslationKey =
   | 'logs.repair.unavailable'
   | 'logs.repair.updateNamed'
   | 'logs.repair.working'
+  | 'logs.rowMenu.aria'
   | 'logs.search.matchCounter'
   | 'logs.search.nextAriaLabel'
   | 'logs.search.nextTitle'

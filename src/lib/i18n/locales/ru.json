@@ -1038,6 +1038,9 @@
       "dismissAriaLabel": "Закрыть ссылку",
       "uploadFailed": "Не удалось загрузить лог"
     },
+    "rowMenu": {
+      "aria": "Действия с файлом лога"
+    },
     "diagnosis": {
       "whatToTry": "Что попробовать:",
       "matchedLine": "Совпавшая строка",

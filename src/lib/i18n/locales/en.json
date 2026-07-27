@@ -1038,6 +1038,9 @@
       "dismissAriaLabel": "Dismiss share URL",
       "uploadFailed": "Log upload failed"
     },
+    "rowMenu": {
+      "aria": "Log file actions"
+    },
     "diagnosis": {
       "whatToTry": "What to try:",
       "matchedLine": "Matched line",
