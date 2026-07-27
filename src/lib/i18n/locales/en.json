@@ -1006,8 +1006,7 @@
       "wrapLines": "Wrap lines",
       "collapseStacks": "Collapse stacks",
       "showLevels": "Show:",
-      "rawView": "Raw view",
-      "moreActions": "More actions"
+      "rawView": "Raw view"
     },
     "severity": {
       "game": "Game logs",
@@ -1038,6 +1037,9 @@
       "copyBtn": "Copy",
       "dismissAriaLabel": "Dismiss share URL",
       "uploadFailed": "Log upload failed"
+    },
+    "rowMenu": {
+      "aria": "Log file actions"
     },
     "diagnosis": {
       "whatToTry": "What to try:",
@@ -1452,9 +1454,9 @@
         },
         "shareMcloGs": {
           "title": "Share to mclo.gs",
-          "body": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the visible log to mclo.gs, the Minecraft community's de-facto paste service, and hands you a shareable link. It strips user paths, session tokens, and LAN IPs first, so you can drop the link in Discord without leaking personal info.",
+          "body": "Hover a log file in the list to reveal its actions; right-clicking a row offers the same menu. Share uploads that log to mclo.gs, the Minecraft community's de-facto paste service, and hands you a shareable link. It strips user paths, session tokens, and LAN IPs first, so you can drop the link in Discord without leaking personal info. The folder icon opens the file's folder on disk.",
           "titleBasic": "Share to mclo.gs",
-          "bodyBasic": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info, like file paths and your network address, before uploading, so the link is safe to share (for example on Discord)."
+          "bodyBasic": "Point at a log file in the list to see its buttons; right-clicking a file shows the same actions. Share uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info, like file paths and your network address, before uploading, so the link is safe to share (for example on Discord). The folder button shows the file on your computer."
         },
         "crashStructuredView": {
           "title": "Crash reports get a structured view",

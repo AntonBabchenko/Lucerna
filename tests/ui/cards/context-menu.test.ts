@@ -50,4 +50,22 @@ describe('ContextMenu', () => {
     await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('right-click open pre-highlights nothing; ArrowDown lands on the first item', async () => {
+    render(ContextMenu, { props: { items: items(), ariaLabel: 'Mod actions', children: trigger } });
+    await fireEvent.contextMenu(screen.getByTestId('trigger'));
+    const menuitems = screen.getAllByRole('menuitem');
+    expect(menuitems.filter((m) => m.classList.contains('bg-subtle'))).toEqual([]);
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
+    expect(menuitems[0].classList.contains('bg-subtle')).toBe(true);
+  });
+
+  it('Shift+F10 open pre-highlights the first item', async () => {
+    render(ContextMenu, { props: { items: items(), ariaLabel: 'Mod actions', children: trigger } });
+    const target = screen.getByTestId('trigger');
+    target.focus();
+    await fireEvent.keyDown(target, { key: 'F10', shiftKey: true });
+    const menuitems = screen.getAllByRole('menuitem');
+    expect(menuitems[0].classList.contains('bg-subtle')).toBe(true);
+  });
 });

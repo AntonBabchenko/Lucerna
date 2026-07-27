@@ -33,6 +33,7 @@
   let open = $state(false);
   let top = $state(0);
   let left = $state(0);
+  let openedByKeyboard = $state(false);
   let returnFocusEl: HTMLElement | null = null;
 
   function openAt(x: number, y: number) {
@@ -48,6 +49,7 @@
     if (items.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
+    openedByKeyboard = false;
     openAt(e.clientX, e.clientY);
   }
 
@@ -57,6 +59,7 @@
     e.preventDefault();
     const el = document.activeElement as HTMLElement | null;
     const r = el?.getBoundingClientRect();
+    openedByKeyboard = true;
     openAt(r ? r.left + 8 : MARGIN, r ? r.bottom : MARGIN);
   }
 
@@ -75,5 +78,5 @@
 </div>
 
 {#if open}
-  <Menu {items} {ariaLabel} {top} {left} width={WIDTH} onClose={close} />
+  <Menu {items} {ariaLabel} {top} {left} width={WIDTH} onClose={close} {openedByKeyboard} />
 {/if}

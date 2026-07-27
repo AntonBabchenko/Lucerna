@@ -121,8 +121,8 @@ export const LOGS_STEPS: ReadonlyArray<TourStep> = [
   {
     titleKey: 'onboarding.contextual.logs.shareMcloGs.title',
     bodyKey: 'onboarding.contextual.logs.shareMcloGs.body',
-    targetSelector: '[data-tour-ctx="logs-overflow"]',
-    anchor: 'below',
+    targetSelector: '[data-tour-ctx="logs-sidebar"]',
+    anchor: 'right',
   },
   {
     titleKey: 'onboarding.contextual.logs.crashStructuredView.title',

@@ -17,13 +17,17 @@
   let open = $state(false);
   let top = $state(0);
   let left = $state(0);
+  let openedByKeyboard = $state(false);
   let triggerEl: HTMLButtonElement | undefined = $state();
 
-  function toggle() {
+  function toggle(e: MouseEvent) {
     if (open) {
       close();
       return;
     }
+    // Keyboard activation (Enter/Space) dispatches a click with detail === 0;
+    // a real pointer click reports the click count (>= 1).
+    openedByKeyboard = e.detail === 0;
     const r = triggerEl?.getBoundingClientRect();
     // Anchor the popover's right edge under the trigger so it grows leftward.
     const desiredLeft = r ? r.right - WIDTH : MARGIN;
@@ -57,5 +61,5 @@
 </button>
 
 {#if open}
-  <Menu {items} {ariaLabel} {top} {left} width={WIDTH} onClose={close} />
+  <Menu {items} {ariaLabel} {top} {left} width={WIDTH} onClose={close} {openedByKeyboard} />
 {/if}

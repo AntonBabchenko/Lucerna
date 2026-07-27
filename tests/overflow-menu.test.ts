@@ -61,7 +61,7 @@ describe('OverflowMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('ArrowDown moves the active highlight to the next enabled item', async () => {
+  it('keyboard-activated open (click detail 0) pre-highlights the first item; ArrowDown moves on', async () => {
     render(OverflowMenu, { props: { items: items(), ariaLabel: 'More' } });
     await fireEvent.click(screen.getByRole('button', { name: /more/i }));
     const menu = screen.getByRole('menu');
@@ -74,13 +74,47 @@ describe('OverflowMenu', () => {
     expect(menuitems[0].classList.contains('bg-subtle')).toBe(false);
   });
 
-  it('Enter activates the active item and closes', async () => {
+  it('Enter activates the active item and closes (keyboard-activated open)', async () => {
     const its = items();
     render(OverflowMenu, { props: { items: its, ariaLabel: 'More' } });
     await fireEvent.click(screen.getByRole('button', { name: /more/i }));
-    // Opens with the first enabled item active.
+    // Keyboard-activated open (detail 0) starts with the first enabled item active.
     await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' });
     expect(its[0].onSelect).toHaveBeenCalledOnce();
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('pointer open (click detail 1) pre-highlights nothing', async () => {
+    render(OverflowMenu, { props: { items: items(), ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }), { detail: 1 });
+    const active = screen.getAllByRole('menuitem').filter((m) => m.classList.contains('bg-subtle'));
+    expect(active).toEqual([]);
+  });
+
+  it('first ArrowDown after pointer open lands on the FIRST item', async () => {
+    render(OverflowMenu, { props: { items: items(), ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }), { detail: 1 });
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
+    const menuitems = screen.getAllByRole('menuitem');
+    expect(menuitems[0].classList.contains('bg-subtle')).toBe(true);
+  });
+
+  it('first ArrowUp after pointer open lands on the LAST item', async () => {
+    render(OverflowMenu, { props: { items: items(), ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }), { detail: 1 });
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowUp' });
+    const menuitems = screen.getAllByRole('menuitem');
+    expect(menuitems[2].classList.contains('bg-subtle')).toBe(true);
+  });
+
+  it('Enter right after a pointer open activates nothing and keeps the menu open', async () => {
+    const its = items();
+    render(OverflowMenu, { props: { items: its, ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }), { detail: 1 });
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' });
+    expect(its[0].onSelect).not.toHaveBeenCalled();
+    expect(its[1].onSelect).not.toHaveBeenCalled();
+    expect(its[2].onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).not.toBeNull();
   });
 });
