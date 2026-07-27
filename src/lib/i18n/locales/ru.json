@@ -738,7 +738,8 @@
         "deselectAll": "Снять всё",
         "selectionCount": "Выбрано {selected} из {total}",
         "requiredBadge": "обязательный",
-        "requiredUncheckedWarning": "Снято обязательных: {count} — сборка может не запуститься."
+        "requiredModsUncheckedWarning": "Снято обязательных модов: {count} — сборка может не запуститься.",
+        "otherFilesUncheckedNotice": "Снято файлов сборки: {count} — сборка будет отличаться от авторской, но запустится."
       },
       "progress": {
         "ariaLabel": "Прогресс импорта сборки",

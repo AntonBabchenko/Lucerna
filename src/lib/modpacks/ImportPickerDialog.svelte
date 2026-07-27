@@ -10,10 +10,10 @@
   // files to install. Every file starts CHECKED — importing a pack means "give
   // me the pack as the author shipped it" (matches the reference Modrinth App).
   // The user opts OUT of anything they don't want. Every checkbox is toggleable,
-  // including files the author marked `required`; those carry a "required" badge
-  // and unchecking one raises a non-blocking warning. Unresolvable entries —
-  // files the backend cannot auto-download — render as a red list with manual
-  // links.
+  // including files the author marked `required`; unchecking one raises a
+  // non-blocking notice whose severity depends on the category (see
+  // `requiredByCategory`). Unresolvable entries — files the backend cannot
+  // auto-download — render as a red list with manual links.
   //
   // No IPC here. The owning view drives `modpack_import` when `onConfirm` fires
   // with the chosen sha1 list.
@@ -27,12 +27,6 @@
     onCancel: () => void;
     onConfirm: (selectedShas: string[]) => void;
   } = $props();
-
-  // Author-mandatory files. Kept ONLY to drive the badge and the soft warning —
-  // not to force selection.
-  const required: ModpackFile[] = $derived(
-    summary.files.filter((f) => f.env_client === 'required'),
-  );
 
   // Unique sha1s across all files (FTB packs can repeat a sha1 across files).
   const allShas = $derived([...new Set(summary.files.map((f) => f.sha1))]);
@@ -75,9 +69,6 @@
     ...new Set(summary.files.filter((f) => selected.has(f.sha1)).map((f) => f.sha1)),
   ]);
 
-  // Mandatory files the user has unchecked — drives the soft warning banner.
-  const uncheckedRequiredCount = $derived(required.filter((f) => !selected.has(f.sha1)).length);
-
   const unresolvable: ModpackUnresolvable[] = $derived(summary.unresolvable);
 
   // ── Category grouping ───────────────────────────────────────────────────
@@ -116,6 +107,37 @@
     groupScripts: 'modpacks.import.picker.groupScripts',
     groupOther: 'modpacks.import.picker.groupOther',
   };
+
+  // ── Unchecked-mandatory counters ────────────────────────────────────────
+  // `env_client === 'required'` means "the author shipped this file as part of
+  // the pack" — NOT "the game needs it to start". The .mrpack parser defaults
+  // to `required` whenever a file carries no `env` object (most packs omit it
+  // for non-mod files), and the FTB / ATLauncher formats have no per-file env
+  // tags at all, so every one of their files arrives `required`. Treating that
+  // as a launch risk told users a shaderpack could stop Minecraft from booting,
+  // which is false.
+  //
+  // Only a dropped MOD can actually break the launch (a missing dependency
+  // crashes on start). A shaderpack, resourcepack, config or script cannot — at
+  // worst the pack no longer matches what the author shipped. So the counters
+  // split by category and each drives its own banner. `groupOther` keeps the
+  // soft wording: it is rarely launch-critical and we cannot tell which of its
+  // files would be.
+  //
+  // Counted by distinct sha1, like `allShas` and `selectedShas` — FTB packs
+  // repeat a sha1 across several install paths, and the checkboxes are keyed by
+  // sha1, so one user click unchecks every row sharing it. Counting rows would
+  // report "2 unchecked" for a single toggle over one piece of content.
+  const requiredByCategory = $derived.by(() => {
+    const mods = new Set<string>();
+    const other = new Set<string>();
+    for (const f of summary.files) {
+      if (f.env_client !== 'required' || selected.has(f.sha1)) continue;
+      if (categorise(f.install_path) === 'groupMods') mods.add(f.sha1);
+      else other.add(f.sha1);
+    }
+    return { mods: mods.size, other: other.size };
+  });
 
   interface FileGroup {
     key: CategoryKey;
@@ -217,7 +239,7 @@
                 aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
               />
               <span>{f.name}</span>
-              {#if f.env_client === 'required'}
+              {#if f.env_client === 'required' && group.key === 'groupMods'}
                 <span class="ml-2 text-[10px] uppercase tracking-wide text-placeholder"
                   >{$t('modpacks.import.picker.requiredBadge')}</span
                 >
@@ -262,18 +284,39 @@
     {/if}
   </div>
 
-  {#if uncheckedRequiredCount > 0}
-    <div
-      class="mx-4 mb-2 p-2 bg-warning-bg border border-warning-text/30 rounded text-xs text-warning-text flex items-start gap-1.5"
-    >
-      <Icon name="warning" size={12} class="flex-shrink-0 mt-0.5" />
-      <span
-        >{$t('modpacks.import.picker.requiredUncheckedWarning', {
-          count: uncheckedRequiredCount,
-        })}</span
+  <!--
+    Persistent live region (the StatusMessage pattern, §10 of docs/DESIGN.md):
+    the wrapper is always rendered so a screen reader announces a banner that
+    appears *after* the dialog opened — a region mounted together with its own
+    text is not reliably announced. StatusMessage itself is not reused here
+    because it hardcodes the warning glyph and a plain `<p>`, neither of which
+    fits the info-tone notice or the bordered warning box.
+  -->
+  <div role="status" aria-atomic="true">
+    {#if requiredByCategory.mods > 0}
+      <div
+        class="mx-4 mb-2 p-2 bg-warning-bg border border-warning-text/30 rounded text-xs text-warning-text flex items-start gap-1.5"
       >
-    </div>
-  {/if}
+        <Icon name="warning" size={12} class="flex-shrink-0 mt-0.5" />
+        <span
+          >{$t('modpacks.import.picker.requiredModsUncheckedWarning', {
+            count: requiredByCategory.mods,
+          })}</span
+        >
+      </div>
+    {/if}
+
+    {#if requiredByCategory.other > 0}
+      <div class="mx-4 mb-2 p-2 text-xs text-muted flex items-start gap-1.5">
+        <Icon name="info" size={12} class="flex-shrink-0 mt-0.5" />
+        <span
+          >{$t('modpacks.import.picker.otherFilesUncheckedNotice', {
+            count: requiredByCategory.other,
+          })}</span
+        >
+      </div>
+    {/if}
+  </div>
 
   <footer class="p-4 border-t flex justify-end gap-2">
     <button type="button" class="btn-secondary btn-sm" onclick={onCancel}

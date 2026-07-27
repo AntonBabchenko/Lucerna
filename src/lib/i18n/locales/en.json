@@ -738,7 +738,8 @@
         "deselectAll": "Deselect all",
         "selectionCount": "{selected} of {total} selected",
         "requiredBadge": "Required",
-        "requiredUncheckedWarning": "Required files unchecked: {count} — the pack may not launch."
+        "requiredModsUncheckedWarning": "Required mods unchecked: {count} — the pack may not launch.",
+        "otherFilesUncheckedNotice": "Pack files unchecked: {count} — the pack will differ from the author's build, but it will still launch."
       },
       "progress": {
         "ariaLabel": "Modpack import progress",
