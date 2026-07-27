@@ -166,6 +166,8 @@
     "removeAccountLabel": "Remove {name}",
     "playerNamePlaceholder": "Player name",
     "instance": "Instance",
+    "sectionContent": "Content",
+    "sectionView": "View",
     "noInstances": "No instances yet.",
     "createInstance": "+ Create",
     "pickMcVersion": "(pick MC)",

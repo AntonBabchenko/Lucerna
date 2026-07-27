@@ -2048,6 +2048,8 @@ export type TranslationKey =
   | 'sidebar.playerNamePlaceholder'
   | 'sidebar.plugins'
   | 'sidebar.removeAccountLabel'
+  | 'sidebar.sectionContent'
+  | 'sidebar.sectionView'
   | 'sidebar.server'
   | 'sidebar.serverCrashed'
   | 'sidebar.serverRunning'
