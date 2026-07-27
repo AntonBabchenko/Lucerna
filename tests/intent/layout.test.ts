@@ -164,14 +164,32 @@ describe('Sidebar — section headers', () => {
     expect(wrapperCls).toContain('tracking-wide');
     expect(wrapperCls).toContain('text-muted');
   });
+
+  it('the Content section heading uses the caps-label recipe', () => {
+    render(Sidebar, { props: baseProps });
+    const cls = screen.getByTestId('sidebar-section-content').className;
+    expect(cls).toContain('text-xs');
+    expect(cls).toContain('uppercase');
+    expect(cls).toContain('tracking-wide');
+    expect(cls).toContain('text-muted');
+  });
+
+  it('the View section heading uses the caps-label recipe', () => {
+    render(Sidebar, { props: baseProps });
+    const cls = screen.getByTestId('sidebar-section-view').className;
+    expect(cls).toContain('text-xs');
+    expect(cls).toContain('uppercase');
+    expect(cls).toContain('tracking-wide');
+    expect(cls).toContain('text-muted');
+  });
 });
 
 describe('Sidebar — footer section buttons (not covered by cluster D)', () => {
-  it('"Browse modpacks" is a static btn-secondary btn-sm entry point', () => {
+  it('"Browse modpacks" is a static btn-secondary btn-xs entry point', () => {
     render(Sidebar, { props: baseProps });
     const btn = screen.getByTestId('sidebar-open-modpacks');
     expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('sm');
+    expect(btn).toHaveBtnSize('xs');
     expect(btn.textContent).toContain('Browse modpacks');
   });
 
