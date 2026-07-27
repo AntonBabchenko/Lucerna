@@ -16,6 +16,7 @@
     left,
     width,
     onClose,
+    openedByKeyboard = false,
   }: {
     items: ContextMenuItem[];
     ariaLabel: string;
@@ -23,10 +24,11 @@
     left: number;
     width: number;
     onClose: () => void;
+    openedByKeyboard?: boolean;
   } = $props();
 
   // Menu mounts fresh on each open; onMount seeds the active row (first enabled
-  // item, or -1 when every item is disabled).
+  // item for keyboard opens, -1 for pointer opens or when every item is disabled).
   let activeIndex = $state(-1);
   let menuEl: HTMLDivElement | undefined = $state();
 
@@ -47,11 +49,18 @@
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (enabledIndexes.length === 0) return;
-      const pos = Math.max(0, enabledIndexes.indexOf(activeIndex));
-      const next =
-        e.key === 'ArrowDown'
-          ? (pos + 1) % enabledIndexes.length
-          : (pos - 1 + enabledIndexes.length) % enabledIndexes.length;
+      const pos = enabledIndexes.indexOf(activeIndex);
+      let next: number;
+      if (pos === -1) {
+        // No active item yet (pointer open): ArrowDown enters at the top,
+        // ArrowUp enters at the bottom.
+        next = e.key === 'ArrowDown' ? 0 : enabledIndexes.length - 1;
+      } else {
+        next =
+          e.key === 'ArrowDown'
+            ? (pos + 1) % enabledIndexes.length
+            : (pos - 1 + enabledIndexes.length) % enabledIndexes.length;
+      }
       activeIndex = enabledIndexes[next];
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -60,13 +69,14 @@
     }
   }
 
-  // Seed the active row and grab focus on mount, then close on any ancestor
-  // scroll / resize via the shared helper. ignoreScrollWithin keeps a tall
-  // internally-scrolling menu (max-h-[80vh]) from dismissing itself when the
-  // user wheels it — a fix the hand-rolled menu listeners lacked. The returned
-  // cleanup detaches the listeners on close/unmount.
+  // OS menu convention: pointer-open highlights nothing until hover/arrows;
+  // only keyboard-open pre-highlights the first enabled item. Grab focus on
+  // mount, then close on any ancestor scroll / resize via the shared helper.
+  // ignoreScrollWithin keeps a tall internally-scrolling menu (max-h-[80vh])
+  // from dismissing itself when the user wheels it — a fix the hand-rolled menu
+  // listeners lacked. The returned cleanup detaches the listeners on close/unmount.
   onMount(() => {
-    activeIndex = items.findIndex((it) => !it.disabled);
+    activeIndex = openedByKeyboard ? items.findIndex((it) => !it.disabled) : -1;
     menuEl?.focus();
     return attachPopoverDismiss({ onDismiss: onClose, ignoreScrollWithin: () => menuEl });
   });
