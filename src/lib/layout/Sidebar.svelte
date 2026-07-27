@@ -28,6 +28,8 @@
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
   import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
   import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
+  import SidebarSection from '$lib/layout/SidebarSection.svelte';
+  import HideableSidebarButton from '$lib/layout/HideableSidebarButton.svelte';
 
   let {
     accounts,
@@ -285,11 +287,7 @@
       forces client mode before showing them (initOnboarding / showAccountHint).
     -->
     {#if serversUi.mode === 'client'}
-      <div
-        class="flex flex-col gap-1 pt-3 border-t border-border-subtle"
-        data-tour="account-section"
-      >
-        <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
+      <SidebarSection heading={$t('sidebar.account')} dataTour="account-section">
         {#if accounts.length === 0}
           <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
         {:else}
@@ -354,22 +352,19 @@
         (right-click → hide, or Settings → Appearance): it is a convenience
         entry point, not required to launch, so hiding it traps nobody.
       -->
-        {#if isVisible('skin')}
-          <ContextMenu items={hideMenuItems('skin')} ariaLabel={$t('sidebar.contextMenuAria')}>
-            <button
-              type="button"
-              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-              data-testid="sidebar-open-skin"
-              onclick={() =>
-                activeAccount?.kind === 'microsoft'
-                  ? onOpenCosmetics(activeAccount)
-                  : onOpenSkinEditor(activeAccount)}
-            >
-              <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
-              {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
-            </button>
-          </ContextMenu>
-        {/if}
+        <HideableSidebarButton
+          id="skin"
+          hideItems={hideMenuItems('skin')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-open-skin"
+          onclick={() =>
+            activeAccount?.kind === 'microsoft'
+              ? onOpenCosmetics(activeAccount)
+              : onOpenSkinEditor(activeAccount)}
+        >
+          <Icon name={activeAccount?.kind === 'microsoft' ? 'shirt' : 'edit'} size={14} />
+          {activeAccount?.kind === 'microsoft' ? $t('cosmetics.title') : $t('skinEditor.open')}
+        </HideableSidebarButton>
         <!--
         Force the account-add buttons visible when there are no accounts, even
         if the user hid `account_actions` in Settings — otherwise an
@@ -399,9 +394,9 @@
             </div>
           </ContextMenu>
         {/if}
-      </div>
+      </SidebarSection>
 
-      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+      <SidebarSection>
         <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
           <span>{$t('sidebar.instance')}</span>
           <InstanceConceptTooltip />
@@ -650,7 +645,7 @@
             {/if}
           {/if}
         {/if}
-      </div>
+      </SidebarSection>
     {:else}
       <ServerSidebarSection />
     {/if}
@@ -662,81 +657,46 @@
       visible, so a hidden pair leaves no orphaned heading.
     -->
     {#if serversUi.mode === 'client' && (isVisible('browse_modpacks') || isVisible('import_launcher'))}
-      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
-        <div
-          class="text-xs uppercase tracking-wide text-muted"
-          data-testid="sidebar-section-content"
+      <SidebarSection
+        heading={$t('sidebar.sectionContent')}
+        headingTestid="sidebar-section-content"
+      >
+        <HideableSidebarButton
+          id="browse_modpacks"
+          hideItems={hideMenuItems('browse_modpacks')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-open-modpacks"
+          dataTour="open-modpacks"
+          onclick={onOpenModpacks}
         >
-          {$t('sidebar.sectionContent')}
-        </div>
-        {#if isVisible('browse_modpacks')}
-          <ContextMenu
-            items={hideMenuItems('browse_modpacks')}
-            ariaLabel={$t('sidebar.contextMenuAria')}
-          >
-            <button
-              type="button"
-              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-              data-tour="open-modpacks"
-              data-testid="sidebar-open-modpacks"
-              onclick={onOpenModpacks}
-            >
-              <span class="relative inline-flex items-center gap-1">
-                <Icon
-                  name="package"
-                  size={14}
-                  class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''}
-                />
-                {$t('sidebar.browseModpacks')}
-                {#if modpackUpdates.updateCount > 0}
-                  <span
-                    class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-                    use:tooltip={$t('sidebar.modpackUpdatesBadge', {
-                      count: modpackUpdates.updateCount,
-                    })}
-                    data-testid="sidebar-modpack-updates-badge"
-                  >
-                    {modpackUpdates.updateCount}
-                  </span>
-                {/if}
-              </span>
-            </button>
-          </ContextMenu>
-        {/if}
-        {#if isVisible('import_launcher')}
-          <ContextMenu
-            items={hideMenuItems('import_launcher')}
-            ariaLabel={$t('sidebar.contextMenuAria')}
-          >
-            {#if launcherImportBlockedReason}
+          <span class="relative inline-flex items-center gap-1">
+            <Icon name="package" size={14} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
+            {$t('sidebar.browseModpacks')}
+            {#if modpackUpdates.updateCount > 0}
               <span
-                class="inline-flex w-full"
-                use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+                class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+                use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+                  count: modpackUpdates.updateCount,
+                })}
+                data-testid="sidebar-modpack-updates-badge"
               >
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-                  data-testid="sidebar-open-launcher-import"
-                  disabled
-                >
-                  <Icon name="download" size={14} />
-                  {$t('sidebar.importLauncher')}
-                </button>
+                {modpackUpdates.updateCount}
               </span>
-            {:else}
-              <button
-                type="button"
-                class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-                data-testid="sidebar-open-launcher-import"
-                onclick={onOpenLauncherImport}
-              >
-                <Icon name="download" size={14} />
-                {$t('sidebar.importLauncher')}
-              </button>
             {/if}
-          </ContextMenu>
-        {/if}
-      </div>
+          </span>
+        </HideableSidebarButton>
+        <HideableSidebarButton
+          id="import_launcher"
+          hideItems={hideMenuItems('import_launcher')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-open-launcher-import"
+          disabledTooltip={launcherImportBlockedReason}
+          onclick={onOpenLauncherImport}
+        >
+          <Icon name="download" size={14} />
+          {$t('sidebar.importLauncher')}
+        </HideableSidebarButton>
+      </SidebarSection>
     {/if}
 
     <!--
@@ -746,48 +706,36 @@
       visible.
     -->
     {#if serversUi.mode === 'client' && (isVisible('gallery') || isVisible('logs'))}
-      <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
-        <div class="text-xs uppercase tracking-wide text-muted" data-testid="sidebar-section-view">
-          {$t('sidebar.sectionView')}
-        </div>
-        {#if isVisible('gallery')}
-          <ContextMenu items={hideMenuItems('gallery')} ariaLabel={$t('sidebar.contextMenuAria')}>
-            <button
-              type="button"
-              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-              data-testid="sidebar-open-gallery"
-              onclick={onOpenGallery}
-            >
-              <Icon name="gallery" size={14} />
-              {$t('sidebar.gallery')}
-            </button>
-          </ContextMenu>
-        {/if}
-        {#if isVisible('logs')}
-          <ContextMenu items={hideMenuItems('logs')} ariaLabel={$t('sidebar.contextMenuAria')}>
-            <button
-              type="button"
-              class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-              data-testid="sidebar-open-logs"
-              onclick={onOpenLogs}
-            >
-              <NavStatusIcon
-                name="scrollText"
-                size={14}
-                iconClass={logsVisual.iconClass}
-                statusLabel={logsStatusLabel}
-              />
-              {$t('sidebar.logs')}
-              {#if logsVisual.wrench}
-                <NavFixWrench
-                  label={$t('sidebar.logsFixAvailable')}
-                  testid="logs-button-fix-badge"
-                />
-              {/if}
-            </button>
-          </ContextMenu>
-        {/if}
-      </div>
+      <SidebarSection heading={$t('sidebar.sectionView')} headingTestid="sidebar-section-view">
+        <HideableSidebarButton
+          id="gallery"
+          hideItems={hideMenuItems('gallery')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-open-gallery"
+          onclick={onOpenGallery}
+        >
+          <Icon name="gallery" size={14} />
+          {$t('sidebar.gallery')}
+        </HideableSidebarButton>
+        <HideableSidebarButton
+          id="logs"
+          hideItems={hideMenuItems('logs')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-open-logs"
+          onclick={onOpenLogs}
+        >
+          <NavStatusIcon
+            name="scrollText"
+            size={14}
+            iconClass={logsVisual.iconClass}
+            statusLabel={logsStatusLabel}
+          />
+          {$t('sidebar.logs')}
+          {#if logsVisual.wrench}
+            <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
+          {/if}
+        </HideableSidebarButton>
+      </SidebarSection>
     {/if}
 
     <!--
@@ -797,7 +745,7 @@
       including in servers mode where Content/View are hidden as client
       concepts.
     -->
-    <div class="pt-3 border-t border-border-subtle">
+    <SidebarSection>
       <button
         type="button"
         class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
@@ -806,7 +754,7 @@
         <Icon name="settings" size={14} />
         {$t('settings.title')}
       </button>
-    </div>
+    </SidebarSection>
   </div>
 </aside>
 
