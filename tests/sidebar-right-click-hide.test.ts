@@ -113,6 +113,18 @@ describe('Sidebar right-click hide', () => {
     });
   });
 
+  it('right-clicking the skin button hides it via the confirm dialog', async () => {
+    render(Sidebar, { props: baseProps });
+    await fireEvent.contextMenu(screen.getByTestId('sidebar-open-skin'));
+    await fireEvent.click(screen.getByTestId('sidebar-ctx-hide-skin'));
+    expect(screen.getByTestId('hide-button-confirm')).toBeTruthy();
+    await fireEvent.click(screen.getByTestId('hide-button-confirm'));
+    expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({
+      hidden_sidebar_buttons: ['skin'],
+    });
+    expect(screen.queryByTestId('sidebar-open-skin')).toBeNull();
+  });
+
   it('cancelling the dialog leaves the button visible and persists nothing', async () => {
     render(Sidebar, { props: baseProps });
     await fireEvent.contextMenu(screen.getByTestId('sidebar-open-gallery'));
