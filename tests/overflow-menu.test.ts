@@ -106,4 +106,15 @@ describe('OverflowMenu', () => {
     const menuitems = screen.getAllByRole('menuitem');
     expect(menuitems[2].classList.contains('bg-subtle')).toBe(true);
   });
+
+  it('Enter right after a pointer open activates nothing and keeps the menu open', async () => {
+    const its = items();
+    render(OverflowMenu, { props: { items: its, ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }), { detail: 1 });
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' });
+    expect(its[0].onSelect).not.toHaveBeenCalled();
+    expect(its[1].onSelect).not.toHaveBeenCalled();
+    expect(its[2].onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).not.toBeNull();
+  });
 });
