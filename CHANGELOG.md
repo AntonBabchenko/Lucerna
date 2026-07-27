@@ -10,6 +10,8 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-07-27
+
 ### Added
 
 - **One-click Optimise.** A new **Optimise** button on an instance's Overview
@@ -19,6 +21,51 @@ release is **0.9.0**.
   previews exactly what will install, skips mods you already have, avoids the
   rendering optimizer when OptiFine is present, and installs the rest through the
   normal dependency-aware pipeline. Disabled on vanilla instances (no mod loader).
+- **Log file actions where the files are.** In the logs viewer, every file row
+  now carries its own actions: **Share** and **Open folder** appear on hover
+  next to the delete button, and a right-click (or Shift+F10) menu offers
+  Share / Open folder / Delete. Sharing a file you don't have open first opens
+  it in the viewer, so you always see exactly what will be uploaded before the
+  anonymised mclo.gs confirm step. The header's ⋯ menu is gone — **Clear old**
+  is now a direct button in the toolbar, and the logs tour was updated to match.
+- The sidebar **Skins button can now be hidden**, like the other secondary
+  buttons — right-click it, or toggle "Skins and capes" in Settings →
+  Appearance. Both variants (Skin & cape manager and the pixel editor) respect
+  the setting.
+
+### Changed
+
+- **Sidebar lower zone regrouped.** Browse modpacks / Import / Gallery / Logs /
+  Settings now sit in labelled **Content** and **View** sections (with a
+  heading-less Settings footer), with unified button sizing and consistent
+  spacing that matches the Account and Profile sections.
+
+### Fixed
+
+- Menus opened with the mouse no longer pre-highlight their first item (a
+  one-item right-click menu used to render as a single "selected" row).
+  Keyboard opens — Shift+F10, the menu key, or activating a ⋯ trigger with
+  Enter — still start with the first item highlighted, per OS convention.
+- The log-share anonymiser now also scrubs Linux `/home/<user>/` paths and home
+  paths that end exactly at the username (e.g. `HOME=/home/player` at
+  end-of-line), on every OS, so those usernames no longer reach a shared
+  mclo.gs paste.
+- The modpack import picker's "may prevent the pack from launching" warning is
+  now scoped to mods only — deselecting resource packs, shaders, or config no
+  longer triggers it.
+- One press of Escape no longer closes both the screenshot lightbox and the
+  gallery behind it — the lightbox now participates in the shared topmost-only
+  Escape handling.
+- Server hot backups no longer race the save: the backup waits for the server's
+  "Saved the game" confirmation (instead of a fixed delay) before zipping, so a
+  backup taken while the server runs can't capture a torn world snapshot.
+
+### Security
+
+- Server Forge/NeoForge installer downloads are now SHA-1-verified against the
+  Maven checksum sidecar, matching the client-side installer path (they were
+  previously fetched without checksum verification).
+- Bumped `ammonia` 4.1.3 → 4.1.4 for RUSTSEC-2026-0213.
 
 ## [0.19.0] — 2026-07-16
 
@@ -712,7 +759,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...v0.17.0
