@@ -170,7 +170,7 @@ describe('LogsPopover — per-row Share and Open-folder actions', () => {
 
   it("row Open-folder calls openLogFolder with that row's path, without selecting it", async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.listLogFiles).mockResolvedValue({ status: 'ok', data: twoFiles() });
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({ status: 'ok', data: twoFiles() });
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     await screen.findByText('2024-01-01-1.log.gz');
 
@@ -189,7 +189,7 @@ describe('LogsPopover — per-row Share and Open-folder actions', () => {
 
   it('row Share on a non-selected file selects it, then opens the share confirm dialog', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.listLogFiles).mockResolvedValue({ status: 'ok', data: twoFiles() });
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({ status: 'ok', data: twoFiles() });
     vi.mocked(commands.readLogFile).mockResolvedValue({
       status: 'ok',
       data: '[12:00:00] [main/INFO]: row share content',
@@ -213,7 +213,7 @@ describe('LogsPopover — per-row Share and Open-folder actions', () => {
 
   it('right-click on a row opens Share / Open folder / Delete; Delete opens the confirm', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.listLogFiles).mockResolvedValue({
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
       status: 'ok',
       data: [makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' })],
     });
