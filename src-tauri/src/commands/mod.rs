@@ -668,6 +668,10 @@ fn dir_size_bytes(dir: &std::path::Path) -> u64 {
 
 /// Remove one pack-origin file from an instance: a `mods/` jar via the
 /// mod registry, anything else by deleting the file at `install_path`.
+/// Tries both the enabled and `.disabled` on-disk names — a user-disabled
+/// old version must not orphan into a ghost mod (the registry record is
+/// gone, so a leftover `.disabled` file would be re-adopted by the next
+/// reconcile as a brand-new manual mod).
 async fn remove_pack_file(
     inst_root: &std::path::Path,
     f: &crate::mods::installed::PackOriginFile,
@@ -677,6 +681,11 @@ async fn remove_pack_file(
         let jar = crate::mods::installed::mods_dir(inst_root).join(&f.filename);
         if tokio::fs::try_exists(&jar).await.unwrap_or(false) {
             let _ = tokio::fs::remove_file(&jar).await;
+        }
+        let disabled =
+            crate::mods::installed::mods_dir(inst_root).join(format!("{}.disabled", f.filename));
+        if tokio::fs::try_exists(&disabled).await.unwrap_or(false) {
+            let _ = tokio::fs::remove_file(&disabled).await;
         }
     } else {
         let p = inst_root.join(".minecraft").join(&f.install_path);
@@ -695,6 +704,38 @@ async fn remove_pack_file(
 mod tests {
     use super::*;
     use crate::error::Error;
+
+    /// A user-disabled pack mod lives on disk as `<name>.jar.disabled`;
+    /// removing its pack entry must delete that variant too, or it orphans
+    /// into a ghost manual mod at the next registry reconcile.
+    #[tokio::test]
+    async fn remove_pack_file_removes_disabled_variant() {
+        let td = tempfile::TempDir::new().unwrap();
+        let mods_dir = crate::mods::installed::mods_dir(td.path());
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+        tokio::fs::write(mods_dir.join("x.jar.disabled"), b"bytes")
+            .await
+            .unwrap();
+        let f = crate::mods::installed::PackOriginFile {
+            sha1: "abc".into(),
+            name: "x".into(),
+            filename: "x.jar".into(),
+            install_path: "mods/x.jar".into(),
+            url: "https://cdn.modrinth.com/x.jar".into(),
+            size: 5.0,
+            project_id: String::new(),
+            version_id: String::new(),
+            env_client: crate::mods::modpack::schema::EnvSupport::Required,
+            source: crate::mods::platform::ModSource::Modrinth,
+        };
+        remove_pack_file(td.path(), &f).await.unwrap();
+        assert!(
+            !tokio::fs::try_exists(mods_dir.join("x.jar.disabled"))
+                .await
+                .unwrap(),
+            "the .disabled variant must be removed too"
+        );
+    }
 
     #[test]
     fn greet_includes_name() {

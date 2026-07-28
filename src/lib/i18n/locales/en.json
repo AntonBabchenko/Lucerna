@@ -813,6 +813,8 @@
         "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
         "inertLoaderHeading": "Files that won't load ({count})",
         "inertLoaderBody": "These bundled jars are built for a different mod loader than this instance, so Minecraft won't load them. They're inert — safe to ignore or remove. The pack's other mods installed normally.",
+        "inertDisable": "Disable",
+        "inertDisabledNote": "disabled",
         "differentVersion": "— different version than the pack — may be incompatible",
         "findAlternative": "Find in other sources",
         "substituted": "(replaced with alternative)",

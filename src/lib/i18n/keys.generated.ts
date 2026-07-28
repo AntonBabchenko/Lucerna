@@ -766,6 +766,8 @@ export type TranslationKey =
   | 'modpacks.imported.detail.distributionDisabled'
   | 'modpacks.imported.detail.findAlternative'
   | 'modpacks.imported.detail.hostNotAllowed'
+  | 'modpacks.imported.detail.inertDisable'
+  | 'modpacks.imported.detail.inertDisabledNote'
   | 'modpacks.imported.detail.inertLoaderBody'
   | 'modpacks.imported.detail.inertLoaderHeading'
   | 'modpacks.imported.detail.loading'
