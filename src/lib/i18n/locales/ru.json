@@ -740,6 +740,7 @@
         "deselectAll": "Снять всё",
         "selectionCount": "Выбрано {selected} из {total}",
         "requiredBadge": "обязательный",
+        "optionalBadge": "необязательный",
         "requiredModsUncheckedWarning": "Снято обязательных модов: {count} — сборка может не запуститься.",
         "otherFilesUncheckedNotice": "Снято файлов сборки: {count} — сборка будет отличаться от авторской, но запустится."
       },

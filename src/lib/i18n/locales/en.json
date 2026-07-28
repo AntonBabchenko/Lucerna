@@ -740,6 +740,7 @@
         "deselectAll": "Deselect all",
         "selectionCount": "{selected} of {total} selected",
         "requiredBadge": "Required",
+        "optionalBadge": "Optional",
         "requiredModsUncheckedWarning": "Required mods unchecked: {count} — the pack may not launch.",
         "otherFilesUncheckedNotice": "Pack files unchecked: {count} — the pack will differ from the author's build, but it will still launch."
       },

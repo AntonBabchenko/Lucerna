@@ -243,6 +243,13 @@
                 <span class="ml-2 text-[10px] uppercase tracking-wide text-placeholder"
                   >{$t('modpacks.import.picker.requiredBadge')}</span
                 >
+              {:else if f.env_client === 'optional'}
+                <!-- `optional` is always an explicit author annotation (parsers
+                     default absent env to `required`), so it renders in every
+                     group; `required` stays mods-only — it implies launch risk. -->
+                <span class="ml-2 text-[10px] uppercase tracking-wide text-placeholder"
+                  >{$t('modpacks.import.picker.optionalBadge')}</span
+                >
               {/if}
               <span class="ml-auto text-placeholder text-xs">{formatSize($t, f.size)}</span>
             </li>
