@@ -122,6 +122,33 @@
     "offlineHint": "Sign in with Microsoft to apply a skin to your account. You can still download the PNG.",
     "unsavedConfirm": "Close the editor? Unsaved changes will be lost."
   },
+  "skinLibrary": {
+    "heading": "Saved skins",
+    "hint": "Click a saved skin to wear it",
+    "saveCurrent": "Save current look",
+    "empty": "No saved skins yet. Save your current look or add one from the skin editor.",
+    "emptyPick": "No saved skins yet.",
+    "loadError": "Couldn't load your skin library.",
+    "saveError": "That didn't go through. Try again.",
+    "apply": "Wear {name}",
+    "pick": "Load {name}",
+    "tileMenu": "Actions for {name}",
+    "edit": "Edit…",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete saved skin",
+    "deleteConfirmBody": "Delete “{name}” from your library? The skin file is removed from disk.",
+    "dialogTitleSave": "Save skin to library",
+    "dialogTitleEdit": "Edit saved skin",
+    "nameLabel": "Name",
+    "capeLabel": "Cape",
+    "capeNone": "No cape",
+    "capeBadge": "Cape: {name}",
+    "defaultName": "My skin",
+    "editorSave": "Save to library",
+    "editorLoad": "Library…",
+    "pickerTitle": "Load from library",
+    "save": "Save"
+  },
   "browse": {
     "filter": {
       "sortLabel": "Sort:",
