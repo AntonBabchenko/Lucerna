@@ -17,8 +17,6 @@
 ;                   kept, restore the stashed data-location.json so a
 ;                   reinstall can still find the relocated data root.
 
-!include "WordFunc.nsh"
-
 Var LucernaCleanupChoice
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -43,8 +41,25 @@ Var LucernaCleanupChoice
     Pop $0 ; exit code
     Pop $1 ; "SIZE|PATH"
     ${If} $0 == "0"
-      ${UnWordFind} "$1" "|" "+1" $R0
-      ${UnWordFind} "$1" "|" "+2" $R1
+      ; Split "$1" (= SIZE|PATH) at the first "|" into $R0 / $R1 by hand —
+      ; core StrCpy/StrCmp only. The NSIS distribution Tauri bundles has no
+      ; ${UnWordFind} (WordFunc's uninstaller variants are unavailable), so
+      ; header-based splitting cannot be used here. "|" cannot appear in a
+      ; Windows path, so the first hit is always the field separator.
+      StrCpy $R0 ""
+      StrCpy $R1 ""
+      StrCpy $4 0
+      lucerna_split_loop:
+        StrCpy $5 $1 1 $4
+        StrCmp $5 "" lucerna_split_done
+        StrCmp $5 "|" lucerna_split_found
+        IntOp $4 $4 + 1
+        Goto lucerna_split_loop
+      lucerna_split_found:
+        StrCpy $R0 $1 $4
+        IntOp $4 $4 + 1
+        StrCpy $R1 $1 "" $4
+      lucerna_split_done:
       ${If} $R1 != ""
         ${If} $LANGUAGE = 1049 ; Russian LCID — installer ships English + Russian
           StrCpy $2 "Будет удалено только само приложение Lucerna.$\r$\n$\r$\nИгровые данные — инстансы, миры, серверы, моды и настройки ($R0) — останутся здесь:$\r$\n$R1$\r$\n$\r$\nСохранённые данные входа в аккаунты также останутся в Диспетчере учётных данных Windows.$\r$\n$\r$\nУдалить и эти данные тоже? Это действие необратимо."
