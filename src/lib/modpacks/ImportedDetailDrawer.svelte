@@ -185,6 +185,18 @@
     };
   });
 
+  // One-click disable for an inert wrong-loader jar listed in the C5 section:
+  // same primitive as the Installed tab's toggle, then a silent refresh so the
+  // row flips to the "disabled" note.
+  async function disableInert(sha1: string) {
+    const r = await commands.modsDisable(inst.id, sha1);
+    if (r.status === 'error') {
+      pushWarning(formatError(r.error));
+      return;
+    }
+    await load(true);
+  }
+
   async function load(silent = false) {
     // Seed from the session cache so a reopened drawer renders instantly
     // instead of flashing "Loading…"; load() then revalidates below. A
@@ -666,6 +678,9 @@
               filename: j.filename,
               loader: j.detected_loader,
             })}
+            {@const rec = (mods ?? []).find(
+              (m) => m.filename.toLowerCase() === j.filename.toLowerCase(),
+            )}
             <li
               class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
             >
@@ -673,6 +688,18 @@
               <span class="truncate flex-1" use:tooltip={{ text: line, whenOverflowing: true }}
                 >{line}</span
               >
+              {#if rec && rec.enabled}
+                <button
+                  type="button"
+                  class="btn-tertiary text-xs flex-shrink-0"
+                  onclick={() => void disableInert(rec.sha1)}
+                  >{$t('modpacks.imported.detail.inertDisable')}</button
+                >
+              {:else if rec}
+                <span class="text-xs text-muted flex-shrink-0"
+                  >{$t('modpacks.imported.detail.inertDisabledNote')}</span
+                >
+              {/if}
             </li>
           {/each}
         </ul>
