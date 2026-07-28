@@ -110,7 +110,21 @@ pub fn resolve_root(
     }
     if let Some(candidate) = portable {
         match candidate.state {
-            PortableState::Root | PortableState::EmptyDir => {
+            // A root-shaped dir always wins — this is the re-adoption path,
+            // and real data next to the exe outranks whatever the default
+            // holds (documented trade-off).
+            PortableState::Root => {
+                return Resolved {
+                    root: candidate.path,
+                    configured: None,
+                    fell_back: false,
+                    must_create: false,
+                };
+            }
+            // A merely-EMPTY dir carries no data and therefore must not
+            // shadow a data-carrying default — it only serves as the fresh
+            // root of a fresh install.
+            PortableState::EmptyDir if !default_has_data => {
                 return Resolved {
                     root: candidate.path,
                     configured: None,
@@ -126,7 +140,7 @@ pub fn resolve_root(
                     must_create: true,
                 };
             }
-            PortableState::Absent { .. } | PortableState::Foreign => {}
+            PortableState::Absent { .. } | PortableState::EmptyDir | PortableState::Foreign => {}
         }
     }
     Resolved {
@@ -214,6 +228,17 @@ mod tests {
         );
         assert_eq!(r.root, PathBuf::from("/install/LucernaData"));
         assert!(!r.must_create);
+    }
+
+    #[test]
+    fn empty_exe_side_dir_does_not_shadow_data_carrying_default() {
+        // Only a ROOT-shaped dir may outrank existing default data; an empty
+        // coincidentally-named folder holds nothing worth switching to and
+        // would make the user's instances "vanish".
+        let r = resolve_root(def(), true, portable(PortableState::EmptyDir), None, |_| {
+            true
+        });
+        assert_eq!(r.root, def());
     }
 
     #[test]

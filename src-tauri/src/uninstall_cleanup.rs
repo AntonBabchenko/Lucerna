@@ -375,8 +375,10 @@ fn truncate_middle(s: &str, max: usize) -> String {
 /// Does this directory look like a (current or former) data root, as opposed
 /// to a bare settings/scratch dir? Looser than the startup resolver's
 /// `looks_like_data_root` on purpose — this only picks the inventory LABEL.
-/// (`.lucerna-migrated` is a file some older builds left in migrated roots;
-/// no current code writes it, but real disks still carry it.)
+/// (`.lucerna-migrated` has never been written by any code in this
+/// repository's history, but it is OBSERVED on a real user's migrated root —
+/// most likely a pre-merge build of the relocation feature left it. Matching
+/// it costs nothing and classifies such disks correctly.)
 fn dir_has_data_shape(dir: &Path) -> bool {
     dir.join("app.json").is_file()
         || dir.join("instances").is_dir()

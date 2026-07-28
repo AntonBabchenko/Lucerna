@@ -456,11 +456,18 @@ pub fn run() {
             let redirect = crate::paths::redirect_file(app.handle())
                 .ok()
                 .and_then(|f| crate::data_root::redirect::read(&f).ok().flatten());
-            // Portable candidate (`<exe dir>\LucernaData`): release builds only,
-            // and only when no explicit redirect exists — dev must never adopt
-            // `target/debug/LucernaData`, and the install dir must not be
-            // write-probed when the user's explicit choice wins anyway.
-            let portable = if cfg!(debug_assertions) || redirect.is_some() {
+            // Portable candidate (`<exe dir>\LucernaData`): WINDOWS release
+            // builds only, and only when no explicit redirect exists. Dev must
+            // never adopt `target/debug/LucernaData`; the install dir must not
+            // be write-probed when the user's explicit choice wins anyway; and
+            // macOS is excluded deliberately — a `.app` bundle dir is often
+            // writable, but the only macOS update path is Finder's
+            // drag-replace, which DELETES the old bundle wholesale: data
+            // created inside it would be lost on every update. (Linux is
+            // naturally safe — AppImage mounts read-only, deb/rpm install to
+            // root-owned paths — but stays excluded until portable mode is
+            // designed for it.)
+            let portable = if !cfg!(all(windows, not(debug_assertions))) || redirect.is_some() {
                 None
             } else {
                 std::env::current_exe()
@@ -500,13 +507,32 @@ pub fn run() {
                         resolved.root.display()
                     );
                     resolved = crate::data_root::Resolved {
-                        root: default_root,
+                        root: default_root.clone(),
                         configured: None,
                         fell_back: false,
                         must_create: false,
                     };
                 }
             }
+            // Human-readable trail of WHICH branch picked the root — the
+            // launcher log is the only evidence when a user reports "my
+            // instances disappeared after an update". Emitted after
+            // diag::init below so it lands in lucerna.log.
+            let resolution_note = format!(
+                "[data-root] root={} ({})",
+                resolved.root.display(),
+                if resolved.fell_back {
+                    "configured root unavailable, temporary default"
+                } else if resolved.configured.is_some() {
+                    "configured redirect"
+                } else if resolved.must_create {
+                    "fresh portable root next to the exe"
+                } else if resolved.root != default_root {
+                    "adopted portable root next to the exe"
+                } else {
+                    "OS default"
+                }
+            );
             {
                 use tauri::Manager;
                 app.manage(crate::data_root::DataRoot(resolved));
@@ -515,6 +541,7 @@ pub fn run() {
             // Open the launcher's own diagnostic log (lucerna.log) first, so
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
+            crate::diag!("{resolution_note}");
 
             // The main window is created here rather than in tauri.conf.json
             // (the config's `windows` array is empty) so that in release
