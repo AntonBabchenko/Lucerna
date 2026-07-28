@@ -1,22 +1,29 @@
 <script lang="ts">
-  // Confirmation gate before relocating (or resetting) the data root.
-  // `setDataLocation` restarts the app once it finishes, so the user must
-  // knowingly accept that before it fires. Thin presentational wrapper over
-  // ConfirmDialog (the mutation stays with the caller — StoragePanel). Uses the
-  // body snippet so the restart note keeps its font-medium emphasis, which a
-  // plain bodyText paragraph would flatten.
+  // Confirmation gate before relocating (or resetting/adopting) the data
+  // root. Both backend commands restart the app on success, so the user must
+  // knowingly accept that before either fires. Thin presentational wrapper
+  // over ConfirmDialog (the mutation stays with the caller — StoragePanel).
+  // Uses the body snippet so the emphasized notes keep their font-medium
+  // weight, which a plain bodyText paragraph would flatten.
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { t } from '$lib/i18n';
 
   let {
+    mode,
     targetPath,
+    currentPath,
     sizeLabel,
     busy,
     onCancel,
     onConfirm,
   }: {
-    /** null = resetting to the default location. */
-    targetPath: string | null;
+    /** move = copy into a fresh target; reset = move back to the default
+     * location; adopt = repoint at an existing root without copying. */
+    mode: 'move' | 'reset' | 'adopt';
+    /** Effective target path ('' for reset — its strings don't use it). */
+    targetPath: string;
+    /** Current effective root; shown in adopt's stays-on-disk note. */
+    currentPath: string;
     /** Pre-formatted human-readable size ("1.2 GB"), already localized. */
     sizeLabel: string;
     busy: boolean;
@@ -26,26 +33,44 @@
 </script>
 
 <ConfirmDialog
-  title={targetPath
-    ? $t('settings.storage.dataLocation.confirm.moveTitle')
-    : $t('settings.storage.dataLocation.confirm.resetTitle')}
-  confirmLabel={$t('settings.storage.dataLocation.confirm.confirmBtn')}
+  title={mode === 'adopt'
+    ? $t('settings.storage.dataLocation.confirm.adoptTitle')
+    : mode === 'move'
+      ? $t('settings.storage.dataLocation.confirm.moveTitle')
+      : $t('settings.storage.dataLocation.confirm.resetTitle')}
+  confirmLabel={mode === 'adopt'
+    ? $t('settings.storage.dataLocation.confirm.adoptConfirmBtn')
+    : $t('settings.storage.dataLocation.confirm.confirmBtn')}
   panelClass="w-[480px] p-5 flex flex-col gap-3"
   {busy}
   {onCancel}
   {onConfirm}
 >
   {#snippet body()}
-    <p class="text-sm text-secondary">
-      {targetPath
-        ? $t('settings.storage.dataLocation.confirm.moveBody', {
-            path: targetPath,
-            size: sizeLabel,
-          })
-        : $t('settings.storage.dataLocation.confirm.resetBody', { size: sizeLabel })}
-    </p>
+    {#if mode === 'adopt'}
+      <p class="text-sm text-secondary">
+        {$t('settings.storage.dataLocation.confirm.adoptBody', { path: targetPath })}
+      </p>
+      <p class="text-sm text-secondary font-medium">
+        {$t('settings.storage.dataLocation.confirm.adoptCurrentNote', {
+          current: currentPath,
+          size: sizeLabel,
+        })}
+      </p>
+    {:else}
+      <p class="text-sm text-secondary">
+        {mode === 'move'
+          ? $t('settings.storage.dataLocation.confirm.moveBody', {
+              path: targetPath,
+              size: sizeLabel,
+            })
+          : $t('settings.storage.dataLocation.confirm.resetBody', { size: sizeLabel })}
+      </p>
+    {/if}
     <p class="text-sm text-secondary font-medium">
-      {$t('settings.storage.dataLocation.confirm.restartNote')}
+      {mode === 'adopt'
+        ? $t('settings.storage.dataLocation.confirm.adoptRestartNote')
+        : $t('settings.storage.dataLocation.confirm.restartNote')}
     </p>
   {/snippet}
 </ConfirmDialog>
