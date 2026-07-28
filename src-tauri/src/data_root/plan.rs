@@ -24,32 +24,6 @@ pub enum PlanKind {
     Migrate(PathBuf),
 }
 
-/// True when `dir` looks like a Lucerna data root: an `instances/` directory
-/// plus an `app.json` file whose content parses as a JSON object.
-///
-/// Shape-based on purpose — there is no marker file, and requiring
-/// `versions/` would reject legitimately adoptable fresh roots
-/// (`instances::migrate::migrate_or_seed` guarantees only `app.json` +
-/// `instances/`; `versions/` appears on the first version install). The JSON
-/// check is schema-free so roots written by any past launcher version keep
-/// detecting.
-pub fn is_data_root(dir: &Path) -> bool {
-    if !dir.join("instances").is_dir() {
-        return false;
-    }
-    let app_json = dir.join("app.json");
-    if !app_json.is_file() {
-        return false;
-    }
-    match std::fs::read_to_string(&app_json) {
-        Ok(raw) => matches!(
-            serde_json::from_str::<serde_json::Value>(&raw),
-            Ok(serde_json::Value::Object(_))
-        ),
-        Err(_) => false,
-    }
-}
-
 /// True when `path`'s last component equals [`DATA_SUBFOLDER`], compared
 /// case-insensitively on every platform: the name is launcher-owned, and this
 /// rule only suppresses a cosmetic re-append — matching loosely can never
@@ -62,7 +36,8 @@ fn ends_with_data_subfolder(path: &Path) -> bool {
 }
 
 /// Pure classification of a picked directory. `is_root` is injected so the
-/// decision table is testable without a filesystem.
+/// decision table is testable without a filesystem; production passes the
+/// shared shape check, [`super::looks_like_data_root`].
 ///
 /// Rule order matters:
 /// 1. The picked dir itself is a root → adopt it (covers picking the root
@@ -90,57 +65,10 @@ pub fn plan_change(picked: &Path, is_root: &dyn Fn(&Path) -> bool) -> PlanKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
-    fn seed_root(dir: &Path) {
-        std::fs::create_dir_all(dir.join("instances")).unwrap();
-        std::fs::write(dir.join("app.json"), br#"{"active_instance":null}"#).unwrap();
-    }
-
-    #[test]
-    fn detects_minimal_root_without_versions_dir() {
-        let d = tempdir().unwrap();
-        seed_root(d.path());
-        assert!(is_data_root(d.path()));
-    }
-
-    #[test]
-    fn rejects_dir_without_instances() {
-        let d = tempdir().unwrap();
-        std::fs::write(d.path().join("app.json"), b"{}").unwrap();
-        assert!(!is_data_root(d.path()));
-    }
-
-    #[test]
-    fn rejects_dir_without_app_json() {
-        let d = tempdir().unwrap();
-        std::fs::create_dir_all(d.path().join("instances")).unwrap();
-        assert!(!is_data_root(d.path()));
-    }
-
-    #[test]
-    fn rejects_app_json_that_is_not_a_json_object() {
-        let d = tempdir().unwrap();
-        std::fs::create_dir_all(d.path().join("instances")).unwrap();
-        for bad in [&b"[]"[..], &b"not json"[..], &b"42"[..]] {
-            std::fs::write(d.path().join("app.json"), bad).unwrap();
-            assert!(!is_data_root(d.path()), "accepted {bad:?}");
-        }
-    }
-
-    #[test]
-    fn rejects_instances_as_a_file() {
-        let d = tempdir().unwrap();
-        std::fs::write(d.path().join("instances"), b"").unwrap();
-        std::fs::write(d.path().join("app.json"), b"{}").unwrap();
-        assert!(!is_data_root(d.path()));
-    }
-
-    #[test]
-    fn rejects_missing_dir() {
-        let d = tempdir().unwrap();
-        assert!(!is_data_root(&d.path().join("nope")));
-    }
+    // Detection itself lives in `data_root::looks_like_data_root` (module
+    // root) with its own tests; everything here exercises the pure decision
+    // table through the injected predicate.
 
     // ---- plan_change decision table (pure — injected is_root) ----
 

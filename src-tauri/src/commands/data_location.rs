@@ -263,9 +263,10 @@ pub enum DataLocationPlan {
 pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result<DataLocationPlan> {
     let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let plan = tokio::task::spawn_blocking(move || {
-        use crate::data_root::plan::{is_data_root, plan_change, PlanKind};
+        use crate::data_root::looks_like_data_root;
+        use crate::data_root::plan::{plan_change, PlanKind};
         let picked = PathBuf::from(picked);
-        let plan = plan_change(&picked, &is_data_root);
+        let plan = plan_change(&picked, &looks_like_data_root);
         let path = match &plan {
             PlanKind::Adopt(p) | PlanKind::Migrate(p) => p.clone(),
         };
@@ -292,7 +293,7 @@ pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result
 /// reason or accept, and whether the accept adopts the DEFAULT root (redirect
 /// removed instead of written). Predicates are injected so the decision table
 /// is unit testable without a filesystem; the command passes the real
-/// `plan::is_data_root` / `migrate::is_available` probes and the canonical
+/// `data_root::looks_like_data_root` / `migrate::is_available` probes and the canonical
 /// `migrate::is_same_path` compare.
 ///
 /// Deliberately has NO nesting check in either direction — nothing moves, and
@@ -362,7 +363,7 @@ pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
             &target_probe,
             &current,
             &default,
-            &crate::data_root::plan::is_data_root,
+            &crate::data_root::looks_like_data_root,
             &crate::data_root::migrate::is_available,
             &|a, b| crate::data_root::migrate::is_same_path(a, b),
         )
