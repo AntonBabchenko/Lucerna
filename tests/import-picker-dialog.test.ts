@@ -518,3 +518,35 @@ describe('ImportPickerDialog required-signal scoping', () => {
     expect(region?.textContent).toContain('may not launch');
   });
 });
+
+// ── optional badge ────────────────────────────────────────────────────────
+describe('optional badge', () => {
+  it('labels an explicitly-optional mod with the Optional badge', () => {
+    const { getAllByText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    // Iris is env_client: 'optional'; Sodium (required) keeps its own badge.
+    expect(getAllByText('Optional')).toHaveLength(1);
+    expect(getAllByText('Required')).toHaveLength(1);
+  });
+
+  it('labels an explicitly-optional non-mod file too (author metadata, any group)', () => {
+    const summary = {
+      ...baseSummary,
+      files: [
+        {
+          ...baseSummary.files[0],
+          name: 'Complementary Shaders',
+          filename: 'shader.zip',
+          install_path: 'shaderpacks/shader.zip',
+          sha1: 'sh1',
+          env_client: 'optional' as const,
+        },
+      ],
+    };
+    const { getAllByText } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect(getAllByText('Optional')).toHaveLength(1);
+  });
+});

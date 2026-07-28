@@ -719,6 +719,7 @@ export type TranslationKey =
   | 'modpacks.import.picker.groupShaderpacks'
   | 'modpacks.import.picker.installModAriaLabel'
   | 'modpacks.import.picker.openLink'
+  | 'modpacks.import.picker.optionalBadge'
   | 'modpacks.import.picker.optionalSection'
   | 'modpacks.import.picker.otherFilesUncheckedNotice'
   | 'modpacks.import.picker.requiredBadge'
