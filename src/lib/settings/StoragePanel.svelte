@@ -165,35 +165,56 @@
 
   // ── Data-root relocation ────────────────────────────────────────────────
   // pendingTarget: null while no picker/confirm/progress flow is in
-  // progress. Set to the picked path (or '' to mean "reset to default")
-  // once the user confirms the picker result, opening the confirm dialog.
-  let pendingTarget = $state<string | null | 'reset'>(null);
+  // progress. 'reset' = reset-to-default confirm; otherwise the
+  // backend-classified plan for the picked folder (adopt = repoint only,
+  // migrate = copy+verify+delete move).
+  let pendingTarget = $state<{ kind: 'adopt' | 'migrate'; path: string } | 'reset' | null>(null);
+  // True from picker open until the plan classification settles. Guards the
+  // window where the OS dialog is gone but planDataLocationChange (fs probes
+  // that can stall on a flaky drive) hasn't resolved: without it a second
+  // pick could race the first and silently swap an open confirm dialog's
+  // target between the user reading it and clicking confirm.
+  let planning = $state(false);
   let migrating = $state(false);
   let migrationError = $state<string | null>(null);
   let migrationProgress = $state<DataMigrationProgress | null>(null);
   let progressUnlisten: (() => void) | null = null;
 
-  // Name of the dedicated subfolder created inside the user-picked container.
-  // A human-readable name (not the `com.lucerna.app` identifier, which means
-  // nothing to a user) that still does not collide with the launcher's install
-  // folder (named `Lucerna`).
-  const DATA_SUBFOLDER = 'LucernaData';
+  const pendingIsAdopt = $derived(
+    pendingTarget !== null && pendingTarget !== 'reset' && pendingTarget.kind === 'adopt',
+  );
 
   async function pickLocation() {
+    if (planning) return;
+    planning = true;
     migrationError = null;
-    // Open the picker at the current data root's PARENT rather than wherever the
-    // last OS dialog left off (which could be an unrelated folder such as
-    // .minecraft/saves from an earlier world import).
-    const current = dataLocation.status?.effective;
-    const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
-    const picked = await openDirectory({ directory: true, defaultPath });
-    if (!picked || typeof picked !== 'string') return;
-    // The user picks a CONTAINER folder; we relocate into a dedicated `Lucerna`
-    // subfolder inside it. This means they never have to find or create an empty
-    // folder, and we never scatter our files among their existing content.
-    const sep = picked.includes('\\') ? '\\' : '/';
-    const base = picked.replace(/[\\/]+$/, '');
-    pendingTarget = `${base}${sep}${DATA_SUBFOLDER}`;
+    try {
+      // Open the picker at the current data root's PARENT rather than wherever
+      // the last OS dialog left off (which could be an unrelated folder such
+      // as .minecraft/saves from an earlier world import).
+      const current = dataLocation.status?.effective;
+      const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
+      const picked = await openDirectory({ directory: true, defaultPath });
+      if (!picked || typeof picked !== 'string') return;
+      // The backend classifies the pick: an existing Lucerna root (the picked
+      // folder itself or its LucernaData child) becomes an adopt offer;
+      // anything else resolves to the effective migration target with the
+      // LucernaData subfolder applied exactly once. The frontend builds no
+      // paths — frontend-side appending is how picking an existing root used
+      // to nest LucernaData\LucernaData and abandon the real data.
+      const plan = await commands.planDataLocationChange(picked);
+      if (plan.status !== 'ok') {
+        migrationError = formatError(plan.error);
+        return;
+      }
+      if (plan.data.kind === 'already_current') {
+        migrationError = $t('settings.storage.dataLocation.alreadyCurrent');
+        return;
+      }
+      pendingTarget = { kind: plan.data.kind, path: plan.data.path };
+    } finally {
+      planning = false;
+    }
   }
 
   function requestReset() {
@@ -211,13 +232,22 @@
     migrating = true;
     migrationProgress = null;
     migrationError = null;
-    progressUnlisten = await events.dataMigrationProgress.listen((event) => {
-      migrationProgress = event.payload;
-    });
-    const newPath = target === 'reset' ? null : target;
-    const result = await commands.setDataLocation(newPath);
-    // On success setDataLocation never returns (the backend calls
-    // app.restart()); reaching here means it failed before that point.
+    const isAdopt = target !== 'reset' && target.kind === 'adopt';
+    // Progress events only stream for migrate/reset (a real copy); adopt is
+    // a redirect write + restart, so there is nothing to listen for.
+    if (!isAdopt) {
+      progressUnlisten = await events.dataMigrationProgress.listen((event) => {
+        migrationProgress = event.payload;
+      });
+    }
+    const result =
+      target === 'reset'
+        ? await commands.setDataLocation(null)
+        : target.kind === 'adopt'
+          ? await commands.adoptDataLocation(target.path)
+          : await commands.setDataLocation(target.path);
+    // On success neither command returns (the backend calls app.restart());
+    // reaching here means it failed before that point.
     progressUnlisten?.();
     progressUnlisten = null;
     migrating = false;
@@ -420,7 +450,7 @@
       <button
         type="button"
         class="btn-secondary btn-sm"
-        disabled={dataLocation.status?.fell_back}
+        disabled={planning || dataLocation.status?.fell_back}
         onclick={() => void pickLocation()}
       >
         {$t('settings.storage.dataLocation.changeBtn')}
@@ -439,9 +469,14 @@
   </div>
 </div>
 
-{#if pendingTarget !== null && !migrating}
+{#if pendingTarget !== null && (!migrating || pendingIsAdopt)}
+  <!-- While an adopt is committing, the confirm dialog stays up with its busy
+       spinner instead of flashing the progress dialog, which would show a
+       meaningless "Preparing…" for a sub-second redirect write. -->
   <DataLocationConfirmDialog
-    targetPath={pendingTarget === 'reset' ? null : pendingTarget}
+    mode={pendingTarget === 'reset' ? 'reset' : pendingTarget.kind === 'adopt' ? 'adopt' : 'move'}
+    targetPath={pendingTarget === 'reset' ? '' : pendingTarget.path}
+    currentPath={dataLocation.status?.effective ?? ''}
     sizeLabel={formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}
     busy={migrating}
     onCancel={cancelPending}
@@ -449,6 +484,6 @@
   />
 {/if}
 
-{#if migrating}
+{#if migrating && !pendingIsAdopt}
   <DataLocationProgressDialog progress={migrationProgress} />
 {/if}

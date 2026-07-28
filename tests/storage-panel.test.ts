@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The two IPC commands StoragePanel drives are wrapped in typedError on
 // the real bindings, so they resolve to a `{ status: 'ok' | 'error' }`
@@ -32,8 +32,19 @@ vi.mock('$lib/ipc/bindings', () => ({
     // getDataLocation so startup never walks the whole tree).
     dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 4096 }),
     setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The picker flow asks the backend to classify the picked folder before
+    // any dialog opens; adopt commits through its own command.
+    planDataLocationChange: vi.fn(),
+    adoptDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  },
+  // confirmPending subscribes to migration progress for migrate/reset.
+  events: {
+    dataMigrationProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
   },
 }));
+
+// The OS directory picker (plugin:dialog). Resolved value set per test.
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 
 const { pushSuccess } = vi.hoisted(() => ({ pushSuccess: vi.fn() }));
 vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess }));
@@ -128,5 +139,101 @@ describe('StoragePanel — log retention', () => {
     expect(container.querySelector('[data-testid="log-retention-toggle"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="log-retention-max-files"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="log-retention-max-mb"]')).not.toBeNull();
+  });
+});
+
+describe('StoragePanel — data location change planning', () => {
+  // Call lists must start clean: the adopt test asserts setDataLocation was
+  // NOT called (and vice versa). clearAllMocks keeps the factory-installed
+  // resolved values, it only clears recorded calls.
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function pickAndPlan(picked: string, plan: unknown) {
+    const dialogPlugin = await import('@tauri-apps/plugin-dialog');
+    (dialogPlugin.open as ReturnType<typeof vi.fn>).mockResolvedValue(picked);
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.planDataLocationChange as ReturnType<typeof vi.fn>).mockResolvedValue(plan);
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    await fireEvent.click(screen.getByRole('button', { name: 'Change location…' }));
+    // Two yields: the picker promise, then the plan promise.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    return mod;
+  }
+
+  it('offers to adopt when the backend classifies the pick as an existing root', async () => {
+    const mod = await pickAndPlan('C:\\Programs\\Lucerna', {
+      status: 'ok',
+      data: { kind: 'adopt', path: 'C:\\Programs\\Lucerna\\LucernaData' },
+    });
+    expect(mod.commands.planDataLocationChange).toHaveBeenCalledWith('C:\\Programs\\Lucerna');
+    // Adopt dialog, not the move dialog.
+    expect(screen.getByText('Use existing data folder?')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Switch and restart' }));
+    await new Promise((r) => setTimeout(r, 0));
+    // Commits through the adopt command with the backend-planned path — the
+    // migrate command (which would nest a fresh root) must never fire.
+    expect(mod.commands.adoptDataLocation).toHaveBeenCalledWith(
+      'C:\\Programs\\Lucerna\\LucernaData',
+    );
+    expect(mod.commands.setDataLocation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the classic move flow when the backend plans a migration', async () => {
+    const mod = await pickAndPlan('D:\\Games', {
+      status: 'ok',
+      data: { kind: 'migrate', path: 'D:\\Games\\LucernaData' },
+    });
+    expect(screen.getByText('Move data folder?')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Move and restart' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.setDataLocation).toHaveBeenCalledWith('D:\\Games\\LucernaData');
+    expect(mod.commands.adoptDataLocation).not.toHaveBeenCalled();
+  });
+
+  it('blocks re-picks while a plan classification is still in flight', async () => {
+    const dialogPlugin = await import('@tauri-apps/plugin-dialog');
+    (dialogPlugin.open as ReturnType<typeof vi.fn>).mockResolvedValue('C:\\Slow\\Drive');
+    const mod = await import('$lib/ipc/bindings');
+    // Hold the classification unresolved to model a stalling fs probe.
+    let resolvePlan: (v: unknown) => void = () => {};
+    (mod.commands.planDataLocationChange as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => {
+        resolvePlan = r;
+      }),
+    );
+
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    const changeBtn = () =>
+      screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement;
+    await fireEvent.click(changeBtn());
+    await new Promise((r) => setTimeout(r, 0));
+    // The button is disabled for the whole planning window, and a re-click
+    // (e.g. via keyboard) never starts a second racing pick.
+    expect(changeBtn().disabled).toBe(true);
+    await fireEvent.click(changeBtn());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.planDataLocationChange).toHaveBeenCalledTimes(1);
+
+    resolvePlan({ status: 'ok', data: { kind: 'migrate', path: 'C:\\Slow\\Drive\\LucernaData' } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changeBtn().disabled).toBe(false);
+    expect(screen.getByText('Move data folder?')).toBeTruthy();
+  });
+
+  it('shows an inline message and no dialog when the pick is already current', async () => {
+    const mod = await pickAndPlan('/data', {
+      status: 'ok',
+      data: { kind: 'already_current', path: '/data' },
+    });
+    expect(screen.getByText('That folder is already your current data folder.')).toBeTruthy();
+    expect(screen.queryByText('Use existing data folder?')).toBeNull();
+    expect(screen.queryByText('Move data folder?')).toBeNull();
+    expect(mod.commands.adoptDataLocation).not.toHaveBeenCalled();
+    expect(mod.commands.setDataLocation).not.toHaveBeenCalled();
   });
 });

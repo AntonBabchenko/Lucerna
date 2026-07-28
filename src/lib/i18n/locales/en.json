@@ -1765,6 +1765,8 @@
       "nested": "it is inside the current data folder",
       "same": "it is already the current data folder",
       "notEmpty": "the folder must be empty",
+      "notADataRoot": "it doesn't contain Lucerna data",
+      "notWritable": "it can't be written to",
       "unknown": "it is not a valid location"
     },
     "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact.",
@@ -1875,11 +1877,17 @@
         "changeBtn": "Change location…",
         "resetBtn": "Reset to default",
         "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected.",
+        "alreadyCurrent": "That folder is already your current data folder.",
         "confirm": {
           "moveTitle": "Move data folder?",
           "moveBody": "Lucerna will copy {size} of data to \"{path}\", then remove it from the current location.",
           "resetTitle": "Reset to the default location?",
           "resetBody": "Lucerna will copy {size} of data back to the default folder, then remove it from the current location.",
+          "adoptTitle": "Use existing data folder?",
+          "adoptBody": "\"{path}\" already contains Lucerna data. Lucerna will switch to it without copying, moving, or deleting anything.",
+          "adoptCurrentNote": "Your current data ({size} at \"{current}\") will stay on disk but will no longer be used.",
+          "adoptRestartNote": "The app will restart to switch to the selected folder.",
+          "adoptConfirmBtn": "Switch and restart",
           "restartNote": "The app will restart once the move finishes.",
           "confirmBtn": "Move and restart"
         },

@@ -168,6 +168,12 @@ export type MockState = {
   installed_mods?: MockInstalledMod[];
   /** Servers returned by server_list; defaults to empty. */
   servers?: ServerWithStatus_Serialize[];
+  /** get_data_location result (Settings → Storage). */
+  data_location?: { effective: string; configured: string | null; fell_back: boolean };
+  /** plugin:dialog|open result (the OS directory picker). null = cancelled. */
+  picked_directory?: string | null;
+  /** plan_data_location_change result; null = command unused by the spec. */
+  data_location_plan?: { kind: 'adopt' | 'migrate' | 'already_current'; path: string } | null;
 };
 
 /**
@@ -256,6 +262,9 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         mod_hits: [],
         installed_mods: [],
         servers: [],
+        data_location: { effective: 'C:\\Default\\Data', configured: null, fell_back: false },
+        picked_directory: null,
+        data_location_plan: null,
       };
       const m = { ...defaults, ...s };
 
@@ -425,6 +434,16 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // Mod cache size (Settings panel).
         mods_cache_size_bytes: () => 0,
 
+        // Data-root location (Settings → Storage). `open` is the
+        // plugin:dialog|open directory picker — the prefix stripper below
+        // reduces it to its bare name.
+        get_data_location: () => m.data_location,
+        data_root_size_bytes: () => 4096,
+        plan_data_location_change: () => m.data_location_plan,
+        adopt_data_location: () => null,
+        set_data_location: () => null,
+        open: () => m.picked_directory,
+
         // Log files / diagnoser — return empty/null so the Logs popover
         // mounts without errors.
         list_log_files: () => [],
@@ -459,6 +478,14 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
             // Event system IPC — return a no-op unlisten token.
             return 0;
           }
+
+          // Per-page call log so specs can assert which commands fired with
+          // which args (e.g. an adopt commit must never reach the migrate
+          // command). Event-system noise is excluded by the early return.
+          const w = window as Window & {
+            __mockIpcCalls?: Array<{ cmd: string; args: unknown }>;
+          };
+          (w.__mockIpcCalls ??= []).push({ cmd: key, args: _args });
 
           const handler: Handler =
             (handlers[key] as Handler | undefined) ?? (handlers.__default as Handler);

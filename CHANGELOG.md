@@ -51,6 +51,14 @@ release is **0.9.0**.
   keeping game data no longer orphans a relocated data root: the
   `data-location.json` pointer is restored, so a reinstall finds the data
   again.
+- Changing the data location to a folder that already contains Lucerna data no
+  longer nests a fresh `LucernaData` folder inside it and silently abandons the
+  existing data. The launcher now recognizes an existing data root (picked
+  directly or via its parent folder) and offers to switch to it in place —
+  nothing is copied or deleted, and the dialog says where the current data
+  stays. Picking a folder already named `LucernaData` no longer doubles the
+  subfolder, and picking the current data folder now says so plainly instead
+  of failing with a confusing error.
 
 ## [0.20.0] — 2026-07-27
 

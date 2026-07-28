@@ -1460,6 +1460,28 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  complete, verified copy.
 	 */
 	setDataLocation: (newPath: string | null) => typedError<null, Error>(__TAURI_INVOKE("set_data_location", { newPath })),
+	/**
+	 *  Classify a picked directory into adopt / migrate / already-current.
+	 *  Read-only (fs probes only) — commit-time validation still happens in
+	 *  `set_data_location` / [`adopt_data_location`], so a race between planning
+	 *  and confirming can never skip a guard. Probes run on a blocking thread: a
+	 *  stat on a flaky removable drive can stall for seconds.
+	 */
+	planDataLocationChange: (picked: string) => typedError<DataLocationPlan, Error>(__TAURI_INVOKE("plan_data_location_change", { picked })),
+	/**
+	 *  Point the data root at `path` — an EXISTING Lucerna data root — without
+	 *  copying, verifying, or deleting anything. Writes the bootstrap redirect
+	 *  (or removes it when `path` IS the default root, keeping `configured`
+	 *  clean) and restarts the app. The current root's data stays on disk
+	 *  untouched; the confirm dialog says so explicitly.
+	 * 
+	 *  Shares `set_data_location`'s guards: rejected while a game/server runs,
+	 *  while running from a fallback root, or while another change is in flight
+	 *  (`DataLocationBusy`). Validation failures surface as
+	 *  `DataLocationInvalid` with the reasons produced by [`classify_adopt`]
+	 *  (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
+	 */
+	adoptDataLocation: (path: string) => typedError<null, Error>(__TAURI_INVOKE("adopt_data_location", { path })),
 };
 
 /** Events */
@@ -1878,6 +1900,23 @@ export type CropFrac = {
 	w: number | null,
 	h: number | null,
 };
+
+/**
+ *  A classified data-location change for a user-picked directory. Returned by
+ *  [`plan_data_location_change`]; the frontend shows the dialog matching the
+ *  kind and then commits via `set_data_location` (migrate) or
+ *  [`adopt_data_location`] (adopt).
+ */
+export type DataLocationPlan = 
+/**  `path` is an existing Lucerna data root — offer to point at it. */
+{ kind: "adopt"; path: string } | 
+/**
+ *  `path` is the effective migration target (the `LucernaData` subfolder
+ *  applied exactly once).
+ */
+{ kind: "migrate"; path: string } | 
+/**  The pick resolves to the current effective root — nothing to change. */
+{ kind: "already_current"; path: string };
 
 export type DataLocationStatus = {
 	effective: string,

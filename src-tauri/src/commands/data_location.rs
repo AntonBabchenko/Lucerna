@@ -237,6 +237,159 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
     app.restart();
 }
 
+/// A classified data-location change for a user-picked directory. Returned by
+/// [`plan_data_location_change`]; the frontend shows the dialog matching the
+/// kind and then commits via `set_data_location` (migrate) or
+/// [`adopt_data_location`] (adopt).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DataLocationPlan {
+    /// `path` is an existing Lucerna data root — offer to point at it.
+    Adopt { path: String },
+    /// `path` is the effective migration target (the `LucernaData` subfolder
+    /// applied exactly once).
+    Migrate { path: String },
+    /// The pick resolves to the current effective root — nothing to change.
+    AlreadyCurrent { path: String },
+}
+
+/// Classify a picked directory into adopt / migrate / already-current.
+/// Read-only (fs probes only) — commit-time validation still happens in
+/// `set_data_location` / [`adopt_data_location`], so a race between planning
+/// and confirming can never skip a guard. Probes run on a blocking thread: a
+/// stat on a flaky removable drive can stall for seconds.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result<DataLocationPlan> {
+    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let plan = tokio::task::spawn_blocking(move || {
+        use crate::data_root::plan::{is_data_root, plan_change, PlanKind};
+        let picked = PathBuf::from(picked);
+        let plan = plan_change(&picked, &is_data_root);
+        let path = match &plan {
+            PlanKind::Adopt(p) | PlanKind::Migrate(p) => p.clone(),
+        };
+        if crate::data_root::migrate::is_same_path(&path, &current) {
+            return DataLocationPlan::AlreadyCurrent {
+                path: path.display().to_string(),
+            };
+        }
+        match plan {
+            PlanKind::Adopt(p) => DataLocationPlan::Adopt {
+                path: p.display().to_string(),
+            },
+            PlanKind::Migrate(p) => DataLocationPlan::Migrate {
+                path: p.display().to_string(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| Error::io("<plan_data_location>", format!("plan task panicked: {e}")))?;
+    Ok(plan)
+}
+
+/// Pure commit-time gate for [`adopt_data_location`]: decide the rejection
+/// reason or accept, and whether the accept adopts the DEFAULT root (redirect
+/// removed instead of written). Predicates are injected so the decision table
+/// is unit testable without a filesystem; the command passes the real
+/// `plan::is_data_root` / `migrate::is_available` probes and the canonical
+/// `migrate::is_same_path` compare.
+///
+/// Deliberately has NO nesting check in either direction — nothing moves, and
+/// "current root nested inside the adopted root" is exactly the doubled-path
+/// recovery adopt exists for.
+fn classify_adopt(
+    target: &Path,
+    current: &Path,
+    default: &Path,
+    is_root: &dyn Fn(&Path) -> bool,
+    is_avail: &dyn Fn(&Path) -> bool,
+    same: &dyn Fn(&Path, &Path) -> bool,
+) -> std::result::Result<bool, crate::data_root::validate::Invalid> {
+    use crate::data_root::validate::Invalid;
+    if !target.is_absolute() {
+        return Err(Invalid::NotAbsolute);
+    }
+    if !is_root(target) {
+        return Err(Invalid::NotADataRoot);
+    }
+    if same(target, current) {
+        return Err(Invalid::SameAsCurrent);
+    }
+    if !is_avail(target) {
+        return Err(Invalid::NotWritable);
+    }
+    Ok(same(target, default))
+}
+
+/// Point the data root at `path` — an EXISTING Lucerna data root — without
+/// copying, verifying, or deleting anything. Writes the bootstrap redirect
+/// (or removes it when `path` IS the default root, keeping `configured`
+/// clean) and restarts the app. The current root's data stays on disk
+/// untouched; the confirm dialog says so explicitly.
+///
+/// Shares `set_data_location`'s guards: rejected while a game/server runs,
+/// while running from a fallback root, or while another change is in flight
+/// (`DataLocationBusy`). Validation failures surface as
+/// `DataLocationInvalid` with the reasons produced by [`classify_adopt`]
+/// (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
+#[tauri::command]
+#[specta::specta]
+pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
+    let guard = MigrationGuard::try_acquire().ok_or(Error::DataLocationBusy)?;
+
+    // Mirror set_data_location: never re-point while running from a fallback
+    // root (the UI disables the button; this is the IPC backstop) or while a
+    // game/server is live (the restart would drop the process registry).
+    if app.state::<crate::data_root::DataRoot>().0.fell_back {
+        return Err(Error::DataLocationBusy);
+    }
+    if any_game_running(&app) {
+        return Err(Error::DataLocationBusy);
+    }
+
+    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let default =
+        crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
+    let target = PathBuf::from(path);
+
+    // Blocking fs probes (shape re-check at commit time — the plan result may
+    // be stale — plus canonical compares and the write probe) off the async
+    // runtime; any of them can stall on a flaky removable drive.
+    let target_probe = target.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        classify_adopt(
+            &target_probe,
+            &current,
+            &default,
+            &crate::data_root::plan::is_data_root,
+            &crate::data_root::migrate::is_available,
+            &|a, b| crate::data_root::migrate::is_same_path(a, b),
+        )
+    })
+    .await
+    .map_err(|e| Error::io("<adopt_data_location>", format!("probe task panicked: {e}")))?;
+    let adopting_default = checked.map_err(|v| Error::DataLocationInvalid {
+        reason: v.reason_key().to_string(),
+    })?;
+
+    let redirect_file =
+        crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+    if adopting_default {
+        crate::data_root::redirect::remove(&redirect_file)?;
+    } else {
+        crate::data_root::redirect::write(
+            &redirect_file,
+            &crate::data_root::redirect::Redirect { path: target },
+        )?;
+    }
+
+    // Nothing moved; keep the guard held across the restart so a concurrent
+    // migrate can't start against a root that is about to change.
+    std::mem::forget(guard);
+    app.restart();
+}
+
 /// The blocking copy → verify → delete pipeline. Returns the number of bytes
 /// copied (excluding the skipped redirect). Emits `DataMigrationProgress`
 /// throughout. Runs entirely on a blocking thread.
@@ -343,4 +496,90 @@ fn run_migration(
     }
 
     Ok(copied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_adopt;
+    use crate::data_root::validate::Invalid;
+    use std::path::{Path, PathBuf};
+
+    // Absolute on BOTH platforms (mirrors validate.rs tests): `/x` is not
+    // absolute on Windows, which would short-circuit every case on
+    // NotAbsolute under the windows CI runner.
+    fn abs(rel: &str) -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(format!("C:\\{}", rel.replace('/', "\\")))
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from(format!("/{rel}"))
+        }
+    }
+
+    fn always(_: &Path) -> bool {
+        true
+    }
+    fn never(_: &Path) -> bool {
+        false
+    }
+    fn eq(a: &Path, b: &Path) -> bool {
+        a == b
+    }
+
+    #[test]
+    fn relative_target_is_rejected_first() {
+        let r = classify_adopt(
+            Path::new("rel"),
+            &abs("cur"),
+            &abs("def"),
+            &always,
+            &always,
+            &eq,
+        );
+        assert_eq!(r, Err(Invalid::NotAbsolute));
+    }
+
+    #[test]
+    fn non_root_target_is_rejected() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &never, &always, &eq);
+        assert_eq!(r, Err(Invalid::NotADataRoot));
+    }
+
+    #[test]
+    fn same_as_current_is_rejected() {
+        let cur = abs("cur");
+        let r = classify_adopt(&cur, &cur, &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Err(Invalid::SameAsCurrent));
+    }
+
+    #[test]
+    fn unwritable_target_is_rejected() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &always, &never, &eq);
+        assert_eq!(r, Err(Invalid::NotWritable));
+    }
+
+    #[test]
+    fn custom_root_accepts_and_writes_redirect() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Ok(false));
+    }
+
+    #[test]
+    fn default_root_accepts_and_removes_redirect() {
+        let def = abs("def");
+        let r = classify_adopt(&def, &abs("cur"), &def, &always, &always, &eq);
+        assert_eq!(r, Ok(true));
+    }
+
+    #[test]
+    fn current_nested_inside_target_is_allowed() {
+        // The doubled-path recovery: current root lives INSIDE the adopted
+        // root. Only exact-same is a conflict; nesting must pass.
+        let target = abs("root");
+        let current = target.join("LucernaData");
+        let r = classify_adopt(&target, &current, &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Ok(false));
+    }
 }

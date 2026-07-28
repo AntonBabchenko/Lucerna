@@ -6,6 +6,11 @@ pub enum Invalid {
     NestedInCurrent,
     SameAsCurrent,
     NotEmpty,
+    /// Adopt target does not look like a Lucerna data root (shape check).
+    NotADataRoot,
+    /// Adopt target failed the write probe; restarting into it would land
+    /// straight in the fallback banner.
+    NotWritable,
 }
 
 impl Invalid {
@@ -18,6 +23,8 @@ impl Invalid {
             Invalid::NestedInCurrent => "nested",
             Invalid::SameAsCurrent => "same",
             Invalid::NotEmpty => "not_empty",
+            Invalid::NotADataRoot => "not_a_data_root",
+            Invalid::NotWritable => "not_writable",
         }
     }
 }
@@ -106,5 +113,7 @@ mod tests {
         assert_eq!(Invalid::NestedInCurrent.reason_key(), "nested");
         assert_eq!(Invalid::SameAsCurrent.reason_key(), "same");
         assert_eq!(Invalid::NotEmpty.reason_key(), "not_empty");
+        assert_eq!(Invalid::NotADataRoot.reason_key(), "not_a_data_root");
+        assert_eq!(Invalid::NotWritable.reason_key(), "not_writable");
     }
 }
