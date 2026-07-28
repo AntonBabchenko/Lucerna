@@ -484,6 +484,8 @@
       "dropzoneLabel": "Перетащите .jar мода сюда или нажмите для выбора файла",
       "dropzoneDisabled": "Выберите профиль с загрузчиком для установки модов",
       "toastInstallFailed": "Не удалось установить мод",
+      "toastInstallFailedWithMod": "Не удалось установить {name}",
+      "toastRetry": "Повторить",
       "toastInstalledMod": "Установлен {name}",
       "mismatchLoader": "похоже на мод для {detected}, профиль использует {instance}",
       "mismatchMc": "предназначен для MC {detected}, профиль использует {instance}",
