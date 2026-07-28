@@ -9,6 +9,7 @@ pub mod microsoft;
 pub mod offline;
 pub mod offline_name;
 pub mod ops;
+pub mod skin_library;
 pub mod skins;
 pub mod store;
 

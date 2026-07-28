@@ -208,6 +208,7 @@ describe('formatError', () => {
       no_minecraft_profile: { kind: 'no_minecraft_profile' },
       auth_pending_approval: { kind: 'auth_pending_approval' },
       cosmetic_image_invalid: { kind: 'cosmetic_image_invalid', details: 'skin must be 64x64' },
+      skin_library: { kind: 'skin_library', details: 'entry not found' },
       unknown_version: { kind: 'unknown_version', id: '1.21' },
       loader_unavailable: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.21' },
       unsupported_platform: { kind: 'unsupported_platform', os: 'plan9', arch: 'sparc' },

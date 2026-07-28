@@ -12,7 +12,16 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
-  import { commands, type Account, type SkinVariant } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type Account,
+    type CapeInfo,
+    type SkinLibraryItem,
+    type SkinVariant,
+  } from '$lib/ipc/bindings';
+  import Spinner from '$lib/ui/Spinner.svelte';
+  import SkinLibraryPanel from '$lib/accounts/SkinLibraryPanel.svelte';
+  import SkinLibraryEntryDialog from '$lib/accounts/SkinLibraryEntryDialog.svelte';
   import type { SkinViewer } from 'skinview3d';
   import type { Mesh, Object3D, Vector3 } from 'three';
   import { SKIN_SIZE, validateSkinDimensions, type Rgba } from '$lib/accounts/skin-editor/buffer';
@@ -56,12 +65,16 @@
     account,
     initialSkinB64,
     initialVariant,
+    capes = null,
     onClose,
     onApplied,
   }: {
     account: Account | null;
     initialSkinB64: string | null;
     initialVariant: SkinVariant;
+    /** Owned capes for the save-to-library dialog; null hides its cape row
+     * (standalone/offline editor — capes are an MS-account concept). */
+    capes?: CapeInfo[] | null;
     onClose: () => void;
     /** Called after a successful upload so the parent can refresh its preview. */
     onApplied?: (skinB64: string, variant: SkinVariant) => void;
@@ -859,6 +872,80 @@
     onApplied?.(b64, variant);
   }
 
+  // --- saved-skins library (save-to + load-from) -------------------------------
+
+  let libDialogOpen = $state(false);
+  let libDialogBusy = $state(false);
+  let libDialogError = $state<string | null>(null);
+  let pickerOpen = $state(false);
+  let pickerLoading = $state(false);
+  let pickerError = $state(false);
+  let pickerEntries = $state<SkinLibraryItem[]>([]);
+
+  function openSaveToLibrary(): void {
+    if (busy || !viewer) return;
+    // Same pre-save cleanup as export/apply so the library never stores
+    // dead out-of-atlas pixels.
+    cleanupTexture();
+    libDialogError = null;
+    libDialogOpen = true;
+  }
+
+  async function saveToLibrary(v: {
+    name: string;
+    variant: SkinVariant;
+    capeId: string | null;
+  }): Promise<void> {
+    if (!viewer) return;
+    libDialogBusy = true;
+    libDialogError = null;
+    const b64 = viewer.skinCanvas.toDataURL('image/png').split(',')[1];
+    const res = await commands.skinLibrarySave(v.name, v.variant, v.capeId, b64);
+    libDialogBusy = false;
+    if (res.status === 'error') {
+      libDialogError = $t('skinLibrary.saveError');
+      return;
+    }
+    libDialogOpen = false;
+  }
+
+  async function openPicker(): Promise<void> {
+    if (busy) return;
+    pickerOpen = true;
+    pickerLoading = true;
+    pickerError = false;
+    const res = await commands.skinLibraryList();
+    pickerLoading = false;
+    if (res.status === 'error') {
+      pickerError = true;
+      pickerEntries = [];
+      return;
+    }
+    pickerEntries = res.data;
+  }
+
+  async function pickFromLibrary(item: SkinLibraryItem): Promise<void> {
+    if (busy || !viewer) return;
+    pickerOpen = false;
+    saveError = null;
+    // Hold `busy` across the async texture load: once the picker's backdrop is
+    // gone, Apply/export would otherwise be clickable while the canvas still
+    // shows the PREVIOUS skin and would upload/save stale pixels.
+    busy = true;
+    try {
+      beginStroke(); // so loading a library skin is undoable, mirroring loadPng
+      setVariant(item.variant);
+      await viewer.loadSkin(`data:image/png;base64,${item.skin_png_base64}`, {
+        model: variantToModel(variant),
+      });
+      dirty = true;
+      syncHistoryFlags();
+      renderCompanion();
+    } finally {
+      busy = false;
+    }
+  }
+
   function requestClose(): void {
     if (dirty && !window.confirm($t('skinEditor.unsavedConfirm'))) return;
     onClose();
@@ -1253,6 +1340,19 @@
         <Icon name="download" size={14} />
         {$t('skinEditor.savePng')}
       </button>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        onclick={openSaveToLibrary}
+        disabled={busy}
+      >
+        <Icon name="plus" size={14} />
+        {$t('skinLibrary.editorSave')}
+      </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={openPicker} disabled={busy}>
+        <Icon name="gallery" size={14} />
+        {$t('skinLibrary.editorLoad')}
+      </button>
       {#if saveError}
         <span class="text-xs text-danger">{saveError}</span>
       {/if}
@@ -1277,3 +1377,44 @@
     </div>
   </div>
 </Modal>
+
+{#if libDialogOpen}
+  <SkinLibraryEntryDialog
+    title={$t('skinLibrary.dialogTitleSave')}
+    initial={{ name: $t('skinLibrary.defaultName'), variant, capeId: null }}
+    {capes}
+    busy={libDialogBusy}
+    error={libDialogError}
+    onCancel={() => (libDialogOpen = false)}
+    onSubmit={saveToLibrary}
+  />
+{/if}
+
+{#if pickerOpen}
+  <Modal
+    ariaLabelledby="skin-lib-picker-title"
+    onClose={() => (pickerOpen = false)}
+    panelClass="w-[560px] max-w-full max-h-[calc(100vh-2rem)] p-0 flex flex-col"
+  >
+    <div class="flex items-center px-5 py-3.5 border-b border-border-subtle shrink-0">
+      <h3 id="skin-lib-picker-title" class="font-medium text-primary text-base">
+        {$t('skinLibrary.pickerTitle')}
+      </h3>
+      <CloseButton class="ml-auto" onClick={() => (pickerOpen = false)} />
+    </div>
+    <div class="p-5 flex-1 min-h-0 overflow-y-auto">
+      {#if pickerLoading}
+        <Spinner label={$t('common.loading')} labelPlacement="below" />
+      {:else if pickerError}
+        <div class="flex items-center gap-3">
+          <p class="text-sm text-danger" role="alert">{$t('skinLibrary.loadError')}</p>
+          <button type="button" class="btn-secondary btn-xs" onclick={() => openPicker()}
+            >{$t('cosmetics.retry')}</button
+          >
+        </div>
+      {:else}
+        <SkinLibraryPanel entries={pickerEntries} mode="pick" onPick={pickFromLibrary} />
+      {/if}
+    </div>
+  </Modal>
+{/if}

@@ -56,6 +56,8 @@ mod screenshots;
 pub use screenshots::*;
 mod cosmetics;
 pub use cosmetics::*;
+mod skin_library;
+pub use skin_library::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)

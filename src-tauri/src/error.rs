@@ -68,6 +68,9 @@ pub enum Error {
     #[error("Skin image is invalid: {details}")]
     CosmeticImageInvalid { details: String },
 
+    #[error("Skin library: {details}")]
+    SkinLibrary { details: String },
+
     #[error("Microsoft has not yet approved this launcher's app registration")]
     AuthPendingApproval,
 
