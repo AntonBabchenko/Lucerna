@@ -169,6 +169,12 @@
   // backend-classified plan for the picked folder (adopt = repoint only,
   // migrate = copy+verify+delete move).
   let pendingTarget = $state<{ kind: 'adopt' | 'migrate'; path: string } | 'reset' | null>(null);
+  // True from picker open until the plan classification settles. Guards the
+  // window where the OS dialog is gone but planDataLocationChange (fs probes
+  // that can stall on a flaky drive) hasn't resolved: without it a second
+  // pick could race the first and silently swap an open confirm dialog's
+  // target between the user reading it and clicking confirm.
+  let planning = $state(false);
   let migrating = $state(false);
   let migrationError = $state<string | null>(null);
   let migrationProgress = $state<DataMigrationProgress | null>(null);
@@ -179,30 +185,36 @@
   );
 
   async function pickLocation() {
+    if (planning) return;
+    planning = true;
     migrationError = null;
-    // Open the picker at the current data root's PARENT rather than wherever the
-    // last OS dialog left off (which could be an unrelated folder such as
-    // .minecraft/saves from an earlier world import).
-    const current = dataLocation.status?.effective;
-    const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
-    const picked = await openDirectory({ directory: true, defaultPath });
-    if (!picked || typeof picked !== 'string') return;
-    // The backend classifies the pick: an existing Lucerna root (the picked
-    // folder itself or its LucernaData child) becomes an adopt offer;
-    // anything else resolves to the effective migration target with the
-    // LucernaData subfolder applied exactly once. The frontend builds no
-    // paths — frontend-side appending is how picking an existing root used
-    // to nest LucernaData\LucernaData and abandon the real data.
-    const plan = await commands.planDataLocationChange(picked);
-    if (plan.status !== 'ok') {
-      migrationError = formatError(plan.error);
-      return;
+    try {
+      // Open the picker at the current data root's PARENT rather than wherever
+      // the last OS dialog left off (which could be an unrelated folder such
+      // as .minecraft/saves from an earlier world import).
+      const current = dataLocation.status?.effective;
+      const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
+      const picked = await openDirectory({ directory: true, defaultPath });
+      if (!picked || typeof picked !== 'string') return;
+      // The backend classifies the pick: an existing Lucerna root (the picked
+      // folder itself or its LucernaData child) becomes an adopt offer;
+      // anything else resolves to the effective migration target with the
+      // LucernaData subfolder applied exactly once. The frontend builds no
+      // paths — frontend-side appending is how picking an existing root used
+      // to nest LucernaData\LucernaData and abandon the real data.
+      const plan = await commands.planDataLocationChange(picked);
+      if (plan.status !== 'ok') {
+        migrationError = formatError(plan.error);
+        return;
+      }
+      if (plan.data.kind === 'already_current') {
+        migrationError = $t('settings.storage.dataLocation.alreadyCurrent');
+        return;
+      }
+      pendingTarget = { kind: plan.data.kind, path: plan.data.path };
+    } finally {
+      planning = false;
     }
-    if (plan.data.kind === 'already_current') {
-      migrationError = $t('settings.storage.dataLocation.alreadyCurrent');
-      return;
-    }
-    pendingTarget = { kind: plan.data.kind, path: plan.data.path };
   }
 
   function requestReset() {
@@ -438,7 +450,7 @@
       <button
         type="button"
         class="btn-secondary btn-sm"
-        disabled={dataLocation.status?.fell_back}
+        disabled={planning || dataLocation.status?.fell_back}
         onclick={() => void pickLocation()}
       >
         {$t('settings.storage.dataLocation.changeBtn')}

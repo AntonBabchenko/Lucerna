@@ -194,6 +194,37 @@ describe('StoragePanel — data location change planning', () => {
     expect(mod.commands.adoptDataLocation).not.toHaveBeenCalled();
   });
 
+  it('blocks re-picks while a plan classification is still in flight', async () => {
+    const dialogPlugin = await import('@tauri-apps/plugin-dialog');
+    (dialogPlugin.open as ReturnType<typeof vi.fn>).mockResolvedValue('C:\\Slow\\Drive');
+    const mod = await import('$lib/ipc/bindings');
+    // Hold the classification unresolved to model a stalling fs probe.
+    let resolvePlan: (v: unknown) => void = () => {};
+    (mod.commands.planDataLocationChange as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => {
+        resolvePlan = r;
+      }),
+    );
+
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    const changeBtn = () =>
+      screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement;
+    await fireEvent.click(changeBtn());
+    await new Promise((r) => setTimeout(r, 0));
+    // The button is disabled for the whole planning window, and a re-click
+    // (e.g. via keyboard) never starts a second racing pick.
+    expect(changeBtn().disabled).toBe(true);
+    await fireEvent.click(changeBtn());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.planDataLocationChange).toHaveBeenCalledTimes(1);
+
+    resolvePlan({ status: 'ok', data: { kind: 'migrate', path: 'C:\\Slow\\Drive\\LucernaData' } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changeBtn().disabled).toBe(false);
+    expect(screen.getByText('Move data folder?')).toBeTruthy();
+  });
+
   it('shows an inline message and no dialog when the pick is already current', async () => {
     const mod = await pickAndPlan('/data', {
       status: 'ok',
