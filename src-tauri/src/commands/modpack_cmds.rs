@@ -595,6 +595,17 @@ pub async fn modpack_apply_update(
                 summary.loader,
             );
             crate::mods::install::install_one(&dd, &inst_root, mv, &install_progress).await?;
+            // Respect the user's choice IMMEDIATELY, not in a post-loop pass:
+            // a mod they disabled stays disabled across the update (fresh jar
+            // renamed to `.disabled`, registry record flipped — the
+            // mods_disable primitive). Per-file so a later install failure in
+            // this loop cannot strand an already-installed carried mod
+            // enabled — a retry after such a failure has lost the old
+            // record's `enabled:false` and could no longer re-derive the
+            // intent (review finding on this PR).
+            if carry_disabled.contains(&f.sha1.to_ascii_lowercase()) {
+                crate::mods::install::disable(&inst_root, &f.sha1.to_ascii_lowercase()).await?;
+            }
         } else {
             crate::mods::install::install_asset(
                 &dd,
@@ -607,13 +618,6 @@ pub async fn modpack_apply_update(
             )
             .await?;
         }
-    }
-
-    // Respect the user's choice: a mod they disabled stays disabled across
-    // the update (the fresh jar is renamed to `.disabled` and the registry
-    // record flipped — same primitive as the mods_disable command).
-    for sha in &carry_disabled {
-        crate::mods::install::disable(&inst_root, sha).await?;
     }
 
     // Rewrite pack_origin: new files[] entries + carried-over bundled.

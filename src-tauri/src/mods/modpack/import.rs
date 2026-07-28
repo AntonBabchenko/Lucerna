@@ -1378,7 +1378,9 @@ mod tests {
     #[test]
     fn carry_disabled_maps_old_disabled_to_new_sha() {
         use crate::mods::modpack::schema::{ModpackUpdateDiff, ModpackUpdateEntry};
-        let mut off = installed("oldA", true);
+        // Registry sha uppercased vs the pack's lowercased entry — the pair
+        // only matches if the comparison is genuinely case-insensitive.
+        let mut off = installed("OLDA", true);
         off.enabled = false;
         let on = installed("oldB", true);
         let diff = ModpackUpdateDiff {
