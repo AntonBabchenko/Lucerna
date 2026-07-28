@@ -7,5 +7,7 @@ describe('displayLauncher', () => {
     expect(displayLauncher('tlauncher')).toBe('TLauncher');
     expect(displayLauncher('prism')).toBe('Prism Launcher');
     expect(displayLauncher('raw_minecraft')).toBe('Minecraft');
+    expect(displayLauncher('xmcl')).toBe('XMCL');
+    expect(displayLauncher('legacy_launcher')).toBe('Legacy Launcher');
   });
 });

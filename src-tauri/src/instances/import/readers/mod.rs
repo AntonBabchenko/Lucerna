@@ -9,6 +9,7 @@ pub mod modrinth_app;
 pub mod prism;
 pub mod profile;
 pub mod raw_minecraft;
+pub mod xmcl;
 
 use std::path::{Path, PathBuf};
 
@@ -49,6 +50,7 @@ pub fn structured_readers() -> Vec<Box<dyn LauncherReader>> {
         Box::new(curseforge_app::CurseforgeAppReader),
         Box::new(atlauncher::AtlauncherReader),
         Box::new(modrinth_app::ModrinthAppReader),
+        Box::new(xmcl::XmclReader),
     ]
 }
 
@@ -66,6 +68,7 @@ mod registry_tests {
             ForeignLauncher::CurseforgeApp,
             ForeignLauncher::Atlauncher,
             ForeignLauncher::ModrinthApp,
+            ForeignLauncher::Xmcl,
         ] {
             assert!(
                 kinds.contains(&expected),
