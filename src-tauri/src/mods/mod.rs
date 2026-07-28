@@ -19,6 +19,7 @@ pub mod enrich;
 pub mod fix_resolve;
 pub mod hangar;
 pub mod install;
+pub mod install_batch;
 pub mod installed;
 pub mod local;
 pub mod modpack;
