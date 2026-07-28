@@ -212,8 +212,10 @@ pub async fn optimise_resolve(
 /// chosen optionals. Emits:
 ///   - `mod-install-progress` repeatedly during downloads,
 ///   - `mod-installed` once per mod that lands successfully,
-///   - `mod-install-failed` if any single install errors (the run halts
-///     after the first failure; previously-installed mods are kept).
+///   - `mod-install-failed` if any single step errors. The run is atomic:
+///     downloads are fully warmed into the shared cache before the instance
+///     is touched, and a commit-phase failure rolls back this run's files
+///     and registry records to the pre-run state.
 ///
 /// Returns an `InstallSummary` so the UI can show which dependencies were
 /// pulled in automatically.
@@ -452,35 +454,48 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
+    let on_installed = {
+        let app = app.clone();
+        let instance_id = instance_id.clone();
+        move |inst: &crate::mods::install::Installed| {
+            let _ = ModInstalled {
+                instance_id: instance_id.clone(),
+                sha1: inst.sha1.clone(),
+                filename: inst.filename.clone(),
+                name: inst.name.clone(),
+            }
+            .emit(&app);
+        }
+    };
+    // Retain the sequence for the post-success summary; the batch consumes it.
+    let items_for_summary = install_seq.clone();
+    let installed_all = match crate::mods::install_batch::install_batch(
+        &dd,
+        &inst_root,
+        install_seq,
+        &prog,
+        &on_installed,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(f) => {
+            let _ = ModInstallFailed {
+                instance_id: instance_id.clone(),
+                project_id: f.project_id,
+                error: f.error.clone(),
+            }
+            .emit(&app);
+            return Err(f.error);
+        }
+    };
     let mut installed_dependencies: Vec<String> = Vec::new();
     let mut primary_sha1: Option<String> = None;
-    for v in install_seq {
-        let is_primary = version_matches(&v, &primary);
-        let v_project_id = v.project_id.clone();
-        match crate::mods::install::install_one(&dd, &inst_root, v.clone(), &prog).await {
-            Ok(inst) => {
-                if is_primary {
-                    primary_sha1 = Some(inst.sha1.clone());
-                } else {
-                    installed_dependencies.push(inst.name.clone());
-                }
-                let _ = ModInstalled {
-                    instance_id: instance_id.clone(),
-                    sha1: inst.sha1,
-                    filename: inst.filename,
-                    name: inst.name,
-                }
-                .emit(&app);
-            }
-            Err(e) => {
-                let _ = ModInstallFailed {
-                    instance_id: instance_id.clone(),
-                    project_id: v_project_id,
-                    error: e.clone(),
-                }
-                .emit(&app);
-                return Err(e);
-            }
+    for (v, inst) in items_for_summary.iter().zip(installed_all.iter()) {
+        if version_matches(v, &primary) {
+            primary_sha1 = Some(inst.sha1.clone());
+        } else {
+            installed_dependencies.push(inst.name.clone());
         }
     }
     if let Some(sha1) = primary_sha1 {
