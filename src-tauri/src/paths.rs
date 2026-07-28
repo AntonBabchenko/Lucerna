@@ -114,6 +114,12 @@ pub fn capes_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("capes"))
 }
 
+/// Saved-skins library: `library.json` index + one `<uuid>.png` per entry.
+/// User data (not a cache) — travels with the relocatable data root.
+pub fn skin_library_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("skin_library"))
+}
+
 /// Scratch directory for downloaded update installers + bundles.
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
