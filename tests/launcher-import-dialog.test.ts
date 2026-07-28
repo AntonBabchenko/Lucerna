@@ -284,8 +284,6 @@ describe('LauncherImportDialog', () => {
   it('labels discovered xmcl and legacy_launcher rows with their own source badges', async () => {
     const base = {
       name: 'test',
-      root: 'C:/x',
-      minecraft_dir: 'C:/x',
       mc_version: '1.21.1',
       loader: 'fabric' as const,
       loader_version: '0.16.5',
@@ -297,9 +295,22 @@ describe('LauncherImportDialog', () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
       data: {
+        // NB: the discovered list is keyed by `root` — each fixture needs a
+        // distinct one or the keyed each throws and nothing renders.
         instances: [
-          { ...base, source: 'xmcl' as const },
-          { ...base, name: 'legacy', source: 'legacy_launcher' as const },
+          {
+            ...base,
+            source: 'xmcl' as const,
+            root: 'C:/x/.minecraftx/instances/test',
+            minecraft_dir: 'C:/x/.minecraftx/instances/test',
+          },
+          {
+            ...base,
+            name: 'legacy',
+            source: 'legacy_launcher' as const,
+            root: 'C:/x/.minecraft/home/Forge-1.20',
+            minecraft_dir: 'C:/x/.minecraft/home/Forge-1.20',
+          },
         ],
         empty_launchers: [],
       },
