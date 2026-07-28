@@ -1,5 +1,6 @@
 //! Multi-instance support.
 
+pub mod clone;
 pub mod icon;
 pub mod ids;
 pub mod import;

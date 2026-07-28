@@ -418,6 +418,56 @@ pub fn detach_instance_pack(
     crate::instances::detach_instance_pack(&app, &id)
 }
 
+/// Clone an instance: same MC version + loader, granular content options.
+/// Mods (with their installed-mods registry) and the custom icon always
+/// travel with the clone; see `instances::clone` for the exact mapping.
+/// The clone does NOT become the active instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_instance(
+    app: tauri::AppHandle,
+    source_id: String,
+    new_name: String,
+    options: crate::instances::clone::CloneOptions,
+    on_progress: tauri::ipc::Channel<crate::instances::clone::CloneProgress>,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    validate_instance_name(&new_name)?;
+    // Copying files a live JVM is writing produces torn saves — mirror the
+    // delete/verify guards.
+    if crate::launch::spawn::is_running(&source_id) {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    crate::instances::clone::clone_instance(
+        &app,
+        &source_id,
+        new_name,
+        &options,
+        move |category, current, total| {
+            let _ = on_progress.send(crate::instances::clone::CloneProgress {
+                category,
+                current,
+                total,
+            });
+        },
+    )
+}
+
+/// Content categories present in an instance (file counts + byte totals) for
+/// the clone dialog's checkbox labels. Reuses the launcher-import scanner.
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_instance_scan(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<crate::instances::import::model::ContentEntry>, crate::error::Error> {
+    // Existence check so an unknown id errors rather than returning [].
+    let _ = crate::instances::read_instance(&app, &id)?;
+    let mc = crate::paths::minecraft_dir(&app, &id)
+        .map_err(|e| crate::error::Error::io("<minecraft_dir>", e))?;
+    Ok(crate::instances::import::model::scan_content(&mc))
+}
+
 /// Ensure `<instance>/.minecraft/` exists, then open it in the OS
 /// file manager.
 #[tauri::command]

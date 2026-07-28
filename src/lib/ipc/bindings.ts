@@ -944,6 +944,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openImportedSourceFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_imported_source_folder", { instanceId })),
 	/**
+	 *  Clone an instance: same MC version + loader, granular content options.
+	 *  Mods (with their installed-mods registry) and the custom icon always
+	 *  travel with the clone; see `instances::clone` for the exact mapping.
+	 *  The clone does NOT become the active instance.
+	 */
+	cloneInstance: (sourceId: string, newName: string, options: CloneOptions, onProgress: Channel<CloneProgress>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("clone_instance", { sourceId, newName, options, onProgress })),
+	/**
+	 *  Content categories present in an instance (file counts + byte totals) for
+	 *  the clone dialog's checkbox labels. Reuses the launcher-import scanner.
+	 */
+	cloneInstanceScan: (id: string) => typedError<ContentEntry[], Error>(__TAURI_INVOKE("clone_instance_scan", { id })),
+	/**
 	 *  Read the persisted app-level settings (currently: onboarding state).
 	 *  Returns `AppFile::default()` if `app.json` is missing — a fresh
 	 *  install has never written settings.
@@ -1803,6 +1815,28 @@ export type ClientModFinding = {
 	/**  i18n reason key: "manifest_client" | "crash". */
 	reason: string,
 	confidence: Confidence,
+};
+
+/**  What to copy beyond the always-copied set (mods + registry + icon). */
+export type CloneOptions = {
+	saves: boolean,
+	/**  Instance settings: `max_heap_mb`, `min_heap_mb`, `extra_jvm_args`. */
+	settings: boolean,
+	/**  `resourcepacks/` + `shaderpacks/` under one checkbox. */
+	packs: boolean,
+	config: boolean,
+	options_txt: boolean,
+	playtime: boolean,
+};
+
+/**
+ *  Per-category copy progress streamed to the UI (same counts shape the
+ *  launcher import emits).
+ */
+export type CloneProgress = {
+	category: ContentCategory,
+	current: number,
+	total: number,
 };
 
 /**
