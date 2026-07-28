@@ -95,6 +95,20 @@ pub(crate) async fn search_impl(
                 continue;
             }
             Ok(detail) => {
+                // MC filter (client-side; FTB has no server filter): a pack
+                // matches when ANY of its versions targets the requested MC,
+                // not only the newest — an older-but-matching pack must stay
+                // in the results (quality-review 2026-07-21 finding).
+                if let Some(mc_ver) = mc {
+                    let matches_mc = detail
+                        .versions
+                        .iter()
+                        .any(|v| mc_version_from_targets(&v.targets).as_deref() == Some(mc_ver));
+                    if !matches_mc {
+                        continue;
+                    }
+                }
+
                 // icon_url: prefer art_type == "square" (FTB icon), else first art.
                 let icon_url = detail
                     .art
@@ -143,17 +157,9 @@ pub(crate) async fn search_impl(
     }
 
     // caps.supports_server_filter=false — FTB filters are best-effort client-side.
-    // TODO(ftb): mc filter keys on latest_mc_version only — a pack with an older
-    // version matching the filter but a newer latest is under-selected. Acceptable
-    // for v1; scan all version game-targets if this proves too coarse.
-    if let Some(mc_ver) = mc {
-        hits.retain(|h| {
-            h.latest_mc_version
-                .as_deref()
-                .map(|v| v == mc_ver)
-                .unwrap_or(false)
-        });
-    }
+    // The mc filter is applied per-pack inside the detail loop (any version's
+    // game target may match); the loader filter below keys on the all-version
+    // union. Filtered pages may under-fill and `total` over-counts — unchanged.
     if let Some(want_loader) = loader {
         hits.retain(|h| h.supported_loaders.contains(&want_loader));
     }
@@ -907,6 +913,94 @@ mod tests {
             "only the 1.20.1 pack should survive the client-side filter"
         );
         assert_eq!(page.hits[0].project_id, "92");
+    }
+
+    /// Detail JSON whose OLDER version targets `old_mc` and whose newest
+    /// version (max `updated`) targets `new_mc` — for the all-versions
+    /// mc-filter behavior.
+    fn pack_detail_json_two_versions(id: u64, old_mc: &str, new_mc: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "name": format!("Pack {id}"),
+            "synopsis": format!("Synopsis for pack {id}"),
+            "description": format!("Full description for pack {id}"),
+            "art": [],
+            "authors": [{ "name": "Test Author" }],
+            "installs": 100u64,
+            "versions": [
+                {
+                    "id": 1u64,
+                    "name": "1.0.0",
+                    "type": "Release",
+                    "targets": [
+                        { "version": "36.2.39", "id": 736u64, "name": "forge", "type": "modloader", "updated": 1600000000i64 },
+                        { "version": old_mc, "id": 100u64, "name": "minecraft", "type": "game", "updated": 1600000001i64 }
+                    ],
+                    "updated": 1600000010i64
+                },
+                {
+                    "id": 2u64,
+                    "name": "2.0.0",
+                    "type": "Release",
+                    "targets": [
+                        { "version": "47.1.0", "id": 737u64, "name": "forge", "type": "modloader", "updated": 1800000000i64 },
+                        { "version": new_mc, "id": 101u64, "name": "minecraft", "type": "game", "updated": 1800000001i64 }
+                    ],
+                    "updated": 1800000010i64
+                }
+            ]
+        })
+    }
+
+    /// The MC filter matches a pack when ANY of its versions targets the
+    /// requested MC — not only the newest. `latest_mc_version` still reports
+    /// the newest version's target for display.
+    #[tokio::test]
+    async fn ftb_search_mc_filter_matches_older_versions() {
+        let s = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/search/200"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "packs": [93u64, 94u64], "curseforge": [], "total": 2 }),
+            ))
+            .mount(&s)
+            .await;
+
+        // Pack 93: latest targets 1.21.1, but an older version targets 1.16.5.
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/93"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(pack_detail_json_two_versions(93, "1.16.5", "1.21.1")),
+            )
+            .mount(&s)
+            .await;
+
+        // Pack 94: no version targets 1.16.5 at all.
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/94"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(pack_detail_json_two_versions(94, "1.19.2", "1.21.1")),
+            )
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let page = search_impl(&s.uri(), "test", 0, Some("1.16.5"), None, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            page.hits.len(),
+            1,
+            "only the pack with SOME version targeting 1.16.5 must remain"
+        );
+        assert_eq!(page.hits[0].project_id, "93");
+        // Display metadata is unchanged: still the NEWEST version's MC.
+        assert_eq!(page.hits[0].latest_mc_version, Some("1.21.1".to_string()));
     }
 
     /// get_versions maps FtbVersionRef fields into ModpackVersionEntry correctly.
