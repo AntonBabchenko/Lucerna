@@ -281,6 +281,41 @@ describe('LauncherImportDialog', () => {
     expect(getByTestId('mc-version-input')).toBeTruthy();
   });
 
+  it('labels discovered xmcl and legacy_launcher rows with their own source badges', async () => {
+    const base = {
+      name: 'test',
+      root: 'C:/x',
+      minecraft_dir: 'C:/x',
+      mc_version: '1.21.1',
+      loader: 'fabric' as const,
+      loader_version: '0.16.5',
+      max_heap_mb: null,
+      extra_jvm_args: null,
+      content: [{ category: 'mods' as const, file_count: 1, total_bytes: 10 }],
+      known_mods: [],
+    };
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        instances: [
+          { ...base, source: 'xmcl' as const },
+          { ...base, name: 'legacy', source: 'legacy_launcher' as const },
+        ],
+        empty_launchers: [],
+      },
+    });
+
+    const { getByTestId, getByText } = render(LauncherImportDialog, {
+      props: { onClose: vi.fn() },
+    });
+    fireEvent.click(getByTestId('discover-btn'));
+    await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
+    // i18n is mocked to echo keys — a wrong/missing sourceLabel branch would
+    // fall through to instances.import.sourceRaw instead of these keys.
+    expect(getByText('instances.import.sourceXmcl')).toBeTruthy();
+    expect(getByText('instances.import.sourceLegacyLauncher')).toBeTruthy();
+  });
+
   it('shows pre-filled editable version/loader for a reliable source (prism)', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',

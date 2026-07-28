@@ -32,15 +32,17 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             // as a fallback for installs that never migrated.
             roots.push(base.join("ModrinthApp").join("profiles"));
             roots.push(base.join("com.modrinth.theseus").join("profiles"));
+            // XMCL fallback data root (used by XMCL only when its `root`
+            // pointer file is unreadable); the primary data root is resolved
+            // dynamically by the XMCL reader from `%APPDATA%\xmcl\root`.
+            roots.push(base.join("xmcl").join("instances"));
             roots.push(base.join(".minecraft"));
         }
         if let Ok(home) = std::env::var("USERPROFILE") {
-            roots.push(
-                PathBuf::from(&home)
-                    .join("curseforge")
-                    .join("minecraft")
-                    .join("Instances"),
-            );
+            let home = PathBuf::from(&home);
+            roots.push(home.join("curseforge").join("minecraft").join("Instances"));
+            // XMCL's setup-wizard default data root.
+            roots.push(home.join(".minecraftx").join("instances"));
         }
         roots
     }
@@ -55,6 +57,9 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             roots.push(
                 base.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
             );
+            // XMCL: wizard-default data root + config-dir fallback root.
+            roots.push(base.join(".minecraftx/instances"));
+            roots.push(base.join(".config/xmcl/instances"));
             roots.push(base.join(".minecraft"));
         }
         roots
@@ -66,9 +71,48 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             let base = PathBuf::from(&home);
             roots.push(base.join("Library/Application Support/PrismLauncher/instances"));
             roots.push(base.join("Library/Application Support/MultiMC/instances"));
+            // XMCL: wizard-default data root + config-dir fallback root.
+            roots.push(base.join(".minecraftx/instances"));
+            roots.push(base.join("Library/Application Support/xmcl/instances"));
             roots.push(base.join("Library/Application Support/minecraft"));
         }
         roots
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        Vec::new()
+    }
+}
+
+/// Per-OS candidates for XMCL's launcher-config dir — the one holding its
+/// `root` pointer file (plain-text absolute path of the game data root),
+/// `instances.json` and `resources.sqlite`. Best-effort: paths may not
+/// exist; the XMCL import reader probes for the `root` file itself.
+pub fn xmcl_config_dirs() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var("APPDATA")
+            .map(|a| vec![PathBuf::from(a).join("xmcl")])
+            .unwrap_or_default()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut out = Vec::new();
+        if let Ok(cfg) = std::env::var("XDG_CONFIG_HOME") {
+            out.push(PathBuf::from(cfg).join("xmcl"));
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let base = PathBuf::from(&home);
+            out.push(base.join(".config/xmcl"));
+            out.push(base.join(".var/app/app.xmcl.voxelum/config/xmcl"));
+        }
+        out
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var("HOME")
+            .map(|h| vec![PathBuf::from(h).join("Library/Application Support/xmcl")])
+            .unwrap_or_default()
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
@@ -473,6 +517,33 @@ pub async fn wait_for_window_ready(pid: u32) {
 
 #[cfg(not(windows))]
 pub async fn wait_for_window_ready(_pid: u32) {}
+
+#[cfg(all(test, windows))]
+mod xmcl_root_tests {
+    use super::{default_launcher_roots, xmcl_config_dirs};
+
+    #[test]
+    fn includes_xmcl_fallback_and_minecraftx_roots() {
+        let roots = default_launcher_roots();
+        assert!(
+            roots.iter().any(|p| p.ends_with("xmcl/instances")),
+            "missing %APPDATA%/xmcl/instances; got: {roots:?}"
+        );
+        assert!(
+            roots.iter().any(|p| p.ends_with(".minecraftx/instances")),
+            "missing %USERPROFILE%/.minecraftx/instances; got: {roots:?}"
+        );
+    }
+
+    #[test]
+    fn xmcl_config_dir_sits_under_appdata() {
+        let dirs = xmcl_config_dirs();
+        assert!(
+            dirs.iter().any(|p| p.ends_with("xmcl")),
+            "missing %APPDATA%/xmcl; got: {dirs:?}"
+        );
+    }
+}
 
 #[cfg(all(test, windows))]
 mod modrinth_root_tests {

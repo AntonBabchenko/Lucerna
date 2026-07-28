@@ -386,6 +386,8 @@
       "sourceAtlauncher": "ATLauncher",
       "sourceMojang": "Minecraft Launcher",
       "sourceTlauncher": "TLauncher",
+      "sourceXmcl": "XMCL",
+      "sourceLegacyLauncher": "Legacy Launcher",
       "sourceRaw": "Vanilla .minecraft",
       "mcLabel": "Minecraft {version}",
       "loaderLabel": "{loader} {version}",

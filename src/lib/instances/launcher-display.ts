@@ -11,6 +11,8 @@ const DISPLAY: Record<ForeignLauncher, string> = {
   raw_minecraft: 'Minecraft',
   mojang_launcher: 'Minecraft Launcher',
   tlauncher: 'TLauncher',
+  xmcl: 'XMCL',
+  legacy_launcher: 'Legacy Launcher',
 };
 
 export function displayLauncher(l: ForeignLauncher): string {

@@ -1,0 +1,37 @@
+{
+  "name": "Fabulously Optimized",
+  "author": "robotkoer",
+  "description": "",
+  "version": "",
+  "runtime": {
+    "minecraft": "1.21.1",
+    "forge": "",
+    "neoForged": "",
+    "fabricLoader": "0.16.5",
+    "quiltLoader": "",
+    "optifine": "",
+    "labyMod": ""
+  },
+  "resolution": { "width": 1280, "height": 720, "fullscreen": false },
+  "minMemory": 0,
+  "maxMemory": 4096,
+  "assignMemory": true,
+  "vmOptions": ["-XX:+UseG1GC"],
+  "mcOptions": [],
+  "url": "",
+  "icon": "icon.webp",
+  "fileApi": "",
+  "server": null,
+  "showLog": false,
+  "hideLauncher": true,
+  "fastLaunch": false,
+  "upstream": {
+    "type": "modrinth-modpack",
+    "projectId": "1KVo5zza",
+    "versionId": "rPuxtGDR"
+  },
+  "lastAccessDate": 1721990000000,
+  "lastPlayedDate": 1721980000000,
+  "playtime": 5400000,
+  "creationDate": 1700000000000
+}

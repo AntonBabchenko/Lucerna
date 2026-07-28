@@ -2178,7 +2178,17 @@ export type ForeignLauncher = "prism" | "curseforge_app" | "modrinth_app" | "atl
 /**  Official Mojang / Microsoft launcher (profile model). */
 "mojang_launcher" | 
 /**  TLauncher (profile model; detected via marker files). */
-"tlauncher";
+"tlauncher" | 
+/**
+ *  X Minecraft Launcher (own instance tree; `instance.json` with a
+ *  `runtime` object).
+ */
+"xmcl" | 
+/**
+ *  Legacy Launcher / llaun.ch (profile model; snake_case
+ *  `tlauncher_profiles.json` marker — distinct from tlauncher.org).
+ */
+"legacy_launcher";
 
 /**  One screenshot/gallery image for a mod or modpack detail view. */
 export type GalleryImage = {

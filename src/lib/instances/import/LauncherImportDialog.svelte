@@ -193,7 +193,11 @@
                 ? 'instances.import.sourceMojang'
                 : source === 'tlauncher'
                   ? 'instances.import.sourceTlauncher'
-                  : 'instances.import.sourceRaw';
+                  : source === 'xmcl'
+                    ? 'instances.import.sourceXmcl'
+                    : source === 'legacy_launcher'
+                      ? 'instances.import.sourceLegacyLauncher'
+                      : 'instances.import.sourceRaw';
     return $t(key as Parameters<typeof $t>[0]);
   }
 
