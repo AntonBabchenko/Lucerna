@@ -538,8 +538,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  chosen optionals. Emits:
 	 *    - `mod-install-progress` repeatedly during downloads,
 	 *    - `mod-installed` once per mod that lands successfully,
-	 *    - `mod-install-failed` if any single install errors (the run halts
-	 *      after the first failure; previously-installed mods are kept).
+	 *    - `mod-install-failed` if any single step errors. The run is atomic:
+	 *      downloads are fully warmed into the shared cache before the instance
+	 *      is touched, and a commit-phase failure rolls back this run's files
+	 *      and registry records to the pre-run state.
 	 * 
 	 *  Returns an `InstallSummary` so the UI can show which dependencies were
 	 *  pulled in automatically.
