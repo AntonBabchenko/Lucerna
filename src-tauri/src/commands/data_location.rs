@@ -288,6 +288,40 @@ pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result
     Ok(plan)
 }
 
+/// Pure commit-time gate for [`adopt_data_location`]: decide the rejection
+/// reason or accept, and whether the accept adopts the DEFAULT root (redirect
+/// removed instead of written). Predicates are injected so the decision table
+/// is unit testable without a filesystem; the command passes the real
+/// `plan::is_data_root` / `migrate::is_available` probes and the canonical
+/// `migrate::is_same_path` compare.
+///
+/// Deliberately has NO nesting check in either direction — nothing moves, and
+/// "current root nested inside the adopted root" is exactly the doubled-path
+/// recovery adopt exists for.
+fn classify_adopt(
+    target: &Path,
+    current: &Path,
+    default: &Path,
+    is_root: &dyn Fn(&Path) -> bool,
+    is_avail: &dyn Fn(&Path) -> bool,
+    same: &dyn Fn(&Path, &Path) -> bool,
+) -> std::result::Result<bool, crate::data_root::validate::Invalid> {
+    use crate::data_root::validate::Invalid;
+    if !target.is_absolute() {
+        return Err(Invalid::NotAbsolute);
+    }
+    if !is_root(target) {
+        return Err(Invalid::NotADataRoot);
+    }
+    if same(target, current) {
+        return Err(Invalid::SameAsCurrent);
+    }
+    if !is_avail(target) {
+        return Err(Invalid::NotWritable);
+    }
+    Ok(same(target, default))
+}
+
 /// Point the data root at `path` — an EXISTING Lucerna data root — without
 /// copying, verifying, or deleting anything. Writes the bootstrap redirect
 /// (or removes it when `path` IS the default root, keeping `configured`
@@ -297,10 +331,8 @@ pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result
 /// Shares `set_data_location`'s guards: rejected while a game/server runs,
 /// while running from a fallback root, or while another change is in flight
 /// (`DataLocationBusy`). Validation failures surface as
-/// `DataLocationInvalid` with reasons `not_absolute` / `not_a_data_root` /
-/// `same` / `not_writable`. Nesting in either direction is deliberately
-/// allowed — nothing moves, and "current root nested inside the adopted
-/// root" is exactly the doubled-path recovery this exists for.
+/// `DataLocationInvalid` with the reasons produced by [`classify_adopt`]
+/// (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
 #[tauri::command]
 #[specta::specta]
 pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
@@ -319,38 +351,27 @@ pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
     let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let default =
         crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
-    let target = PathBuf::from(&path);
-
-    let invalid = |v: crate::data_root::validate::Invalid| Error::DataLocationInvalid {
-        reason: v.reason_key().to_string(),
-    };
-    if !target.is_absolute() {
-        return Err(invalid(crate::data_root::validate::Invalid::NotAbsolute));
-    }
+    let target = PathBuf::from(path);
 
     // Blocking fs probes (shape re-check at commit time — the plan result may
     // be stale — plus canonical compares and the write probe) off the async
     // runtime; any of them can stall on a flaky removable drive.
     let target_probe = target.clone();
     let checked = tokio::task::spawn_blocking(move || {
-        use crate::data_root::validate::Invalid;
-        if !crate::data_root::plan::is_data_root(&target_probe) {
-            return Err(Invalid::NotADataRoot);
-        }
-        if crate::data_root::migrate::is_same_path(&target_probe, &current) {
-            return Err(Invalid::SameAsCurrent);
-        }
-        if !crate::data_root::migrate::is_available(&target_probe) {
-            return Err(Invalid::NotWritable);
-        }
-        Ok(crate::data_root::migrate::is_same_path(
+        classify_adopt(
             &target_probe,
+            &current,
             &default,
-        ))
+            &crate::data_root::plan::is_data_root,
+            &crate::data_root::migrate::is_available,
+            &|a, b| crate::data_root::migrate::is_same_path(a, b),
+        )
     })
     .await
     .map_err(|e| Error::io("<adopt_data_location>", format!("probe task panicked: {e}")))?;
-    let adopting_default = checked.map_err(invalid)?;
+    let adopting_default = checked.map_err(|v| Error::DataLocationInvalid {
+        reason: v.reason_key().to_string(),
+    })?;
 
     let redirect_file =
         crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
@@ -475,4 +496,90 @@ fn run_migration(
     }
 
     Ok(copied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_adopt;
+    use crate::data_root::validate::Invalid;
+    use std::path::{Path, PathBuf};
+
+    // Absolute on BOTH platforms (mirrors validate.rs tests): `/x` is not
+    // absolute on Windows, which would short-circuit every case on
+    // NotAbsolute under the windows CI runner.
+    fn abs(rel: &str) -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(format!("C:\\{}", rel.replace('/', "\\")))
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from(format!("/{rel}"))
+        }
+    }
+
+    fn always(_: &Path) -> bool {
+        true
+    }
+    fn never(_: &Path) -> bool {
+        false
+    }
+    fn eq(a: &Path, b: &Path) -> bool {
+        a == b
+    }
+
+    #[test]
+    fn relative_target_is_rejected_first() {
+        let r = classify_adopt(
+            Path::new("rel"),
+            &abs("cur"),
+            &abs("def"),
+            &always,
+            &always,
+            &eq,
+        );
+        assert_eq!(r, Err(Invalid::NotAbsolute));
+    }
+
+    #[test]
+    fn non_root_target_is_rejected() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &never, &always, &eq);
+        assert_eq!(r, Err(Invalid::NotADataRoot));
+    }
+
+    #[test]
+    fn same_as_current_is_rejected() {
+        let cur = abs("cur");
+        let r = classify_adopt(&cur, &cur, &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Err(Invalid::SameAsCurrent));
+    }
+
+    #[test]
+    fn unwritable_target_is_rejected() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &always, &never, &eq);
+        assert_eq!(r, Err(Invalid::NotWritable));
+    }
+
+    #[test]
+    fn custom_root_accepts_and_writes_redirect() {
+        let r = classify_adopt(&abs("t"), &abs("cur"), &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Ok(false));
+    }
+
+    #[test]
+    fn default_root_accepts_and_removes_redirect() {
+        let def = abs("def");
+        let r = classify_adopt(&def, &abs("cur"), &def, &always, &always, &eq);
+        assert_eq!(r, Ok(true));
+    }
+
+    #[test]
+    fn current_nested_inside_target_is_allowed() {
+        // The doubled-path recovery: current root lives INSIDE the adopted
+        // root. Only exact-same is a conflict; nesting must pass.
+        let target = abs("root");
+        let current = target.join("LucernaData");
+        let r = classify_adopt(&target, &current, &abs("def"), &always, &always, &eq);
+        assert_eq!(r, Ok(false));
+    }
 }
