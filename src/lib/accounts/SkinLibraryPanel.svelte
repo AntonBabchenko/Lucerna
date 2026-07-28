@@ -53,12 +53,18 @@
 
   function menuFor(item: SkinLibraryItem): ContextMenuItem[] {
     return [
-      { label: $t('skinLibrary.edit'), icon: 'edit', onSelect: () => onEdit?.(item) },
+      {
+        label: $t('skinLibrary.edit'),
+        icon: 'edit',
+        disabled: busy,
+        onSelect: () => onEdit?.(item),
+      },
       {
         label: $t('skinLibrary.delete'),
         icon: 'trash',
         danger: true,
         separatorBefore: true,
+        disabled: busy,
         onSelect: () => (confirmDelete = item),
       },
     ];
@@ -112,6 +118,7 @@
     bodyText={$t('skinLibrary.deleteConfirmBody', { name: confirmDelete.name })}
     confirmLabel={$t('skinLibrary.delete')}
     variant="danger"
+    {busy}
     onCancel={() => (confirmDelete = null)}
     onConfirm={() => {
       const item = confirmDelete;

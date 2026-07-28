@@ -925,17 +925,25 @@
   }
 
   async function pickFromLibrary(item: SkinLibraryItem): Promise<void> {
-    if (!viewer) return;
+    if (busy || !viewer) return;
     pickerOpen = false;
     saveError = null;
-    beginStroke(); // so loading a library skin is undoable, mirroring loadPng
-    setVariant(item.variant);
-    await viewer.loadSkin(`data:image/png;base64,${item.skin_png_base64}`, {
-      model: variantToModel(variant),
-    });
-    dirty = true;
-    syncHistoryFlags();
-    renderCompanion();
+    // Hold `busy` across the async texture load: once the picker's backdrop is
+    // gone, Apply/export would otherwise be clickable while the canvas still
+    // shows the PREVIOUS skin and would upload/save stale pixels.
+    busy = true;
+    try {
+      beginStroke(); // so loading a library skin is undoable, mirroring loadPng
+      setVariant(item.variant);
+      await viewer.loadSkin(`data:image/png;base64,${item.skin_png_base64}`, {
+        model: variantToModel(variant),
+      });
+      dirty = true;
+      syncHistoryFlags();
+      renderCompanion();
+    } finally {
+      busy = false;
+    }
   }
 
   function requestClose(): void {

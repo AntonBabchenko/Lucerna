@@ -36,6 +36,13 @@ describe('SkinLibraryPanel', () => {
     expect(tile.disabled).toBe(true);
   });
 
+  it('disables the menu actions while busy', async () => {
+    render(SkinLibraryPanel, { props: { entries: two, mode: 'manage', busy: true } });
+    await fireEvent.click(screen.getByRole('button', { name: /actions for knight/i }));
+    const del = screen.getByRole('menuitem', { name: /delete/i }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+  });
+
   it('picks on tile click in pick mode and renders no tile menus', async () => {
     const onPick = vi.fn();
     render(SkinLibraryPanel, { props: { entries: two, mode: 'pick', onPick } });
