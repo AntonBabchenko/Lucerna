@@ -37,7 +37,9 @@ describe('SkinLibraryEntryDialog', () => {
       props: {
         ...base,
         initial: { name: 'old', variant: 'slim' as const, capeId: 'c9' },
-        capes: [{ id: 'c9', alias: 'Migrator', texture_url: 'https://t.example/c9', is_active: false }],
+        capes: [
+          { id: 'c9', alias: 'Migrator', texture_url: 'https://t.example/c9', is_active: false },
+        ],
         onSubmit,
       },
     });
@@ -59,7 +61,9 @@ describe('SkinLibraryEntryDialog', () => {
     render(SkinLibraryEntryDialog, {
       props: {
         ...base,
-        capes: [{ id: 'c1', alias: 'Vanilla', texture_url: 'https://t.example/c1', is_active: true }],
+        capes: [
+          { id: 'c1', alias: 'Vanilla', texture_url: 'https://t.example/c1', is_active: true },
+        ],
       },
     });
     expect(screen.getByText(/^cape$/i)).toBeTruthy();
