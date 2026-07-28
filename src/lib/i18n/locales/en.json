@@ -693,6 +693,9 @@
     "installed": {
       "checkUpdates": "Check for updates",
       "update": "Update",
+      "updateAll": "Update all ({count})",
+      "toastUpdated": "{count, plural, one {Updated # add-on} other {Updated # add-ons}}",
+      "toastUpdatedFailed": "{count, plural, one {Updated # add-on} other {Updated # add-ons}}, {failed} failed",
       "remove": "Remove",
       "empty": "Nothing installed in this instance yet.",
       "loading": "Loading…",
