@@ -606,6 +606,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	assetsCheckUpdates: (instanceId: string, kind: ContentKind) => typedError<AssetUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("assets_check_updates", { instanceId, kind })),
 	/**
+	 *  Apply one asset update with replace semantics: install `target` (fetch →
+	 *  verify → copy → registry add), then — when the filename moved — remove the
+	 *  superseded file (best-effort) and its registry row. A download or
+	 *  verification failure leaves the currently installed asset fully intact.
+	 */
+	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
+	/**
 	 *  For each installed mod in `id`, report whether any platform version
 	 *  exists for the given target `mc` + `loader`. Non-destructive — no
 	 *  files are modified.
