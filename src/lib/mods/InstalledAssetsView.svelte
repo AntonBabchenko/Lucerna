@@ -77,6 +77,9 @@
   // Update-check results keyed by filename — only entries that resolved to a
   // concrete state are kept (up_to_date / update_available / check_failed).
   let updateStates = $state<Map<string, AssetUpdateState>>(new Map());
+  const updateCount = $derived(
+    [...updateStates.values()].filter((s) => s.kind === 'update_available').length,
+  );
 
   // Refetch whenever the instance OR kind changes. A bare $effect re-runs on
   // any read dependency it touches; reading both here guarantees a switch
@@ -239,7 +242,9 @@
     busy = true;
     error = null;
     try {
-      const res = await commands.assetInstall(instanceId, latest, kind);
+      // Replace semantics: the command installs the new version and removes
+      // the superseded file + registry row when the filename moved.
+      const res = await commands.assetUpdateOne(instanceId, kind, asset.filename, latest);
       if (res.status === 'error') {
         pushWarning(get(t)('addons.installed.updateFailedToast'), [formatError(res.error)]);
         return;
@@ -253,6 +258,43 @@
       // Notify the Browse view so its badge reflects the new version.
       assetsChanged.value++;
       pushSuccess(get(t)('addons.installed.updatedToast', { name: asset.name }));
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Batch-apply every update_available entry sequentially (mirrors the mods
+  // updateAll flow: per-item failures are counted, not aborting the batch).
+  async function updateAll() {
+    if (instanceId === null) return;
+    const targets: Array<{ filename: string; latest: ModVersion }> = [];
+    for (const [filename, s] of updateStates) {
+      if (s.kind === 'update_available') targets.push({ filename, latest: s.latest });
+    }
+    if (targets.length === 0) return;
+    busy = true;
+    error = null;
+    let updated = 0;
+    let failed = 0;
+    try {
+      for (const tgt of targets) {
+        const res = await commands.assetUpdateOne(instanceId, kind, tgt.filename, tgt.latest);
+        if (res.status === 'error') {
+          failed++;
+          continue;
+        }
+        updated++;
+        const next = new Map(updateStates);
+        next.delete(tgt.filename);
+        updateStates = next;
+      }
+      await refresh();
+      assetsChanged.value++;
+      if (failed === 0) {
+        pushSuccess(get(t)('addons.installed.toastUpdated', { count: updated }));
+      } else {
+        pushWarning(get(t)('addons.installed.toastUpdatedFailed', { count: updated, failed }), []);
+      }
     } finally {
       busy = false;
     }
@@ -272,7 +314,18 @@
 </script>
 
 <div class="p-3">
-  <div class="flex items-center justify-end mb-2">
+  <div class="flex items-center justify-end gap-2 mb-2">
+    {#if updateCount > 0}
+      <BusyButton
+        type="button"
+        class="btn-warning btn-sm"
+        {busy}
+        disabled={checking || instanceId === null}
+        onclick={updateAll}
+      >
+        {$t('addons.installed.updateAll', { count: updateCount })}
+      </BusyButton>
+    {/if}
     <BusyButton
       type="button"
       class="btn-secondary btn-sm"
