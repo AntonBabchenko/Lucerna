@@ -9,10 +9,12 @@ use crate::instances::import::readers::raw_minecraft::{detect_mc_version_hint, i
 use crate::instances::import::readers::LauncherReader;
 use crate::instances::schema::{ForeignLauncher, LoaderKind};
 
-/// The official / TLauncher launcher profile model: one `.minecraft` with a
-/// `launcher_profiles.json`; modded builds live in `versions/<name>/` as
-/// standalone game dirs (own mods/saves/config). One reader serves both —
-/// the source is tagged `Tlauncher` or `MojangLauncher` by marker files.
+/// The official / TLauncher / Legacy Launcher profile model: one `.minecraft`
+/// with a `launcher_profiles.json`; modded builds live in `versions/<name>/`
+/// (tlauncher.org style) or `home/<family>` (Legacy Launcher "Subfolders") as
+/// standalone game dirs (own mods/saves/config). One reader serves all —
+/// the source is tagged `Tlauncher`, `LegacyLauncher` or `MojangLauncher`
+/// by marker files.
 pub struct ProfileReader;
 
 /// Minimal view of a `versions/<name>/<name>.json`.
@@ -162,17 +164,25 @@ fn minecraft_root_of(game_dir: &Path) -> PathBuf {
         .unwrap_or_else(|| game_dir.to_path_buf())
 }
 
-/// `Tlauncher` when a TLauncher marker file sits at the `.minecraft` root,
-/// else the official `MojangLauncher`.
+/// The launcher that owns this `.minecraft`, by marker files at its root:
+/// tlauncher.org's camelCase markers win, then Legacy Launcher's snake_case
+/// `tlauncher_profiles.json` (llaun.ch — the original TL lineage), else the
+/// official `MojangLauncher`. When both lineages shared one dir the
+/// tlauncher.org tag deliberately wins — its injected artifacts imply the
+/// heavier footprint, and it preserves the pre-Legacy behavior.
 fn source_for_root(minecraft_root: &Path) -> ForeignLauncher {
-    let marker = ["TlauncherProfiles.json", "TLauncherAdditional.json"]
+    // NB: the two profile filenames differ by underscores, not merely case,
+    // so the probes stay distinct even on case-insensitive filesystems.
+    let tl_org = ["TlauncherProfiles.json", "TLauncherAdditional.json"]
         .iter()
         .any(|m| minecraft_root.join(m).is_file());
-    if marker {
-        ForeignLauncher::Tlauncher
-    } else {
-        ForeignLauncher::MojangLauncher
+    if tl_org {
+        return ForeignLauncher::Tlauncher;
     }
+    if minecraft_root.join("tlauncher_profiles.json").is_file() {
+        return ForeignLauncher::LegacyLauncher;
+    }
+    ForeignLauncher::MojangLauncher
 }
 
 /// True iff `dir` has any importable content (mods / saves / resourcepacks /
@@ -323,6 +333,24 @@ impl LauncherReader for ProfileReader {
                 }
             }
         }
+
+        // Legacy Launcher "Subfolders": per-version game dirs under
+        // `home/<family-or-id>` (e.g. `home/Forge-1.20`). These carry no
+        // `launcher_profiles.json` / `<name>.json`, so they are gated on
+        // real content only; `read` then resolves the version via the
+        // root's `versions/` hint and the loader via the mods sniff.
+        if let Ok(rd) = std::fs::read_dir(root.join("home")) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.is_dir() && has_real_content(&p) {
+                    if let Ok(fi) = self.read(&p) {
+                        if seen.insert(fi.minecraft_dir.clone()) {
+                            out.push(fi);
+                        }
+                    }
+                }
+            }
+        }
         out
     }
 }
@@ -452,6 +480,27 @@ mod tests {
         let mc = tmp.path().join(".minecraft");
         std::fs::create_dir_all(&mc).unwrap();
         std::fs::write(mc.join("TlauncherProfiles.json"), "{}").unwrap();
+        assert_eq!(source_for_root(&mc), ForeignLauncher::Tlauncher);
+    }
+
+    #[test]
+    fn source_is_legacy_when_snake_case_marker_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("tlauncher_profiles.json"), r#"{"userSet":{}}"#).unwrap();
+        assert_eq!(source_for_root(&mc), ForeignLauncher::LegacyLauncher);
+    }
+
+    #[test]
+    fn tlauncher_org_wins_when_both_lineages_marked() {
+        // Both launchers defaulted to the same shared `.minecraft`; when both
+        // marker families are present the tlauncher.org tag deliberately wins.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("tlauncher_profiles.json"), "{}").unwrap();
+        std::fs::write(mc.join("TLauncherAdditional.json"), "{}").unwrap();
         assert_eq!(source_for_root(&mc), ForeignLauncher::Tlauncher);
     }
 
@@ -629,6 +678,48 @@ mod tests {
             .expect("shared dir present");
         assert_eq!(shared.mc_version, "1.21.1");
         assert_eq!(shared.loader, LoaderKind::Forge);
+    }
+
+    #[test]
+    fn expand_root_lists_legacy_home_subfolder_dirs() {
+        // Legacy Launcher "Subfolders" mode keeps per-family game dirs under
+        // `home/`; each content-bearing one must surface as an instance,
+        // named after the family dir and tagged LegacyLauncher via the
+        // root's snake_case marker.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        std::fs::write(mc.join("tlauncher_profiles.json"), r#"{"userSet":{}}"#).unwrap();
+        let home = mc.join("home/Forge-1.20");
+        std::fs::create_dir_all(home.join("mods")).unwrap();
+        std::fs::write(home.join("mods/a.jar"), b"x").unwrap();
+
+        let found = ProfileReader.expand_root(&mc);
+        let legacy = found
+            .iter()
+            .find(|f| f.minecraft_dir == home)
+            .expect("home/<family> dir expected");
+        assert_eq!(legacy.name, "Forge-1.20");
+        assert_eq!(legacy.source, ForeignLauncher::LegacyLauncher);
+    }
+
+    #[test]
+    fn expand_root_skips_content_free_home_dirs() {
+        // A `home/<x>` holding only config must stay hidden, same as the
+        // config-only shared dir.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        let home = mc.join("home/unknown");
+        std::fs::create_dir_all(home.join("config")).unwrap();
+        std::fs::write(home.join("config/x.cfg"), b"x").unwrap();
+
+        assert!(ProfileReader
+            .expand_root(&mc)
+            .iter()
+            .all(|f| f.minecraft_dir != home));
     }
 
     #[test]

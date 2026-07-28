@@ -27,6 +27,12 @@ pub enum ForeignLauncher {
     MojangLauncher,
     /// TLauncher (profile model; detected via marker files).
     Tlauncher,
+    /// X Minecraft Launcher (own instance tree; `instance.json` with a
+    /// `runtime` object).
+    Xmcl,
+    /// Legacy Launcher / llaun.ch (profile model; snake_case
+    /// `tlauncher_profiles.json` marker — distinct from tlauncher.org).
+    LegacyLauncher,
 }
 
 /// Provenance written when an instance is created via launcher import.
@@ -1001,6 +1007,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ForeignLauncher::Tlauncher).unwrap(),
             "\"tlauncher\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ForeignLauncher::Xmcl).unwrap(),
+            "\"xmcl\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ForeignLauncher::LegacyLauncher).unwrap(),
+            "\"legacy_launcher\""
         );
     }
 
