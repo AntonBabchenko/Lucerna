@@ -10,15 +10,20 @@
 //! - `--list`: print `SIZE|PRIMARY_PATH` (one line, no trailing newline; `|`
 //!   is invalid in Windows paths so the split is unambiguous). Exit 0 when
 //!   something exists to clean, 2 when nothing does (the hook skips its
-//!   prompt), 1 on environment errors.
+//!   prompt).
 //! - delete: remove keyring entries first (ids are read from files that are
 //!   about to be deleted), then directories. Per-target `OK`/`FAIL` report on
-//!   stdout; exit 0 all-ok / 1 any-failure.
+//!   stdout. Exit 0 = full success, 1 = any failure, 3 = success but the
+//!   `data-location.json` pointer was deliberately kept because the configured
+//!   data root is not reachable right now (unplugged drive) — the hook keeps
+//!   pointer restoration eligible on 3 so that data is rediscoverable later.
 //!
 //! The arg/env entry point is Windows-gated (NSIS is the only caller); the
 //! planning/execution core is platform-neutral and unit-tested on every OS.
 
 use std::path::{Path, PathBuf};
+
+use crate::data_root::migrate::{dir_size, is_same_or_nested};
 
 /// Everything the entry point resolves from the environment; injected so the
 /// core is testable with tempdirs.
@@ -43,6 +48,14 @@ pub struct CleanupPlan {
     pub dirs: Vec<PathBuf>,
     pub account_ids: Vec<String>,
     pub server_ids: Vec<String>,
+    /// A configured custom root that exists in the redirect but is not
+    /// reachable right now (e.g. unplugged USB drive). Its data is never
+    /// deleted, and `execute` preserves `data-location.json` so the data
+    /// stays discoverable after a reinstall.
+    pub unreachable_root: Option<PathBuf>,
+    /// The default app-data dir — `execute` needs it to know which planned
+    /// dir holds the pointer file when `unreachable_root` is set.
+    pub default_dir: PathBuf,
 }
 
 /// One executed target and what happened to it.
@@ -56,11 +69,14 @@ pub struct Report {
 /// (its data is left alone), a broken account file means no account ids.
 pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
     let redirect_file = input.default_dir.join("data-location.json");
-    let custom_root = crate::data_root::redirect::read(&redirect_file)
+    let configured_root = crate::data_root::redirect::read(&redirect_file)
         .ok()
         .flatten()
-        .map(|r| r.path)
-        .filter(|p| p.is_dir());
+        .map(|r| r.path);
+    let (custom_root, unreachable_root) = match configured_root {
+        Some(p) if p.is_dir() => (Some(p), None),
+        other => (None, other),
+    };
     let enumeration_root = custom_root
         .clone()
         .unwrap_or_else(|| input.default_dir.clone());
@@ -79,35 +95,37 @@ pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
         }
     }
 
-    let exe_key = input.current_exe.as_deref().map(canonical_key);
-    let mut seen: Vec<String> = Vec::new();
-    dirs.retain(|d| {
-        if !d.is_dir() {
-            return false;
+    let exe = input.current_exe.as_deref();
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for dir in dirs {
+        if !dir.is_dir() || is_filesystem_root(&dir) {
+            continue;
         }
-        let key = canonical_key(d);
-        if let Some(exe) = &exe_key {
-            let prefix = format!("{key}{}", std::path::MAIN_SEPARATOR);
-            if *exe == key || exe.starts_with(&prefix) {
-                return false;
-            }
+        if exe.is_some_and(|e| is_same_or_nested(&dir, e)) {
+            continue;
         }
-        if seen.contains(&key) {
-            return false;
+        let duplicate = kept
+            .iter()
+            .any(|k| is_same_or_nested(k, &dir) && is_same_or_nested(&dir, k));
+        if !duplicate {
+            kept.push(dir);
         }
-        seen.push(key);
-        true
-    });
+    }
 
     CleanupPlan {
-        dirs,
+        dirs: kept,
         account_ids: account_ids_in(&enumeration_root),
         server_ids: server_ids_in(&enumeration_root),
+        unreachable_root,
+        default_dir: input.default_dir.clone(),
     }
 }
 
 /// Delete everything in the plan: keyring entries first (their ids came from
-/// files inside the dirs we are about to remove), then the directories.
+/// files inside the dirs we are about to remove), then the directories. When
+/// the configured root is unreachable, the default dir loses its contents but
+/// keeps `data-location.json` — deleting the only pointer to data we cannot
+/// reach would orphan that data forever.
 pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
     use crate::accounts::keychain;
     let mut out = Vec::new();
@@ -132,10 +150,21 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         crate::mods::curseforge::keyring::clear(),
     ));
     for dir in &plan.dirs {
-        out.push(report(
-            format!("dir {}", dir.display()),
-            remove_dir_tolerant(dir),
-        ));
+        let preserve_pointer = plan.unreachable_root.is_some() && *dir == plan.default_dir;
+        if preserve_pointer {
+            out.push(report(
+                format!(
+                    "dir {} (kept data-location.json: configured data root is not reachable)",
+                    dir.display()
+                ),
+                remove_children_except(dir, "data-location.json"),
+            ));
+        } else {
+            out.push(report(
+                format!("dir {}", dir.display()),
+                remove_dir_tolerant(dir),
+            ));
+        }
     }
     out
 }
@@ -203,17 +232,26 @@ fn server_ids_in(root: &Path) -> Vec<String> {
     ids
 }
 
-/// Case-folded canonical path string for dedup and the self-exe guard.
-/// Canonicalization failure falls back to the literal path — dedup then still
-/// works for byte-identical inputs, and the guard stays conservative.
-fn canonical_key(p: &Path) -> String {
+/// True when `p` resolves to a filesystem root (`D:\`, `/`, a bare UNC
+/// share). A drive root can legitimately pass every softer check (absolute,
+/// empty, is_dir) yet must never be fed to `remove_dir_all` — a redirect
+/// pointing at "the whole drive" would otherwise erase the entire volume.
+fn is_filesystem_root(p: &Path) -> bool {
     std::fs::canonicalize(p)
         .unwrap_or_else(|_| p.to_path_buf())
-        .to_string_lossy()
-        .to_lowercase()
+        .parent()
+        .is_none()
 }
 
 fn remove_dir_tolerant(dir: &Path) -> crate::error::Result<()> {
+    if is_filesystem_root(dir) {
+        // Second layer of the guard in `build_plan`: even a hand-constructed
+        // plan must never remove a whole volume.
+        return Err(crate::error::Error::io(
+            dir.display().to_string(),
+            "refusing to remove a filesystem root".to_string(),
+        ));
+    }
     match std::fs::remove_dir_all(dir) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -221,27 +259,36 @@ fn remove_dir_tolerant(dir: &Path) -> crate::error::Result<()> {
     }
 }
 
-/// Best-effort recursive size. Unreadable entries count as 0; directory
-/// symlinks are not followed (no cycles, no double counting).
-fn dir_size(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
+/// Remove every child of `dir` except the top-level entry named `keep`. The
+/// dir itself stays (it must keep holding the preserved file).
+fn remove_children_except(dir: &Path, keep: &str) -> crate::error::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(crate::error::Error::io(dir.display().to_string(), e)),
     };
-    let mut total = 0u64;
     for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(keep)
+        {
             continue;
         }
-        if file_type.is_dir() {
-            total += dir_size(&entry.path());
-        } else if let Ok(md) = entry.metadata() {
-            total += md.len();
+        let path = entry.path();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let removed = if is_dir {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        match removed {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(crate::error::Error::io(path.display().to_string(), e)),
         }
     }
-    total
+    Ok(())
 }
 
 fn report<E: std::fmt::Display>(label: String, outcome: Result<(), E>) -> Report {
@@ -305,6 +352,8 @@ fn run(identifier: &str, list_only: bool) -> i32 {
     let _ = std::io::stdout().flush();
     if failed {
         1
+    } else if plan.unreachable_root.is_some() {
+        3
     } else {
         0
     }
@@ -346,6 +395,7 @@ mod tests {
         let plan = build_plan(&input(&default_dir));
         assert_eq!(plan.dirs[0], custom);
         assert!(plan.dirs.contains(&default_dir));
+        assert!(plan.unreachable_root.is_none());
     }
 
     #[test]
@@ -357,16 +407,42 @@ mod tests {
 
         let plan = build_plan(&input(&default_dir));
         assert_eq!(plan.dirs, vec![default_dir]);
+        assert!(plan.unreachable_root.is_none());
     }
 
     #[test]
-    fn redirect_to_missing_dir_is_ignored() {
+    fn redirect_to_missing_dir_is_reported_unreachable_not_planned() {
         let t = tempdir().unwrap();
         let default_dir = t.path().join("default");
-        write_redirect(&default_dir, &t.path().join("unplugged-usb"));
+        let gone = t.path().join("unplugged-usb");
+        write_redirect(&default_dir, &gone);
 
         let plan = build_plan(&input(&default_dir));
         assert_eq!(plan.dirs, vec![default_dir]);
+        assert_eq!(plan.unreachable_root, Some(gone));
+    }
+
+    #[test]
+    fn filesystem_root_is_never_planned() {
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        // "/" on Unix, "\" (current-drive root) on Windows — a real, existing
+        // root directory either way.
+        let root = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        assert!(root.is_dir(), "test premise: root path exists");
+
+        let mut i = input(&default_dir);
+        i.webview_dir = Some(root.clone());
+        let plan = build_plan(&i);
+        assert_eq!(plan.dirs, vec![default_dir]);
+    }
+
+    #[test]
+    fn remove_dir_tolerant_refuses_filesystem_root() {
+        let root = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        let outcome = remove_dir_tolerant(&root);
+        assert!(outcome.is_err(), "must refuse to remove a filesystem root");
     }
 
     #[test]
@@ -441,6 +517,25 @@ mod tests {
     }
 
     #[test]
+    fn custom_root_containing_the_running_exe_is_refused() {
+        // The guard's own justification: a data root configured INSIDE the
+        // install dir must not saw off the branch the uninstaller stands on.
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        let custom = t.path().join("install-dir/LucernaData");
+        std::fs::create_dir_all(custom.join("nested")).unwrap();
+        let exe = custom.join("nested/lucerna.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        write_redirect(&default_dir, &custom);
+
+        let mut i = input(&default_dir);
+        i.current_exe = Some(exe);
+        let plan = build_plan(&i);
+        assert!(!plan.dirs.contains(&custom));
+        assert!(plan.dirs.contains(&default_dir));
+    }
+
+    #[test]
     fn duplicate_dirs_are_deduped() {
         let t = tempdir().unwrap();
         let default_dir = t.path().join("default");
@@ -449,6 +544,21 @@ mod tests {
         let mut i = input(&default_dir);
         i.webview_dir = Some(default_dir.clone());
         i.legacy_candidates = vec![default_dir.clone()];
+        assert_eq!(build_plan(&i).dirs, vec![default_dir]);
+    }
+
+    #[test]
+    fn case_variant_duplicate_is_deduped_where_the_fs_is_case_insensitive() {
+        // On Windows/macOS "Default" and "DEFAULT" are the same directory —
+        // the canonical-key dedup must collapse them. On case-sensitive Linux
+        // the variant simply doesn't exist and is excluded as non-existing;
+        // either way exactly one dir survives.
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("Default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+
+        let mut i = input(&default_dir);
+        i.webview_dir = Some(t.path().join("DEFAULT"));
         assert_eq!(build_plan(&i).dirs, vec![default_dir]);
     }
 
@@ -470,6 +580,8 @@ mod tests {
             dirs: vec![existing.clone(), t.path().join("already-gone")],
             account_ids: vec!["uc-acc".into()],
             server_ids: vec!["uc-srv".into()],
+            unreachable_root: None,
+            default_dir: t.path().join("default"),
         };
         let reports = execute(&plan);
 
@@ -488,6 +600,30 @@ mod tests {
             None
         );
         assert_eq!(crate::mods::curseforge::keyring::get().unwrap(), None);
+    }
+
+    #[test]
+    fn unreachable_root_preserves_the_pointer_file() {
+        let _guard = crate::test_env_lock();
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        let gone = t.path().join("unplugged-usb");
+        write_redirect(&default_dir, &gone);
+        std::fs::create_dir_all(default_dir.join("logs")).unwrap();
+        std::fs::write(default_dir.join("logs/lucerna.log"), b"log").unwrap();
+        std::fs::write(default_dir.join("app.json"), b"{}").unwrap();
+
+        let plan = build_plan(&input(&default_dir));
+        assert_eq!(plan.unreachable_root, Some(gone));
+        let reports = execute(&plan);
+
+        assert!(reports.iter().all(|r| r.outcome.is_ok()));
+        assert!(
+            default_dir.join("data-location.json").is_file(),
+            "the pointer to unreachable data must survive"
+        );
+        assert!(!default_dir.join("logs").exists());
+        assert!(!default_dir.join("app.json").exists());
     }
 
     #[test]

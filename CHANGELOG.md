@@ -20,7 +20,9 @@ release is **0.9.0**.
   uninstaller now names the exact data folder and its size and asks whether to
   erase everything (keeping it is the default answer); agreeing also clears the
   credential-manager entries. Silent, passive and update runs never prompt and
-  never delete data.
+  never delete data. A data root that is not reachable at uninstall time (for
+  example on an unplugged drive) is never deleted, and its location pointer is
+  kept so the data stays discoverable.
 
 ### Fixed
 
