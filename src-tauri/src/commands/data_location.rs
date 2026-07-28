@@ -237,6 +237,138 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
     app.restart();
 }
 
+/// A classified data-location change for a user-picked directory. Returned by
+/// [`plan_data_location_change`]; the frontend shows the dialog matching the
+/// kind and then commits via `set_data_location` (migrate) or
+/// [`adopt_data_location`] (adopt).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DataLocationPlan {
+    /// `path` is an existing Lucerna data root — offer to point at it.
+    Adopt { path: String },
+    /// `path` is the effective migration target (the `LucernaData` subfolder
+    /// applied exactly once).
+    Migrate { path: String },
+    /// The pick resolves to the current effective root — nothing to change.
+    AlreadyCurrent { path: String },
+}
+
+/// Classify a picked directory into adopt / migrate / already-current.
+/// Read-only (fs probes only) — commit-time validation still happens in
+/// `set_data_location` / [`adopt_data_location`], so a race between planning
+/// and confirming can never skip a guard. Probes run on a blocking thread: a
+/// stat on a flaky removable drive can stall for seconds.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result<DataLocationPlan> {
+    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let plan = tokio::task::spawn_blocking(move || {
+        use crate::data_root::plan::{is_data_root, plan_change, PlanKind};
+        let picked = PathBuf::from(picked);
+        let plan = plan_change(&picked, &is_data_root);
+        let path = match &plan {
+            PlanKind::Adopt(p) | PlanKind::Migrate(p) => p.clone(),
+        };
+        if crate::data_root::migrate::is_same_path(&path, &current) {
+            return DataLocationPlan::AlreadyCurrent {
+                path: path.display().to_string(),
+            };
+        }
+        match plan {
+            PlanKind::Adopt(p) => DataLocationPlan::Adopt {
+                path: p.display().to_string(),
+            },
+            PlanKind::Migrate(p) => DataLocationPlan::Migrate {
+                path: p.display().to_string(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| Error::io("<plan_data_location>", format!("plan task panicked: {e}")))?;
+    Ok(plan)
+}
+
+/// Point the data root at `path` — an EXISTING Lucerna data root — without
+/// copying, verifying, or deleting anything. Writes the bootstrap redirect
+/// (or removes it when `path` IS the default root, keeping `configured`
+/// clean) and restarts the app. The current root's data stays on disk
+/// untouched; the confirm dialog says so explicitly.
+///
+/// Shares `set_data_location`'s guards: rejected while a game/server runs,
+/// while running from a fallback root, or while another change is in flight
+/// (`DataLocationBusy`). Validation failures surface as
+/// `DataLocationInvalid` with reasons `not_absolute` / `not_a_data_root` /
+/// `same` / `not_writable`. Nesting in either direction is deliberately
+/// allowed — nothing moves, and "current root nested inside the adopted
+/// root" is exactly the doubled-path recovery this exists for.
+#[tauri::command]
+#[specta::specta]
+pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
+    let guard = MigrationGuard::try_acquire().ok_or(Error::DataLocationBusy)?;
+
+    // Mirror set_data_location: never re-point while running from a fallback
+    // root (the UI disables the button; this is the IPC backstop) or while a
+    // game/server is live (the restart would drop the process registry).
+    if app.state::<crate::data_root::DataRoot>().0.fell_back {
+        return Err(Error::DataLocationBusy);
+    }
+    if any_game_running(&app) {
+        return Err(Error::DataLocationBusy);
+    }
+
+    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let default =
+        crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
+    let target = PathBuf::from(&path);
+
+    let invalid = |v: crate::data_root::validate::Invalid| Error::DataLocationInvalid {
+        reason: v.reason_key().to_string(),
+    };
+    if !target.is_absolute() {
+        return Err(invalid(crate::data_root::validate::Invalid::NotAbsolute));
+    }
+
+    // Blocking fs probes (shape re-check at commit time — the plan result may
+    // be stale — plus canonical compares and the write probe) off the async
+    // runtime; any of them can stall on a flaky removable drive.
+    let target_probe = target.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        use crate::data_root::validate::Invalid;
+        if !crate::data_root::plan::is_data_root(&target_probe) {
+            return Err(Invalid::NotADataRoot);
+        }
+        if crate::data_root::migrate::is_same_path(&target_probe, &current) {
+            return Err(Invalid::SameAsCurrent);
+        }
+        if !crate::data_root::migrate::is_available(&target_probe) {
+            return Err(Invalid::NotWritable);
+        }
+        Ok(crate::data_root::migrate::is_same_path(
+            &target_probe,
+            &default,
+        ))
+    })
+    .await
+    .map_err(|e| Error::io("<adopt_data_location>", format!("probe task panicked: {e}")))?;
+    let adopting_default = checked.map_err(invalid)?;
+
+    let redirect_file =
+        crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+    if adopting_default {
+        crate::data_root::redirect::remove(&redirect_file)?;
+    } else {
+        crate::data_root::redirect::write(
+            &redirect_file,
+            &crate::data_root::redirect::Redirect { path: target },
+        )?;
+    }
+
+    // Nothing moved; keep the guard held across the restart so a concurrent
+    // migrate can't start against a root that is about to change.
+    std::mem::forget(guard);
+    app.restart();
+}
+
 /// The blocking copy → verify → delete pipeline. Returns the number of bytes
 /// copied (excluding the skipped redirect). Emits `DataMigrationProgress`
 /// throughout. Runs entirely on a blocking thread.
