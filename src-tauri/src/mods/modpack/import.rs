@@ -417,6 +417,26 @@ pub fn compute_update_diff(
     }
 }
 
+/// Sha1s (new-version, lowercased) of updated pack files whose OLD installed
+/// record the user had disabled — the update must re-install them disabled,
+/// not silently re-enable them. `added` files are never carried (new content,
+/// no prior user intent).
+pub(crate) fn carry_disabled_shas(
+    installed: &[crate::mods::platform::InstalledMod],
+    diff: &crate::mods::modpack::schema::ModpackUpdateDiff,
+) -> Vec<String> {
+    let disabled: std::collections::HashSet<String> = installed
+        .iter()
+        .filter(|m| !m.enabled)
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect();
+    diff.updated
+        .iter()
+        .filter(|e| disabled.contains(&e.old.sha1.to_ascii_lowercase()))
+        .map(|e| e.new.sha1.to_ascii_lowercase())
+        .collect()
+}
+
 /// Synthesise a `ModVersion` from a live `ModpackFile` so both the
 /// import orchestrator and the update orchestrator can feed it to
 /// `install_one`. Shared helper — extract once, use everywhere.
@@ -1351,6 +1371,53 @@ mod tests {
             env_client: EnvSupport::Required,
             source: ModSource::Modrinth,
         }
+    }
+
+    /// carry_disabled_shas: a disabled OLD sha in `updated` carries its NEW
+    /// sha; enabled olds and `added` files never carry.
+    #[test]
+    fn carry_disabled_maps_old_disabled_to_new_sha() {
+        use crate::mods::modpack::schema::{ModpackUpdateDiff, ModpackUpdateEntry};
+        let mut off = installed("oldA", true);
+        off.enabled = false;
+        let on = installed("oldB", true);
+        let diff = ModpackUpdateDiff {
+            added: vec![sample_file("addX")],
+            removed: vec![],
+            updated: vec![
+                ModpackUpdateEntry {
+                    old: pack_file("oldA"),
+                    new: sample_file("newA"),
+                },
+                ModpackUpdateEntry {
+                    old: pack_file("oldB"),
+                    new: sample_file("newB"),
+                },
+            ],
+            version_bump: None,
+            new_version_number: "2.0".into(),
+        };
+        let carry = carry_disabled_shas(&[off, on], &diff);
+        // Only the disabled old carries; matching is case-insensitive and the
+        // output is lowercased.
+        assert_eq!(carry, vec!["newa".to_string()]);
+    }
+
+    /// An updated pair whose old sha is not installed at all carries nothing.
+    #[test]
+    fn carry_disabled_ignores_unknown_old_sha() {
+        use crate::mods::modpack::schema::{ModpackUpdateDiff, ModpackUpdateEntry};
+        let diff = ModpackUpdateDiff {
+            added: vec![],
+            removed: vec![],
+            updated: vec![ModpackUpdateEntry {
+                old: pack_file("gone"),
+                new: sample_file("newG"),
+            }],
+            version_bump: None,
+            new_version_number: "2.0".into(),
+        };
+        assert!(carry_disabled_shas(&[], &diff).is_empty());
     }
 
     fn installed(sha: &str, with_source: bool) -> crate::mods::platform::InstalledMod {
