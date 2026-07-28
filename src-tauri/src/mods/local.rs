@@ -779,41 +779,38 @@ pub fn compat_verdict(
 }
 
 /// Offline loader-family compatibility scan of an instance's installed mods.
-/// Layer 1 of the proactive incompatibility check: judges both hand-dropped
-/// (`source = None`) and platform-installed (`source = Some(...)`) mods by
-/// reading their descriptor and comparing loader families against the instance.
-/// Pack-bundled mods are trusted (the pack already vetted them for this
-/// loader+MC) and are never judged. For platform mods the offline verdict is
-/// only a SUSPECT pre-filter — the `live_checkable` flag tells the frontend
-/// to auto-run an authoritative live check on those. Network-free. A mod
-/// whose jar is missing/unreadable, or has no recognised descriptor, yields
-/// `loader_mismatch = false` (conservative — never a false alarm). `mc` is
-/// passed to `compat_verdict` (its signature needs it) but only the loader
-/// outputs are surfaced.
+/// Layer 1 of the proactive incompatibility check: judges EVERY mod —
+/// hand-dropped (`source = None`), platform-installed, and pack-bundled — by
+/// reading its descriptor and comparing loader families against the instance.
+/// Pack membership does not guarantee the right family (FCAP: a Forge pack
+/// shipped a pure-Fabric jar the loader silently ignores), so pack mods are
+/// judged too; they are not live-checkable (`eligible_identity` excludes
+/// them), which makes their descriptor verdict final — the same evidence
+/// standard as import-time inert-jar detection. For platform mods the offline
+/// verdict is only a SUSPECT pre-filter — the `live_checkable` flag tells the
+/// frontend to auto-run an authoritative live check on those. Network-free.
+/// A mod whose jar is missing/unreadable, or has no recognised descriptor,
+/// yields `loader_mismatch = false` (conservative — never a false alarm).
+/// `mc` is passed to `compat_verdict` (its signature needs it) but only the
+/// loader outputs are surfaced.
 pub async fn scan_instance(
     instance_root: &Path,
     instance_loader: LoaderKind,
     mc: &str,
 ) -> Result<Vec<ModLocalCompat>, Error> {
-    use crate::mods::updates::{eligible_identity, is_pack_origin_mod};
+    use crate::mods::updates::eligible_identity;
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
     let dir = installed::mods_dir(instance_root);
     let mut out = Vec::with_capacity(mods.len());
     for m in &mods {
-        // Judge loader-family for manual AND platform mods; pack-bundled mods are
-        // trusted (the pack vetted them) and never judged. For platform mods the
-        // offline verdict is only a SUSPECT pre-filter — the frontend auto-runs an
-        // authoritative live check on the platform suspects.
-        let is_pack = is_pack_origin_mod(m, pack_origin.as_ref());
-        let verdict = if is_pack {
-            None
-        } else {
-            read_jar_for(&dir, &m.filename)
-                .await
-                .and_then(|bytes| read_jar_meta(&bytes).ok())
-                .map(|meta| compat_verdict(&meta, instance_loader, mc))
-        };
+        // Judge loader-family for ALL mods, pack-bundled included — the
+        // conservative verdict (descriptor-less / family-inclusive jars never
+        // flag) is the false-positive guard, not pack membership.
+        let verdict = read_jar_for(&dir, &m.filename)
+            .await
+            .and_then(|bytes| read_jar_meta(&bytes).ok())
+            .map(|meta| compat_verdict(&meta, instance_loader, mc));
         out.push(ModLocalCompat {
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
@@ -1432,6 +1429,131 @@ modId=\"evilseagull\"
             m.live_checkable,
             "platform mod must be marked live-checkable"
         );
+    }
+
+    /// Register `filename`+`bytes` as a PACK-BUNDLED mod: add the installed
+    /// record and a pack origin whose files list carries the jar's sha1 under
+    /// `mods/`.
+    async fn add_pack_mod(root: &Path, filename: &str, bytes: &[u8]) -> String {
+        use crate::mods::installed::{add, set_pack_origin, PackOrigin, PackOriginFile};
+        use crate::mods::modpack::schema::EnvSupport;
+        use crate::mods::platform::{InstalledMod, ModSource};
+        let sha = hex::encode(Sha1::digest(bytes));
+        add(
+            root,
+            InstalledMod {
+                filename: filename.into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("packmod".into()),
+                version_id: Some("packv".into()),
+                name: filename.trim_end_matches(".jar").into(),
+                version_number: Some("1.0".into()),
+                installed_at: chrono::Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: false,
+                requires: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        set_pack_origin(
+            root,
+            PackOrigin {
+                project_id: None,
+                source: ModSource::Curseforge,
+                project_name: "FCAP-like Pack".into(),
+                version: "1.0".into(),
+                files: vec![PackOriginFile {
+                    sha1: sha.clone(),
+                    name: filename.trim_end_matches(".jar").into(),
+                    filename: filename.into(),
+                    install_path: format!("mods/{filename}"),
+                    url: String::new(),
+                    size: 1.0,
+                    project_id: String::new(),
+                    version_id: String::new(),
+                    env_client: EnvSupport::Required,
+                    source: ModSource::Curseforge,
+                }],
+                missing_mods: vec![],
+                skipped_overrides: vec![],
+                resolved_missing: vec![],
+                inert_loader_jars: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        sha
+    }
+
+    /// FCAP C2: a pack-bundled pure-Fabric jar on a Forge instance IS judged
+    /// (the pack-trust exemption is gone) and its descriptor verdict is final
+    /// (pack mods are not live-checkable).
+    #[tokio::test]
+    async fn scan_flags_wrong_family_pack_bundled_jar() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"fcap","name":"FCAP"}"#)]);
+        fs::write(dir.join("fcap.jar"), &bytes).await.unwrap();
+        let sha = add_pack_mod(td.path(), "fcap.jar", &bytes).await;
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1")
+            .await
+            .unwrap();
+        let m = out
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert!(m.loader_mismatch, "wrong-family pack jar must be flagged");
+        assert!(!m.live_checkable, "pack mods stay non-live-checkable");
+        assert_eq!(m.detected_loader.as_deref(), Some("Fabric"));
+    }
+
+    /// A pack-bundled jar whose family matches the instance is not flagged.
+    #[tokio::test]
+    async fn scan_pack_bundled_matching_family_not_flagged() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("META-INF/mods.toml", b"modLoader=\"javafml\"" as &[u8])]);
+        fs::write(dir.join("ok.jar"), &bytes).await.unwrap();
+        let sha = add_pack_mod(td.path(), "ok.jar", &bytes).await;
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1")
+            .await
+            .unwrap();
+        let m = out
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert!(!m.loader_mismatch);
+        assert!(!m.live_checkable);
+    }
+
+    /// A descriptor-less pack-bundled jar never flags (conservatism preserved).
+    #[tokio::test]
+    async fn scan_pack_bundled_descriptorless_not_flagged() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("data/blob.txt", b"not a mod" as &[u8])]);
+        fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
+        let sha = add_pack_mod(td.path(), "lib.jar", &bytes).await;
+
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.1")
+            .await
+            .unwrap();
+        let m = out
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert!(!m.loader_mismatch);
+        assert!(m.detected_loader.is_none());
     }
 
     // ── install_local tests ────────────────────────────────────────────────
