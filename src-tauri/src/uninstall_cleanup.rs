@@ -1,4 +1,4 @@
-//! Headless uninstall cleanup: `lucerna.exe --uninstall-cleanup [--list]`.
+//! Headless uninstall cleanup: `lucerna.exe --uninstall-cleanup [--list] [--lang <LCID>]`.
 //!
 //! Invoked by the NSIS uninstaller hook (`installer/hooks.nsh`) while the
 //! binary still exists on disk. The uninstaller itself cannot know where the
@@ -7,16 +7,25 @@
 //! the binary, as the single source of truth.
 //!
 //! Two modes:
-//! - `--list`: print `SIZE|PRIMARY_PATH` (one line, no trailing newline; `|`
-//!   is invalid in Windows paths so the split is unambiguous). Exit 0 when
+//! - `--list`: print a localized (EN, or RU for LCID 1049) inventory block —
+//!   one line per directory that would be deleted (label, path, size), plus a
+//!   saved-sign-ins summary and an offline-data-root note when applicable.
+//!   The NSIS hook embeds the block VERBATIM in its consent MessageBox — no
+//!   NSIS-side parsing. `\r\n` separators, no trailing newline. Exit 0 when
 //!   something exists to clean, 2 when nothing does (the hook skips its
 //!   prompt).
 //! - delete: remove keyring entries first (ids are read from files that are
 //!   about to be deleted), then directories. Per-target `OK`/`FAIL` report on
-//!   stdout. Exit 0 = full success, 1 = any failure, 3 = success but the
+//!   stdout (English — it goes to the uninstaller log, not the dialog). Exit
+//!   0 = full success, 1 = any failure, 3 = success but the
 //!   `data-location.json` pointer was deliberately kept because the configured
 //!   data root is not reachable right now (unplugged drive) — the hook keeps
 //!   pointer restoration eligible on 3 so that data is rediscoverable later.
+//!
+//! The deletion plan scans `<exe dir>\LucernaData` INDEPENDENTLY of the
+//! redirect pointer: a broken or lost pointer must never hide data sitting
+//! right next to the binary being uninstalled (this exact failure motivated
+//! the portable-data-root feature).
 //!
 //! The arg/env entry point is Windows-gated (NSIS is the only caller); the
 //! planning/execution core is platform-neutral and unit-tested on every OS.
@@ -29,9 +38,15 @@ use crate::data_root::migrate::{dir_size, is_same_or_nested};
 /// core is testable with tempdirs.
 pub struct CleanupInput {
     /// `%APPDATA%\<identifier>` — holds `data-location.json`, logs, updates,
-    /// and the whole data root when no redirect is configured.
+    /// and the whole data root when neither a redirect nor a portable root
+    /// exists.
     pub default_dir: PathBuf,
-    /// `%LOCALAPPDATA%\<identifier>` — WebView2 profile data.
+    /// `<exe dir>\LucernaData` — the portable data root, scanned regardless
+    /// of what the redirect says.
+    pub exe_side_root: Option<PathBuf>,
+    /// `%LOCALAPPDATA%\<identifier>` — WebView2 profile data (older builds;
+    /// portable roots keep it under `<root>\webview`, which is inside the
+    /// root and needs no separate entry).
     pub webview_dir: Option<PathBuf>,
     /// Old default install dirs from pre-rename builds; swept only when their
     /// entire contents is an orphaned `uninstall.exe`.
@@ -42,10 +57,25 @@ pub struct CleanupInput {
     pub current_exe: Option<PathBuf>,
 }
 
+/// What a planned directory is, for the human inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetKind {
+    GameData,
+    Settings,
+    BrowserCache,
+    LegacyOrphan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedDir {
+    pub kind: TargetKind,
+    pub path: PathBuf,
+}
+
 /// Deletion plan: directories (primary data root first) plus the ids whose
 /// keyring entries must go.
 pub struct CleanupPlan {
-    pub dirs: Vec<PathBuf>,
+    pub dirs: Vec<PlannedDir>,
     pub account_ids: Vec<String>,
     pub server_ids: Vec<String>,
     /// A configured custom root that exists in the redirect but is not
@@ -64,6 +94,24 @@ pub struct Report {
     pub outcome: Result<(), String>,
 }
 
+/// Inventory language. The LCID string comes from NSIS `$LANGUAGE`; the
+/// installer ships English + Russian only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    En,
+    Ru,
+}
+
+impl Lang {
+    pub fn from_lcid(lcid: &str) -> Self {
+        if lcid.trim() == "1049" {
+            Lang::Ru
+        } else {
+            Lang::En
+        }
+    }
+}
+
 /// Build the plan. Missing/corrupt inputs degrade to "less to delete", never
 /// to an error: a broken redirect means the custom root cannot be resolved
 /// (its data is left alone), a broken account file means no account ids.
@@ -77,45 +125,84 @@ pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
         Some(p) if p.is_dir() => (Some(p), None),
         other => (None, other),
     };
-    let enumeration_root = custom_root
-        .clone()
-        .unwrap_or_else(|| input.default_dir.clone());
 
-    let mut dirs: Vec<PathBuf> = Vec::new();
+    let default_kind = if dir_has_data_shape(&input.default_dir) {
+        TargetKind::GameData
+    } else {
+        TargetKind::Settings
+    };
+    let mut dirs: Vec<PlannedDir> = Vec::new();
     if let Some(root) = custom_root {
-        dirs.push(root);
+        dirs.push(PlannedDir {
+            kind: TargetKind::GameData,
+            path: root,
+        });
     }
-    dirs.push(input.default_dir.clone());
+    if let Some(exe_side) = &input.exe_side_root {
+        // Deletion-worthiness gate: only a dir that recognizably belongs to
+        // Lucerna (or is empty) may be planned. A foreign folder that merely
+        // shares the LucernaData name must never be wiped by our consent.
+        if exe_side_is_lucerna_like(exe_side) {
+            dirs.push(PlannedDir {
+                kind: TargetKind::GameData,
+                path: exe_side.clone(),
+            });
+        }
+    }
+    dirs.push(PlannedDir {
+        kind: default_kind,
+        path: input.default_dir.clone(),
+    });
     if let Some(webview) = &input.webview_dir {
-        dirs.push(webview.clone());
+        dirs.push(PlannedDir {
+            kind: TargetKind::BrowserCache,
+            path: webview.clone(),
+        });
     }
     for legacy in &input.legacy_candidates {
         if legacy_is_sweepable(legacy) {
-            dirs.push(legacy.clone());
+            dirs.push(PlannedDir {
+                kind: TargetKind::LegacyOrphan,
+                path: legacy.clone(),
+            });
         }
     }
 
     let exe = input.current_exe.as_deref();
-    let mut kept: Vec<PathBuf> = Vec::new();
+    let mut kept: Vec<PlannedDir> = Vec::new();
     for dir in dirs {
-        if !dir.is_dir() || is_filesystem_root(&dir) {
+        if !dir.path.is_dir() || is_filesystem_root(&dir.path) {
             continue;
         }
-        if exe.is_some_and(|e| is_same_or_nested(&dir, e)) {
+        if exe.is_some_and(|e| is_same_or_nested(&dir.path, e)) {
             continue;
         }
-        let duplicate = kept
-            .iter()
-            .any(|k| is_same_or_nested(k, &dir) && is_same_or_nested(&dir, k));
+        let duplicate = kept.iter().any(|k| {
+            is_same_or_nested(&k.path, &dir.path) && is_same_or_nested(&dir.path, &k.path)
+        });
         if !duplicate {
             kept.push(dir);
         }
     }
 
+    // Credentials are enumerated from EVERY planned data dir, not just the
+    // primary root: a de-pointered old root (the exe-side scan's whole reason
+    // to exist) still names accounts whose tokens must go.
+    let mut account_ids: Vec<String> = Vec::new();
+    let mut server_ids: Vec<String> = Vec::new();
+    for dir in &kept {
+        account_ids.extend(account_ids_in(&dir.path));
+        server_ids.extend(server_ids_in(&dir.path));
+    }
+    account_ids.sort();
+    account_ids.dedup();
+    server_ids.sort();
+    server_ids.dedup();
+
     CleanupPlan {
         dirs: kept,
-        account_ids: account_ids_in(&enumeration_root),
-        server_ids: server_ids_in(&enumeration_root),
+        account_ids,
+        server_ids,
         unreachable_root,
         default_dir: input.default_dir.clone(),
     }
@@ -150,31 +237,100 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         crate::mods::curseforge::keyring::clear(),
     ));
     for dir in &plan.dirs {
-        let preserve_pointer = plan.unreachable_root.is_some() && *dir == plan.default_dir;
+        let preserve_pointer = plan.unreachable_root.is_some() && dir.path == plan.default_dir;
         if preserve_pointer {
             out.push(report(
                 format!(
                     "dir {} (kept data-location.json: configured data root is not reachable)",
-                    dir.display()
+                    dir.path.display()
                 ),
-                remove_children_except(dir, "data-location.json"),
+                remove_children_except(&dir.path, "data-location.json"),
             ));
         } else {
             out.push(report(
-                format!("dir {}", dir.display()),
-                remove_dir_tolerant(dir),
+                format!("dir {}", dir.path.display()),
+                remove_dir_tolerant(&dir.path),
             ));
         }
     }
     out
 }
 
-/// The `--list` output: `SIZE|PRIMARY_PATH`. Callers must ensure the plan is
-/// non-empty (exit 2 otherwise).
-pub fn list_line(plan: &CleanupPlan) -> Option<String> {
-    let primary = plan.dirs.first()?;
-    let total: u64 = plan.dirs.iter().map(|d| dir_size(d)).sum();
-    Some(format!("{}|{}", format_size(total), primary.display()))
+/// The `--list` output: the full localized inventory block the NSIS hook
+/// embeds verbatim in the consent dialog. `None` when there is nothing to
+/// clean (exit 2). Kept comfortably under NSIS's string budget: a handful of
+/// lines, long paths middle-truncated.
+pub fn inventory_block(plan: &CleanupPlan, lang: Lang) -> Option<String> {
+    if plan.dirs.is_empty() {
+        return None;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for dir in &plan.dirs {
+        let label = kind_label(dir.kind, lang);
+        let size = format_size_lang(dir_size(&dir.path), lang);
+        let path = truncate_middle(&dir.path.display().to_string(), 90);
+        lines.push(format!("{label}: {path} ({size})"));
+    }
+    let accounts = plan.account_ids.len();
+    let servers = plan.server_ids.len();
+    if accounts + servers > 0 {
+        lines.push(creds_line(accounts, servers, lang));
+    }
+    if let Some(offline) = &plan.unreachable_root {
+        let path = truncate_middle(&offline.display().to_string(), 90);
+        lines.push(match lang {
+            Lang::En => {
+                format!("Configured data location is offline and will NOT be deleted: {path}")
+            }
+            Lang::Ru => {
+                format!("Настроенное хранилище сейчас недоступно и НЕ будет удалено: {path}")
+            }
+        });
+    }
+    Some(lines.join("\r\n"))
+}
+
+fn kind_label(kind: TargetKind, lang: Lang) -> &'static str {
+    match (kind, lang) {
+        (TargetKind::GameData, Lang::En) => "Game data (instances, worlds, mods)",
+        (TargetKind::GameData, Lang::Ru) => "Игровые данные (инстансы, миры, моды)",
+        (TargetKind::Settings, Lang::En) => "Launcher settings and logs",
+        (TargetKind::Settings, Lang::Ru) => "Настройки и логи лаунчера",
+        (TargetKind::BrowserCache, Lang::En) => "Embedded browser cache",
+        (TargetKind::BrowserCache, Lang::Ru) => "Кеш встроенного браузера",
+        (TargetKind::LegacyOrphan, Lang::En) => "Leftover uninstaller from an older version",
+        (TargetKind::LegacyOrphan, Lang::Ru) => "Остатки установщика старой версии",
+    }
+}
+
+fn creds_line(accounts: usize, servers: usize, lang: Lang) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match lang {
+        Lang::En => {
+            if accounts > 0 {
+                parts.push(format!("{accounts} account(s)"));
+            }
+            if servers > 0 {
+                parts.push(format!("{servers} server password(s)"));
+            }
+            format!(
+                "Saved sign-ins in Windows Credential Manager: {}",
+                parts.join(", ")
+            )
+        }
+        Lang::Ru => {
+            if accounts > 0 {
+                parts.push(format!("аккаунтов — {accounts}"));
+            }
+            if servers > 0 {
+                parts.push(format!("паролей серверов — {servers}"));
+            }
+            format!(
+                "Сохранённые входы в диспетчере учётных данных Windows: {}",
+                parts.join(", ")
+            )
+        }
+    }
 }
 
 /// Human size for the consent prompt. Coarse on purpose: the number's job is
@@ -191,6 +347,88 @@ pub fn format_size(bytes: u64) -> String {
     } else {
         format!("{:.0} MB", (b / MB).max(1.0))
     }
+}
+
+/// Localized size string. RU swaps units and the decimal separator; the EN
+/// form is the canonical one `format_size` produces ("13.8 GB", "250 MB").
+pub fn format_size_lang(bytes: u64, lang: Lang) -> String {
+    let en = format_size(bytes);
+    match lang {
+        Lang::En => en,
+        Lang::Ru => en.replace('.', ",").replace("GB", "ГБ").replace("MB", "МБ"),
+    }
+}
+
+/// Middle-truncate to `max` characters (char-counted, display string) so a
+/// pathological path cannot blow the NSIS string budget.
+fn truncate_middle(s: &str, max: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        return s.to_string();
+    }
+    let keep = max.saturating_sub(1) / 2;
+    let head: String = chars[..keep].iter().collect();
+    let tail: String = chars[chars.len() - keep..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+/// Does this directory look like a (current or former) data root, as opposed
+/// to a bare settings/scratch dir? Looser than the startup resolver's
+/// `looks_like_data_root` on purpose — this only picks the inventory LABEL.
+/// (`.lucerna-migrated` has never been written by any code in this
+/// repository's history, but it is OBSERVED on a real user's migrated root —
+/// most likely a pre-merge build of the relocation feature left it. Matching
+/// it costs nothing and classifies such disks correctly.)
+fn dir_has_data_shape(dir: &Path) -> bool {
+    dir.join("app.json").is_file()
+        || dir.join("instances").is_dir()
+        || dir.join(".lucerna-migrated").exists()
+}
+
+/// Top-level names a Lucerna data root can legitimately contain. Used to
+/// decide whether an exe-adjacent `LucernaData` dir is OURS to delete.
+const LUCERNA_ROOT_ENTRIES: [&str; 18] = [
+    "app.json",
+    "account.json",
+    "data-location.json",
+    ".lucerna-migrated",
+    "instances",
+    "versions",
+    "libraries",
+    "assets",
+    "jres",
+    "logs",
+    "updates",
+    "mod-cache",
+    "mods-cache",
+    "servers",
+    "skins",
+    "capes",
+    "forge",
+    "webview",
+];
+
+/// The exe-adjacent dir qualifies for deletion when it is empty or contains
+/// at least one recognizably-Lucerna top-level entry. A dir with NONE of
+/// these is somebody else's folder that just happens to be called
+/// LucernaData, and consent to delete "game data" does not extend to it.
+fn exe_side_is_lucerna_like(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut any_entry = false;
+    for entry in entries.flatten() {
+        any_entry = true;
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if LUCERNA_ROOT_ENTRIES
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&name))
+        {
+            return true;
+        }
+    }
+    !any_entry
 }
 
 /// A legacy dir may be swept only when every entry is a plain `uninstall.exe`
@@ -300,8 +538,9 @@ fn report<E: std::fmt::Display>(label: String, outcome: Result<(), E>) -> Report
 
 // ----- Windows entry point (the NSIS hook is the only caller) -----
 
-/// Handle `--uninstall-cleanup [--list]`. Returns `Some(exit_code)` when the
-/// flag is present (the caller exits with it), `None` to launch normally.
+/// Handle `--uninstall-cleanup [--list] [--lang <LCID>]`. Returns
+/// `Some(exit_code)` when the flag is present (the caller exits with it),
+/// `None` to launch normally.
 #[cfg(windows)]
 pub fn maybe_run_from_args(identifier: &str) -> Option<i32> {
     let args: Vec<String> = std::env::args().collect();
@@ -309,32 +548,44 @@ pub fn maybe_run_from_args(identifier: &str) -> Option<i32> {
         return None;
     }
     let list_only = args.iter().any(|a| a == "--list");
-    Some(run(identifier, list_only))
+    let lang = args
+        .iter()
+        .position(|a| a == "--lang")
+        .and_then(|i| args.get(i + 1))
+        .map(|v| Lang::from_lcid(v))
+        .unwrap_or(Lang::En);
+    Some(run(identifier, list_only, lang))
 }
 
 #[cfg(windows)]
-fn run(identifier: &str, list_only: bool) -> i32 {
+fn run(identifier: &str, list_only: bool, lang: Lang) -> i32 {
     use std::io::Write;
     let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) else {
         eprintln!("APPDATA is not set");
         return 1;
     };
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let current_exe = std::env::current_exe().ok();
+    let exe_side_root = current_exe
+        .as_deref()
+        .and_then(Path::parent)
+        .map(|d| d.join("LucernaData"));
     let input = CleanupInput {
         default_dir: roaming.join(identifier),
+        exe_side_root,
         webview_dir: local.as_ref().map(|l| l.join(identifier)),
         legacy_candidates: local
             .map(|l| vec![l.join("Lucerna"), l.join("lucerna")])
             .unwrap_or_default(),
-        current_exe: std::env::current_exe().ok(),
+        current_exe,
     };
     let plan = build_plan(&input);
 
     if list_only {
-        let Some(line) = list_line(&plan) else {
+        let Some(block) = inventory_block(&plan, lang) else {
             return 2;
         };
-        print!("{line}");
+        print!("{block}");
         let _ = std::io::stdout().flush();
         return 0;
     }
@@ -378,10 +629,15 @@ mod tests {
     fn input(default_dir: &Path) -> CleanupInput {
         CleanupInput {
             default_dir: default_dir.to_path_buf(),
+            exe_side_root: None,
             webview_dir: None,
             legacy_candidates: Vec::new(),
             current_exe: None,
         }
+    }
+
+    fn paths(plan: &CleanupPlan) -> Vec<PathBuf> {
+        plan.dirs.iter().map(|d| d.path.clone()).collect()
     }
 
     #[test]
@@ -393,9 +649,66 @@ mod tests {
         write_redirect(&default_dir, &custom);
 
         let plan = build_plan(&input(&default_dir));
-        assert_eq!(plan.dirs[0], custom);
-        assert!(plan.dirs.contains(&default_dir));
+        assert_eq!(plan.dirs[0].path, custom);
+        assert_eq!(plan.dirs[0].kind, TargetKind::GameData);
+        assert!(paths(&plan).contains(&default_dir));
         assert!(plan.unreachable_root.is_none());
+    }
+
+    #[test]
+    fn exe_side_root_is_planned_without_any_redirect() {
+        // The whole point of the exe-side scan: a lost/broken pointer must not
+        // hide data sitting next to the binary being uninstalled.
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        let exe_side = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(&exe_side).unwrap();
+
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(exe_side.clone());
+        i.current_exe = Some(t.path().join("install/lucerna.exe"));
+        let plan = build_plan(&i);
+        assert_eq!(plan.dirs[0].path, exe_side);
+        assert_eq!(plan.dirs[0].kind, TargetKind::GameData);
+    }
+
+    #[test]
+    fn foreign_dir_named_lucernadata_is_not_planned() {
+        // Consent to delete "game data" does not extend to somebody else's
+        // folder that merely shares the name.
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        let foreign = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("vacation-photos.zip"), b"zip").unwrap();
+
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(foreign.clone());
+        assert!(!paths(&build_plan(&i)).contains(&foreign));
+
+        // One recognizable Lucerna entry qualifies the dir again.
+        std::fs::create_dir_all(foreign.join("instances")).unwrap();
+        assert!(paths(&build_plan(&i)).contains(&foreign));
+    }
+
+    #[test]
+    fn exe_side_root_dedupes_against_equal_redirect_target() {
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        let root = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(&root).unwrap();
+        write_redirect(&default_dir, &root);
+
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(root.clone());
+        let plan = build_plan(&i);
+        assert_eq!(
+            paths(&plan).iter().filter(|p| **p == root).count(),
+            1,
+            "same dir must be planned once"
+        );
     }
 
     #[test]
@@ -406,7 +719,7 @@ mod tests {
         std::fs::write(default_dir.join("data-location.json"), "{ not json").unwrap();
 
         let plan = build_plan(&input(&default_dir));
-        assert_eq!(plan.dirs, vec![default_dir]);
+        assert_eq!(paths(&plan), vec![default_dir]);
         assert!(plan.unreachable_root.is_none());
     }
 
@@ -418,7 +731,7 @@ mod tests {
         write_redirect(&default_dir, &gone);
 
         let plan = build_plan(&input(&default_dir));
-        assert_eq!(plan.dirs, vec![default_dir]);
+        assert_eq!(paths(&plan), vec![default_dir]);
         assert_eq!(plan.unreachable_root, Some(gone));
     }
 
@@ -434,8 +747,9 @@ mod tests {
 
         let mut i = input(&default_dir);
         i.webview_dir = Some(root.clone());
+        i.exe_side_root = Some(root);
         let plan = build_plan(&i);
-        assert_eq!(plan.dirs, vec![default_dir]);
+        assert_eq!(paths(&plan), vec![default_dir]);
     }
 
     #[test]
@@ -446,37 +760,51 @@ mod tests {
     }
 
     #[test]
-    fn account_and_server_ids_come_from_the_effective_root() {
+    fn credential_ids_are_unioned_across_all_planned_roots() {
+        // Stale creds of a de-pointered root must still be cleaned: ids come
+        // from every planned dir, deduped.
         let t = tempdir().unwrap();
         let default_dir = t.path().join("default");
-        let custom = t.path().join("data");
-        std::fs::create_dir_all(custom.join("servers/srv-b")).unwrap();
-        std::fs::create_dir_all(custom.join("servers/srv-a")).unwrap();
-        std::fs::write(custom.join("servers/stray.txt"), b"x").unwrap();
+        std::fs::create_dir_all(default_dir.join("servers/srv-shared")).unwrap();
         std::fs::write(
-            custom.join("account.json"),
+            default_dir.join("account.json"),
             r#"{"version":3,"accounts":[
-                {"id":"ms-1","kind":"microsoft","name":"A","uuid":"u1","expires_at":1.0},
-                {"id":"of-2","kind":"offline","name":"B","uuid":"u2","expires_at":null}
-            ],"active_id":"ms-1"}"#,
+                {"id":"ms-new","kind":"microsoft","name":"N","uuid":"u1","expires_at":1.0}
+            ],"active_id":"ms-new"}"#,
         )
         .unwrap();
-        write_redirect(&default_dir, &custom);
+        let exe_side = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(exe_side.join("servers/srv-shared")).unwrap();
+        std::fs::create_dir_all(exe_side.join("servers/srv-old")).unwrap();
+        std::fs::write(
+            exe_side.join("account.json"),
+            r#"{"version":3,"accounts":[
+                {"id":"ms-old","kind":"microsoft","name":"O","uuid":"u2","expires_at":1.0},
+                {"id":"ms-new","kind":"microsoft","name":"N","uuid":"u1","expires_at":1.0}
+            ],"active_id":"ms-old"}"#,
+        )
+        .unwrap();
 
-        let plan = build_plan(&input(&default_dir));
-        assert_eq!(plan.account_ids, vec!["ms-1", "of-2"]);
-        assert_eq!(plan.server_ids, vec!["srv-a", "srv-b"]);
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(exe_side);
+        let plan = build_plan(&i);
+        assert_eq!(plan.account_ids, vec!["ms-new", "ms-old"]);
+        assert_eq!(plan.server_ids, vec!["srv-old", "srv-shared"]);
     }
 
     #[test]
-    fn missing_or_corrupt_account_file_yields_no_ids() {
+    fn default_dir_kind_follows_data_shape() {
         let t = tempdir().unwrap();
-        let default_dir = t.path().join("default");
-        std::fs::create_dir_all(&default_dir).unwrap();
-        assert!(build_plan(&input(&default_dir)).account_ids.is_empty());
+        let bare = t.path().join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        assert_eq!(build_plan(&input(&bare)).dirs[0].kind, TargetKind::Settings);
 
-        std::fs::write(default_dir.join("account.json"), "garbage").unwrap();
-        assert!(build_plan(&input(&default_dir)).account_ids.is_empty());
+        let dataful = t.path().join("dataful");
+        std::fs::create_dir_all(dataful.join("instances")).unwrap();
+        assert_eq!(
+            build_plan(&input(&dataful)).dirs[0].kind,
+            TargetKind::GameData
+        );
     }
 
     #[test]
@@ -488,19 +816,21 @@ mod tests {
         let orphan = t.path().join("orphan");
         std::fs::create_dir_all(&orphan).unwrap();
         std::fs::write(orphan.join("Uninstall.exe"), b"MZ").unwrap();
-        let empty = t.path().join("empty");
-        std::fs::create_dir_all(&empty).unwrap();
         let live = t.path().join("live");
         std::fs::create_dir_all(&live).unwrap();
         std::fs::write(live.join("uninstall.exe"), b"MZ").unwrap();
         std::fs::write(live.join("lucerna.exe"), b"MZ").unwrap();
 
         let mut i = input(&default_dir);
-        i.legacy_candidates = vec![orphan.clone(), empty.clone(), live.clone()];
+        i.legacy_candidates = vec![orphan.clone(), live.clone()];
         let plan = build_plan(&i);
-        assert!(plan.dirs.contains(&orphan));
-        assert!(plan.dirs.contains(&empty));
-        assert!(!plan.dirs.contains(&live));
+        let planned = paths(&plan);
+        assert!(planned.contains(&orphan));
+        assert!(!planned.contains(&live));
+        assert_eq!(
+            plan.dirs.iter().find(|d| d.path == orphan).map(|d| d.kind),
+            Some(TargetKind::LegacyOrphan)
+        );
     }
 
     #[test]
@@ -518,8 +848,6 @@ mod tests {
 
     #[test]
     fn custom_root_containing_the_running_exe_is_refused() {
-        // The guard's own justification: a data root configured INSIDE the
-        // install dir must not saw off the branch the uninstaller stands on.
         let t = tempdir().unwrap();
         let default_dir = t.path().join("default");
         let custom = t.path().join("install-dir/LucernaData");
@@ -531,35 +859,19 @@ mod tests {
         let mut i = input(&default_dir);
         i.current_exe = Some(exe);
         let plan = build_plan(&i);
-        assert!(!plan.dirs.contains(&custom));
-        assert!(plan.dirs.contains(&default_dir));
-    }
-
-    #[test]
-    fn duplicate_dirs_are_deduped() {
-        let t = tempdir().unwrap();
-        let default_dir = t.path().join("default");
-        std::fs::create_dir_all(&default_dir).unwrap();
-
-        let mut i = input(&default_dir);
-        i.webview_dir = Some(default_dir.clone());
-        i.legacy_candidates = vec![default_dir.clone()];
-        assert_eq!(build_plan(&i).dirs, vec![default_dir]);
+        assert!(!paths(&plan).contains(&custom));
+        assert!(paths(&plan).contains(&default_dir));
     }
 
     #[test]
     fn case_variant_duplicate_is_deduped_where_the_fs_is_case_insensitive() {
-        // On Windows/macOS "Default" and "DEFAULT" are the same directory —
-        // the canonical-key dedup must collapse them. On case-sensitive Linux
-        // the variant simply doesn't exist and is excluded as non-existing;
-        // either way exactly one dir survives.
         let t = tempdir().unwrap();
         let default_dir = t.path().join("Default");
         std::fs::create_dir_all(&default_dir).unwrap();
 
         let mut i = input(&default_dir);
         i.webview_dir = Some(t.path().join("DEFAULT"));
-        assert_eq!(build_plan(&i).dirs, vec![default_dir]);
+        assert_eq!(paths(&build_plan(&i)), vec![default_dir]);
     }
 
     #[test]
@@ -577,7 +889,16 @@ mod tests {
         crate::mods::curseforge::keyring::set("cfkey").unwrap();
 
         let plan = CleanupPlan {
-            dirs: vec![existing.clone(), t.path().join("already-gone")],
+            dirs: vec![
+                PlannedDir {
+                    kind: TargetKind::GameData,
+                    path: existing.clone(),
+                },
+                PlannedDir {
+                    kind: TargetKind::Settings,
+                    path: t.path().join("already-gone"),
+                },
+            ],
             account_ids: vec!["uc-acc".into()],
             server_ids: vec!["uc-srv".into()],
             unreachable_root: None,
@@ -627,31 +948,85 @@ mod tests {
     }
 
     #[test]
-    fn list_line_is_size_pipe_primary_path() {
+    fn inventory_lists_every_target_with_localized_labels() {
         let t = tempdir().unwrap();
         let default_dir = t.path().join("default");
         std::fs::create_dir_all(&default_dir).unwrap();
         std::fs::write(default_dir.join("blob.bin"), vec![0u8; 3 * 1024 * 1024]).unwrap();
+        let exe_side = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(exe_side.join("instances")).unwrap();
+        std::fs::write(
+            exe_side.join("account.json"),
+            r#"{"version":3,"accounts":[
+                {"id":"ms-1","kind":"microsoft","name":"A","uuid":"u","expires_at":1.0}
+            ],"active_id":"ms-1"}"#,
+        )
+        .unwrap();
+
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(exe_side.clone());
+        let plan = build_plan(&i);
+
+        let en = inventory_block(&plan, Lang::En).unwrap();
+        assert!(en.contains("Game data (instances, worlds, mods)"));
+        assert!(en.contains(&exe_side.display().to_string()));
+        assert!(en.contains("Launcher settings and logs"));
+        assert!(en.contains("3 MB"));
+        assert!(en.contains("Saved sign-ins in Windows Credential Manager: 1 account(s)"));
+        assert!(en.contains("\r\n"));
+
+        let ru = inventory_block(&plan, Lang::Ru).unwrap();
+        assert!(ru.contains("Игровые данные (инстансы, миры, моды)"));
+        assert!(ru.contains("Настройки и логи лаунчера"));
+        assert!(ru.contains("3 МБ"));
+        assert!(ru.contains("аккаунтов — 1"));
+    }
+
+    #[test]
+    fn inventory_names_the_offline_configured_root() {
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        let gone = t.path().join("unplugged-usb");
+        write_redirect(&default_dir, &gone);
 
         let plan = build_plan(&input(&default_dir));
-        let line = list_line(&plan).unwrap();
-        let (size, path) = line.split_once('|').unwrap();
-        assert_eq!(size, "3 MB");
-        assert_eq!(path, default_dir.display().to_string());
+        let ru = inventory_block(&plan, Lang::Ru).unwrap();
+        assert!(ru.contains("НЕ будет удалено"));
+        assert!(ru.contains(&gone.display().to_string()));
+        let en = inventory_block(&plan, Lang::En).unwrap();
+        assert!(en.contains("will NOT be deleted"));
     }
 
     #[test]
-    fn list_line_none_when_nothing_exists() {
+    fn inventory_none_when_nothing_exists() {
         let t = tempdir().unwrap();
         let plan = build_plan(&input(&t.path().join("never-created")));
-        assert!(list_line(&plan).is_none());
+        assert!(inventory_block(&plan, Lang::En).is_none());
     }
 
     #[test]
-    fn format_size_units() {
+    fn long_paths_are_middle_truncated_in_inventory() {
+        assert_eq!(truncate_middle("short", 90), "short");
+        let long = "x".repeat(200);
+        let cut = truncate_middle(&long, 90);
+        assert!(cut.chars().count() <= 90);
+        assert!(cut.contains('…'));
+    }
+
+    #[test]
+    fn format_size_units_and_localization() {
         assert_eq!(format_size(0), "0 MB");
         assert_eq!(format_size(200 * 1024), "1 MB");
         assert_eq!(format_size(250 * 1024 * 1024), "250 MB");
         assert_eq!(format_size(14_800_000_000), "13.8 GB");
+        assert_eq!(format_size_lang(14_800_000_000, Lang::Ru), "13,8 ГБ");
+        assert_eq!(format_size_lang(250 * 1024 * 1024, Lang::Ru), "250 МБ");
+    }
+
+    #[test]
+    fn lang_from_lcid() {
+        assert_eq!(Lang::from_lcid("1049"), Lang::Ru);
+        assert_eq!(Lang::from_lcid("1033"), Lang::En);
+        assert_eq!(Lang::from_lcid("garbage"), Lang::En);
     }
 }

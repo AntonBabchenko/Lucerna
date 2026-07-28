@@ -12,6 +12,27 @@ release is **0.9.0**.
 
 ### Added
 
+- **Everything lives in the install folder now.** On a fresh start, Lucerna
+  creates its data root (`LucernaData` — instances, worlds, mods, caches,
+  Java runtimes, logs, and in release builds the embedded browser profile)
+  right next to the executable instead of hiding it in `%APPDATA%`. A
+  `LucernaData` folder already sitting next to the executable is adopted
+  automatically when it actually looks like Lucerna data (an unrelated folder
+  that merely shares the name is left untouched) — so uninstalling while
+  keeping your data and later reinstalling into the same folder reattaches
+  everything, no configuration involved. Existing installs with data in
+  `%APPDATA%` and explicitly
+  relocated roots keep working exactly as before; unwritable install
+  locations fall back to `%APPDATA%`.
+- **The uninstaller now shows a concrete inventory of what stays behind.**
+  Instead of naming a single folder, the dialog lists every directory it
+  found (game data, launcher settings and logs, browser cache, leftovers of
+  older installers) with its path and size, plus how many saved sign-ins sit
+  in Windows Credential Manager — in the uninstaller's language — and asks
+  once whether to erase it all (keeping it stays the default). Data next to
+  the executable is found even when the location pointer is broken or lost,
+  and saved sign-ins referenced by any of the found roots are cleaned when
+  you agree.
 - **The Windows uninstaller now says what stays behind — and can remove it.**
   Uninstalling used to delete only the application: the data root (instances,
   worlds, servers, mods — often gigabytes, and invisible to the uninstaller

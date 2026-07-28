@@ -456,9 +456,83 @@ pub fn run() {
             let redirect = crate::paths::redirect_file(app.handle())
                 .ok()
                 .and_then(|f| crate::data_root::redirect::read(&f).ok().flatten());
-            let resolved = crate::data_root::resolve_root(default_root, redirect, |p| {
-                crate::data_root::migrate::is_available(p)
-            });
+            // Portable candidate (`<exe dir>\LucernaData`): WINDOWS release
+            // builds only, and only when no explicit redirect exists. Dev must
+            // never adopt `target/debug/LucernaData`; the install dir must not
+            // be write-probed when the user's explicit choice wins anyway; and
+            // macOS is excluded deliberately — a `.app` bundle dir is often
+            // writable, but the only macOS update path is Finder's
+            // drag-replace, which DELETES the old bundle wholesale: data
+            // created inside it would be lost on every update. (Linux is
+            // naturally safe — AppImage mounts read-only, deb/rpm install to
+            // root-owned paths — but stays excluded until portable mode is
+            // designed for it.)
+            let portable = if !cfg!(all(windows, not(debug_assertions))) || redirect.is_some() {
+                None
+            } else {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+                    .map(|exe_dir| {
+                        let path = exe_dir.join("LucernaData");
+                        let state = if !path.is_dir() {
+                            crate::data_root::PortableState::Absent {
+                                // Probe writability only when creation could
+                                // actually happen.
+                                creatable: crate::data_root::migrate::is_available(&exe_dir),
+                            }
+                        } else if crate::data_root::looks_like_data_root(&path) {
+                            crate::data_root::PortableState::Root
+                        } else if crate::data_root::migrate::target_is_empty(&path) {
+                            crate::data_root::PortableState::EmptyDir
+                        } else {
+                            crate::data_root::PortableState::Foreign
+                        };
+                        crate::data_root::PortableCandidate { path, state }
+                    })
+            };
+            let default_has_data =
+                default_root.join("app.json").is_file() || default_root.join("instances").is_dir();
+            let mut resolved = crate::data_root::resolve_root(
+                default_root.clone(),
+                default_has_data,
+                portable,
+                redirect,
+                |p| crate::data_root::migrate::is_available(p),
+            );
+            if resolved.must_create {
+                if let Err(e) = std::fs::create_dir_all(&resolved.root) {
+                    crate::diag!(
+                        "[setup] cannot create portable data root {}: {e} — using OS default",
+                        resolved.root.display()
+                    );
+                    resolved = crate::data_root::Resolved {
+                        root: default_root.clone(),
+                        configured: None,
+                        fell_back: false,
+                        must_create: false,
+                    };
+                }
+            }
+            // Human-readable trail of WHICH branch picked the root — the
+            // launcher log is the only evidence when a user reports "my
+            // instances disappeared after an update". Emitted after
+            // diag::init below so it lands in lucerna.log.
+            let resolution_note = format!(
+                "[data-root] root={} ({})",
+                resolved.root.display(),
+                if resolved.fell_back {
+                    "configured root unavailable, temporary default"
+                } else if resolved.configured.is_some() {
+                    "configured redirect"
+                } else if resolved.must_create {
+                    "fresh portable root next to the exe"
+                } else if resolved.root != default_root {
+                    "adopted portable root next to the exe"
+                } else {
+                    "OS default"
+                }
+            );
             {
                 use tauri::Manager;
                 app.manage(crate::data_root::DataRoot(resolved));
@@ -467,6 +541,33 @@ pub fn run() {
             // Open the launcher's own diagnostic log (lucerna.log) first, so
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
+            crate::diag!("{resolution_note}");
+
+            // The main window is created here rather than in tauri.conf.json
+            // (the config's `windows` array is empty) so that in release
+            // builds its WebView2 profile can live under the resolved data
+            // root — keeping browser cache out of %LOCALAPPDATA% and inside
+            // the install/data folder. Dev builds keep the default profile
+            // location (a dev webview must not mix with a real install's).
+            {
+                #[allow(unused_mut)]
+                let mut main_window =
+                    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+                        .title("Lucerna")
+                        .inner_size(820.0, 520.0)
+                        .min_inner_size(820.0, 520.0);
+                #[cfg(all(windows, not(debug_assertions)))]
+                {
+                    use tauri::Manager;
+                    main_window = main_window.data_directory(
+                        app.state::<crate::data_root::DataRoot>()
+                            .0
+                            .root
+                            .join("webview"),
+                    );
+                }
+                main_window.build()?;
+            }
 
             // Windows: the taskbar / title-bar icon is a single HICON that the
             // shell rescales per context. Tauri's default window icon is built

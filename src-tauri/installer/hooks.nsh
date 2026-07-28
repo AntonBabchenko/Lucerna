@@ -34,58 +34,41 @@ Var LucernaCleanupChoice
     ; here so the helper never races a live launcher over the data root.
     !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-    ; Ask the binary what would remain: prints "SIZE|PATH", exit 0 = something
-    ; exists, 2 = nothing to clean. String-compare the code: nsExec pushes
-    ; "error" when the process cannot start, which numeric compares treat as 0.
-    nsExec::ExecToStack '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup --list'
+    ; Ask the binary what would remain. It prints a fully-localized inventory
+    ; block (one line per directory with size, saved sign-ins, offline-root
+    ; note) that is embedded VERBATIM below — no NSIS-side parsing. Exit 0 =
+    ; something exists, 2 = nothing to clean. String-compare the code: nsExec
+    ; pushes "error" when the process cannot start, which numeric compares
+    ; treat as 0.
+    nsExec::ExecToStack '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup --list --lang $LANGUAGE'
     Pop $0 ; exit code
-    Pop $1 ; "SIZE|PATH"
+    Pop $1 ; localized inventory block
     ${If} $0 == "0"
-      ; Split "$1" (= SIZE|PATH) at the first "|" into $R0 / $R1 by hand —
-      ; core StrCpy/StrCmp only. The NSIS distribution Tauri bundles has no
-      ; ${UnWordFind} (WordFunc's uninstaller variants are unavailable), so
-      ; header-based splitting cannot be used here. "|" cannot appear in a
-      ; Windows path, so the first hit is always the field separator.
-      StrCpy $R0 ""
-      StrCpy $R1 ""
-      StrCpy $4 0
-      lucerna_split_loop:
-        StrCpy $5 $1 1 $4
-        StrCmp $5 "" lucerna_split_done
-        StrCmp $5 "|" lucerna_split_found
-        IntOp $4 $4 + 1
-        Goto lucerna_split_loop
-      lucerna_split_found:
-        StrCpy $R0 $1 $4
-        IntOp $4 $4 + 1
-        StrCpy $R1 $1 "" $4
-      lucerna_split_done:
-      ${If} $R1 != ""
-        ${If} $LANGUAGE = 1049 ; Russian LCID — installer ships English + Russian
-          StrCpy $2 "Будет удалено только само приложение Lucerna.$\r$\n$\r$\nИгровые данные — инстансы, миры, серверы, моды и настройки ($R0) — останутся здесь:$\r$\n$R1$\r$\n$\r$\nСохранённые данные входа в аккаунты также останутся в Диспетчере учётных данных Windows.$\r$\n$\r$\nУдалить и эти данные тоже? Это действие необратимо."
-          StrCpy $3 "Часть данных удалить не удалось. Подробности — в журнале деинсталлятора."
-        ${Else}
-          StrCpy $2 "Only the Lucerna application itself will be removed.$\r$\n$\r$\nYour game data — instances, worlds, servers, mods and settings ($R0) — will remain at:$\r$\n$R1$\r$\n$\r$\nSaved account sign-ins will also remain in Windows Credential Manager.$\r$\n$\r$\nDelete this data as well? This cannot be undone."
-          StrCpy $3 "Some data could not be removed. See the uninstaller log for details."
-        ${EndIf}
-        MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "$2" /SD IDNO IDNO lucerna_cleanup_keep
-          nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup'
-          Pop $0
-          ; Helper exit codes: 0 = clean full wipe (pointer restoration must
-          ; NOT happen — it would dangle), 3 = success but data-location.json
-          ; was deliberately kept (configured root unreachable), anything else
-          ; = partial failure. On 3 and on failures the pointer stays
-          ; restore-eligible ("2"), so surviving data remains discoverable.
-          ${If} $0 == "0"
-            StrCpy $LucernaCleanupChoice "1"
-          ${Else}
-            StrCpy $LucernaCleanupChoice "2"
-            ${If} $0 != "3"
-              MessageBox MB_OK|MB_ICONEXCLAMATION "$3" /SD IDOK
-            ${EndIf}
-          ${EndIf}
-        lucerna_cleanup_keep:
+    ${AndIf} $1 != ""
+      ${If} $LANGUAGE = 1049 ; Russian LCID — installer ships English + Russian
+        StrCpy $2 "Будет удалено только само приложение Lucerna. На компьютере останутся:$\r$\n$\r$\n$1$\r$\n$\r$\nУдалить всё перечисленное тоже? Это действие необратимо."
+        StrCpy $3 "Часть данных удалить не удалось. Подробности — в журнале деинсталлятора."
+      ${Else}
+        StrCpy $2 "Only the Lucerna application itself will be removed. The following will remain on this computer:$\r$\n$\r$\n$1$\r$\n$\r$\nDelete all of the above as well? This cannot be undone."
+        StrCpy $3 "Some data could not be removed. See the uninstaller log for details."
       ${EndIf}
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "$2" /SD IDNO IDNO lucerna_cleanup_keep
+        nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup'
+        Pop $0
+        ; Helper exit codes: 0 = clean full wipe (pointer restoration must
+        ; NOT happen — it would dangle), 3 = success but data-location.json
+        ; was deliberately kept (configured root unreachable), anything else
+        ; = partial failure. On 3 and on failures the pointer stays
+        ; restore-eligible ("2"), so surviving data remains discoverable.
+        ${If} $0 == "0"
+          StrCpy $LucernaCleanupChoice "1"
+        ${Else}
+          StrCpy $LucernaCleanupChoice "2"
+          ${If} $0 != "3"
+            MessageBox MB_OK|MB_ICONEXCLAMATION "$3" /SD IDOK
+          ${EndIf}
+        ${EndIf}
+      lucerna_cleanup_keep:
     ${EndIf}
   ${EndIf}
 !macroend
