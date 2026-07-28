@@ -468,13 +468,20 @@ pub fn run() {
                     .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
                     .map(|exe_dir| {
                         let path = exe_dir.join("LucernaData");
-                        let exists = path.is_dir();
-                        crate::data_root::PortableCandidate {
-                            // Probe writability only when creation could happen.
-                            creatable: exists || crate::data_root::migrate::is_available(&exe_dir),
-                            path,
-                            exists,
-                        }
+                        let state = if !path.is_dir() {
+                            crate::data_root::PortableState::Absent {
+                                // Probe writability only when creation could
+                                // actually happen.
+                                creatable: crate::data_root::migrate::is_available(&exe_dir),
+                            }
+                        } else if crate::data_root::looks_like_data_root(&path) {
+                            crate::data_root::PortableState::Root
+                        } else if crate::data_root::migrate::target_is_empty(&path) {
+                            crate::data_root::PortableState::EmptyDir
+                        } else {
+                            crate::data_root::PortableState::Foreign
+                        };
+                        crate::data_root::PortableCandidate { path, state }
                     })
             };
             let default_has_data =

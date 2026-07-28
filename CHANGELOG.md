@@ -17,9 +17,11 @@ release is **0.9.0**.
   Java runtimes, logs, and in release builds the embedded browser profile)
   right next to the executable instead of hiding it in `%APPDATA%`. A
   `LucernaData` folder already sitting next to the executable is adopted
-  automatically — so uninstalling while keeping your data and later
-  reinstalling into the same folder reattaches everything, no configuration
-  involved. Existing installs with data in `%APPDATA%` and explicitly
+  automatically when it actually looks like Lucerna data (an unrelated folder
+  that merely shares the name is left untouched) — so uninstalling while
+  keeping your data and later reinstalling into the same folder reattaches
+  everything, no configuration involved. Existing installs with data in
+  `%APPDATA%` and explicitly
   relocated roots keep working exactly as before; unwritable install
   locations fall back to `%APPDATA%`.
 - **The uninstaller now shows a concrete inventory of what stays behind.**

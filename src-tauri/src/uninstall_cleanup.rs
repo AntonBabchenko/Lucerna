@@ -139,10 +139,15 @@ pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
         });
     }
     if let Some(exe_side) = &input.exe_side_root {
-        dirs.push(PlannedDir {
-            kind: TargetKind::GameData,
-            path: exe_side.clone(),
-        });
+        // Deletion-worthiness gate: only a dir that recognizably belongs to
+        // Lucerna (or is empty) may be planned. A foreign folder that merely
+        // shares the LucernaData name must never be wiped by our consent.
+        if exe_side_is_lucerna_like(exe_side) {
+            dirs.push(PlannedDir {
+                kind: TargetKind::GameData,
+                path: exe_side.clone(),
+            });
+        }
     }
     dirs.push(PlannedDir {
         kind: default_kind,
@@ -368,11 +373,60 @@ fn truncate_middle(s: &str, max: usize) -> String {
 }
 
 /// Does this directory look like a (current or former) data root, as opposed
-/// to a bare settings/scratch dir?
+/// to a bare settings/scratch dir? Looser than the startup resolver's
+/// `looks_like_data_root` on purpose — this only picks the inventory LABEL.
+/// (`.lucerna-migrated` is a file some older builds left in migrated roots;
+/// no current code writes it, but real disks still carry it.)
 fn dir_has_data_shape(dir: &Path) -> bool {
     dir.join("app.json").is_file()
         || dir.join("instances").is_dir()
         || dir.join(".lucerna-migrated").exists()
+}
+
+/// Top-level names a Lucerna data root can legitimately contain. Used to
+/// decide whether an exe-adjacent `LucernaData` dir is OURS to delete.
+const LUCERNA_ROOT_ENTRIES: [&str; 18] = [
+    "app.json",
+    "account.json",
+    "data-location.json",
+    ".lucerna-migrated",
+    "instances",
+    "versions",
+    "libraries",
+    "assets",
+    "jres",
+    "logs",
+    "updates",
+    "mod-cache",
+    "mods-cache",
+    "servers",
+    "skins",
+    "capes",
+    "forge",
+    "webview",
+];
+
+/// The exe-adjacent dir qualifies for deletion when it is empty or contains
+/// at least one recognizably-Lucerna top-level entry. A dir with NONE of
+/// these is somebody else's folder that just happens to be called
+/// LucernaData, and consent to delete "game data" does not extend to it.
+fn exe_side_is_lucerna_like(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut any_entry = false;
+    for entry in entries.flatten() {
+        any_entry = true;
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if LUCERNA_ROOT_ENTRIES
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&name))
+        {
+            return true;
+        }
+    }
+    !any_entry
 }
 
 /// A legacy dir may be swept only when every entry is a plain `uninstall.exe`
@@ -615,6 +669,26 @@ mod tests {
         let plan = build_plan(&i);
         assert_eq!(plan.dirs[0].path, exe_side);
         assert_eq!(plan.dirs[0].kind, TargetKind::GameData);
+    }
+
+    #[test]
+    fn foreign_dir_named_lucernadata_is_not_planned() {
+        // Consent to delete "game data" does not extend to somebody else's
+        // folder that merely shares the name.
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        let foreign = t.path().join("install/LucernaData");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("vacation-photos.zip"), b"zip").unwrap();
+
+        let mut i = input(&default_dir);
+        i.exe_side_root = Some(foreign.clone());
+        assert!(!paths(&build_plan(&i)).contains(&foreign));
+
+        // One recognizable Lucerna entry qualifies the dir again.
+        std::fs::create_dir_all(foreign.join("instances")).unwrap();
+        assert!(paths(&build_plan(&i)).contains(&foreign));
     }
 
     #[test]
