@@ -490,6 +490,15 @@ describe('formatError', () => {
     expect(msg).not.toContain('x'.repeat(200));
   });
 
+  it('maps the adopt-validation reasons to human clauses', () => {
+    expect(formatError({ kind: 'data_location_invalid', reason: 'not_a_data_root' })).toContain(
+      "doesn't contain Lucerna data",
+    );
+    expect(formatError({ kind: 'data_location_invalid', reason: 'not_writable' })).toContain(
+      "can't be written to",
+    );
+  });
+
   describe('withDetailTail', () => {
     beforeAll(() => locale.set('en'));
 

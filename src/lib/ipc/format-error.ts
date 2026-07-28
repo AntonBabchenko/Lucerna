@@ -183,6 +183,10 @@ function dataLocationInvalidReason(reason: string): string {
       return translate('errors.dataLocationInvalidReason.same');
     case 'not_empty':
       return translate('errors.dataLocationInvalidReason.notEmpty');
+    case 'not_a_data_root':
+      return translate('errors.dataLocationInvalidReason.notADataRoot');
+    case 'not_writable':
+      return translate('errors.dataLocationInvalidReason.notWritable');
     default:
       return translate('errors.dataLocationInvalidReason.unknown');
   }
