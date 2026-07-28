@@ -1,0 +1,81 @@
+﻿; Lucerna NSIS installer hooks — uninstall data-cleanup consent.
+;
+; The stock Tauri uninstaller removes only tracked binaries; the data root
+; (instances, worlds, servers, mods — often gigabytes, possibly relocated via
+; data-location.json) and Lucerna's OS-keyring credentials survive silently.
+; Worse, Tauri's own "Delete the application data" checkbox wipes
+; %APPDATA%\<id> wholesale, which erases data-location.json and orphans a
+; relocated data root the user meant to keep.
+;
+; These hooks fix both, delegating all path/credential knowledge to the binary
+; (`lucerna.exe --uninstall-cleanup`, see src/uninstall_cleanup.rs):
+;   PREUNINSTALL  — ask (EN/RU) whether to also erase the named data, run the
+;                   helper on consent. Never prompts in silent/passive/update
+;                   runs, so scripted uninstalls and seamless updates are
+;                   unaffected.
+;   POSTUNINSTALL — if the app-data checkbox was ticked while game data was
+;                   kept, restore the stashed data-location.json so a
+;                   reinstall can still find the relocated data root.
+
+!include "WordFunc.nsh"
+
+Var LucernaCleanupChoice
+
+!macro NSIS_HOOK_PREUNINSTALL
+  StrCpy $LucernaCleanupChoice "0"
+  ${If} $UpdateMode <> 1
+  ${AndIf} $PassiveMode <> 1
+  ${AndIfNot} ${Silent}
+  ${AndIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+    ; The template's own running-app check runs AFTER this hook — repeat it
+    ; here so the helper never races a live launcher over the data root.
+    !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+
+    ; Stash the data-root pointer before anything can delete it (POSTUNINSTALL
+    ; may need to put it back). $PLUGINSDIR is temp and self-cleaning.
+    InitPluginsDir
+    CopyFiles /SILENT "$APPDATA\${BUNDLEID}\data-location.json" "$PLUGINSDIR\lucerna-data-location.json"
+
+    ; Ask the binary what would remain: prints "SIZE|PATH", exit 0 = something
+    ; exists, 2 = nothing to clean. String-compare the code: nsExec pushes
+    ; "error" when the process cannot start, which numeric compares treat as 0.
+    nsExec::ExecToStack '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup --list'
+    Pop $0 ; exit code
+    Pop $1 ; "SIZE|PATH"
+    ${If} $0 == "0"
+      ${UnWordFind} "$1" "|" "+1" $R0
+      ${UnWordFind} "$1" "|" "+2" $R1
+      ${If} $R1 != ""
+        ${If} $LANGUAGE = 1049 ; Russian LCID — installer ships English + Russian
+          StrCpy $2 "Будет удалено только само приложение Lucerna.$\r$\n$\r$\nИгровые данные — инстансы, миры, серверы, моды и настройки ($R0) — останутся здесь:$\r$\n$R1$\r$\n$\r$\nСохранённые данные входа в аккаунты также останутся в Диспетчере учётных данных Windows.$\r$\n$\r$\nУдалить и эти данные тоже? Это действие необратимо."
+          StrCpy $3 "Часть данных удалить не удалось. Подробности — в журнале деинсталлятора."
+        ${Else}
+          StrCpy $2 "Only the Lucerna application itself will be removed.$\r$\n$\r$\nYour game data — instances, worlds, servers, mods and settings ($R0) — will remain at:$\r$\n$R1$\r$\n$\r$\nSaved account sign-ins will also remain in Windows Credential Manager.$\r$\n$\r$\nDelete this data as well? This cannot be undone."
+          StrCpy $3 "Some data could not be removed. See the uninstaller log for details."
+        ${EndIf}
+        MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "$2" /SD IDNO IDNO lucerna_cleanup_keep
+          nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup'
+          Pop $0
+          StrCpy $LucernaCleanupChoice "1"
+          ${If} $0 != "0"
+            MessageBox MB_OK|MB_ICONEXCLAMATION "$3" /SD IDOK
+          ${EndIf}
+        lucerna_cleanup_keep:
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; The app-data checkbox deleted %APPDATA%\<id> (including the redirect file)
+  ; but the user chose to KEEP the game data — restore the pointer so the data
+  ; root is still discoverable on reinstall. When no redirect existed (default
+  ; location), the stash is absent and this is a no-op.
+  ${If} $UpdateMode <> 1
+  ${AndIf} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $LucernaCleanupChoice != "1"
+  ${AndIf} ${FileExists} "$PLUGINSDIR\lucerna-data-location.json"
+    CreateDirectory "$APPDATA\${BUNDLEID}"
+    CopyFiles /SILENT "$PLUGINSDIR\lucerna-data-location.json" "$APPDATA\${BUNDLEID}\data-location.json"
+  ${EndIf}
+!macroend

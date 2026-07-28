@@ -10,6 +10,25 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+
+- **The Windows uninstaller now says what stays behind — and can remove it.**
+  Uninstalling used to delete only the application: the data root (instances,
+  worlds, servers, mods — often gigabytes, and invisible to the uninstaller
+  when relocated), saved account sign-ins in Windows Credential Manager, and
+  orphaned uninstallers from older versions all survived silently. The
+  uninstaller now names the exact data folder and its size and asks whether to
+  erase everything (keeping it is the default answer); agreeing also clears the
+  credential-manager entries. Silent, passive and update runs never prompt and
+  never delete data.
+
+### Fixed
+
+- Ticking the uninstaller's "Delete the application data" checkbox while
+  keeping game data no longer orphans a relocated data root: the
+  `data-location.json` pointer is restored, so a reinstall finds the data
+  again.
+
 ## [0.20.0] — 2026-07-27
 
 ### Added
