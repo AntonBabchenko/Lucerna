@@ -153,3 +153,27 @@ pub async fn assets_check_updates(
     }
     Ok(out)
 }
+
+/// Apply one asset update with replace semantics: install `target` (fetch →
+/// verify → copy → registry add), then — when the filename moved — remove the
+/// superseded file (best-effort) and its registry row. A download or
+/// verification failure leaves the currently installed asset fully intact.
+#[tauri::command]
+#[specta::specta]
+pub async fn asset_update_one(
+    app: tauri::AppHandle,
+    instance_id: String,
+    kind: crate::mods::platform::ContentKind,
+    old_filename: String,
+    target: crate::mods::platform::ModVersion,
+) -> crate::error::Result<()> {
+    crate::network::throttle::with_interactive(async move {
+        crate::mods::assets::require_asset_kind(kind)?;
+        let inst_root = instance_root(&app, &instance_id)?;
+        let dd = data_dir(&app)?;
+        let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+        crate::mods::install::update_asset(&dd, &inst_root, kind, &old_filename, target, &progress)
+            .await
+    })
+    .await
+}

@@ -24,6 +24,7 @@ pub mod servers_runtime;
 /// they avoid). Public so the `tests/` integration binaries can call `scope`.
 pub mod test_seam;
 pub mod tray;
+pub mod uninstall_cleanup;
 pub mod update;
 pub mod verify;
 pub mod versions;
@@ -68,6 +69,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::clear_active_cape,
             commands::upload_skin,
             commands::reset_skin,
+            commands::skin_library_list,
+            commands::skin_library_save,
+            commands::skin_library_update,
+            commands::skin_library_delete,
             commands::list_versions,
             commands::install_version,
             commands::install_instance,
@@ -164,6 +169,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::asset_uninstall,
             commands::asset_install_local,
             commands::assets_check_updates,
+            commands::asset_update_one,
             commands::check_instance_mod_compat,
             commands::scan_instance_mod_compat,
             commands::mods_pack_origin_summary,
@@ -395,6 +401,17 @@ fn maybe_export_bindings_from_args(builder: &Builder<tauri::Wry>) -> Option<i32>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+
+    // Headless uninstall cleanup: `lucerna.exe --uninstall-cleanup [--list]`,
+    // invoked by the NSIS uninstaller hook (installer/hooks.nsh) while the
+    // binary still exists on disk. Must run before any Tauri/webview/plugin
+    // init — no window, no single-instance guard, no data-root migration.
+    #[cfg(windows)]
+    if let Some(code) = uninstall_cleanup::maybe_run_from_args(&context.config().identifier) {
+        std::process::exit(code);
+    }
+
     let builder = specta_builder();
 
     // Dev-only no-app bindings regen: `cargo run -- --export-bindings [--check]`
@@ -534,7 +551,7 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Bug A root fix: never orphan server children. On launcher exit,

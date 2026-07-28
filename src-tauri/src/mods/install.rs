@@ -655,6 +655,66 @@ pub async fn update_one(
     })
 }
 
+/// Apply one asset (resource pack / shader) update with replace semantics.
+///
+/// Ordering mirrors `update_one`'s "a failure never strands the instance":
+/// guards run before any I/O, the new version is fully installed (fetch →
+/// verify → copy → registry add) before the superseded file/row is removed,
+/// and a same-filename update skips removal entirely (the copy overwrote the
+/// file and `assets::add` replaced the row).
+pub async fn update_asset(
+    data_dir: &Path,
+    instance_root: &Path,
+    kind: crate::mods::platform::ContentKind,
+    old_filename: &str,
+    target: ModVersion,
+    progress: &ProgressFn,
+) -> Result<(), Error> {
+    if !crate::mods::modpack::path_safety::is_safe_filename(&target.primary_file.filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: target.primary_file.filename.clone(),
+        });
+    }
+    if !target.primary_file.distribution_allowed {
+        return Err(Error::ModsDistributionDisabled {
+            platform: match target.source {
+                ModSource::Modrinth => "modrinth",
+                ModSource::Curseforge => "curseforge",
+                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
+                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
+                ModSource::Hangar => "hangar",
+            }
+            .into(),
+            project_id: target.project_id.clone(),
+        });
+    }
+
+    let new_filename = target.primary_file.filename.clone();
+    install_asset_tracked(
+        data_dir,
+        instance_root,
+        kind,
+        Some(target.source),
+        Some(target.project_id.clone()),
+        Some(target.version_id.clone()),
+        &target.name,
+        Some(target.version_number.clone()),
+        &new_filename,
+        &target.primary_file.url,
+        target.primary_file.sha1.as_deref(),
+        target.primary_file.size,
+        progress,
+    )
+    .await?;
+
+    if old_filename != new_filename {
+        let old_path = safe_asset_remove_path(instance_root, kind, old_filename)?;
+        let _ = fs::remove_file(&old_path).await; // best-effort; registry is source of truth
+        crate::mods::assets::remove(instance_root, kind, old_filename).await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1403,6 +1463,235 @@ mod tests {
             .await
             .unwrap();
         assert!(listed.is_empty());
+    }
+
+    // ── update_asset (replace semantics) ─────────────────────────────────
+
+    /// Install `filename` with `body` served from the mock server, so an
+    /// update_asset test starts from a realistic installed state (file on
+    /// disk + registry row with platform identity, version_id "v1").
+    async fn seed_installed_asset(
+        s: &MockServer,
+        td_data: &TempDir,
+        td_inst: &TempDir,
+        filename: &str,
+        body: &[u8],
+    ) {
+        use crate::mods::platform::{ContentKind, ModSource};
+        let sha = hex::encode(Sha1::digest(body));
+        Mock::given(method("GET"))
+            .and(path(format!("/{filename}")))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(s)
+            .await;
+        install_asset_tracked(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            Some(ModSource::Modrinth),
+            Some("proj".into()),
+            Some("v1".into()),
+            "Pack",
+            Some("1.0".into()),
+            filename,
+            &format!("{}/{filename}", s.uri()),
+            Some(&sha),
+            body.len() as f64,
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// A `ModVersion` targeting `filename` on the mock server, with the
+    /// updated identity (version_id "v2").
+    fn asset_target(s: &MockServer, filename: &str, body: &[u8]) -> ModVersion {
+        let sha = hex::encode(Sha1::digest(body));
+        let mut v = fake_version(
+            format!("{}/{filename}", s.uri()),
+            sha,
+            body.len() as u64,
+            filename,
+        );
+        v.version_id = "v2".into();
+        v.version_number = "2.0".into();
+        v
+    }
+
+    #[tokio::test]
+    async fn update_asset_replaces_old_file_and_registry_row() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        seed_installed_asset(&s, &td_data, &td_inst, "BSL_v8.2.zip", b"old-bytes").await;
+
+        let new_body = b"new-bytes";
+        Mock::given(method("GET"))
+            .and(path("/BSL_v8.3.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(new_body.to_vec()))
+            .mount(&s)
+            .await;
+        update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "BSL_v8.2.zip",
+            asset_target(&s, "BSL_v8.3.zip", new_body),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+
+        let dir = td_inst.path().join(".minecraft/shaderpacks");
+        assert!(dir.join("BSL_v8.3.zip").exists());
+        assert!(
+            !dir.join("BSL_v8.2.zip").exists(),
+            "old file must be removed"
+        );
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1, "exactly one registry row after update");
+        assert_eq!(listed[0].filename, "BSL_v8.3.zip");
+        assert_eq!(listed[0].version_id.as_deref(), Some("v2"));
+    }
+
+    #[tokio::test]
+    async fn update_asset_same_filename_overwrites_in_place() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        seed_installed_asset(&s, &td_data, &td_inst, "BSL.zip", b"old-bytes").await;
+
+        let new_body = b"same-name-new-bytes";
+        // Distinct URL path — same filename, new content.
+        Mock::given(method("GET"))
+            .and(path("/v2/BSL.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(new_body.to_vec()))
+            .mount(&s)
+            .await;
+        let sha = hex::encode(Sha1::digest(new_body));
+        let mut target = fake_version(
+            format!("{}/v2/BSL.zip", s.uri()),
+            sha.clone(),
+            new_body.len() as u64,
+            "BSL.zip",
+        );
+        target.version_id = "v2".into();
+        update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "BSL.zip",
+            target,
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].sha1, sha);
+        assert!(td_inst
+            .path()
+            .join(".minecraft/shaderpacks/BSL.zip")
+            .exists());
+    }
+
+    #[tokio::test]
+    async fn update_asset_download_failure_leaves_old_intact() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        seed_installed_asset(&s, &td_data, &td_inst, "BSL_v8.2.zip", b"old-bytes").await;
+
+        Mock::given(method("GET"))
+            .and(path("/BSL_v8.3.zip"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let r = update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "BSL_v8.2.zip",
+            asset_target(&s, "BSL_v8.3.zip", b"never-served"),
+            &nop_progress(),
+        )
+        .await;
+        assert!(r.is_err(), "404 download must fail the update");
+
+        let dir = td_inst.path().join(".minecraft/shaderpacks");
+        assert!(dir.join("BSL_v8.2.zip").exists(), "old file must survive");
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "BSL_v8.2.zip");
+    }
+
+    #[tokio::test]
+    async fn update_asset_rejects_unsafe_target_filename() {
+        use crate::mods::platform::ContentKind;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let target = fake_version(
+            "http://127.0.0.1:1/unreachable.zip".into(),
+            "aa".into(),
+            1,
+            "../../evil.zip",
+        );
+        let r = update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "old.zip",
+            target,
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(&r, Err(Error::ModsUnsafeFilename { filename }) if filename == "../../evil.zip"),
+            "expected ModsUnsafeFilename, got {r:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_asset_rejects_distribution_disabled() {
+        use crate::mods::platform::ContentKind;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let mut target = fake_version(
+            "http://127.0.0.1:1/unreachable.zip".into(),
+            "aa".into(),
+            1,
+            "Pack.zip",
+        );
+        target.primary_file.distribution_allowed = false;
+        let r = update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "old.zip",
+            target,
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ModsDistributionDisabled { .. })),
+            "expected ModsDistributionDisabled"
+        );
     }
 
     #[tokio::test]

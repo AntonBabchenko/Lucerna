@@ -5,9 +5,18 @@
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
-  import { commands, type Account, type CapeInfo, type SkinVariant } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type Account,
+    type CapeInfo,
+    type SkinLibraryItem,
+    type SkinVariant,
+  } from '$lib/ipc/bindings';
   import { drawCapeFront } from '$lib/accounts/cape-render';
   import SkinEditorModal from '$lib/accounts/SkinEditorModal.svelte';
+  import SkinLibraryPanel from '$lib/accounts/SkinLibraryPanel.svelte';
+  import SkinLibraryEntryDialog from '$lib/accounts/SkinLibraryEntryDialog.svelte';
+  import { resolveCapeAction } from '$lib/accounts/skin-library/cape-action';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import type { SkinViewer } from 'skinview3d';
 
@@ -28,6 +37,13 @@
   let undoSkin = $state<{ b64: string; variant: SkinVariant } | null>(null);
   // Pixel editor overlay (stacked on top of this modal, see Modal's open-stack).
   let editing = $state(false);
+  // Saved-skins library. Loaded alongside cosmetics but non-fatal on its own:
+  // a library hiccup must never take down the cape/skin sections.
+  let library = $state<SkinLibraryItem[]>([]);
+  let libraryError = $state(false);
+  let libDialog = $state<null | { kind: 'save' } | { kind: 'edit'; item: SkinLibraryItem }>(null);
+  let libDialogBusy = $state(false);
+  let libDialogError = $state<string | null>(null);
 
   // 3D preview (skinview3d, lazily imported so Three.js stays out of the main
   // bundle). WebGL is imperative, not reactive: we drive it via explicit calls
@@ -246,8 +262,118 @@
     void applySkinToViewer();
   }
 
+  // --- saved-skins library ---------------------------------------------------
+
+  async function loadLibrary() {
+    libraryError = false;
+    const res = await commands.skinLibraryList();
+    if (res.status === 'error') {
+      libraryError = true;
+      return;
+    }
+    library = res.data;
+  }
+
+  /// One click = wear the whole saved look: skin + variant, then the cape step.
+  async function applyEntry(item: SkinLibraryItem) {
+    if (busy) return;
+    busy = true;
+    saveError = null;
+    const up = await commands.uploadSkin(account.id, item.skin_png_base64, item.variant);
+    if (up.status === 'error') {
+      saveError = $t('cosmetics.saveError');
+      busy = false;
+      return;
+    }
+    currentSkinB64 = item.skin_png_base64;
+    variant = item.variant;
+    undoSkin = null;
+    syncSkinPreview();
+    // Cape semantics: saved "no cape" clears; a cape this account doesn't own
+    // is skipped (library entries are account-agnostic, capes are not).
+    const action = resolveCapeAction(
+      item.cape_id,
+      capes.map((c) => c.id),
+    );
+    if (action.kind !== 'skip') {
+      const res =
+        action.kind === 'set'
+          ? await commands.setActiveCape(account.id, action.id)
+          : await commands.clearActiveCape(account.id);
+      if (res.status === 'error') {
+        // The skin above DID apply — only the cape step failed. Keep the
+        // applied skin state and surface the error.
+        saveError = $t('cosmetics.saveError');
+      } else {
+        capes = capes.map((c) => ({
+          ...c,
+          is_active: action.kind === 'set' && c.id === action.id,
+        }));
+        void applyCapeToViewer();
+      }
+    }
+    busy = false;
+  }
+
+  async function deleteEntry(item: SkinLibraryItem) {
+    if (busy) return;
+    busy = true;
+    saveError = null;
+    const res = await commands.skinLibraryDelete(item.id);
+    busy = false;
+    if (res.status === 'error') {
+      saveError = $t('skinLibrary.saveError');
+      return;
+    }
+    library = library.filter((e) => e.id !== item.id);
+  }
+
+  function openSaveCurrent() {
+    if (busy || currentSkinB64 === null) return;
+    libDialogError = null;
+    libDialog = { kind: 'save' };
+  }
+
+  function openEditEntry(item: SkinLibraryItem) {
+    libDialogError = null;
+    libDialog = { kind: 'edit', item };
+  }
+
+  async function submitLibDialog(v: { name: string; variant: SkinVariant; capeId: string | null }) {
+    if (!libDialog) return;
+    libDialogBusy = true;
+    libDialogError = null;
+    if (libDialog.kind === 'save') {
+      if (currentSkinB64 === null) {
+        libDialogBusy = false;
+        libDialog = null;
+        return;
+      }
+      const res = await commands.skinLibrarySave(v.name, v.variant, v.capeId, currentSkinB64);
+      libDialogBusy = false;
+      if (res.status === 'error') {
+        libDialogError = $t('skinLibrary.saveError');
+        return;
+      }
+      library = [...library, res.data];
+    } else {
+      const target = libDialog.item;
+      const res = await commands.skinLibraryUpdate(target.id, v.name, v.variant, v.capeId);
+      libDialogBusy = false;
+      if (res.status === 'error') {
+        libDialogError = $t('skinLibrary.saveError');
+        return;
+      }
+      library = library.map((e) =>
+        e.id === target.id ? { ...e, name: v.name, variant: v.variant, cape_id: v.capeId } : e,
+      );
+    }
+    libDialog = null;
+  }
+
   $effect(() => {
     void load();
+    void loadLibrary();
   });
 </script>
 
@@ -269,159 +395,197 @@
   <div class="p-5 flex-1 min-h-0 overflow-y-auto">
     {#if loading}
       <Spinner label={$t('common.loading')} labelPlacement="below" />
-    {:else if loadError}
-      <div class="flex items-center gap-3">
-        <p class="text-sm text-danger" role="alert">{$t('cosmetics.loadError')}</p>
-        <button type="button" class="btn-secondary btn-xs" onclick={() => load()}
-          >{$t('cosmetics.retry')}</button
-        >
-      </div>
     {:else}
-      <div class="flex items-baseline gap-2.5 mb-3">
-        <div class="text-sm font-medium text-primary">{$t('cosmetics.capeHeading')}</div>
-        <div class="text-xs text-muted">{$t('cosmetics.capeHint')}</div>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        {#each capes as cape (cape.id)}
+      {#if loadError}
+        <div class="flex items-center gap-3">
+          <p class="text-sm text-danger" role="alert">{$t('cosmetics.loadError')}</p>
+          <button type="button" class="btn-secondary btn-xs" onclick={() => load()}
+            >{$t('cosmetics.retry')}</button
+          >
+        </div>
+      {:else}
+        <div class="flex items-baseline gap-2.5 mb-3">
+          <div class="text-sm font-medium text-primary">{$t('cosmetics.capeHeading')}</div>
+          <div class="text-xs text-muted">{$t('cosmetics.capeHint')}</div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          {#each capes as cape (cape.id)}
+            <button
+              type="button"
+              class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
+                ? 'border-transparent outline outline-2 outline-accent'
+                : 'border-border-subtle hover:border-border-emphasis'}"
+              onclick={() => pickCape(cape.id)}
+              disabled={busy}
+            >
+              <canvas
+                use:renderCape={cape.texture_url}
+                class="h-[46px]"
+                style="image-rendering:pixelated"
+              ></canvas>
+              <span class="text-xs text-secondary truncate w-full text-center"
+                >{cape.alias ?? cape.id}</span
+              >
+            </button>
+          {/each}
           <button
             type="button"
-            class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {cape.is_active
+            class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
               ? 'border-transparent outline outline-2 outline-accent'
               : 'border-border-subtle hover:border-border-emphasis'}"
-            onclick={() => pickCape(cape.id)}
+            onclick={() => pickCape(null)}
             disabled={busy}
           >
-            <canvas
-              use:renderCape={cape.texture_url}
-              class="h-[46px]"
-              style="image-rendering:pixelated"
-            ></canvas>
-            <span class="text-xs text-secondary truncate w-full text-center"
-              >{cape.alias ?? cape.id}</span
+            <span
+              class="h-[46px] w-8 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
             >
+              <Icon name="close" size={16} />
+            </span>
+            <span class="text-xs text-secondary">{$t('cosmetics.noCape')}</span>
           </button>
-        {/each}
-        <button
-          type="button"
-          class="flex w-[76px] flex-col items-center gap-1 rounded-[10px] border p-1.5 {noCapeActive
-            ? 'border-transparent outline outline-2 outline-accent'
-            : 'border-border-subtle hover:border-border-emphasis'}"
-          onclick={() => pickCape(null)}
-          disabled={busy}
-        >
-          <span
-            class="h-[46px] w-8 border border-dashed border-border-emphasis rounded flex items-center justify-center text-muted"
-          >
-            <Icon name="close" size={16} />
-          </span>
-          <span class="text-xs text-secondary">{$t('cosmetics.noCape')}</span>
-        </button>
-      </div>
-      <p class="mt-2.5 text-xs text-secondary">
-        {$t('cosmetics.activeCape', { name: activeCapeName ?? $t('cosmetics.noCape') })}
-      </p>
+        </div>
+        <p class="mt-2.5 text-xs text-secondary">
+          {$t('cosmetics.activeCape', { name: activeCapeName ?? $t('cosmetics.noCape') })}
+        </p>
 
+        <div class="h-px bg-border-subtle my-[18px]"></div>
+
+        <div class="flex items-baseline gap-2.5 mb-3">
+          <div class="text-sm font-medium text-primary">{$t('cosmetics.skinHeading')}</div>
+          <div class="text-xs text-muted">{$t('cosmetics.skinHint')}</div>
+        </div>
+        <div class="flex gap-4 items-start">
+          <div class="bg-subtle rounded-[10px] p-2 flex flex-col items-center gap-1.5 shrink-0">
+            <canvas
+              use:mountViewer
+              class="w-[180px] h-[240px] cursor-grab active:cursor-grabbing"
+              aria-label={$t('cosmetics.currentSkin')}
+            ></canvas>
+            <span class="text-[11px] text-muted text-center max-w-[180px]">
+              {$t('cosmetics.dragToRotate')}
+            </span>
+          </div>
+          <div class="flex-1 min-w-0 flex flex-col gap-3">
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="btn-secondary btn-sm flex-1 justify-center"
+                onclick={chooseSkinFile}
+                disabled={busy}
+              >
+                {$t('cosmetics.chooseFile')}
+              </button>
+              <button
+                type="button"
+                class="btn-secondary btn-sm flex-1 flex items-center justify-center gap-1.5"
+                onclick={() => (editing = true)}
+                disabled={busy}
+              >
+                <Icon name="edit" size={14} />
+                {$t('cosmetics.editSkin')}
+              </button>
+            </div>
+            <div>
+              <div class="text-xs text-muted mb-1.5">{$t('cosmetics.model')}</div>
+              <div class="flex w-full border border-border-subtle rounded overflow-hidden">
+                <button
+                  type="button"
+                  class="flex-1 px-4 py-1.5 text-sm {variant === 'classic'
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-secondary'}"
+                  onclick={() => setVariant('classic')}>{$t('cosmetics.modelClassic')}</button
+                >
+                <button
+                  type="button"
+                  class="flex-1 px-4 py-1.5 text-sm {variant === 'slim'
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-secondary'}"
+                  onclick={() => setVariant('slim')}>{$t('cosmetics.modelSlim')}</button
+                >
+              </div>
+            </div>
+            {#if confirmingReset}
+              <div class="flex flex-col gap-2 rounded-[10px] border border-border-subtle p-3">
+                <p class="text-xs text-secondary">{$t('cosmetics.resetConfirm')}</p>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs"
+                    onclick={cancelReset}
+                    disabled={busy}
+                  >
+                    {$t('common.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-danger btn-xs"
+                    onclick={confirmReset}
+                    disabled={busy}
+                  >
+                    {$t('cosmetics.resetConfirmYes')}
+                  </button>
+                </div>
+              </div>
+            {:else}
+              <button
+                type="button"
+                class="btn-secondary btn-sm w-full justify-center"
+                onclick={requestReset}
+                disabled={busy}
+              >
+                {$t('cosmetics.resetSkin')}
+              </button>
+            {/if}
+            {#if undoSkin}
+              <button
+                type="button"
+                class="btn-secondary btn-sm w-full flex items-center justify-center gap-1.5"
+                onclick={restorePreviousSkin}
+                disabled={busy}
+              >
+                <Icon name="refresh" size={14} />
+                {$t('cosmetics.restorePrevious')}
+              </button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      <!-- Saved skins live OUTSIDE the loadError gate: the library is fully
+           local (fs-only commands), so a cosmetics-fetch hiccup must not make
+           it unreachable. With cosmetics unavailable, capes is just empty. -->
       <div class="h-px bg-border-subtle my-[18px]"></div>
 
       <div class="flex items-baseline gap-2.5 mb-3">
-        <div class="text-sm font-medium text-primary">{$t('cosmetics.skinHeading')}</div>
-        <div class="text-xs text-muted">{$t('cosmetics.skinHint')}</div>
+        <div class="text-sm font-medium text-primary">{$t('skinLibrary.heading')}</div>
+        <div class="text-xs text-muted">{$t('skinLibrary.hint')}</div>
+        <button
+          type="button"
+          class="btn-secondary btn-xs ml-auto shrink-0"
+          onclick={openSaveCurrent}
+          disabled={busy || currentSkinB64 === null}
+        >
+          {$t('skinLibrary.saveCurrent')}
+        </button>
       </div>
-      <div class="flex gap-4 items-start">
-        <div class="bg-subtle rounded-[10px] p-2 flex flex-col items-center gap-1.5 shrink-0">
-          <canvas
-            use:mountViewer
-            class="w-[180px] h-[240px] cursor-grab active:cursor-grabbing"
-            aria-label={$t('cosmetics.currentSkin')}
-          ></canvas>
-          <span class="text-[11px] text-muted text-center max-w-[180px]">
-            {$t('cosmetics.dragToRotate')}
-          </span>
+      {#if libraryError}
+        <div class="flex items-center gap-3">
+          <p class="text-sm text-danger" role="alert">{$t('skinLibrary.loadError')}</p>
+          <button type="button" class="btn-secondary btn-xs" onclick={() => loadLibrary()}
+            >{$t('cosmetics.retry')}</button
+          >
         </div>
-        <div class="flex-1 min-w-0 flex flex-col gap-3">
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="btn-secondary btn-sm flex-1 justify-center"
-              onclick={chooseSkinFile}
-              disabled={busy}
-            >
-              {$t('cosmetics.chooseFile')}
-            </button>
-            <button
-              type="button"
-              class="btn-secondary btn-sm flex-1 flex items-center justify-center gap-1.5"
-              onclick={() => (editing = true)}
-              disabled={busy}
-            >
-              <Icon name="edit" size={14} />
-              {$t('cosmetics.editSkin')}
-            </button>
-          </div>
-          <div>
-            <div class="text-xs text-muted mb-1.5">{$t('cosmetics.model')}</div>
-            <div class="flex w-full border border-border-subtle rounded overflow-hidden">
-              <button
-                type="button"
-                class="flex-1 px-4 py-1.5 text-sm {variant === 'classic'
-                  ? 'bg-accent-soft text-accent'
-                  : 'text-secondary'}"
-                onclick={() => setVariant('classic')}>{$t('cosmetics.modelClassic')}</button
-              >
-              <button
-                type="button"
-                class="flex-1 px-4 py-1.5 text-sm {variant === 'slim'
-                  ? 'bg-accent-soft text-accent'
-                  : 'text-secondary'}"
-                onclick={() => setVariant('slim')}>{$t('cosmetics.modelSlim')}</button
-              >
-            </div>
-          </div>
-          {#if confirmingReset}
-            <div class="flex flex-col gap-2 rounded-[10px] border border-border-subtle p-3">
-              <p class="text-xs text-secondary">{$t('cosmetics.resetConfirm')}</p>
-              <div class="flex gap-2">
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs"
-                  onclick={cancelReset}
-                  disabled={busy}
-                >
-                  {$t('common.cancel')}
-                </button>
-                <button
-                  type="button"
-                  class="btn-danger btn-xs"
-                  onclick={confirmReset}
-                  disabled={busy}
-                >
-                  {$t('cosmetics.resetConfirmYes')}
-                </button>
-              </div>
-            </div>
-          {:else}
-            <button
-              type="button"
-              class="btn-secondary btn-sm w-full justify-center"
-              onclick={requestReset}
-              disabled={busy}
-            >
-              {$t('cosmetics.resetSkin')}
-            </button>
-          {/if}
-          {#if undoSkin}
-            <button
-              type="button"
-              class="btn-secondary btn-sm w-full flex items-center justify-center gap-1.5"
-              onclick={restorePreviousSkin}
-              disabled={busy}
-            >
-              <Icon name="refresh" size={14} />
-              {$t('cosmetics.restorePrevious')}
-            </button>
-          {/if}
-        </div>
-      </div>
+      {:else}
+        <SkinLibraryPanel
+          entries={library}
+          mode="manage"
+          {busy}
+          {capes}
+          onApply={applyEntry}
+          onEdit={openEditEntry}
+          onDelete={deleteEntry}
+        />
+      {/if}
 
       {#if saveError}
         <p class="mt-3 text-sm text-danger" role="alert">{saveError}</p>
@@ -430,12 +594,38 @@
   </div>
 </Modal>
 
+{#if libDialog}
+  <SkinLibraryEntryDialog
+    title={libDialog.kind === 'save'
+      ? $t('skinLibrary.dialogTitleSave')
+      : $t('skinLibrary.dialogTitleEdit')}
+    initial={libDialog.kind === 'save'
+      ? { name: $t('skinLibrary.defaultName'), variant, capeId: activeCape?.id ?? null }
+      : {
+          name: libDialog.item.name,
+          variant: libDialog.item.variant,
+          capeId: libDialog.item.cape_id,
+        }}
+    {capes}
+    busy={libDialogBusy}
+    error={libDialogError}
+    onCancel={() => (libDialog = null)}
+    onSubmit={submitLibDialog}
+  />
+{/if}
+
 {#if editing}
   <SkinEditorModal
     {account}
+    {capes}
     initialSkinB64={currentSkinB64}
     initialVariant={variant}
-    onClose={() => (editing = false)}
+    onClose={() => {
+      editing = false;
+      // The editor can add entries ("Save to library") behind our back —
+      // refresh the grid so a just-saved skin shows up immediately.
+      void loadLibrary();
+    }}
     onApplied={(b64, v) => {
       // Keep this modal's preview in sync with what the editor uploaded.
       currentSkinB64 = b64;

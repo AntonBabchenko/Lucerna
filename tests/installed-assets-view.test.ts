@@ -13,6 +13,7 @@ const {
   assetUninstall,
   assetsCheckUpdates,
   assetInstall,
+  assetUpdateOne,
   modsProjects,
   pushWarning,
   pushSuccess,
@@ -21,12 +22,20 @@ const {
   assetUninstall: vi.fn(),
   assetsCheckUpdates: vi.fn(),
   assetInstall: vi.fn(),
+  assetUpdateOne: vi.fn(),
   modsProjects: vi.fn(),
   pushWarning: vi.fn(),
   pushSuccess: vi.fn(),
 }));
 
-const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, modsProjects };
+const spies = {
+  assetsList,
+  assetUninstall,
+  assetsCheckUpdates,
+  assetInstall,
+  assetUpdateOne,
+  modsProjects,
+};
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -34,6 +43,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetUninstall,
     assetsCheckUpdates,
     assetInstall,
+    assetUpdateOne,
     modsProjects,
   },
 }));
@@ -149,7 +159,7 @@ describe('InstalledAssetsView', () => {
     expect(spies.assetUninstall).toHaveBeenCalledWith('inst-1', 'shader', 'complementary.zip');
   });
 
-  it('shows an Update button after Check updates and installs the latest version', async () => {
+  it('shows an Update button after Check updates and updates via assetUpdateOne', async () => {
     const latest = makeVersion();
     spies.assetsList.mockResolvedValue(ok([makeAsset()]));
     spies.assetsCheckUpdates.mockResolvedValue(
@@ -161,7 +171,7 @@ describe('InstalledAssetsView', () => {
         },
       ]),
     );
-    spies.assetInstall.mockResolvedValue(ok(null));
+    spies.assetUpdateOne.mockResolvedValue(ok(null));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -173,9 +183,129 @@ describe('InstalledAssetsView', () => {
 
     await fireEvent.click(updateBtn);
 
+    // The update must replace the installed file (old filename passed for
+    // cleanup), not merely install the new version alongside it.
     await waitFor(() =>
-      expect(spies.assetInstall).toHaveBeenCalledWith('inst-1', latest, 'shader'),
+      expect(spies.assetUpdateOne).toHaveBeenCalledWith(
+        'inst-1',
+        'shader',
+        'complementary.zip',
+        latest,
+      ),
     );
+    expect(spies.assetInstall).not.toHaveBeenCalled();
+  });
+
+  it('shows Update all with the update count and updates every updatable row', async () => {
+    const latestA = makeVersion();
+    const latestB = makeVersion({
+      project_id: 'proj-2',
+      version_id: 'ver-9',
+      name: 'Faithful',
+      primary_file: {
+        filename: 'faithful-1.21.zip',
+        url: 'https://example.test/f.zip',
+        sha1: 'ccc',
+        size: 1,
+        distribution_allowed: true,
+      },
+    });
+    spies.assetsList.mockResolvedValue(
+      ok([
+        makeAsset(),
+        makeAsset({ filename: 'faithful.zip', project_id: 'proj-2', name: 'Faithful' }),
+      ]),
+    );
+    spies.assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'complementary.zip',
+          name: 'Complementary Shaders',
+          state: { kind: 'update_available', latest: latestA },
+        },
+        {
+          filename: 'faithful.zip',
+          name: 'Faithful',
+          state: { kind: 'update_available', latest: latestB },
+        },
+      ]),
+    );
+    spies.assetUpdateOne.mockResolvedValue(ok(null));
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+
+    const updateAllBtn = await screen.findByRole('button', { name: 'Update all (2)' });
+    await fireEvent.click(updateAllBtn);
+
+    await waitFor(() => expect(spies.assetUpdateOne).toHaveBeenCalledTimes(2));
+    expect(spies.assetUpdateOne).toHaveBeenCalledWith(
+      'inst-1',
+      'shader',
+      'complementary.zip',
+      latestA,
+    );
+    expect(spies.assetUpdateOne).toHaveBeenCalledWith('inst-1', 'shader', 'faithful.zip', latestB);
+    await waitFor(() => expect(pushSuccess).toHaveBeenCalled());
+  });
+
+  it('reports a partial Update all failure with a warning toast and stays alive', async () => {
+    const latestA = makeVersion();
+    const latestB = makeVersion({ project_id: 'proj-2', version_id: 'ver-9' });
+    spies.assetsList.mockResolvedValue(
+      ok([
+        makeAsset(),
+        makeAsset({ filename: 'faithful.zip', project_id: 'proj-2', name: 'Faithful' }),
+      ]),
+    );
+    spies.assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'complementary.zip',
+          name: 'Complementary Shaders',
+          state: { kind: 'update_available', latest: latestA },
+        },
+        {
+          filename: 'faithful.zip',
+          name: 'Faithful',
+          state: { kind: 'update_available', latest: latestB },
+        },
+      ]),
+    );
+    spies.assetUpdateOne
+      .mockResolvedValueOnce(ok(null))
+      .mockResolvedValueOnce({ status: 'error' as const, error: 'network error' });
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Update all (2)' }));
+
+    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
+    expect(screen.queryByText('Complementary Shaders')).toBeTruthy();
+  });
+
+  it('does not render Update all when nothing is updatable', async () => {
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'complementary.zip',
+          name: 'Complementary Shaders',
+          state: { kind: 'up_to_date' },
+        },
+      ]),
+    );
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(pushSuccess).toHaveBeenCalled()); // up-to-date toast
+    expect(screen.queryByRole('button', { name: /Update all/ })).toBeNull();
   });
 
   it('renders the pick-instance empty state and does not list when instanceId is null', async () => {
