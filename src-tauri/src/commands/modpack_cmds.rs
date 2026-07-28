@@ -533,6 +533,11 @@ pub async fn modpack_apply_update(
         inst.loader,
         &inst.loader_version,
     );
+    // Snapshot BEFORE any file is touched: which updated mods the user had
+    // disabled, so the fresh versions can be re-disabled after install.
+    let installed_before = crate::mods::installed::list(&inst_root).await?;
+    let carry_disabled =
+        crate::mods::modpack::import::carry_disabled_shas(&installed_before, &diff);
 
     let install_progress: crate::mods::install::ProgressFn = {
         let ch = on_install_progress.clone();
@@ -590,6 +595,17 @@ pub async fn modpack_apply_update(
                 summary.loader,
             );
             crate::mods::install::install_one(&dd, &inst_root, mv, &install_progress).await?;
+            // Respect the user's choice IMMEDIATELY, not in a post-loop pass:
+            // a mod they disabled stays disabled across the update (fresh jar
+            // renamed to `.disabled`, registry record flipped — the
+            // mods_disable primitive). Per-file so a later install failure in
+            // this loop cannot strand an already-installed carried mod
+            // enabled — a retry after such a failure has lost the old
+            // record's `enabled:false` and could no longer re-derive the
+            // intent (review finding on this PR).
+            if carry_disabled.contains(&f.sha1.to_ascii_lowercase()) {
+                crate::mods::install::disable(&inst_root, &f.sha1.to_ascii_lowercase()).await?;
+            }
         } else {
             crate::mods::install::install_asset(
                 &dd,

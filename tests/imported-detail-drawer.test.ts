@@ -75,6 +75,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
+    modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -83,7 +84,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import type { InstanceWithStatus, ModSource } from '$lib/ipc/bindings';
+import type { InstanceWithStatus, ModSource, PackOriginFile } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import ImportedDetailDrawer from '$lib/modpacks/ImportedDetailDrawer.svelte';
 
@@ -912,5 +913,95 @@ describe('ImportedDetailDrawer', () => {
     await waitFor(() => {
       expect(commands.modpackRestoreFile).toHaveBeenCalledWith('inst-x', 'gone-sha');
     });
+  });
+});
+
+// ── inert-jar section: one-click Disable (FCAP C3) ────────────────────────
+describe('inert-jar disable action', () => {
+  const inertStatus = (files: PackOriginFile[] = []) => ({
+    status: 'ok' as const,
+    data: {
+      origin: {
+        project_id: null,
+        source: 'modrinth' as ModSource,
+        project_name: 'Cool Pack',
+        version: '1.0',
+        files,
+        inert_loader_jars: [{ filename: 'wrong.jar', detected_loader: 'Fabric' }],
+      },
+      installed_shas: [],
+      removed_files: [],
+      added_count: 0,
+      is_modified: false,
+      missing_mods: [],
+    },
+  });
+  const wrongJarRow = (enabled: boolean) => ({
+    filename: 'wrong.jar',
+    sha1: 'ws',
+    name: 'Wrong Loader Mod',
+    version_number: '1.0',
+    source: null,
+    project_id: null,
+    version_id: null,
+    installed_at: '',
+    enabled,
+  });
+
+  it('offers Disable on an enabled inert jar and calls modsDisable with its sha', async () => {
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [wrongJarRow(true)],
+    });
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce(inertStatus());
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: {
+        inst: instance(),
+        onClose: () => {},
+        onOpenInstance: () => {},
+        onDeleted: () => {},
+      },
+    });
+    const section = await findByTestId('imported-detail-inert-section');
+    const btn = within(section).getByRole('button', { name: 'Disable' });
+    await fireEvent.click(btn);
+    await waitFor(() => {
+      expect(commands.modsDisable).toHaveBeenCalledWith('i1', 'ws');
+    });
+  });
+
+  it('shows a disabled note instead of the button when the jar is already disabled', async () => {
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [wrongJarRow(false)],
+    });
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce(inertStatus());
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: {
+        inst: instance(),
+        onClose: () => {},
+        onOpenInstance: () => {},
+        onDeleted: () => {},
+      },
+    });
+    const section = await findByTestId('imported-detail-inert-section');
+    expect(within(section).queryByRole('button', { name: 'Disable' })).toBeNull();
+    expect(within(section).getByText('disabled')).toBeTruthy();
+  });
+
+  it('renders neither button nor note when no installed mod matches the filename', async () => {
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({ status: 'ok', data: [] });
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce(inertStatus());
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: {
+        inst: instance(),
+        onClose: () => {},
+        onOpenInstance: () => {},
+        onDeleted: () => {},
+      },
+    });
+    const section = await findByTestId('imported-detail-inert-section');
+    expect(within(section).queryByRole('button', { name: 'Disable' })).toBeNull();
+    expect(within(section).queryByText('disabled')).toBeNull();
   });
 });
