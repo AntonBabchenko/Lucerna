@@ -198,6 +198,7 @@ export type TranslationKey =
   | 'errors.sftpConnectFailed'
   | 'errors.sftpHostKeyMismatch'
   | 'errors.sftpTransferFailed'
+  | 'errors.skinLibrary'
   | 'errors.trayIo'
   | 'errors.unknownVersion'
   | 'errors.unsupportedPlatform'

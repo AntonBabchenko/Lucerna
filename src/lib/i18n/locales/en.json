@@ -1648,6 +1648,7 @@
     "noMinecraftProfile": "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
     "authPendingApproval": "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
     "cosmeticImageInvalid": "That image can't be used as a skin",
+    "skinLibrary": "Skin library operation failed",
     "unknownVersion": "Version {id} not found in manifest",
     "unsupportedPlatform": "Unsupported platform: {os}/{arch}",
     "loaderUnavailable": "{loader} does not support Minecraft {mcVersion}",

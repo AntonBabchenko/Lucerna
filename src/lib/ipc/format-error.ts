@@ -79,6 +79,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_import_invalid_archive: 'opaque',
   servers_dat_parse: 'opaque',
   cosmetic_image_invalid: 'opaque',
+  skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
   host_not_allowed: 'clean',
   hash_mismatch: 'clean',
@@ -233,6 +234,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.authPendingApproval');
     case 'cosmetic_image_invalid':
       return withDetailTail(translate('errors.cosmeticImageInvalid'), e.details);
+    case 'skin_library':
+      return withDetailTail(translate('errors.skinLibrary'), e.details);
     case 'unknown_version':
       return translate('errors.unknownVersion', { id: e.id });
     case 'unsupported_platform':
