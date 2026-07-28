@@ -1478,10 +1478,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Shares `set_data_location`'s guards: rejected while a game/server runs,
 	 *  while running from a fallback root, or while another change is in flight
 	 *  (`DataLocationBusy`). Validation failures surface as
-	 *  `DataLocationInvalid` with reasons `not_absolute` / `not_a_data_root` /
-	 *  `same` / `not_writable`. Nesting in either direction is deliberately
-	 *  allowed — nothing moves, and "current root nested inside the adopted
-	 *  root" is exactly the doubled-path recovery this exists for.
+	 *  `DataLocationInvalid` with the reasons produced by [`classify_adopt`]
+	 *  (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
 	 */
 	adoptDataLocation: (path: string) => typedError<null, Error>(__TAURI_INVOKE("adopt_data_location", { path })),
 };
