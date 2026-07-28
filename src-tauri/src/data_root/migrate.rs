@@ -144,6 +144,15 @@ pub fn is_same_or_nested(current: &Path, target: &Path) -> bool {
     tgt_norm.starts_with(&cur_norm)
 }
 
+/// True when `a` and `b` are the same directory once canonicalized
+/// (best-effort) and case-folded per platform — the equality half of
+/// [`is_same_or_nested`], exposed for checks that must NOT treat nesting as a
+/// conflict. Adopt uses it: pointing at a root the current root lives inside
+/// is exactly the doubled-path recovery, so nesting must stay legal there.
+pub fn is_same_path(a: &Path, b: &Path) -> bool {
+    compare_key(&canonicalize_best_effort(a)) == compare_key(&canonicalize_best_effort(b))
+}
+
 /// Recursively scan `root` for any symbolic link or junction (reparse point).
 /// Returns `Ok(true)` on the first one found. Junctions on Windows surface as
 /// symlinks via `symlink_metadata().file_type().is_symlink()`. Bounded by
@@ -444,6 +453,28 @@ mod tests {
             is_same_or_nested(&cur, &nested),
             "case-only difference on an ancestor must still flag nesting"
         );
+    }
+
+    #[test]
+    fn is_same_path_matches_same_dir_and_rejects_nested_and_sibling() {
+        let d = tempdir().unwrap();
+        let a = d.path().join("data");
+        std::fs::create_dir_all(&a).unwrap();
+        assert!(is_same_path(&a, &a));
+        assert!(
+            !is_same_path(&a, &a.join("sub")),
+            "nested is not SAME — adopt must allow it"
+        );
+        assert!(!is_same_path(&a, &d.path().join("data-other")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn is_same_path_is_case_insensitive_on_windows() {
+        let d = tempdir().unwrap();
+        let a = d.path().join("DataDir");
+        std::fs::create_dir_all(&a).unwrap();
+        assert!(is_same_path(&a, &d.path().join("DATADIR")));
     }
 
     #[test]
