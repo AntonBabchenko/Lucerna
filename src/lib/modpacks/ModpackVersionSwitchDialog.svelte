@@ -105,7 +105,15 @@
     await flow.prepare(inst, entry);
   }
 
+  // Retries whichever step failed. A failed version-list load happens before any
+  // pick, so it must retry the load, not a prepare — otherwise the only recovery
+  // is closing and reopening the dialog, which nothing in the UI hints at.
   async function retry(): Promise<void> {
+    if (loadError !== null) {
+      const projectId = inst.mrpack_project_id;
+      if (projectId !== null) await loadVersions(projectId);
+      return;
+    }
     if (selected === null) return;
     await flow.prepare(inst, selected);
   }
@@ -138,7 +146,7 @@
   {#if shownError}
     <div class="flex items-center gap-2 text-sm text-danger" data-testid="switch-error">
       <span class="flex-1">{shownError}</span>
-      {#if selected !== null}
+      {#if selected !== null || loadError !== null}
         <button
           type="button"
           class="btn-secondary btn-xs flex-shrink-0"
@@ -163,7 +171,11 @@
   {:else if step === 'pick'}
     {#if loadingVersions}
       <LoadingPanel label={$t('modpacks.switch.loadingVersions')} delayMs={0} />
-    {:else}
+    {:else if loadError === null}
+      <!-- Suppressed on a load failure: `versions` is still empty then, and the
+           list's "no versions match" empty state would read as "this pack has
+           none" rather than "the request failed". The error + Retry above is the
+           whole message in that case. -->
       <ModpackVersionList
         {versions}
         installedVersionId={inst.mrpack_version_id}

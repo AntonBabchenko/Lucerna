@@ -157,6 +157,35 @@ describe('ModpackVersionSwitchDialog', () => {
     await waitFor(() => expect(screen.getByTestId('switch-error')).toBeTruthy());
   });
 
+  it('offers a retry when the version list itself failed to load', async () => {
+    // The failure happens before any pick, so a retry gated on "a version is
+    // selected" would leave closing and reopening the dialog as the only
+    // recovery — and nothing in the UI hints at that.
+    getVersions.mockResolvedValue(NETWORK_ERROR);
+    render(ModpackVersionSwitchDialog, props());
+    await waitFor(() => expect(screen.getByTestId('switch-retry')).toBeTruthy());
+  });
+
+  it('retrying a failed version-list load re-fetches the list', async () => {
+    getVersions.mockResolvedValueOnce(NETWORK_ERROR);
+    render(ModpackVersionSwitchDialog, props());
+    await waitFor(() => expect(screen.getByTestId('switch-retry')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('switch-retry'));
+    // Retries the LOAD, not a prepare — nothing has been picked yet.
+    await waitFor(() => expect(getVersions).toHaveBeenCalledTimes(2));
+    expect(fetchToTemp).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+  });
+
+  it('does not show an empty-list state when the load failed', async () => {
+    // `versions` is still [] after a failure, so the list's "no versions match"
+    // copy would read as "this pack has none" rather than "the request failed".
+    getVersions.mockResolvedValue(NETWORK_ERROR);
+    render(ModpackVersionSwitchDialog, props());
+    await waitFor(() => expect(screen.getByTestId('switch-error')).toBeTruthy());
+    expect(screen.queryByTestId('version-list-empty')).toBeNull();
+  });
+
   it('offers the changelog on the review step', async () => {
     await openAndPick('v1');
     await waitFor(() => expect(screen.getByTestId('switch-changelog-btn')).toBeTruthy());

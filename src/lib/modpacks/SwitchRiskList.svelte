@@ -14,9 +14,12 @@
 </script>
 
 {#if risks.length > 0}
-  <div class="flex flex-col gap-2" data-testid="switch-risk-list">
+  <!-- One `role="alert"` for the whole group, not one per Banner: up to five
+       risks mount at once, and five simultaneous alert regions announce as a
+       jumble. The group is the thing the user needs read out. -->
+  <div class="flex flex-col gap-2" role="alert" data-testid="switch-risk-list">
     {#each risks as risk (risk.kind)}
-      <Banner tone="warning" icon="warning" role="alert" dataTestid={`switch-risk-${risk.kind}`}>
+      <Banner tone="warning" icon="warning" dataTestid={`switch-risk-${risk.kind}`}>
         {#if risk.kind === 'mc-change'}
           {$t('modpacks.switch.riskMcChange', { from: risk.from, to: risk.to })}
         {:else if risk.kind === 'downgrade'}
