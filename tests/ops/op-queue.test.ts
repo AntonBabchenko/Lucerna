@@ -15,6 +15,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackImport: vi.fn(),
     setActiveInstance: vi.fn(),
     launcherImportRun: vi.fn(),
+    cloneInstance: vi.fn(),
   },
   events: {
     verifyProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -44,6 +45,7 @@ import { commands } from '$lib/ipc/bindings';
 import {
   __resetOpQueueForTest,
   cancelQueued,
+  enqueueClone,
   enqueueIntegrity,
   enqueueLauncherImport,
   moveQueued,
@@ -229,14 +231,12 @@ describe('op-queue store', () => {
     enqueueIntegrity('c', 'Charlie', 'verify'); // queued
 
     const bOp = opQueue().find(
-      (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === 'b',
+      (q) => (q.kind === 'verify' || q.kind === 'repair') && q.instanceId === 'b',
     );
     if (!bOp) throw new Error('b not queued');
     cancelQueued(bOp.id);
     expect(
-      opQueue().map((q) =>
-        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
-      ),
+      opQueue().map((q) => (q.kind === 'verify' || q.kind === 'repair' ? q.instanceId : '')),
     ).toEqual(['c']);
 
     // Cancelling the running op's id is a no-op (it isn't in the queue array).
@@ -259,9 +259,7 @@ describe('op-queue store', () => {
     enqueueIntegrity('c', 'Charlie', 'verify'); // queue[1]
 
     const ids = () =>
-      opQueue().map((q) =>
-        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
-      );
+      opQueue().map((q) => (q.kind === 'verify' || q.kind === 'repair' ? q.instanceId : ''));
     const cId = opQueue()[1].id;
     moveQueued(cId, 'up');
     expect(ids()).toEqual(['c', 'b']);
@@ -489,6 +487,93 @@ describe('op-queue store', () => {
     });
 
     await vi.waitFor(() => expect(pushWarning).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  const cloneReq = (sourceId: string) => ({
+    sourceId,
+    newName: 'Default (copy)',
+    options: {
+      saves: true,
+      settings: true,
+      packs: true,
+      config: true,
+      options_txt: true,
+      playtime: true,
+    },
+  });
+
+  it('enqueueClone: success pushes an action toast whose Open selects the clone', async () => {
+    (commands.cloneInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      async (
+        _source: unknown,
+        _name: unknown,
+        _options: unknown,
+        ch: { onmessage: ((m: unknown) => void) | null },
+      ) => {
+        ch.onmessage?.({ category: 'mods', current: 1, total: 1 });
+        return { status: 'ok', data: { id: 'clone-9', name: 'Default (copy)' } };
+      },
+    );
+    (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    });
+
+    enqueueClone('Default (copy)', cloneReq('inst-1'));
+
+    await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+
+    const call = (pushActionToast as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe('instance.clone.done'); // tr echoes the key
+    const action = call[2] as { run: () => void };
+    action.run();
+    await vi.waitFor(() => expect(commands.setActiveInstance).toHaveBeenCalledWith('clone-9'));
+  });
+
+  it('enqueueClone: dedupes a second clone of the same source while one is pending', async () => {
+    const d = deferred<{ status: 'ok'; data: { id: string; name: string } }>();
+    (commands.cloneInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+
+    enqueueClone('Default (copy)', cloneReq('inst-1'));
+    enqueueClone('Default (copy)', cloneReq('inst-1')); // same source → ignored
+    enqueueClone('Other (copy)', cloneReq('inst-2')); // different source → queued
+
+    expect(commands.cloneInstance).toHaveBeenCalledTimes(1);
+    expect(opQueue().length).toBe(1);
+
+    d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('enqueueClone: error pushes a warning with the failure detail', async () => {
+    (commands.cloneInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_busy' },
+    });
+
+    enqueueClone('Default (copy)', cloneReq('inst-1'));
+
+    await vi.waitFor(() => expect(pushWarning).toHaveBeenCalledTimes(1));
+    const call = (pushWarning as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe('instance.clone.failed');
+    expect(call[1]).toEqual(['formatted:instance_busy']);
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('enqueueClone: integrity dedupe ignores clone ops for the same instance id', async () => {
+    // Regression for the isIntegrityOp refactor: a running CLONE of inst-1 must
+    // not block enqueueing a VERIFY of inst-1 (different op families).
+    const d = deferred<{ status: 'ok'; data: { id: string; name: string } }>();
+    (commands.cloneInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+
+    enqueueClone('Default (copy)', cloneReq('inst-1'));
+    enqueueIntegrity('inst-1', 'Default', 'verify');
+
+    expect(opQueue().length).toBe(1); // the verify queued, not dropped
+
+    d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
     await vi.waitFor(() => expect(opRunning()).toBeNull());
   });
 });

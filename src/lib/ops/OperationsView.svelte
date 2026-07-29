@@ -1,6 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
+  import { categoryLabelKey } from '$lib/instances/import/category-display';
   import type { ModpackProgress } from '$lib/ipc/bindings';
   import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
   import { tooltip } from '$lib/ui/tooltip';
@@ -24,6 +25,7 @@
   function runningLabel(op: QueuedOp): string {
     if (op.kind === 'import') return $t('modpacks.import.progress.heading');
     if (op.kind === 'launcher-import') return $t('instances.import.progress', { name: op.name });
+    if (op.kind === 'clone') return $t('instance.clone.progress', { name: op.name });
     return op.kind === 'verify'
       ? $t('instance.integrity.opVerifying', { name: op.name })
       : $t('instance.integrity.opRepairing', { name: op.name });
@@ -57,6 +59,7 @@
   function queueItemLabel(op: QueuedOp): string {
     if (op.kind === 'import') return $t('ops.queueItemImport', { name: op.name });
     if (op.kind === 'launcher-import') return $t('ops.queueItemLauncherImport', { name: op.name });
+    if (op.kind === 'clone') return $t('ops.queueItemClone', { name: op.name });
     return op.kind === 'verify'
       ? $t('ops.queueItemVerify', { name: op.name })
       : $t('ops.queueItemRepair', { name: op.name });
@@ -82,7 +85,7 @@
           {runningLabel(running.op)}
         </div>
       </div>
-      {#if running.progress.kind !== 'import' && running.progress.kind !== 'launcher-import'}
+      {#if running.progress.kind === 'verify' || running.progress.kind === 'repair'}
         <div class="text-xs text-muted">
           {running.progress.filesDone}/{running.progress.filesTotal}
         </div>
@@ -113,6 +116,16 @@
         {#if running.progress.phase}
           <div class="text-xs text-muted truncate">
             {$t(`instances.import.phase.${running.progress.phase.phase}`)}
+          </div>
+        {/if}
+      {:else if running.progress.kind === 'clone'}
+        {#if running.progress.phase}
+          <div class="text-xs text-muted truncate">
+            {$t('instance.clone.copying', {
+              category: $t(categoryLabelKey(running.progress.phase.category)),
+              current: running.progress.phase.current,
+              total: running.progress.phase.total,
+            })}
           </div>
         {/if}
       {/if}

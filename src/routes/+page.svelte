@@ -14,6 +14,7 @@
   import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
   import { repairCompletionTick } from '$lib/logs/repair-ops.svelte';
   import InstanceIconDialog from '$lib/instances/InstanceIconDialog.svelte';
+  import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
@@ -163,6 +164,9 @@
   // switch is async, so the modal can't rely on `activeInstance` at open time);
   // null when opened via the generic Manage button (defaults to the active one).
   let manageInitialId = $state<string | null>(null);
+  // Source instance for the clone dialog (null = closed). Shared by the
+  // sidebar right-click menu and the Manage modal's Clone button.
+  let cloneTargetId = $state<string | null>(null);
   let msSigningIn = $state(false);
   let exportDialogOpen = $state(false);
 
@@ -1095,6 +1099,7 @@
         manageInitialId = id;
         manageOpen = true;
       }}
+      onCloneInstance={(id) => (cloneTargetId = id)}
       {onOpenMods}
       onOpenLogs={() => {
         // Plain "Logs" open is not a deep-link — clear any stale crash path so
@@ -1313,7 +1318,15 @@
     onChanged={refreshInstances}
     isRunning={selectedRunning}
     initialSelectedId={manageInitialId}
+    onCloneRequest={(id) => (cloneTargetId = id)}
   />
+
+  {#if cloneTargetId !== null}
+    {@const cloneSource = instances.find((i) => i.id === cloneTargetId)}
+    {#if cloneSource}
+      <CloneInstanceDialog instance={cloneSource} onClose={() => (cloneTargetId = null)} />
+    {/if}
+  {/if}
 
   <InstanceIconDialog onSaved={refreshInstances} />
 

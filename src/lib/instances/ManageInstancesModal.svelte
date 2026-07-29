@@ -40,6 +40,7 @@
     onChanged,
     isRunning = false,
     initialSelectedId = null,
+    onCloneRequest = () => {},
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
@@ -47,6 +48,9 @@
     versions: VersionEntry[];
     onChanged: () => void;
     isRunning?: boolean;
+    // Open the clone dialog for this instance (hosted by the page so the
+    // sidebar entry point shares it). Defaults to a no-op for bare mounts.
+    onCloneRequest?: (instanceId: string) => void;
     // When set (opened via a per-row "manage this profile" action), seed the
     // detail selection from THIS id rather than the active instance. Switching
     // the active instance is async (an IPC round-trip), so at open time
@@ -1015,6 +1019,24 @@
               </button>
             </span>
             <div class="flex gap-2">
+              <span
+                class="inline-flex"
+                use:tooltip={{
+                  text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                  describe: false,
+                }}
+              >
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                  disabled={isRunning}
+                  onclick={() => selected && onCloneRequest(selected.id)}
+                  data-testid="clone-instance-btn"
+                >
+                  <Icon name="copy" size={14} />
+                  {$t('instance.manage.cloneBtn')}
+                </button>
+              </span>
               <button
                 type="button"
                 class="btn-secondary btn-sm inline-flex items-center gap-1.5"

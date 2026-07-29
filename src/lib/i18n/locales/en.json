@@ -233,6 +233,8 @@
     "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname.",
     "contextHide": "I don't need this",
     "contextMenuAria": "Button actions",
+    "cloneInstance": "Clone…",
+    "instanceMenuAria": "Instance actions",
     "hideConfirm": {
       "title": "Hide button?",
       "body": "{label} will be removed from the sidebar. You can restore it in Settings under Appearance.",
@@ -301,7 +303,24 @@
       "runningBlocked": "Stop the running game first.",
       "compatCheckUnavailable": "Couldn't check mod compatibility.",
       "openFolderFailed": "Couldn't open the instance folder.",
-      "openSourceFolderFailed": "Couldn't open the source folder."
+      "openSourceFolderFailed": "Couldn't open the source folder.",
+      "cloneBtn": "Clone…"
+    },
+    "clone": {
+      "title": "Clone {name}",
+      "nameLabel": "New name",
+      "defaultSuffix": " (copy)",
+      "whatToCopy": "What to copy",
+      "optionSettings": "Settings (memory, JVM arguments)",
+      "optionPacks": "Resource & shader packs",
+      "optionPlaytime": "Playtime",
+      "noPlaytime": "No playtime recorded yet",
+      "modsAlways": "Mods are always copied, so the clone stays manageable",
+      "cloneBtn": "Clone",
+      "progress": "Cloning to {name}…",
+      "copying": "Copying {category} ({current}/{total})",
+      "done": "Cloned to {name}",
+      "failed": "Couldn't clone {name}"
     },
     "error": {
       "nameRequired": "Name is required",
@@ -1957,7 +1976,8 @@
     "queueItemVerify": "Verify “{name}”",
     "queueItemRepair": "Repair “{name}”",
     "queueItemImport": "Import “{name}”",
-    "queueItemLauncherImport": "Import “{name}” from launcher"
+    "queueItemLauncherImport": "Import “{name}” from launcher",
+    "queueItemClone": "Clone to “{name}”"
   },
   "page": {
     "update": {

@@ -47,6 +47,7 @@
     valueLeading,
     optionTrailing,
     onDeleteOption,
+    onOptionContextMenu,
   }: {
     value: Primitive | null;
     options: Option[];
@@ -75,6 +76,11 @@
     // while the list is open invokes it for the active option (and closes the
     // list). Generic enough for any "deletable options" list.
     onDeleteOption?: (option: Option) => void;
+    // Optional right-click hook per open-list option row (e.g. the sidebar's
+    // per-instance actions menu). Receives the option and the pointer
+    // position; the callback owns rendering its own menu. Not offered for
+    // disabled rows; without it right-click keeps its native behavior.
+    onOptionContextMenu?: (option: Option, pos: { x: number; y: number }) => void;
   } = $props();
 
   const MAX_POPOVER_HEIGHT = 240; // preferred cap; clamped down to viewport room
@@ -342,8 +348,17 @@
         class:bg-accent-soft={i === activeIndex}
         class:font-medium={opt.value === value}
         onmousedown={(e) => {
+          // Right-button presses belong to the context-menu hook (when set):
+          // they must neither commit nor close the list.
+          if (onOptionContextMenu && e.button === 2) return;
           e.preventDefault();
           if (!opt.disabled) commit(i);
+        }}
+        oncontextmenu={(e) => {
+          if (!onOptionContextMenu || opt.disabled) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onOptionContextMenu(opt, { x: e.clientX, y: e.clientY });
         }}
         onmouseenter={() => {
           if (!opt.disabled) activeIndex = i;

@@ -7,6 +7,7 @@
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
+  import { categoryLabelKey } from '$lib/instances/import/category-display';
   import { shouldWarnVanillaWithMods } from '$lib/instances/import/vanilla-mods-warning';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -150,19 +151,7 @@
   }
 
   function categoryLabel(cat: ContentCategory): string {
-    const key =
-      cat === 'mods'
-        ? 'instances.import.categoryMods'
-        : cat === 'config'
-          ? 'instances.import.categoryConfig'
-          : cat === 'saves'
-            ? 'instances.import.categorySaves'
-            : cat === 'resource_packs'
-              ? 'instances.import.categoryResourcePacks'
-              : cat === 'shaderpacks'
-                ? 'instances.import.categoryShaderpacks'
-                : 'instances.import.categoryOptionsTxt';
-    return $t(key as Parameters<typeof $t>[0]);
+    return $t(categoryLabelKey(cat));
   }
 
   function categoryIcon(cat: ContentCategory): IconName {

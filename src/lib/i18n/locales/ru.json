@@ -233,6 +233,8 @@
     "offlineNameUnsupported": "Этот ник не поддерживается Minecraft — в миры не зайти. Добавь аккаунт с латинским ником.",
     "contextHide": "Мне это не нужно",
     "contextMenuAria": "Действия с кнопкой",
+    "cloneInstance": "Клонировать…",
+    "instanceMenuAria": "Действия с профилем",
     "hideConfirm": {
       "title": "Скрыть кнопку?",
       "body": "«{label}» исчезнет из боковой панели. Вернуть её можно в Настройках → Оформление.",
@@ -301,7 +303,24 @@
       "runningBlocked": "Сначала остановите запущенную игру.",
       "compatCheckUnavailable": "Не удалось проверить совместимость модов.",
       "openFolderFailed": "Не удалось открыть папку профиля.",
-      "openSourceFolderFailed": "Не удалось открыть исходную папку."
+      "openSourceFolderFailed": "Не удалось открыть исходную папку.",
+      "cloneBtn": "Клонировать…"
+    },
+    "clone": {
+      "title": "Клонировать {name}",
+      "nameLabel": "Новое имя",
+      "defaultSuffix": " (копия)",
+      "whatToCopy": "Что скопировать",
+      "optionSettings": "Настройки (память, аргументы JVM)",
+      "optionPacks": "Ресурспаки и шейдеры",
+      "optionPlaytime": "Время игры",
+      "noPlaytime": "Время игры ещё не записано",
+      "modsAlways": "Моды копируются всегда, чтобы клоном можно было управлять",
+      "cloneBtn": "Клонировать",
+      "progress": "Клонирование в «{name}»…",
+      "copying": "Копирование: {category} ({current}/{total})",
+      "done": "Клонировано в «{name}»",
+      "failed": "Не удалось клонировать «{name}»"
     },
     "error": {
       "nameRequired": "Имя обязательно",
@@ -1957,7 +1976,8 @@
     "queueItemVerify": "Проверка «{name}»",
     "queueItemRepair": "Ремонт «{name}»",
     "queueItemImport": "Импорт «{name}»",
-    "queueItemLauncherImport": "Импорт «{name}» из лаунчера"
+    "queueItemLauncherImport": "Импорт «{name}» из лаунчера",
+    "queueItemClone": "Клонирование в «{name}»"
   },
   "page": {
     "update": {
