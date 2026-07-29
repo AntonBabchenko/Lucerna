@@ -2008,6 +2008,8 @@ export type TranslationKey =
   | 'settings.storage.dataLocation.confirm.moveBody'
   | 'settings.storage.dataLocation.confirm.moveTitle'
   | 'settings.storage.dataLocation.confirm.resetBody'
+  | 'settings.storage.dataLocation.confirm.resetPointerOnlyBody'
+  | 'settings.storage.dataLocation.confirm.resetPointerOnlyConfirmBtn'
   | 'settings.storage.dataLocation.confirm.resetTitle'
   | 'settings.storage.dataLocation.confirm.restartNote'
   | 'settings.storage.dataLocation.currentLabel'
