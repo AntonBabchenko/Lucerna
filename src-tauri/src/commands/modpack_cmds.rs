@@ -73,7 +73,7 @@ pub async fn modpack_import(
     if is_staged_summary_sidecar(&path) {
         let summary = read_staged_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
-        return modpack::import::install_resolved_pack(
+        let imported = modpack::import::install_resolved_pack(
             &app,
             summary,
             &selected_shas,
@@ -88,7 +88,9 @@ pub async fn modpack_import(
             },
             install_progress,
         )
-        .await;
+        .await?;
+        journal_pack_import(&app, &imported);
+        return Ok(imported);
     }
 
     // Archive path (Modrinth `.mrpack` / CurseForge `.zip`).
@@ -98,7 +100,7 @@ pub async fn modpack_import(
             path: path.clone(),
             details: e.to_string(),
         })?;
-    modpack::import::import(
+    let imported = modpack::import::import(
         &app,
         &bytes,
         &selected_shas,
@@ -112,7 +114,32 @@ pub async fn modpack_import(
         },
         install_progress,
     )
-    .await
+    .await?;
+    journal_pack_import(&app, &imported);
+    Ok(imported)
+}
+
+/// Open the freshly-created instance's journal with the import that made it.
+/// Shared by the sidecar and archive paths so the two cannot record the pack
+/// differently. Silent on a path failure — the import itself succeeded.
+fn journal_pack_import(
+    app: &tauri::AppHandle,
+    imported: &crate::instances::schema::InstanceWithStatus,
+) {
+    if let Ok(inst_root) = instance_root(app, &imported.id) {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModpackImported,
+                imported
+                    .mrpack_name
+                    .clone()
+                    .unwrap_or_else(|| imported.name.clone()),
+                None,
+                imported.mrpack_version.clone(),
+            ),
+        );
+    }
 }
 
 /// Search a modpack catalogue. `source` selects Modrinth (anonymous)
@@ -328,6 +355,18 @@ pub async fn modpack_restore_file(
         )
         .await?;
     }
+    // Restoring a pack file is an install from the user's point of view; the
+    // action reflects WHAT was restored so the history reads consistently with
+    // the rest of the mod/asset rows.
+    let restored_action = if file.install_path.starts_with("mods/") {
+        crate::journal::ContentAction::ModInstalled
+    } else {
+        crate::journal::ContentAction::AssetInstalled
+    };
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content(restored_action, file.name.clone()),
+    );
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: file.sha1.clone(),
@@ -647,6 +686,18 @@ pub async fn modpack_apply_update(
         summary.loader_version.clone(),
         new_version_id,
     )?;
+    // One row for the whole version bump, with the file churn as detail —
+    // the per-mod installs above are the mechanism, not the user's action.
+    crate::journal::record(
+        &inst_root,
+        crate::journal::JournalEvent::Content {
+            action: crate::journal::ContentAction::ModpackUpdated,
+            subject: origin.project_name.clone(),
+            from_version: Some(origin.version.clone()),
+            to_version: Some(summary.version.clone()),
+            affected: Some((diff.added.len() + diff.updated.len() + diff.removed.len()) as f64),
+        },
+    );
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
         // A version update never touches `overrides/`, so nothing is skipped.

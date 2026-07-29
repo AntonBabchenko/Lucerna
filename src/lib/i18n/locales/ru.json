@@ -1062,7 +1062,8 @@
       "wrapLines": "Переносить строки",
       "collapseStacks": "Сворачивать трассировки",
       "showLevels": "Показать:",
-      "rawView": "Исходный вид"
+      "rawView": "Исходный вид",
+      "collapseRepeats": "Сворачивать повторы"
     },
     "severity": {
       "game": "Логи игры",
@@ -1406,6 +1407,47 @@
       "clearOldTitle": "Очистка старых логов",
       "clearOldBody": "Удалить файлов: {count} (освободит ~{size})? latest.log и debug.log останутся.",
       "cleared": "Удалено логов: {count} · освобождено {size}"
+    },
+    "compact": {
+      "repeatCount": "×{count}"
+    },
+    "journal": {
+      "viewLogs": "Логи",
+      "viewJournal": "Журнал",
+      "title": "История профиля",
+      "empty": "Для этого профиля пока ничего не записано. Здесь появятся установки, обновления и запуски.",
+      "loadFailed": "Не удалось прочитать историю: {error}",
+      "filterAll": "Все",
+      "filterContent": "Содержимое",
+      "filterLaunches": "Запуски",
+      "clear": "Очистить историю",
+      "clearTitle": "Очистить историю профиля?",
+      "clearBody": "Будет удалена локальная запись об изменениях содержимого и запусках этого профиля. Моды, миры и настройки не тронуты.",
+      "clearConfirm": "Очистить",
+      "cleared": "История очищена",
+      "openLog": "Открыть лог",
+      "affected": "{count, plural, one {# файл} few {# файла} other {# файлов}}",
+      "exitCode": "код выхода {code}",
+      "contextTitle": "Изменено незадолго до этого лога",
+      "contextAgo": "за {duration} до",
+      "action": {
+        "modInstalled": "Мод установлен",
+        "modUpdated": "Мод обновлён",
+        "modRemoved": "Мод удалён",
+        "modEnabled": "Мод включён",
+        "modDisabled": "Мод отключён",
+        "assetInstalled": "Дополнение установлено",
+        "assetUpdated": "Дополнение обновлено",
+        "assetRemoved": "Дополнение удалено",
+        "modpackImported": "Сборка импортирована",
+        "modpackUpdated": "Сборка обновлена",
+        "integrityRepaired": "Файлы восстановлены"
+      },
+      "outcome": {
+        "ok": "Закрыто обычно",
+        "crashed": "Падение",
+        "stopped": "Остановлено вами"
+      }
     }
   },
   "onboarding": {

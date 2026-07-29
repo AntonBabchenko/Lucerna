@@ -26,6 +26,18 @@ export type RenderUnit =
       level: Severity;
       firstFrame: string;
       hiddenFrames: string[];
+    }
+  | {
+      // A run of consecutive lines that say the same thing. Carries the FIRST
+      // member's text, level and index — so an inline hint badge still attaches
+      // to a repeated error line — plus the remaining raw lines for expansion.
+      kind: 'repeat';
+      text: string;
+      level: Severity;
+      index: number;
+      /** Total members in the run, including the visible first one. */
+      count: number;
+      hiddenLines: string[];
     };
 
 export interface CrashSection {
@@ -81,6 +93,77 @@ export function groupStackFolds(lines: TaggedLine[]): RenderUnit[] {
     }
     out.push({ kind: 'line', text: lines[i].text, level: lines[i].level, index: lines[i].index });
     i += 1;
+  }
+  return out;
+}
+
+// Leading MC log timestamp: `[HH:MM:SS]` or `[HH:MM:SS.mmm]`.
+const LEADING_TIMESTAMP_RE = /^\s*\[\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?\]\s*/;
+
+/** Minimum run length before a repeat collapses. Two adjacent duplicates read
+ *  fine; three is where a wall of spam starts. */
+const REPEAT_THRESHOLD = 3;
+
+/**
+ * Comparison key for repeat detection: the line minus its leading timestamp.
+ *
+ * Stripping the timestamp is what makes this work at all — every line in a real
+ * MC log carries a distinct `[HH:MM:SS]`, so whole-line equality would never
+ * match the very spam this targets. Nothing else is normalised; in particular
+ * thread names stay, because `Worker-Main-1` and `Worker-Main-2` are genuinely
+ * different producers and folding them together would hide information.
+ */
+export function repeatKey(text: string): string {
+  return text.replace(LEADING_TIMESTAMP_RE, '');
+}
+
+/**
+ * Collapse runs of `threshold`+ consecutive `line` units that say the same
+ * thing (per `repeatKey`) into a single `repeat` unit.
+ *
+ * A `fold` unit terminates a run: folds are already a collapse, and nesting one
+ * inside the other buys nothing. Shorter runs pass through untouched.
+ *
+ * All members of a run share a severity by construction — identical text parses
+ * to the same level, and a continuation line inherits from the same predecessor
+ * — so the caller may filter a `repeat` by its `level` without loss.
+ */
+export function collapseRepeats(units: RenderUnit[], threshold = REPEAT_THRESHOLD): RenderUnit[] {
+  const out: RenderUnit[] = [];
+  let i = 0;
+  while (i < units.length) {
+    const first = units[i];
+    if (first.kind !== 'line') {
+      out.push(first);
+      i += 1;
+      continue;
+    }
+    const key = repeatKey(first.text);
+    let end = i + 1;
+    while (end < units.length) {
+      const next = units[end];
+      if (next.kind !== 'line' || repeatKey(next.text) !== key) break;
+      end += 1;
+    }
+    const run = end - i;
+    if (run >= threshold) {
+      const hiddenLines: string[] = [];
+      for (let j = i + 1; j < end; j++) {
+        const u = units[j];
+        if (u.kind === 'line') hiddenLines.push(u.text);
+      }
+      out.push({
+        kind: 'repeat',
+        text: first.text,
+        level: first.level,
+        index: first.index,
+        count: run,
+        hiddenLines,
+      });
+    } else {
+      for (let j = i; j < end; j++) out.push(units[j]);
+    }
+    i = end;
   }
   return out;
 }
