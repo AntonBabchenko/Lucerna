@@ -6,12 +6,14 @@
 
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
+import type { CloneRequest } from '$lib/instances/clone-request';
+import { runClone } from '$lib/instances/clone-runner';
 import type {
   LauncherImportProgressCb,
   LauncherImportRequest,
 } from '$lib/instances/import/launcher-import-runner';
 import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
-import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
+import type { CloneProgress, ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
@@ -19,17 +21,26 @@ import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.sv
 import { runImport } from './import-runner';
 
 export type IntegrityKind = 'verify' | 'repair';
-export type OpKind = 'verify' | 'repair' | 'import' | 'launcher-import';
+export type OpKind = 'verify' | 'repair' | 'import' | 'launcher-import' | 'clone';
 
 export type QueuedOp =
   | { id: string; kind: IntegrityKind; instanceId: string; name: string }
   | { id: string; kind: 'import'; name: string; request: ModpackImportRequest }
-  | { id: string; kind: 'launcher-import'; name: string; request: LauncherImportRequest };
+  | { id: string; kind: 'launcher-import'; name: string; request: LauncherImportRequest }
+  | { id: string; kind: 'clone'; name: string; request: CloneRequest };
 
 export type RunningProgress =
   | { kind: IntegrityKind; filesDone: number; filesTotal: number }
   | { kind: 'import'; phase: ModpackProgress | null; bytes: ProgressTick | null }
-  | { kind: 'launcher-import'; phase: import('$lib/ipc/bindings').ImportProgress | null };
+  | { kind: 'launcher-import'; phase: import('$lib/ipc/bindings').ImportProgress | null }
+  | { kind: 'clone'; phase: CloneProgress | null };
+
+/** Narrow to a verify/repair op — the only kinds keyed by `instanceId`. Kept
+ *  as a guard so a future non-integrity kind can't silently slip through the
+ *  `kind !== …` chains this store used to rely on. */
+function isIntegrityOp(op: QueuedOp): op is Extract<QueuedOp, { kind: IntegrityKind }> {
+  return op.kind === 'verify' || op.kind === 'repair';
+}
 
 export type RunningOp = { op: QueuedOp; progress: RunningProgress };
 
@@ -51,6 +62,7 @@ function newId(): string {
 function initialProgress(op: QueuedOp): RunningProgress {
   if (op.kind === 'import') return { kind: 'import', phase: null, bytes: null };
   if (op.kind === 'launcher-import') return { kind: 'launcher-import', phase: null };
+  if (op.kind === 'clone') return { kind: 'clone', phase: null };
   return { kind: op.kind, filesDone: 0, filesTotal: 0 };
 }
 
@@ -67,10 +79,8 @@ function ensureListener(): void {
         const snap = running;
         if (
           snap &&
-          snap.op.kind !== 'import' &&
-          snap.op.kind !== 'launcher-import' &&
-          snap.progress.kind !== 'import' &&
-          snap.progress.kind !== 'launcher-import' &&
+          isIntegrityOp(snap.op) &&
+          (snap.progress.kind === 'verify' || snap.progress.kind === 'repair') &&
           e.payload.instance_id === snap.op.instanceId
         ) {
           running = {
@@ -96,19 +106,8 @@ function ensureListener(): void {
  *  a running or queued integrity op is a no-op. Kicks the drain loop. */
 export function enqueueIntegrity(instanceId: string, name: string, kind: IntegrityKind): void {
   ensureListener();
-  if (
-    running &&
-    running.op.kind !== 'import' &&
-    running.op.kind !== 'launcher-import' &&
-    running.op.instanceId === instanceId
-  )
-    return;
-  if (
-    queue.some(
-      (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === instanceId,
-    )
-  )
-    return;
+  if (running && isIntegrityOp(running.op) && running.op.instanceId === instanceId) return;
+  if (queue.some((q) => isIntegrityOp(q) && q.instanceId === instanceId)) return;
   queue = [...queue, { id: newId(), kind, instanceId, name }];
   void processNext();
 }
@@ -128,6 +127,8 @@ async function processNext(): Promise<void> {
       await runImportOp(op);
     } else if (op.kind === 'launcher-import') {
       await runLauncherImportOp(op);
+    } else if (op.kind === 'clone') {
+      await runCloneOp(op);
     } else {
       await runIntegrity(op);
     }
@@ -287,6 +288,38 @@ async function runLauncherImportOp(
   }
 }
 
+/** Enqueue an instance clone. Dedupe: a source instance that already has a
+ *  running or queued clone is a no-op (double-click guard). Two clones of
+ *  DIFFERENT sources queue normally. */
+export function enqueueClone(name: string, request: CloneRequest): void {
+  ensureListener();
+  if (running && running.op.kind === 'clone' && running.op.request.sourceId === request.sourceId)
+    return;
+  if (queue.some((q) => q.kind === 'clone' && q.request.sourceId === request.sourceId)) return;
+  queue = [...queue, { id: newId(), kind: 'clone', name, request }];
+  void processNext();
+}
+
+async function runCloneOp(op: Extract<QueuedOp, { kind: 'clone' }>): Promise<void> {
+  const outcome = await runClone(op.request, (phase) => {
+    if (running && running.op.id === op.id) {
+      running = { op, progress: { kind: 'clone', phase } };
+    }
+  });
+  const tr = get(t);
+  if (outcome.status === 'ok') {
+    const id = outcome.instanceId;
+    pushActionToast(
+      'success',
+      tr('instance.clone.done', { name: outcome.name }),
+      { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
+      [],
+    );
+  } else {
+    pushWarning(tr('instance.clone.failed', { name: op.name }), [outcome.message]);
+  }
+}
+
 /** Cancel a QUEUED op by id (no-op if it is the running op or unknown). */
 export function cancelQueued(id: string): void {
   queue = queue.filter((q) => q.id !== id);
@@ -310,24 +343,17 @@ export function opStatusFor(instanceId: string): {
   filesDone: number;
   filesTotal: number;
 } | null {
-  if (
-    running &&
-    running.op.kind !== 'import' &&
-    running.op.kind !== 'launcher-import' &&
-    running.op.instanceId === instanceId
-  ) {
+  if (running && isIntegrityOp(running.op) && running.op.instanceId === instanceId) {
     const p = running.progress;
     return {
       phase: 'running',
       kind: running.op.kind,
-      filesDone: p.kind === 'import' || p.kind === 'launcher-import' ? 0 : p.filesDone,
-      filesTotal: p.kind === 'import' || p.kind === 'launcher-import' ? 0 : p.filesTotal,
+      filesDone: p.kind === 'verify' || p.kind === 'repair' ? p.filesDone : 0,
+      filesTotal: p.kind === 'verify' || p.kind === 'repair' ? p.filesTotal : 0,
     };
   }
-  const queued = queue.find(
-    (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === instanceId,
-  );
-  if (queued && queued.kind !== 'import' && queued.kind !== 'launcher-import') {
+  const queued = queue.find((q) => isIntegrityOp(q) && q.instanceId === instanceId);
+  if (queued && isIntegrityOp(queued)) {
     return { phase: 'queued', kind: queued.kind, filesDone: 0, filesTotal: 0 };
   }
   return null;

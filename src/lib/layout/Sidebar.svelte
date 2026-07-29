@@ -25,6 +25,7 @@
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import Menu from '$lib/ui/Menu.svelte';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
   import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
   import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
@@ -43,6 +44,7 @@
     onSelectInstance,
     onOpenManage,
     onManageInstance = () => {},
+    onCloneInstance = () => {},
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
@@ -92,6 +94,9 @@
     // seeds the manage modal's detail selection to this id, independent of the
     // async active-instance switch. Defaults to a no-op.
     onManageInstance?: (instanceId: string) => void;
+    // Open the clone dialog for a specific profile (the right-click menu on a
+    // row in the profile dropdown). Defaults to a no-op.
+    onCloneInstance?: (instanceId: string) => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
     // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
@@ -234,6 +239,15 @@
     const b = SIDEBAR_BUTTONS.find((x) => x.id === hideCandidate);
     return b ? $t(b.labelKey) : '';
   }
+
+  // Right-click menu for a row in the profile dropdown (opened via the
+  // Select's onOptionContextMenu hook; rendered with the shared Menu).
+  let instanceMenu = $state<{ id: string; top: number; left: number } | null>(null);
+  // Plain (non-reactive) snapshot of the menu's target id: Menu calls
+  // onClose() — which nulls `instanceMenu` — BEFORE onSelect(), so the item
+  // handler must not read the reactive state (a template `{@const}` re-derives
+  // at call time and crashes on null).
+  let instanceMenuTargetId = '';
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
@@ -511,8 +525,29 @@
               optionLeading={instanceLeading}
               valueLeading={instanceLeading}
               optionTrailing={instanceTrailing}
+              onOptionContextMenu={(opt, pos) => {
+                instanceMenuTargetId = String(opt.value);
+                instanceMenu = { id: instanceMenuTargetId, top: pos.y, left: pos.x };
+              }}
             />
           </div>
+          {#if instanceMenu}
+            <Menu
+              items={[
+                {
+                  label: $t('sidebar.cloneInstance'),
+                  icon: 'copy',
+                  testId: 'sidebar-ctx-clone-instance',
+                  onSelect: () => onCloneInstance(instanceMenuTargetId),
+                },
+              ]}
+              ariaLabel={$t('sidebar.instanceMenuAria')}
+              top={instanceMenu.top}
+              left={instanceMenu.left}
+              width={220}
+              onClose={() => (instanceMenu = null)}
+            />
+          {/if}
           {#if isVisible('manage') || isVisible('mods')}
             <div class="flex gap-1">
               {#if isVisible('manage')}

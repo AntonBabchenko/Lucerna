@@ -210,6 +210,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::launcher_import_inspect_folder,
             commands::launcher_import_run,
             commands::open_imported_source_folder,
+            // Instance clone (Session 3):
+            commands::clone_instance,
+            commands::clone_instance_scan,
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,

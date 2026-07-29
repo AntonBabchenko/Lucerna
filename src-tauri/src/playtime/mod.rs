@@ -20,7 +20,8 @@ pub struct PlaytimeStats {
 const PLAYTIME_FILE: &str = "playtime.json";
 const META_DIR: &str = ".lucerna";
 
-fn playtime_path(instance_root: &Path) -> std::path::PathBuf {
+/// `pub(crate)` so the instance-clone flow can copy the stats file.
+pub(crate) fn playtime_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join(META_DIR).join(PLAYTIME_FILE)
 }
 
