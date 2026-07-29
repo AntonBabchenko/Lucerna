@@ -21,6 +21,7 @@ pub mod process;
 pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
+pub mod shortcuts;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
 /// (see the module docs for the glibc `setenv`/`getenv` heap-corruption flake
 /// they avoid). Public so the `tests/` integration binaries can call `scope`.
@@ -335,6 +336,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Desktop integration (inbound intents, lucerna:// scheme, shortcuts):
             commands::take_pending_intent,
             commands::modpack_resolve_url,
+            commands::url_scheme_key,
+            commands::url_scheme_state,
+            commands::url_scheme_register,
+            commands::url_scheme_unregister,
+            commands::shortcut_supported,
+            commands::shortcut_create,
+            commands::shortcut_default_name,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -628,6 +636,34 @@ pub fn run() {
                 crate::diag!("[setup] instances::migrate_or_seed failed: {e}");
             }
             builder.mount_events(app);
+
+            // Self-heal the `lucerna://` registration ONLY if the user opted in
+            // and the recorded command points at a different exe (moved install,
+            // update, portable copy) — otherwise links would open a binary that
+            // is no longer there. With the setting off we touch nothing at all:
+            // not the key, not a cleanup, no registry write of any kind.
+            if let Ok(settings) = crate::paths::app_file(app.handle())
+                .map_err(|e| crate::error::Error::io("<app_file>", e))
+                .and_then(|p| crate::instances::store::read_app_json(&p))
+            {
+                if settings.general.register_url_scheme {
+                    if let Ok(exe) = std::env::current_exe() {
+                        if crate::platform::protocol::state(&exe)
+                            == crate::platform::protocol::SchemeState::RegisteredToOtherPath
+                        {
+                            match crate::platform::protocol::register(&exe) {
+                                Ok(()) => crate::diag!(
+                                    "[setup] re-pointed lucerna:// registration at {}",
+                                    exe.display()
+                                ),
+                                Err(e) => crate::diag!(
+                                    "[setup] failed to re-point lucerna:// registration: {e}"
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
 
             // Re-arm per-server auto-backup schedulers. The interval task only
             // lives for the launcher session it was set in, so without this an

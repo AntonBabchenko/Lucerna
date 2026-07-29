@@ -41,6 +41,7 @@
     isRunning = false,
     initialSelectedId = null,
     onCloneRequest = () => {},
+    onShortcutRequest,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
@@ -51,6 +52,9 @@
     // Open the clone dialog for this instance (hosted by the page so the
     // sidebar entry point shares it). Defaults to a no-op for bare mounts.
     onCloneRequest?: (instanceId: string) => void;
+    /** Undefined on platforms without desktop-shortcut support — the button is
+     *  then omitted rather than shown disabled. */
+    onShortcutRequest?: (instanceId: string) => void;
     // When set (opened via a per-row "manage this profile" action), seed the
     // detail selection from THIS id rather than the active instance. Switching
     // the active instance is async (an IPC round-trip), so at open time
@@ -1037,6 +1041,17 @@
                   {$t('instance.manage.cloneBtn')}
                 </button>
               </span>
+              {#if onShortcutRequest}
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                  onclick={() => selected && onShortcutRequest?.(selected.id)}
+                  data-testid="create-shortcut-btn"
+                >
+                  <Icon name="monitor" size={14} />
+                  {$t('shortcut.create')}
+                </button>
+              {/if}
               <button
                 type="button"
                 class="btn-secondary btn-sm inline-flex items-center gap-1.5"

@@ -1514,6 +1514,45 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 { kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
 /**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
 { kind: "open_url"; url: string } | null>("take_pending_intent"),
+	/**
+	 *  Resolve an inbound import link — a `lucerna://…` deeplink the OS handed us,
+	 *  or a platform page URL the user pasted — to the pack it names.
+	 * 
+	 *  **Read-only by design.** One metadata GET; no download, no install. The
+	 *  returned hit is handed to the same detail modal and import picker the Browse
+	 *  flow uses, so a link can only ever *open a confirmation*, never install
+	 *  something behind the user's back (design spec §2).
+	 */
+	modpackResolveUrl: (url: string) => typedError<ResolvedImportUrl, Error>(__TAURI_INVOKE("modpack_resolve_url", { url })),
+	/**
+	 *  Registry key the scheme registration writes, so the Settings row can show the
+	 *  user exactly what changes on their machine rather than asking for trust.
+	 */
+	urlSchemeKey: () => __TAURI_INVOKE<string>("url_scheme_key"),
+	/**  Current OS registration state of the `lucerna://` scheme. */
+	urlSchemeState: () => typedError<SchemeState, Error>(__TAURI_INVOKE("url_scheme_state")),
+	/**
+	 *  Register the `lucerna://` scheme for the current user. Explicit user action
+	 *  only — never called on a first run or an update without the setting on.
+	 */
+	urlSchemeRegister: () => typedError<null, Error>(__TAURI_INVOKE("url_scheme_register")),
+	/**  Remove the current user's `lucerna://` registration. */
+	urlSchemeUnregister: () => typedError<null, Error>(__TAURI_INVOKE("url_scheme_unregister")),
+	/**
+	 *  Whether this OS supports desktop shortcuts. The UI hides the entry point when
+	 *  it does not, rather than offering a button that can only ever fail.
+	 */
+	shortcutSupported: () => __TAURI_INVOKE<boolean>("shortcut_supported"),
+	/**
+	 *  Create a desktop shortcut that launches `target` in one click. Returns the
+	 *  created file's path so the UI can show it and offer "open folder".
+	 */
+	shortcutCreate: (target: ShortcutTarget, label: string) => typedError<string, Error>(__TAURI_INVOKE("shortcut_create", { target, label })),
+	/**
+	 *  Default shortcut file name for a target, so the dialog's name field starts
+	 *  pre-filled with the same value the backend would pick.
+	 */
+	shortcutDefaultName: (instanceName: string, target: ShortcutTarget) => __TAURI_INVOKE<string>("shortcut_default_name", { instanceName, target }),
 };
 
 /** Events */
@@ -2122,7 +2161,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Attempt to build/start a server without an accepted EULA. */
@@ -2375,6 +2414,14 @@ export type GeneralSettings = {
 	 *  later versions stay forward/backward compatible.
 	 */
 	hidden_sidebar_buttons?: string[],
+	/**
+	 *  Opt-in OS registration of the `lucerna://` link scheme, so an
+	 *  "Open in Lucerna" link from a browser opens the import dialog.
+	 *  `#[serde(default)]` → false for app.json written before this field: the
+	 *  launcher never writes to the user's registry unasked, and pasting a URL
+	 *  into the import dialog works without it.
+	 */
+	register_url_scheme?: boolean,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
@@ -3771,6 +3818,17 @@ export type ResolvedDeps_Serialize = {
 	unresolvable: DepProjectRef[],
 };
 
+/**  What an inbound import link resolved to. */
+export type ResolvedImportUrl = {
+	hit: ModpackHit,
+	/**
+	 *  `None` when the link named no version, or named one that no longer
+	 *  exists — the UI then shows the full version list instead of failing the
+	 *  whole import over a stale link.
+	 */
+	version_id: string | null,
+};
+
 /**
  *  A user-chosen substitute that closes a `missing_mods` entry the pack
  *  author blocked from auto-download. Kept on `PackOrigin` as a resolution
@@ -3827,6 +3885,18 @@ export type SavedServer = {
 	name: string,
 	address: string,
 };
+
+export type SchemeState = 
+/**  Registered, pointing at this exe. */
+"registered" | 
+/**
+ *  Registered by a Lucerna at a different path — moved, reinstalled, or a
+ *  portable copy. Distinguished from `Registered` so the app can re-assert
+ *  the key instead of leaving links pointing at a stale binary.
+ */
+"registered_to_other_path" | "not_registered" | 
+/**  This OS has no per-user scheme registration we support. */
+"unsupported";
 
 /**
  *  One screenshot file, surfaced to the UI. `instance_name` is filled for both
@@ -4148,6 +4218,17 @@ export type ServerWithStatus_Serialize = {
 	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
 	diagnosis_status: DiagnosisStatus,
 };
+
+/**
+ *  What a shortcut launches. World/Server ride on the existing Quick Play
+ *  support, so they need MC 1.20+ — the UI gates on
+ *  `instance_quick_play_support` before offering them.
+ */
+export type ShortcutTarget = { kind: "instance"; instance_id: string } | { kind: "world"; instance_id: string; 
+/**  `saves/<folder>` segment of the world to open. */
+folder: string } | { kind: "server"; instance_id: string; 
+/**  `host` or `host:port`. */
+address: string };
 
 /**  One saved skin, PNG payload included so the grid renders in one round-trip. */
 export type SkinLibraryItem = {
