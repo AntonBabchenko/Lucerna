@@ -5,13 +5,16 @@
 //! enables the MC 1.20+ quick-play feature args.
 
 use crate::error::Error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// A direct-launch target. Singleplayer carries the world's save-folder
 /// name (the `saves/<folder>` segment); Multiplayer carries a server
 /// address (`host` or `host:port`).
-#[derive(Debug, Clone, Deserialize, Type)]
+// `Serialize` + `PartialEq`: a Quick Play target also travels OUT to the
+// frontend as part of a `cli::LaunchIntent` (a desktop shortcut's argv), and
+// the cli/shortcut round-trip tests compare targets directly.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QuickPlay {
     Singleplayer { world: String },

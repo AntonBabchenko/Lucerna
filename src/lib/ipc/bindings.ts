@@ -1496,6 +1496,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
 	 */
 	adoptDataLocation: (path: string) => typedError<null, Error>(__TAURI_INVOKE("adopt_data_location", { path })),
+	/**
+	 *  Drain the pending launch intent, if any.
+	 * 
+	 *  Called by the frontend once on mount (covers a cold start — the OS spawned
+	 *  us with a `lucerna://` URL or a shortcut's `--launch` in argv, whatever the
+	 *  webview load order) and again on every `intent-pending` event (covers a
+	 *  second launch whose argv the single-instance guard forwarded into the
+	 *  running process). Take-once, so a mount drain and an event drain that race
+	 *  cannot both act on the same intent.
+	 */
+	takePendingIntent: () => __TAURI_INVOKE<
+/**
+ *  From argv (trusted): launch this instance, optionally straight into a
+ *  world or onto a server.
+ */
+{ kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
+/**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
+{ kind: "open_url"; url: string } | null>("take_pending_intent"),
 };
 
 /** Events */
@@ -2655,6 +2673,19 @@ export type LatestDiagnosis = {
 	path: string | null,
 	signature: string | null,
 };
+
+/**
+ *  Something the launcher was asked to do at startup, or by a second launch
+ *  whose argv the single-instance guard forwarded.
+ */
+export type LaunchIntent = 
+/**
+ *  From argv (trusted): launch this instance, optionally straight into a
+ *  world or onto a server.
+ */
+{ kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
+/**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
+{ kind: "open_url"; url: string };
 
 /**  One annotated line: 0-based index into the text split by '\n'. */
 export type LineAnnotation = {

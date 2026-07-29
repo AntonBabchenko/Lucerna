@@ -1,6 +1,8 @@
 pub mod accounts;
+pub mod cli;
 mod commands;
 pub mod data_root;
+pub mod deeplink;
 pub mod diag;
 pub mod error;
 pub mod forge;
@@ -330,6 +332,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_data_location,
             commands::plan_data_location_change,
             commands::adopt_data_location,
+            // Desktop integration (inbound intents, lucerna:// scheme, shortcuts):
+            commands::take_pending_intent,
+            commands::modpack_resolve_url,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -426,6 +431,13 @@ pub fn run() {
         std::process::exit(code);
     }
 
+    // Cold start: a `lucerna://` URL dispatched by the OS, or a desktop
+    // shortcut's `--launch`, arrives as argv of THIS process. Park it in the
+    // PendingIntent slot below; the frontend drains it on mount
+    // (`commands::take_pending_intent`). Parsed AFTER the two headless flags
+    // above so neither can be mistaken for an intent.
+    let startup_intent = cli::parse(std::env::args());
+
     #[cfg(debug_assertions)]
     builder
         .export(
@@ -442,11 +454,23 @@ pub fn run() {
         // already-running process and the new one exits. We surface the existing
         // window via the tray-restore path, which shows + unminimizes + focuses
         // it (and clears the tray icon if the launcher was hidden to tray during
-        // a Minecraft session). argv/cwd of the second launch are unused — we
-        // only ever want to bring the running window forward.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // a Minecraft session).
+        //
+        // The second launch's argv is then forwarded: a desktop shortcut's
+        // `--launch` or an OS-dispatched `lucerna://` URL lands in the SAME
+        // PendingIntent slot a cold start uses, and `intent-pending` nudges the
+        // frontend to drain it. Trust model: argv may launch, a URL may only
+        // open the import confirmation UI (see `cli`).
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::{Emitter, Manager};
             if let Err(e) = crate::tray::restore_from_tray(app) {
                 crate::diag!("[single-instance] failed to restore window: {e}");
+            }
+            if let Some(intent) = crate::cli::parse(argv) {
+                app.state::<crate::cli::PendingIntent>().set(intent);
+                if let Err(e) = app.emit("intent-pending", ()) {
+                    crate::diag!("[single-instance] failed to emit intent-pending: {e}");
+                }
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -454,6 +478,13 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
+        .manage({
+            let slot = cli::PendingIntent::default();
+            if let Some(intent) = startup_intent {
+                slot.set(intent);
+            }
+            slot
+        })
         .setup(move |app| {
             // Resolve the effective data root before anything else touches app_dir.
             let default_root = crate::paths::default_app_data_dir(app.handle())

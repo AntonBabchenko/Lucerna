@@ -134,6 +134,49 @@ pub async fn modpack_search(
         .await
 }
 
+/// What an inbound import link resolved to.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ResolvedImportUrl {
+    pub hit: ModpackHit,
+    /// `None` when the link named no version, or named one that no longer
+    /// exists — the UI then shows the full version list instead of failing the
+    /// whole import over a stale link.
+    pub version_id: Option<String>,
+}
+
+/// Resolve an inbound import link — a `lucerna://…` deeplink the OS handed us,
+/// or a platform page URL the user pasted — to the pack it names.
+///
+/// **Read-only by design.** One metadata GET; no download, no install. The
+/// returned hit is handed to the same detail modal and import picker the Browse
+/// flow uses, so a link can only ever *open a confirmation*, never install
+/// something behind the user's back (design spec §2).
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_resolve_url(url: String) -> Result<ResolvedImportUrl, crate::error::Error> {
+    let target = crate::deeplink::parse_import_url(&url)?;
+    let source = modpack::source::modpack_source_for(target.source);
+    let hit = source.resolve_project_hit(&target.project).await?;
+    // A version reference that no longer resolves must not sink the import:
+    // resolve what we can and let the UI show the version list. Matched against
+    // the id first, then Modrinth's human version number (page URLs carry that,
+    // not the id).
+    let version_id = match &target.version {
+        None => None,
+        Some(want) => source
+            .get_versions(&hit.project_id)
+            .await
+            .ok()
+            .and_then(|versions| {
+                versions
+                    .iter()
+                    .find(|v| &v.id == want || &v.version_number == want)
+                    .map(|v| v.id.clone())
+            }),
+    };
+    Ok(ResolvedImportUrl { hit, version_id })
+}
+
 /// Pull a modpack version's archive to a temp path under the OS temp
 /// dir, and return the absolute path so the UI can hand it to
 /// `modpack_inspect` / `modpack_import`. Modrinth versions resolve to a
