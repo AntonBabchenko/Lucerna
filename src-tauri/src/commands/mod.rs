@@ -26,6 +26,8 @@ mod instances;
 pub use instances::*;
 mod logs;
 pub use logs::*;
+mod journal;
+pub use journal::*;
 mod worlds;
 pub use worlds::*;
 mod servers;

@@ -24,17 +24,27 @@ pub fn needs_full_install(manifest_recoverable: bool, problems: &[ProblemArtifac
     })
 }
 
-/// Repair the instance, then re-verify and return the post-repair report.
+/// Repair the instance, then re-verify and return the post-repair report
+/// together with the number of artefacts the repair ACTUALLY fixed.
+///
+/// The caller needs that count to tell "was already healthy, nothing done"
+/// (`0`) from "fixed N artefacts" — the post-repair report alone cannot
+/// distinguish them. It is computed as `before - after`, not as `before`:
+/// repair sub-steps can degrade non-fatally (a best-effort per-file skip inside
+/// the full-install asset/JRE pass returns `Ok` with problems remaining), so
+/// reporting the pre-scan count would claim work that was not done. Only the
+/// count crosses the boundary; the IPC-visible return shape is still the report.
 pub async fn repair_instance_report(
     instance_id: &str,
     effective_id: &str,
     app: &tauri::AppHandle,
-) -> Result<VerifyReport> {
+) -> Result<(VerifyReport, usize)> {
     // Always repair off a FRESH scan, never a stale client report.
     let report = verify_instance_report(instance_id, effective_id, app).await?;
     if report.healthy {
-        return Ok(report);
+        return Ok((report, 0));
     }
+    let problems_before = report.problems.len();
 
     emit_repairing(app, instance_id, 0, 1);
 
@@ -46,7 +56,8 @@ pub async fn repair_instance_report(
 
     let post = verify_instance_report(instance_id, effective_id, app).await?;
     emit_repairing(app, instance_id, 1, 1);
-    Ok(post)
+    let fixed = problems_before.saturating_sub(post.problems.len());
+    Ok((post, fixed))
 }
 
 async fn repair_targeted(

@@ -173,11 +173,28 @@ pub async fn repair_instance(
     let _repair_guard =
         crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-    let report = crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await?;
+    let (report, fixed) =
+        crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await?;
     // Best-effort: a successful verify/repair is valuable even if we can't
     // persist the badge status. Log, don't fail the command.
     if let Err(e) = persist_integrity(&app, &instance_id, &report) {
         crate::diag!("verify: failed to persist integrity for {instance_id}: {e}");
+    }
+    // Journal only what was actually fixed. A verify that found nothing wrong
+    // changed no files, and a repair that degraded without fixing anything
+    // changed none either — a history row for those would claim work that never
+    // happened.
+    if fixed > 0 {
+        if let Ok(inst_root) = instance_root(&app, &instance_id) {
+            crate::journal::record(
+                &inst_root,
+                crate::journal::content_bulk(
+                    crate::journal::ContentAction::IntegrityRepaired,
+                    "",
+                    fixed,
+                ),
+            );
+        }
     }
     Ok(report)
 }

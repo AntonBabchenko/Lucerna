@@ -5,6 +5,7 @@ pub mod diag;
 pub mod error;
 pub mod forge;
 pub mod instances;
+pub mod journal;
 pub mod jre;
 pub mod launch;
 pub mod logs;
@@ -118,6 +119,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::delete_log_file,
             commands::clear_old_logs,
             commands::apply_log_retention,
+            commands::instance_journal_read,
+            commands::instance_journal_clear,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,

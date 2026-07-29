@@ -1088,7 +1088,8 @@
       "wrapLines": "Wrap lines",
       "collapseStacks": "Collapse stacks",
       "showLevels": "Show:",
-      "rawView": "Raw view"
+      "rawView": "Raw view",
+      "collapseRepeats": "Collapse repeats"
     },
     "severity": {
       "game": "Game logs",
@@ -1432,6 +1433,48 @@
       "clearOldTitle": "Clear old logs",
       "clearOldBody": "Delete {count, plural, one {# file} other {# files}} (frees ~{size})? latest.log and debug.log are kept.",
       "cleared": "{count, plural, one {Cleared # log file} other {Cleared # log files}} · {size} freed"
+    },
+    "compact": {
+      "repeatCount": "×{count}"
+    },
+    "journal": {
+      "viewSwitchLabel": "View",
+      "viewLogs": "Logs",
+      "viewJournal": "History",
+      "title": "Instance history",
+      "empty": "Nothing recorded for this instance yet. Installs, updates and launches will show up here.",
+      "loadFailed": "Could not read the history: {error}",
+      "filterAll": "All",
+      "filterContent": "Content",
+      "filterLaunches": "Launches",
+      "clear": "Clear history",
+      "clearTitle": "Clear instance history?",
+      "clearBody": "This deletes the local record of content changes and launches for this instance. Your mods, worlds and settings are untouched.",
+      "clearConfirm": "Clear",
+      "cleared": "History cleared",
+      "openLog": "Open log",
+      "affected": "{count, plural, one {# file} other {# files}}",
+      "exitCode": "exit code {code}",
+      "contextTitle": "Changed shortly before this log",
+      "contextAgo": "{duration} before",
+      "action": {
+        "modInstalled": "Mod installed",
+        "modUpdated": "Mod updated",
+        "modRemoved": "Mod removed",
+        "modEnabled": "Mod enabled",
+        "modDisabled": "Mod disabled",
+        "assetInstalled": "Add-on installed",
+        "assetUpdated": "Add-on updated",
+        "assetRemoved": "Add-on removed",
+        "modpackImported": "Modpack imported",
+        "modpackUpdated": "Modpack updated",
+        "integrityRepaired": "Files repaired"
+      },
+      "outcome": {
+        "ok": "Closed normally",
+        "crashed": "Crashed",
+        "stopped": "Stopped by you"
+      }
     }
   },
   "onboarding": {
