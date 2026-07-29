@@ -959,6 +959,31 @@
       "noChanges": "No file changes in this version.",
       "cancelBtn": "Cancel",
       "updateBtn": "Update"
+    },
+    "switch": {
+      "openBtn": "Change version",
+      "title": "Change version — {pack}",
+      "newerBadge": "Newer",
+      "olderBadge": "Older",
+      "installedBadge": "Installed",
+      "loadingVersions": "Loading versions…",
+      "versionsEmpty": "No versions match.",
+      "filterMcLabel": "Minecraft version",
+      "filterMcAll": "All",
+      "versionMeta": "{mc} · {loader} · {date}",
+      "reviewTitle": "Switch to {version}?",
+      "confirmBtn": "Switch to {version}",
+      "cancelBtn": "Cancel",
+      "backBtn": "Back",
+      "retryBtn": "Try again",
+      "changelogGained": "What's new",
+      "changelogLost": "Changes you'll lose",
+      "riskMcChange": "Minecraft {from} → {to}. A world saved on one Minecraft version may not open on the other, and Minecraft's world upgrade is one-way. Back up worlds you care about first. After switching, click Install to download the new Minecraft version.",
+      "riskDowngrade": "This is an older version of the pack. Worlds and mod config written by the newer mod versions may not be readable by the older ones.",
+      "riskLoaderChange": "Mod loader {from} → {to}. Mods built for the old loader version may not load.",
+      "riskCustomizationsUser": "{count} mod(s) you added yourself will be kept. They were chosen for the current version and may not work with this one.",
+      "riskCustomizationsManual": "{count} manually-placed jar(s) will be kept and are not checked for compatibility.",
+      "riskBundledOverrides": "The pack's bundled config files are not re-applied by a version change — your current configs stay as they are. Use \"Re-import pack files\" afterwards if the new version needs its own configs."
     }
   },
   "screenshots": {
