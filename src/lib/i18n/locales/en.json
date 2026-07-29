@@ -967,6 +967,7 @@
       "olderBadge": "Older",
       "installedBadge": "Installed",
       "loadingVersions": "Loading versions…",
+      "preparing": "Preparing version…",
       "versionsEmpty": "No versions match.",
       "filterMcLabel": "Minecraft version",
       "filterMcAll": "All",

@@ -1,0 +1,1450 @@
+diff --git a/src/lib/i18n/keys.generated.ts b/src/lib/i18n/keys.generated.ts
+index f135c0e6..7ab12d4e 100644
+--- a/src/lib/i18n/keys.generated.ts
++++ b/src/lib/i18n/keys.generated.ts
+@@ -826,6 +826,29 @@ export type TranslationKey =
+   | 'modpacks.modal.closeAriaLabel'
+   | 'modpacks.modal.closeScrimAriaLabel'
+   | 'modpacks.modal.title'
++  | 'modpacks.switch.backBtn'
++  | 'modpacks.switch.cancelBtn'
++  | 'modpacks.switch.changelogGained'
++  | 'modpacks.switch.changelogLost'
++  | 'modpacks.switch.confirmBtn'
++  | 'modpacks.switch.filterMcAll'
++  | 'modpacks.switch.filterMcLabel'
++  | 'modpacks.switch.installedBadge'
++  | 'modpacks.switch.loadingVersions'
++  | 'modpacks.switch.newerBadge'
++  | 'modpacks.switch.olderBadge'
++  | 'modpacks.switch.openBtn'
++  | 'modpacks.switch.retryBtn'
++  | 'modpacks.switch.reviewTitle'
++  | 'modpacks.switch.riskBundledOverrides'
++  | 'modpacks.switch.riskCustomizationsManual'
++  | 'modpacks.switch.riskCustomizationsUser'
++  | 'modpacks.switch.riskDowngrade'
++  | 'modpacks.switch.riskLoaderChange'
++  | 'modpacks.switch.riskMcChange'
++  | 'modpacks.switch.title'
++  | 'modpacks.switch.versionMeta'
++  | 'modpacks.switch.versionsEmpty'
+   | 'modpacks.tab.browse'
+   | 'modpacks.tab.dropzoneLabel'
+   | 'modpacks.tab.imported'
+diff --git a/src/lib/i18n/locales/en.json b/src/lib/i18n/locales/en.json
+index 4b692361..2d2c4115 100644
+--- a/src/lib/i18n/locales/en.json
++++ b/src/lib/i18n/locales/en.json
+@@ -959,6 +959,31 @@
+       "noChanges": "No file changes in this version.",
+       "cancelBtn": "Cancel",
+       "updateBtn": "Update"
++    },
++    "switch": {
++      "openBtn": "Change version",
++      "title": "Change version — {pack}",
++      "newerBadge": "Newer",
++      "olderBadge": "Older",
++      "installedBadge": "Installed",
++      "loadingVersions": "Loading versions…",
++      "versionsEmpty": "No versions match.",
++      "filterMcLabel": "Minecraft version",
++      "filterMcAll": "All",
++      "versionMeta": "{mc} · {loader} · {date}",
++      "reviewTitle": "Switch to {version}?",
++      "confirmBtn": "Switch to {version}",
++      "cancelBtn": "Cancel",
++      "backBtn": "Back",
++      "retryBtn": "Try again",
++      "changelogGained": "What's new",
++      "changelogLost": "Changes you'll lose",
++      "riskMcChange": "Minecraft {from} → {to}. A world saved on one Minecraft version may not open on the other, and Minecraft's world upgrade is one-way. Back up worlds you care about first. After switching, click Install to download the new Minecraft version.",
++      "riskDowngrade": "This is an older version of the pack. Worlds and mod config written by the newer mod versions may not be readable by the older ones.",
++      "riskLoaderChange": "Mod loader {from} → {to}. Mods built for the old loader version may not load.",
++      "riskCustomizationsUser": "{count} mod(s) you added yourself will be kept. They were chosen for the current version and may not work with this one.",
++      "riskCustomizationsManual": "{count} manually-placed jar(s) will be kept and are not checked for compatibility.",
++      "riskBundledOverrides": "The pack's bundled config files are not re-applied by a version change — your current configs stay as they are. Use \"Re-import pack files\" afterwards if the new version needs its own configs."
+     }
+   },
+   "screenshots": {
+diff --git a/src/lib/i18n/locales/ru.json b/src/lib/i18n/locales/ru.json
+index 93f94ec9..1107fcbb 100644
+--- a/src/lib/i18n/locales/ru.json
++++ b/src/lib/i18n/locales/ru.json
+@@ -959,6 +959,31 @@
+       "noChanges": "Изменений файлов в этой версии нет.",
+       "cancelBtn": "Отмена",
+       "updateBtn": "Обновить"
++    },
++    "switch": {
++      "openBtn": "Сменить версию",
++      "title": "Смена версии — {pack}",
++      "newerBadge": "Новее",
++      "olderBadge": "Старее",
++      "installedBadge": "Установлена",
++      "loadingVersions": "Загрузка версий…",
++      "versionsEmpty": "Подходящих версий нет.",
++      "filterMcLabel": "Версия Minecraft",
++      "filterMcAll": "Все",
++      "versionMeta": "{mc} · {loader} · {date}",
++      "reviewTitle": "Переключиться на {version}?",
++      "confirmBtn": "Переключиться на {version}",
++      "cancelBtn": "Отмена",
++      "backBtn": "Назад",
++      "retryBtn": "Повторить",
++      "changelogGained": "Что нового",
++      "changelogLost": "Что вы потеряете",
++      "riskMcChange": "Minecraft {from} → {to}. Мир, сохранённый на одной версии Minecraft, может не открыться на другой, а обновление мира необратимо. Сначала сделайте резервную копию важных миров. После переключения нажмите «Установить», чтобы скачать новую версию Minecraft.",
++      "riskDowngrade": "Это более старая версия сборки. Миры и настройки модов, записанные новыми версиями модов, могут не читаться старыми.",
++      "riskLoaderChange": "Загрузчик модов {from} → {to}. Моды, собранные для старой версии загрузчика, могут не загрузиться.",
++      "riskCustomizationsUser": "Моды, добавленные вами ({count} шт.), будут сохранены. Они выбирались под текущую версию и могут не работать с этой.",
++      "riskCustomizationsManual": "Вручную добавленные jar-файлы ({count} шт.) будут сохранены и не проверяются на совместимость.",
++      "riskBundledOverrides": "Встроенные в сборку файлы настроек не применяются заново при смене версии — ваши текущие настройки останутся как есть. Если новой версии нужны свои настройки, используйте «Переимпортировать файлы сборки»."
+     }
+   },
+   "screenshots": {
+diff --git a/src/lib/modpacks/ImportedDetailDrawer.svelte b/src/lib/modpacks/ImportedDetailDrawer.svelte
+index e33be32d..ef470c0e 100644
+--- a/src/lib/modpacks/ImportedDetailDrawer.svelte
++++ b/src/lib/modpacks/ImportedDetailDrawer.svelte
+@@ -28,6 +28,8 @@
+   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
+   import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
+   import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
++  import ModpackVersionSwitchDialog from './ModpackVersionSwitchDialog.svelte';
++  import { packChangelogBase } from './switch-risks';
+   import ChangelogModal from '$lib/mods/ChangelogModal.svelte';
+   import { changelogSupported } from '$lib/mods/changelog-supported';
+ 
+@@ -109,6 +111,26 @@
+   let updateError = $state<string | null>(null);
+   const updateFlow = createModpackUpdateFlow();
+ 
++  let switchOpen = $state(false);
++
++  // Provenance counts for the switch dialog's customization warning. Derived
++  // from the same `provenance()` classification the mod rows badge with, so the
++  // warning and the badges can never disagree.
++  const provenanceCounts = $derived.by(() => {
++    let userAdded = 0;
++    let manual = 0;
++    for (const m of mods ?? []) {
++      const p = provenance(m);
++      if (p === 'user') userAdded += 1;
++      else if (p === 'manual') manual += 1;
++    }
++    return { userAdded, manual };
++  });
++
++  // A pack bundles `overrides/` content when its origin lists files with no
++  // download url — the existing bundled marker.
++  const hasBundledFiles = $derived((status?.origin.files ?? []).some((f) => f.url === ''));
++
+   // Cumulative changelog for a pending pack update. The pack IS a project on its
+   // source, so the same ChangelogModal works; base is the frozen origin version
+   // (falls back to target-only if it isn't a version-id the source lists).
+@@ -126,7 +148,10 @@
+       projectId: status.origin.project_id,
+       title: `${status.origin.project_name} ${status.origin.version} → ${updateAvailable.version_number}`,
+       target: updateAvailable.id,
+-      base: status.origin.version,
++      // The source's version ID. `origin.version` is a free-form version
++      // NUMBER and never matches `changelog_window`'s id list, which silently
++      // collapsed the cumulative pack changelog to target-only.
++      base: packChangelogBase(inst),
+     };
+   }
+   // Check failure (from checkForUpdates) OR an apply/fetch failure (from the flow).
+@@ -403,8 +428,20 @@
+       >
+         {inst.mrpack_name}
+       </h3>
+-      <div class="text-xs text-muted truncate">
+-        v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
++      <div class="text-xs text-muted truncate flex items-center gap-2">
++        <span class="truncate">v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}</span>
++        {#if inst.mrpack_project_id}
++          <!-- Not gated on an available update: reaching an OLDER version while
++               already up to date is the whole point of this affordance. -->
++          <button
++            type="button"
++            class="btn-ghost btn-xs flex-shrink-0"
++            onclick={() => (switchOpen = true)}
++            data-testid="imported-detail-switch-version"
++          >
++            {$t('modpacks.switch.openBtn')}
++          </button>
++        {/if}
+       </div>
+     </div>
+     <CloseButton
+@@ -948,3 +985,18 @@
+     </div>
+   </Modal>
+ {/if}
++
++{#if switchOpen}
++  <ModpackVersionSwitchDialog
++    {inst}
++    userAdded={provenanceCounts.userAdded}
++    manual={provenanceCounts.manual}
++    {hasBundledFiles}
++    onClose={() => (switchOpen = false)}
++    onSwitched={() => {
++      switchOpen = false;
++      updateAvailable = null;
++      void load().then(() => onUpdated?.());
++    }}
++  />
++{/if}
+diff --git a/src/lib/modpacks/ModpackDiffList.svelte b/src/lib/modpacks/ModpackDiffList.svelte
+new file mode 100644
+index 00000000..d4735852
+--- /dev/null
++++ b/src/lib/modpacks/ModpackDiffList.svelte
+@@ -0,0 +1,37 @@
++<script lang="ts">
++  // The added / updated / removed file list for a modpack version change.
++  // Shared by the update-confirm dialog and the version-switch dialog so the two
++  // surfaces cannot drift. `data-testid="update-diff-list"` is carried over from
++  // the original inline markup — existing tests key on it.
++  import type { ModpackUpdateDiff } from '$lib/ipc/bindings';
++  import { t } from '$lib/i18n';
++  import { Icon } from '$lib/ui/icons';
++
++  let { diff }: { diff: ModpackUpdateDiff } = $props();
++
++  const isEmpty = $derived(diff.added.length + diff.updated.length + diff.removed.length === 0);
++</script>
++
++<div class="flex-1 overflow-y-auto border rounded divide-y text-sm" data-testid="update-diff-list">
++  {#each diff.added as f (f.install_path)}
++    <div class="px-2 py-1 text-success flex items-center gap-1.5">
++      <Icon name="plus" />
++      {f.name}
++    </div>
++  {/each}
++  {#each diff.updated as e (e.new.install_path)}
++    <div class="px-2 py-1 text-accent flex items-center gap-1.5">
++      <Icon name="update" />
++      {e.new.name}
++    </div>
++  {/each}
++  {#each diff.removed as f (f.install_path)}
++    <div class="px-2 py-1 text-danger line-through flex items-center gap-1.5">
++      <Icon name="minus" />
++      {f.name}
++    </div>
++  {/each}
++  {#if isEmpty}
++    <div class="px-2 py-3 text-muted text-center">{$t('modpacks.update.noChanges')}</div>
++  {/if}
++</div>
+diff --git a/src/lib/modpacks/ModpackUpdateDialog.svelte b/src/lib/modpacks/ModpackUpdateDialog.svelte
+index 66096549..deae3e30 100644
+--- a/src/lib/modpacks/ModpackUpdateDialog.svelte
++++ b/src/lib/modpacks/ModpackUpdateDialog.svelte
+@@ -2,7 +2,7 @@
+   import type { ModpackUpdateDiff } from '$lib/ipc/bindings';
+   import { t } from '$lib/i18n';
+   import Modal from '$lib/ui/Modal.svelte';
+-  import { Icon } from '$lib/ui/icons';
++  import ModpackDiffList from './ModpackDiffList.svelte';
+ 
+   let {
+     diff,
+@@ -41,32 +41,7 @@
+     </div>
+   {/if}
+ 
+-  <div
+-    class="flex-1 overflow-y-auto border rounded divide-y text-sm"
+-    data-testid="update-diff-list"
+-  >
+-    {#each diff.added as f (f.install_path)}
+-      <div class="px-2 py-1 text-success flex items-center gap-1.5">
+-        <Icon name="plus" />
+-        {f.name}
+-      </div>
+-    {/each}
+-    {#each diff.updated as e (e.new.install_path)}
+-      <div class="px-2 py-1 text-accent flex items-center gap-1.5">
+-        <Icon name="update" />
+-        {e.new.name}
+-      </div>
+-    {/each}
+-    {#each diff.removed as f (f.install_path)}
+-      <div class="px-2 py-1 text-danger line-through flex items-center gap-1.5">
+-        <Icon name="minus" />
+-        {f.name}
+-      </div>
+-    {/each}
+-    {#if diff.added.length + diff.updated.length + diff.removed.length === 0}
+-      <div class="px-2 py-3 text-muted text-center">{$t('modpacks.update.noChanges')}</div>
+-    {/if}
+-  </div>
++  <ModpackDiffList {diff} />
+ 
+   <div class="flex justify-end gap-2">
+     <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+diff --git a/src/lib/modpacks/ModpackVersionList.svelte b/src/lib/modpacks/ModpackVersionList.svelte
+new file mode 100644
+index 00000000..7b89640d
+--- /dev/null
++++ b/src/lib/modpacks/ModpackVersionList.svelte
+@@ -0,0 +1,112 @@
++<script lang="ts">
++  // Step 1 of the version switch: the pack's published versions, newest first,
++  // each row a selection control. A mature pack has hundreds of versions and the
++  // real user task is "find the one for my Minecraft version", so the Minecraft
++  // filter is part of the list rather than a nicety.
++  //
++  // The filter uses the shared Select, not a native <select>: WebKitGTK draws
++  // the native popup as an OS widget that ignores the theme tokens.
++  import type { ModpackVersionEntry } from '$lib/ipc/bindings';
++  import { t } from '$lib/i18n';
++  import Select, { type SelectOption } from '$lib/ui/Select.svelte';
++  import CardShell from '$lib/ui/cards/CardShell.svelte';
++  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
++  import { sortVersionsNewestFirst } from './switch-risks';
++
++  let {
++    versions,
++    installedVersionId,
++    onSelect,
++  }: {
++    versions: ModpackVersionEntry[];
++    installedVersionId: string | null;
++    onSelect: (entry: ModpackVersionEntry) => void;
++  } = $props();
++
++  const ALL = '';
++
++  let mcFilter = $state<string>(ALL);
++
++  const sorted = $derived(sortVersionsNewestFirst(versions));
++
++  // Every Minecraft version this pack has ever targeted, in newest-list order.
++  const mcOptions = $derived<SelectOption[]>([
++    { value: ALL, label: $t('modpacks.switch.filterMcAll') },
++    ...[...new Set(sorted.flatMap((v) => v.game_versions))].map((mc) => ({
++      value: mc,
++      label: mc,
++    })),
++  ]);
++
++  const shown = $derived(
++    mcFilter === ALL ? sorted : sorted.filter((v) => v.game_versions.includes(mcFilter)),
++  );
++
++  const installedAt = $derived(sorted.findIndex((v) => v.id === installedVersionId));
++
++  // null when the installed version cannot be placed in the list (delisted, or
++  // a drag-drop import with no provenance) — claiming newer/older would be a guess.
++  function relation(entry: ModpackVersionEntry): 'installed' | 'newer' | 'older' | null {
++    if (installedAt === -1) return null;
++    const at = sorted.indexOf(entry);
++    if (at === installedAt) return 'installed';
++    return at < installedAt ? 'newer' : 'older';
++  }
++
++  function formatDate(iso: string): string {
++    const d = new Date(iso);
++    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
++  }
++</script>
++
++<div class="flex flex-col gap-2 min-h-0 flex-1">
++  {#if mcOptions.length > 2}
++    <div class="flex items-center gap-2 text-sm">
++      <span class="text-secondary">{$t('modpacks.switch.filterMcLabel')}</span>
++      <Select
++        value={mcFilter}
++        options={mcOptions}
++        onChange={(v) => (mcFilter = String(v))}
++        ariaLabel={$t('modpacks.switch.filterMcLabel')}
++        dataTestid="version-mc-filter"
++      />
++    </div>
++  {/if}
++
++  <div class="flex-1 overflow-y-auto border rounded min-h-0">
++    {#each shown as entry (entry.id)}
++      {@const rel = relation(entry)}
++      <CardShell variant="compact-row" highlighted={rel === 'installed'}>
++        <button
++          type="button"
++          class="flex-1 min-w-0 text-left"
++          onclick={() => onSelect(entry)}
++          data-testid={`version-row-${entry.id}`}
++        >
++          <div class="flex items-center gap-2 min-w-0">
++            <span class="font-medium truncate">{entry.version_number}</span>
++            {#if rel === 'installed'}
++              <StatusBadge variant="info">{$t('modpacks.switch.installedBadge')}</StatusBadge>
++            {:else if rel === 'newer'}
++              <StatusBadge variant="success">{$t('modpacks.switch.newerBadge')}</StatusBadge>
++            {:else if rel === 'older'}
++              <StatusBadge variant="neutral">{$t('modpacks.switch.olderBadge')}</StatusBadge>
++            {/if}
++          </div>
++          <div class="text-xs text-muted truncate">
++            {$t('modpacks.switch.versionMeta', {
++              mc: entry.game_versions.join(', '),
++              loader: entry.loaders.join(', '),
++              date: formatDate(entry.date_published),
++            })}
++          </div>
++        </button>
++      </CardShell>
++    {/each}
++    {#if shown.length === 0}
++      <div class="px-2 py-4 text-muted text-center text-sm" data-testid="version-list-empty">
++        {$t('modpacks.switch.versionsEmpty')}
++      </div>
++    {/if}
++  </div>
++</div>
+diff --git a/src/lib/modpacks/ModpackVersionSwitchDialog.svelte b/src/lib/modpacks/ModpackVersionSwitchDialog.svelte
+new file mode 100644
+index 00000000..3e7485bc
+--- /dev/null
++++ b/src/lib/modpacks/ModpackVersionSwitchDialog.svelte
+@@ -0,0 +1,218 @@
++<script lang="ts">
++  // Switch an installed pack to any published version, including a downgrade.
++  //
++  // This drives the SAME pipeline the "Update" fast path uses: the flow
++  // controller (`createModpackUpdateFlow`) already accepts any
++  // ModpackVersionEntry and the backend diffs whatever archive it is handed, in
++  // either direction. Nothing here re-implements applying a pack version — the
++  // dialog only chooses the target and states the risks.
++  import type { InstanceWithStatus, ModpackVersionEntry } from '$lib/ipc/bindings';
++  import { commands } from '$lib/ipc/bindings';
++  import { formatError } from '$lib/ipc/format-error';
++  import { t } from '$lib/i18n';
++  import ChangelogModal from '$lib/mods/ChangelogModal.svelte';
++  import { changelogSupported } from '$lib/mods/changelog-supported';
++  import Modal from '$lib/ui/Modal.svelte';
++  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
++  import { Icon } from '$lib/ui/icons';
++  import ModpackDiffList from './ModpackDiffList.svelte';
++  import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
++  import ModpackVersionList from './ModpackVersionList.svelte';
++  import SwitchRiskList from './SwitchRiskList.svelte';
++  import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
++  import { assessSwitchRisks, switchChangelogRequest, switchDirection } from './switch-risks';
++
++  let {
++    inst,
++    userAdded,
++    manual,
++    hasBundledFiles,
++    onClose,
++    onSwitched,
++  }: {
++    inst: InstanceWithStatus;
++    /** Mods added via the Mod browser after import (drawer `provenance`). */
++    userAdded: number;
++    /** Jars dropped into `mods/` by hand (drawer `provenance`). */
++    manual: number;
++    /** The pack bundles `overrides/` content. */
++    hasBundledFiles: boolean;
++    onClose: () => void;
++    onSwitched: () => void;
++  } = $props();
++
++  const flow = createModpackUpdateFlow();
++
++  let versions = $state<ModpackVersionEntry[]>([]);
++  let loadingVersions = $state(true);
++  let loadError = $state<string | null>(null);
++  let selected = $state<ModpackVersionEntry | null>(null);
++  let changelogOpen = $state(false);
++
++  const source = $derived(inst.mrpack_source ?? 'modrinth');
++
++  const direction = $derived(
++    selected === null ? 'unknown' : switchDirection(versions, inst.mrpack_version_id, selected.id),
++  );
++
++  const risks = $derived(
++    flow.diff === null
++      ? []
++      : assessSwitchRisks({
++          direction,
++          versionBump: flow.diff.version_bump,
++          userAdded,
++          manual,
++          hasBundledFiles,
++        }),
++  );
++
++  const changelog = $derived(
++    selected === null
++      ? null
++      : switchChangelogRequest(direction, inst.mrpack_version_id, selected.id),
++  );
++
++  const shownError = $derived(loadError ?? flow.error);
++
++  // The review step is reachable only once the diff exists, so a slow network
++  // cannot show an empty review panel.
++  const step = $derived(flow.diff !== null ? 'review' : 'pick');
++
++  async function loadVersions(projectId: string): Promise<void> {
++    loadingVersions = true;
++    loadError = null;
++    const r = await commands.modpackGetVersions(source, projectId);
++    if (r.status === 'ok') {
++      versions = r.data;
++    } else {
++      loadError = formatError(r.error);
++    }
++    loadingVersions = false;
++  }
++
++  $effect(() => {
++    const projectId = inst.mrpack_project_id;
++    if (projectId === null) {
++      loadingVersions = false;
++      return;
++    }
++    void loadVersions(projectId);
++  });
++
++  async function pick(entry: ModpackVersionEntry): Promise<void> {
++    selected = entry;
++    await flow.prepare(inst, entry);
++  }
++
++  async function retry(): Promise<void> {
++    if (selected === null) return;
++    await flow.prepare(inst, selected);
++  }
++
++  function back(): void {
++    flow.cancel();
++    selected = null;
++  }
++
++  async function confirm(): Promise<void> {
++    if (await flow.confirm(inst)) {
++      onSwitched();
++    }
++  }
++</script>
++
++<Modal
++  ariaLabelledby="modpack-switch-title"
++  onClose={flow.busy ? () => {} : onClose}
++  closeOnBackdrop={!flow.busy}
++  closeOnEscape={!flow.busy}
++  panelClass="w-[560px] max-h-[80vh] p-5 flex flex-col gap-3"
++>
++  <h3 id="modpack-switch-title" class="font-semibold text-base text-primary">
++    {step === 'review' && selected !== null
++      ? $t('modpacks.switch.reviewTitle', { version: selected.version_number })
++      : $t('modpacks.switch.title', { pack: inst.mrpack_name ?? '' })}
++  </h3>
++
++  {#if shownError}
++    <div class="flex items-center gap-2 text-sm text-danger" data-testid="switch-error">
++      <span class="flex-1">{shownError}</span>
++      {#if selected !== null}
++        <button
++          type="button"
++          class="btn-secondary btn-xs flex-shrink-0"
++          onclick={() => void retry()}
++          data-testid="switch-retry"
++        >
++          {$t('modpacks.switch.retryBtn')}
++        </button>
++      {/if}
++    </div>
++  {/if}
++
++  {#if flow.phase === 'applying'}
++    <ModpackUpdateProgress progress={flow.progress} />
++  {:else if step === 'pick'}
++    {#if loadingVersions}
++      <LoadingPanel label={$t('modpacks.switch.loadingVersions')} delayMs={0} />
++    {:else}
++      <ModpackVersionList
++        {versions}
++        installedVersionId={inst.mrpack_version_id}
++        onSelect={(e) => void pick(e)}
++      />
++    {/if}
++    <div class="flex justify-end">
++      <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
++        {$t('modpacks.switch.cancelBtn')}
++      </button>
++    </div>
++  {:else if flow.diff !== null && selected !== null}
++    <SwitchRiskList {risks} />
++    <div class="text-sm text-secondary">
++      {$t('modpacks.update.changeSummary', {
++        added: flow.diff.added.length,
++        removed: flow.diff.removed.length,
++        updated: flow.diff.updated.length,
++      })}
++    </div>
++    <ModpackDiffList diff={flow.diff} />
++    <div class="flex justify-end gap-2">
++      <button type="button" class="btn-secondary btn-sm" onclick={back} data-testid="switch-back">
++        {$t('modpacks.switch.backBtn')}
++      </button>
++      {#if inst.mrpack_project_id !== null && changelogSupported(source)}
++        <button
++          type="button"
++          class="btn-ghost btn-sm inline-flex items-center gap-1"
++          onclick={() => (changelogOpen = true)}
++          data-testid="switch-changelog-btn"
++        >
++          <Icon name="scrollText" size={13} />
++          {$t('mods.changelog.view')}
++        </button>
++      {/if}
++      <button
++        type="button"
++        class="btn-warning btn-sm"
++        onclick={() => void confirm()}
++        data-testid="switch-confirm"
++      >
++        {$t('modpacks.switch.confirmBtn', { version: selected.version_number })}
++      </button>
++    </div>
++  {/if}
++</Modal>
++
++<!-- Rendered AFTER the dialog it covers so Modal's escape stack closes this first. -->
++{#if changelogOpen && changelog !== null && inst.mrpack_project_id !== null}
++  <ChangelogModal
++    {source}
++    projectId={inst.mrpack_project_id}
++    title={$t(changelog.titleKey)}
++    targetVersionId={changelog.target}
++    baseVersionId={changelog.base}
++    onClose={() => (changelogOpen = false)}
++  />
++{/if}
+diff --git a/src/lib/modpacks/SwitchRiskList.svelte b/src/lib/modpacks/SwitchRiskList.svelte
+new file mode 100644
+index 00000000..59311fdd
+--- /dev/null
++++ b/src/lib/modpacks/SwitchRiskList.svelte
+@@ -0,0 +1,41 @@
++<script lang="ts">
++  // One warning Banner per risk (DESIGN §10 — severity comes from the tone token
++  // families, never ad-hoc colour). The `customizations` risk can render two
++  // lines from one entry: user-added mods and manually-dropped jars carry
++  // different confidence and read better apart.
++  //
++  // `risk.kind` is a safe {#each} key — assessSwitchRisks emits each kind at
++  // most once.
++  import type { SwitchRisk } from './switch-risks';
++  import { t } from '$lib/i18n';
++  import Banner from '$lib/ui/Banner.svelte';
++
++  let { risks }: { risks: SwitchRisk[] } = $props();
++</script>
++
++{#if risks.length > 0}
++  <div class="flex flex-col gap-2" data-testid="switch-risk-list">
++    {#each risks as risk (risk.kind)}
++      <Banner tone="warning" icon="warning" role="alert" dataTestid={`switch-risk-${risk.kind}`}>
++        {#if risk.kind === 'mc-change'}
++          {$t('modpacks.switch.riskMcChange', { from: risk.from, to: risk.to })}
++        {:else if risk.kind === 'downgrade'}
++          {$t('modpacks.switch.riskDowngrade')}
++        {:else if risk.kind === 'loader-change'}
++          {$t('modpacks.switch.riskLoaderChange', { from: risk.from, to: risk.to })}
++        {:else if risk.kind === 'customizations'}
++          <div class="flex flex-col gap-1">
++            {#if risk.userAdded > 0}
++              <span>{$t('modpacks.switch.riskCustomizationsUser', { count: risk.userAdded })}</span>
++            {/if}
++            {#if risk.manual > 0}
++              <span>{$t('modpacks.switch.riskCustomizationsManual', { count: risk.manual })}</span>
++            {/if}
++          </div>
++        {:else if risk.kind === 'bundled-overrides'}
++          {$t('modpacks.switch.riskBundledOverrides')}
++        {/if}
++      </Banner>
++    {/each}
++  </div>
++{/if}
+diff --git a/src/lib/modpacks/switch-risks.ts b/src/lib/modpacks/switch-risks.ts
+new file mode 100644
+index 00000000..833e942c
+--- /dev/null
++++ b/src/lib/modpacks/switch-risks.ts
+@@ -0,0 +1,152 @@
++// Pure logic for switching an installed modpack to another published version.
++// No IPC and no Svelte: everything here is a function of data the switch dialog
++// already holds, so it is unit-testable and cannot drift from what the user sees.
++
++import type {
++  InstanceWithStatus,
++  ModpackVersionBump,
++  ModpackVersionEntry,
++} from '$lib/ipc/bindings';
++
++/** Where the target version sits relative to the installed one. */
++export type SwitchDirection = 'upgrade' | 'downgrade' | 'reinstall' | 'unknown';
++
++export type SwitchRisk =
++  | { kind: 'mc-change'; from: string; to: string }
++  | { kind: 'downgrade' }
++  | { kind: 'loader-change'; from: string; to: string }
++  | { kind: 'customizations'; userAdded: number; manual: number }
++  | { kind: 'bundled-overrides' };
++
++export type SwitchRiskInput = {
++  direction: SwitchDirection;
++  /** From `modpack_compute_update` — the backend's authoritative MC/loader delta. */
++  versionBump: ModpackVersionBump | null;
++  /** Mods added via the Mod browser after import (not in `pack_origin`). */
++  userAdded: number;
++  /** Jars the user dropped into `mods/` by hand (no recorded source). */
++  manual: number;
++  /** The pack bundles `overrides/` content — `pack_origin` files with an empty url. */
++  hasBundledFiles: boolean;
++};
++
++/**
++ * Newest-first by `date_published` — the same ordering rule `latest_newer` uses
++ * on the backend, so the picker cannot disagree with the update banner about
++ * which version is latest. Returns a new array; the input is not mutated.
++ *
++ * Version *numbers* are deliberately never compared: pack version strings are
++ * free-form and ordering them would be a guess.
++ */
++export function sortVersionsNewestFirst(versions: ModpackVersionEntry[]): ModpackVersionEntry[] {
++  return [...versions].sort((a, b) => b.date_published.localeCompare(a.date_published));
++}
++
++/**
++ * Direction by position in the newest-first list. An installed version absent
++ * from the list (delisted, or a drag-drop import with no provenance) yields
++ * `unknown` — we cannot prove the target is not older, so callers must not
++ * treat it as safe.
++ */
++export function switchDirection(
++  versions: ModpackVersionEntry[],
++  installedVersionId: string | null,
++  targetVersionId: string,
++): SwitchDirection {
++  if (installedVersionId === null) return 'unknown';
++  if (installedVersionId === targetVersionId) return 'reinstall';
++  const sorted = sortVersionsNewestFirst(versions);
++  const installedAt = sorted.findIndex((v) => v.id === installedVersionId);
++  const targetAt = sorted.findIndex((v) => v.id === targetVersionId);
++  if (installedAt === -1 || targetAt === -1) return 'unknown';
++  return targetAt < installedAt ? 'upgrade' : 'downgrade';
++}
++
++/**
++ * The warnings to show before applying a switch, most-consequential first.
++ *
++ * `mc-change` states the change but not which Minecraft version is older.
++ * Naming a direction would need a release-ordered manifest (a network fetch with
++ * its own failure states), and parsing "1.20.1" is a guess that snapshots and
++ * the 2026 `26.x` scheme break. The hazard is symmetric anyway — a world is at
++ * risk whenever the Minecraft version changes.
++ */
++export function assessSwitchRisks(input: SwitchRiskInput): SwitchRisk[] {
++  const risks: SwitchRisk[] = [];
++  const bump = input.versionBump;
++
++  if (bump !== null && bump.old_game_version !== bump.new_game_version) {
++    risks.push({ kind: 'mc-change', from: bump.old_game_version, to: bump.new_game_version });
++  }
++  if (input.direction === 'downgrade' || input.direction === 'unknown') {
++    risks.push({ kind: 'downgrade' });
++  }
++  if (bump !== null && bump.old_loader_version !== bump.new_loader_version) {
++    risks.push({
++      kind: 'loader-change',
++      from: bump.old_loader_version ?? '—',
++      to: bump.new_loader_version ?? '—',
++    });
++  }
++  if (input.userAdded > 0 || input.manual > 0) {
++    risks.push({ kind: 'customizations', userAdded: input.userAdded, manual: input.manual });
++  }
++  if (input.hasBundledFiles) {
++    risks.push({ kind: 'bundled-overrides' });
++  }
++  return risks;
++}
++
++/**
++ * The base version for a pack changelog request. It must be the source's
++ * version ID — `PackOrigin.version` is a free-form version NUMBER and never
++ * matches `changelog_window`'s id list, which silently collapsed the cumulative
++ * pack changelog to target-only.
++ */
++export function packChangelogBase(
++  inst: Pick<InstanceWithStatus, 'mrpack_version_id'>,
++): string | null {
++  return inst.mrpack_version_id;
++}
++
++export type SwitchChangelogRequest = {
++  target: string;
++  base: string | null;
++  titleKey: 'modpacks.switch.changelogGained' | 'modpacks.switch.changelogLost';
++};
++
++/**
++ * Which version range to show in the changelog, and under which framing.
++ *
++ * `changelog_window` returns base-exclusive → target-inclusive and degrades to
++ * target-only when base is not older than target. So direction is expressed
++ * purely by which id goes in which slot:
++ *
++ * - upgrade   → base = installed, target = chosen  → the versions being applied.
++ * - downgrade → base = chosen, target = installed  → the versions being rolled
++ *   back past, i.e. what the user loses. Without the swap a downgrade would fall
++ *   into the target-only branch and render the old release notes under a
++ *   "what's new" framing, reading as if nothing were being lost.
++ * - reinstall / unknown → that version's own notes only.
++ */
++export function switchChangelogRequest(
++  direction: SwitchDirection,
++  installedVersionId: string | null,
++  targetVersionId: string,
++): SwitchChangelogRequest {
++  if (installedVersionId !== null && direction === 'downgrade') {
++    return {
++      target: installedVersionId,
++      base: targetVersionId,
++      titleKey: 'modpacks.switch.changelogLost',
++    };
++  }
++  if (installedVersionId !== null && direction === 'upgrade') {
++    return {
++      target: targetVersionId,
++      base: installedVersionId,
++      titleKey: 'modpacks.switch.changelogGained',
++    };
++  }
++  return { target: targetVersionId, base: null, titleKey: 'modpacks.switch.changelogGained' };
++}
+diff --git a/tests/modpack-switch-risks.test.ts b/tests/modpack-switch-risks.test.ts
+new file mode 100644
+index 00000000..378bde50
+--- /dev/null
++++ b/tests/modpack-switch-risks.test.ts
+@@ -0,0 +1,216 @@
++import { describe, expect, it } from 'vitest';
++import type { ModpackVersionEntry } from '$lib/ipc/bindings';
++import {
++  assessSwitchRisks,
++  packChangelogBase,
++  sortVersionsNewestFirst,
++  switchChangelogRequest,
++  switchDirection,
++} from '$lib/modpacks/switch-risks';
++
++function ver(id: string, date: string): ModpackVersionEntry {
++  return {
++    id,
++    name: id,
++    version_number: id,
++    game_versions: ['1.20.1'],
++    loaders: ['fabric'],
++    date_published: date,
++  };
++}
++
++// Deliberately unsorted so the helpers cannot rely on input order.
++const LIST: ModpackVersionEntry[] = [
++  ver('v1', '2026-01-01T00:00:00Z'),
++  ver('v3', '2026-03-01T00:00:00Z'),
++  ver('v2', '2026-02-01T00:00:00Z'),
++];
++
++describe('sortVersionsNewestFirst', () => {
++  it('orders by publish date, newest first', () => {
++    expect(sortVersionsNewestFirst(LIST).map((v) => v.id)).toEqual(['v3', 'v2', 'v1']);
++  });
++
++  it('does not mutate the input array', () => {
++    const input = [...LIST];
++    sortVersionsNewestFirst(input);
++    expect(input.map((v) => v.id)).toEqual(['v1', 'v3', 'v2']);
++  });
++});
++
++describe('switchDirection', () => {
++  it('is an upgrade when the target was published later than the installed version', () => {
++    expect(switchDirection(LIST, 'v1', 'v3')).toBe('upgrade');
++  });
++
++  it('is a downgrade when the target was published earlier', () => {
++    expect(switchDirection(LIST, 'v3', 'v1')).toBe('downgrade');
++  });
++
++  it('is a reinstall when the target is the installed version', () => {
++    expect(switchDirection(LIST, 'v2', 'v2')).toBe('reinstall');
++  });
++
++  it('is unknown when the installed version is not in the list', () => {
++    // Delisted version, or a drag-drop import with no provenance.
++    expect(switchDirection(LIST, 'gone', 'v2')).toBe('unknown');
++  });
++
++  it('is unknown when the installed version id is null', () => {
++    expect(switchDirection(LIST, null, 'v2')).toBe('unknown');
++  });
++});
++
++describe('assessSwitchRisks', () => {
++  const noRiskInput = {
++    direction: 'upgrade' as const,
++    versionBump: null,
++    userAdded: 0,
++    manual: 0,
++    hasBundledFiles: false,
++  };
++
++  it('reports no risks for a clean same-Minecraft upgrade of an uncustomized pack', () => {
++    expect(assessSwitchRisks(noRiskInput)).toEqual([]);
++  });
++
++  it('reports a downgrade risk when going backwards', () => {
++    expect(assessSwitchRisks({ ...noRiskInput, direction: 'downgrade' })).toEqual([
++      { kind: 'downgrade' },
++    ]);
++  });
++
++  it('treats an unknown installed version as a downgrade', () => {
++    // We cannot prove it is not one, so we must not imply it is safe.
++    expect(assessSwitchRisks({ ...noRiskInput, direction: 'unknown' })).toEqual([
++      { kind: 'downgrade' },
++    ]);
++  });
++
++  it('reports no downgrade risk for a reinstall', () => {
++    expect(assessSwitchRisks({ ...noRiskInput, direction: 'reinstall' })).toEqual([]);
++  });
++
++  it('reports a Minecraft change without claiming which version is older', () => {
++    const risks = assessSwitchRisks({
++      ...noRiskInput,
++      versionBump: {
++        old_game_version: '1.20.1',
++        new_game_version: '1.19.2',
++        old_loader_version: '0.15.0',
++        new_loader_version: '0.15.0',
++      },
++    });
++    expect(risks).toEqual([{ kind: 'mc-change', from: '1.20.1', to: '1.19.2' }]);
++  });
++
++  it('does not report a Minecraft change when only the loader version moved', () => {
++    const risks = assessSwitchRisks({
++      ...noRiskInput,
++      versionBump: {
++        old_game_version: '1.20.1',
++        new_game_version: '1.20.1',
++        old_loader_version: '0.15.0',
++        new_loader_version: '0.16.0',
++      },
++    });
++    expect(risks).toEqual([{ kind: 'loader-change', from: '0.15.0', to: '0.16.0' }]);
++  });
++
++  it('renders a null loader version as a dash rather than "null"', () => {
++    const risks = assessSwitchRisks({
++      ...noRiskInput,
++      versionBump: {
++        old_game_version: '1.20.1',
++        new_game_version: '1.20.1',
++        old_loader_version: null,
++        new_loader_version: '0.16.0',
++      },
++    });
++    expect(risks).toEqual([{ kind: 'loader-change', from: '—', to: '0.16.0' }]);
++  });
++
++  it('counts user-added and manually-dropped mods separately', () => {
++    expect(assessSwitchRisks({ ...noRiskInput, userAdded: 3, manual: 2 })).toEqual([
++      { kind: 'customizations', userAdded: 3, manual: 2 },
++    ]);
++  });
++
++  it('reports no customizations risk when the user added nothing', () => {
++    expect(assessSwitchRisks({ ...noRiskInput, userAdded: 0, manual: 0 })).toEqual([]);
++  });
++
++  it('reports the bundled-overrides risk when the pack bundles files', () => {
++    expect(assessSwitchRisks({ ...noRiskInput, hasBundledFiles: true })).toEqual([
++      { kind: 'bundled-overrides' },
++    ]);
++  });
++
++  it('orders risks most-consequential first', () => {
++    const risks = assessSwitchRisks({
++      direction: 'downgrade',
++      versionBump: {
++        old_game_version: '1.20.1',
++        new_game_version: '1.19.2',
++        old_loader_version: '0.15.0',
++        new_loader_version: '0.14.0',
++      },
++      userAdded: 1,
++      manual: 0,
++      hasBundledFiles: true,
++    });
++    expect(risks.map((r) => r.kind)).toEqual([
++      'mc-change',
++      'downgrade',
++      'loader-change',
++      'customizations',
++      'bundled-overrides',
++    ]);
++  });
++});
++
++describe('switchChangelogRequest', () => {
++  it('shows the versions being applied on an upgrade', () => {
++    expect(switchChangelogRequest('upgrade', 'v1', 'v3')).toEqual({
++      target: 'v3',
++      base: 'v1',
++      titleKey: 'modpacks.switch.changelogGained',
++    });
++  });
++
++  it('shows what you lose on a downgrade by swapping target and base', () => {
++    // Without the swap `changelog_window` falls into its target-only branch and
++    // renders the OLD version's notes as if nothing were being lost.
++    expect(switchChangelogRequest('downgrade', 'v3', 'v1')).toEqual({
++      target: 'v3',
++      base: 'v1',
++      titleKey: 'modpacks.switch.changelogLost',
++    });
++  });
++
++  it('shows only the target version notes for a reinstall', () => {
++    expect(switchChangelogRequest('reinstall', 'v2', 'v2')).toEqual({
++      target: 'v2',
++      base: null,
++      titleKey: 'modpacks.switch.changelogGained',
++    });
++  });
++
++  it('shows only the target version notes when the direction is unknown', () => {
++    expect(switchChangelogRequest('unknown', null, 'v2')).toEqual({
++      target: 'v2',
++      base: null,
++      titleKey: 'modpacks.switch.changelogGained',
++    });
++  });
++});
++
++describe('packChangelogBase', () => {
++  it('uses the instance version id, not the pack origin version number', () => {
++    expect(packChangelogBase({ mrpack_version_id: 'vid-abc' })).toBe('vid-abc');
++  });
++
++  it('is null when the instance has no recorded version id', () => {
++    expect(packChangelogBase({ mrpack_version_id: null })).toBeNull();
++  });
++});
+diff --git a/tests/modpack-version-list.test.ts b/tests/modpack-version-list.test.ts
+new file mode 100644
+index 00000000..acfe2f8e
+--- /dev/null
++++ b/tests/modpack-version-list.test.ts
+@@ -0,0 +1,101 @@
++import { fireEvent, render, screen } from '@testing-library/svelte';
++import { describe, expect, it, vi } from 'vitest';
++import type { ModpackVersionEntry } from '$lib/ipc/bindings';
++import ModpackVersionList from '$lib/modpacks/ModpackVersionList.svelte';
++
++function ver(id: string, date: string, gameVersions: string[] = ['1.20.1']): ModpackVersionEntry {
++  return {
++    id,
++    name: `Release ${id}`,
++    version_number: id,
++    game_versions: gameVersions,
++    loaders: ['fabric'],
++    date_published: date,
++  };
++}
++
++// Deliberately unsorted input so the component cannot rely on caller ordering.
++const VERSIONS = [
++  ver('v1', '2026-01-01T00:00:00Z', ['1.19.2']),
++  ver('v3', '2026-03-01T00:00:00Z'),
++  ver('v2', '2026-02-01T00:00:00Z'),
++];
++
++// The pack version filter is the shared Select, not a native <select>. Driving
++// one means opening it (click the trigger by data-testid) then committing an
++// option — Select commits on `mousedown`.
++async function pickOption(testid: string, name: RegExp | string) {
++  await fireEvent.click(screen.getByTestId(testid));
++  await fireEvent.mouseDown(screen.getByRole('option', { name }));
++}
++
++describe('ModpackVersionList', () => {
++  it('lists versions newest first regardless of input order', () => {
++    render(ModpackVersionList, {
++      versions: VERSIONS,
++      installedVersionId: 'v2',
++      onSelect: vi.fn(),
++    });
++    const rows = screen.getAllByTestId(/^version-row-/);
++    expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
++      'version-row-v3',
++      'version-row-v2',
++      'version-row-v1',
++    ]);
++  });
++
++  it('marks the installed version', () => {
++    render(ModpackVersionList, {
++      versions: VERSIONS,
++      installedVersionId: 'v2',
++      onSelect: vi.fn(),
++    });
++    expect(screen.getByTestId('version-row-v2').textContent).toContain('Installed');
++  });
++
++  it('marks versions published after the installed one as newer', () => {
++    render(ModpackVersionList, {
++      versions: VERSIONS,
++      installedVersionId: 'v2',
++      onSelect: vi.fn(),
++    });
++    expect(screen.getByTestId('version-row-v3').textContent).toContain('Newer');
++    expect(screen.getByTestId('version-row-v1').textContent).toContain('Older');
++  });
++
++  it('reports the chosen version to the caller', async () => {
++    const onSelect = vi.fn();
++    render(ModpackVersionList, { versions: VERSIONS, installedVersionId: 'v2', onSelect });
++    await fireEvent.click(screen.getByTestId('version-row-v1'));
++    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }));
++  });
++
++  it('filters by Minecraft version', async () => {
++    render(ModpackVersionList, {
++      versions: VERSIONS,
++      installedVersionId: 'v2',
++      onSelect: vi.fn(),
++    });
++    await pickOption('version-mc-filter', '1.19.2');
++    const rows = screen.getAllByTestId(/^version-row-/);
++    expect(rows).toHaveLength(1);
++    expect(rows[0].getAttribute('data-testid')).toBe('version-row-v1');
++  });
++
++  it('renders an empty state when the pack has no versions', () => {
++    render(ModpackVersionList, { versions: [], installedVersionId: null, onSelect: vi.fn() });
++    expect(screen.getByTestId('version-list-empty')).toBeTruthy();
++  });
++
++  it('shows no newer/older claim when the installed version is not in the list', () => {
++    // Delisted version — placing it would be a guess, so no relation badge.
++    render(ModpackVersionList, {
++      versions: VERSIONS,
++      installedVersionId: 'delisted',
++      onSelect: vi.fn(),
++    });
++    expect(screen.getAllByTestId(/^version-row-/)).toHaveLength(3);
++    expect(screen.getByTestId('version-row-v3').textContent).not.toContain('Newer');
++    expect(screen.getByTestId('version-row-v1').textContent).not.toContain('Older');
++  });
++});
+diff --git a/tests/modpack-version-switch-dialog.test.ts b/tests/modpack-version-switch-dialog.test.ts
+new file mode 100644
+index 00000000..664991ce
+--- /dev/null
++++ b/tests/modpack-version-switch-dialog.test.ts
+@@ -0,0 +1,172 @@
++import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import type { InstanceWithStatus, ModpackUpdateDiff, ModpackVersionEntry } from '$lib/ipc/bindings';
++
++// vi.mock is hoisted above top-level consts, so the mock fns must come from
++// vi.hoisted or collection fails with "Cannot access '…' before initialization".
++const { getVersions, fetchToTemp, computeUpdate, applyUpdate, changelog } = vi.hoisted(() => ({
++  getVersions: vi.fn(),
++  fetchToTemp: vi.fn(),
++  computeUpdate: vi.fn(),
++  applyUpdate: vi.fn(),
++  changelog: vi.fn(),
++}));
++
++// The apply path builds Tauri progress Channels, which need the IPC runtime.
++// Same stub the other modpack tests use.
++vi.mock('@tauri-apps/api/core', () => ({
++  Channel: class {
++    onmessage: ((m: unknown) => void) | null = null;
++  },
++}));
++
++vi.mock('$lib/ipc/bindings', () => ({
++  commands: {
++    modpackGetVersions: getVersions,
++    modpackFetchToTemp: fetchToTemp,
++    modpackComputeUpdate: computeUpdate,
++    modpackApplyUpdate: applyUpdate,
++    modsChangelog: changelog,
++  },
++}));
++
++import ModpackVersionSwitchDialog from '$lib/modpacks/ModpackVersionSwitchDialog.svelte';
++
++function ver(id: string, date: string): ModpackVersionEntry {
++  return {
++    id,
++    name: `Release ${id}`,
++    version_number: id,
++    game_versions: ['1.20.1'],
++    loaders: ['fabric'],
++    date_published: date,
++  };
++}
++
++const VERSIONS = [ver('v3', '2026-03-01T00:00:00Z'), ver('v1', '2026-01-01T00:00:00Z')];
++
++const DIFF: ModpackUpdateDiff = {
++  added: [],
++  removed: [],
++  updated: [],
++  version_bump: null,
++  new_version_number: 'v1',
++};
++
++// Installed = v3 (the newest), so picking v1 is a downgrade.
++const inst = {
++  id: 'inst-1',
++  mrpack_name: 'RLCraft',
++  mrpack_project_id: 'proj',
++  mrpack_source: 'modrinth',
++  mrpack_version_id: 'v3',
++  mrpack_version: 'v3',
++} as unknown as InstanceWithStatus;
++
++const props = () => ({
++  inst,
++  userAdded: 0,
++  manual: 0,
++  hasBundledFiles: false,
++  onClose: vi.fn(),
++  onSwitched: vi.fn(),
++});
++
++const NETWORK_ERROR = {
++  status: 'error' as const,
++  error: { kind: 'mods_network' as const, url: 'https://x', details: 'HTTP 503' },
++};
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  getVersions.mockResolvedValue({ status: 'ok', data: VERSIONS });
++  fetchToTemp.mockResolvedValue({ status: 'ok', data: '/tmp/pack.mrpack' });
++  computeUpdate.mockResolvedValue({ status: 'ok', data: DIFF });
++  applyUpdate.mockResolvedValue({ status: 'ok', data: inst });
++  changelog.mockResolvedValue({ status: 'ok', data: { sections: [], truncated: null } });
++});
++
++async function openAndPick(id: string) {
++  render(ModpackVersionSwitchDialog, props());
++  await waitFor(() => expect(screen.getByTestId(`version-row-${id}`)).toBeTruthy());
++  await fireEvent.click(screen.getByTestId(`version-row-${id}`));
++}
++
++describe('ModpackVersionSwitchDialog', () => {
++  it('loads and lists the pack versions', async () => {
++    render(ModpackVersionSwitchDialog, props());
++    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
++    expect(getVersions).toHaveBeenCalledWith('modrinth', 'proj');
++  });
++
++  it('moves to the review step and shows the diff when a version is picked', async () => {
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('update-diff-list')).toBeTruthy());
++    expect(fetchToTemp).toHaveBeenCalledWith('modrinth', 'proj', 'v1');
++  });
++
++  it('warns about the downgrade when the picked version is older', async () => {
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-risk-downgrade')).toBeTruthy());
++  });
++
++  it('does not warn about a downgrade when picking the newest version', async () => {
++    await openAndPick('v3');
++    await waitFor(() => expect(screen.getByTestId('update-diff-list')).toBeTruthy());
++    expect(screen.queryByTestId('switch-risk-downgrade')).toBeNull();
++  });
++
++  it('applies the CHOSEN version, not the latest', async () => {
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
++    await fireEvent.click(screen.getByTestId('switch-confirm'));
++    await waitFor(() => expect(applyUpdate).toHaveBeenCalled());
++    // (instanceId, mrpackPath, newVersionId, …)
++    expect(applyUpdate.mock.calls[0][2]).toBe('v1');
++  });
++
++  it('notifies the caller after a successful switch', async () => {
++    const p = props();
++    render(ModpackVersionSwitchDialog, p);
++    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
++    await fireEvent.click(screen.getByTestId('version-row-v1'));
++    await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
++    await fireEvent.click(screen.getByTestId('switch-confirm'));
++    await waitFor(() => expect(p.onSwitched).toHaveBeenCalled());
++  });
++
++  it('shows the cause and a retry when preparing fails', async () => {
++    fetchToTemp.mockResolvedValue(NETWORK_ERROR);
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-error')).toBeTruthy());
++    expect(screen.getByTestId('switch-retry')).toBeTruthy();
++  });
++
++  it('retrying re-runs the prepare for the same version', async () => {
++    fetchToTemp.mockResolvedValueOnce(NETWORK_ERROR);
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-retry')).toBeTruthy());
++    await fireEvent.click(screen.getByTestId('switch-retry'));
++    await waitFor(() => expect(fetchToTemp).toHaveBeenCalledTimes(2));
++    expect(fetchToTemp.mock.calls[1][2]).toBe('v1');
++  });
++
++  it('surfaces a version-list load failure', async () => {
++    getVersions.mockResolvedValue(NETWORK_ERROR);
++    render(ModpackVersionSwitchDialog, props());
++    await waitFor(() => expect(screen.getByTestId('switch-error')).toBeTruthy());
++  });
++
++  it('offers the changelog on the review step', async () => {
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-changelog-btn')).toBeTruthy());
++  });
++
++  it('goes back to the version list from review', async () => {
++    await openAndPick('v1');
++    await waitFor(() => expect(screen.getByTestId('switch-back')).toBeTruthy());
++    await fireEvent.click(screen.getByTestId('switch-back'));
++    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
++    expect(screen.queryByTestId('update-diff-list')).toBeNull();
++  });
++});
+diff --git a/tests/modpack-version-switch-entry.test.ts b/tests/modpack-version-switch-entry.test.ts
+new file mode 100644
+index 00000000..065ab7d9
+--- /dev/null
++++ b/tests/modpack-version-switch-entry.test.ts
+@@ -0,0 +1,100 @@
++import { render, screen, waitFor } from '@testing-library/svelte';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const { listInstalled, modpackStatus, modsProjects, getVersions, updateStatus } = vi.hoisted(
++  () => ({
++    listInstalled: vi.fn(),
++    modpackStatus: vi.fn(),
++    modsProjects: vi.fn(),
++    getVersions: vi.fn(),
++    updateStatus: vi.fn(),
++  }),
++);
++
++vi.mock('@tauri-apps/api/core', () => ({
++  Channel: class {
++    onmessage: ((m: unknown) => void) | null = null;
++  },
++}));
++
++vi.mock('$lib/ipc/bindings', () => ({
++  commands: {
++    modsListInstalled: listInstalled,
++    modpackStatus,
++    modsProjects,
++    modpackGetVersions: getVersions,
++    modpackUpdateStatus: updateStatus,
++  },
++  events: {
++    modInstalled: { listen: () => Promise.resolve(() => {}) },
++    modUninstalled: { listen: () => Promise.resolve(() => {}) },
++  },
++}));
++
++import ImportedDetailDrawer from '$lib/modpacks/ImportedDetailDrawer.svelte';
++
++const inst = {
++  id: 'inst-1',
++  mrpack_name: 'RLCraft',
++  mrpack_version: '1.0.0',
++  mrpack_version_id: 'v3',
++  mrpack_project_id: 'proj',
++  mrpack_source: 'modrinth',
++} as never;
++
++const props = () => ({
++  inst,
++  onClose: vi.fn(),
++  onOpenInstance: vi.fn(),
++  onDeleted: vi.fn(),
++  onUpdated: vi.fn(),
++});
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  listInstalled.mockResolvedValue({ status: 'ok', data: [] });
++  modsProjects.mockResolvedValue({ status: 'ok', data: [] });
++  getVersions.mockResolvedValue({ status: 'ok', data: [] });
++  // Up to date — the switch affordance must still be offered.
++  updateStatus.mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } });
++  modpackStatus.mockResolvedValue({
++    status: 'ok',
++    data: {
++      origin: {
++        project_id: 'proj',
++        source: 'modrinth',
++        project_name: 'RLCraft',
++        version: '1.0.0',
++        files: [],
++        missing_mods: [],
++        skipped_overrides: [],
++        resolved_missing: [],
++        inert_loader_jars: [],
++      },
++      installed_shas: [],
++      removed_files: [],
++      added_count: 0,
++      is_modified: false,
++      missing_mods: [],
++    },
++  });
++});
++
++describe('Imported drawer — change version entry point', () => {
++  it('offers "Change version" even when the pack is up to date', async () => {
++    // Reaching an OLDER version while already up to date is the whole point, so
++    // the affordance must not be gated on an available update.
++    render(ImportedDetailDrawer, props());
++    await waitFor(() => expect(screen.getByTestId('imported-detail-switch-version')).toBeTruthy());
++  });
++
++  it('hides "Change version" for a pack with no recorded project id', async () => {
++    // A drag-drop import with no provenance has no version list to offer.
++    render(ImportedDetailDrawer, {
++      ...props(),
++      inst: { ...(inst as object), mrpack_project_id: null } as never,
++    });
++    await waitFor(() => expect(listInstalled).toHaveBeenCalled());
++    expect(screen.queryByTestId('imported-detail-switch-version')).toBeNull();
++  });
++});

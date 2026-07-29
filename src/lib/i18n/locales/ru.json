@@ -967,6 +967,7 @@
       "olderBadge": "Старее",
       "installedBadge": "Установлена",
       "loadingVersions": "Загрузка версий…",
+      "preparing": "Подготовка версии…",
       "versionsEmpty": "Подходящих версий нет.",
       "filterMcLabel": "Версия Minecraft",
       "filterMcAll": "Все",

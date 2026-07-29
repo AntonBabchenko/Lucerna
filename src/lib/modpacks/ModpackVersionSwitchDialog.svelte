@@ -153,6 +153,13 @@
 
   {#if flow.phase === 'applying'}
     <ModpackUpdateProgress progress={flow.progress} />
+  {:else if flow.phase === 'preparing'}
+    <!-- The list is deliberately replaced, not just left visible: fetching the
+         archive takes seconds, and a second pick mid-flight would let a slow
+         first `prepare` land its temp path against the second version's id —
+         applying one version's files while recording the other's. Replacing the
+         list makes a concurrent pick unreachable and gives the wait feedback. -->
+    <LoadingPanel label={$t('modpacks.switch.preparing')} delayMs={0} />
   {:else if step === 'pick'}
     {#if loadingVersions}
       <LoadingPanel label={$t('modpacks.switch.loadingVersions')} delayMs={0} />

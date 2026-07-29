@@ -838,6 +838,7 @@ export type TranslationKey =
   | 'modpacks.switch.newerBadge'
   | 'modpacks.switch.olderBadge'
   | 'modpacks.switch.openBtn'
+  | 'modpacks.switch.preparing'
   | 'modpacks.switch.retryBtn'
   | 'modpacks.switch.reviewTitle'
   | 'modpacks.switch.riskBundledOverrides'

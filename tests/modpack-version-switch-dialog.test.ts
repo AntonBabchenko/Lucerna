@@ -162,6 +162,23 @@ describe('ModpackVersionSwitchDialog', () => {
     await waitFor(() => expect(screen.getByTestId('switch-changelog-btn')).toBeTruthy());
   });
 
+  it('takes the version list away while a pick is being prepared', async () => {
+    // Fetching the archive takes seconds. If the list stayed clickable, a slow
+    // first prepare could land its temp path against a second version's id —
+    // applying one version's files while recording the other's.
+    let release!: (v: unknown) => void;
+    fetchToTemp.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    await openAndPick('v1');
+    await waitFor(() => expect(screen.queryByTestId('version-row-v3')).toBeNull());
+    expect(screen.queryByTestId('version-row-v1')).toBeNull();
+    release({ status: 'ok', data: '/tmp/pack.mrpack' });
+    await waitFor(() => expect(screen.getByTestId('update-diff-list')).toBeTruthy());
+  });
+
   it('goes back to the version list from review', async () => {
     await openAndPick('v1');
     await waitFor(() => expect(screen.getByTestId('switch-back')).toBeTruthy());
