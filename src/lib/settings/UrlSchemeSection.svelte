@@ -24,17 +24,28 @@
   const stale = $derived(enabled && schemeState === 'registered_to_other_path');
 
   onMount(async () => {
-    registryKey = await commands.urlSchemeKey();
-    const s = await commands.appSettingsGet();
-    // `?? false` because specta types `#[serde(default)]` fields as optional:
-    // an app.json written before this field existed has no value at all.
-    if (s.status === 'ok') enabled = s.data.general.register_url_scheme ?? false;
+    // A thrown/rejected invoke (backend panic) must not escape as an unhandled
+    // rejection inside the effect — the panel degrades to "state unknown"
+    // instead, which the markup already handles.
+    try {
+      registryKey = await commands.urlSchemeKey();
+      const s = await commands.appSettingsGet();
+      // `?? false` because specta types `#[serde(default)]` fields as optional:
+      // an app.json written before this field existed has no value at all.
+      if (s.status === 'ok') enabled = s.data.general.register_url_scheme ?? false;
+    } catch {
+      registryKey = '';
+    }
     await refreshState();
   });
 
   async function refreshState() {
-    const r = await commands.urlSchemeState();
-    schemeState = r.status === 'ok' ? r.data : null;
+    try {
+      const r = await commands.urlSchemeState();
+      schemeState = r.status === 'ok' ? r.data : null;
+    } catch {
+      schemeState = null;
+    }
   }
 
   /** Read-modify-write of app.json so this panel only owns its own field. */
