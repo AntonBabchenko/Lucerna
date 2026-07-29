@@ -355,6 +355,21 @@ pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     write(instance_root, &state).await
 }
 
+/// Remove every entry whose SHA-1 (case-insensitive) is in `sha1s`, in one
+/// read-modify-write. The batch counterpart of [`remove`], used by the
+/// install rollback so N deregistrations don't need N registry rewrites.
+pub async fn remove_many(instance_root: &Path, sha1s: &HashSet<String>) -> Result<(), Error> {
+    if sha1s.is_empty() {
+        return Ok(());
+    }
+    let lowered: HashSet<String> = sha1s.iter().map(|s| s.to_ascii_lowercase()).collect();
+    let mut state = read_or_empty(instance_root).await?;
+    state
+        .mods
+        .retain(|x| !lowered.contains(&x.sha1.to_ascii_lowercase()));
+    write(instance_root, &state).await
+}
+
 /// Overwrite the `requires` edge list for the entry with the given SHA-1.
 /// No-op if the SHA-1 is unknown. Read-modify-write.
 pub async fn set_requires(
@@ -1278,6 +1293,33 @@ mod tests {
         // its identity.
         assert!(m.enrich_attempted);
         assert_eq!(m.source, Some(ModSource::Modrinth));
+    }
+
+    #[tokio::test]
+    async fn remove_many_drops_only_listed_shas_in_one_write() {
+        let td = TempDir::new().unwrap();
+        let sha_a = place_jar(&mods_dir(td.path()), "a.jar", b"aaa").await;
+        let sha_b = place_jar(&mods_dir(td.path()), "b.jar", b"bbb").await;
+        let _ = list(td.path()).await.unwrap(); // synthesize records
+        let mut gone = std::collections::HashSet::new();
+        gone.insert(sha_a.to_ascii_uppercase()); // case-insensitive match
+        remove_many(td.path(), &gone).await.unwrap();
+        let state = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(state.mods.len(), 1);
+        assert!(state.mods[0].sha1.eq_ignore_ascii_case(&sha_b));
+    }
+
+    #[tokio::test]
+    async fn remove_many_with_empty_set_is_a_no_op() {
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "keep.jar", b"keep").await;
+        let _ = list(td.path()).await.unwrap();
+        remove_many(td.path(), &std::collections::HashSet::new())
+            .await
+            .unwrap();
+        let state = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(state.mods.len(), 1);
+        assert!(state.mods[0].sha1.eq_ignore_ascii_case(&sha));
     }
 
     #[tokio::test]

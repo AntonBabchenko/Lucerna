@@ -503,6 +503,8 @@
       "dropzoneLabel": "Drop a mod .jar here to install — or click to browse",
       "dropzoneDisabled": "Select a non-vanilla instance to install mods",
       "toastInstallFailed": "Mod install failed",
+      "toastInstallFailedWithMod": "Couldn't install {name}",
+      "toastRetry": "Retry",
       "toastInstalledMod": "Installed {name}",
       "mismatchLoader": "looks like a {detected} mod, instance is {instance}",
       "mismatchMc": "targets MC {detected}, instance is {instance}",

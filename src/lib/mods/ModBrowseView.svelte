@@ -32,7 +32,8 @@
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
-  import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { installFailureToast } from '$lib/mods/install-failure';
+  import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
     cfKeyVersion,
@@ -760,7 +761,9 @@
       }
       const installed = await commands.assetInstall(instanceId, version, kind);
       if (installed.status === 'error') {
-        pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+        showInstallFailure(card.name, installed.error, () => {
+          void startAssetInstall(card, pinnedVersion);
+        });
         return;
       }
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
@@ -772,6 +775,81 @@
       assetsChanged.value++;
     } finally {
       installingProjectIds.delete(card.project_id);
+    }
+  }
+
+  // Install-failure toasts carry a Retry closure bound to the instance (and
+  // this mounted view) they were created for. If the user switches instance or
+  // the view unmounts, that context is stale — a Retry click could install
+  // into the wrong instance — so dismiss any still-visible failure toasts
+  // instead of letting them outlive their context.
+  let installFailureToastIds: number[] = [];
+  function showInstallFailure(name: string, err: IpcError, retry: () => void) {
+    installFailureToastIds.push(installFailureToast(name, err, retry));
+  }
+  $effect(() => {
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _id = instanceId;
+    return () => {
+      for (const id of installFailureToastIds) dismiss(id);
+      installFailureToastIds = [];
+    };
+  });
+
+  // The dependency-dialog confirm flow, hoisted out of the markup so the
+  // failure toast's Retry can re-run it with the same captured arguments.
+  async function confirmDepInstall(
+    prompt: NonNullable<typeof depPrompt>,
+    chosenOptional: ModVersion[],
+  ) {
+    if (!instanceId) return;
+    // Keep the originating card busy while the confirmed install runs.
+    installingProjectIds.add(prompt.primary.project_id);
+    try {
+      const installed = await commands.modsInstallWithDeps(
+        instanceId,
+        {
+          source: prompt.primary.source,
+          project_id: prompt.primary.project_id,
+          version_id: prompt.primary.version_id,
+        },
+        chosenOptional.map((v) => ({
+          source: v.source,
+          project_id: v.project_id,
+          version_id: v.version_id,
+        })),
+      );
+      if (installed.status === 'error') {
+        if (
+          !reportInstallError(
+            installed.error,
+            prompt.primaryProjectName,
+            prompt.primary.source,
+            prompt.primary.project_id,
+          )
+        ) {
+          showInstallFailure(prompt.primaryProjectName, installed.error, () => {
+            void confirmDepInstall(prompt, chosenOptional);
+          });
+        }
+        // The backend rolled the partial install back — re-sync the
+        // installed badges with the (unchanged) on-disk state.
+        await refreshInstalled();
+      } else {
+        // Build the per-mod toast from the dialog's already-resolved project
+        // names (the backend's InstallSummary carries release titles, not mod
+        // names). Lines = every newly-installed dependency: the primary's
+        // requireds + each chosen optional and its transitive requireds,
+        // deduped by project. Matches exactly what the dialog showed.
+        const depLines = buildInstalledDepLines(prompt, chosenOptional);
+        pushSuccess(
+          get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
+          depLines,
+        );
+        await refreshInstalled();
+      }
+    } finally {
+      installingProjectIds.delete(prompt.primary.project_id);
     }
   }
 
@@ -867,8 +945,14 @@
               primary.source,
               card.slug ?? card.project_id,
             )
-          )
-            pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+          ) {
+            showInstallFailure(primaryProjectName, installed.error, () => {
+              void startInstall(card, pinnedVersion);
+            });
+          }
+          // The backend rolled the partial install back — re-sync the
+          // installed badges with the (unchanged) on-disk state.
+          await refreshInstalled();
         } else {
           // Fast path has no dependencies; use the resolved project name (not
           // the backend's release-title `primary_name`) for the toast title.
@@ -1021,55 +1105,10 @@
       unresolvable={depPrompt.unresolvable}
       loaderRequirements={depPrompt.loaderRequirements}
       onCancel={() => (depPrompt = null)}
-      onConfirm={async (chosenOptional) => {
+      onConfirm={(chosenOptional) => {
         const prompt = depPrompt;
-        if (!prompt || !instanceId) {
-          depPrompt = null;
-          return;
-        }
         depPrompt = null;
-        // Keep the originating card busy while the confirmed install runs.
-        installingProjectIds.add(prompt.primary.project_id);
-        try {
-          const installed = await commands.modsInstallWithDeps(
-            instanceId,
-            {
-              source: prompt.primary.source,
-              project_id: prompt.primary.project_id,
-              version_id: prompt.primary.version_id,
-            },
-            chosenOptional.map((v) => ({
-              source: v.source,
-              project_id: v.project_id,
-              version_id: v.version_id,
-            })),
-          );
-          if (installed.status === 'error') {
-            if (
-              !reportInstallError(
-                installed.error,
-                prompt.primaryProjectName,
-                prompt.primary.source,
-                prompt.primary.project_id,
-              )
-            )
-              pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
-          } else {
-            // Build the per-mod toast from the dialog's already-resolved project
-            // names (the backend's InstallSummary carries release titles, not mod
-            // names). Lines = every newly-installed dependency: the primary's
-            // requireds + each chosen optional and its transitive requireds,
-            // deduped by project. Matches exactly what the dialog showed.
-            const depLines = buildInstalledDepLines(prompt, chosenOptional);
-            pushSuccess(
-              get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
-              depLines,
-            );
-            await refreshInstalled();
-          }
-        } finally {
-          installingProjectIds.delete(prompt.primary.project_id);
-        }
+        if (prompt) void confirmDepInstall(prompt, chosenOptional);
       }}
     />
   {/if}
