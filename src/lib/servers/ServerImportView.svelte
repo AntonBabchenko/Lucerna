@@ -9,6 +9,7 @@
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayCore, pluginCapable, coreToLoaderKind } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import EulaLink from '$lib/servers/EulaLink.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
@@ -326,19 +327,26 @@
       <MemorySlider valueMb={memoryMb} onInput={(mb) => (memoryMb = mb)} />
     </div>
 
-    <!-- EULA -->
-    <label class="flex items-start gap-2 cursor-pointer">
+    <!-- EULA. Same shape as the create wizard: the link lives outside the
+         <label> so reading the agreement never accepts it. -->
+    <div class="flex items-start gap-2">
       <input
+        id="server-import-eula"
         type="checkbox"
         class="mt-0.5 flex-shrink-0"
         bind:checked={eula}
         aria-label={$t('servers.wizard.eula')}
       />
       <span class="flex flex-col gap-0.5">
-        <span class="text-sm">{$t('servers.wizard.eula')}</span>
+        <span class="text-sm">
+          <label for="server-import-eula" class="cursor-pointer"
+            >{$t('servers.wizard.eulaPrefix')}</label
+          >
+          <EulaLink />
+        </span>
         <span class="text-xs text-muted">{$t('servers.wizard.eulaRequired')}</span>
       </span>
-    </label>
+    </div>
 
     {#if error}
       <p class="text-sm text-danger">{error}</p>
