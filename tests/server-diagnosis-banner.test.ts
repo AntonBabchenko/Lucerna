@@ -250,6 +250,17 @@ describe('ServerDiagnosisBanner', () => {
     expect(screen.getByTestId('server-fix-accept-eula')).toBeTruthy();
   });
 
+  it('offers a link to the EULA beside the one-click accept fix', () => {
+    // The fix button is itself an act of acceptance, so the document has to be
+    // readable from here — not only from the create wizard.
+    mockDiagnoses['srv-eula-link'] = makePreflightDiagnosis(
+      'server-eula-not-accepted',
+      'accept_eula',
+    );
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-eula-link' } });
+    expect(screen.getByTestId('eula-link').textContent).toContain('Read the Minecraft EULA');
+  });
+
   it('shows the Stop-orphan fix button carrying the pid', async () => {
     const mod = await import('$lib/servers/server-state.svelte');
     const stopOrphanSpy = mod.serverState.stopOrphan as ReturnType<typeof vi.fn>;
