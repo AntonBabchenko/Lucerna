@@ -3,6 +3,12 @@
 //! the host allowlist is unbypassable. This is a guardrail against
 //! accidental network code, not a sandbox — see the same reasoning in
 //! `tools/check-no-network-calls.mjs`.
+//!
+//! Raw TCP dialing used to be checked here too, exempting the whole
+//! `network/` directory. That clause now lives in
+//! `structural_consented_dial.rs`, which is strictly tighter: it exempts the
+//! single file `network/consent.rs` and additionally bans `UdpSocket`
+//! everywhere.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,7 +42,8 @@ fn no_http_client_outside_network_module() {
             if trimmed.starts_with("//") {
                 continue; // skip comments — `reqwest` is named in several
             }
-            if line.contains("reqwest") || line.contains("TcpStream") {
+            // `TcpStream` is covered by structural_consented_dial.rs.
+            if line.contains("reqwest") {
                 violations.push(format!("{}:{}", file.display(), i + 1));
             }
         }

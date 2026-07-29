@@ -48,7 +48,11 @@ sha1 = "0.11.0"
 hex = "0.4.3"
 reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "stream"] }
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
-tokio = { version = "1.52.3", features = ["fs", "io-util", "process", "rt", "rt-multi-thread", "macros", "time"] }
+# `net` is required by the OAuth loopback listener and the consented-dial tier
+# (`network::consent`). It used to arrive only through feature unification with
+# reqwest/tauri; listing it explicitly keeps a dependency change from silently
+# breaking the build. Same crate, no new transitive tree.
+tokio = { version = "1.52.3", features = ["fs", "io-util", "net", "process", "rt", "rt-multi-thread", "macros", "time"] }
 # url 2.5: RFC 3986 URL parsing for the host-allowlist check on mrpack downloads[]
 url = "2.5"
 uuid = { version = "1.23.1", features = ["v4"] }

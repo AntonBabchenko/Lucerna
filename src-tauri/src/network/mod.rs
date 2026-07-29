@@ -3,10 +3,15 @@
 //!
 //! `use reqwest::*` outside this module is forbidden by `CLAUDE.md`
 //! forbidden patterns.
+//!
+//! [`consent`] is the second, narrower tier: a dial to a host the *user*
+//! supplied, gated on an opt-in Settings permission instead of the allowlist
+//! (which can only ever list destinations Lucerna itself chooses).
 
 pub mod allowlist;
 pub mod bytes;
 pub mod client;
+pub mod consent;
 pub mod download;
 pub mod json;
 pub mod request;

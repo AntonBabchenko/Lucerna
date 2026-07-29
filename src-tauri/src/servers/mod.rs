@@ -1,9 +1,13 @@
 //! Per-instance saved multiplayer servers, backed by the instance's own
-//! `<instance>/.minecraft/servers.dat` (uncompressed NBT). Local-file-only;
-//! this module makes no network calls. The connect action itself reuses the
-//! existing Quick Play launch path — this module only reads/edits the list.
+//! `<instance>/.minecraft/servers.dat` (uncompressed NBT). The list itself is
+//! local-file-only. The connect action reuses the existing Quick Play launch
+//! path — this module only reads/edits the list.
+//!
+//! The one exception to "local files only" is [`ping`]: an opt-in Server List
+//! Ping to the user's own saved servers, gated by `network::consent`.
 
 pub mod nbt;
+pub mod ping;
 
 use serde::Serialize;
 use specta::Type;
