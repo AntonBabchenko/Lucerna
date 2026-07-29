@@ -636,6 +636,23 @@ pub async fn modpack_apply_update(
         &origin.project_name,
     );
     new_origin.files.extend(bundled);
+    // Phase 2 has finished writing the new mod set, so the mods dir can be
+    // re-classified for jars built for a loader family this instance cannot
+    // load. Recomputing beats carrying the old verdict (stale after a loader
+    // change) and beats clearing it (blanks the warning exactly when a loader
+    // migration makes it most useful).
+    let inert_loader_jars = crate::mods::modpack::import::classify_inert_loader_jars(
+        &crate::mods::installed::mods_dir(&inst_root),
+        summary.loader,
+        &summary.game_version,
+    );
+    // The carried notes describe state an apply cannot alter — see
+    // `with_carried_notes`.
+    let new_origin = crate::mods::modpack::import::with_carried_notes(
+        new_origin,
+        origin,
+        inert_loader_jars.clone(),
+    );
     crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
 
     let updated_inst = crate::instances::set_instance_pack_update(
@@ -651,8 +668,10 @@ pub async fn modpack_apply_update(
         instance_id: instance_id.clone(),
         // A version update never touches `overrides/`, so nothing is skipped.
         skipped_overrides: vec![],
-        // No fresh import scan on a version update — nothing to report.
-        inert_loader_jars: vec![],
+        // The mods dir WAS re-classified above, so report it: a switch that
+        // changes the loader family is precisely when the user needs to know
+        // which bundled jars have stopped loading.
+        inert_loader_jars,
     });
     Ok(updated_inst)
 }
@@ -704,11 +723,30 @@ pub async fn modpack_reimport_overrides(
         });
     })
     .await?;
+    // Persist, don't just announce. The drawer's "Bundled files skipped" and
+    // "Files that won't load" sections read `pack_origin`, not this event — so
+    // reporting the fresh lists only here left the persisted ones stale after a
+    // reimport. That staleness used to be cleared by accident on the next
+    // version apply (which wiped the notes); now that an apply correctly carries
+    // them forward, a stale note would survive indefinitely.
+    //
+    // Re-extracting `overrides/` can drop bundled jars into `mods/`, so the
+    // inert-loader classification is redone here too rather than left alone.
+    let inert_loader_jars = crate::mods::modpack::import::classify_inert_loader_jars(
+        &crate::mods::installed::mods_dir(&inst_root),
+        inst.loader,
+        &inst.mc_version,
+    );
+    if let Some(mut origin) = crate::mods::installed::get_pack_origin(&inst_root).await? {
+        origin.skipped_overrides = outcome.skipped.clone();
+        origin.inert_loader_jars = inert_loader_jars.clone();
+        crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
+    }
+
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
         skipped_overrides: outcome.skipped,
-        // Re-extracting overrides does not re-classify the mods folder.
-        inert_loader_jars: vec![],
+        inert_loader_jars,
     });
     Ok(())
 }
