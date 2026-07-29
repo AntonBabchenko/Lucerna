@@ -55,9 +55,12 @@ pub struct PortableCandidate {
 /// Shape test for "this directory is (or was) a Lucerna data root": an
 /// `instances/` directory plus an `app.json` that parses as a JSON object.
 /// `versions/` is deliberately not required — a fresh root lacks it until the
-/// first version install. Keep in sync with the Storage panel's adopt-flow
-/// detector (`data_root::plan::is_data_root` on its branch); the two are
-/// meant to merge into one function once both land.
+/// first version install (`instances::migrate::migrate_or_seed` guarantees
+/// only `app.json` + `instances/`). The JSON check is schema-free on purpose
+/// so roots written by any past launcher version keep detecting. There is no
+/// marker file — this shape check IS the detector, shared by startup portable
+/// adoption (`lib.rs` setup) and the Storage panel's adopt flow
+/// (`commands::plan_data_location_change` / `adopt_data_location`).
 pub fn looks_like_data_root(dir: &Path) -> bool {
     if !dir.join("instances").is_dir() {
         return false;
@@ -349,5 +352,34 @@ mod tests {
 
         std::fs::write(dir.join("app.json"), r#"{"active_instance":null}"#).unwrap();
         assert!(looks_like_data_root(dir));
+    }
+
+    #[test]
+    fn looks_like_data_root_rejects_remaining_shapes() {
+        // Complements the test above with the negatives ported from the
+        // (removed) plan::is_data_root twin: app.json without instances/,
+        // `instances` as a FILE, and a missing dir entirely.
+        let t = tempfile::tempdir().unwrap();
+        assert!(
+            !looks_like_data_root(&t.path().join("nope")),
+            "missing dir is not a root"
+        );
+
+        let only_app = t.path().join("only-app");
+        std::fs::create_dir_all(&only_app).unwrap();
+        std::fs::write(only_app.join("app.json"), "{}").unwrap();
+        assert!(
+            !looks_like_data_root(&only_app),
+            "app.json without instances/ is not a root"
+        );
+
+        let file_instances = t.path().join("file-instances");
+        std::fs::create_dir_all(&file_instances).unwrap();
+        std::fs::write(file_instances.join("instances"), b"").unwrap();
+        std::fs::write(file_instances.join("app.json"), "{}").unwrap();
+        assert!(
+            !looks_like_data_root(&file_instances),
+            "`instances` as a file is not a root"
+        );
     }
 }

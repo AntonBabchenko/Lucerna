@@ -34,15 +34,34 @@ Var LucernaCleanupChoice
     ; here so the helper never races a live launcher over the data root.
     !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-    ; Ask the binary what would remain. It prints a fully-localized inventory
+    ; Ask the binary what would remain. It writes a fully-localized inventory
     ; block (one line per directory with size, saved sign-ins, offline-root
-    ; note) that is embedded VERBATIM below — no NSIS-side parsing. Exit 0 =
-    ; something exists, 2 = nothing to clean. String-compare the code: nsExec
-    ; pushes "error" when the process cannot start, which numeric compares
-    ; treat as 0.
-    nsExec::ExecToStack '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup --list --lang $LANGUAGE'
+    ; note) into a UTF-16LE file that is read back below and embedded
+    ; VERBATIM — the file transport exists because nsExec decodes captured
+    ; stdout through the ANSI codepage, which turns UTF-8 Cyrillic into
+    ; mojibake. Exit 0 = something exists, 2 = nothing to clean.
+    ; String-compare the code: nsExec pushes "error" when the process cannot
+    ; start, which numeric compares treat as 0.
+    nsExec::ExecToStack '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup --list --lang $LANGUAGE --out "$PLUGINSDIR\lucerna-inventory.txt"'
     Pop $0 ; exit code
-    Pop $1 ; localized inventory block
+    Pop $1 ; stdout (unused — UTF-8 would be mangled; kept off the stack)
+    StrCpy $1 ""
+    ${If} $0 == "0"
+      ; Read the UTF-16LE inventory (no BOM) line by line into $1.
+      ; FileReadUTF16LE keeps each line's trailing $\r$\n, so the block's
+      ; own separators survive concatenation.
+      ClearErrors
+      FileOpen $9 "$PLUGINSDIR\lucerna-inventory.txt" r
+      ${IfNot} ${Errors}
+        lucerna_inv_read:
+          FileReadUTF16LE $9 $8
+          IfErrors lucerna_inv_done
+          StrCpy $1 "$1$8"
+          Goto lucerna_inv_read
+        lucerna_inv_done:
+        FileClose $9
+      ${EndIf}
+    ${EndIf}
     ${If} $0 == "0"
     ${AndIf} $1 != ""
       ${If} $LANGUAGE = 1049 ; Russian LCID — installer ships English + Russian

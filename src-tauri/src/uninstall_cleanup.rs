@@ -7,11 +7,14 @@
 //! the binary, as the single source of truth.
 //!
 //! Two modes:
-//! - `--list`: print a localized (EN, or RU for LCID 1049) inventory block —
+//! - `--list`: produce a localized (EN, or RU for LCID 1049) inventory block —
 //!   one line per directory that would be deleted (label, path, size), plus a
 //!   saved-sign-ins summary and an offline-data-root note when applicable.
-//!   The NSIS hook embeds the block VERBATIM in its consent MessageBox — no
-//!   NSIS-side parsing. `\r\n` separators, no trailing newline. Exit 0 when
+//!   With `--out <path>` the block is ALSO written to that file as UTF-16LE
+//!   (no BOM): the NSIS hook reads it via `FileReadUTF16LE` and embeds it
+//!   verbatim in the consent MessageBox — stdout cannot carry it, because
+//!   nsExec decodes captured output through the ANSI codepage and mangles
+//!   UTF-8 Cyrillic. `\r\n` separators, no trailing newline. Exit 0 when
 //!   something exists to clean, 2 when nothing does (the hook skips its
 //!   prompt).
 //! - delete: remove keyring entries first (ids are read from files that are
@@ -536,11 +539,18 @@ fn report<E: std::fmt::Display>(label: String, outcome: Result<(), E>) -> Report
     }
 }
 
+/// UTF-16LE bytes WITHOUT a BOM — the transport encoding for the inventory
+/// file the NSIS hook reads with `FileReadUTF16LE` (which needs no BOM and
+/// would surface one as a stray character on the first line).
+fn utf16le_bytes(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+
 // ----- Windows entry point (the NSIS hook is the only caller) -----
 
-/// Handle `--uninstall-cleanup [--list] [--lang <LCID>]`. Returns
-/// `Some(exit_code)` when the flag is present (the caller exits with it),
-/// `None` to launch normally.
+/// Handle `--uninstall-cleanup [--list] [--lang <LCID>] [--out <path>]`.
+/// Returns `Some(exit_code)` when the flag is present (the caller exits with
+/// it), `None` to launch normally.
 #[cfg(windows)]
 pub fn maybe_run_from_args(identifier: &str) -> Option<i32> {
     let args: Vec<String> = std::env::args().collect();
@@ -554,11 +564,16 @@ pub fn maybe_run_from_args(identifier: &str) -> Option<i32> {
         .and_then(|i| args.get(i + 1))
         .map(|v| Lang::from_lcid(v))
         .unwrap_or(Lang::En);
-    Some(run(identifier, list_only, lang))
+    let out = args
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from);
+    Some(run(identifier, list_only, lang, out))
 }
 
 #[cfg(windows)]
-fn run(identifier: &str, list_only: bool, lang: Lang) -> i32 {
+fn run(identifier: &str, list_only: bool, lang: Lang, out: Option<PathBuf>) -> i32 {
     use std::io::Write;
     let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) else {
         eprintln!("APPDATA is not set");
@@ -585,6 +600,17 @@ fn run(identifier: &str, list_only: bool, lang: Lang) -> i32 {
         let Some(block) = inventory_block(&plan, lang) else {
             return 2;
         };
+        // The NSIS hook reads the block from a UTF-16LE file, NOT from
+        // stdout: nsExec decodes captured output through the ANSI codepage,
+        // which turns UTF-8 Cyrillic into mojibake. The Unicode NSIS build
+        // reads UTF-16LE natively via FileReadUTF16LE. Stdout still gets the
+        // UTF-8 block for humans running --list by hand.
+        if let Some(path) = &out {
+            if let Err(e) = std::fs::write(path, utf16le_bytes(&block)) {
+                eprintln!("cannot write inventory file {}: {e}", path.display());
+                return 1;
+            }
+        }
         print!("{block}");
         let _ = std::io::stdout().flush();
         return 0;
@@ -1021,6 +1047,21 @@ mod tests {
         assert_eq!(format_size(14_800_000_000), "13.8 GB");
         assert_eq!(format_size_lang(14_800_000_000, Lang::Ru), "13,8 ГБ");
         assert_eq!(format_size_lang(250 * 1024 * 1024, Lang::Ru), "250 МБ");
+    }
+
+    #[test]
+    fn utf16le_bytes_round_trip_without_bom() {
+        let block = "Игровые данные: C:\\X (13,5 ГБ)\r\nSaved sign-ins: 2";
+        let bytes = utf16le_bytes(block);
+        assert!(
+            !bytes.starts_with(&[0xFF, 0xFE]),
+            "no BOM — FileReadUTF16LE would surface it as a stray char"
+        );
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(String::from_utf16(&units).unwrap(), block);
     }
 
     #[test]
