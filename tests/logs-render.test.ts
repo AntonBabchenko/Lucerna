@@ -154,6 +154,14 @@ describe('collapseRepeats', () => {
     expect(out.every((u) => u.kind === 'line')).toBe(true);
   });
 
+  it('collapses a run of exactly the threshold', () => {
+    // Pins the boundary: `run >= threshold`, not `run > threshold`. Without
+    // this, an off-by-one would still pass every other case here.
+    const out = collapseRepeats([spam(1), spam(2), spam(3)]);
+    expect(out.length).toBe(1);
+    expect(out[0].kind === 'repeat' && out[0].count).toBe(3);
+  });
+
   it('does not collapse lines from different threads', () => {
     // Thread names are real information: Worker-1 and Worker-2 are different
     // producers, and merging them would hide that.

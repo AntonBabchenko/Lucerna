@@ -487,13 +487,12 @@ pub async fn mods_install_with_deps(
             installed_dependencies.push(inst.name.clone());
         }
     }
-    if let Some(sha1) = primary_sha1 {
-        crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
-    }
     // ONE journal row per user action, not one per written jar: "installed
     // Create" is the history the user recognises, with the dependency count as
-    // supporting detail. Written after the batch commits, so a rolled-back
-    // install leaves no trace.
+    // supporting detail. Written after the batch COMMITS (so a rolled-back
+    // install leaves no trace) but BEFORE the fallible `set_requires` below —
+    // the jars are already durably on disk at this point, so a `set_requires`
+    // failure must not erase the record of a change that really happened.
     crate::journal::record(
         &inst_root,
         crate::journal::JournalEvent::Content {
@@ -504,6 +503,9 @@ pub async fn mods_install_with_deps(
             affected: Some(installed_all.len() as f64),
         },
     );
+    if let Some(sha1) = primary_sha1 {
+        crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
+    }
     Ok(crate::mods::platform::InstallSummary {
         primary_name: primary_v.name.clone(),
         installed_dependencies,
@@ -1972,12 +1974,17 @@ pub async fn mods_install_missing_required(
         return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
     }
 
+    // `candidate` is consumed by `install_one`; keep its version for the journal
+    // so this path's rows carry the same detail as every other platform install.
+    let candidate_version = candidate.version_number.clone();
     let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
     crate::journal::record(
         &inst_root,
-        crate::journal::content(
+        crate::journal::content_versioned(
             crate::journal::ContentAction::ModInstalled,
             inst.name.clone(),
+            None,
+            Some(candidate_version),
         ),
     );
     let _ = ModInstalled {

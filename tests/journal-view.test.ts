@@ -194,6 +194,7 @@ describe('copy-map completeness', () => {
 
   it('has en+ru copy for every static journal string the panel renders', () => {
     const keys = [
+      'logs.journal.viewSwitchLabel',
       'logs.journal.viewLogs',
       'logs.journal.viewJournal',
       'logs.journal.title',

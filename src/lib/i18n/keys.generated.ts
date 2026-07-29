@@ -608,6 +608,7 @@ export type TranslationKey =
   | 'logs.journal.title'
   | 'logs.journal.viewJournal'
   | 'logs.journal.viewLogs'
+  | 'logs.journal.viewSwitchLabel'
   | 'logs.manage.clearOld'
   | 'logs.manage.clearOldBody'
   | 'logs.manage.clearOldTitle'

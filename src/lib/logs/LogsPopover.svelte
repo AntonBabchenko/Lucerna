@@ -914,7 +914,7 @@
               },
             ]}
             value={view}
-            ariaLabel={$t('logs.toolbar.title')}
+            ariaLabel={$t('logs.journal.viewSwitchLabel')}
             onChange={(v) => (view = v as LogsView)}
           />
         </div>
@@ -1388,11 +1388,26 @@
                             {:else if unit.kind === 'repeat'}
                               {@const hintId = annotations.get(unit.index)}
                               {@const isExpanded = repeatExpanded.get(unitKey) ?? false}
+                              <!-- svelte-ignore a11y_no_static_element_interactions -- same
+                                 split as the line branch: pointer handlers only arm/disarm the
+                                 hover card, the keyboard path is the badge button. -->
                               <div
                                 class={severityLineClass(unit.level, hintGutter)}
                                 class:min-w-max={!wrap}
                                 class:log-row-hint={hintId}
+                                onpointerenter={hintId
+                                  ? (e) =>
+                                      activateHint(hintId, e.currentTarget as HTMLElement, false)
+                                  : undefined}
+                                onpointerleave={hintId ? () => hints.rowLeave() : undefined}
                               >
+                                {#if hintId}
+                                  <LogHintBadge
+                                    onActivate={(el, viaFocus) =>
+                                      activateHint(hintId, el, viaFocus)}
+                                    onLeave={() => hints.rowLeave()}
+                                  />
+                                {/if}
                                 <button
                                   type="button"
                                   class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
@@ -1504,11 +1519,24 @@
                     {:else if unit.kind === 'repeat'}
                       {@const hintId = annotations.get(unit.index)}
                       {@const isExpanded = repeatExpanded.get(ui) ?? false}
+                      <!-- svelte-ignore a11y_no_static_element_interactions -- same split as the
+                           line branch: pointer handlers only arm/disarm the hover card, the
+                           keyboard-accessible path is the badge button. -->
                       <div
                         class="log-row {severityLineClass(unit.level, hintGutter)}"
                         class:min-w-max={!wrap}
                         class:log-row-hint={hintId}
+                        onpointerenter={hintId
+                          ? (e) => activateHint(hintId, e.currentTarget as HTMLElement, false)
+                          : undefined}
+                        onpointerleave={hintId ? () => hints.rowLeave() : undefined}
                       >
+                        {#if hintId}
+                          <LogHintBadge
+                            onActivate={(el, viaFocus) => activateHint(hintId, el, viaFocus)}
+                            onLeave={() => hints.rowLeave()}
+                          />
+                        {/if}
                         <button
                           type="button"
                           class="btn-tertiary text-left w-full"

@@ -1412,6 +1412,7 @@
       "repeatCount": "×{count}"
     },
     "journal": {
+      "viewSwitchLabel": "Вид",
       "viewLogs": "Логи",
       "viewJournal": "Журнал",
       "title": "История профиля",

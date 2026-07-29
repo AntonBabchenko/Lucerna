@@ -194,7 +194,33 @@ fn write_lock() -> &'static Mutex<()> {
 /// Infallible by design: a journal write is never worth failing the install /
 /// launch / repair that produced it. Errors go to the launcher log.
 pub fn record(instance_root: &Path, event: JournalEvent) {
-    if let Err(e) = append(instance_root, event) {
+    // Timestamp NOW, not when the write lands: most call sites are async and
+    // hand the file work to the blocking pool below, so stamping later would let
+    // two records taken in a known order come out reordered.
+    let entry = JournalEntry {
+        at_unix_ms: chrono::Utc::now().timestamp_millis() as f64,
+        event,
+    };
+    // Off the async worker when there is a runtime to offload onto. The write is
+    // small, but it is still an open + append + occasional 256 KB rewrite under a
+    // blocking mutex — that has no business sitting on a tokio worker thread
+    // where it would stall unrelated tasks (AV scanners on Windows routinely add
+    // tens of milliseconds per write).
+    //
+    // No runtime means a synchronous caller — notably `kill_all_running` on app
+    // exit, where writing inline is not just acceptable but REQUIRED: a spawned
+    // task would not survive process teardown, and that launch row would vanish.
+    match tokio::runtime::Handle::try_current() {
+        Ok(_) => {
+            let root = instance_root.to_path_buf();
+            tokio::task::spawn_blocking(move || write_or_log(&root, &entry));
+        }
+        Err(_) => write_or_log(instance_root, &entry),
+    }
+}
+
+fn write_or_log(instance_root: &Path, entry: &JournalEntry) {
+    if let Err(e) = append_entry(instance_root, entry) {
         crate::diag!(
             "journal: failed to record at {}: {e}",
             instance_root.display()
@@ -202,7 +228,9 @@ pub fn record(instance_root: &Path, event: JournalEvent) {
     }
 }
 
-/// Fallible core of [`record`]. Separate so tests can assert on the error.
+/// Fallible, synchronous append of `event` stamped with the current time.
+/// Used by tests, which need the error and a deterministic completion.
+#[cfg(test)]
 fn append(instance_root: &Path, event: JournalEvent) -> Result<()> {
     let entry = JournalEntry {
         at_unix_ms: chrono::Utc::now().timestamp_millis() as f64,
@@ -309,7 +337,13 @@ pub fn read(instance_root: &Path, limit: usize) -> Result<Vec<JournalEntry>> {
 }
 
 /// Delete the journal. Missing file is a no-op — "clear" is idempotent.
+///
+/// Takes the same lock as append/trim. Without it, a clear racing an in-flight
+/// append can unlink the file from under a still-open handle (both POSIX unlink
+/// and Windows `FILE_SHARE_DELETE` allow this), and the append's already-reported
+/// line is silently discarded when that handle closes.
 pub fn clear(instance_root: &Path) -> Result<()> {
+    let _guard = write_lock().lock().unwrap_or_else(|p| p.into_inner());
     let path = journal_path(instance_root);
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
@@ -431,12 +465,20 @@ mod tests {
     }
 
     #[test]
-    fn read_limit_zero_is_clamped_not_empty() {
+    fn read_clamps_the_limit_to_one_at_the_bottom_and_max_entries_at_the_top() {
+        // `read` clamps to `[1, MAX_ENTRIES]`; substituting a sensible page size
+        // for `0` is the COMMAND layer's job, not this function's. A `0` that
+        // silently returned an empty history would look like "no activity".
         let td = tempfile::tempdir().unwrap();
-        append_entry(td.path(), &entry_at(1_000.0, "only")).unwrap();
-        assert_eq!(read(td.path(), 0).unwrap().len(), 1);
-        // And an absurd limit is capped at MAX_ENTRIES rather than trusted.
-        assert_eq!(read(td.path(), usize::MAX).unwrap().len(), 1);
+        for i in 0..5 {
+            append_entry(td.path(), &entry_at(i as f64 * 1_000.0, &format!("m{i}"))).unwrap();
+        }
+        let floor = read(td.path(), 0).unwrap();
+        assert_eq!(floor.len(), 1, "0 clamps up to 1, never to empty");
+        assert_eq!(floor[0].at_unix_ms, 4_000.0, "and it is the NEWEST entry");
+        // An absurd limit is capped rather than trusted; with only 5 rows on
+        // disk that means all 5, not a panic and not MAX_ENTRIES of padding.
+        assert_eq!(read(td.path(), usize::MAX).unwrap().len(), 5);
     }
 
     #[test]
@@ -474,6 +516,49 @@ mod tests {
         record(td.path(), content(ContentAction::ModRemoved, "Sodium"));
         // And the fallible core does report it, so callers that care can.
         assert!(append(td.path(), content(ContentAction::ModRemoved, "Sodium")).is_err());
+    }
+
+    #[test]
+    fn concurrent_records_produce_whole_non_interleaved_lines() {
+        // The guarantee the write lock exists for. A bulk install fans several
+        // journal writes out across threads; without serialisation two partial
+        // lines could interleave and BOTH rows would be lost to the
+        // skip-malformed reader — silently, since `record` reports nothing.
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().to_path_buf();
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 25;
+        let handles: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    for i in 0..PER_THREAD {
+                        append(
+                            &root,
+                            content(ContentAction::ModInstalled, format!("t{t}-{i}")),
+                        )
+                        .expect("append succeeds");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("worker thread did not panic");
+        }
+
+        let body = std::fs::read_to_string(journal_path(&root)).unwrap();
+        let total_lines = body.lines().filter(|l| !l.trim().is_empty()).count();
+        let parsed = parse_lines(&body);
+        assert_eq!(
+            total_lines,
+            THREADS * PER_THREAD,
+            "every append wrote a line"
+        );
+        assert_eq!(
+            parsed.len(),
+            THREADS * PER_THREAD,
+            "and every line parsed — none were torn by an interleaved write"
+        );
     }
 
     #[test]

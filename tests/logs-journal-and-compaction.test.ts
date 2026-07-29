@@ -155,6 +155,39 @@ describe('repeat collapse in the log body', () => {
     expect(occurrences).toBe(4);
   });
 
+  it('a collapsed row still carries its inline hint badge', async () => {
+    // The whole point of keeping `index` on a repeat unit: the lines that
+    // repeat are exactly the lines most likely to be annotated, so folding them
+    // must not make the hint unreachable.
+    vi.mocked(commands.annotateLogFile).mockResolvedValue({
+      status: 'ok',
+      data: {
+        // Line 1 is the first member of the spam run.
+        annotations: [{ line: 1, pattern_id: 'server-cant-keep-up' }],
+        patterns: [
+          {
+            id: 'server-cant-keep-up',
+            title: 'The server is falling behind',
+            explanation: 'e',
+            recommendation: 'r',
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+
+    const { findByText, getAllByTestId, container } = render(LogsPopover, { props });
+    await fireEvent.click(await findByText('latest.log'));
+    await waitFor(() => expect(getAllByTestId('logs-repeat-count').length).toBe(1));
+
+    const chip = getAllByTestId('logs-repeat-count')[0];
+    const row = chip.closest('div.log-row') as HTMLElement;
+    await waitFor(() => expect(row.querySelector('.log-hint-badge')).not.toBeNull());
+    // Exactly one badge: the annotation belongs to the run's representative, and
+    // the collapsed members must not each sprout their own.
+    expect(container.querySelectorAll('.log-hint-badge').length).toBe(1);
+  });
+
   it('search still finds and counts the collapsed representative', async () => {
     const { findByText, getAllByTestId, getByPlaceholderText } = render(LogsPopover, { props });
     await fireEvent.click(await findByText('latest.log'));
