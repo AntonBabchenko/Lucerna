@@ -129,6 +129,34 @@ pub fn build_pack_origin(
     }
 }
 
+/// Carry forward the `pack_origin` notes an apply does not invalidate.
+///
+/// `build_pack_origin` is pure — no disk or archive access — so it always starts
+/// `skipped_overrides` / `resolved_missing` / `inert_loader_jars` empty and the
+/// import orchestrator fills them in afterwards. An apply has no orchestrator
+/// pass: it deliberately never re-extracts the archive's `overrides/`, which
+/// means the files those notes describe are still exactly where the import left
+/// them. Rebuilding the origin without carrying the notes therefore wipes the
+/// drawer's "Bundled files skipped" / "Files that won't load" sections and the
+/// user's resolved-missing acknowledgments while the files are still on disk.
+///
+/// `inert_loader_jars` is the one exception: it is carried only when the loader
+/// family is unchanged. A loader change makes the old classification wrong in
+/// both directions (a previously inert jar may now load), and stale data is
+/// worse than none — a re-import or a verify pass re-derives it.
+pub(crate) fn with_carried_notes(
+    mut new_origin: PackOrigin,
+    old: &PackOrigin,
+    loader_changed: bool,
+) -> PackOrigin {
+    new_origin.skipped_overrides = old.skipped_overrides.clone();
+    new_origin.resolved_missing = old.resolved_missing.clone();
+    if !loader_changed {
+        new_origin.inert_loader_jars = old.inert_loader_jars.clone();
+    }
+    new_origin
+}
+
 /// Scan jars in `mods_dir`, returning those built for a loader family the
 /// `instance_loader` cannot load (inert here). Best-effort: an unreadable jar
 /// is skipped, never fatal. Deduped by filename. Loader-FAMILY only (delegates
@@ -2450,5 +2478,89 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].filename, "x.jar");
         assert_eq!(out[1].filename, "y.jar");
+    }
+
+    // --- with_carried_notes ---
+
+    fn noted_origin() -> PackOrigin {
+        PackOrigin {
+            project_id: Some("proj".into()),
+            source: ModSource::Modrinth,
+            project_name: "Pack".into(),
+            version: "1.0.0".into(),
+            files: vec![],
+            missing_mods: vec![],
+            skipped_overrides: vec![SkippedOverride {
+                path: "mods/mods.rar".into(),
+                size: 261_361_205.0,
+            }],
+            resolved_missing: vec![crate::mods::installed::ResolvedMissing {
+                filename: "blocked.jar".into(),
+                mod_name: "Blocked Mod".into(),
+                sha1: "aabb".into(),
+            }],
+            inert_loader_jars: vec![InertLoaderJar {
+                filename: "fabric-only.jar".into(),
+                detected_loader: "Fabric".into(),
+            }],
+        }
+    }
+
+    fn rebuilt_origin() -> PackOrigin {
+        PackOrigin {
+            project_id: Some("proj".into()),
+            source: ModSource::Modrinth,
+            project_name: "Pack".into(),
+            version: "2.0.0".into(),
+            files: vec![],
+            missing_mods: vec![],
+            skipped_overrides: vec![],
+            resolved_missing: vec![],
+            inert_loader_jars: vec![],
+        }
+    }
+
+    #[test]
+    fn carried_notes_keep_skipped_overrides_across_an_apply() {
+        // An apply never re-extracts `overrides/`, so a skipped oversized
+        // bundled file is still on disk and still skipped — the note stays true.
+        let out = with_carried_notes(rebuilt_origin(), &noted_origin(), false);
+        assert_eq!(out.skipped_overrides.len(), 1);
+        assert_eq!(out.skipped_overrides[0].path, "mods/mods.rar");
+    }
+
+    #[test]
+    fn carried_notes_keep_resolved_missing_across_an_apply() {
+        // The user's "I installed a substitute for this blocked mod"
+        // acknowledgment must not reset on every version change.
+        let out = with_carried_notes(rebuilt_origin(), &noted_origin(), false);
+        assert_eq!(out.resolved_missing.len(), 1);
+        assert_eq!(out.resolved_missing[0].filename, "blocked.jar");
+    }
+
+    #[test]
+    fn carried_notes_keep_inert_jars_when_loader_unchanged() {
+        let out = with_carried_notes(rebuilt_origin(), &noted_origin(), false);
+        assert_eq!(out.inert_loader_jars.len(), 1);
+        assert_eq!(out.inert_loader_jars[0].filename, "fabric-only.jar");
+    }
+
+    #[test]
+    fn carried_notes_drop_inert_jars_when_loader_changed() {
+        // A loader change makes the old classification actively wrong — a jar
+        // that was inert may now load, and vice versa. Stale data is worse than
+        // none; a re-import or verify re-derives it.
+        let out = with_carried_notes(rebuilt_origin(), &noted_origin(), true);
+        assert!(out.inert_loader_jars.is_empty());
+        // The other two notes are unaffected by a loader change.
+        assert_eq!(out.skipped_overrides.len(), 1);
+        assert_eq!(out.resolved_missing.len(), 1);
+    }
+
+    #[test]
+    fn carried_notes_do_not_touch_the_new_origins_own_fields() {
+        let out = with_carried_notes(rebuilt_origin(), &noted_origin(), false);
+        assert_eq!(out.version, "2.0.0");
+        assert_eq!(out.project_name, "Pack");
     }
 }

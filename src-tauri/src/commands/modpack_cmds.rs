@@ -636,6 +636,15 @@ pub async fn modpack_apply_update(
         &origin.project_name,
     );
     new_origin.files.extend(bundled);
+    // The origin's notes describe files an apply never touches (`overrides/` is
+    // not re-extracted), so they survive the version change. Inert-jar
+    // classification is dropped when the loader family changes — see
+    // `with_carried_notes`.
+    let new_origin = crate::mods::modpack::import::with_carried_notes(
+        new_origin,
+        &origin,
+        summary.loader != inst.loader,
+    );
     crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
 
     let updated_inst = crate::instances::set_instance_pack_update(
