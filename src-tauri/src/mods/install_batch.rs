@@ -9,6 +9,13 @@
 //!   failure, best-effort rollback: newly-created files and newly-added
 //!   registry records of every attempted item are removed; pre-existing
 //!   files/records are never touched. `reconcile()` self-heals any residue.
+//!
+//! The two pre-run snapshots (mods/ file names, registry SHA-1s) are read
+//! independently and can in principle disagree if a concurrent mutation lands
+//! between the reads — the rollback halves then act on slightly different
+//! truths. That window is milliseconds wide and any resulting orphan record
+//! is dropped by the registry's next reconciling `list()`, so it is accepted
+//! rather than locked against.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -16,7 +23,7 @@ use std::path::Path;
 use crate::error::Error;
 use crate::mods::install::{self, Installed, ProgressFn};
 use crate::mods::installed;
-use crate::mods::platform::{ModSource, ModVersion};
+use crate::mods::platform::ModVersion;
 
 /// Which sequence member failed and why. The caller emits its
 /// `mod-install-failed` event from `project_id` and surfaces `error`.
@@ -26,20 +33,20 @@ pub struct BatchFailure {
     pub error: Error,
 }
 
-/// Install `items` in order, atomically. `on_installed` fires after each item
-/// lands (the caller emits its per-mod event from it). On success returns the
-/// per-item outcomes in `items` order.
+/// Install `items` in order, atomically. On success returns the per-item
+/// outcomes in `items` order — the caller emits its per-mod events from them
+/// AFTER the whole batch has committed, so a rollback can never contradict an
+/// already-sent success event.
 pub async fn install_batch(
     data_dir: &Path,
     instance_root: &Path,
-    items: Vec<ModVersion>,
+    items: &[ModVersion],
     progress: &ProgressFn,
-    on_installed: &(dyn Fn(&Installed) + Send + Sync),
 ) -> Result<Vec<Installed>, BatchFailure> {
     // Phase 0 — guards over the whole sequence before any I/O.
     let mut shas: Vec<String> = Vec::with_capacity(items.len());
-    for v in &items {
-        match guard_item(v) {
+    for v in items {
+        match install::guard_version(v) {
             Ok(sha) => shas.push(sha),
             Err(error) => {
                 return Err(BatchFailure {
@@ -73,14 +80,17 @@ pub async fn install_batch(
     // so rollback can distinguish what this run created. `None` = snapshot
     // unreadable → rollback stays conservative for that half.
     let pre_files = pre_existing_files(instance_root).await;
+    if pre_files.is_none() {
+        crate::diag!("install_batch: mods/ unreadable — a rollback would skip file removals");
+    }
     let pre_shas = pre_existing_shas(instance_root).await;
+    if pre_shas.is_none() {
+        crate::diag!("install_batch: registry unreadable — a rollback would skip record removals");
+    }
     let mut done: Vec<Installed> = Vec::new();
     for (i, v) in items.iter().enumerate() {
         match install::install_one(data_dir, instance_root, v.clone(), progress).await {
-            Ok(inst) => {
-                on_installed(&inst);
-                done.push(inst);
-            }
+            Ok(inst) => done.push(inst),
             Err(error) => {
                 rollback(instance_root, &items[..=i], &pre_files, &pre_shas).await;
                 return Err(BatchFailure {
@@ -93,34 +103,11 @@ pub async fn install_batch(
     Ok(done)
 }
 
-/// Pre-instance-I/O checks for one item; returns the normalized (lowercased)
-/// SHA-1 on success. Mirrors the guard block of `install_one` / `update_one`.
-fn guard_item(v: &ModVersion) -> Result<String, Error> {
-    if !crate::mods::modpack::path_safety::is_safe_filename(&v.primary_file.filename) {
-        return Err(Error::ModsUnsafeFilename {
-            filename: v.primary_file.filename.clone(),
-        });
-    }
-    if !v.primary_file.distribution_allowed {
-        return Err(Error::ModsDistributionDisabled {
-            platform: match v.source {
-                ModSource::Modrinth => "modrinth",
-                ModSource::Curseforge => "curseforge",
-                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
-                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
-                ModSource::Hangar => "hangar",
-            }
-            .into(),
-            project_id: v.project_id.clone(),
-        });
-    }
-    match v.primary_file.sha1.as_deref().map(str::trim) {
-        Some(s) if !s.is_empty() => Ok(s.to_ascii_lowercase()),
-        _ => Err(Error::ModsSha1Unavailable),
-    }
-}
-
-/// File names currently in `mods/`. `Some(empty)` for a missing dir (fresh
+/// Lowercased file names currently in `mods/`. Lowercased because the
+/// filesystems this launcher primarily targets (Windows, default macOS) are
+/// case-insensitive: a candidate `sodium.jar` collides with an on-disk
+/// `Sodium.jar` there, so the rollback's pre-existing protection must compare
+/// names the way the filesystem does. `Some(empty)` for a missing dir (fresh
 /// instance), `None` when the dir exists but cannot be read — the rollback
 /// then skips file removals rather than risk deleting pre-existing jars.
 async fn pre_existing_files(instance_root: &Path) -> Option<HashSet<String>> {
@@ -134,7 +121,7 @@ async fn pre_existing_files(instance_root: &Path) -> Option<HashSet<String>> {
     loop {
         match rd.next_entry().await {
             Ok(Some(e)) => {
-                out.insert(e.file_name().to_string_lossy().to_string());
+                out.insert(e.file_name().to_string_lossy().to_ascii_lowercase());
             }
             Ok(None) => break,
             Err(_) => return None,
@@ -172,7 +159,8 @@ async fn rollback(
     if let Some(pre_files) = pre_files {
         for v in attempted {
             let filename = &v.primary_file.filename;
-            if pre_files.contains(filename) {
+            // Case-insensitive on purpose — see `pre_existing_files`.
+            if pre_files.contains(&filename.to_ascii_lowercase()) {
                 continue; // pre-existing file (idempotent reinstall) — keep
             }
             let p = dir.join(filename);
@@ -205,19 +193,14 @@ async fn rollback(
 mod tests {
     use super::*;
     use crate::mods::cache;
-    use crate::mods::platform::{LoaderKind, ModFile};
+    use crate::mods::platform::{LoaderKind, ModFile, ModSource};
     use sha1::{Digest, Sha1};
-    use std::sync::Mutex;
     use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn nop_progress() -> ProgressFn {
         Box::new(|_, _, _| {})
-    }
-
-    fn nop_on_installed() -> impl Fn(&Installed) + Send + Sync {
-        |_: &Installed| {}
     }
 
     fn fake_version(url: String, sha: String, len: u64, filename: &str, pid: &str) -> ModVersion {
@@ -270,8 +253,7 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let cb = nop_on_installed();
-        let f = install_batch(td_data.path(), td_inst.path(), items, &nop_progress(), &cb)
+        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
             .await
             .unwrap_err();
         assert_eq!(f.project_id, "p-missing");
@@ -307,8 +289,7 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let cb = nop_on_installed();
-        let f = install_batch(td_data.path(), td_inst.path(), items, &nop_progress(), &cb)
+        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
             .await
             .unwrap_err();
         assert_eq!(f.project_id, "p-b");
@@ -322,6 +303,86 @@ mod tests {
         );
         let listed = installed::list(td_inst.path()).await.unwrap();
         assert!(!listed.iter().any(|m| m.sha1.eq_ignore_ascii_case(&sha_a)));
+    }
+
+    #[tokio::test]
+    async fn intra_batch_filename_collision_rolls_back_cleanly() {
+        let s = MockServer::start().await;
+        let sha1 = mock_jar(&s, "/x1.jar", b"x-first").await;
+        let sha2 = mock_jar(&s, "/x2.jar", b"x-second").await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        // Two DIFFERENT files sharing one target filename: item 2's commit
+        // conflicts against item 1's own freshly-written jar, and the
+        // rollback must undo item 1 without tripping on the shared name.
+        let items = vec![
+            fake_version(
+                format!("{}/x1.jar", s.uri()),
+                sha1.clone(),
+                7,
+                "x.jar",
+                "p-x1",
+            ),
+            fake_version(format!("{}/x2.jar", s.uri()), sha2, 8, "x.jar", "p-x2"),
+        ];
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
+            .await
+            .unwrap_err();
+        assert_eq!(f.project_id, "p-x2");
+        assert!(matches!(f.error, Error::ModsFilenameConflict { .. }));
+        assert!(!installed::mods_dir(td_inst.path()).join("x.jar").exists());
+        assert!(installed::list(td_inst.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn rollback_protects_pre_existing_files_case_insensitively() {
+        // Windows/macOS default filesystems are case-insensitive: a candidate
+        // named `sodium.jar` collides with a pre-existing `Sodium.jar`. The
+        // pre-run snapshot must protect that file regardless of case, or the
+        // rollback would delete the very file the conflict guard refused to
+        // overwrite. (On a case-sensitive filesystem the remove targets a
+        // different name and no-ops — the assertion holds on every platform.)
+        // Both case directions: on-disk uppercase vs lowercase candidate AND
+        // on-disk lowercase vs mixed-case candidate — a regression on either
+        // side of the comparison (snapshot or lookup) must trip one of them.
+        let td_inst = TempDir::new().unwrap();
+        let dir = installed::mods_dir(td_inst.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        tokio::fs::write(dir.join("Sodium.jar"), b"pre-existing")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("lithium.jar"), b"pre-existing-2")
+            .await
+            .unwrap();
+        let attempted = vec![
+            fake_version(
+                "http://127.0.0.1:1/sodium.jar".into(),
+                "a".repeat(40),
+                12,
+                "sodium.jar",
+                "p-sodium",
+            ),
+            fake_version(
+                "http://127.0.0.1:1/Lithium.jar".into(),
+                "b".repeat(40),
+                14,
+                "Lithium.jar",
+                "p-lithium",
+            ),
+        ];
+        let pre_files = pre_existing_files(td_inst.path()).await;
+        let pre_shas = pre_existing_shas(td_inst.path()).await;
+        rollback(td_inst.path(), &attempted, &pre_files, &pre_shas).await;
+        assert_eq!(
+            tokio::fs::read(dir.join("Sodium.jar")).await.unwrap(),
+            b"pre-existing"
+        );
+        assert_eq!(
+            tokio::fs::read(dir.join("lithium.jar")).await.unwrap(),
+            b"pre-existing-2"
+        );
     }
 
     #[tokio::test]
@@ -353,8 +414,7 @@ mod tests {
             pre, // idempotent re-install
             fake_version(format!("{}/con.jar", s.uri()), sha_b, 7, "con.jar", "p-con"),
         ];
-        let cb = nop_on_installed();
-        let f = install_batch(td_data.path(), td_inst.path(), items, &nop_progress(), &cb)
+        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
             .await
             .unwrap_err();
         assert_eq!(f.project_id, "p-con");
@@ -365,7 +425,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn success_installs_all_in_order_and_fires_on_installed() {
+    async fn success_installs_all_in_order() {
         let s = MockServer::start().await;
         let sha_a = mock_jar(&s, "/s1.jar", b"s1").await;
         let sha_b = mock_jar(&s, "/s2.jar", b"s2").await;
@@ -387,25 +447,14 @@ mod tests {
                 "p-2",
             ),
         ];
-        let seen: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        let on_installed = |inst: &Installed| {
-            seen.lock().unwrap().push(inst.filename.clone());
-        };
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let done = install_batch(
-            td_data.path(),
-            td_inst.path(),
-            items,
-            &nop_progress(),
-            &on_installed,
-        )
-        .await
-        .unwrap();
+        let done = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
+            .await
+            .unwrap();
         assert_eq!(done.len(), 2);
         assert_eq!(done[0].sha1, sha_a);
         assert_eq!(done[1].sha1, sha_b);
-        assert_eq!(*seen.lock().unwrap(), vec!["s1.jar", "s2.jar"]);
         let dir = installed::mods_dir(td_inst.path());
         assert!(dir.join("s1.jar").exists());
         assert!(dir.join("s2.jar").exists());
@@ -446,8 +495,7 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let cb = nop_on_installed();
-        let f = install_batch(td_data.path(), td_inst.path(), items, &nop_progress(), &cb)
+        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
             .await
             .unwrap_err();
         assert_eq!(f.project_id, "p-g2");

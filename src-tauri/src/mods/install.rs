@@ -168,25 +168,21 @@ pub(crate) async fn fetch_to_cache_md5(
     Ok((cached_path, computed_sha1))
 }
 
-pub async fn install_one(
-    data_dir: &Path,
-    instance_root: &Path,
-    version: ModVersion,
-    progress: &ProgressFn,
-) -> Result<Installed, Error> {
-    // Guard FIRST — before any network or filesystem I/O — that the
-    // platform-supplied filename is a safe single segment. `filename` comes
-    // straight from the Modrinth/CurseForge API; a value like `../../evil.jar`
-    // would otherwise `join` outside the instance `mods/` directory.
-    if !crate::mods::modpack::path_safety::is_safe_filename(&version.primary_file.filename) {
+/// Pre-I/O guards shared by every mod-install path: the platform-supplied
+/// filename must be a safe single segment (a hostile `../../evil.jar` would
+/// otherwise `join` outside the instance `mods/` directory), distribution must
+/// be allowed, and a SHA-1 must be present (no-TOFU). Returns the normalized
+/// (trimmed, lowercased) SHA-1. Kept in one place so the single-install,
+/// update and batch pipelines cannot drift apart.
+pub(crate) fn guard_version(v: &ModVersion) -> Result<String, Error> {
+    if !crate::mods::modpack::path_safety::is_safe_filename(&v.primary_file.filename) {
         return Err(Error::ModsUnsafeFilename {
-            filename: version.primary_file.filename.clone(),
+            filename: v.primary_file.filename.clone(),
         });
     }
-
-    if !version.primary_file.distribution_allowed {
+    if !v.primary_file.distribution_allowed {
         return Err(Error::ModsDistributionDisabled {
-            platform: match version.source {
+            platform: match v.source {
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
@@ -194,16 +190,23 @@ pub async fn install_one(
                 ModSource::Hangar => "hangar",
             }
             .into(),
-            project_id: version.project_id.clone(),
+            project_id: v.project_id.clone(),
         });
     }
-    let sha = version
-        .primary_file
-        .sha1
-        .as_ref()
-        .cloned()
-        .ok_or(Error::ModsSha1Unavailable)?;
-    let sha_lower = sha.to_ascii_lowercase();
+    match v.primary_file.sha1.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => Ok(s.to_ascii_lowercase()),
+        _ => Err(Error::ModsSha1Unavailable),
+    }
+}
+
+pub async fn install_one(
+    data_dir: &Path,
+    instance_root: &Path,
+    version: ModVersion,
+    progress: &ProgressFn,
+) -> Result<Installed, Error> {
+    // Guards FIRST — before any network or filesystem I/O.
+    let sha_lower = guard_version(&version)?;
 
     let cached_path = fetch_to_cache(
         data_dir,
@@ -614,30 +617,7 @@ pub async fn update_one(
     // API filename is rejected before any network I/O — mirroring the
     // guard-first ordering in `install_one`.
     for v in std::iter::once(&target).chain(required_deps.iter()) {
-        if !crate::mods::modpack::path_safety::is_safe_filename(&v.primary_file.filename) {
-            return Err(Error::ModsUnsafeFilename {
-                filename: v.primary_file.filename.clone(),
-            });
-        }
-        if !v.primary_file.distribution_allowed {
-            return Err(Error::ModsDistributionDisabled {
-                platform: match v.source {
-                    ModSource::Modrinth => "modrinth",
-                    ModSource::Curseforge => "curseforge",
-                    ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
-                    ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
-                    ModSource::Hangar => "hangar",
-                }
-                .into(),
-                project_id: v.project_id.clone(),
-            });
-        }
-        let sha = v
-            .primary_file
-            .sha1
-            .as_deref()
-            .ok_or(Error::ModsSha1Unavailable)?
-            .to_ascii_lowercase();
+        let sha = guard_version(v)?;
         fetch_to_cache(
             data_dir,
             &v.primary_file.url,

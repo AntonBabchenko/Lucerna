@@ -454,44 +454,33 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
-    let on_installed = {
-        let app = app.clone();
-        let instance_id = instance_id.clone();
-        move |inst: &crate::mods::install::Installed| {
-            let _ = ModInstalled {
-                instance_id: instance_id.clone(),
-                sha1: inst.sha1.clone(),
-                filename: inst.filename.clone(),
-                name: inst.name.clone(),
+    let installed_all =
+        match crate::mods::install_batch::install_batch(&dd, &inst_root, &install_seq, &prog).await
+        {
+            Ok(v) => v,
+            Err(f) => {
+                let _ = ModInstallFailed {
+                    instance_id: instance_id.clone(),
+                    project_id: f.project_id,
+                    error: f.error.clone(),
+                }
+                .emit(&app);
+                return Err(f.error);
             }
-            .emit(&app);
-        }
-    };
-    // Retain the sequence for the post-success summary; the batch consumes it.
-    let items_for_summary = install_seq.clone();
-    let installed_all = match crate::mods::install_batch::install_batch(
-        &dd,
-        &inst_root,
-        install_seq,
-        &prog,
-        &on_installed,
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(f) => {
-            let _ = ModInstallFailed {
-                instance_id: instance_id.clone(),
-                project_id: f.project_id,
-                error: f.error.clone(),
-            }
-            .emit(&app);
-            return Err(f.error);
-        }
-    };
+        };
+    // The batch is atomic — emit the per-mod events only now that every item
+    // has committed, so a rollback can never contradict an already-sent
+    // success event.
     let mut installed_dependencies: Vec<String> = Vec::new();
     let mut primary_sha1: Option<String> = None;
-    for (v, inst) in items_for_summary.iter().zip(installed_all.iter()) {
+    for (v, inst) in install_seq.iter().zip(installed_all.iter()) {
+        let _ = ModInstalled {
+            instance_id: instance_id.clone(),
+            sha1: inst.sha1.clone(),
+            filename: inst.filename.clone(),
+            name: inst.name.clone(),
+        }
+        .emit(&app);
         if version_matches(v, &primary) {
             primary_sha1 = Some(inst.sha1.clone());
         } else {
