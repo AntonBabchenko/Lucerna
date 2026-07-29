@@ -45,6 +45,38 @@ pub enum LaunchIntent {
 /// yields `None` rather than letting one silently win.
 pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Option<LaunchIntent> {
     let args: Vec<String> = args.into_iter().collect();
+
+    // ── Untrusted first, and absolutely ────────────────────────────────────
+    // A scheme URL arrives as a bare positional argument (Windows and Linux
+    // both spawn a fresh process that way). `skip(1)` drops argv[0], which must
+    // never be read as a payload.
+    //
+    // If ANY token looks like our scheme, the whole command line is treated as
+    // an untrusted URL activation and can only ever produce `OpenUrl` — every
+    // flag beside it is ignored.
+    //
+    // This is load-bearing, not tidiness. Windows substitutes the URL into the
+    // registered `"<exe>" "%1"` template TEXTUALLY, so a URL containing a double
+    // quote closes that quoting early and the remainder arrives as extra argv
+    // tokens (the classic URI-handler argument-injection class). A hostile page
+    // opening `lucerna://x?a=1" --launch "victim` therefore reaches us as
+    // `[exe, lucerna://x?a=1, --launch, victim]`. Parsing flags first would hand
+    // that a trusted launch; parsing the scheme first cannot, because the
+    // injected command line still carries the `lucerna:` token that demotes it.
+    //
+    // Matched on `lucerna:` — the scheme plus its colon, NOT `lucerna://` — as
+    // the shell dispatches `lucerna:anything` to the handler too, and an
+    // injection could otherwise hide behind the slash-less form.
+    let scheme_prefix = format!("{URL_SCHEME}:");
+    if let Some(url) = args
+        .iter()
+        .skip(1)
+        .find(|a| a.to_ascii_lowercase().starts_with(&scheme_prefix))
+    {
+        return Some(LaunchIntent::OpenUrl { url: url.clone() });
+    }
+
+    // ── Trusted argv ───────────────────────────────────────────────────────
     // Value of `--flag <value>`; a following token that itself looks like a flag
     // means the value is missing rather than being the next flag's name.
     let value_after = |flag: &str| -> Option<String> {
@@ -75,14 +107,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Option<LaunchIntent> {
         });
     }
 
-    // A scheme URL arrives as a bare positional argument — Windows and Linux
-    // both hand it to a freshly spawned process that way. `skip(1)` drops
-    // argv[0] (the exe path), which must never be read as a payload.
-    let prefix = format!("{URL_SCHEME}://");
-    args.iter()
-        .skip(1)
-        .find(|a| a.to_ascii_lowercase().starts_with(&prefix))
-        .map(|url| LaunchIntent::OpenUrl { url: url.clone() })
+    None
 }
 
 /// The single slot an inbound intent lands in, whether it came from this
@@ -219,12 +244,45 @@ mod tests {
     }
 
     #[test]
-    fn launch_wins_over_a_url_positional() {
+    fn a_quote_breakout_in_a_url_cannot_inject_a_launch() {
+        // THE security test for this module. Windows substitutes the URL into
+        // the registered `"<exe>" "%1"` command TEXTUALLY, so a hostile page
+        // navigating to `lucerna://x?a=1" --launch "victim` reaches the process
+        // as these already-split argv tokens. The scheme token must demote the
+        // whole command line to an untrusted URL — never a launch.
         assert_eq!(
-            parse(argv(&["lucerna://modpack?project=x", "--launch", "p"])),
-            Some(LaunchIntent::Launch {
-                instance: "p".into(),
-                quick_play: None
+            parse(argv(&["lucerna://x?a=1", "--launch", "victim"])),
+            Some(LaunchIntent::OpenUrl {
+                url: "lucerna://x?a=1".into()
+            })
+        );
+        // Same, with an injected Quick Play target.
+        assert_eq!(
+            parse(argv(&[
+                "lucerna://x",
+                "--launch",
+                "victim",
+                "--server",
+                "evil.example.com:25565"
+            ])),
+            Some(LaunchIntent::OpenUrl {
+                url: "lucerna://x".into()
+            })
+        );
+        // The slash-less form is dispatched to the handler too, so it must
+        // demote the command line just the same — an injection cannot hide
+        // behind `lucerna:` without `//`.
+        assert_eq!(
+            parse(argv(&["lucerna:x", "--launch", "victim"])),
+            Some(LaunchIntent::OpenUrl {
+                url: "lucerna:x".into()
+            })
+        );
+        // …including when the scheme token is not the first argument.
+        assert_eq!(
+            parse(argv(&["--launch", "victim", "lucerna://x"])),
+            Some(LaunchIntent::OpenUrl {
+                url: "lucerna://x".into()
             })
         );
     }

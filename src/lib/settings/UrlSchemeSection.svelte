@@ -69,12 +69,24 @@
         return;
       }
       if (!(await persist(next))) {
+        // The OS change succeeded but the setting could not be saved. Undo the
+        // OS change so the machine matches what is persisted — otherwise the
+        // checkbox would read "off" while links really do open Lucerna (or vice
+        // versa), which is exactly the lie this whole panel exists to avoid.
+        const undo = next
+          ? await commands.urlSchemeUnregister()
+          : await commands.urlSchemeRegister();
+        if (undo.status !== 'ok') {
+          error = $t('settings.general.urlScheme.failed', { message: formatError(undo.error) });
+        }
         enabled = !next;
         return;
       }
       enabled = next;
-      await refreshState();
     } finally {
+      // Always re-read the OS: every exit above (success, failed persist, failed
+      // undo) must leave the displayed state matching reality.
+      await refreshState();
       busy = false;
     }
   }

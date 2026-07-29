@@ -173,18 +173,51 @@ fn unsupported_platform() -> Error {
     }
 }
 
-/// Quote arguments for a single command-line string. Only tokens containing a
-/// space need quoting; instance ids, world folders and server addresses cannot
-/// contain a `"` (the validators reject it), so escaping quotes is not required.
+/// Encode one argument for a command-line string, following the
+/// `CommandLineToArgvW` rules the OS uses to split it again: a token containing
+/// a space or a quote is wrapped in `"`, each embedded `"` becomes `\"`, and any
+/// run of backslashes immediately before a quote (embedded or closing) is
+/// doubled.
+///
+/// Escaping rather than assuming clean input is deliberate. A world folder on
+/// Linux, or a saved server address, CAN contain a `"` — the launch-path
+/// validators reject whitespace and control characters, not quotes. An
+/// unescaped quote would close the token early and the remainder would be
+/// re-split into extra argv entries on double-click, so the shortcut would
+/// launch with a corrupted target instead of the one the user picked.
+fn quote_arg(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains(' ') && !arg.contains('"') && !arg.contains('\\') {
+        return arg.to_string();
+    }
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+    let mut pending_backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '\\' => pending_backslashes += 1,
+            '"' => {
+                // Double the backslashes that precede this quote, then escape it.
+                out.push_str(&"\\".repeat(pending_backslashes * 2 + 1));
+                pending_backslashes = 0;
+                out.push('"');
+            }
+            _ => {
+                out.push_str(&"\\".repeat(pending_backslashes));
+                pending_backslashes = 0;
+                out.push(c);
+            }
+        }
+    }
+    // Backslashes running into the closing quote must be doubled too.
+    out.push_str(&"\\".repeat(pending_backslashes * 2));
+    out.push('"');
+    out
+}
+
+/// Join arguments into one command-line string (see [`quote_arg`]).
 pub fn quote_args(args: &[String]) -> String {
     args.iter()
-        .map(|a| {
-            if a.contains(' ') {
-                format!("\"{a}\"")
-            } else {
-                a.clone()
-            }
-        })
+        .map(|a| quote_arg(a))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -386,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn quote_args_only_quotes_tokens_with_spaces() {
+    fn quote_args_only_quotes_tokens_that_need_it() {
         assert_eq!(
             quote_args(&[
                 "--launch".into(),
@@ -396,6 +429,108 @@ mod tests {
             ]),
             "--launch my-pack --world \"New World\""
         );
+    }
+
+    #[test]
+    fn quote_args_escapes_quotes_and_trailing_backslashes() {
+        // A world folder (Linux) or a saved server address CAN contain a quote —
+        // the launch validators reject whitespace and control characters, not
+        // quotes — so the encoder must escape rather than assume clean input.
+        assert_eq!(quote_arg(r#"a"b"#), r#""a\"b""#);
+        assert_eq!(quote_arg(r"trailing\"), r#""trailing\\""#);
+        assert_eq!(quote_arg(r#"back\"slash"#), r#""back\\\"slash""#);
+    }
+
+    /// Split a command-line string the way `CommandLineToArgvW` does, so the
+    /// round-trip test below exercises the REAL path: encode → OS split → parse.
+    /// (argv[0]'s special casing is irrelevant here — only arguments are passed.)
+    fn split_command_line(line: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        let mut in_quotes = false;
+        let mut started = false;
+        let mut backslashes = 0usize;
+        let flush_backslashes = |cur: &mut String, n: &mut usize| {
+            cur.push_str(&"\\".repeat(*n));
+            *n = 0;
+        };
+        for c in line.chars() {
+            match c {
+                '\\' => {
+                    backslashes += 1;
+                    started = true;
+                }
+                '"' => {
+                    // 2n backslashes + `"` = n backslashes and a quote toggle;
+                    // 2n+1 + `"` = n backslashes and a literal quote.
+                    cur.push_str(&"\\".repeat(backslashes / 2));
+                    if backslashes % 2 == 1 {
+                        cur.push('"');
+                    } else {
+                        in_quotes = !in_quotes;
+                    }
+                    backslashes = 0;
+                    started = true;
+                }
+                ' ' | '\t' if !in_quotes => {
+                    flush_backslashes(&mut cur, &mut backslashes);
+                    if started {
+                        out.push(std::mem::take(&mut cur));
+                        started = false;
+                    }
+                }
+                _ => {
+                    flush_backslashes(&mut cur, &mut backslashes);
+                    cur.push(c);
+                    started = true;
+                }
+            }
+        }
+        flush_backslashes(&mut cur, &mut backslashes);
+        if started {
+            out.push(cur);
+        }
+        out
+    }
+
+    #[test]
+    fn encoded_args_survive_an_os_style_split_back_into_the_parser() {
+        // Closes the gap the plain argv round-trip leaves: this one goes through
+        // the ACTUAL file contents (one command-line string), splits it the way
+        // Windows will, and parses that. A quote-mangling encoder shows up here
+        // as a corrupted — or injected — launch target.
+        for (target, expected) in [
+            (
+                ShortcutTarget::World {
+                    instance_id: "p".into(),
+                    folder: r#"weird" folder"#.into(),
+                },
+                crate::launch::QuickPlay::Singleplayer {
+                    world: r#"weird" folder"#.into(),
+                },
+            ),
+            (
+                ShortcutTarget::Server {
+                    instance_id: "p".into(),
+                    address: r#"host" --launch "victim"#.into(),
+                },
+                crate::launch::QuickPlay::Multiplayer {
+                    address: r#"host" --launch "victim"#.into(),
+                },
+            ),
+        ] {
+            let line = quote_args(&build_args(&target));
+            let mut argv = vec!["lucerna.exe".to_string()];
+            argv.extend(split_command_line(&line));
+            assert_eq!(
+                crate::cli::parse(argv),
+                Some(crate::cli::LaunchIntent::Launch {
+                    instance: "p".into(),
+                    quick_play: Some(expected)
+                }),
+                "round-trip failed for command line: {line}"
+            );
+        }
     }
 
     #[test]
