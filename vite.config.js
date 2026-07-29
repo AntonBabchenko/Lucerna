@@ -24,8 +24,15 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri`, and `.claude/` — agent
+      // worktrees live at `.claude/worktrees/<name>/`, i.e. INSIDE this
+      // project root, and each is a full checkout carrying its own generated
+      // `.svelte-kit/tsconfig.json`. Without this, a `svelte-kit sync` in any
+      // worktree makes THIS dev server log "changed tsconfig file detected",
+      // clear its cache and force a full reload — mid-request — which leaves
+      // the SSR module graph half-initialised and every page then fails with
+      // `(0 , __vite_ssr_import_N__.respond) is not a function`.
+      ignored: ["**/src-tauri/**", "**/.claude/**"],
     },
   },
 }));
