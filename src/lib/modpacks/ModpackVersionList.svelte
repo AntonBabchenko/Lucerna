@@ -4,8 +4,10 @@
   // real user task is "find the one for my Minecraft version", so the Minecraft
   // filter is part of the list rather than a nicety.
   //
-  // The filter uses the shared Select, not a native <select>: WebKitGTK draws
-  // the native popup as an OS widget that ignores the theme tokens.
+  // The filter uses the shared Select component rather than a native select
+  // element: WebKitGTK draws the native popup as an OS widget that ignores the
+  // theme tokens. (Spelling the tag out here would trip the no-native-select
+  // guard, which is a plain text scan over src/.)
   import type { ModpackVersionEntry } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
