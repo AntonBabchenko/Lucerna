@@ -236,4 +236,46 @@ describe('StoragePanel — data location change planning', () => {
     expect(mod.commands.adoptDataLocation).not.toHaveBeenCalled();
     expect(mod.commands.setDataLocation).not.toHaveBeenCalled();
   });
+
+  it('keeps Reset enabled while fell_back and confirms a pointer-only reset', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.getDataLocation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        effective: 'C:\\Users\\u\\AppData\\Roaming\\com.lucerna.app',
+        configured: 'C:\\Games\\LucernaData',
+        fell_back: true,
+      },
+    });
+    // The dataLocation store is a module singleton whose init() no-ops after
+    // the first load — earlier tests already loaded configured:null. Force a
+    // refresh so this test's status is actually applied.
+    const { dataLocation } = await import('$lib/settings/data-location.svelte');
+    await dataLocation.refresh();
+
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Reset is the ONLY in-app recovery from a configured folder that will
+    // never come back — it must stay clickable in fallback, while Change
+    // location (whose flows migrate) stays disabled.
+    const resetBtn = screen.getByRole('button', {
+      name: 'Reset to default',
+    }) as HTMLButtonElement;
+    expect(resetBtn.disabled).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    await fireEvent.click(resetBtn);
+    // Pointer-only copy: names the dead folder and promises no data move —
+    // the normal reset body ("will copy … back") would be a lie here. The
+    // path shows up twice by design: the fallback notice AND the dialog body.
+    expect(screen.getByText(/detaches the unavailable folder/)).toBeTruthy();
+    expect(screen.getAllByText(/Games\\LucernaData/).length).toBeGreaterThanOrEqual(2);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Detach and restart' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.setDataLocation).toHaveBeenCalledWith(null);
+  });
 });

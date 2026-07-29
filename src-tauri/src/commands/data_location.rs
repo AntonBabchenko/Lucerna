@@ -109,6 +109,28 @@ const REDIRECT_FILE_NAME: &str = "data-location.json";
 /// (the default dir) is accepted when it is empty OR contains only these.
 const SAFE_OVERLAP: [&str; 3] = ["data-location.json", "logs", "updates"];
 
+/// What `set_data_location` may do given the fallback state. Pure so the
+/// gating truth-table is unit-testable without an `AppHandle`.
+#[derive(Debug, PartialEq, Eq)]
+enum FallbackGate {
+    /// Fallen back + a MOVE requested → refuse (migrating the temporary root
+    /// would copy the wrong tree).
+    RejectBusy,
+    /// Fallen back + a RESET requested → allowed, but pointer-only (remove
+    /// the redirect, restart; nothing is copied).
+    PointerOnlyReset,
+    /// Not fallen back → the normal migrate/reset pipeline.
+    Normal,
+}
+
+fn fallback_gate(fell_back: bool, is_reset: bool) -> FallbackGate {
+    match (fell_back, is_reset) {
+        (false, _) => FallbackGate::Normal,
+        (true, true) => FallbackGate::PointerOnlyReset,
+        (true, false) => FallbackGate::RejectBusy,
+    }
+}
+
 /// Relocate the data root to `new_path`, or reset to the OS default when
 /// `None`. Copies the current root to the target, verifies the copy,
 /// repoints the bootstrap redirect, deletes the old data, then restarts the
@@ -129,11 +151,31 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
     // without touching the filesystem.
     let guard = MigrationGuard::try_acquire().ok_or(Error::DataLocationBusy)?;
 
-    // Never move the temporary fallback root — the configured root is
-    // unavailable, so a move would copy the wrong (partial) tree and rewrite
-    // the redirect against a root the user did not intend.
-    if app.state::<crate::data_root::DataRoot>().0.fell_back {
-        return Err(Error::DataLocationBusy);
+    let fell_back = app.state::<crate::data_root::DataRoot>().0.fell_back;
+    match fallback_gate(fell_back, new_path.is_none()) {
+        // Never MOVE the temporary fallback root — the configured root is
+        // unavailable, so a move would copy the wrong (partial) tree and
+        // rewrite the redirect against a root the user did not intend.
+        FallbackGate::RejectBusy => return Err(Error::DataLocationBusy),
+        // A RESET while fallen back is pointer-only: the launcher already
+        // runs from the default dir, so there is nothing to move — removing
+        // the redirect simply makes the temporary state permanent. This is
+        // the only in-app recovery from a configured location that will
+        // never come back (dead drive, deleted folder); without it the
+        // fallback gating locks the user out of the Storage panel forever.
+        FallbackGate::PointerOnlyReset => {
+            if any_game_running(&app) {
+                return Err(Error::DataLocationBusy);
+            }
+            let redirect_file =
+                crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+            crate::data_root::redirect::remove(&redirect_file)?;
+            // Keep the guard held across the restart; the process is being
+            // torn down, same as the normal migration tail below.
+            std::mem::forget(guard);
+            app.restart();
+        }
+        FallbackGate::Normal => {}
     }
 
     if any_game_running(&app) {
@@ -502,8 +544,20 @@ fn run_migration(
 #[cfg(test)]
 mod tests {
     use super::classify_adopt;
+    use super::{fallback_gate, FallbackGate};
     use crate::data_root::validate::Invalid;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn fallback_gate_truth_table() {
+        // Not fallen back → normal pipeline regardless of reset/move.
+        assert_eq!(fallback_gate(false, true), FallbackGate::Normal);
+        assert_eq!(fallback_gate(false, false), FallbackGate::Normal);
+        // Fallen back: reset is the pointer-only recovery path; a move stays
+        // refused (migrating the temporary root would copy the wrong tree).
+        assert_eq!(fallback_gate(true, true), FallbackGate::PointerOnlyReset);
+        assert_eq!(fallback_gate(true, false), FallbackGate::RejectBusy);
+    }
 
     // Absolute on BOTH platforms (mirrors validate.rs tests): `/x` is not
     // absolute on Windows, which would short-circuit every case on

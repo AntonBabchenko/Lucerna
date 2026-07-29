@@ -456,12 +456,11 @@
         {$t('settings.storage.dataLocation.changeBtn')}
       </button>
       {#if dataLocation.status?.configured}
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          disabled={dataLocation.status?.fell_back}
-          onclick={requestReset}
-        >
+        <!-- Deliberately NOT disabled while fell_back: a reset in that state
+             is pointer-only (the redirect is removed, nothing is copied) and
+             is the ONLY in-app recovery from a configured folder that will
+             never come back. -->
+        <button type="button" class="btn-secondary btn-sm" onclick={requestReset}>
           {$t('settings.storage.dataLocation.resetBtn')}
         </button>
       {/if}
@@ -475,7 +474,10 @@
        meaningless "Preparing…" for a sub-second redirect write. -->
   <DataLocationConfirmDialog
     mode={pendingTarget === 'reset' ? 'reset' : pendingTarget.kind === 'adopt' ? 'adopt' : 'move'}
-    targetPath={pendingTarget === 'reset' ? '' : pendingTarget.path}
+    targetPath={pendingTarget === 'reset'
+      ? (dataLocation.status?.configured ?? '')
+      : pendingTarget.path}
+    pointerOnly={pendingTarget === 'reset' && (dataLocation.status?.fell_back ?? false)}
     currentPath={dataLocation.status?.effective ?? ''}
     sizeLabel={formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}
     busy={migrating}

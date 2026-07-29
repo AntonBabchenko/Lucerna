@@ -14,19 +14,25 @@
     currentPath,
     sizeLabel,
     busy,
+    pointerOnly = false,
     onCancel,
     onConfirm,
   }: {
     /** move = copy into a fresh target; reset = move back to the default
      * location; adopt = repoint at an existing root without copying. */
     mode: 'move' | 'reset' | 'adopt';
-    /** Effective target path ('' for reset — its strings don't use it). */
+    /** Effective target path. For reset: the configured (possibly
+     * unavailable) folder — only the pointer-only body shows it. */
     targetPath: string;
     /** Current effective root; shown in adopt's stays-on-disk note. */
     currentPath: string;
     /** Pre-formatted human-readable size ("1.2 GB"), already localized. */
     sizeLabel: string;
     busy: boolean;
+    /** Reset while fallen back: the configured folder is unavailable, so no
+     * data is copied — only the redirect is removed. The body must not
+     * promise a move that will not happen. */
+    pointerOnly?: boolean;
     onCancel: () => void;
     onConfirm: () => void;
   } = $props();
@@ -40,7 +46,9 @@
       : $t('settings.storage.dataLocation.confirm.resetTitle')}
   confirmLabel={mode === 'adopt'
     ? $t('settings.storage.dataLocation.confirm.adoptConfirmBtn')
-    : $t('settings.storage.dataLocation.confirm.confirmBtn')}
+    : mode === 'reset' && pointerOnly
+      ? $t('settings.storage.dataLocation.confirm.resetPointerOnlyConfirmBtn')
+      : $t('settings.storage.dataLocation.confirm.confirmBtn')}
   panelClass="w-[480px] p-5 flex flex-col gap-3"
   {busy}
   {onCancel}
@@ -64,7 +72,11 @@
               path: targetPath,
               size: sizeLabel,
             })
-          : $t('settings.storage.dataLocation.confirm.resetBody', { size: sizeLabel })}
+          : pointerOnly
+            ? $t('settings.storage.dataLocation.confirm.resetPointerOnlyBody', {
+                path: targetPath,
+              })
+            : $t('settings.storage.dataLocation.confirm.resetBody', { size: sizeLabel })}
       </p>
     {/if}
     <p class="text-sm text-secondary font-medium">

@@ -1895,13 +1895,15 @@
         "sizeLabel": "Size on disk:",
         "changeBtn": "Change location…",
         "resetBtn": "Reset to default",
-        "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected.",
+        "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected. If the folder is gone for good, press \"Reset to default\" below to detach it — nothing on it is deleted.",
         "alreadyCurrent": "That folder is already your current data folder.",
         "confirm": {
           "moveTitle": "Move data folder?",
           "moveBody": "Lucerna will copy {size} of data to \"{path}\", then remove it from the current location.",
           "resetTitle": "Reset to the default location?",
           "resetBody": "Lucerna will copy {size} of data back to the default folder, then remove it from the current location.",
+          "resetPointerOnlyBody": "This detaches the unavailable folder \"{path}\". Nothing on it is deleted — if it ever comes back, its data will still be there. Lucerna will keep using the default location.",
+          "resetPointerOnlyConfirmBtn": "Detach and restart",
           "adoptTitle": "Use existing data folder?",
           "adoptBody": "\"{path}\" already contains Lucerna data. Lucerna will switch to it without copying, moving, or deleting anything.",
           "adoptCurrentNote": "Your current data ({size} at \"{current}\") will stay on disk but will no longer be used.",
@@ -1993,7 +1995,7 @@
       "dismissAriaLabel": "Dismiss crash report banner"
     },
     "dataRootFallback": {
-      "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then.",
+      "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then. If the folder is gone for good, detach it via Settings → Storage → \"Reset to default\" (nothing on it is deleted).",
       "createDisabledReason": "Creating instances and servers is disabled while the data folder is unavailable.",
       "playDisabledReason": "Playing is disabled while the data folder is unavailable. Reconnect it and restart Lucerna."
     },
