@@ -4,6 +4,7 @@ import {
   assessSwitchRisks,
   packChangelogBase,
   sortVersionsNewestFirst,
+  switchChangelogRequest,
   switchDirection,
 } from '$lib/modpacks/switch-risks';
 
@@ -165,6 +166,42 @@ describe('assessSwitchRisks', () => {
       'customizations',
       'bundled-overrides',
     ]);
+  });
+});
+
+describe('switchChangelogRequest', () => {
+  it('shows the versions being applied on an upgrade', () => {
+    expect(switchChangelogRequest('upgrade', 'v1', 'v3')).toEqual({
+      target: 'v3',
+      base: 'v1',
+      titleKey: 'modpacks.switch.changelogGained',
+    });
+  });
+
+  it('shows what you lose on a downgrade by swapping target and base', () => {
+    // Without the swap `changelog_window` falls into its target-only branch and
+    // renders the OLD version's notes as if nothing were being lost.
+    expect(switchChangelogRequest('downgrade', 'v3', 'v1')).toEqual({
+      target: 'v3',
+      base: 'v1',
+      titleKey: 'modpacks.switch.changelogLost',
+    });
+  });
+
+  it('shows only the target version notes for a reinstall', () => {
+    expect(switchChangelogRequest('reinstall', 'v2', 'v2')).toEqual({
+      target: 'v2',
+      base: null,
+      titleKey: 'modpacks.switch.changelogGained',
+    });
+  });
+
+  it('shows only the target version notes when the direction is unknown', () => {
+    expect(switchChangelogRequest('unknown', null, 'v2')).toEqual({
+      target: 'v2',
+      base: null,
+      titleKey: 'modpacks.switch.changelogGained',
+    });
   });
 });
 

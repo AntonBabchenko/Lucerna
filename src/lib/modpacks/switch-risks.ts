@@ -108,3 +108,45 @@ export function packChangelogBase(
 ): string | null {
   return inst.mrpack_version_id;
 }
+
+export type SwitchChangelogRequest = {
+  target: string;
+  base: string | null;
+  titleKey: 'modpacks.switch.changelogGained' | 'modpacks.switch.changelogLost';
+};
+
+/**
+ * Which version range to show in the changelog, and under which framing.
+ *
+ * `changelog_window` returns base-exclusive → target-inclusive and degrades to
+ * target-only when base is not older than target. So direction is expressed
+ * purely by which id goes in which slot:
+ *
+ * - upgrade   → base = installed, target = chosen  → the versions being applied.
+ * - downgrade → base = chosen, target = installed  → the versions being rolled
+ *   back past, i.e. what the user loses. Without the swap a downgrade would fall
+ *   into the target-only branch and render the old release notes under a
+ *   "what's new" framing, reading as if nothing were being lost.
+ * - reinstall / unknown → that version's own notes only.
+ */
+export function switchChangelogRequest(
+  direction: SwitchDirection,
+  installedVersionId: string | null,
+  targetVersionId: string,
+): SwitchChangelogRequest {
+  if (installedVersionId !== null && direction === 'downgrade') {
+    return {
+      target: installedVersionId,
+      base: targetVersionId,
+      titleKey: 'modpacks.switch.changelogLost',
+    };
+  }
+  if (installedVersionId !== null && direction === 'upgrade') {
+    return {
+      target: targetVersionId,
+      base: installedVersionId,
+      titleKey: 'modpacks.switch.changelogGained',
+    };
+  }
+  return { target: targetVersionId, base: null, titleKey: 'modpacks.switch.changelogGained' };
+}
