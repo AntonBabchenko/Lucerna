@@ -44,11 +44,16 @@
 
   const installedAt = $derived(sorted.findIndex((v) => v.id === installedVersionId));
 
+  // Precomputed so a row's position is O(1). A mature pack has hundreds of
+  // versions, and an indexOf per row would make rendering quadratic.
+  const indexById = $derived(new Map(sorted.map((v, i) => [v.id, i])));
+
   // null when the installed version cannot be placed in the list (delisted, or
   // a drag-drop import with no provenance) — claiming newer/older would be a guess.
   function relation(entry: ModpackVersionEntry): 'installed' | 'newer' | 'older' | null {
     if (installedAt === -1) return null;
-    const at = sorted.indexOf(entry);
+    const at = indexById.get(entry.id);
+    if (at === undefined) return null;
     if (at === installedAt) return 'installed';
     return at < installedAt ? 'newer' : 'older';
   }
