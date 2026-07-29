@@ -33,7 +33,7 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { installFailureToast } from '$lib/mods/install-failure';
-  import { pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
     cfKeyVersion,
@@ -761,7 +761,7 @@
       }
       const installed = await commands.assetInstall(instanceId, version, kind);
       if (installed.status === 'error') {
-        installFailureToast(card.name, installed.error, () => {
+        showInstallFailure(card.name, installed.error, () => {
           void startAssetInstall(card, pinnedVersion);
         });
         return;
@@ -777,6 +777,24 @@
       installingProjectIds.delete(card.project_id);
     }
   }
+
+  // Install-failure toasts carry a Retry closure bound to the instance (and
+  // this mounted view) they were created for. If the user switches instance or
+  // the view unmounts, that context is stale — a Retry click could install
+  // into the wrong instance — so dismiss any still-visible failure toasts
+  // instead of letting them outlive their context.
+  let installFailureToastIds: number[] = [];
+  function showInstallFailure(name: string, err: IpcError, retry: () => void) {
+    installFailureToastIds.push(installFailureToast(name, err, retry));
+  }
+  $effect(() => {
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _id = instanceId;
+    return () => {
+      for (const id of installFailureToastIds) dismiss(id);
+      installFailureToastIds = [];
+    };
+  });
 
   // The dependency-dialog confirm flow, hoisted out of the markup so the
   // failure toast's Retry can re-run it with the same captured arguments.
@@ -810,7 +828,7 @@
             prompt.primary.project_id,
           )
         ) {
-          installFailureToast(prompt.primaryProjectName, installed.error, () => {
+          showInstallFailure(prompt.primaryProjectName, installed.error, () => {
             void confirmDepInstall(prompt, chosenOptional);
           });
         }
@@ -928,7 +946,7 @@
               card.slug ?? card.project_id,
             )
           ) {
-            installFailureToast(primaryProjectName, installed.error, () => {
+            showInstallFailure(primaryProjectName, installed.error, () => {
               void startInstall(card, pinnedVersion);
             });
           }

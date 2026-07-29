@@ -22,6 +22,7 @@ const {
   pushSuccess,
   pushWarning,
   pushActionToast,
+  dismissToast,
 } = vi.hoisted(() => ({
   modsSearch: vi.fn(),
   modsGetCurseforgeKeyStatus: vi.fn(),
@@ -37,6 +38,7 @@ const {
   pushSuccess: vi.fn(),
   pushWarning: vi.fn(),
   pushActionToast: vi.fn(),
+  dismissToast: vi.fn(),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -60,7 +62,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
-vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess, pushWarning, pushActionToast }));
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushSuccess,
+  pushWarning,
+  pushActionToast,
+  dismiss: dismissToast,
+}));
 
 import type { VersionEntry } from '$lib/ipc/bindings';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
@@ -190,7 +197,7 @@ describe('ModBrowseView install flow', () => {
     expect(screen.queryByRole('button', { name: /Install \(/ })).toBeNull();
   });
 
-  it('warns with the failure detail when the direct install fails', async () => {
+  it('shows a retry-with-cause toast when the direct install fails; Retry re-runs it', async () => {
     searchReturns([hit()]);
     modsVersions.mockResolvedValue(ok([version()]));
     modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
@@ -202,13 +209,42 @@ describe('ModBrowseView install flow', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
-    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
-    // Title + the formatted error detail line both reach the toast.
-    expect(pushWarning).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.arrayContaining([expect.stringContaining('disk full')]),
-    );
+    // Sticky warning carrying the mod name, the formatted cause line and a
+    // Retry action — the legacy nameless pushWarning toast is gone.
+    await waitFor(() => expect(pushActionToast).toHaveBeenCalled());
+    const [kind, title, action, lines] = pushActionToast.mock.calls[0];
+    expect(kind).toBe('warning');
+    expect(title).toContain('Sodium');
+    expect(lines).toEqual(expect.arrayContaining([expect.stringContaining('disk full')]));
+    expect(pushWarning).not.toHaveBeenCalled();
     expect(pushSuccess).not.toHaveBeenCalled();
+
+    // Retry re-runs the same install: same instance, same version ref.
+    expect(modsInstallWithDeps).toHaveBeenCalledTimes(1);
+    action.run();
+    await waitFor(() => expect(modsInstallWithDeps).toHaveBeenCalledTimes(2));
+    expect(modsInstallWithDeps.mock.calls[1]).toEqual(modsInstallWithDeps.mock.calls[0]);
+  });
+
+  it('dismisses the failure toast when the instance switches (stale Retry context)', async () => {
+    searchReturns([hit()]);
+    modsVersions.mockResolvedValue(ok([version()]));
+    modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
+    modsInstallWithDeps.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_cache_io', details: 'disk full' },
+    });
+    pushActionToast.mockReturnValue(42);
+    const { rerender } = render(ModBrowseView, { props: { ...full } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+    await waitFor(() => expect(pushActionToast).toHaveBeenCalled());
+    expect(dismissToast).not.toHaveBeenCalled();
+
+    // Switching the active instance must dismiss the toast — its Retry
+    // closure targets the previous instance and must not survive the switch.
+    await rerender({ ...full, instanceId: 'other-instance' });
+    await waitFor(() => expect(dismissToast).toHaveBeenCalledWith(42));
   });
 
   it('shows an error when no compatible version exists', async () => {
