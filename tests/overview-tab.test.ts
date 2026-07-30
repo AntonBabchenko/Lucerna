@@ -163,6 +163,84 @@ describe('OverviewTab', () => {
     await fireEvent.click(getByRole('button', { name: 'Dismiss error' }));
     expect(onDismissInstallError).toHaveBeenCalledOnce();
   });
+
+  it('sends each Configuration row to its own Manage field', async () => {
+    const seen: (string | null | undefined)[] = [];
+    const { getByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        onManage: (field?: string | null) => seen.push(field),
+      },
+    });
+    await fireEvent.click(getByTestId('overview-config-header'));
+    await fireEvent.click(getByTestId('overview-config-mc'));
+    await fireEvent.click(getByTestId('overview-config-loader'));
+    await fireEvent.click(getByTestId('overview-config-memory'));
+    expect(seen).toEqual([null, 'mc', 'loader', 'memory']);
+  });
+
+  // A Configuration row's label overrides its visible text, so it has to carry
+  // the current value — otherwise a screen-reader user hears "Edit Minecraft in
+  // Manage" and never learns which version is set.
+  it('names each Configuration row with its current value', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst },
+    });
+    expect(getByTestId('overview-config-mc').getAttribute('aria-label')).toContain('1.21.1');
+    expect(getByTestId('overview-config-loader').getAttribute('aria-label')).toContain('0.16.5');
+    expect(getByTestId('overview-config-memory').getAttribute('aria-label')).toContain('2048');
+  });
+
+  it('sends the Integrity card to the integrity section', async () => {
+    const seen: (string | null | undefined)[] = [];
+    const { getByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        onManage: (field?: string | null) => seen.push(field),
+      },
+    });
+    await fireEvent.click(getByTestId('overview-integrity'));
+    expect(seen).toEqual(['integrity']);
+  });
+
+  it('drops the secondary navigation buttons the cards used to carry', () => {
+    const { queryByRole } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst },
+    });
+    expect(queryByRole('button', { name: /^Manage$/ })).toBeNull();
+    expect(queryByRole('button', { name: /^Installed$/ })).toBeNull();
+    // Anchored on purpose: the deleted buttons read exactly "Open Manage to
+    // check" / "… to repair", and the anchors keep this faithful to them rather
+    // than to whatever else the card happens to say.
+    expect(queryByRole('button', { name: /^Open Manage to (check|repair)$/ })).toBeNull();
+  });
+
+  it('sends the mods stats row to the installed list', async () => {
+    let installed = 0;
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, onNavInstalled: () => installed++ },
+    });
+    await fireEvent.click(getByTestId('overview-mods-stats'));
+    await fireEvent.click(getByTestId('overview-mods-header'));
+    expect(installed).toBe(2);
+  });
+
+  it('sends the empty mods card to the browser instead', async () => {
+    let browse = 0;
+    const { getByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: { total: 0, enabled: 0, disabled: 0 },
+        onNavBrowse: () => browse++,
+      },
+    });
+    await fireEvent.click(getByTestId('overview-mods-empty'));
+    await fireEvent.click(getByTestId('overview-mods-header'));
+    expect(browse).toBe(2);
+  });
 });
 
 describe('OverviewTab attention dismiss', () => {

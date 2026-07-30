@@ -602,3 +602,25 @@ button:focus-visible .icon-rainbow-hover {
     transform: none;
   }
 }
+
+/* Transient "this is the field you asked for" marker, applied for ~2s by the
+   fieldFlash action (src/lib/ui/field-flash.ts) when an Overview card sends the
+   user into the Manage modal aimed at one specific control. A static end state
+   that simply disappears, not an animation — nothing to gate on
+   prefers-reduced-motion beyond the global transition reset. */
+.field-flash {
+  @apply rounded-md bg-accent-soft outline outline-2 outline-accent outline-offset-2;
+}
+
+/* A clickable zone inside an otherwise read-only card. Overview's Configuration
+   / Mods / Integrity cards are tiled by these so every pixel of the card is a
+   live target — a <button> cannot nest another <button>, so "the whole card is
+   clickable" is expressed as adjacent full-width zones that carry the card's
+   padding themselves. The focus ring is inset because the card clips overflow
+   to keep its rounded corners. */
+.card-zone {
+  @apply w-full text-left transition-colors hover:bg-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent;
+}
+.card-zone:focus-visible {
+  outline-offset: -2px;
+}
