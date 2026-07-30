@@ -14,6 +14,7 @@
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import { shouldFocusField, type ManageFocusField } from '$lib/instances/manage-focus';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
@@ -25,6 +26,7 @@
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { fieldFlash } from '$lib/ui/field-flash';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
@@ -45,6 +47,7 @@
     onChanged,
     isRunning = false,
     initialSelectedId = null,
+    focusField = null,
     onCloneRequest = () => {},
     onShortcutRequest,
   }: {
@@ -66,6 +69,9 @@
     // `activeInstance` may still be the previously-active one — seeding from the
     // explicitly-clicked id avoids opening Manage on the wrong profile.
     initialSelectedId?: string | null;
+    /** Which control to scroll to and flash when the modal opens. Set by the
+     *  Overview card the user clicked; null opens the modal unchanged. */
+    focusField?: ManageFocusField | null;
   } = $props();
 
   let selectedId = $state<string | null>(null);
@@ -897,29 +903,41 @@
                     onblur={commitName}
                   />
 
-                  <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
-                    >{$t('instance.manage.mcVersionLabel')}</label
-                  >
-                  <span
-                    class="block mb-1"
-                    use:tooltip={{
-                      text: isRunning ? $t('instance.manage.runningBlocked') : '',
-                      describe: false,
+                  <!-- The flash zone spans label + control + the snapshots toggle
+               because they read as one field; the no-versions notice stays
+               outside so an empty-list warning is never ringed as "the thing
+               you asked for". -->
+                  <div
+                    data-focus-field="mc"
+                    use:fieldFlash={{
+                      active: focusField === 'mc',
+                      focus: shouldFocusField('mc'),
                     }}
                   >
-                    <Select
-                      id="detail-mc-version"
-                      class="w-full"
-                      value={selected.mc_version}
-                      options={mcVersionOptions}
-                      disabled={isRunning}
-                      onChange={(v) => setMc(String(v))}
-                    />
-                  </span>
-                  <label class="text-xs flex items-center gap-1 mb-3">
-                    <input type="checkbox" bind:checked={showSnapshots} />
-                    {$t('instance.manage.showSnapshots')}
-                  </label>
+                    <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
+                      >{$t('instance.manage.mcVersionLabel')}</label
+                    >
+                    <span
+                      class="block mb-1"
+                      use:tooltip={{
+                        text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                        describe: false,
+                      }}
+                    >
+                      <Select
+                        id="detail-mc-version"
+                        class="w-full"
+                        value={selected.mc_version}
+                        options={mcVersionOptions}
+                        disabled={isRunning}
+                        onChange={(v) => setMc(String(v))}
+                      />
+                    </span>
+                    <label class="text-xs flex items-center gap-1 mb-3">
+                      <input type="checkbox" bind:checked={showSnapshots} />
+                      {$t('instance.manage.showSnapshots')}
+                    </label>
+                  </div>
                   {@render noVersionsNotice()}
 
                   <!--
@@ -930,27 +948,35 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-                  <span
-                    class="block"
-                    use:tooltip={{
-                      text: isRunning ? $t('instance.manage.runningBlocked') : '',
-                      describe: false,
+                  <div
+                    data-focus-field="loader"
+                    use:fieldFlash={{
+                      active: focusField === 'loader',
+                      focus: shouldFocusField('loader'),
                     }}
                   >
-                    {#key selected.id}
-                      <LoaderPicker
-                        mc={selected.mc_version}
-                        loader={selected.loader}
-                        loaderVersion={selected.loader_version}
-                        disabled={isRunning}
-                        onchange={async (l, v) => {
-                          if (l !== selected!.loader || v !== selected!.loader_version) {
-                            await commitLoader(l, v);
-                          }
-                        }}
-                      />
-                    {/key}
-                  </span>
+                    <span
+                      class="block"
+                      use:tooltip={{
+                        text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                        describe: false,
+                      }}
+                    >
+                      {#key selected.id}
+                        <LoaderPicker
+                          mc={selected.mc_version}
+                          loader={selected.loader}
+                          loaderVersion={selected.loader_version}
+                          disabled={isRunning}
+                          onchange={async (l, v) => {
+                            if (l !== selected!.loader || v !== selected!.loader_version) {
+                              await commitLoader(l, v);
+                            }
+                          }}
+                        />
+                      {/key}
+                    </span>
+                  </div>
 
                   <!-- Compat summary + check-failure note share a polite live region so
                screen readers hear the advisory; both are empty in the idle state. -->
@@ -970,29 +996,37 @@
                     class="mt-2 mb-1"
                   />
 
-                  <label
-                    for="detail-memory"
-                    class="mb-1 flex items-center justify-between text-xs text-secondary"
-                  >
-                    <span>
-                      {$t('instance.manage.memoryLabel', {
-                        value: formatHeapLabel(heapDraft),
-                      })}
-                    </span>
-                    {@render savedBadge('memory')}
-                  </label>
-                  <MemorySlider
-                    id="detail-memory"
-                    class="mb-1"
-                    warnClass="mb-3"
-                    reserveWarnSpace
-                    valueMb={heapDraft}
-                    onInput={(mb) => {
-                      heapDraft = mb;
-                      clearSaved('memory');
+                  <div
+                    data-focus-field="memory"
+                    use:fieldFlash={{
+                      active: focusField === 'memory',
+                      focus: shouldFocusField('memory'),
                     }}
-                    onCommit={(mb) => setMemory(mb)}
-                  />
+                  >
+                    <label
+                      for="detail-memory"
+                      class="mb-1 flex items-center justify-between text-xs text-secondary"
+                    >
+                      <span>
+                        {$t('instance.manage.memoryLabel', {
+                          value: formatHeapLabel(heapDraft),
+                        })}
+                      </span>
+                      {@render savedBadge('memory')}
+                    </label>
+                    <MemorySlider
+                      id="detail-memory"
+                      class="mb-1"
+                      warnClass="mb-3"
+                      reserveWarnSpace
+                      valueMb={heapDraft}
+                      onInput={(mb) => {
+                        heapDraft = mb;
+                        clearSaved('memory');
+                      }}
+                      onCommit={(mb) => setMemory(mb)}
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -1100,12 +1134,20 @@
                     </div>
                   {/if}
 
-                  <IntegritySection
-                    instanceId={selected.id}
-                    {isRunning}
-                    name={selected.name}
-                    status={selected.integrity}
-                  />
+                  <div
+                    data-focus-field="integrity"
+                    use:fieldFlash={{
+                      active: focusField === 'integrity',
+                      focus: shouldFocusField('integrity'),
+                    }}
+                  >
+                    <IntegritySection
+                      instanceId={selected.id}
+                      {isRunning}
+                      name={selected.name}
+                      status={selected.integrity}
+                    />
+                  </div>
                 </div>
               </div>
             {:else}
