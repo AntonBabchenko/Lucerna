@@ -414,9 +414,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
 	/**
 	 *  Create a new instance. Generates a UUID, mkdirs `.minecraft/`,
-	 *  writes `instance.json`. Defaults: `max_heap_mb=2048`, `extra_jvm_args=""`.
+	 *  writes `instance.json`. `max_heap_mb` is the heap picked in the create form;
+	 *  `None` means "assign the adaptive default". Any supplied value is clamped
+	 *  onto the slider grid and range — it arrives over IPC and is not trusted.
+	 *  `extra_jvm_args` defaults to `""`.
 	 */
-	createInstance: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("create_instance", { name, mcVersion, loader, loaderVersion })),
+	createInstance: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("create_instance", { name, mcVersion, loader, loaderVersion, maxHeapMb })),
 	/**
 	 *  Delete an instance. If it was active, auto-switches to oldest remaining.
 	 *  Errors `LastInstance` if it's the only one left.
@@ -2900,6 +2903,11 @@ export type McChangeReport = {
 export type MemoryBounds = {
 	min_mb: number,
 	max_mb: number,
+	/**
+	 *  Heap a NEW instance gets when the user doesn't pick one. Exposed so the
+	 *  create form can seed its slider without re-deriving the policy in TS.
+	 */
+	default_mb: number,
 	recommended_max_mb: number,
 	step_mb: number,
 	ram_known: boolean,

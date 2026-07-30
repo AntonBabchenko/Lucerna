@@ -768,6 +768,7 @@ pub async fn install_resolved_pack(
         summary.game_version.clone(),
         summary.loader,
         summary.loader_version.clone(),
+        None, // heap: adaptive default, editable afterwards in Manage
         Some((pack_name.clone(), summary.version.clone())),
         mrpack_project_id,
         mrpack_source,

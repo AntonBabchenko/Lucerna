@@ -233,7 +233,10 @@ pub fn set_active_instance(app: tauri::AppHandle, id: String) -> Result<(), crat
 }
 
 /// Create a new instance. Generates a UUID, mkdirs `.minecraft/`,
-/// writes `instance.json`. Defaults: `max_heap_mb=2048`, `extra_jvm_args=""`.
+/// writes `instance.json`. `max_heap_mb` is the heap picked in the create form;
+/// `None` means "assign the adaptive default". Any supplied value is clamped
+/// onto the slider grid and range — it arrives over IPC and is not trusted.
+/// `extra_jvm_args` defaults to `""`.
 #[tauri::command]
 #[specta::specta]
 pub fn create_instance(
@@ -242,6 +245,7 @@ pub fn create_instance(
     mc_version: String,
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
+    max_heap_mb: Option<u32>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     validate_instance_name(&name)?;
@@ -251,6 +255,7 @@ pub fn create_instance(
         mc_version,
         loader,
         loader_version,
+        max_heap_mb,
         None,
         None,
         None,
@@ -401,6 +406,9 @@ pub fn set_instance_jvm_args(
 pub struct MemoryBounds {
     pub min_mb: u32,
     pub max_mb: u32,
+    /// Heap a NEW instance gets when the user doesn't pick one. Exposed so the
+    /// create form can seed its slider without re-deriving the policy in TS.
+    pub default_mb: u32,
     pub recommended_max_mb: u32,
     pub step_mb: u32,
     pub ram_known: bool,
@@ -413,6 +421,7 @@ pub fn instance_memory_bounds() -> MemoryBounds {
     MemoryBounds {
         min_mb: crate::instances::memory::slider_min_mb(),
         max_mb: crate::instances::memory::slider_max_mb(ram),
+        default_mb: crate::instances::memory::default_heap_mb(ram),
         recommended_max_mb: crate::instances::memory::recommended_max_mb(ram),
         step_mb: crate::instances::memory::slider_step_mb(),
         ram_known: ram.is_some(),
