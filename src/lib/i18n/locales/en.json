@@ -268,6 +268,7 @@
       "filterPlaceholder": "Filter instances…",
       "filterNoMatches": "No instances match.",
       "listRegionLabel": "Instances",
+      "resizeList": "Resize the instance list",
       "iconReady": "Assets downloaded",
       "iconDownloadNeeded": "Download needed",
       "createHeading": "New instance",

@@ -376,6 +376,7 @@ export type TranslationKey =
   | 'instance.manage.openSourceFolderBtn'
   | 'instance.manage.openSourceFolderFailed'
   | 'instance.manage.pickMc'
+  | 'instance.manage.resizeList'
   | 'instance.manage.runningBlocked'
   | 'instance.manage.saved'
   | 'instance.manage.showSnapshots'
