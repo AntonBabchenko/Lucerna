@@ -251,12 +251,20 @@ pub async fn install_one(
             });
         }
     } else {
-        fs::copy(&cached_path, &dest)
-            .await
-            .map_err(|e| Error::ModsInstancePath {
-                path: dest.display().to_string(),
-                details: e.to_string(),
-            })?;
+        // Hardlink the shared store entry into the instance (copy fallback on
+        // any link failure). `install_one` always carries full provenance —
+        // source + project_id + version_id — so the linked bytes are always
+        // re-downloadable, which is the precondition for sharing them.
+        crate::mods::store::materialize(
+            &cached_path,
+            &dest,
+            crate::mods::store::LinkPolicy::LinkIfPossible,
+        )
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: e.path.display().to_string(),
+            details: e.details(),
+        })?;
         newly_copied = true;
     }
 
@@ -361,12 +369,23 @@ pub async fn install_asset(
             entry: install_path.to_string(),
         });
     }
-    fs::copy(&cached_path, &dest)
-        .await
-        .map_err(|e| Error::ModsInstancePath {
-            path: dest.display().to_string(),
-            details: e.to_string(),
-        })?;
+    // ForceCopy: resource packs / shaders / pack config files are not linked
+    // this session — an asset's `install_path` comes from the pack manifest and
+    // may point at `config/`, which the game rewrites in place, so linking it
+    // would leak one instance's edits into another. Routed through the
+    // chokepoint anyway for the temp-then-rename guarantee: this copy is
+    // unconditional over an existing destination, and that destination may be a
+    // link.
+    crate::mods::store::materialize(
+        &cached_path,
+        &dest,
+        crate::mods::store::LinkPolicy::ForceCopy,
+    )
+    .await
+    .map_err(|e| Error::ModsInstancePath {
+        path: e.path.display().to_string(),
+        details: e.details(),
+    })?;
     Ok(())
 }
 
