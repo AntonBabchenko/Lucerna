@@ -200,6 +200,7 @@ pub async fn run_import(
         plan.mc_version.clone(),
         plan.loader,
         plan.loader_version.clone(),
+        Some(plan.max_heap_mb),
         None,
         None,
         None,
@@ -210,8 +211,7 @@ pub async fn run_import(
     )?;
     let id = created.id;
 
-    // Apply heap + jvm args (create_instance uses defaults).
-    let _ = instances::set_instance_memory(app, &id, plan.max_heap_mb);
+    // Heap travels with the create above; only the jvm args still need a write.
     let _ = instances::set_instance_jvm_args(app, &id, plan.extra_jvm_args.clone());
 
     let instance_root =

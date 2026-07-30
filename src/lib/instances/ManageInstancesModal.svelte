@@ -6,6 +6,7 @@
     type LoaderKind,
     type VersionEntry,
     type Error as IpcError,
+    type MemoryBounds,
     type ModCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
@@ -17,6 +18,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
   import { formatHeapLabel } from '$lib/instances/heap';
+  import { FALLBACK_MEMORY_BOUNDS, loadMemoryBounds } from '$lib/instances/memory-bounds';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -231,6 +233,32 @@
     }
   });
 
+  // Create-form heap draft. Deliberately NOT `heapDraft` above: that one belongs
+  // to the detail editor and is reseeded id-gated on every background refresh,
+  // which would stomp a heap the user picked mid-create. `null` = untouched, so
+  // the effective value tracks the adaptive default until the user actually
+  // drags — which also sidesteps the race where the bounds resolve only after
+  // the form is already open.
+  let createHeapDraft = $state<number | null>(null);
+  let createBounds = $state<MemoryBounds>(FALLBACK_MEMORY_BOUNDS);
+  $effect(() => {
+    let alive = true;
+    void loadMemoryBounds().then((b) => {
+      if (alive) createBounds = b;
+    });
+    return () => {
+      alive = false;
+    };
+  });
+  // Guard the IPC boundary: a malformed payload must not seed NaN into the
+  // slider (which would render an empty box and submit a NaN heap).
+  const createHeapMb = $derived(
+    createHeapDraft ??
+      (Number.isFinite(createBounds.default_mb)
+        ? createBounds.default_mb
+        : FALLBACK_MEMORY_BOUNDS.default_mb),
+  );
+
   // Advanced: optional initial heap (-Xms). null = unset (JVM default). Seeded
   // id-gated like the other drafts so a background refresh doesn't clobber it.
   let minHeapDraft = $state<number | null>(null);
@@ -293,6 +321,7 @@
     draftMc = '';
     draftLoader = 'vanilla';
     draftLoaderVersion = null;
+    createHeapDraft = null;
     modalError = null;
     filterQuery = '';
   }
@@ -330,6 +359,7 @@
         draftMc,
         draftLoader,
         draftLoaderVersion,
+        createHeapMb,
       );
       if (result.status === 'ok') {
         createMode = false;
@@ -758,6 +788,20 @@
                 mc={draftMc}
                 bind:loader={draftLoader}
                 bind:loaderVersion={draftLoaderVersion}
+              />
+
+              <label for="create-memory" class="mt-3 mb-1 block text-xs text-secondary">
+                {$t('instance.manage.memoryLabel', { value: formatHeapLabel(createHeapMb) })}
+              </label>
+              <!-- No onCommit: this is a draft. Unlike the detail editor, which
+                   persists on release, the value is written once by Create. -->
+              <MemorySlider
+                id="create-memory"
+                class="mb-1"
+                warnClass="mb-3"
+                reserveWarnSpace
+                valueMb={createHeapMb}
+                onInput={(mb) => (createHeapDraft = mb)}
               />
 
               <div class="flex items-center justify-end gap-2 mt-4">

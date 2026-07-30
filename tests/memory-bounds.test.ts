@@ -16,6 +16,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 const REAL_BOUNDS = {
   min_mb: 1024,
   max_mb: 32768,
+  default_mb: 6144,
   recommended_max_mb: 24576,
   step_mb: 256,
   ram_known: true,

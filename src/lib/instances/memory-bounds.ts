@@ -15,6 +15,9 @@ import { commands, type MemoryBounds } from '$lib/ipc/bindings';
 export const FALLBACK_MEMORY_BOUNDS: MemoryBounds = {
   min_mb: 1024,
   max_mb: 8192,
+  // Matches what the backend's default_heap_mb(None) returns, so a create form
+  // seeded from the fallback picks the same heap the backend would have.
+  default_mb: 2048,
   recommended_max_mb: 8192,
   step_mb: 256,
   ram_known: false,
