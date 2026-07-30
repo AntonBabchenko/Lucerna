@@ -59,6 +59,12 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn().mockResolvedValue(null),
 }));
 
+// The EULA link hands the URL to the OS opener; stub it so clicking the link in
+// tests doesn't reach the real plugin.
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn().mockResolvedValue(undefined),
+}));
+
 const mockInstance: InstanceWithStatus = {
   id: 'inst-1',
   name: 'My Instance',
@@ -166,6 +172,26 @@ describe('ServerCreateWizard', () => {
     // EULA is unchecked by default — Create must remain disabled
     const createBtn = screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
+  });
+
+  it('offers a readable EULA link that does not accept the EULA when clicked', async () => {
+    render(ServerCreateWizard, baseProps());
+
+    await fireEvent.input(screen.getByLabelText('Name') as HTMLInputElement, {
+      target: { value: 'Test Server' },
+    });
+
+    // Reading the agreement must not tick "I accept" as a side effect. This
+    // only holds because the link sits outside the <label> — nesting it there
+    // hands the click to the checkbox no matter what the handler does.
+    const link = screen.getByTestId('eula-link');
+    expect(link.closest('label')).toBeNull();
+    await fireEvent.click(link);
+
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it('Create button becomes enabled after checking EULA with name present', async () => {

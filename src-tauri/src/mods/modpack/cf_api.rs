@@ -64,6 +64,11 @@ struct CfMod {
     name: String,
     summary: String,
     download_count: u64,
+    /// CurseForge category class. Read only by `fetch_hit_by_ref`, which must
+    /// reject a link pointing at a mod (`classId` 6) rather than a modpack.
+    /// Optional so existing fixtures and search responses stay valid.
+    #[serde(default)]
+    class_id: Option<u32>,
     logo: Option<CfLogo>,
     /// CurseForge project-level distribution flag — nullable in the API.
     allow_mod_distribution: Option<bool>,
@@ -188,6 +193,98 @@ fn check_status(resp: &crate::network::request::HttpResponse, url: &str) -> Resu
 
 // ---- search ----------------------------------------------------------
 
+/// One CurseForge mod record → `ModpackHit`. Shared by `search` and
+/// `fetch_hit_by_ref` so the two cannot drift on field mapping.
+fn hit_from_mod(m: CfMod) -> ModpackHit {
+    ModpackHit {
+        project_id: m.id.to_string(),
+        slug: m.slug,
+        title: m.name,
+        description: m.summary,
+        icon_url: m.logo.and_then(|l| l.url),
+        downloads: m.download_count as f64,
+        // The modpack card does not render these two; CurseForge search hits
+        // leave them empty/None.
+        latest_mc_version: None,
+        supported_loaders: vec![],
+        source: ModSource::Curseforge,
+        distribution_allowed: m.allow_mod_distribution,
+        // CurseForge modpack browse is not wired into the UI (CF packs are
+        // import-by-file only), so the author is left unset here rather than
+        // adding CF-only deserialization.
+        author: None,
+    }
+}
+
+/// Resolve ONE CurseForge project reference from an import link to a
+/// `ModpackHit`. A numeric reference is fetched directly (`/v1/mods/{id}`);
+/// a slug — which is all a CurseForge page URL carries — goes through the
+/// catalogue search filtered by `slug`.
+///
+/// Read-only: one metadata GET, no download, no install. A project that is not
+/// in the Modpacks class is rejected by name, because a pasted *mod* URL is the
+/// most likely user mistake and deserves a real answer.
+pub async fn fetch_hit_by_ref(
+    base: &str,
+    key: Option<&str>,
+    project_ref: &str,
+) -> Result<ModpackHit, Error> {
+    let key = require_key(key)?;
+    let m = if project_ref.chars().all(|c| c.is_ascii_digit()) {
+        let url = format!("{base}/v1/mods/{}", urlencode(project_ref));
+        let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        if resp.status == 404 {
+            return Err(Error::ImportUrlInvalid {
+                reason: format!("CurseForge has no project '{project_ref}'"),
+            });
+        }
+        check_status(&resp, &url)?;
+        let env: Env<CfMod> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "curseforge".into(),
+                details: e.to_string(),
+            })?;
+        env.data
+    } else {
+        let params: Vec<(&str, String)> = vec![
+            ("gameId", GAME_MINECRAFT.to_string()),
+            ("classId", CLASS_MODPACKS.to_string()),
+            ("slug", project_ref.to_string()),
+            ("pageSize", "1".to_string()),
+        ];
+        let url = format!("{base}/v1/mods/search?{}", encode_pairs(&params));
+        let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        check_status(&resp, &url)?;
+        let env: ListEnv<CfMod> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "curseforge".into(),
+                details: e.to_string(),
+            })?;
+        env.data
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::ImportUrlInvalid {
+                reason: format!("CurseForge has no modpack with the slug '{project_ref}'"),
+            })?
+    };
+    // `class_id` is absent from the slug-search response for some records, so an
+    // unknown class is accepted; only a *known, wrong* class is rejected.
+    if let Some(class) = m.class_id {
+        if class.to_string() != CLASS_MODPACKS {
+            return Err(Error::ImportUrlInvalid {
+                reason: format!(
+                    "that CurseForge page is not a modpack (category {class}) — only modpack links can be imported"
+                ),
+            });
+        }
+    }
+    Ok(hit_from_mod(m))
+}
+
 /// Search the CurseForge modpack catalogue (`classId` 4471). `page` is a
 /// zero-based page index; `page_size` controls how many results per page.
 pub async fn search(
@@ -268,24 +365,7 @@ pub async fn search(
             .as_ref()
             .map(|p| p.total_count)
             .unwrap_or(fetched + got);
-        hits.extend(env.data.into_iter().map(|m| ModpackHit {
-            project_id: m.id.to_string(),
-            slug: m.slug,
-            title: m.name,
-            description: m.summary,
-            icon_url: m.logo.and_then(|l| l.url),
-            downloads: m.download_count as f64,
-            // The modpack card does not render these two; CurseForge
-            // search hits leave them empty/None.
-            latest_mc_version: None,
-            supported_loaders: vec![],
-            source: ModSource::Curseforge,
-            distribution_allowed: m.allow_mod_distribution,
-            // CurseForge modpack browse is not wired into the UI (CF packs
-            // are import-by-file only), so the author is left unset here
-            // rather than adding CF-only deserialization.
-            author: None,
-        }));
+        hits.extend(env.data.into_iter().map(hit_from_mod));
         fetched += got;
         // A short window means the catalogue is exhausted — stop rather than
         // firing a guaranteed-empty follow-up request.
@@ -566,6 +646,112 @@ mod tests {
             }],
             "pagination": { "index": 0, "pageSize": 20, "resultCount": 2, "totalCount": 2 }
         })
+    }
+
+    #[tokio::test]
+    async fn resolve_by_slug_goes_through_the_modpack_class_search() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .and(query_param("slug", "atm10"))
+            .and(query_param("classId", "4471"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{
+                    "id": 999, "slug": "atm10", "name": "All the Mods 10",
+                    "summary": "Kitchen sink", "downloadCount": 42, "logo": null,
+                    "classId": 4471, "allowModDistribution": true
+                }],
+                "pagination": {"index": 0, "pageSize": 1, "resultCount": 1, "totalCount": 1}
+            })))
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let hit = fetch_hit_by_ref(&s.uri(), Some("k"), "atm10")
+            .await
+            .unwrap();
+        assert_eq!(hit.project_id, "999");
+        assert_eq!(hit.slug, "atm10");
+        assert_eq!(hit.source, ModSource::Curseforge);
+        assert_eq!(hit.distribution_allowed, Some(true));
+    }
+
+    #[tokio::test]
+    async fn resolve_by_numeric_id_hits_the_single_mod_route() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": 1234, "slug": "rlcraft", "name": "RLCraft",
+                    "summary": "Hard", "downloadCount": 7, "logo": null,
+                    "classId": 4471
+                }
+            })))
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let hit = fetch_hit_by_ref(&s.uri(), Some("k"), "1234").await.unwrap();
+        assert_eq!(hit.slug, "rlcraft");
+    }
+
+    #[tokio::test]
+    async fn resolve_rejects_a_project_in_another_class() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/77"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": 77, "slug": "jei", "name": "JEI", "summary": "Items",
+                    "downloadCount": 1, "logo": null, "classId": 6
+                }
+            })))
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        assert!(matches!(
+            fetch_hit_by_ref(&s.uri(), Some("k"), "77").await,
+            Err(Error::ImportUrlInvalid { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_reports_an_unknown_slug_as_a_link_problem() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [],
+                "pagination": {"index": 0, "pageSize": 1, "resultCount": 0, "totalCount": 0}
+            })))
+            .mount(&s)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        assert!(matches!(
+            fetch_hit_by_ref(&s.uri(), Some("k"), "no-such-pack").await,
+            Err(Error::ImportUrlInvalid { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_without_a_key_makes_no_request() {
+        // Mirrors `search_missing_key_is_auth_missing_with_no_request`: the key
+        // check happens before any network call, so the UI shows the key banner
+        // rather than a network error.
+        let s = MockServer::start().await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        assert!(matches!(
+            fetch_hit_by_ref(&s.uri(), None, "atm10").await,
+            Err(Error::ModsPlatformAuth { .. })
+        ));
     }
 
     /// Build `count` minimal CF modpack JSON entries, ids `start..start+count`.

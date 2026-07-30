@@ -234,6 +234,7 @@
     "contextHide": "I don't need this",
     "contextMenuAria": "Button actions",
     "cloneInstance": "Clone…",
+    "createShortcut": "Create desktop shortcut…",
     "instanceMenuAria": "Instance actions",
     "hideConfirm": {
       "title": "Hide button?",
@@ -769,9 +770,20 @@
     "tab": {
       "browse": "Browse",
       "imported": "Imported",
-      "dropzoneLabel": "Drop a .mrpack or .zip here to import — or click to browse"
+      "dropzoneLabel": "Drop a .mrpack or .zip here to import — or click to browse",
+      "importFromUrl": "Import from URL…"
     },
     "import": {
+      "url": {
+        "title": "Import a modpack from a link",
+        "dialogAriaLabel": "Import modpack from URL",
+        "inputLabel": "Modpack page link",
+        "placeholder": "https://modrinth.com/modpack/…",
+        "help": "Paste a Modrinth or CurseForge modpack page link. Lucerna only reads the pack's details — you still choose the version and confirm the install.",
+        "external": "Another app asked Lucerna to open this link. Nothing is installed until you confirm.",
+        "continue": "Continue",
+        "resolving": "Looking up the pack…"
+      },
       "picker": {
         "dialogAriaLabel": "Modpack import picker",
         "savesWarning": "This pack includes saved worlds in its overrides. They will be copied into the new instance.",
@@ -959,6 +971,32 @@
       "noChanges": "No file changes in this version.",
       "cancelBtn": "Cancel",
       "updateBtn": "Update"
+    },
+    "switch": {
+      "openBtn": "Change version",
+      "title": "Change version — {pack}",
+      "newerBadge": "Newer",
+      "olderBadge": "Older",
+      "installedBadge": "Installed",
+      "loadingVersions": "Loading versions…",
+      "preparing": "Preparing version…",
+      "versionsEmpty": "No versions match.",
+      "filterMcLabel": "Minecraft version",
+      "filterMcAll": "All",
+      "versionMeta": "{mc} · {loader} · {date}",
+      "reviewTitle": "Switch to {version}?",
+      "confirmBtn": "Switch to {version}",
+      "cancelBtn": "Cancel",
+      "backBtn": "Back",
+      "retryBtn": "Try again",
+      "changelogGained": "What's new",
+      "changelogLost": "Changes you'll lose",
+      "riskMcChange": "Minecraft {from} → {to}. A world saved on one Minecraft version may not open on the other, and Minecraft's world upgrade is one-way. Back up worlds you care about first. After switching, click Install to download the new Minecraft version.",
+      "riskDowngrade": "This is an older version of the pack. Worlds and mod config written by the newer mod versions may not be readable by the older ones.",
+      "riskLoaderChange": "Mod loader {from} → {to}. Mods built for the old loader version may not load.",
+      "riskCustomizationsUser": "{count} mod(s) you added yourself will be kept. They were chosen for the current version and may not work with this one.",
+      "riskCustomizationsManual": "{count} manually-placed jar(s) will be kept and are not checked for compatibility.",
+      "riskBundledOverrides": "The pack's bundled config files are not re-applied by a version change — your current configs stay as they are. Use \"Re-import pack files\" afterwards if the new version needs its own configs."
     }
   },
   "screenshots": {
@@ -1062,7 +1100,8 @@
       "wrapLines": "Wrap lines",
       "collapseStacks": "Collapse stacks",
       "showLevels": "Show:",
-      "rawView": "Raw view"
+      "rawView": "Raw view",
+      "collapseRepeats": "Collapse repeats"
     },
     "severity": {
       "game": "Game logs",
@@ -1406,6 +1445,48 @@
       "clearOldTitle": "Clear old logs",
       "clearOldBody": "Delete {count, plural, one {# file} other {# files}} (frees ~{size})? latest.log and debug.log are kept.",
       "cleared": "{count, plural, one {Cleared # log file} other {Cleared # log files}} · {size} freed"
+    },
+    "compact": {
+      "repeatCount": "×{count}"
+    },
+    "journal": {
+      "viewSwitchLabel": "View",
+      "viewLogs": "Logs",
+      "viewJournal": "History",
+      "title": "Instance history",
+      "empty": "Nothing recorded for this instance yet. Installs, updates and launches will show up here.",
+      "loadFailed": "Could not read the history: {error}",
+      "filterAll": "All",
+      "filterContent": "Content",
+      "filterLaunches": "Launches",
+      "clear": "Clear history",
+      "clearTitle": "Clear instance history?",
+      "clearBody": "This deletes the local record of content changes and launches for this instance. Your mods, worlds and settings are untouched.",
+      "clearConfirm": "Clear",
+      "cleared": "History cleared",
+      "openLog": "Open log",
+      "affected": "{count, plural, one {# file} other {# files}}",
+      "exitCode": "exit code {code}",
+      "contextTitle": "Changed shortly before this log",
+      "contextAgo": "{duration} before",
+      "action": {
+        "modInstalled": "Mod installed",
+        "modUpdated": "Mod updated",
+        "modRemoved": "Mod removed",
+        "modEnabled": "Mod enabled",
+        "modDisabled": "Mod disabled",
+        "assetInstalled": "Add-on installed",
+        "assetUpdated": "Add-on updated",
+        "assetRemoved": "Add-on removed",
+        "modpackImported": "Modpack imported",
+        "modpackUpdated": "Modpack updated",
+        "integrityRepaired": "Files repaired"
+      },
+      "outcome": {
+        "ok": "Closed normally",
+        "crashed": "Crashed",
+        "stopped": "Stopped by you"
+      }
     }
   },
   "onboarding": {
@@ -1715,6 +1796,8 @@
     "modsInstancePath": "Couldn't write to instance at {path}",
     "modpackInvalidArchive": "Modpack archive is invalid",
     "modpackFormatUnknown": "This file is not a recognised modpack (.mrpack or CurseForge .zip).",
+    "importUrlInvalid": "That link can't be imported: {reason}",
+    "importUrlUnsupportedSource": "Import by link doesn't support {platform} yet. Modrinth and CurseForge modpack pages work; for other sources, download the pack and drop the file here.",
     "modpackManifestInvalid": "{format} modpack manifest is invalid",
     "modpackUnsupportedManifestVersion": "{format} modpack uses unsupported manifest version {version}.",
     "modpackUnsupportedLoader": "{format} modpack declares unsupported loader: {loaderId}",
@@ -1857,6 +1940,16 @@
         "installing": "Installing…",
         "openReleasePage": "Open release page",
         "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page."
+      },
+      "urlScheme": {
+        "title": "Links",
+        "label": "Open lucerna:// links with Lucerna",
+        "description": "Lets an \"Open in Lucerna\" link from your browser open the modpack import dialog. A link can only open the dialog — it can never install a pack or start the game on its own.",
+        "registryHint": "Writes one registry key for your user only: {key}. Turning this off removes it.",
+        "unsupported": "Link handling isn't supported on this platform yet. You can still paste a link into the modpack import dialog.",
+        "repointed": "Links currently open a different copy of Lucerna — point them at this one?",
+        "reassert": "Point at this copy",
+        "failed": "Couldn't change the link registration: {message}"
       },
       "onboarding": {
         "title": "Onboarding",
@@ -2102,6 +2195,26 @@
       }
     }
   },
+  "shortcut": {
+    "title": "Create a desktop shortcut",
+    "dialogAriaLabel": "Create desktop shortcut",
+    "targetLegend": "What should it launch?",
+    "targetInstance": "The instance",
+    "targetWorld": "Straight into a world",
+    "targetServer": "Straight onto a server",
+    "worldLabel": "World",
+    "serverLabel": "Server",
+    "noWorlds": "This instance has no saved worlds yet.",
+    "noServers": "This instance has no saved servers yet.",
+    "noQuickPlay": "Launching straight into a world or server needs Minecraft 1.20 or newer. A shortcut to the instance itself works on any version.",
+    "nameLabel": "Shortcut name",
+    "create": "Create shortcut",
+    "creating": "Creating…",
+    "created": "Shortcut created: {path}",
+    "openFolder": "Open folder",
+    "instanceMissing": "That shortcut points at an instance that no longer exists.",
+    "unsupported": "Desktop shortcuts aren't supported on this platform yet."
+  },
   "quickJoin": {
     "title": "Servers",
     "savedHeading": "Saved servers",
@@ -2250,6 +2363,10 @@
       "coreVersionsError": "Could not load the version list for this core.",
       "memory": "Memory (MB)",
       "eula": "I accept the Minecraft EULA",
+      "eulaPrefix": "I accept the",
+      "eulaLink": "Minecraft EULA",
+      "eulaLinkAria": "Open the Minecraft EULA in your browser",
+      "eulaRead": "Read the Minecraft EULA",
       "eulaRequired": "Required to create a server",
       "create": "Create",
       "cancel": "Cancel",

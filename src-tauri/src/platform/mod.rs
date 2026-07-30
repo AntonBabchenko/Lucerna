@@ -8,6 +8,7 @@
 //! Enforced by `tests/structural_platform_chokepoint.rs`.
 
 pub mod gpu;
+pub mod protocol;
 
 use std::path::{Path, PathBuf};
 

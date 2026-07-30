@@ -7,6 +7,7 @@
   import AppearancePanel from './AppearancePanel.svelte';
   import GamePanel from './GamePanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
+  import UrlSchemeSection from './UrlSchemeSection.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import UpdatesPanel from './UpdatesPanel.svelte';
   import HelpPanel from './HelpPanel.svelte';
@@ -102,7 +103,12 @@
         {:else if active === 'game'}
           <GamePanel />
         {:else if active === 'integrations'}
-          <CurseForgeKeyForm />
+          <div class="flex flex-col gap-6">
+            <CurseForgeKeyForm />
+            <div class="border-t pt-4">
+              <UrlSchemeSection />
+            </div>
+          </div>
         {:else if active === 'storage'}
           <StoragePanel />
         {:else if active === 'updates'}

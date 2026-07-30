@@ -5,7 +5,7 @@ use crate::mods::curseforge::CurseForgeClient;
 use crate::mods::deps::{FetchedDeps, ProjectKey, ResolvedNode};
 use crate::mods::modpack;
 use crate::mods::modpack::schema::{
-    ModpackProgress, ModpackSearchPage, ModpackSort, ModpackStatus, ModpackSummary,
+    ModpackHit, ModpackProgress, ModpackSearchPage, ModpackSort, ModpackStatus, ModpackSummary,
 };
 use crate::mods::modrinth::ModrinthClient;
 use crate::mods::platform::*;
@@ -26,6 +26,8 @@ mod instances;
 pub use instances::*;
 mod logs;
 pub use logs::*;
+mod journal;
+pub use journal::*;
 mod worlds;
 pub use worlds::*;
 mod servers;
@@ -58,6 +60,8 @@ mod cosmetics;
 pub use cosmetics::*;
 mod skin_library;
 pub use skin_library::*;
+mod desktop;
+pub use desktop::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)

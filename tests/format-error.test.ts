@@ -117,6 +117,17 @@ describe('formatError', () => {
     expect(msg.toLowerCase()).toContain('unsafe');
   });
 
+  it('formats the import-by-link variants with their own reason text', () => {
+    // Both are `clean`: the reason is built in Rust from the link itself, so it
+    // renders verbatim — no truncation, no "open Logs" tail.
+    expect(
+      formatError({ kind: 'import_url_invalid', reason: "unsupported scheme 'file'" } as never),
+    ).toBe("That link can't be imported: unsupported scheme 'file'");
+    expect(
+      formatError({ kind: 'import_url_unsupported_source', platform: 'FTB' } as never),
+    ).toContain('FTB');
+  });
+
   it('formats every Modpack* variant', () => {
     expect(formatError({ kind: 'modpack_format_unknown' } as never)).toBe(
       'This file is not a recognised modpack (.mrpack or CurseForge .zip).',
@@ -270,6 +281,8 @@ describe('formatError', () => {
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
       modpack_invalid_archive: { kind: 'modpack_invalid_archive', details: 'd' },
       modpack_format_unknown: { kind: 'modpack_format_unknown' },
+      import_url_invalid: { kind: 'import_url_invalid', reason: 'unsupported scheme' },
+      import_url_unsupported_source: { kind: 'import_url_unsupported_source', platform: 'ftb' },
       modpack_manifest_invalid: {
         kind: 'modpack_manifest_invalid',
         format: 'mrpack',

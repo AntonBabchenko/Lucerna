@@ -8,7 +8,7 @@ use specta::Type;
 
 use crate::error::Error;
 use crate::mods::modpack::schema::{
-    ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
+    ModpackHit, ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
 };
 use crate::mods::platform::{LoaderKind, ModSource};
 
@@ -61,6 +61,15 @@ pub trait ModpackSource: Send + Sync {
         project_id: &str,
         version_id: &str,
     ) -> Result<String, Error>;
+
+    /// Resolve a single project reference from an import link (a slug or a
+    /// platform id) to the same `ModpackHit` search produces, so an inbound
+    /// link lands in the existing detail-modal → picker → import path with no
+    /// parallel install flow. Read-only: metadata only, never a download.
+    ///
+    /// Sources with no page-URL → API mapping return
+    /// `Error::ImportUrlUnsupportedSource` so the UI can name what is supported.
+    async fn resolve_project_hit(&self, project_ref: &str) -> Result<ModpackHit, Error>;
 }
 
 pub fn modpack_source_for(source: ModSource) -> Box<dyn ModpackSource> {
@@ -127,6 +136,12 @@ impl ModpackSource for UnsupportedModpackSource {
         _project_id: &str,
         _version_id: &str,
     ) -> Result<String, Error> {
+        Err(Error::ModsPlatformUnsupported {
+            platform: self.source,
+        })
+    }
+
+    async fn resolve_project_hit(&self, _project_ref: &str) -> Result<ModpackHit, Error> {
         Err(Error::ModsPlatformUnsupported {
             platform: self.source,
         })

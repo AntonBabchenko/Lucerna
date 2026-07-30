@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::error::Error;
 use crate::mods::modpack::schema::{
-    ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
+    ModpackHit, ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
 };
 use crate::mods::modpack::source::{ModpackSource, SourceCaps};
 use crate::mods::platform::LoaderKind;
@@ -54,6 +54,10 @@ impl ModpackSource for ModrinthModpackSource {
             app, MR_BASE, project_id, version_id,
         )
         .await
+    }
+
+    async fn resolve_project_hit(&self, project_ref: &str) -> Result<ModpackHit, Error> {
+        crate::mods::modpack::search::fetch_project_hit(MR_BASE, project_ref).await
     }
 }
 

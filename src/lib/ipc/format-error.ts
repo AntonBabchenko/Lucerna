@@ -122,6 +122,10 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_filename_conflict: 'clean',
   mods_unsafe_filename: 'clean',
   modpack_format_unknown: 'clean',
+  // Import-by-link: both carry a self-contained, user-facing reason built in
+  // Rust from the link itself — nothing to truncate or hide.
+  import_url_invalid: 'clean',
+  import_url_unsupported_source: 'clean',
   modpack_unsupported_manifest_version: 'clean',
   modpack_unsupported_loader: 'clean',
   modpack_download_host_not_allowed: 'clean',
@@ -333,6 +337,10 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.modpackInvalidArchive'), e.details);
     case 'modpack_format_unknown':
       return translate('errors.modpackFormatUnknown');
+    case 'import_url_invalid':
+      return translate('errors.importUrlInvalid', { reason: e.reason });
+    case 'import_url_unsupported_source':
+      return translate('errors.importUrlUnsupportedSource', { platform: e.platform });
     case 'modpack_manifest_invalid':
       return withDetailTail(
         translate('errors.modpackManifestInvalid', { format: e.format }),

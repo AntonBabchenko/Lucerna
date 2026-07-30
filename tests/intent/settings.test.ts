@@ -32,6 +32,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     // CurseForgeKeyForm
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'missing' }),
+    // UrlSchemeSection (rendered alongside CurseForgeKeyForm in Integrations)
+    urlSchemeKey: vi.fn().mockResolvedValue('HKCU\\Software\\Classes\\lucerna'),
+    urlSchemeState: vi.fn().mockResolvedValue({ status: 'ok', data: 'not_registered' }),
+    urlSchemeRegister: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    urlSchemeUnregister: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsSetCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsClearCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // StoragePanel

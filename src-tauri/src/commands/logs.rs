@@ -533,7 +533,21 @@ pub async fn execute_repair(
         }
         RepairChoice::DisableMod { sha1 } => {
             let inst_root = instance_root(&app, &instance_id)?;
+            // A diagnosis-driven repair changes content just as much as the
+            // manual toggle does, so it gets the same history row.
+            let identity = mod_identity(&inst_root, &sha1).await;
             crate::mods::install::disable(&inst_root, &sha1).await?;
+            if let Some((name, version)) = identity {
+                crate::journal::record(
+                    &inst_root,
+                    crate::journal::content_versioned(
+                        crate::journal::ContentAction::ModDisabled,
+                        name,
+                        version,
+                        None,
+                    ),
+                );
+            }
         }
         RepairChoice::Reinstall { old_sha1, target } => {
             let inst_root = instance_root(&app, &instance_id)?;
@@ -548,7 +562,25 @@ pub async fn execute_repair(
             // Uninstall-first is required because the corrupt-redownload target
             // has the same filename as the broken jar — installing first would
             // collide on disk.
+            //
+            // Journalling: only the removal is recorded here. The install half
+            // goes through `mods_install_with_deps`, which writes its own
+            // `ModInstalled` row — recording it again would double-count. For a
+            // conflict swap the two rows name different mods, which is exactly
+            // the history the user needs.
+            let removed = mod_identity(&inst_root, &old_sha1).await;
             crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
+            if let Some((name, version)) = removed {
+                crate::journal::record(
+                    &inst_root,
+                    crate::journal::content_versioned(
+                        crate::journal::ContentAction::ModRemoved,
+                        name,
+                        version,
+                        None,
+                    ),
+                );
+            }
             mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
         }
         RepairChoice::InstallFixMod {
@@ -559,6 +591,7 @@ pub async fn execute_repair(
             // Install via the verified path (SHA-1 verify + required-deps
             // closure). The fix mod's own deps (e.g. the base mod it patches)
             // are already present; install_with_deps no-ops on installed ones.
+            // No journal call here — `mods_install_with_deps` records the row.
             let target = crate::mods::platform::VersionRef {
                 source,
                 project_id,

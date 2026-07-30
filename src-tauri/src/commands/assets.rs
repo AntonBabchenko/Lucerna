@@ -39,8 +39,34 @@ pub async fn asset_uninstall(
     // Guard against path escape before touching the filesystem (defense-in-depth:
     // install_asset validates the same way, so any registry basename always passes).
     let path = crate::mods::install::safe_asset_remove_path(&inst_root, kind, &filename)?;
+    // Resolve the display name before the registry row goes away.
+    let name = asset_display_name(&inst_root, kind, &filename).await;
     let _ = tokio::fs::remove_file(&path).await; // best-effort; registry is source of truth
-    crate::mods::assets::remove(&inst_root, kind, &filename).await
+    crate::mods::assets::remove(&inst_root, kind, &filename).await?;
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content(crate::journal::ContentAction::AssetRemoved, name),
+    );
+    Ok(())
+}
+
+/// Display name of an installed asset, falling back to its filename when the
+/// registry can't be read or has no row for it. Journal rows should carry the
+/// name the user saw in the Installed list.
+async fn asset_display_name(
+    inst_root: &std::path::Path,
+    kind: crate::mods::platform::ContentKind,
+    filename: &str,
+) -> String {
+    crate::mods::assets::list(inst_root, kind)
+        .await
+        .ok()
+        .and_then(|list| {
+            list.into_iter()
+                .find(|a| a.filename.eq_ignore_ascii_case(filename))
+                .map(|a| a.name)
+        })
+        .unwrap_or_else(|| filename.to_string())
 }
 
 /// Download + install a resource pack or shader version into an instance,
@@ -74,7 +100,17 @@ pub async fn asset_install(
         f.size,
         &progress,
     )
-    .await
+    .await?;
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content_versioned(
+            crate::journal::ContentAction::AssetInstalled,
+            version.name.clone(),
+            None,
+            Some(version.version_number.clone()),
+        ),
+    );
+    Ok(())
 }
 
 /// Install a local resource-pack / shader `.zip` from disk into the instance as
@@ -106,7 +142,17 @@ pub async fn asset_install_local(
             details: "dropped path has no filename".into(),
         })?
         .to_string();
-    crate::mods::asset_local::install_asset_local(&inst_root, kind, &filename, &bytes).await
+    let installed =
+        crate::mods::asset_local::install_asset_local(&inst_root, kind, &filename, &bytes).await?;
+    // Hand-dropped zip: no platform version to record.
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content(
+            crate::journal::ContentAction::AssetInstalled,
+            installed.name.clone(),
+        ),
+    );
+    Ok(installed)
 }
 
 /// Check every installed asset of `kind` that carries platform identity
@@ -172,8 +218,29 @@ pub async fn asset_update_one(
         let inst_root = instance_root(&app, &instance_id)?;
         let dd = data_dir(&app)?;
         let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
-        crate::mods::install::update_asset(&dd, &inst_root, kind, &old_filename, target, &progress)
+        // The outgoing version, read before the replace drops its registry row.
+        let previous = crate::mods::assets::list(&inst_root, kind)
             .await
+            .ok()
+            .and_then(|list| {
+                list.into_iter()
+                    .find(|a| a.filename.eq_ignore_ascii_case(&old_filename))
+                    .and_then(|a| a.version_number)
+            });
+        let name = target.name.clone();
+        let to_version = target.version_number.clone();
+        crate::mods::install::update_asset(&dd, &inst_root, kind, &old_filename, target, &progress)
+            .await?;
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::AssetUpdated,
+                name,
+                previous,
+                Some(to_version),
+            ),
+        );
+        Ok(())
     })
     .await
 }

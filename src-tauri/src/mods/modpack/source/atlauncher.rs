@@ -240,6 +240,18 @@ impl ModpackSource for AtlauncherModpackSource {
         })?;
         crate::mods::modpack::source::stage::write_to_temp(app, &json, "atlpack.json").await
     }
+
+    async fn resolve_project_hit(
+        &self,
+        _project_ref: &str,
+    ) -> Result<crate::mods::modpack::schema::ModpackHit, Error> {
+        // ATLauncher packs are keyed by `safeName`, which its pack-page URLs do
+        // not carry verbatim; guessing the mapping would produce confident wrong
+        // answers. v1 of import-by-link ships Modrinth + CurseForge.
+        Err(Error::ImportUrlUnsupportedSource {
+            platform: "ATLauncher".into(),
+        })
+    }
 }
 
 #[cfg(test)]

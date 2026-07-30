@@ -14,6 +14,7 @@
   import { formatHeapLabel } from '$lib/instances/heap';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import ServerCorePicker from '$lib/servers/ServerCorePicker.svelte';
+  import EulaLink from '$lib/servers/EulaLink.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -359,19 +360,28 @@
       <MemorySlider valueMb={memoryMb} onInput={(mb) => (memoryMb = mb)} />
     </div>
 
-    <!-- EULA -->
-    <label class="flex items-start gap-2 cursor-pointer">
+    <!-- EULA. The link to the agreement sits OUTSIDE the <label>: an
+         interactive element nested in a label is invalid HTML, and the label's
+         activation behaviour would tick "I accept" when the user only wanted to
+         read the document. `for=`/`id=` keeps the caption clickable. -->
+    <div class="flex items-start gap-2">
       <input
+        id="server-create-eula"
         type="checkbox"
         class="mt-0.5 flex-shrink-0"
         bind:checked={eula}
         aria-label={$t('servers.wizard.eula')}
       />
       <span class="flex flex-col gap-0.5">
-        <span class="text-sm">{$t('servers.wizard.eula')}</span>
+        <span class="text-sm">
+          <label for="server-create-eula" class="cursor-pointer"
+            >{$t('servers.wizard.eulaPrefix')}</label
+          >
+          <EulaLink />
+        </span>
         <span class="text-xs text-muted">{$t('servers.wizard.eulaRequired')}</span>
       </span>
-    </label>
+    </div>
 
     {#if error}
       <p class="text-sm text-danger">{error}</p>

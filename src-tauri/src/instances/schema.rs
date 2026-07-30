@@ -324,6 +324,13 @@ pub struct GeneralSettings {
     /// user-supplied host while this is false.
     #[serde(default)]
     pub allow_server_ping: bool,
+    /// Opt-in OS registration of the `lucerna://` link scheme, so an
+    /// "Open in Lucerna" link from a browser opens the import dialog.
+    /// `#[serde(default)]` → false for app.json written before this field: the
+    /// launcher never writes to the user's registry unasked, and pasting a URL
+    /// into the import dialog works without it.
+    #[serde(default)]
+    pub register_url_scheme: bool,
 }
 
 impl Default for GeneralSettings {
@@ -341,6 +348,7 @@ impl Default for GeneralSettings {
             sftp_upload_concurrency: default_sftp_upload_concurrency(),
             hidden_sidebar_buttons: Vec::new(),
             allow_server_ping: false,
+            register_url_scheme: false,
         }
     }
 }
