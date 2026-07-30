@@ -282,12 +282,21 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
 
     let mut changed = false;
 
-    // 1. Update existing JSON entries by SHA, fixing filename / enabled drift.
+    // 1. Update existing JSON entries, fixing filename / enabled drift.
+    //    SHA match first — a renamed but intact jar. Filename match second — a
+    //    jar whose BYTES changed (corruption, or an external replacement).
+    //    Filenames compare case-insensitively: Windows and macOS filesystems
+    //    are, so `Sodium.jar` and `sodium.jar` are one file.
     for m in state.mods.iter_mut() {
-        if let Some((on_disk_name, _, on_disk_enabled)) = on_disk
+        let hit = on_disk
             .iter()
             .find(|(_, sha, _)| sha.eq_ignore_ascii_case(&m.sha1))
-        {
+            .or_else(|| {
+                on_disk
+                    .iter()
+                    .find(|(name, _, _)| name.eq_ignore_ascii_case(&m.filename))
+            });
+        if let Some((on_disk_name, _, on_disk_enabled)) = hit {
             if m.filename != *on_disk_name {
                 m.filename = on_disk_name.clone();
                 changed = true;
@@ -299,42 +308,64 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
         }
     }
 
-    // 2. Drop JSON entries with no matching file on disk.
+    // 2. Drop JSON entries with no file on disk at all. A record whose
+    //    FILENAME is still present is RETAINED even when the bytes hash
+    //    differently: that is a corrupted or externally-replaced jar, and
+    //    dropping it would destroy the source / project / version a repair
+    //    needs. The record keeps its EXPECTED sha1, so a later verify pass can
+    //    say "expected X, found Y".
     let before = state.mods.len();
-    let on_disk_shas: std::collections::HashSet<String> = on_disk
+    let on_disk_shas: HashSet<String> = on_disk
         .iter()
         .map(|(_, s, _)| s.to_ascii_lowercase())
         .collect();
-    state
-        .mods
-        .retain(|m| on_disk_shas.contains(&m.sha1.to_ascii_lowercase()));
+    let on_disk_names: HashSet<String> = on_disk
+        .iter()
+        .map(|(n, _, _)| n.to_ascii_lowercase())
+        .collect();
+    state.mods.retain(|m| {
+        on_disk_shas.contains(&m.sha1.to_ascii_lowercase())
+            || on_disk_names.contains(&m.filename.to_ascii_lowercase())
+    });
     if state.mods.len() != before {
         changed = true;
     }
 
-    // 3. Add synthesized entries for files on disk with no JSON record.
-    let known_shas: std::collections::HashSet<String> = state
+    // 3. Add synthesized entries for files on disk with no record at all — a
+    //    jar the user dropped in. A file whose NAME is already claimed by a
+    //    retained record is NOT synthesized: that is the corrupt-jar case from
+    //    step 2, and synthesizing it would recreate the anonymous duplicate
+    //    step 2 exists to prevent.
+    let known_shas: HashSet<String> = state
         .mods
         .iter()
         .map(|m| m.sha1.to_ascii_lowercase())
         .collect();
+    let claimed_names: HashSet<String> = state
+        .mods
+        .iter()
+        .map(|m| m.filename.to_ascii_lowercase())
+        .collect();
     for (filename, sha, enabled) in on_disk.iter() {
-        if !known_shas.contains(&sha.to_ascii_lowercase()) {
-            state.mods.push(InstalledMod {
-                filename: filename.clone(),
-                sha1: sha.clone(),
-                source: None,
-                project_id: None,
-                version_id: None,
-                name: filename.clone(),
-                version_number: None,
-                installed_at: Utc::now().to_rfc3339(),
-                enabled: *enabled,
-                enrich_attempted: false,
-                requires: Vec::new(),
-            });
-            changed = true;
+        if known_shas.contains(&sha.to_ascii_lowercase())
+            || claimed_names.contains(&filename.to_ascii_lowercase())
+        {
+            continue;
         }
+        state.mods.push(InstalledMod {
+            filename: filename.clone(),
+            sha1: sha.clone(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: filename.clone(),
+            version_number: None,
+            installed_at: Utc::now().to_rfc3339(),
+            enabled: *enabled,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        });
+        changed = true;
     }
 
     Ok(changed)
@@ -551,6 +582,115 @@ mod tests {
         fs::create_dir_all(dir).await.unwrap();
         fs::write(dir.join(name), body).await.unwrap();
         hex::encode(Sha1::digest(body))
+    }
+
+    /// A record with full provenance, for the corruption tests below.
+    fn provenanced(filename: &str, sha1: String) -> InstalledMod {
+        InstalledMod {
+            filename: filename.into(),
+            sha1,
+            source: Some(ModSource::Modrinth),
+            project_id: Some("AANobbMI".into()),
+            version_id: Some("v1".into()),
+            name: "Sodium".into(),
+            version_number: Some("0.5.8".into()),
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        }
+    }
+
+    /// Corruption must not destroy the provenance a repair needs. Matching
+    /// records to disk by SHA alone dropped the record ("no file with that
+    /// hash") and re-added the file as an anonymous entry — silently turning a
+    /// known mod into an unknown local jar. Hardlinks widen that failure from
+    /// one instance to every instance sharing the jar.
+    #[tokio::test]
+    async fn corrupted_known_jar_keeps_its_provenance() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let good = place_jar(&mods_dir(root), "sodium.jar", b"GOOD-BYTES").await;
+        add(root, provenanced("sodium.jar", good.clone()))
+            .await
+            .unwrap();
+
+        // Corrupt the jar in place — the exact shape an in-place write through
+        // a shared hardlink would produce.
+        fs::write(mods_dir(root).join("sodium.jar"), b"TRUNCATED")
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+
+        assert_eq!(
+            mods.len(),
+            1,
+            "must not split into a dropped record + an anonymous entry"
+        );
+        assert_eq!(
+            mods[0].project_id.as_deref(),
+            Some("AANobbMI"),
+            "provenance must survive"
+        );
+        assert_eq!(mods[0].version_id.as_deref(), Some("v1"));
+        assert_eq!(mods[0].source, Some(ModSource::Modrinth));
+        assert_eq!(
+            mods[0].sha1, good,
+            "the EXPECTED hash is retained so a repair knows what it wants"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_genuinely_new_local_jar_is_still_synthesized() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        place_jar(&mods_dir(root), "dropped.jar", b"USER-JAR").await;
+
+        let mods = list(root).await.unwrap();
+
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].filename, "dropped.jar");
+        assert!(
+            mods[0].project_id.is_none(),
+            "a jar matching no record stays anonymous"
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_jar_filename_match_is_case_insensitive() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let good = place_jar(&mods_dir(root), "Sodium.jar", b"GOOD-BYTES").await;
+        // Registry filename differs in case — Windows and macOS filesystems are
+        // case-insensitive, so this is one file, not two.
+        add(root, provenanced("sodium.jar", good)).await.unwrap();
+        fs::write(mods_dir(root).join("Sodium.jar"), b"TRUNCATED")
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+
+        assert_eq!(mods.len(), 1, "a case-differing filename must still match");
+        assert_eq!(mods[0].project_id.as_deref(), Some("AANobbMI"));
+    }
+
+    #[tokio::test]
+    async fn record_is_still_dropped_when_its_file_is_gone() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let good = place_jar(&mods_dir(root), "sodium.jar", b"GOOD-BYTES").await;
+        add(root, provenanced("sodium.jar", good)).await.unwrap();
+        fs::remove_file(mods_dir(root).join("sodium.jar"))
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+
+        assert!(
+            mods.is_empty(),
+            "retention is by filename PRESENCE, not by having a record"
+        );
     }
 
     #[tokio::test]
