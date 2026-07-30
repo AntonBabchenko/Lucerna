@@ -97,11 +97,14 @@ pub async fn install_asset_local(
     if !parent_canon.starts_with(&mc_canon) {
         return Err(Error::ModpackOverridesPathEscape { entry: rel });
     }
-    fs::write(&dest, bytes)
+    // A hand-installed pack exists nowhere else, so it is never linked — but it
+    // still must not be written in place: the destination may already be a
+    // hardlink, and truncating one would corrupt every instance sharing it.
+    crate::mods::store::place_bytes(&dest, bytes)
         .await
         .map_err(|e| Error::ModsInstancePath {
-            path: dest.display().to_string(),
-            details: e.to_string(),
+            path: e.path.display().to_string(),
+            details: e.details(),
         })?;
 
     let name = filename
