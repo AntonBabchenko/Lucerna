@@ -2,6 +2,13 @@
 /target/
 **/*.rs.bk
 Cargo.lock.bak
+# Shared Cargo build directory. Nothing in this repo configures it — a
+# machine-level `~/.cargo/config.toml` may point `build.target-dir` here so
+# that every git worktree reuses one set of dependency artifacts instead of
+# keeping its own multi-GB `src-tauri/target/`. Harmless on machines that do
+# not set it; ignored so the (large, untracked) directory can never be staged
+# by a `git add -A` on machines that do.
+/.cargo-target/
 
 # Tauri
 /src-tauri/target/
