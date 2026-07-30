@@ -29,6 +29,7 @@
   import Select from '$lib/ui/Select.svelte';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { clampPanelWidth } from '$lib/ui/splitter';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
@@ -76,13 +77,46 @@
   // changes the selection, so the detail panel keeps showing the selected
   // instance even if it is hidden from the list.
   const FILTER_THRESHOLD = 8;
-  // Draggable list/detail split. The floor keeps two lines of instance name
-  // readable; the ceiling stops the list from crowding out the form on a
-  // maximised window. Not persisted — reopening starts from the default, same
-  // as the skin editor's panel.
+  // Draggable list/detail split. Not persisted — reopening starts from the
+  // default, same as the skin editor's panel.
+  //
+  // The floor is a constant because it is about a name staying readable, not
+  // about available space. The ceiling is DERIVED: the list may grow until the
+  // form would drop below its comfortable width. LIST_FALLBACK_MAX only applies
+  // before the first measurement (or where ResizeObserver is absent) and is the
+  // fixed ceiling this modal shipped with.
   const LIST_MIN_WIDTH = 180;
-  const LIST_MAX_WIDTH = 420;
+  const LIST_FALLBACK_MAX = 420;
+  const DETAIL_MIN_WIDTH = 720;
+  // Pane width at which the detail form has room for two columns.
+  const TWO_COLUMN_AT = 1100;
   let listWidth = $state(220);
+  let rowWidth = $state(0);
+  const listMax = $derived(
+    rowWidth > 0 ? Math.max(LIST_MIN_WIDTH, rowWidth - DETAIL_MIN_WIDTH) : LIST_FALLBACK_MAX,
+  );
+  // Pane width = row minus the list and the handle. The threshold is the PANE,
+  // not the window, so dragging the splitter right can legitimately collapse
+  // the columns — there really is less room for them.
+  const twoColumn = $derived(rowWidth > 0 && rowWidth - listWidth - 4 >= TWO_COLUMN_AT);
+
+  // Owned here rather than by SplitterHandle: the shared handle takes bounds as
+  // props and stays observer-free, which also keeps it safe to render in the
+  // component tests. Mirrors how SkinEditorModal feeds it a derived max.
+  function observeRow(node: HTMLElement) {
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      rowWidth = node.clientWidth;
+      // Re-clamp when the window shrinks the ceiling below the current width.
+      listWidth = clampPanelWidth(listWidth, LIST_MIN_WIDTH, listMax);
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+      },
+    };
+  }
   // Mirrors MAX_INSTANCE_NAME_LEN in src-tauri/src/commands/mod.rs — the backend
   // is the source of truth and rejects longer names; this only drives the input
   // maxlength + counter so the UI agrees with the validator.
@@ -643,7 +677,7 @@
       </h2>
       <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
     </header>
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden" use:observeRow>
       <aside
         class="shrink-0 p-2 flex flex-col gap-2"
         style="width:{listWidth}px"
@@ -737,7 +771,7 @@
       <SplitterHandle
         bind:width={listWidth}
         min={LIST_MIN_WIDTH}
-        max={LIST_MAX_WIDTH}
+        max={listMax}
         label={$t('instance.manage.resizeList')}
         testId="manage-list-splitter"
       />
@@ -749,7 +783,7 @@
              window is unreadable. The cap belongs to the content, not the pane,
              so the pinned action row still spans the full width. -->
         <div class="flex-1 overflow-y-auto p-4">
-          <div class="max-w-[720px]">
+          <div class={twoColumn && !createMode ? 'w-full' : 'mx-auto max-w-[720px]'}>
             {#if createMode}
               <h3 class="font-semibold text-primary mb-3">{$t('instance.manage.createHeading')}</h3>
               <label for="create-name" class="mb-1 flex justify-between text-xs text-secondary">
@@ -823,66 +857,72 @@
                 </BusyButton>
               </div>
             {:else if selected}
-              <!-- Identity row: the picture plus the active badge. The instance
+              <!-- Two groups, split by meaning rather than field count: what you
+                   SET on the left, what you INSPECT on the right. Below
+                   TWO_COLUMN_AT they stack, and the order within each group is
+                   unchanged so the manage-form tour still tracks. -->
+              <div class={twoColumn ? 'grid grid-cols-2 items-start gap-x-8' : ''}>
+                <div>
+                  <!-- Identity row: the picture plus the active badge. The instance
                name is NOT repeated here — it lives in the Name field below,
                and printing it twice only crowded the top of the pane. -->
-              <div class="mb-3 flex items-center gap-3">
-                <InstanceAvatarEdit
-                  instance={selected}
-                  size={52}
-                  testId="manage-avatar"
-                  removeTestId="manage-avatar-remove"
-                />
-                {#if selected.id === activeInstance?.id}{@render activeChip()}{/if}
-              </div>
+                  <div class="mb-3 flex items-center gap-3">
+                    <InstanceAvatarEdit
+                      instance={selected}
+                      size={52}
+                      testId="manage-avatar"
+                      removeTestId="manage-avatar-remove"
+                    />
+                    {#if selected.id === activeInstance?.id}{@render activeChip()}{/if}
+                  </div>
 
-              <label for="detail-name" class="mb-1 flex justify-between text-xs text-secondary">
-                <span>{$t('instance.manage.nameLabel')}</span>
-                <span class="flex items-center gap-2">
-                  {@render savedBadge('name')}
-                  <span class="text-placeholder font-normal"
-                    >{$t('instance.manage.nameCounter', {
-                      count: nameDraft.length,
-                      max: NAME_MAX,
-                    })}</span
+                  <label for="detail-name" class="mb-1 flex justify-between text-xs text-secondary">
+                    <span>{$t('instance.manage.nameLabel')}</span>
+                    <span class="flex items-center gap-2">
+                      {@render savedBadge('name')}
+                      <span class="text-placeholder font-normal"
+                        >{$t('instance.manage.nameCounter', {
+                          count: nameDraft.length,
+                          max: NAME_MAX,
+                        })}</span
+                      >
+                    </span>
+                  </label>
+                  <input
+                    id="detail-name"
+                    class="border rounded px-2 py-1 w-full mb-3"
+                    maxlength={NAME_MAX}
+                    bind:value={nameDraft}
+                    oninput={() => clearSaved('name')}
+                    onblur={commitName}
+                  />
+
+                  <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
+                    >{$t('instance.manage.mcVersionLabel')}</label
                   >
-                </span>
-              </label>
-              <input
-                id="detail-name"
-                class="border rounded px-2 py-1 w-full mb-3"
-                maxlength={NAME_MAX}
-                bind:value={nameDraft}
-                oninput={() => clearSaved('name')}
-                onblur={commitName}
-              />
+                  <span
+                    class="block mb-1"
+                    use:tooltip={{
+                      text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                      describe: false,
+                    }}
+                  >
+                    <Select
+                      id="detail-mc-version"
+                      class="w-full"
+                      value={selected.mc_version}
+                      options={mcVersionOptions}
+                      disabled={isRunning}
+                      onChange={(v) => setMc(String(v))}
+                    />
+                  </span>
+                  <label class="text-xs flex items-center gap-1 mb-3">
+                    <input type="checkbox" bind:checked={showSnapshots} />
+                    {$t('instance.manage.showSnapshots')}
+                  </label>
+                  {@render noVersionsNotice()}
 
-              <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
-                >{$t('instance.manage.mcVersionLabel')}</label
-              >
-              <span
-                class="block mb-1"
-                use:tooltip={{
-                  text: isRunning ? $t('instance.manage.runningBlocked') : '',
-                  describe: false,
-                }}
-              >
-                <Select
-                  id="detail-mc-version"
-                  class="w-full"
-                  value={selected.mc_version}
-                  options={mcVersionOptions}
-                  disabled={isRunning}
-                  onChange={(v) => setMc(String(v))}
-                />
-              </span>
-              <label class="text-xs flex items-center gap-1 mb-3">
-                <input type="checkbox" bind:checked={showSnapshots} />
-                {$t('instance.manage.showSnapshots')}
-              </label>
-              {@render noVersionsNotice()}
-
-              <!--
+                  <!--
               Keyed on the instance id so the picker REMOUNTS when the user
               switches the selected instance. LoaderPicker tracks the previous
               loader in a non-reactive `prevLoader` to tell a user-driven loader
@@ -890,176 +930,184 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-              <span
-                class="block"
-                use:tooltip={{
-                  text: isRunning ? $t('instance.manage.runningBlocked') : '',
-                  describe: false,
-                }}
-              >
-                {#key selected.id}
-                  <LoaderPicker
-                    mc={selected.mc_version}
-                    loader={selected.loader}
-                    loaderVersion={selected.loader_version}
-                    disabled={isRunning}
-                    onchange={async (l, v) => {
-                      if (l !== selected!.loader || v !== selected!.loader_version) {
-                        await commitLoader(l, v);
-                      }
+                  <span
+                    class="block"
+                    use:tooltip={{
+                      text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                      describe: false,
                     }}
-                  />
-                {/key}
-              </span>
-
-              <!-- Compat summary + check-failure note share a polite live region so
-               screen readers hear the advisory; both are empty in the idle state. -->
-              <StatusMessage
-                tone="warning"
-                live="polite"
-                withIcon
-                message={compatRows !== null ? compatSummary(compatRows) : null}
-                class="bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
-              />
-              <StatusMessage
-                tone="info"
-                live="polite"
-                message={compatCheckFailed ? $t('instance.manage.compatCheckUnavailable') : null}
-                class="mt-2 mb-1"
-              />
-
-              <label
-                for="detail-memory"
-                class="mb-1 flex items-center justify-between text-xs text-secondary"
-              >
-                <span>
-                  {$t('instance.manage.memoryLabel', {
-                    value: formatHeapLabel(heapDraft),
-                  })}
-                </span>
-                {@render savedBadge('memory')}
-              </label>
-              <MemorySlider
-                id="detail-memory"
-                class="mb-1"
-                warnClass="mb-3"
-                reserveWarnSpace
-                valueMb={heapDraft}
-                onInput={(mb) => {
-                  heapDraft = mb;
-                  clearSaved('memory');
-                }}
-                onCommit={(mb) => setMemory(mb)}
-              />
-
-              <details class="mb-3">
-                <summary class="cursor-pointer select-none text-xs text-secondary">
-                  {$t('instance.manage.advancedSummary')}
-                </summary>
-                <div class="mt-2">
-                  <div class="mb-1 flex items-center justify-between">
-                    <label for="detail-min-heap" class="text-xs text-secondary">
-                      {$t('instance.manage.minHeapLabel')}
-                    </label>
-                    <button
-                      type="button"
-                      class="btn-link text-xs"
-                      onclick={() => {
-                        minHeapDraft = heapDraft;
-                        commitMinHeap();
-                      }}
-                    >
-                      {$t('instance.manage.minHeapEqualsMax')}
-                    </button>
-                  </div>
-                  <input
-                    id="detail-min-heap"
-                    type="number"
-                    class="border rounded px-2 py-1 w-full text-sm"
-                    min="0"
-                    max={heapDraft}
-                    placeholder={$t('instance.manage.minHeapPlaceholder')}
-                    bind:value={minHeapDraft}
-                    onchange={commitMinHeap}
-                  />
-                  <p class="mt-1 text-xs text-placeholder">{$t('instance.manage.minHeapHint')}</p>
-                </div>
-              </details>
-
-              <label
-                for="detail-jvm-args"
-                class="mb-1 flex items-center justify-between text-xs text-secondary"
-              >
-                <span>{$t('instance.manage.jvmArgsLabel')}</span>
-                {@render savedBadge('jvm')}
-              </label>
-              <input
-                id="detail-jvm-args"
-                class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
-                placeholder={$t('instance.manage.jvmArgsPlaceholder')}
-                value={selected.extra_jvm_args}
-                oninput={() => clearSaved('jvm')}
-                onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
-              />
-
-              {#if selected.imported_from}
-                <div
-                  class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
-                  data-testid="imported-provenance"
-                >
-                  <Icon name="folderOpen" size={14} class="mt-0.5 shrink-0 text-muted" />
-                  <div class="min-w-0 flex-1">
-                    <div class="text-secondary">
-                      {$t('instance.manage.importedFromLabel', {
-                        launcher: displayLauncher(selected.imported_from.launcher),
-                      })}
-                    </div>
-                    <div
-                      class="truncate font-mono text-muted"
-                      use:tooltip={{
-                        text: selected.imported_from.source_path,
-                        whenOverflowing: true,
-                      }}
-                    >
-                      {selected.imported_from.source_path}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs inline-flex shrink-0 items-center gap-1"
-                    onclick={openSourceFolder}
-                    data-testid="open-source-folder-btn"
                   >
-                    <Icon name="folderOpen" size={12} />
-                    {$t('instance.manage.openSourceFolderBtn')}
-                  </button>
-                </div>
-              {/if}
+                    {#key selected.id}
+                      <LoaderPicker
+                        mc={selected.mc_version}
+                        loader={selected.loader}
+                        loaderVersion={selected.loader_version}
+                        disabled={isRunning}
+                        onchange={async (l, v) => {
+                          if (l !== selected!.loader || v !== selected!.loader_version) {
+                            await commitLoader(l, v);
+                          }
+                        }}
+                      />
+                    {/key}
+                  </span>
 
-              {#if selected.created_from_server}
-                <div
-                  class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
-                  data-testid="created-from-server-provenance"
-                >
-                  <Icon name="server" size={14} class="mt-0.5 shrink-0 text-muted" />
-                  <div class="min-w-0 flex-1">
-                    <div class="text-secondary">
-                      {$t('instance.manage.fromServerLabel', {
-                        name:
-                          serverState.list.find((s) => s.id === selected.created_from_server)
-                            ?.name ?? selected.created_from_server,
+                  <!-- Compat summary + check-failure note share a polite live region so
+               screen readers hear the advisory; both are empty in the idle state. -->
+                  <StatusMessage
+                    tone="warning"
+                    live="polite"
+                    withIcon
+                    message={compatRows !== null ? compatSummary(compatRows) : null}
+                    class="bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
+                  />
+                  <StatusMessage
+                    tone="info"
+                    live="polite"
+                    message={compatCheckFailed
+                      ? $t('instance.manage.compatCheckUnavailable')
+                      : null}
+                    class="mt-2 mb-1"
+                  />
+
+                  <label
+                    for="detail-memory"
+                    class="mb-1 flex items-center justify-between text-xs text-secondary"
+                  >
+                    <span>
+                      {$t('instance.manage.memoryLabel', {
+                        value: formatHeapLabel(heapDraft),
                       })}
-                    </div>
-                  </div>
+                    </span>
+                    {@render savedBadge('memory')}
+                  </label>
+                  <MemorySlider
+                    id="detail-memory"
+                    class="mb-1"
+                    warnClass="mb-3"
+                    reserveWarnSpace
+                    valueMb={heapDraft}
+                    onInput={(mb) => {
+                      heapDraft = mb;
+                      clearSaved('memory');
+                    }}
+                    onCommit={(mb) => setMemory(mb)}
+                  />
                 </div>
-              {/if}
 
-              <IntegritySection
-                instanceId={selected.id}
-                {isRunning}
-                name={selected.name}
-                status={selected.integrity}
-              />
+                <div>
+                  <details class="mb-3">
+                    <summary class="cursor-pointer select-none text-xs text-secondary">
+                      {$t('instance.manage.advancedSummary')}
+                    </summary>
+                    <div class="mt-2">
+                      <div class="mb-1 flex items-center justify-between">
+                        <label for="detail-min-heap" class="text-xs text-secondary">
+                          {$t('instance.manage.minHeapLabel')}
+                        </label>
+                        <button
+                          type="button"
+                          class="btn-link text-xs"
+                          onclick={() => {
+                            minHeapDraft = heapDraft;
+                            commitMinHeap();
+                          }}
+                        >
+                          {$t('instance.manage.minHeapEqualsMax')}
+                        </button>
+                      </div>
+                      <input
+                        id="detail-min-heap"
+                        type="number"
+                        class="border rounded px-2 py-1 w-full text-sm"
+                        min="0"
+                        max={heapDraft}
+                        placeholder={$t('instance.manage.minHeapPlaceholder')}
+                        bind:value={minHeapDraft}
+                        onchange={commitMinHeap}
+                      />
+                      <p class="mt-1 text-xs text-placeholder">
+                        {$t('instance.manage.minHeapHint')}
+                      </p>
+                    </div>
+                  </details>
+
+                  <label
+                    for="detail-jvm-args"
+                    class="mb-1 flex items-center justify-between text-xs text-secondary"
+                  >
+                    <span>{$t('instance.manage.jvmArgsLabel')}</span>
+                    {@render savedBadge('jvm')}
+                  </label>
+                  <input
+                    id="detail-jvm-args"
+                    class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
+                    placeholder={$t('instance.manage.jvmArgsPlaceholder')}
+                    value={selected.extra_jvm_args}
+                    oninput={() => clearSaved('jvm')}
+                    onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
+                  />
+
+                  {#if selected.imported_from}
+                    <div
+                      class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
+                      data-testid="imported-provenance"
+                    >
+                      <Icon name="folderOpen" size={14} class="mt-0.5 shrink-0 text-muted" />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-secondary">
+                          {$t('instance.manage.importedFromLabel', {
+                            launcher: displayLauncher(selected.imported_from.launcher),
+                          })}
+                        </div>
+                        <div
+                          class="truncate font-mono text-muted"
+                          use:tooltip={{
+                            text: selected.imported_from.source_path,
+                            whenOverflowing: true,
+                          }}
+                        >
+                          {selected.imported_from.source_path}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn-secondary btn-xs inline-flex shrink-0 items-center gap-1"
+                        onclick={openSourceFolder}
+                        data-testid="open-source-folder-btn"
+                      >
+                        <Icon name="folderOpen" size={12} />
+                        {$t('instance.manage.openSourceFolderBtn')}
+                      </button>
+                    </div>
+                  {/if}
+
+                  {#if selected.created_from_server}
+                    <div
+                      class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
+                      data-testid="created-from-server-provenance"
+                    >
+                      <Icon name="server" size={14} class="mt-0.5 shrink-0 text-muted" />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-secondary">
+                          {$t('instance.manage.fromServerLabel', {
+                            name:
+                              serverState.list.find((s) => s.id === selected.created_from_server)
+                                ?.name ?? selected.created_from_server,
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  {/if}
+
+                  <IntegritySection
+                    instanceId={selected.id}
+                    {isRunning}
+                    name={selected.name}
+                    status={selected.integrity}
+                  />
+                </div>
+              </div>
             {:else}
               <p class="text-muted text-sm">{$t('instance.manage.emptyState')}</p>
             {/if}
