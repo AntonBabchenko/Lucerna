@@ -180,6 +180,18 @@ describe('OverviewTab', () => {
     expect(seen).toEqual([null, 'mc', 'loader', 'memory']);
   });
 
+  // A Configuration row's label overrides its visible text, so it has to carry
+  // the current value — otherwise a screen-reader user hears "Edit Minecraft in
+  // Manage" and never learns which version is set.
+  it('names each Configuration row with its current value', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst },
+    });
+    expect(getByTestId('overview-config-mc').getAttribute('aria-label')).toContain('1.21.1');
+    expect(getByTestId('overview-config-loader').getAttribute('aria-label')).toContain('0.16.5');
+    expect(getByTestId('overview-config-memory').getAttribute('aria-label')).toContain('2048');
+  });
+
   it('sends the Integrity card to the integrity section', async () => {
     const seen: (string | null | undefined)[] = [];
     const { getByTestId } = render(OverviewTab, {
@@ -199,10 +211,9 @@ describe('OverviewTab', () => {
     });
     expect(queryByRole('button', { name: /^Manage$/ })).toBeNull();
     expect(queryByRole('button', { name: /^Installed$/ })).toBeNull();
-    // Anchored: the surviving Integrity zone is labelled "Open Manage to check
-    // integrity", so an unanchored pattern would match it and fail for the
-    // wrong reason. The deleted buttons read exactly "Open Manage to check" /
-    // "… to repair".
+    // Anchored on purpose: the deleted buttons read exactly "Open Manage to
+    // check" / "… to repair", and the anchors keep this faithful to them rather
+    // than to whatever else the card happens to say.
     expect(queryByRole('button', { name: /^Open Manage to (check|repair)$/ })).toBeNull();
   });
 

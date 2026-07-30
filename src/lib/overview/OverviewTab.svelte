@@ -101,6 +101,16 @@
       : [],
   );
 
+  // The loader text of the Configuration row, rendered by the visible span and
+  // spoken by the row's aria-label. One source of truth so the accessible name
+  // can never drift from what a sighted user reads.
+  const loaderDisplay = $derived(
+    activeInstance
+      ? displayLoader(activeInstance.loader) +
+          (activeInstance.loader_version ? ` ${activeInstance.loader_version}` : '')
+      : '',
+  );
+
   // Sticky per-instance "I dismissed the panel" flag (persisted). Stays
   // collapsed until the user restores it via the header triangle, even if the
   // set of warnings changes.
@@ -177,7 +187,7 @@
         point the user aims at is live. A <button> cannot nest another, so
         "the whole card is clickable" has to be expressed this way.
       -->
-      <div class="rounded-xl border border-border-subtle bg-surface overflow-hidden">
+      <div class="rounded-xl border border-border-subtle bg-surface overflow-hidden flex flex-col">
         <button
           type="button"
           class="card-zone px-3.5 pt-3.5 pb-2 text-[10px] uppercase tracking-wider text-muted"
@@ -192,6 +202,7 @@
           class="card-zone px-3.5 py-1 flex justify-between gap-3 text-sm"
           aria-label={$t('page.overview.editFieldAria', {
             field: $t('page.overview.labelMinecraft'),
+            value: activeInstance.mc_version || $t('page.overview.notSet'),
           })}
           data-testid="overview-config-mc"
           onclick={() => onManage('mc')}
@@ -204,21 +215,20 @@
           class="card-zone px-3.5 py-1 flex justify-between gap-3 text-sm"
           aria-label={$t('page.overview.editFieldAria', {
             field: $t('page.overview.labelLoader'),
+            value: loaderDisplay,
           })}
           data-testid="overview-config-loader"
           onclick={() => onManage('loader')}
         >
           <span class="text-muted">{$t('page.overview.labelLoader')}</span>
-          <span class="font-mono">
-            {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
-              {' '}{activeInstance.loader_version}{/if}
-          </span>
+          <span class="font-mono">{loaderDisplay}</span>
         </button>
         <button
           type="button"
           class="card-zone px-3.5 pt-1 pb-3.5 flex justify-between gap-3 text-sm"
           aria-label={$t('page.overview.editFieldAria', {
             field: $t('page.overview.labelMemory'),
+            value: `${activeInstance.max_heap_mb} ${$t('format.unit.megabyte')}`,
           })}
           data-testid="overview-config-memory"
           onclick={() => onManage('memory')}
@@ -232,6 +242,12 @@
         Mods. Header + body are navigation zones (Installed, or the browser
         when nothing is installed yet); Optimise and Export are real actions
         and stay as buttons in their own row below the clickable surface.
+
+        Only the eyebrow header carries an aria-label — on its own the bare word
+        "MODS" is a poor accessible name. The body zones must not: an aria-label
+        replaces the content, and their content (the live Total/Enabled/Disabled
+        counts, or the empty-state sentence) is what a screen-reader user needs
+        to hear.
       -->
       <div class="rounded-xl border border-border-subtle bg-surface overflow-hidden flex flex-col">
         <button
@@ -249,7 +265,6 @@
           <button
             type="button"
             class="card-zone px-3.5 pb-2 text-sm text-muted"
-            aria-label={$t('page.overview.openBrowseAria')}
             data-testid="overview-mods-empty"
             onclick={onNavBrowse}
           >
@@ -259,7 +274,6 @@
           <button
             type="button"
             class="card-zone px-3.5 pb-2 flex gap-4 text-sm"
-            aria-label={$t('page.overview.openInstalledAria')}
             data-testid="overview-mods-stats"
             onclick={onNavInstalled}
           >
@@ -341,12 +355,16 @@
         action itself lives in IntegritySection inside Manage, and unhealthy
         instances are additionally surfaced by AttentionPanel. Children are
         <span>s: a <button> may only contain phrasing content.
+
+        Deliberately no aria-label: the heading plus the current status is the
+        accessible name, so all three states stay audible. A fixed label would
+        have announced "check integrity" even on a healthy, already-checked
+        instance.
       -->
       <button
         type="button"
         class="card-zone rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col items-start gap-2"
         data-testid="overview-integrity"
-        aria-label={$t('instance.integrity.openManageAria')}
         onclick={() => onManage('integrity')}
       >
         <span class="text-[10px] uppercase tracking-wider text-muted">

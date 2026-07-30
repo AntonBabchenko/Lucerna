@@ -310,7 +310,6 @@ export type TranslationKey =
   | 'instance.integrity.opQueued'
   | 'instance.integrity.opRepairing'
   | 'instance.integrity.opVerifying'
-  | 'instance.integrity.openManageAria'
   | 'instance.integrity.repairBtn'
   | 'instance.integrity.repairing'
   | 'instance.integrity.reverifyBtn'
