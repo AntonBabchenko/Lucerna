@@ -118,6 +118,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::list_saved_servers,
             commands::add_saved_server,
             commands::remove_saved_server,
+            commands::ping_server,
             commands::open_log_folder,
             commands::delete_log_file,
             commands::clear_old_logs,

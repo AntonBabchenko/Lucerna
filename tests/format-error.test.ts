@@ -206,6 +206,7 @@ describe('formatError', () => {
     const samples: Record<IpcError['kind'], IpcError> = {
       network: { kind: 'network', url: 'https://leak.test/net', details: 'RAW_TRANSPORT_DETAIL' },
       host_not_allowed: { kind: 'host_not_allowed', url: 'https://x/y' },
+      consented_channel_disabled: { kind: 'consented_channel_disabled', channel: 'server_ping' },
       update_check_failed: { kind: 'update_check_failed', details: 'd' },
       update_verification_failed: { kind: 'update_verification_failed', details: 'd' },
       update_install_failed: { kind: 'update_install_failed', details: 'd' },

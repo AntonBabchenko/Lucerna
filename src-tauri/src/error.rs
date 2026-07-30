@@ -25,6 +25,12 @@ pub enum Error {
     #[error("Refused a request to a host that is not on the allowlist: {url}")]
     HostNotAllowed { url: String },
 
+    /// A user-consented outbound channel was used while its Settings
+    /// permission is off. `channel` is the stable channel id (e.g.
+    /// `"server_ping"`) so the UI can name the setting to turn on.
+    #[error("Consented channel '{channel}' is turned off in settings")]
+    ConsentedChannelDisabled { channel: String },
+
     #[error("Update check failed: {details}")]
     UpdateCheckFailed { details: String },
 

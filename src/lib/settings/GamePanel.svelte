@@ -1,7 +1,8 @@
 <script lang="ts">
-  // Settings → Game. Hide-to-tray-during-game + preferred GPU. Owns only
-  // those two GeneralSettings fields; persists via a fresh read-modify-write
-  // that merges nothing else, so it never clobbers a sibling panel's field.
+  // Settings → Game. Hide-to-tray-during-game, preferred GPU, and the
+  // saved-server status permission. Owns only those three GeneralSettings
+  // fields; persists via a fresh read-modify-write that merges nothing else,
+  // so it never clobbers a sibling panel's field.
   import { onMount } from 'svelte';
   import {
     commands,
@@ -40,6 +41,7 @@
     theme: 'system',
     check_updates_on_startup: true,
     gpu_preference: 'auto',
+    allow_server_ping: false,
   });
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
@@ -66,6 +68,7 @@
     // overwrite `general` between snapshot and write.
     const tray = general.hide_to_tray_during_game;
     const gpu = general.gpu_preference;
+    const ping = general.allow_server_ping;
     const cur = await commands.appSettingsGet();
     if (cur.status !== 'ok') {
       saveError = formatError(cur.error);
@@ -75,6 +78,7 @@
       ...cur.data.general,
       hide_to_tray_during_game: tray,
       gpu_preference: gpu,
+      allow_server_ping: ping,
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') saveError = formatError(r.error);
@@ -108,6 +112,34 @@
     {#if saveError}
       <p class="text-xs text-danger">{saveError}</p>
     {/if}
+  </div>
+
+  <!-- The consent gate for the whole server-status feature. Default off, and
+       the IP-exposure consequence is stated right here rather than left for the
+       user to infer — this is the one place they decide. -->
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.serverPing.title')}</h3>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        checked={general.allow_server_ping}
+        onchange={(e) => {
+          general.allow_server_ping = e.currentTarget.checked;
+          void save();
+        }}
+        data-testid="server-ping-toggle"
+      />
+      <span class="flex-1">
+        <span class="text-sm text-primary">{$t('settings.general.serverPing.label')}</span>
+        <span class="block text-xs text-muted">
+          {$t('settings.general.serverPing.description')}
+        </span>
+        <span class="block text-xs text-warning-text">
+          {$t('settings.general.serverPing.privacy')}
+        </span>
+      </span>
+    </label>
   </div>
 
   {#if gpuLoading}

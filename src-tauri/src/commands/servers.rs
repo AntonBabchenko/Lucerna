@@ -33,3 +33,17 @@ pub fn remove_saved_server(
 ) -> Result<(), crate::error::Error> {
     crate::servers::remove_saved_server(&app, &instance_id, index as usize, &expected_address)
 }
+
+/// Ping one saved server for its status (players / version / response time).
+///
+/// Requires the `allow_server_ping` permission (Settings → Game, off by
+/// default): without it this returns `ConsentedChannelDisabled` and no packet
+/// is sent. A server that does not answer yields `NoAnswer`, never an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn ping_server(
+    app: tauri::AppHandle,
+    address: String,
+) -> Result<crate::servers::ping::ServerPingOutcome, crate::error::Error> {
+    crate::servers::ping::ping_address(&app, &address).await
+}

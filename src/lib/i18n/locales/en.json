@@ -1747,6 +1747,8 @@
   "errors": {
     "network": "Couldn't reach the server — check your internet connection.",
     "hostNotAllowed": "Network request to {url} is not on the allowed-host list",
+    "consentedChannelDisabled": "\"{channel}\" is turned off in Settings — turn it on to use this.",
+    "consentedChannelGeneric": "This permission",
     "hashMismatch": "Hash mismatch for {path}",
     "javaSpawn": "Java spawn failed",
     "alreadyRunning": "Minecraft is already running",
@@ -1918,6 +1920,12 @@
         "title": "Playing",
         "trayLabel": "Hide launcher to tray when Minecraft starts",
         "trayDescription": "A small icon appears in the system tray. The launcher returns when Minecraft closes; click the tray icon to bring it back sooner."
+      },
+      "serverPing": {
+        "title": "Server status",
+        "label": "Show status for my saved servers",
+        "description": "Lucerna asks the servers in this instance's list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
+        "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and nothing about them is sent anywhere else."
       },
       "updates": {
         "title": "Updates",
@@ -2229,7 +2237,14 @@
     "cancel": "Close",
     "invalidName": "Enter a server name.",
     "invalidAddress": "Enter a valid server address (host or host:port).",
-    "offlineHint": "Online servers usually reject offline accounts."
+    "offlineHint": "Online servers usually reject offline accounts.",
+    "ping": {
+      "checking": "Checking…",
+      "noAnswer": "No answer",
+      "refresh": "Refresh status",
+      "enable": "Enable in Settings",
+      "disabledNotice": "Server status is off — Lucerna is not contacting your servers."
+    }
   },
   "format": {
     "relativeTime": {

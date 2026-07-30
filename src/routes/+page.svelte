@@ -67,6 +67,7 @@
   import CreateShortcutDialog from '$lib/instances/CreateShortcutDialog.svelte';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
+  import { sweepPings, type PingState } from '$lib/worlds/server-ping';
   import { createQuickWorlds } from '$lib/worlds/quick-worlds.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
@@ -311,9 +312,63 @@
     }
   }
 
+  // Server-status permission (Settings → Game) + per-address results. Read
+  // fresh every time the dialog opens rather than cached at startup, so a
+  // toggle flipped mid-session takes effect on the next open.
+  let pingEnabled = $state(false);
+  let pingStates = $state<Record<string, PingState>>({});
+  // Sweep generation. Closing the dialog (or starting a newer sweep) makes the
+  // running one stop before its next dial, so we honour "only while a server
+  // list is open on screen" and two sweeps never interleave their results.
+  let pingSweepId = 0;
+
+  async function refreshPingEnabled() {
+    const r = await commands.appSettingsGet();
+    pingEnabled = r.status === 'ok' ? (r.data.general.allow_server_ping ?? false) : false;
+  }
+
+  async function sweepServerPings() {
+    if (!pingEnabled) return;
+    const sweepId = ++pingSweepId;
+    const addresses = savedServers.map((s) => s.address);
+    pingStates = Object.fromEntries(addresses.map((a) => [a, 'pending' as const]));
+    await sweepPings(
+      addresses,
+      async (address) => {
+        const r = await commands.pingServer(address);
+        if (r.status === 'ok') return r.data;
+        if (r.error.kind === 'consented_channel_disabled') {
+          // Raced with the permission being turned off: fall back to the
+          // "status is off" view, which is now the truth.
+          pingEnabled = false;
+          return null;
+        }
+        // Anything else is about THIS address, not the permission — an entry
+        // that never went through our own add-server validator (hand-edited
+        // servers.dat, an IPv6 literal, a modpack override) makes the command
+        // reject that one address. Report it as "we could not tell" for that
+        // row; blanking the whole list and claiming the setting is off would be
+        // a lie about every other server.
+        return { kind: 'no_answer' };
+      },
+      (address, outcome) => {
+        // Rebuild the record so the rune sees a new value.
+        const next = { ...pingStates };
+        if (outcome === null) delete next[address];
+        else next[address] = outcome;
+        pingStates = next;
+      },
+      () => quickJoinOpen && pingSweepId === sweepId,
+    );
+  }
+
   async function openServersDialog() {
     quickJoinOpen = true;
+    pingStates = {};
+    await refreshPingEnabled();
     await loadSavedServers();
+    // Not awaited: rows appear immediately and fill in as pings land.
+    void sweepServerPings();
   }
 
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
@@ -1449,6 +1504,13 @@
     connectDisabledReason={quickPlayDisabledReason}
     addDisabledReason={selectedRunning ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
+    {pingEnabled}
+    {pingStates}
+    onRefreshPings={() => void sweepServerPings()}
+    onOpenPingSetting={() => {
+      quickJoinOpen = false;
+      settingsOpen.value = { tab: 'game' };
+    }}
     onConnect={(address) => void connectToAddress(address)}
     onSave={onServerSave}
     onSaveAndConnect={onServerSaveAndConnect}
