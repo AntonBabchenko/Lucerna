@@ -10,8 +10,61 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-07-31
+
 ### Added
 
+- **Switch an installed modpack to any published version.** The imported-pack
+  drawer has a new **Change version** action, offered whether or not an update
+  is available — reaching an older version while already up to date is the
+  point. Pick from the pack's full version list (newest first, filterable by
+  Minecraft version, with installed / newer / older badges), then review what
+  the switch will do before confirming: the risks of that direction, the
+  added / updated / removed file list, and the changelog — which swaps its
+  ends on a downgrade, so it shows what you lose instead of framing it as
+  what's new.
+- **A per-instance activity journal.** The logs window has a new **History**
+  view listing what the launcher did to that instance: mods and packs
+  installed, updated, removed, enabled or disabled, integrity repairs, and
+  finished launch attempts with their outcome. When a log carries a diagnosis
+  or is a crash report, the viewer shows what changed in the 24 hours before
+  it — the question a diagnosis alone can't answer ("it started after I
+  installed X"). Writing the journal can never break the install, launch or
+  repair that produced the entry. Separately, runs of three or more identical
+  log lines now collapse into one row with an expandable ×N chip.
+- **Skin library.** Saved skins in a thumbnail grid with one-click switching
+  and a cape remembered per skin, reachable from both the skin & cape manager
+  and the pixel editor.
+- **Clone an instance.** From the sidebar right-click menu or the Manage
+  window, with per-content choices — worlds, mods, resource packs, shaders,
+  configs, screenshots — so a clone can carry the setup without dragging the
+  saves along.
+- **Import from X Minecraft Launcher and Legacy Launcher.** Both are detected
+  next to the launchers already supported, with their own badges in the import
+  dialog. Legacy Launcher (llaun.ch) installs used to be mislabelled as the
+  official launcher — its profile file differs from TLauncher's only in case
+  and spelling, and the two are now told apart even when they share a folder.
+- **The same mod jar is now stored once and shared between instances.**
+  Installing a mod that ten instances already have costs the space of a link,
+  not ten copies. Every write into an instance's content folders goes through
+  a single chokepoint that writes a fresh file and renames it into place, so a
+  shared jar can never be modified underneath the instances using it. Integrity
+  records also survive a jar whose bytes changed instead of quietly demoting a
+  known mod to an unknown local file.
+- **Pick the memory when creating an instance.** The create form now carries
+  the same memory slider as the instance detail editor, seeded from the
+  adaptive default for your machine. Previously the heap was only editable
+  after the instance already existed.
+- **Update all** for resource packs and shaders in the Installed view, with
+  per-row updates that replace the old file instead of leaving both versions
+  installed.
+- **The Minecraft EULA is readable before you accept it.** The agreement's
+  name is now a link — in the own-server create wizard, in the server import
+  view, and beside the diagnosis banner's one-click accept — so the document
+  is no longer reachable only after consenting to it. The text is deliberately
+  not bundled: it is Microsoft's document and changes without our involvement,
+  so an embedded copy would eventually present a stale revision as the
+  agreement in force.
 - **Import a modpack from a link, and one-click shortcuts on your desktop.**
   Paste a Modrinth or CurseForge modpack page link into Modpacks → "Import from
   URL…" and you land in the usual import flow — pack details, pick a version,
@@ -51,26 +104,48 @@ release is **0.9.0**.
   `%APPDATA%` and explicitly
   relocated roots keep working exactly as before; unwritable install
   locations fall back to `%APPDATA%`.
-- **The uninstaller now shows a concrete inventory of what stays behind.**
-  Instead of naming a single folder, the dialog lists every directory it
-  found (game data, launcher settings and logs, browser cache, leftovers of
-  older installers) with its path and size, plus how many saved sign-ins sit
-  in Windows Credential Manager — in the uninstaller's language — and asks
-  once whether to erase it all (keeping it stays the default). Data next to
-  the executable is found even when the location pointer is broken or lost,
-  and saved sign-ins referenced by any of the found roots are cleaned when
-  you agree.
 - **The Windows uninstaller now says what stays behind — and can remove it.**
   Uninstalling used to delete only the application: the data root (instances,
   worlds, servers, mods — often gigabytes, and invisible to the uninstaller
   when relocated), saved account sign-ins in Windows Credential Manager, and
   orphaned uninstallers from older versions all survived silently. The
-  uninstaller now names the exact data folder and its size and asks whether to
-  erase everything (keeping it is the default answer); agreeing also clears the
-  credential-manager entries. Silent, passive and update runs never prompt and
-  never delete data. A data root that is not reachable at uninstall time (for
-  example on an unplugged drive) is never deleted, and its location pointer is
-  kept so the data stays discoverable.
+  uninstaller now lists every directory it found — game data, launcher
+  settings and logs, browser cache, leftovers of older installers — with its
+  path and size, plus how many saved sign-ins sit in Windows Credential
+  Manager, in the uninstaller's own language, and asks once whether to erase
+  it all (keeping it stays the default answer); agreeing also clears the
+  credential-manager entries. Data next to the executable is found even when
+  the location pointer is broken or lost. Silent, passive and update runs
+  never prompt and never delete data. A data root that is not reachable at
+  uninstall time (for example on an unplugged drive) is never deleted, and its
+  location pointer is kept so the data stays discoverable.
+
+### Changed
+
+- **The Manage window now uses the whole window.** The instance list and the
+  detail pane are split by a handle you can drag — the list may grow until the
+  form would lose its comfortable width, instead of stopping at a fixed point
+  with a third of a wide window sitting unused. The instance picture is shown
+  where you change it (it used to be edited blind, visible only after closing
+  the modal), and the same picture control is now used on the Overview header
+  and in the Manage window. On a wide pane the form splits into two columns —
+  what you *set* on the left (name, version, loader, memory), what you
+  *inspect* on the right (advanced heap, JVM arguments, provenance,
+  integrity); below that width it stays a single centred column. The action row
+  is a pinned footer, so Close never falls below the fold.
+- **The Overview cards are click targets.** Clicking the Configuration, Mods or
+  Integrity card opens the Manage window on the matching section and briefly
+  flashes the field it was opened for, instead of asking you to find a small
+  button first.
+- **Modpacks: it now says up front what an install will create.** The browser's
+  header and the text above the install button state that importing creates a
+  new instance, so the scope is visible before you commit. The filter row and
+  the pagination footer stay pinned while the results scroll — in all five
+  paged browsers — and the modpack browser uses the full window.
+- **Installing mods is now all-or-nothing.** A batch that fails partway rolls
+  back the jars it already wrote and the registry entries it already added,
+  instead of leaving a half-installed set behind. The failure toast names the
+  cause and offers **Retry**.
 
 ### Fixed
 
@@ -86,6 +161,23 @@ release is **0.9.0**.
   stays. Picking a folder already named `LucernaData` no longer doubles the
   subfolder, and picking the current data folder now says so plainly instead
   of failing with a confusing error.
+- A data location pointing at a folder that will never come back no longer
+  locks the launcher out of recovery. While running from the fallback
+  location, **Reset to default** stays available: it removes the pointer only —
+  nothing is copied and nothing is deleted — and after the restart the
+  launcher picks up the data sitting next to the executable again.
+- Applying a modpack update no longer wipes the notes recorded at import
+  (oversized overrides that were skipped, files that could not be resolved,
+  jars that won't load with the pack's loader) while the files those notes
+  describe are still on disk.
+- Updating a modpack now keeps mods you had disabled disabled, and no longer
+  leaves orphaned `.disabled` files behind. Jars a pack ships for the wrong
+  loader can be disabled in one click from the import drawer.
+- The proactive incompatible-mod scan now also judges the jars a modpack
+  brought with it, not only mods you installed yourself.
+- The modpack import picker labels the files a pack marks as optional, and the
+  FTB browser's Minecraft-version filter now matches any version of a pack
+  rather than only its newest one.
 
 ## [0.20.0] — 2026-07-27
 
@@ -836,7 +928,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.17.0...v0.18.0
