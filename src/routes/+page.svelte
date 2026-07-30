@@ -64,6 +64,7 @@
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
+  import { sweepPings, type PingState } from '$lib/worlds/server-ping';
   import { createQuickWorlds } from '$lib/worlds/quick-worlds.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
@@ -303,9 +304,51 @@
     }
   }
 
+  // Server-status permission (Settings → Game) + per-address results. Read
+  // fresh every time the dialog opens rather than cached at startup, so a
+  // toggle flipped mid-session takes effect on the next open.
+  let pingEnabled = $state(false);
+  let pingStates = $state<Record<string, PingState>>({});
+
+  async function refreshPingEnabled() {
+    const r = await commands.appSettingsGet();
+    pingEnabled = r.status === 'ok' ? (r.data.general.allow_server_ping ?? false) : false;
+  }
+
+  async function sweepServerPings() {
+    if (!pingEnabled) return;
+    const addresses = savedServers.map((s) => s.address);
+    pingStates = Object.fromEntries(addresses.map((a) => [a, 'pending' as const]));
+    await sweepPings(
+      addresses,
+      async (address) => {
+        const r = await commands.pingServer(address);
+        if (r.status !== 'ok') {
+          // Raced with the permission being turned off (or the address became
+          // invalid): fall back to the "status is off" view rather than showing
+          // an error toast the user can do nothing about.
+          pingEnabled = false;
+          return null;
+        }
+        return r.data;
+      },
+      (address, outcome) => {
+        // Rebuild the record so the rune sees a new value.
+        const next = { ...pingStates };
+        if (outcome === null) delete next[address];
+        else next[address] = outcome;
+        pingStates = next;
+      },
+    );
+  }
+
   async function openServersDialog() {
     quickJoinOpen = true;
+    pingStates = {};
+    await refreshPingEnabled();
     await loadSavedServers();
+    // Not awaited: rows appear immediately and fill in as pings land.
+    void sweepServerPings();
   }
 
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
@@ -1368,6 +1411,13 @@
     connectDisabledReason={quickPlayDisabledReason}
     addDisabledReason={selectedRunning ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
+    {pingEnabled}
+    {pingStates}
+    onRefreshPings={() => void sweepServerPings()}
+    onOpenPingSetting={() => {
+      quickJoinOpen = false;
+      settingsOpen.value = { tab: 'game' };
+    }}
     onConnect={(address) => void connectToAddress(address)}
     onSave={onServerSave}
     onSaveAndConnect={onServerSaveAndConnect}

@@ -7,6 +7,7 @@
   import Icon from '$lib/ui/icons/Icon.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { isValidServerAddress } from '$lib/worlds/quick-join';
+  import { formatPingChip, type PingState } from '$lib/worlds/server-ping';
   import type { SavedServer } from '$lib/ipc/bindings';
 
   let {
@@ -17,11 +18,15 @@
     connectDisabledReason = null,
     addDisabledReason = null,
     showOfflineHint = false,
+    pingEnabled = false,
+    pingStates = {},
     onConnect,
     onSave,
     onSaveAndConnect,
     onDelete,
     onClose,
+    onRefreshPings = undefined,
+    onOpenPingSetting = undefined,
   }: {
     open: boolean;
     savedServers?: SavedServer[];
@@ -30,13 +35,23 @@
     connectDisabledReason?: string | null;
     addDisabledReason?: string | null;
     showOfflineHint?: boolean;
+    /** True when the user granted the server-status permission in Settings. */
+    pingEnabled?: boolean;
+    /** Per-address status, keyed by the same address string as the row. */
+    pingStates?: Record<string, PingState>;
     onConnect: (address: string) => void;
     // Resolve `true` on a successful save so the dialog can clear + collapse.
     onSave: (name: string, address: string) => Promise<boolean>;
     onSaveAndConnect: (name: string, address: string) => Promise<boolean>;
     onDelete: (index: number, address: string) => void;
     onClose: () => void;
+    onRefreshPings?: () => void;
+    onOpenPingSetting?: () => void;
   } = $props();
+
+  // A sweep is in flight while any row is still pending — used to keep repeated
+  // Refresh clicks from stacking more dials onto the backend queue.
+  const pingSweepRunning = $derived(Object.values(pingStates).some((s) => s === 'pending'));
 
   let name = $state('');
   let address = $state('');
@@ -114,7 +129,32 @@
     {#if savedServersLoading}
       <LoadingPanel label={$t('quickJoin.loading')} />
     {:else if savedServers.length > 0}
-      <p class="text-xs text-secondary mb-2">{$t('quickJoin.savedHeading')}</p>
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <p class="text-xs text-secondary">{$t('quickJoin.savedHeading')}</p>
+        {#if pingEnabled}
+          <button
+            type="button"
+            class="btn-ghost btn-sm"
+            disabled={busy || pingSweepRunning}
+            onclick={() => onRefreshPings?.()}
+          >
+            {$t('quickJoin.ping.refresh')}
+          </button>
+        {/if}
+      </div>
+      <!-- Permission off: say it plainly instead of leaving blank rows the user
+           has to interpret, and offer the one click that changes it. -->
+      {#if !pingEnabled}
+        <p
+          class="text-xs text-muted mb-2 flex flex-wrap items-center gap-1"
+          data-testid="ping-disabled-notice"
+        >
+          <span>{$t('quickJoin.ping.disabledNotice')}</span>
+          <button type="button" class="btn-ghost btn-sm" onclick={() => onOpenPingSetting?.()}>
+            {$t('quickJoin.ping.enable')}
+          </button>
+        </p>
+      {/if}
       <!-- Cap height + scroll so a long list stays inside the modal instead of
            overflowing the viewport. -->
       <ul class="flex flex-col gap-2 mb-3 max-h-72 overflow-y-auto pr-1">
@@ -164,6 +204,25 @@
                   <span class="truncate">{server.address}</span>
                   {#if copiedAddress === server.address}<Icon name="success" size={12} />{/if}
                 </p>
+                <!-- Status line. Only rendered with the permission on, so a row
+                     never shows a status-shaped blank the user must decode. -->
+                {#if pingEnabled}
+                  {@const state = pingStates[server.address]}
+                  <span class="text-xs flex items-center gap-1 truncate" data-testid="ping-chip">
+                    {#if state === 'pending'}
+                      <span class="text-muted">{$t('quickJoin.ping.checking')}</span>
+                    {:else if state?.kind === 'online'}
+                      <span
+                        class="text-success-text truncate"
+                        use:tooltip={state.motd ?? undefined}
+                      >
+                        {formatPingChip(state)}
+                      </span>
+                    {:else if state?.kind === 'no_answer'}
+                      <span class="text-muted">{$t('quickJoin.ping.noAnswer')}</span>
+                    {/if}
+                  </span>
+                {/if}
               </button>
               <button
                 type="button"
