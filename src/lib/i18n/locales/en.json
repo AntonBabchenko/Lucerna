@@ -763,6 +763,7 @@
   "modpacks": {
     "modal": {
       "title": "Modpacks",
+      "scopeNote": "Installing a pack creates a new instance — your existing instances are untouched.",
       "closeScrimAriaLabel": "Close",
       "closeAriaLabel": "Close modpacks"
     },
@@ -942,13 +943,14 @@
     },
     "card": {
       "byAuthor": "by {author}",
-      "quickInstall": "Install latest version",
+      "quickInstall": "Install latest version as a new instance",
       "downloads": "{count} downloads",
       "downloadsShort": "{count} dl",
       "distributionDisabled": "CurseForge download disabled",
       "distributionDisabledShort": "CF disabled"
     },
     "detail": {
+      "scopeNote": "Installs into a new instance.",
       "dialogAriaLabel": "Modpack details",
       "closeScrimAriaLabel": "Close",
       "closeAriaLabel": "Close modpack details",
