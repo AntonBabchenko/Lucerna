@@ -401,7 +401,6 @@
       "hint": "Drag to reposition, scroll to zoom",
       "zoom": "Zoom",
       "remove": "Remove picture",
-      "changeBtn": "Change picture",
       "editTooltip": "Change instance picture",
       "errorDecode": "That file is not a supported image.",
       "errorSave": "Could not save the picture. Please try again."

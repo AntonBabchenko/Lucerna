@@ -285,7 +285,6 @@ export type TranslationKey =
   | 'instance.error.nameRequired'
   | 'instance.error.nameTooLong'
   | 'instance.error.pickMcFirst'
-  | 'instance.icon.changeBtn'
   | 'instance.icon.dialogTitle'
   | 'instance.icon.editTooltip'
   | 'instance.icon.errorDecode'

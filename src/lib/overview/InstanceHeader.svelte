@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
-  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
-  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
+  import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
@@ -55,50 +54,12 @@
 </script>
 
 <div class="flex items-center gap-4" data-testid="overview-instance-header">
-  <!-- The avatar is the change affordance: click opens the OS file picker
-       directly (crop dialog appears once a file decodes). When a custom
-       picture exists, hovering (or keyboard focus) reveals a corner trash
-       badge — siblings, not nested, so both stay real buttons. -->
-  <div class="group relative flex-none">
-    <button
-      type="button"
-      class="relative block rounded-xl focus-visible:outline focus-visible:outline-2
-        focus-visible:outline-accent focus-visible:outline-offset-2"
-      onclick={() => iconDialog.pick(instance.id)}
-      use:tooltip={$t('instance.icon.editTooltip')}
-      aria-label={$t('instance.icon.editTooltip')}
-      data-testid="overview-avatar"
-    >
-      <InstanceAvatar {instance} size={52} />
-      <!-- Change affordance: revealed together with the corner trash on
-           hover / keyboard focus. Radius matches InstanceAvatar's computed
-           rounding (size * 0.22). -->
-      <!-- :focus-visible (not :focus-within) so a mouse click that leaves the
-           button focused — e.g. after cancelling the OS file picker — does not
-           pin the overlay; only keyboard focus reveals it. -->
-      <span
-        class="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0
-          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
-        style="border-radius:{Math.round(52 * 0.22)}px"
-        aria-hidden="true"
-      >
-        <Icon name="edit" size={18} class="text-white" />
-      </span>
-    </button>
-    {#if instance.has_icon}
-      <button
-        type="button"
-        class="btn-icon btn-icon-sm btn-icon-danger absolute -right-2 -top-2 z-10 opacity-0
-          transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100"
-        onclick={() => iconDialog.requestRemove(instance.id)}
-        aria-label={$t('instance.icon.remove')}
-        use:tooltip={$t('instance.icon.remove')}
-        data-testid="overview-avatar-remove"
-      >
-        <Icon name="trash" size={13} />
-      </button>
-    {/if}
-  </div>
+  <InstanceAvatarEdit
+    {instance}
+    size={52}
+    testId="overview-avatar"
+    removeTestId="overview-avatar-remove"
+  />
 
   <div class="min-w-0">
     <div
