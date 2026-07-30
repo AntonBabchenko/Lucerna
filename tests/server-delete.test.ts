@@ -84,6 +84,7 @@ describe('ServerSettingsTab danger zone (delete server)', () => {
     instanceMemoryBounds.mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
+      default_mb: 2048,
       recommended_max_mb: 8192,
       step_mb: 256,
       ram_known: false,
