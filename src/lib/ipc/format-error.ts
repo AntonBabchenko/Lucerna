@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
+import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 
@@ -8,6 +9,14 @@ import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 // full text lives in the launcher log. Slicing is by code point (spread), not
 // UTF-16 unit, so a surrogate pair at the boundary is never split.
 const DETAIL_TRUNCATE_CODE_POINTS = 120;
+
+// Stable channel ids from `network::consent::ConsentedChannel::id()` mapped to
+// the display name of the setting that turns them on. An unknown id (a newer
+// backend against an older UI) falls back to a generic phrase rather than
+// printing a raw identifier at the user.
+const CONSENTED_CHANNEL_LABELS: Record<string, TranslationKey> = {
+  server_ping: 'settings.general.serverPing.label',
+};
 
 /**
  * Render an Opaque error's `headline` plus its raw `detail`:
@@ -82,6 +91,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
   host_not_allowed: 'clean',
+  consented_channel_disabled: 'clean',
   hash_mismatch: 'clean',
   already_running: 'clean',
   account_not_set: 'clean',
@@ -213,6 +223,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.network');
     case 'host_not_allowed':
       return translate('errors.hostNotAllowed', { url: e.url });
+    case 'consented_channel_disabled':
+      return translate('errors.consentedChannelDisabled', {
+        channel: translate(CONSENTED_CHANNEL_LABELS[e.channel] ?? 'errors.consentedChannelGeneric'),
+      });
     case 'hash_mismatch':
       return translate('errors.hashMismatch', { path: e.path });
     case 'java_spawn':
