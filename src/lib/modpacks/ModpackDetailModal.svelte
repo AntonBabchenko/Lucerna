@@ -272,6 +272,9 @@
     {#if tab === 'overview' && !loading}
       <div class="shrink-0 border-t border-border-subtle p-4 py-3">
         {#if recommended}
+          <p class="text-xs text-muted mb-2" data-testid="modpack-detail-scope-note">
+            {$t('modpacks.detail.scopeNote')}
+          </p>
           <span
             class="inline-flex w-full"
             use:tooltip={{ text: installDisabledReason ?? '', describe: false }}
