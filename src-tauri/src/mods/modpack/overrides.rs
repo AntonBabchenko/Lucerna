@@ -6,7 +6,6 @@ use std::path::Path;
 
 use sha1::{Digest, Sha1};
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 
 use crate::error::Error;
 use crate::mods::modpack::schema::SkippedOverride;
@@ -230,22 +229,20 @@ pub async fn extract<F: FnMut(u32, u32)>(
                         return Err(Error::ModpackOverridesPathEscape { entry: rel });
                     }
                 }
-                let mut f = fs::File::create(&target).await.map_err(|e| Error::Io {
-                    path: target.display().to_string(),
-                    details: e.to_string(),
-                })?;
-                f.write_all(&buf).await.map_err(|e| Error::Io {
-                    path: target.display().to_string(),
-                    details: e.to_string(),
-                })?;
-                // Flush before the handle drops: a tokio `File` does NOT flush on
-                // drop, so without this the final buffered write can be lost on
-                // Linux/macOS, leaving an empty/truncated override on disk (the
-                // root of the `extracts_normal_file` failure — and a real data bug).
-                f.flush().await.map_err(|e| Error::Io {
-                    path: target.display().to_string(),
-                    details: e.to_string(),
-                })?;
+                // Temp-then-rename, not `File::create`: re-importing pack files
+                // extracts into an EXISTING instance, and an
+                // `overrides/mods/*.jar` target may be a hardlink shared with
+                // other instances — truncating it in place would corrupt that
+                // mod everywhere. `place_bytes` also keeps the explicit flush a
+                // tokio `File` needs (it does not flush on drop, which once
+                // truncated overrides on Linux/macOS — the root of the
+                // `extracts_normal_file` failure, and a real data bug).
+                crate::mods::store::place_bytes(&target, &buf)
+                    .await
+                    .map_err(|e| Error::Io {
+                        path: e.path.display().to_string(),
+                        details: e.details(),
+                    })?;
 
                 if is_tracked_bundled_path(&rel) {
                     let filename = rel.rsplit('/').next().unwrap_or(&rel).to_string();

@@ -117,6 +117,7 @@ The commitments above are not honour-system rules; most are enforced by tests in
 | `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`, plus an allowlist for `tauri_plugin_opener` call sites (Hard rule 3) |
 | `structural_no_raw_sftp.rs` | No SFTP session construction outside `servers_runtime::transfer` (Part A commitment 3) |
 | `structural_consented_dial.rs` | No TCP dialing outside `network::consent`, no raw UDP anywhere, and the consent check still present in `ConsentedTcp::open` (Part A commitment 4) |
+| `structural_no_inplace_mods_write.rs` | No raw file write under `src/mods/` outside `mods::store` (instance side) and `mods::cache` (store side). Instance mod jars are hardlinks to one shared physical file, so an in-place write — `fs::copy` included, since it opens the destination with truncate — corrupts every instance sharing that mod. Only write-to-temp-then-rename is safe. |
 | `structural_platform_chokepoint.rs` | OS-specific behaviour stays behind the `platform::` seam rather than leaking `#[cfg(windows)]` across the codebase |
 | `structural_no_env_mutation.rs` | No `std::env::set_var` in production code — env overrides go through `test_seam` (this is what removed the need for single-threaded test runs) |
 | `structural_installer_branding.rs` | The NSIS installer keeps Lucerna branding assets wired up |

@@ -251,12 +251,20 @@ pub async fn install_one(
             });
         }
     } else {
-        fs::copy(&cached_path, &dest)
-            .await
-            .map_err(|e| Error::ModsInstancePath {
-                path: dest.display().to_string(),
-                details: e.to_string(),
-            })?;
+        // Hardlink the shared store entry into the instance (copy fallback on
+        // any link failure). `install_one` always carries full provenance —
+        // source + project_id + version_id — so the linked bytes are always
+        // re-downloadable, which is the precondition for sharing them.
+        crate::mods::store::materialize(
+            &cached_path,
+            &dest,
+            crate::mods::store::LinkPolicy::LinkIfPossible,
+        )
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: e.path.display().to_string(),
+            details: e.details(),
+        })?;
         newly_copied = true;
     }
 
@@ -361,12 +369,23 @@ pub async fn install_asset(
             entry: install_path.to_string(),
         });
     }
-    fs::copy(&cached_path, &dest)
-        .await
-        .map_err(|e| Error::ModsInstancePath {
-            path: dest.display().to_string(),
-            details: e.to_string(),
-        })?;
+    // ForceCopy: resource packs / shaders / pack config files are not linked
+    // this session — an asset's `install_path` comes from the pack manifest and
+    // may point at `config/`, which the game rewrites in place, so linking it
+    // would leak one instance's edits into another. Routed through the
+    // chokepoint anyway for the temp-then-rename guarantee: this copy is
+    // unconditional over an existing destination, and that destination may be a
+    // link.
+    crate::mods::store::materialize(
+        &cached_path,
+        &dest,
+        crate::mods::store::LinkPolicy::ForceCopy,
+    )
+    .await
+    .map_err(|e| Error::ModsInstancePath {
+        path: e.path.display().to_string(),
+        details: e.details(),
+    })?;
     Ok(())
 }
 
@@ -1788,6 +1807,208 @@ mod tests {
         assert!(
             safe_asset_remove_path(root, ContentKind::ResourcePack, "Faithful.zip").is_ok(),
             "Faithful.zip should be accepted"
+        );
+    }
+
+    // ====================================================================
+    // Shared-physical-file lifecycle
+    //
+    // The three properties the hardlink store must hold, each verified
+    // against real NTFS semantics during design:
+    //   * one mod installed into two instances is ONE physical file;
+    //   * uninstalling from one instance leaves the other's bytes readable
+    //     (the filesystem is the refcount — there is no refcount store);
+    //   * disabling in one instance does not leak into the other (disable is
+    //     a rename, which touches only that directory entry).
+    //
+    // No mock server: pre-seeding the cache makes `fetch_to_cache` a hit, so
+    // the declared URL is never fetched.
+    // ====================================================================
+
+    /// Same-physical-file probe with no platform-specific API: mutate one name
+    /// in place and see whether the other observes it. This is the one place
+    /// allowed to write through a link — it asserts the very property
+    /// production code must never rely on.
+    fn shares_bytes_with(a: &Path, b: &Path, restore: &[u8]) -> bool {
+        std::fs::write(a, b"MUTATED-THROUGH-OTHER-NAME").expect("mutate a");
+        let shared = std::fs::read(b).expect("read b") == b"MUTATED-THROUGH-OTHER-NAME";
+        std::fs::write(a, restore).expect("restore a");
+        shared
+    }
+
+    #[tokio::test]
+    async fn one_mod_in_two_instances_is_one_physical_file() {
+        // Physical sharing requires the link path, so `FORCE_LINK_FAILURE` must
+        // be absent. A test that installs no seam scope is NOT serialized
+        // against one that does, and `test_seam::resolve` reads a
+        // process-global table — so a sibling's forced-failure scope leaks in.
+        // Taking the same mutex `scope` uses closes that race.
+        let _lock = test_lock();
+        let payload = b"SHARED-MOD-BYTES";
+        let sha = hex::encode(Sha1::digest(payload));
+        let td_data = TempDir::new().unwrap();
+        let a = TempDir::new().unwrap();
+        let b = TempDir::new().unwrap();
+        cache::write_bytes(td_data.path(), &sha, payload)
+            .await
+            .unwrap();
+        let v = || {
+            fake_version(
+                "https://example.invalid/s.jar".into(),
+                sha.clone(),
+                16,
+                "s.jar",
+            )
+        };
+
+        install_one(td_data.path(), a.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+        install_one(td_data.path(), b.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+
+        let ja = installed::mods_dir(a.path()).join("s.jar");
+        let jb = installed::mods_dir(b.path()).join("s.jar");
+        assert!(ja.exists() && jb.exists());
+        assert!(
+            shares_bytes_with(&ja, &jb, payload),
+            "the two instances must share one physical file"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstalling_from_one_instance_leaves_the_other_intact() {
+        let payload = b"SHARED-MOD-BYTES";
+        let sha = hex::encode(Sha1::digest(payload));
+        let td_data = TempDir::new().unwrap();
+        let a = TempDir::new().unwrap();
+        let b = TempDir::new().unwrap();
+        cache::write_bytes(td_data.path(), &sha, payload)
+            .await
+            .unwrap();
+        let v = || {
+            fake_version(
+                "https://example.invalid/s.jar".into(),
+                sha.clone(),
+                16,
+                "s.jar",
+            )
+        };
+        install_one(td_data.path(), a.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+        install_one(td_data.path(), b.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+
+        uninstall(a.path(), &sha).await.unwrap();
+
+        assert!(!installed::mods_dir(a.path()).join("s.jar").exists());
+        assert_eq!(
+            std::fs::read(installed::mods_dir(b.path()).join("s.jar")).unwrap(),
+            payload,
+            "the surviving instance must keep readable bytes"
+        );
+        assert_eq!(
+            std::fs::read(cache::cache_path_for(td_data.path(), &sha)).unwrap(),
+            payload,
+            "an instance-level uninstall must not touch the store entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabling_in_one_instance_does_not_leak_into_the_other() {
+        let payload = b"SHARED-MOD-BYTES";
+        let sha = hex::encode(Sha1::digest(payload));
+        let td_data = TempDir::new().unwrap();
+        let a = TempDir::new().unwrap();
+        let b = TempDir::new().unwrap();
+        cache::write_bytes(td_data.path(), &sha, payload)
+            .await
+            .unwrap();
+        let v = || {
+            fake_version(
+                "https://example.invalid/s.jar".into(),
+                sha.clone(),
+                16,
+                "s.jar",
+            )
+        };
+        install_one(td_data.path(), a.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+        install_one(td_data.path(), b.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+
+        disable(a.path(), &sha).await.unwrap();
+
+        assert!(installed::mods_dir(a.path())
+            .join("s.jar.disabled")
+            .exists());
+        assert!(
+            installed::mods_dir(b.path()).join("s.jar").exists(),
+            "B's enabled name must be untouched — disable renames one directory entry"
+        );
+        let b_mods = installed::list(b.path()).await.unwrap();
+        assert_eq!(b_mods.len(), 1);
+        assert!(b_mods[0].enabled, "B's registry must still say enabled");
+    }
+
+    /// A re-install of a DIFFERENT version over a shared jar must not write
+    /// through the link. `install_one` refuses a same-filename/different-bytes
+    /// install with `ModsFilenameConflict`, so the shared bytes stay intact —
+    /// this pins that the guard fires before any write, now that a write would
+    /// hit every instance rather than one.
+    #[tokio::test]
+    async fn conflicting_reinstall_over_a_shared_jar_leaves_bytes_untouched() {
+        let old = b"OLD-SHARED-BYTES";
+        let new = b"NEW-DIFFERENT-BYTES";
+        let old_sha = hex::encode(Sha1::digest(old));
+        let new_sha = hex::encode(Sha1::digest(new));
+        let td_data = TempDir::new().unwrap();
+        let a = TempDir::new().unwrap();
+        let b = TempDir::new().unwrap();
+        cache::write_bytes(td_data.path(), &old_sha, old)
+            .await
+            .unwrap();
+        cache::write_bytes(td_data.path(), &new_sha, new)
+            .await
+            .unwrap();
+        let shared = || {
+            fake_version(
+                "https://example.invalid/s.jar".into(),
+                old_sha.clone(),
+                old.len() as u64,
+                "s.jar",
+            )
+        };
+        install_one(td_data.path(), a.path(), shared(), &nop_progress())
+            .await
+            .unwrap();
+        install_one(td_data.path(), b.path(), shared(), &nop_progress())
+            .await
+            .unwrap();
+
+        let clashing = fake_version(
+            "https://example.invalid/s.jar".into(),
+            new_sha.clone(),
+            new.len() as u64,
+            "s.jar",
+        );
+        let err = install_one(td_data.path(), a.path(), clashing, &nop_progress())
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "expected a filename conflict, got {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(installed::mods_dir(b.path()).join("s.jar")).unwrap(),
+            old,
+            "the other instance's shared bytes must be untouched"
         );
     }
 }

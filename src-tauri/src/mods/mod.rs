@@ -30,6 +30,7 @@ pub mod platform;
 pub mod preflight;
 pub mod project_cache;
 pub mod render;
+pub mod store;
 pub mod summary_cache;
 pub mod unsupported;
 pub mod updates;

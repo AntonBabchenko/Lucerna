@@ -1,9 +1,20 @@
-//! Global mod jar cache. Content-addressed by SHA-1.
+//! Global mod jar store. Content-addressed by SHA-1.
 //!
-//! Layout: `{data_dir}/mod-cache/<sha1>.jar`. The same SHA may be
-//! referenced by multiple per-instance installs; each install copies
-//! out of the cache (cheap) rather than linking, so per-instance
-//! deletion never affects the cache.
+//! Layout: `{data_dir}/mod-cache/<sha1>.jar`.
+//!
+//! # These bytes are SHARED — do not write them in place
+//!
+//! An entry here is normally **hardlinked** into every instance that uses that
+//! mod (see [`crate::mods::store`]), so the file has several names and one set
+//! of bytes. Opening any of those names for writing — `fs::copy` included,
+//! since it truncates its destination — rewrites the mod for every instance at
+//! once, and zeroes it before the first byte lands. Every write in this module
+//! therefore goes to a temp name and is renamed into place, which replaces one
+//! directory entry and leaves the other links alone.
+//!
+//! Deleting an entry is safe and does not reclaim shared bytes: the instances'
+//! links keep the file alive. That also means "clear the cache" frees only
+//! entries nothing links to.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
