@@ -209,6 +209,20 @@ mod tests {
         std::fs::read(dest).expect("read dest") == b"MUTATED-THROUGH-STORE"
     }
 
+    /// Every test that needs `FORCE_LINK_FAILURE` to be **absent** must hold
+    /// this. `test_seam::scope` serializes scope *holders* against each other,
+    /// but a test that installs no scope is not serialized against one that
+    /// does — and `resolve` reads a process-global table, so the forced-failure
+    /// scope from a sibling test is visible to whoever is running concurrently.
+    /// This is the flake `test_seam`'s own test module warns about ("reusing one
+    /// key across both tests would itself be a flake"); it turned CI red on
+    /// windows while ubuntu and macos won the race. `test_env_lock` takes the
+    /// same mutex `scope` does, which closes the gap. Do NOT combine it with
+    /// `scope()` in one test — the mutex is not reentrant.
+    fn seam_absent() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     fn seeded(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
         let p = dir.join(name);
         std::fs::create_dir_all(dir).unwrap();
@@ -218,6 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn materialize_links_when_the_filesystem_supports_it() {
+        let _lock = seam_absent();
         let td = TempDir::new().unwrap();
         let store = seeded(&td.path().join("mod-cache"), "aa.jar", b"JARBYTES");
         let dest = td.path().join("inst/mods/sodium.jar");
@@ -260,6 +275,9 @@ mod tests {
 
     #[tokio::test]
     async fn force_copy_never_links_even_where_linking_works() {
+        // The name claims linking WOULD work here, so the seam must be absent —
+        // otherwise this test would pass for the wrong reason.
+        let _lock = seam_absent();
         let td = TempDir::new().unwrap();
         let store = seeded(&td.path().join("mod-cache"), "aa.jar", b"PACKBYTES");
         let dest = td.path().join("inst/.minecraft/resourcepacks/x.zip");
@@ -278,6 +296,9 @@ mod tests {
     /// only this directory entry.
     #[tokio::test]
     async fn materialize_over_an_existing_link_does_not_write_through() {
+        // Holds either way (a copy also lands via rename), but the assertions
+        // are about the LINK case, so pin the link path rather than pass by luck.
+        let _lock = seam_absent();
         let td = TempDir::new().unwrap();
         let old = seeded(&td.path().join("mod-cache"), "old.jar", b"OLD-SHARED-BYTES");
         let new = seeded(&td.path().join("mod-cache"), "new.jar", b"NEW-BYTES");

@@ -1838,6 +1838,12 @@ mod tests {
 
     #[tokio::test]
     async fn one_mod_in_two_instances_is_one_physical_file() {
+        // Physical sharing requires the link path, so `FORCE_LINK_FAILURE` must
+        // be absent. A test that installs no seam scope is NOT serialized
+        // against one that does, and `test_seam::resolve` reads a
+        // process-global table — so a sibling's forced-failure scope leaks in.
+        // Taking the same mutex `scope` uses closes that race.
+        let _lock = test_lock();
         let payload = b"SHARED-MOD-BYTES";
         let sha = hex::encode(Sha1::digest(payload));
         let td_data = TempDir::new().unwrap();
