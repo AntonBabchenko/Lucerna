@@ -16,6 +16,7 @@
   import InstanceIconDialog from '$lib/instances/InstanceIconDialog.svelte';
   import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+  import type { ManageFocusField } from '$lib/instances/manage-focus';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import {
@@ -163,6 +164,10 @@
   }
 
   let manageOpen = $state(false);
+  // Which Manage field the modal should scroll to and flash when it opens.
+  // Set by whichever entry point opened it; every site that flips manageOpen
+  // sets this too, so a stale highlight can never survive into the next open.
+  let manageFocus = $state<ManageFocusField | null>(null);
   // Seeds ManageInstancesModal's detail selection. Set to a specific instance id
   // when opened via a per-row "manage this profile" action (the active-instance
   // switch is async, so the modal can't rely on `activeInstance` at open time);
@@ -1214,10 +1219,12 @@
       {onSelectInstance}
       onOpenManage={() => {
         manageInitialId = null;
+        manageFocus = null;
         manageOpen = true;
       }}
       onManageInstance={(id) => {
         manageInitialId = id;
+        manageFocus = null;
         manageOpen = true;
       }}
       onCloneInstance={(id) => (cloneTargetId = id)}
@@ -1353,8 +1360,9 @@
                 instances: instancesError,
                 versions: mcv.error,
               }}
-              onManage={() => {
+              onManage={(field) => {
                 manageInitialId = null;
+                manageFocus = field ?? null;
                 manageOpen = true;
               }}
               onExport={() => (exportDialogOpen = true)}
@@ -1440,6 +1448,7 @@
     onChanged={refreshInstances}
     isRunning={selectedRunning}
     initialSelectedId={manageInitialId}
+    focusField={manageFocus}
     onCloneRequest={(id) => (cloneTargetId = id)}
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
   />
