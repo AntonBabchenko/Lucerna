@@ -59,6 +59,14 @@ describe('fieldFlash', () => {
     expect(host.classList.contains('field-flash')).toBe(true);
   });
 
+  it('does not re-flash when update repeats the same active value', () => {
+    const { host } = mountHost();
+    const handle = fieldFlash(host, { active: true });
+    host.classList.remove('field-flash');
+    handle.update({ active: true });
+    expect(host.classList.contains('field-flash')).toBe(false);
+  });
+
   it('drops the mark and the pending timer on destroy', () => {
     const { host } = mountHost();
     const handle = fieldFlash(host, { active: true });
