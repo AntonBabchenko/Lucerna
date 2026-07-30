@@ -9,8 +9,8 @@
     type ModCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
+  import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
-  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
@@ -776,33 +776,16 @@
             onblur={commitName}
           />
 
-          <!-- The picture next to the buttons that change it: 52px and this
-               composition mirror InstanceHeader, so the modal and the Overview
-               header read as one control. The letter fallback keeps the "no
-               custom picture" state legible rather than blank. -->
-          <div class="mb-3 flex items-center gap-3">
-            <InstanceAvatar instance={selected} size={52} />
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                disabled={!selected}
-                onclick={() => selected && iconDialog.pick(selected.id)}
-              >
-                {$t('instance.icon.changeBtn')}
-              </button>
-              {#if selected?.has_icon}
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm btn-icon-danger"
-                  onclick={() => selected && iconDialog.requestRemove(selected.id)}
-                  aria-label={$t('instance.icon.remove')}
-                  use:tooltip={$t('instance.icon.remove')}
-                >
-                  <Icon name="trash" size={14} />
-                </button>
-              {/if}
-            </div>
+          <!-- Same control as the Overview header: the picture itself is the
+               affordance, so changing and removing it work identically on both
+               surfaces. -->
+          <div class="mb-3">
+            <InstanceAvatarEdit
+              instance={selected}
+              size={52}
+              testId="manage-avatar"
+              removeTestId="manage-avatar-remove"
+            />
           </div>
 
           <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
