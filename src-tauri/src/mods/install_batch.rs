@@ -146,9 +146,15 @@ async fn pre_existing_shas(instance_root: &Path) -> Option<HashSet<String>> {
     }
 }
 
-/// Best-effort undo of `attempted` (committed items plus the failed one,
-/// whose `fs::copy` may have left a partial file). Never masks the original
-/// error — every failure here is only logged.
+/// Best-effort undo of `attempted` (committed items plus the failed one).
+/// Never masks the original error — every failure here is only logged.
+///
+/// Since `install_one` materializes through [`crate::mods::store`] (temp name
+/// then rename, cleaned up on every failure path), a failed item can no longer
+/// leave a partial file at its destination — the destination is either fully
+/// replaced or exactly as it was. Removing an instance's own file is also safe
+/// when that file is a hardlink shared with another instance: deleting one name
+/// never touches the bytes the other names still hold.
 async fn rollback(
     instance_root: &Path,
     attempted: &[ModVersion],

@@ -283,14 +283,22 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
     let mut changed = false;
 
     // 1. Update existing JSON entries, fixing filename / enabled drift.
-    //    SHA match first — a renamed but intact jar. Filename match second — a
-    //    jar whose BYTES changed (corruption, or an external replacement).
-    //    Filenames compare case-insensitively: Windows and macOS filesystems
-    //    are, so `Sodium.jar` and `sodium.jar` are one file.
+    //    Match order, most specific first:
+    //      a. SHA — a renamed but byte-identical jar;
+    //      b. exact filename — a jar whose BYTES changed (corruption, or an
+    //         external replacement);
+    //      c. case-insensitive filename — the same case, on the
+    //         case-insensitive filesystems (Windows, default macOS) where
+    //         `Sodium.jar` and `sodium.jar` ARE one file.
+    //    (b) must be tried before (c): on Linux both names can exist as two
+    //    different files, and a case-insensitive-only match would pair the
+    //    record with whichever `read_dir` happened to yield first, silently
+    //    moving one mod's provenance onto another's file.
     for m in state.mods.iter_mut() {
         let hit = on_disk
             .iter()
             .find(|(_, sha, _)| sha.eq_ignore_ascii_case(&m.sha1))
+            .or_else(|| on_disk.iter().find(|(name, _, _)| *name == m.filename))
             .or_else(|| {
                 on_disk
                     .iter()
@@ -336,20 +344,22 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
     //    retained record is NOT synthesized: that is the corrupt-jar case from
     //    step 2, and synthesizing it would recreate the anonymous duplicate
     //    step 2 exists to prevent.
+    //
+    //    `claimed_names` compares EXACTLY, unlike step 2's retention check.
+    //    Step 1 already rewrote each retained record's filename to the on-disk
+    //    spelling, so the corrupt-jar case matches exactly anyway — while on a
+    //    case-sensitive filesystem a genuine second file differing only in case
+    //    still gets its own entry. Lowercasing here would instead drop it from
+    //    the registry entirely: invisible in the Installed view, impossible to
+    //    disable or uninstall, yet still loaded by the game.
     let known_shas: HashSet<String> = state
         .mods
         .iter()
         .map(|m| m.sha1.to_ascii_lowercase())
         .collect();
-    let claimed_names: HashSet<String> = state
-        .mods
-        .iter()
-        .map(|m| m.filename.to_ascii_lowercase())
-        .collect();
+    let claimed_names: HashSet<String> = state.mods.iter().map(|m| m.filename.clone()).collect();
     for (filename, sha, enabled) in on_disk.iter() {
-        if known_shas.contains(&sha.to_ascii_lowercase())
-            || claimed_names.contains(&filename.to_ascii_lowercase())
-        {
+        if known_shas.contains(&sha.to_ascii_lowercase()) || claimed_names.contains(filename) {
             continue;
         }
         state.mods.push(InstalledMod {

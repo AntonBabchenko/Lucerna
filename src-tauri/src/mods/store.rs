@@ -27,9 +27,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-/// Test-seam key (also usable as an operator escape hatch, like every other
-/// seam key): when set to `1`, hardlinking reports failure so the copy
-/// fallback can be exercised without a second volume or a non-NTFS filesystem.
+/// Test-seam key: when set to `1`, hardlinking reports failure, so the copy
+/// fallback can be exercised without a second volume or a non-NTFS filesystem —
+/// necessary because a dev machine usually has neither. Like every seam key it
+/// also reads the process environment (see [`crate::test_seam::resolve`]), so
+/// setting it in production forces plain copies. That is a safe degradation
+/// rather than a supported feature: copies are always correct, only larger.
 const FORCE_LINK_FAILURE: &str = "LUCERNA_TEST_FORCE_LINK_FAILURE";
 
 /// Distinguishes temp names of concurrent materializations in one directory —

@@ -48,6 +48,27 @@ const ALLOWLIST: &[&str] = &[
 
 const PRIMITIVES: &[&str] = &["fs::copy(", "fs::write(", "File::create(", "OpenOptions"];
 
+/// `PRIMITIVES` matches call-site text, so it only sees the qualified form. A
+/// plain `use tokio::fs::copy;` would let `copy(&cached, &out)` slip past with
+/// no `fs::copy(` substring anywhere — not an adversarial trick, just an
+/// ordinary import style. So importing one of these names unqualified is itself
+/// a violation: keep the `fs::` prefix at the call site and the guard keeps
+/// working.
+fn imports_a_primitive_unqualified(line: &str) -> bool {
+    let t = line.trim_start();
+    if !t.starts_with("use ") || !t.contains("fs::") {
+        return false;
+    }
+    // The item list is whatever follows the last `fs::` — `use std::fs::copy;`
+    // or `use tokio::fs::{self, copy, write};`. A bare `use tokio::fs;` has no
+    // `fs::` and never reaches here.
+    let tail = t.rsplit("fs::").next().unwrap_or("");
+    ["copy", "write", "File", "OpenOptions"].iter().any(|item| {
+        tail.split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|w| w == *item)
+    })
+}
+
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).expect("read_dir") {
         let path = entry.expect("dir entry").path();
@@ -90,7 +111,8 @@ fn no_raw_write_primitive_under_mods_outside_the_owners() {
             if trimmed.starts_with("//") {
                 continue; // doc comments naming a primitive are fine
             }
-            if PRIMITIVES.iter().any(|p| line.contains(p)) {
+            if PRIMITIVES.iter().any(|p| line.contains(p)) || imports_a_primitive_unqualified(line)
+            {
                 violations.push(format!("{}:{}", file.display(), i + 1));
             }
         }
