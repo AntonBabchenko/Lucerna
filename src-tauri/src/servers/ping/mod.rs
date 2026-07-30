@@ -27,8 +27,6 @@ const PROTOCOL_VERSION_UNDETERMINED: i32 = -1;
 const MAX_PACKET_LEN: usize = 256 * 1024;
 /// Budget for handshake + status response once connected.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(5);
-/// The port Minecraft uses when an address carries none.
-const DEFAULT_PORT: u16 = 25565;
 
 /// What a ping found. `NoAnswer` covers refused, timed out and malformed alike:
 /// the difference is diagnostic noise, not something to show a player.
@@ -47,20 +45,6 @@ pub enum ServerPingOutcome {
     NoAnswer,
 }
 
-/// Split a `host` or `host:port` address. Reuses the Quick Play validator so
-/// the ping path and the connect path agree on what an address is.
-pub fn split_host_port(address: &str) -> crate::error::Result<(String, u16)> {
-    crate::launch::quick_play::validate_server_address(address)?;
-    match address.split_once(':') {
-        // The validator already proved the port parses as a u16.
-        Some((host, port)) => Ok((
-            host.to_string(),
-            port.parse::<u16>().unwrap_or(DEFAULT_PORT),
-        )),
-        None => Ok((address.to_string(), DEFAULT_PORT)),
-    }
-}
-
 /// Ping one saved server. Consent is checked inside `ConsentedTcp::open`, so a
 /// disabled permission surfaces as `Err(ConsentedChannelDisabled)` with no
 /// packet sent. Everything else that goes wrong is `Ok(NoAnswer)` — a server
@@ -69,7 +53,9 @@ pub async fn ping_address(
     app: &tauri::AppHandle,
     address: &str,
 ) -> crate::error::Result<ServerPingOutcome> {
-    let (host, port) = split_host_port(address)?;
+    // One shared parser with the launch path, so ping and connect can never
+    // disagree about which host:port an entry means.
+    let (host, port) = crate::launch::quick_play::parse_server_address(address)?;
     let mut io = match crate::network::consent::ConsentedTcp::open(
         app,
         crate::network::consent::ConsentedChannel::ServerPing,
@@ -263,23 +249,43 @@ mod tests {
         assert!(r.is_err());
     }
 
-    #[test]
-    fn split_host_port_defaults_to_25565() {
-        assert_eq!(
-            split_host_port("mc.example.net").expect("valid"),
-            ("mc.example.net".to_string(), 25565)
-        );
-        assert_eq!(
-            split_host_port("mc.example.net:25566").expect("valid"),
-            ("mc.example.net".to_string(), 25566)
-        );
-    }
+    #[tokio::test]
+    async fn handshake_carries_the_host_and_port_it_was_given() {
+        // The server matches the handshake's address/port against its own config
+        // (virtual hosts, BungeeCord), so getting these wrong silently changes
+        // which server answers.
+        let mut expected = Vec::new();
+        codec::write_varint(&mut expected, 0x00);
+        codec::write_varint(&mut expected, PROTOCOL_VERSION_UNDETERMINED);
+        codec::write_string(&mut expected, "mc.example.net");
+        expected.extend_from_slice(&25566u16.to_be_bytes());
+        codec::write_varint(&mut expected, 1);
 
-    #[test]
-    fn split_host_port_rejects_invalid_addresses() {
-        assert!(split_host_port("").is_err());
-        assert!(split_host_port("host:abc").is_err());
-        assert!(split_host_port("a:b:c").is_err());
-        assert!(split_host_port("host with space").is_err());
+        let (mut client, mut server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut buf = vec![0u8; 128];
+            let n = server.read(&mut buf).await.expect("reads handshake");
+            buf.truncate(n);
+            buf
+        });
+        // No reply is written, so the exchange times out — we only care about
+        // what went out on the wire.
+        let _ = exchange(
+            &mut client,
+            "mc.example.net",
+            25566,
+            Duration::from_millis(30),
+        )
+        .await;
+        let sent = peer.await.expect("peer task");
+        assert!(
+            sent.starts_with(&{
+                let mut framed = Vec::new();
+                codec::write_varint(&mut framed, expected.len() as i32);
+                framed.extend_from_slice(&expected);
+                framed
+            }),
+            "handshake bytes did not match"
+        );
     }
 }

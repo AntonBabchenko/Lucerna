@@ -59,9 +59,12 @@ The list is mirrored in
 One further destination exists only if you switch it on: **your own
 saved multiplayer servers.** With "Show status for my saved servers"
 enabled (Settings → Game — off by default), Lucerna asks the servers
-in your list for their player count and version while a server list is
-open on screen. Those servers see your IP address, exactly as they do
-when you join them. Nothing about them is stored or forwarded
+in that instance's list for their player count and version while the
+list is open on screen; closing the list stops it. Those servers see
+your IP address, exactly as they do when you join them. Note that a
+modpack can ship server entries of its own (many do, to point at their
+own server), so the list is not necessarily one you typed by hand — the
+setting covers the list as it stands, and the in-app text says so. Nothing about them is stored or forwarded
 anywhere, and with the setting off no packet is sent to them at all —
 that is enforced in code (`network::consent`) and guarded by a
 structural test, not just promised. See

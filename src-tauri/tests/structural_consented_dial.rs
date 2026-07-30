@@ -67,6 +67,13 @@ fn tcp_dialing_and_udp_confined_to_the_consent_module() {
     );
 }
 
+/// The exact call expression `ConsentedTcp::open` must contain. Matching the
+/// full argument list matters: a bare `ensure_enabled(channel` substring also
+/// appears in the function's own *signature*, so a laxer check would still pass
+/// after the call site was deleted — which is precisely the regression this
+/// tripwire exists to catch.
+const CONSENT_CALL: &str = "ensure_enabled(channel, &settings.general)?";
+
 #[test]
 fn consent_module_still_gates_on_the_setting() {
     // Tripwire: deleting the consent check must fail the build rather than
@@ -80,8 +87,17 @@ fn consent_module_still_gates_on_the_setting() {
         content.contains("ConsentedChannelDisabled"),
         "consent.rs must refuse a channel whose permission is off",
     );
+    let call = content.find(CONSENT_CALL).unwrap_or_else(|| {
+        panic!("ConsentedTcp::open must call the consent gate: `{CONSENT_CALL}`")
+    });
+
+    // And it must run BEFORE the socket is opened — a check that happens after
+    // the dial would leak the very packet the permission is meant to prevent.
+    let dial = content
+        .find("TcpStream::connect")
+        .expect("consent.rs is the only file allowed to dial, so it must contain the connect call");
     assert!(
-        content.contains("ensure_enabled(channel"),
-        "ConsentedTcp::open must call the consent gate",
+        call < dial,
+        "the consent check must precede TcpStream::connect (found check at {call}, dial at {dial})",
     );
 }

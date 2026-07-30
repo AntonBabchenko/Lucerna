@@ -49,4 +49,41 @@ describe('sweepPings', () => {
     await sweepPings([], ping, () => {});
     expect(ping).not.toHaveBeenCalled();
   });
+
+  it('stops dialing the rest of the list once it is told to stop', async () => {
+    // The Settings copy promises we only contact servers while the list is open
+    // on screen. That is only true if a closed list actually stops the sweep, so
+    // the predicate is checked BEFORE each dial, not merely before each result.
+    let open = true;
+    const dialed: string[] = [];
+    const ping = vi.fn(async (address: string) => {
+      dialed.push(address);
+      if (dialed.length === 2) open = false; // the user closes the dialog
+      return noAnswer;
+    });
+    const addresses = Array.from({ length: 20 }, (_, i) => `h${i}`);
+    await sweepPings(
+      addresses,
+      ping,
+      () => {},
+      () => open,
+    );
+    // The in-flight workers finish what they started; nothing new is dialed.
+    expect(dialed.length).toBeLessThan(addresses.length);
+    expect(dialed.length).toBeLessThanOrEqual(2 + PING_POOL);
+  });
+
+  it('reports nothing at all when it starts already stopped', async () => {
+    const ping = vi.fn(async () => noAnswer);
+    const onResult = vi.fn();
+    await sweepPings(['a', 'b'], ping, onResult, () => false);
+    expect(ping).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it('runs the whole list when no predicate is supplied', async () => {
+    const ping = vi.fn(async () => noAnswer);
+    await sweepPings(['a', 'b', 'c'], ping, () => {});
+    expect(ping).toHaveBeenCalledTimes(3);
+  });
 });

@@ -36,14 +36,26 @@ export function formatPingChip(outcome: Extract<ServerPingOutcome, { kind: 'onli
  * Ping every distinct address with a bounded pool, handing each result to
  * `onResult` the moment it lands so rows update progressively rather than all
  * at the end. Duplicates in the list are pinged once.
+ *
+ * `shouldContinue` is checked **before every dial** — not merely before
+ * applying a result. That ordering is the whole point: the Settings copy and
+ * `docs/PRINCIPLES.md` promise we only contact servers while a server list is
+ * open on screen, and that is only true if closing the list actually stops the
+ * remaining dials. Work already in flight finishes (there is nothing to abort
+ * an open socket with from here), so at most `PING_POOL` further results land
+ * after the caller says stop; nothing new is dialed.
  */
 export async function sweepPings(
   addresses: readonly string[],
   ping: (address: string) => Promise<ServerPingOutcome | null>,
   onResult: (address: string, outcome: ServerPingOutcome | null) => void,
+  shouldContinue: () => boolean = () => true,
 ): Promise<void> {
   const distinct = [...new Set(addresses)];
   await mapLimit(distinct, PING_POOL, async (address) => {
-    onResult(address, await ping(address));
+    if (!shouldContinue()) return;
+    const outcome = await ping(address);
+    if (!shouldContinue()) return;
+    onResult(address, outcome);
   });
 }

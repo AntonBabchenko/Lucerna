@@ -309,6 +309,10 @@
   // toggle flipped mid-session takes effect on the next open.
   let pingEnabled = $state(false);
   let pingStates = $state<Record<string, PingState>>({});
+  // Sweep generation. Closing the dialog (or starting a newer sweep) makes the
+  // running one stop before its next dial, so we honour "only while a server
+  // list is open on screen" and two sweeps never interleave their results.
+  let pingSweepId = 0;
 
   async function refreshPingEnabled() {
     const r = await commands.appSettingsGet();
@@ -317,20 +321,27 @@
 
   async function sweepServerPings() {
     if (!pingEnabled) return;
+    const sweepId = ++pingSweepId;
     const addresses = savedServers.map((s) => s.address);
     pingStates = Object.fromEntries(addresses.map((a) => [a, 'pending' as const]));
     await sweepPings(
       addresses,
       async (address) => {
         const r = await commands.pingServer(address);
-        if (r.status !== 'ok') {
-          // Raced with the permission being turned off (or the address became
-          // invalid): fall back to the "status is off" view rather than showing
-          // an error toast the user can do nothing about.
+        if (r.status === 'ok') return r.data;
+        if (r.error.kind === 'consented_channel_disabled') {
+          // Raced with the permission being turned off: fall back to the
+          // "status is off" view, which is now the truth.
           pingEnabled = false;
           return null;
         }
-        return r.data;
+        // Anything else is about THIS address, not the permission — an entry
+        // that never went through our own add-server validator (hand-edited
+        // servers.dat, an IPv6 literal, a modpack override) makes the command
+        // reject that one address. Report it as "we could not tell" for that
+        // row; blanking the whole list and claiming the setting is off would be
+        // a lie about every other server.
+        return { kind: 'no_answer' };
       },
       (address, outcome) => {
         // Rebuild the record so the rune sees a new value.
@@ -339,6 +350,7 @@
         else next[address] = outcome;
         pingStates = next;
       },
+      () => quickJoinOpen && pingSweepId === sweepId,
     );
   }
 

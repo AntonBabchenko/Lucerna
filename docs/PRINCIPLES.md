@@ -68,7 +68,8 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    - **Unbypassable by construction.** All dialing lives in `src-tauri/src/network/consent.rs`, behind an opaque `ConsentedTcp` whose socket is a private field — so the only way to obtain one is a constructor that re-reads the permission first. Consent is never cached: the settings file is read on every dial, so turning the permission off takes effect immediately.
    - **Structural guard.** `src-tauri/tests/structural_consented_dial.rs` fails the build if `TcpStream` appears outside that one file, if `UdpSocket` appears anywhere, or if the consent check is removed from `ConsentedTcp::open`.
    - **Bounded.** At most 4 simultaneous dials process-wide, a 3 s connect timeout, a 5 s exchange timeout and a 256 KiB response cap — a status check, not a scanner.
-   - **Trigger.** Only while a saved-server list is open on screen, or on an explicit refresh. Never on a timer, never in the background.
+   - **Trigger.** Only while a saved-server list is open on screen, or on an explicit refresh. Closing the list stops the sweep — no dial is started after it closes. Never on a timer, never in the background.
+   - **Scope.** Only addresses already in that instance's `servers.dat` are dialed. Note that a modpack's `overrides/` can legitimately ship its own `servers.dat` entries (many packs do, to point at their own server), so the list is not necessarily hand-typed — the permission covers *the list*, and the UI copy says so rather than implying otherwise.
    - **Data.** Player counts, the version string and the MOTD are read; the `players.sample` list of other players' names is deliberately not. Nothing is persisted, exported, or sent anywhere else, and server addresses are kept out of the launcher log.
    - **Disclosure.** The setting states plainly that the server owner sees the user's IP address — the same exposure as joining that server.
 

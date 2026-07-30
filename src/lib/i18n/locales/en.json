@@ -1841,7 +1841,7 @@
       "serverPing": {
         "title": "Server status",
         "label": "Show status for my saved servers",
-        "description": "Lucerna asks the servers in your list for their player count and version. Only servers you saved yourself, and only while a server list is open on screen.",
+        "description": "Lucerna asks the servers in this instance's list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
         "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and nothing about them is sent anywhere else."
       },
       "updates": {
