@@ -1,11 +1,11 @@
 // Pure geometry for the editor's draggable 3D↔panel splitter, extracted so the
 // clamp logic is unit-testable without a DOM. The panel lives on the right; a
 // larger width shrinks the 3D column (which is flex-1 and fills the remainder).
+import { clampPanelWidth as clamp } from '$lib/ui/splitter';
 import { SKIN_SIZE } from './buffer';
 
 export const PANEL_MIN_WIDTH = 240;
 export const PANEL_MAX_WIDTH = 640;
-export const PANEL_KEY_STEP = 16;
 
 // Backing resolution bounds for the companion canvas (texel size in device px).
 // The canvas is CSS-scaled to the panel width; the backing stays a multiple of
@@ -13,13 +13,14 @@ export const PANEL_KEY_STEP = 16;
 export const MIN_CELL = 1;
 export const MAX_CELL = 12;
 
-/** Clamp a proposed panel width (px) into the allowed range. */
+/** Clamp a proposed panel width (px) into the allowed range. Thin wrapper over
+ *  the shared splitter clamp that supplies this editor's default bounds. */
 export function clampPanelWidth(
   px: number,
   min: number = PANEL_MIN_WIDTH,
   max: number = PANEL_MAX_WIDTH,
 ): number {
-  return Math.min(max, Math.max(min, px));
+  return clamp(px, min, max);
 }
 
 /** Integer texel size (backing px per texel) for a companion box `px` wide. */

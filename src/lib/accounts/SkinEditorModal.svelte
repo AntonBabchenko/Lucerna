@@ -54,10 +54,10 @@
   import {
     clampPanelWidth,
     companionCell,
-    PANEL_KEY_STEP,
     PANEL_MAX_WIDTH,
     PANEL_MIN_WIDTH,
   } from '$lib/accounts/skin-editor/panel-resize';
+  import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
   import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
 
@@ -347,40 +347,6 @@
         ro.disconnect();
       },
     };
-  }
-
-  function startPanelResize(e: PointerEvent): void {
-    if (e.button !== 0) return;
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-    const handle = e.currentTarget as HTMLElement;
-    handle.setPointerCapture(e.pointerId);
-    const onMove = (ev: PointerEvent): void => {
-      // Panel is on the right: dragging left (smaller clientX) widens it.
-      panelWidth = clampPanelWidth(
-        startWidth - (ev.clientX - startX),
-        PANEL_MIN_WIDTH,
-        maxPanelWidth,
-      );
-    };
-    const onUp = (ev: PointerEvent): void => {
-      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
-    };
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onUp); // OS-cancelled pointer: still clean up
-  }
-
-  function onPanelResizeKey(e: KeyboardEvent): void {
-    if (e.key === 'ArrowLeft')
-      panelWidth = clampPanelWidth(panelWidth + PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
-    else if (e.key === 'ArrowRight')
-      panelWidth = clampPanelWidth(panelWidth - PANEL_KEY_STEP, PANEL_MIN_WIDTH, maxPanelWidth);
-    else return;
-    e.preventDefault();
   }
 
   onDestroy(() => {
@@ -1073,22 +1039,15 @@
       <span class="text-xs text-muted text-center">{$t('skinEditor.dragToPaint')}</span>
     </div>
 
-    <!-- Draggable splitter: 3D viewport ↔ companion panel. A focusable window
-         splitter is a valid ARIA pattern the a11y linter flags as non-interactive. -->
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={$t('skinEditor.resizeViewport')}
-      aria-valuenow={panelWidth}
-      aria-valuemin={PANEL_MIN_WIDTH}
-      aria-valuemax={maxPanelWidth}
-      tabindex={0}
-      class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
-      onpointerdown={startPanelResize}
-      onkeydown={onPanelResizeKey}
-    ></div>
+    <!-- Draggable splitter: 3D viewport ↔ companion panel. The panel sits
+         after the handle, so dragging left widens it (`side="end"`). -->
+    <SplitterHandle
+      bind:width={panelWidth}
+      min={PANEL_MIN_WIDTH}
+      max={maxPanelWidth}
+      side="end"
+      label={$t('skinEditor.resizeViewport')}
+    />
 
     <!-- 2D companion + panel -->
     <div class="flex flex-col p-3 gap-3 shrink-0 overflow-y-auto" style="width:{panelWidth}px">
