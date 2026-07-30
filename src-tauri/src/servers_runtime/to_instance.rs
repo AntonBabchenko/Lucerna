@@ -57,6 +57,7 @@ pub async fn create_client_instance(
         file.mc_version.clone(),
         client_loader,
         client_loader_version,
+        None, // heap: adaptive default
         None,
         None,
         None,

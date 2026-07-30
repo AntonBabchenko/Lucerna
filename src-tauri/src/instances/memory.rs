@@ -38,11 +38,40 @@ pub fn slider_step_mb() -> u32 {
 }
 
 /// Adaptive default max-heap (MB) for a NEW instance: ~40% of physical RAM,
-/// clamped to `[DEFAULT_MIN_MB, DEFAULT_MAX_MB]`. Unknown RAM → `DEFAULT_MIN_MB`.
+/// clamped to `[DEFAULT_MIN_MB, DEFAULT_MAX_MB]`, then normalized onto the
+/// slider grid and range. Unknown RAM → `DEFAULT_MIN_MB`.
 pub fn default_heap_mb(total_ram_mb: Option<u64>) -> u32 {
-    match total_ram_mb {
+    let band = match total_ram_mb {
         Some(ram) => as_u32_mb(ram * 2 / 5).clamp(DEFAULT_MIN_MB, DEFAULT_MAX_MB),
         None => DEFAULT_MIN_MB,
+    };
+    // The raw band is neither step-aligned nor bounded by the slider ceiling:
+    // on a 1.5 GB machine the band floor (2048) exceeds slider_max_mb (1536),
+    // and 40% of 8 GB is 3276, which a 256 MB-step range input cannot represent
+    // — the thumb would snap away from the value its own label shows.
+    clamp_heap_mb(band, total_ram_mb)
+}
+
+/// Round `requested_mb` to the NEAREST `SLIDER_STEP_MB` and clamp it into
+/// `[SLIDER_MIN_MB, slider_max_mb]`. IPC is a trust boundary: a heap value
+/// arriving from the UI is normalized here and never written to disk raw.
+/// Mirrors `clampRound` in `MemorySlider.svelte`, which does the same for live
+/// UX only — this is the authoritative one.
+pub fn clamp_heap_mb(requested_mb: u32, total_ram_mb: Option<u64>) -> u32 {
+    // saturating_add so a hostile u32::MAX cannot wrap around to a tiny heap.
+    let stepped =
+        (requested_mb.saturating_add(SLIDER_STEP_MB / 2) / SLIDER_STEP_MB) * SLIDER_STEP_MB;
+    stepped.clamp(SLIDER_MIN_MB, slider_max_mb(total_ram_mb))
+}
+
+/// Heap for a new instance: an explicit request (clamped), else the adaptive
+/// default. Kept pure and separate from `create_instance` so the create path's
+/// only real decision is unit-testable — `create_instance` needs a live
+/// `tauri::AppHandle` and cannot be tested here.
+pub fn resolve_heap_mb(requested_mb: Option<u32>, total_ram_mb: Option<u64>) -> u32 {
+    match requested_mb {
+        Some(mb) => clamp_heap_mb(mb, total_ram_mb),
+        None => default_heap_mb(total_ram_mb),
     }
 }
 
@@ -72,7 +101,7 @@ mod tests {
     fn default_heap_clamps_into_band() {
         assert_eq!(default_heap_mb(None), 2048);
         assert_eq!(default_heap_mb(Some(4096)), 2048); // 40% = 1638 → floor 2048
-        assert_eq!(default_heap_mb(Some(8192)), 3276); // 8192*2/5 = 3276 (integer div), in band
+        assert_eq!(default_heap_mb(Some(8192)), 3328); // 40% = 3276 → nearest step 3328
         assert_eq!(default_heap_mb(Some(16384)), 6144); // 40% = 6553 → cap 6144
         assert_eq!(default_heap_mb(Some(32768)), 6144); // 40% = 13107 → cap 6144
     }
@@ -95,5 +124,58 @@ mod tests {
         // On tiny RAM both collapse to the floor; recommended never exceeds max.
         assert_eq!(recommended_max_mb(Some(512)), 1024);
         assert!(recommended_max_mb(Some(512)) <= slider_max_mb(Some(512)));
+    }
+
+    #[test]
+    fn clamp_rounds_to_step_and_clamps_into_range() {
+        // Below the floor / above the ceiling.
+        assert_eq!(clamp_heap_mb(0, Some(16384)), 1024);
+        assert_eq!(clamp_heap_mb(999_999, Some(16384)), 16384);
+        // Off-step values round to the NEAREST step (matches the UI's clampRound).
+        assert_eq!(clamp_heap_mb(3000, Some(16384)), 3072);
+        assert_eq!(clamp_heap_mb(3100, Some(16384)), 3072);
+        assert_eq!(clamp_heap_mb(3200, Some(16384)), 3328);
+        // Unknown RAM falls back to the 8 GB ceiling.
+        assert_eq!(clamp_heap_mb(999_999, None), 8192);
+        // A hostile value must not wrap around to a tiny heap.
+        assert_eq!(clamp_heap_mb(u32::MAX, Some(16384)), 16384);
+    }
+
+    #[test]
+    fn default_is_step_aligned_and_inside_the_slider_range() {
+        for ram in [
+            None,
+            Some(512),
+            Some(1536),
+            Some(4096),
+            Some(8192),
+            Some(16384),
+        ] {
+            let d = default_heap_mb(ram);
+            assert_eq!(
+                d % SLIDER_STEP_MB,
+                0,
+                "default {d} off-step for ram {ram:?}"
+            );
+            assert!(
+                d >= SLIDER_MIN_MB,
+                "default {d} below the floor for ram {ram:?}"
+            );
+            assert!(
+                d <= slider_max_mb(ram),
+                "default {d} above the slider max for ram {ram:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_uses_the_default_only_when_unspecified() {
+        assert_eq!(
+            resolve_heap_mb(None, Some(16384)),
+            default_heap_mb(Some(16384))
+        );
+        assert_eq!(resolve_heap_mb(Some(4096), Some(16384)), 4096);
+        // An explicit request is clamped, never trusted.
+        assert_eq!(resolve_heap_mb(Some(999_999), Some(16384)), 16384);
     }
 }

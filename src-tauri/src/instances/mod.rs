@@ -129,6 +129,7 @@ pub fn create_instance(
     mc_version: String,
     loader: LoaderKind,
     loader_version: Option<String>,
+    max_heap_mb: Option<u32>,
     mrpack: Option<(String, String)>,
     mrpack_project_id: Option<String>,
     mrpack_source: Option<crate::mods::platform::ModSource>,
@@ -160,7 +161,7 @@ pub fn create_instance(
         mc_version,
         loader,
         loader_version,
-        max_heap_mb: memory::default_heap_mb(crate::platform::total_system_ram_mb()),
+        max_heap_mb: memory::resolve_heap_mb(max_heap_mb, crate::platform::total_system_ram_mb()),
         min_heap_mb: None,
         extra_jvm_args: String::new(),
         created_unix_ms: unix_ms_f64(),
@@ -259,7 +260,10 @@ pub fn set_instance_memory(
     id: &str,
     max_heap_mb: u32,
 ) -> Result<InstanceWithStatus> {
-    mutate(app, id, |i| i.max_heap_mb = max_heap_mb)
+    // Same trust boundary as create: the value comes from the UI over IPC, so
+    // normalize it onto the slider grid/range instead of writing it raw.
+    let clamped = memory::clamp_heap_mb(max_heap_mb, crate::platform::total_system_ram_mb());
+    mutate(app, id, |i| i.max_heap_mb = clamped)
 }
 
 /// Set the optional JVM initial heap (`-Xms`). `None` clears it (JVM default).

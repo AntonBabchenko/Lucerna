@@ -10,6 +10,7 @@ vi.mock('$lib/instances/memory-bounds', () => ({
   FALLBACK_MEMORY_BOUNDS: {
     min_mb: 1024,
     max_mb: 8192,
+    default_mb: 2048,
     recommended_max_mb: 8192,
     step_mb: 256,
     ram_known: false,
@@ -21,6 +22,7 @@ vi.mock('$lib/instances/memory-bounds', () => ({
 const RAM_32GB = {
   min_mb: 1024,
   max_mb: 32768,
+  default_mb: 6144,
   recommended_max_mb: 24576,
   step_mb: 512,
   ram_known: true,
@@ -110,6 +112,7 @@ describe('MemorySlider', () => {
     mockLoad.mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
+      default_mb: 2048,
       recommended_max_mb: 8192,
       step_mb: 256,
       ram_known: false,
@@ -127,6 +130,7 @@ describe('MemorySlider', () => {
     mockLoad.mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
+      default_mb: 2048,
       recommended_max_mb: 8192,
       step_mb: 256,
       ram_known: false,
@@ -204,6 +208,7 @@ describe('MemorySlider', () => {
     mockLoad.mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
+      default_mb: 2048,
       recommended_max_mb: 8192,
       step_mb: 256,
       ram_known: false,
