@@ -268,34 +268,27 @@ describe('MainTabs — active and inactive tab state classes', () => {
   });
 });
 
-// ── +page.svelte — Overview btn-tertiary buttons ───────────────────────────
+// ── btn-tertiary class vocabulary ──────────────────────────────────────────
 //
-// The Overview section is a snippet passed into MainTabs. We cannot render
-// +page.svelte in isolation without a full Tauri runtime, so these rows are
-// covered by rendering Sidebar + MainTabs together in a minimal shell that
-// replicates the relevant markup. The btn-tertiary inventory rows live in the
-// snippet body, which is page-level authored markup that belongs in this group.
+// Historically this group was written for four btn-tertiary rows on the
+// Overview surface — "Manage", "Mod browser", "Installed", and a second
+// "Manage" shown when mc_version === ''. None of them exist any more: the
+// Overview cards are now clickable .card-zone buttons, and the only remaining
+// btn-tertiary in OverviewTab.svelte is the error-retry link.
 //
-// The "Manage" btn-tertiary (line 471) — always shown when activeInstance
-// The "Mod browser" btn-tertiary (line 484) — shown when installedStats.total === 0
-// The "Installed" btn-tertiary (line 511) — shown when installedStats.total > 0
-// The "Manage" (no MC) btn-tertiary (line 573) — shown when mc_version === ''
-//
-// Because these live in a snippet authored inside the route file (not a
-// standalone component we can import), we assert btn-tertiary via the CSS
-// class definition in app.css: `text-secondary hover:text-primary hover:underline`.
-// The test asserts the class name "btn-tertiary" is present, mirroring what
-// the production snippet applies.
+// What is left is not a guard on those rows. Both tests below build a bare
+// `document.createElement('button')`, set `className = 'btn-tertiary'`, and
+// assert two things about the vocabulary itself: that btn-tertiary is a token
+// distinct from btn-primary / btn-secondary / btn-danger / btn-success, and
+// that the shared `toHaveBtnVariant` matcher resolves it to 'tertiary'.
+// Neither test reads any .svelte source, so no production markup can move
+// them — they pin the matcher and the class names, nothing else.
 
 describe('+page.svelte — Overview btn-tertiary intent (inline markup assertion)', () => {
-  // These tests verify that the btn-tertiary class string is what the inventory
-  // row specifies, using inline elements that can be rendered with
-  // @testing-library/svelte directly without requiring the full page shell.
-  // We render a minimal synthetic component to check the class name resolution.
+  // Synthetic DOM elements, not component renders — see the note above.
 
   it('btn-tertiary class is defined and resolves on a button element', () => {
-    // Use MainTabs + a dummy snippet to confirm btn-tertiary resolves.
-    // This is a structural / class-presence check rather than a component render.
+    // Class-presence check: btn-tertiary must not collide with another variant.
     const div = document.createElement('button');
     div.className = 'btn-tertiary';
     // Positive: the class name is set — rendering test via DOM.
