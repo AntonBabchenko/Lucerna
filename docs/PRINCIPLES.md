@@ -62,9 +62,19 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    - **Host identity:** connection uses trust-on-first-use (TOFU): the server's SHA-256 fingerprint is stored on first connect; a changed fingerprint blocks the upload and prompts the user to re-confirm. RSA host keys are excluded (see `docs/SECURITY.md` Part F).
    - **Trigger:** SFTP only runs when the user explicitly initiates an upload. It is never called during normal launcher operation (browsing mods, launching instances, etc.).
 
-4. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
+4. **Third sanctioned outbound channel — user-consented server ping (opt-in, default off).** Showing a saved server's player count needs a Server List Ping to a host **the user typed**. Such a host can never join the commitment-2 allowlist — that would weaken the allowlist for downloads too. Instead it goes through a separate, narrower tier gated on a standing user permission:
 
-5. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
+   - **Off by default.** `GeneralSettings.allow_server_ping` starts false. While it is false the launcher sends no packet to any user-supplied host; the servers list says the status feature is off and points at the setting.
+   - **Unbypassable by construction.** All dialing lives in `src-tauri/src/network/consent.rs`, behind an opaque `ConsentedTcp` whose socket is a private field — so the only way to obtain one is a constructor that re-reads the permission first. Consent is never cached: the settings file is read on every dial, so turning the permission off takes effect immediately.
+   - **Structural guard.** `src-tauri/tests/structural_consented_dial.rs` fails the build if `TcpStream` appears outside that one file, if `UdpSocket` appears anywhere, or if the consent check is removed from `ConsentedTcp::open`.
+   - **Bounded.** At most 4 simultaneous dials process-wide, a 3 s connect timeout, a 5 s exchange timeout and a 256 KiB response cap — a status check, not a scanner.
+   - **Trigger.** Only while a saved-server list is open on screen, or on an explicit refresh. Never on a timer, never in the background.
+   - **Data.** Player counts, the version string and the MOTD are read; the `players.sample` list of other players' names is deliberately not. Nothing is persisted, exported, or sent anywhere else, and server addresses are kept out of the launcher log.
+   - **Disclosure.** The setting states plainly that the server owner sees the user's IP address — the same exposure as joining that server.
+
+5. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
+
+6. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
 
 ### Appendix A — documented processes
 
@@ -104,6 +114,7 @@ The commitments above are not honour-system rules; most are enforced by tests in
 | `structural_no_raw_http.rs` | No HTTP client construction outside `network::` (Part A commitment 1) |
 | `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`, plus an allowlist for `tauri_plugin_opener` call sites (Hard rule 3) |
 | `structural_no_raw_sftp.rs` | No SFTP session construction outside `servers_runtime::transfer` (Part A commitment 3) |
+| `structural_consented_dial.rs` | No TCP dialing outside `network::consent`, no raw UDP anywhere, and the consent check still present in `ConsentedTcp::open` (Part A commitment 4) |
 | `structural_platform_chokepoint.rs` | OS-specific behaviour stays behind the `platform::` seam rather than leaking `#[cfg(windows)]` across the codebase |
 | `structural_no_env_mutation.rs` | No `std::env::set_var` in production code — env overrides go through `test_seam` (this is what removed the need for single-threaded test runs) |
 | `structural_installer_branding.rs` | The NSIS installer keeps Lucerna branding assets wired up |

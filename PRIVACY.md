@@ -56,6 +56,17 @@ A request to any host not on this list is refused before it's sent.
 The list is mirrored in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part A item #2.
 
+One further destination exists only if you switch it on: **your own
+saved multiplayer servers.** With "Show status for my saved servers"
+enabled (Settings → Game — off by default), Lucerna asks the servers
+in your list for their player count and version while a server list is
+open on screen. Those servers see your IP address, exactly as they do
+when you join them. Nothing about them is stored or forwarded
+anywhere, and with the setting off no packet is sent to them at all —
+that is enforced in code (`network::consent`) and guarded by a
+structural test, not just promised. See
+[`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part A commitment 4.
+
 One documented exception: the `LUCERNA_EXTRA_ALLOWED_HOSTS`
 environment variable adds patterns to this list at runtime. It exists
 so integration tests can point the launcher at a local mock server,
