@@ -50,6 +50,28 @@ vi.mock('$lib/instances/instance-icon-cache', () => ({
 
 import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
 
+// The modal measures its list/detail row to derive the splitter ceiling.
+// happy-dom reports 0 for clientWidth, so drive the observer by hand and stub
+// the measured width.
+let resizeCallback: ResizeObserverCallback | null = null;
+function stubResizeObserver(): void {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(cb: ResizeObserverCallback) {
+        resizeCallback = cb;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+}
+function reportRowWidth(px: number): void {
+  const row = document.body.querySelector('aside')?.parentElement as HTMLElement;
+  Object.defineProperty(row, 'clientWidth', { value: px, configurable: true });
+  resizeCallback?.([], {} as ResizeObserver);
+}
+
 const NAME = 'Skyblock Deluxe';
 
 function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
@@ -136,6 +158,29 @@ describe('ManageInstancesModal — layout', () => {
 
     await fireEvent.keyDown(el, { key: 'ArrowLeft' });
     expect(listWidth()).toBe(before);
+  });
+
+  it('falls back to the shipped ceiling before the row is measured', async () => {
+    renderModal();
+    await waitFor(() => expect(splitter()).toBeTruthy());
+    expect(splitter()?.getAttribute('aria-valuemax')).toBe('420');
+  });
+
+  it('derives the ceiling from the row width so a wide window can widen the list', async () => {
+    stubResizeObserver();
+    renderModal();
+    await waitFor(() => expect(splitter()).toBeTruthy());
+    reportRowWidth(1900);
+    // 1900 - 720 of comfortable form width.
+    await waitFor(() => expect(splitter()?.getAttribute('aria-valuemax')).toBe('1180'));
+  });
+
+  it('never lets the derived ceiling fall below the floor', async () => {
+    stubResizeObserver();
+    renderModal();
+    await waitFor(() => expect(splitter()).toBeTruthy());
+    reportRowWidth(600); // 600 - 720 would be negative
+    await waitFor(() => expect(splitter()?.getAttribute('aria-valuemax')).toBe('180'));
   });
 
   it('clamps the list at its minimum width', async () => {
