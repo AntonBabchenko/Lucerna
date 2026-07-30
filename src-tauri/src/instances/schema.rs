@@ -316,6 +316,21 @@ pub struct GeneralSettings {
     /// later versions stay forward/backward compatible.
     #[serde(default)]
     pub hidden_sidebar_buttons: Vec<String>,
+    /// Opt-in permission to send a Server List Ping to the user's OWN saved
+    /// multiplayer servers so their status / player count can be shown.
+    /// `#[serde(default)]` → every app.json written before this field existed
+    /// deserializes to "off", which is also the default for new installs.
+    /// Enforced in `network::consent`: nothing in the launcher can dial a
+    /// user-supplied host while this is false.
+    #[serde(default)]
+    pub allow_server_ping: bool,
+    /// Opt-in OS registration of the `lucerna://` link scheme, so an
+    /// "Open in Lucerna" link from a browser opens the import dialog.
+    /// `#[serde(default)]` → false for app.json written before this field: the
+    /// launcher never writes to the user's registry unasked, and pasting a URL
+    /// into the import dialog works without it.
+    #[serde(default)]
+    pub register_url_scheme: bool,
 }
 
 impl Default for GeneralSettings {
@@ -332,6 +347,8 @@ impl Default for GeneralSettings {
             mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
             sftp_upload_concurrency: default_sftp_upload_concurrency(),
             hidden_sidebar_buttons: Vec::new(),
+            allow_server_ping: false,
+            register_url_scheme: false,
         }
     }
 }

@@ -25,6 +25,12 @@ pub enum Error {
     #[error("Refused a request to a host that is not on the allowlist: {url}")]
     HostNotAllowed { url: String },
 
+    /// A user-consented outbound channel was used while its Settings
+    /// permission is off. `channel` is the stable channel id (e.g.
+    /// `"server_ping"`) so the UI can name the setting to turn on.
+    #[error("Consented channel '{channel}' is turned off in settings")]
+    ConsentedChannelDisabled { channel: String },
+
     #[error("Update check failed: {details}")]
     UpdateCheckFailed { details: String },
 
@@ -216,6 +222,14 @@ pub enum Error {
 
     #[error("Modpack archive is invalid: {details}")]
     ModpackInvalidArchive { details: String },
+
+    #[error("Not a supported Lucerna import link: {reason}")]
+    ImportUrlInvalid { reason: String },
+
+    // Field is `platform`, not `source`: thiserror reserves a field literally
+    // named `source` for the error-cause chain.
+    #[error("Import by link is not supported for {platform} yet")]
+    ImportUrlUnsupportedSource { platform: String },
 
     #[error("Modpack format unknown — no modrinth.index.json or manifest.json found")]
     ModpackFormatUnknown,

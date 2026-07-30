@@ -129,13 +129,46 @@ pub fn build_pack_origin(
     }
 }
 
+/// Rebuild the `pack_origin` notes for a freshly-applied pack version.
+///
+/// `build_pack_origin` is pure — no disk or archive access — so it always starts
+/// `skipped_overrides` / `resolved_missing` / `inert_loader_jars` empty and the
+/// import orchestrator fills them in afterwards. An apply has no orchestrator
+/// pass, so without this the drawer's "Bundled files skipped" / "Files that
+/// won't load" sections and the user's resolved-missing acknowledgments are
+/// wiped on every version change.
+///
+/// The two carried fields describe state an apply cannot alter:
+/// - `skipped_overrides` — an apply deliberately never re-extracts the archive's
+///   `overrides/`, so the oversized bundled files it skipped at import time are
+///   still exactly where they were. The note stays true by construction.
+/// - `resolved_missing` — the user's "I installed a substitute for this blocked
+///   mod" acknowledgments. `missing_mod_state` already self-heals these against
+///   the live registry, so an entry that no longer applies is inert, not wrong.
+///
+/// `inert_loader_jars` is **not** carried: it is a disk classification, and the
+/// caller passes a freshly-computed one. Carrying it would go stale on a loader
+/// change (an inert jar may now load, and vice versa), and clearing it would
+/// blank the warning at exactly the moment a loader migration makes it most
+/// useful. Recomputing is both cheaper to reason about and always accurate.
+pub(crate) fn with_carried_notes(
+    mut new_origin: PackOrigin,
+    old: PackOrigin,
+    fresh_inert_loader_jars: Vec<InertLoaderJar>,
+) -> PackOrigin {
+    new_origin.skipped_overrides = old.skipped_overrides;
+    new_origin.resolved_missing = old.resolved_missing;
+    new_origin.inert_loader_jars = fresh_inert_loader_jars;
+    new_origin
+}
+
 /// Scan jars in `mods_dir`, returning those built for a loader family the
 /// `instance_loader` cannot load (inert here). Best-effort: an unreadable jar
 /// is skipped, never fatal. Deduped by filename. Loader-FAMILY only (delegates
 /// to `compat_verdict`; MC-version mismatch is deliberately ignored — it
 /// false-positives on bundled jars). A Vanilla instance has no loader family,
 /// so nothing is ever flagged.
-fn classify_inert_loader_jars(
+pub(crate) fn classify_inert_loader_jars(
     mods_dir: &std::path::Path,
     instance_loader: crate::instances::schema::LoaderKind,
     instance_mc: &str,
@@ -2450,5 +2483,103 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].filename, "x.jar");
         assert_eq!(out[1].filename, "y.jar");
+    }
+
+    // --- with_carried_notes ---
+
+    fn noted_origin() -> PackOrigin {
+        PackOrigin {
+            project_id: Some("proj".into()),
+            source: ModSource::Modrinth,
+            project_name: "Pack".into(),
+            version: "1.0.0".into(),
+            files: vec![],
+            missing_mods: vec![],
+            skipped_overrides: vec![SkippedOverride {
+                path: "mods/mods.rar".into(),
+                size: 261_361_205.0,
+            }],
+            resolved_missing: vec![crate::mods::installed::ResolvedMissing {
+                filename: "blocked.jar".into(),
+                mod_name: "Blocked Mod".into(),
+                sha1: "aabb".into(),
+            }],
+            inert_loader_jars: vec![InertLoaderJar {
+                filename: "fabric-only.jar".into(),
+                detected_loader: "Fabric".into(),
+            }],
+        }
+    }
+
+    fn rebuilt_origin() -> PackOrigin {
+        PackOrigin {
+            project_id: Some("proj".into()),
+            source: ModSource::Modrinth,
+            // Deliberately different from `noted_origin()`'s name so the
+            // "does not touch the new origin's own fields" test can actually
+            // distinguish leaving it alone from overwriting it from `old`.
+            project_name: "Pack (renamed)".into(),
+            version: "2.0.0".into(),
+            files: vec![],
+            missing_mods: vec![],
+            skipped_overrides: vec![],
+            resolved_missing: vec![],
+            inert_loader_jars: vec![],
+        }
+    }
+
+    fn fresh_inert() -> Vec<InertLoaderJar> {
+        vec![InertLoaderJar {
+            filename: "forge-only.jar".into(),
+            detected_loader: "Forge".into(),
+        }]
+    }
+
+    #[test]
+    fn carried_notes_keep_skipped_overrides_across_an_apply() {
+        // An apply never re-extracts `overrides/`, so a skipped oversized
+        // bundled file is still on disk and still skipped — the note stays true.
+        let out = with_carried_notes(rebuilt_origin(), noted_origin(), fresh_inert());
+        assert_eq!(out.skipped_overrides.len(), 1);
+        assert_eq!(out.skipped_overrides[0].path, "mods/mods.rar");
+    }
+
+    #[test]
+    fn carried_notes_keep_resolved_missing_across_an_apply() {
+        // The user's "I installed a substitute for this blocked mod"
+        // acknowledgment must not reset on every version change.
+        let out = with_carried_notes(rebuilt_origin(), noted_origin(), fresh_inert());
+        assert_eq!(out.resolved_missing.len(), 1);
+        assert_eq!(out.resolved_missing[0].filename, "blocked.jar");
+    }
+
+    #[test]
+    fn carried_notes_take_inert_jars_from_the_fresh_scan_not_the_old_origin() {
+        // The old verdict goes stale the moment the loader family changes (an
+        // inert jar may now load, and vice versa), so the caller re-classifies
+        // the mods dir and this must use that result verbatim.
+        let out = with_carried_notes(rebuilt_origin(), noted_origin(), fresh_inert());
+        assert_eq!(out.inert_loader_jars.len(), 1);
+        assert_eq!(out.inert_loader_jars[0].filename, "forge-only.jar");
+    }
+
+    #[test]
+    fn carried_notes_accept_an_empty_fresh_inert_scan() {
+        // Nothing inert on disk any more → the warning must actually clear,
+        // not resurrect the old origin's entry.
+        let out = with_carried_notes(rebuilt_origin(), noted_origin(), vec![]);
+        assert!(out.inert_loader_jars.is_empty());
+        // The two genuinely-carried notes are unaffected.
+        assert_eq!(out.skipped_overrides.len(), 1);
+        assert_eq!(out.resolved_missing.len(), 1);
+    }
+
+    #[test]
+    fn carried_notes_do_not_touch_the_new_origins_own_fields() {
+        // Both fixtures differ on these, so the assertions distinguish "left
+        // alone" from "overwritten from `old`".
+        let out = with_carried_notes(rebuilt_origin(), noted_origin(), fresh_inert());
+        assert_eq!(out.version, "2.0.0");
+        assert_eq!(out.project_name, "Pack (renamed)");
     }
 }

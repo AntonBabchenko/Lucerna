@@ -350,6 +350,10 @@ mod tests {
             &root.join(".lucerna/playtime.json"),
             "{\"total_seconds\":60}",
         );
+        write(
+            &root.join(".lucerna/journal.jsonl"),
+            "{\"at_unix_ms\":1.0,\"event\":{\"kind\":\"content\",\"action\":\"mod_installed\",\"subject\":\"Sodium\",\"from_version\":null,\"to_version\":null,\"affected\":null}}\n",
+        );
     }
 
     fn no_progress() -> impl FnMut(ContentCategory, u32, u32) {
@@ -432,6 +436,36 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dst.join(".lucerna/playtime.json")).unwrap(),
             "{\"total_seconds\":60}"
+        );
+    }
+
+    #[test]
+    fn clone_never_inherits_the_source_journal() {
+        // The journal is the history of what was done to THIS instance, so a
+        // clone starts empty — nothing has been done to it yet. `.lucerna/` is
+        // copied file-by-file (playtime only); this pins that a future blanket
+        // copy of the whole meta dir cannot silently hand over the history.
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+        full_source(&src);
+        let everything = CloneOptions {
+            saves: true,
+            settings: true,
+            packs: true,
+            config: true,
+            options_txt: true,
+            playtime: true,
+        };
+
+        copy_clone_content(&src, &dst, &everything, &mut no_progress()).unwrap();
+
+        assert!(
+            dst.join(".lucerna/playtime.json").is_file(),
+            "playtime still copies when selected"
+        );
+        assert!(
+            !dst.join(".lucerna/journal.jsonl").exists(),
+            "the clone must not inherit the source instance's journal"
         );
     }
 

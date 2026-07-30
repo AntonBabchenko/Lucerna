@@ -8,6 +8,7 @@
     type Error as IpcError,
     type ModCompat,
   } from '$lib/ipc/bindings';
+  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
@@ -41,6 +42,7 @@
     isRunning = false,
     initialSelectedId = null,
     onCloneRequest = () => {},
+    onShortcutRequest,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
@@ -51,6 +53,9 @@
     // Open the clone dialog for this instance (hosted by the page so the
     // sidebar entry point shares it). Defaults to a no-op for bare mounts.
     onCloneRequest?: (instanceId: string) => void;
+    /** Undefined on platforms without desktop-shortcut support — the button is
+     *  then omitted rather than shown disabled. */
+    onShortcutRequest?: (instanceId: string) => void;
     // When set (opened via a per-row "manage this profile" action), seed the
     // detail selection from THIS id rather than the active instance. Switching
     // the active instance is async (an IPC round-trip), so at open time
@@ -641,6 +646,10 @@
               }}
             >
               <div class="font-medium flex items-center gap-1.5">
+                <!-- Same 20px avatar the sidebar rows use, so an instance looks
+                     the same in both lists. The ready/download glyph stays: it
+                     carries the install status, not identity. -->
+                <InstanceAvatar instance={i} size={20} />
                 <Icon
                   name={i.ready ? 'success' : 'download'}
                   class="shrink-0"
@@ -767,26 +776,33 @@
             onblur={commitName}
           />
 
-          <div class="mb-3 flex items-center gap-1">
-            <button
-              type="button"
-              class="btn-secondary btn-sm"
-              disabled={!selected}
-              onclick={() => selected && iconDialog.pick(selected.id)}
-            >
-              {$t('instance.icon.changeBtn')}
-            </button>
-            {#if selected?.has_icon}
+          <!-- The picture next to the buttons that change it: 52px and this
+               composition mirror InstanceHeader, so the modal and the Overview
+               header read as one control. The letter fallback keeps the "no
+               custom picture" state legible rather than blank. -->
+          <div class="mb-3 flex items-center gap-3">
+            <InstanceAvatar instance={selected} size={52} />
+            <div class="flex items-center gap-1">
               <button
                 type="button"
-                class="btn-icon btn-icon-sm btn-icon-danger"
-                onclick={() => selected && iconDialog.requestRemove(selected.id)}
-                aria-label={$t('instance.icon.remove')}
-                use:tooltip={$t('instance.icon.remove')}
+                class="btn-secondary btn-sm"
+                disabled={!selected}
+                onclick={() => selected && iconDialog.pick(selected.id)}
               >
-                <Icon name="trash" size={14} />
+                {$t('instance.icon.changeBtn')}
               </button>
-            {/if}
+              {#if selected?.has_icon}
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  onclick={() => selected && iconDialog.requestRemove(selected.id)}
+                  aria-label={$t('instance.icon.remove')}
+                  use:tooltip={$t('instance.icon.remove')}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              {/if}
+            </div>
           </div>
 
           <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
@@ -1037,6 +1053,17 @@
                   {$t('instance.manage.cloneBtn')}
                 </button>
               </span>
+              {#if onShortcutRequest}
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                  onclick={() => selected && onShortcutRequest?.(selected.id)}
+                  data-testid="create-shortcut-btn"
+                >
+                  <Icon name="monitor" size={14} />
+                  {$t('shortcut.create')}
+                </button>
+              {/if}
               <button
                 type="button"
                 class="btn-secondary btn-sm inline-flex items-center gap-1.5"

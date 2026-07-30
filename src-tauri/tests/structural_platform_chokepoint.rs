@@ -1,7 +1,8 @@
 //! Structural guard: OS-divergent primitives are confined to `platform::`.
 //! `PermissionsExt` (exec bits), `WaitForInputIdle` (window detect),
 //! `libc::kill` (process signal), and the registry-mutating `Reg*W` calls
-//! (GPU-preference writes) must not appear outside `src/platform/`, so
+//! (GPU-preference writes, `lucerna://` scheme registration) must not appear
+//! outside `src/platform/`, so
 //! adding macOS later means editing one module — not hunting the codebase.
 //! Subprocess spawning is governed separately by structural_no_raw_spawn.rs.
 
@@ -30,6 +31,9 @@ fn platform_primitives_confined_to_platform_module() {
         "RegSetValueExW",
         "RegDeleteValueW",
         "RegCreateKeyW",
+        // URL-scheme registration (platform::protocol) deletes its whole key
+        // tree; listed so a future caller can't move that write out of platform::.
+        "RegDeleteTreeW",
     ];
 
     let mut files = Vec::new();

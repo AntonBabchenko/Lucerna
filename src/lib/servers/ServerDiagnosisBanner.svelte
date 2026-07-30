@@ -4,6 +4,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import type { ClientModFinding } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import EulaLink from '$lib/servers/EulaLink.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Banner from '$lib/ui/Banner.svelte';
@@ -311,15 +312,20 @@
         {$t('servers.diagnose.quarantineClientMods')}
       </BusyButton>
     {:else if diag.server_repair === 'accept_eula'}
-      <BusyButton
-        class="btn-warning btn-sm mt-2"
-        data-testid="server-fix-accept-eula"
-        busy={busyFix}
-        aria-label={$t('servers.diagnose.fix.acceptEula')}
-        onclick={() => void runFix(() => serverState.acceptEula(serverId))}
-      >
-        {$t('servers.diagnose.fix.acceptEula')}
-      </BusyButton>
+      <!-- The one-click fix is still an acceptance, so the agreement has to be
+           reachable from here too — not only from the create wizard. -->
+      <div class="mt-2 flex flex-wrap items-center gap-3">
+        <BusyButton
+          class="btn-warning btn-sm"
+          data-testid="server-fix-accept-eula"
+          busy={busyFix}
+          aria-label={$t('servers.diagnose.fix.acceptEula')}
+          onclick={() => void runFix(() => serverState.acceptEula(serverId))}
+        >
+          {$t('servers.diagnose.fix.acceptEula')}
+        </BusyButton>
+        <EulaLink label={$t('servers.wizard.eulaRead')} />
+      </div>
     {:else if diag.server_repair === 'stop_orphan_and_retry'}
       <BusyButton
         class="btn-warning btn-sm mt-2"

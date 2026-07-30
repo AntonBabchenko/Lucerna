@@ -28,6 +28,8 @@
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
   import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
   import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
+  import ModpackVersionSwitchDialog from './ModpackVersionSwitchDialog.svelte';
+  import { packChangelogBase } from './switch-risks';
   import ChangelogModal from '$lib/mods/ChangelogModal.svelte';
   import { changelogSupported } from '$lib/mods/changelog-supported';
 
@@ -109,6 +111,26 @@
   let updateError = $state<string | null>(null);
   const updateFlow = createModpackUpdateFlow();
 
+  let switchOpen = $state(false);
+
+  // Provenance counts for the switch dialog's customization warning. Derived
+  // from the same `provenance()` classification the mod rows badge with, so the
+  // warning and the badges can never disagree.
+  const provenanceCounts = $derived.by(() => {
+    let userAdded = 0;
+    let manual = 0;
+    for (const m of mods ?? []) {
+      const p = provenance(m);
+      if (p === 'user') userAdded += 1;
+      else if (p === 'manual') manual += 1;
+    }
+    return { userAdded, manual };
+  });
+
+  // A pack bundles `overrides/` content when its origin lists files with no
+  // download url — the existing bundled marker.
+  const hasBundledFiles = $derived((status?.origin.files ?? []).some((f) => f.url === ''));
+
   // Cumulative changelog for a pending pack update. The pack IS a project on its
   // source, so the same ChangelogModal works; base is the frozen origin version
   // (falls back to target-only if it isn't a version-id the source lists).
@@ -126,7 +148,10 @@
       projectId: status.origin.project_id,
       title: `${status.origin.project_name} ${status.origin.version} → ${updateAvailable.version_number}`,
       target: updateAvailable.id,
-      base: status.origin.version,
+      // The source's version ID. `origin.version` is a free-form version
+      // NUMBER and never matches `changelog_window`'s id list, which silently
+      // collapsed the cumulative pack changelog to target-only.
+      base: packChangelogBase(inst),
     };
   }
   // Check failure (from checkForUpdates) OR an apply/fetch failure (from the flow).
@@ -403,8 +428,20 @@
       >
         {inst.mrpack_name}
       </h3>
-      <div class="text-xs text-muted truncate">
-        v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
+      <div class="text-xs text-muted truncate flex items-center gap-2">
+        <span class="truncate">v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}</span>
+        {#if inst.mrpack_project_id}
+          <!-- Not gated on an available update: reaching an OLDER version while
+               already up to date is the whole point of this affordance. -->
+          <button
+            type="button"
+            class="btn-ghost btn-xs flex-shrink-0"
+            onclick={() => (switchOpen = true)}
+            data-testid="imported-detail-switch-version"
+          >
+            {$t('modpacks.switch.openBtn')}
+          </button>
+        {/if}
       </div>
     </div>
     <CloseButton
@@ -947,4 +984,19 @@
       </button>
     </div>
   </Modal>
+{/if}
+
+{#if switchOpen}
+  <ModpackVersionSwitchDialog
+    {inst}
+    userAdded={provenanceCounts.userAdded}
+    manual={provenanceCounts.manual}
+    {hasBundledFiles}
+    onClose={() => (switchOpen = false)}
+    onSwitched={() => {
+      switchOpen = false;
+      updateAvailable = null;
+      void load().then(() => onUpdated?.());
+    }}
+  />
 {/if}

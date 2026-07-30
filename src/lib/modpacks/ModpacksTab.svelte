@@ -13,6 +13,7 @@
   import type { ModpackImportRequest } from './import-request';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';
+  import ImportFromUrlDialog from './ImportFromUrlDialog.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
   import ImportedView from './ImportedView.svelte';
   import ModpackBrowseView from './ModpackBrowseView.svelte';
@@ -20,6 +21,7 @@
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { modpackBrowseState } from './browse-state.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -43,11 +45,20 @@
     onInstanceCreated,
     onListChanged,
     onImport,
+    urlPrefill = null,
+    urlFromExternal = false,
+    onUrlConsumed,
   }: {
     instances: InstanceWithStatus[];
     onInstanceCreated: (id: string) => void;
     onListChanged?: () => void;
     onImport?: (req: ModpackImportRequest) => void;
+    // A `lucerna://` link the OS handed us (or a shortcut of the same shape):
+    // non-null opens the import-from-URL dialog pre-filled. The page clears it
+    // via `onUrlConsumed` so re-opening the modal can't resurrect a stale link.
+    urlPrefill?: string | null;
+    urlFromExternal?: boolean;
+    onUrlConsumed?: () => void;
   } = $props();
 
   type SubTab = 'browse' | 'imported';
@@ -177,6 +188,34 @@
     hintVersionId = null;
   }
 
+  // ── Import from URL ──────────────────────────────────────────────────────
+  // Resolving a link only fetches metadata; the resolved pack is handed to the
+  // SAME detail modal → picker → import path the Browse flow uses, so a link
+  // cannot install anything without the user's explicit confirmation.
+  let urlDialogOpen = $state(false);
+  // Local copies read once when the dialog opens, so clearing the page's prefill
+  // (via onUrlConsumed) cannot yank the text out from under the user mid-edit.
+  let urlDialogPrefill = $state('');
+  let urlDialogExternal = $state(false);
+  // Version the link named, highlighted in the detail modal's version list.
+  let drawerHighlightVersion = $state<string | null>(null);
+
+  // An inbound link arrives while the modal may already be open: open the URL
+  // dialog and immediately tell the page the link was taken.
+  $effect(() => {
+    if (urlPrefill === null) return;
+    urlDialogPrefill = urlPrefill;
+    urlDialogExternal = urlFromExternal;
+    urlDialogOpen = true;
+    onUrlConsumed?.();
+  });
+
+  function openUrlDialog() {
+    urlDialogPrefill = '';
+    urlDialogExternal = false;
+    urlDialogOpen = true;
+  }
+
   // Per-card busy for the browse quick-install (resolve latest + download).
   // SvelteSet so two cards installing in parallel don't clobber each other.
   const quickInstalling = new SvelteSet<string>();
@@ -282,6 +321,19 @@
       disabledLabel={importDisabledReason ?? undefined}
       onClick={importFromFile}
     />
+    <div class="mt-2 flex justify-end">
+      <button
+        type="button"
+        class="btn-ghost btn-sm inline-flex items-center gap-1.5"
+        disabled={importDisabledReason !== null}
+        title={importDisabledReason ?? undefined}
+        onclick={openUrlDialog}
+        data-testid="modpacks-import-from-url"
+      >
+        <Icon name="externalLink" size={14} />
+        {$t('modpacks.tab.importFromUrl')}
+      </button>
+    </div>
   </div>
 
   <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
@@ -318,11 +370,32 @@
   <ImportPickerDialog {summary} onCancel={() => (summary = null)} onConfirm={confirmImport} />
 {/if}
 
+{#if urlDialogOpen}
+  <ImportFromUrlDialog
+    prefill={urlDialogPrefill}
+    fromExternal={urlDialogExternal}
+    onCancel={() => (urlDialogOpen = false)}
+    onResolved={(hit, versionId) => {
+      urlDialogOpen = false;
+      // Straight into the existing detail modal: the user still picks a version
+      // and confirms the file selection before anything is installed.
+      drawerHit = hit;
+      drawerMcFilter = null;
+      drawerHighlightVersion = versionId;
+    }}
+  />
+{/if}
+
 {#if drawerHit}
   <ModpackDetailModal
     hit={drawerHit}
     mcFilter={drawerMcFilter}
-    onClose={() => (drawerHit = null)}
+    initialTab={drawerHighlightVersion ? 'versions' : 'overview'}
+    highlightVersionId={drawerHighlightVersion}
+    onClose={() => {
+      drawerHit = null;
+      drawerHighlightVersion = null;
+    }}
     onInstall={(p, vid) => {
       // Stash the Modrinth project_id + version id so confirmImport can
       // pass them through to `modpack_import`. The orchestrator uses them
@@ -332,6 +405,7 @@
       hintSource = drawerHit?.source ?? null;
       hintVersionId = vid;
       drawerHit = null;
+      drawerHighlightVersion = null;
       void inspect(p);
     }}
   />

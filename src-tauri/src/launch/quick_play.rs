@@ -5,13 +5,16 @@
 //! enables the MC 1.20+ quick-play feature args.
 
 use crate::error::Error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// A direct-launch target. Singleplayer carries the world's save-folder
 /// name (the `saves/<folder>` segment); Multiplayer carries a server
 /// address (`host` or `host:port`).
-#[derive(Debug, Clone, Deserialize, Type)]
+// `Serialize` + `PartialEq`: a Quick Play target also travels OUT to the
+// frontend as part of a `cli::LaunchIntent` (a desktop shortcut's argv), and
+// the cli/shortcut round-trip tests compare targets directly.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QuickPlay {
     Singleplayer { world: String },
@@ -32,12 +35,25 @@ impl QuickPlay {
 /// 253 (max hostname per RFC 1123) + 1 (`:`) + 5 (max port digits) + 1 slack.
 const MAX_ADDRESS_LEN: usize = 260;
 
-/// Validate a `host` or `host:port` server address. The value is passed as
-/// a single argv token (no shell), so this is hygiene + clear UX, not
-/// shell-injection defense. Rules: non-empty, no ASCII whitespace, no
-/// control chars, length <= [`MAX_ADDRESS_LEN`], and if a single `:` is
-/// present the suffix must parse as a `u16` port.
-pub fn validate_server_address(address: &str) -> Result<(), Error> {
+/// The port Minecraft uses when an address carries none.
+pub const DEFAULT_SERVER_PORT: u16 = 25565;
+
+/// Parse a `host` or `host:port` server address into its parts, applying
+/// [`DEFAULT_SERVER_PORT`] when no port is given.
+///
+/// This is the single definition of what a server address *is*: the launch path
+/// takes it through [`validate_server_address`] (same rules, parsed value
+/// dropped) and the server-ping path uses the parsed pair. Keeping one parser
+/// means the two can never drift into disagreeing about a port — an earlier
+/// version validated here and re-split at the ping site, where a future
+/// loosening of the rules (IPv6, say) would have silently substituted the
+/// default port instead of failing.
+///
+/// The value is passed to the game as a single argv token (no shell), so this is
+/// hygiene + clear UX, not shell-injection defense. Rules: non-empty, no ASCII
+/// whitespace, no control chars, length <= [`MAX_ADDRESS_LEN`], and if a single
+/// `:` is present the suffix must parse as a `u16` port.
+pub fn parse_server_address(address: &str) -> Result<(String, u16), Error> {
     let invalid = |reason: &str| Error::QuickPlayAddressInvalid {
         address: address.to_string(),
         reason: reason.to_string(),
@@ -54,21 +70,28 @@ pub fn validate_server_address(address: &str) -> Result<(), Error> {
     }
     // Optional single `:port`. Reject multiple colons (IPv6 literals are
     // not supported in v1 — keep the validator simple and explicit).
-    if let Some((host, port)) = address.split_once(':') {
-        if host.is_empty() {
-            return Err(invalid("missing host before ':'"));
-        }
-        if port.contains(':') {
-            return Err(invalid("multiple ':' separators (IPv6 not supported)"));
-        }
-        if port.is_empty() {
-            return Err(invalid("missing port after ':'"));
-        }
-        if port.parse::<u16>().is_err() {
-            return Err(invalid("port must be a number 0-65535"));
-        }
+    let Some((host, port)) = address.split_once(':') else {
+        return Ok((address.to_string(), DEFAULT_SERVER_PORT));
+    };
+    if host.is_empty() {
+        return Err(invalid("missing host before ':'"));
     }
-    Ok(())
+    if port.contains(':') {
+        return Err(invalid("multiple ':' separators (IPv6 not supported)"));
+    }
+    if port.is_empty() {
+        return Err(invalid("missing port after ':'"));
+    }
+    let port = port
+        .parse::<u16>()
+        .map_err(|_| invalid("port must be a number 0-65535"))?;
+    Ok((host.to_string(), port))
+}
+
+/// [`parse_server_address`] with the parsed value discarded — for callers that
+/// only need the address to be well-formed.
+pub fn validate_server_address(address: &str) -> Result<(), Error> {
+    parse_server_address(address).map(|_| ())
 }
 
 #[cfg(test)]
@@ -78,6 +101,34 @@ mod tests {
     #[test]
     fn accepts_plain_host() {
         assert!(validate_server_address("mc.example.net").is_ok());
+    }
+
+    #[test]
+    fn parse_applies_the_default_port_when_none_is_given() {
+        assert_eq!(
+            parse_server_address("mc.example.net").expect("valid"),
+            ("mc.example.net".to_string(), DEFAULT_SERVER_PORT)
+        );
+    }
+
+    #[test]
+    fn parse_returns_the_explicit_port() {
+        assert_eq!(
+            parse_server_address("mc.example.net:25566").expect("valid"),
+            ("mc.example.net".to_string(), 25566)
+        );
+        // Port 0 is well-formed as far as parsing goes; the OS rejects the dial.
+        assert_eq!(parse_server_address("h:0").expect("valid").1, 0);
+        assert_eq!(parse_server_address("h:65535").expect("valid").1, 65535);
+    }
+
+    #[test]
+    fn parse_never_substitutes_a_port_for_a_rejected_address() {
+        // The whole reason parsing and validation share one function: a bad port
+        // must fail, never silently fall back to the default.
+        for bad in ["host:abc", "host:99999", "host:", "a:b:c", ":25565"] {
+            assert!(parse_server_address(bad).is_err(), "{bad} must be rejected");
+        }
     }
 
     #[test]

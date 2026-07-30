@@ -28,6 +28,8 @@
   let {
     hit,
     mcFilter = null,
+    initialTab = 'overview',
+    highlightVersionId = null,
     onClose,
     onInstall,
   }: {
@@ -36,12 +38,20 @@
     // pack versions whose `game_versions` don't include it. Null = show
     // every version.
     mcFilter?: string | null;
+    // Which tab to open on. Import-by-link passes 'versions' when the link named
+    // a specific version, so the user lands on the list that contains it.
+    initialTab?: TabId;
+    // Version the inbound link named, highlighted in the list. Deliberately NOT
+    // auto-installed: a link may open a confirmation, never start an install.
+    highlightVersionId?: string | null;
     onClose: () => void;
     onInstall: (tempPath: string, versionId: string) => void;
   } = $props();
 
   type TabId = 'overview' | 'versions';
-  let tab = $state<TabId>('overview');
+  // svelte-ignore state_referenced_locally — one-time seed of the starting tab;
+  // the modal is remounted (keyed on the hit) when a different pack is opened.
+  let tab = $state<TabId>(initialTab);
 
   let project = $state<ModpackProject | null>(null);
   let versions = $state<ModpackVersionEntry[]>([]);
@@ -219,7 +229,12 @@
       {:else}
         <ul class="space-y-2">
           {#each visibleVersions as v (v.id)}
-            <li class="p-2 border rounded text-sm">
+            <li
+              class="p-2 border rounded text-sm"
+              class:border-accent={v.id === highlightVersionId}
+              class:bg-subtle={v.id === highlightVersionId}
+              data-testid={v.id === highlightVersionId ? 'modpack-version-highlighted' : undefined}
+            >
               <div class="flex items-center">
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{v.name}</div>

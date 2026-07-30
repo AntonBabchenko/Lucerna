@@ -1,10 +1,13 @@
 pub mod accounts;
+pub mod cli;
 mod commands;
 pub mod data_root;
+pub mod deeplink;
 pub mod diag;
 pub mod error;
 pub mod forge;
 pub mod instances;
+pub mod journal;
 pub mod jre;
 pub mod launch;
 pub mod logs;
@@ -19,6 +22,7 @@ pub mod process;
 pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
+pub mod shortcuts;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
 /// (see the module docs for the glibc `setenv`/`getenv` heap-corruption flake
 /// they avoid). Public so the `tests/` integration binaries can call `scope`.
@@ -114,10 +118,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::list_saved_servers,
             commands::add_saved_server,
             commands::remove_saved_server,
+            commands::ping_server,
             commands::open_log_folder,
             commands::delete_log_file,
             commands::clear_old_logs,
             commands::apply_log_retention,
+            commands::instance_journal_read,
+            commands::instance_journal_clear,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,
@@ -330,6 +337,16 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_data_location,
             commands::plan_data_location_change,
             commands::adopt_data_location,
+            // Desktop integration (inbound intents, lucerna:// scheme, shortcuts):
+            commands::take_pending_intent,
+            commands::modpack_resolve_url,
+            commands::url_scheme_key,
+            commands::url_scheme_state,
+            commands::url_scheme_register,
+            commands::url_scheme_unregister,
+            commands::shortcut_supported,
+            commands::shortcut_create,
+            commands::shortcut_default_name,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -426,6 +443,13 @@ pub fn run() {
         std::process::exit(code);
     }
 
+    // Cold start: a `lucerna://` URL dispatched by the OS, or a desktop
+    // shortcut's `--launch`, arrives as argv of THIS process. Park it in the
+    // PendingIntent slot below; the frontend drains it on mount
+    // (`commands::take_pending_intent`). Parsed AFTER the two headless flags
+    // above so neither can be mistaken for an intent.
+    let startup_intent = cli::parse(std::env::args());
+
     #[cfg(debug_assertions)]
     builder
         .export(
@@ -442,11 +466,23 @@ pub fn run() {
         // already-running process and the new one exits. We surface the existing
         // window via the tray-restore path, which shows + unminimizes + focuses
         // it (and clears the tray icon if the launcher was hidden to tray during
-        // a Minecraft session). argv/cwd of the second launch are unused — we
-        // only ever want to bring the running window forward.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // a Minecraft session).
+        //
+        // The second launch's argv is then forwarded: a desktop shortcut's
+        // `--launch` or an OS-dispatched `lucerna://` URL lands in the SAME
+        // PendingIntent slot a cold start uses, and `intent-pending` nudges the
+        // frontend to drain it. Trust model: argv may launch, a URL may only
+        // open the import confirmation UI (see `cli`).
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::{Emitter, Manager};
             if let Err(e) = crate::tray::restore_from_tray(app) {
                 crate::diag!("[single-instance] failed to restore window: {e}");
+            }
+            if let Some(intent) = crate::cli::parse(argv) {
+                app.state::<crate::cli::PendingIntent>().set(intent);
+                if let Err(e) = app.emit("intent-pending", ()) {
+                    crate::diag!("[single-instance] failed to emit intent-pending: {e}");
+                }
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -454,6 +490,13 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
+        .manage({
+            let slot = cli::PendingIntent::default();
+            if let Some(intent) = startup_intent {
+                slot.set(intent);
+            }
+            slot
+        })
         .setup(move |app| {
             // Resolve the effective data root before anything else touches app_dir.
             let default_root = crate::paths::default_app_data_dir(app.handle())
@@ -597,6 +640,34 @@ pub fn run() {
                 crate::diag!("[setup] instances::migrate_or_seed failed: {e}");
             }
             builder.mount_events(app);
+
+            // Self-heal the `lucerna://` registration ONLY if the user opted in
+            // and the recorded command points at a different exe (moved install,
+            // update, portable copy) — otherwise links would open a binary that
+            // is no longer there. With the setting off we touch nothing at all:
+            // not the key, not a cleanup, no registry write of any kind.
+            if let Ok(settings) = crate::paths::app_file(app.handle())
+                .map_err(|e| crate::error::Error::io("<app_file>", e))
+                .and_then(|p| crate::instances::store::read_app_json(&p))
+            {
+                if settings.general.register_url_scheme {
+                    if let Ok(exe) = std::env::current_exe() {
+                        if crate::platform::protocol::state(&exe)
+                            == crate::platform::protocol::SchemeState::RegisteredToOtherPath
+                        {
+                            match crate::platform::protocol::register(&exe) {
+                                Ok(()) => crate::diag!(
+                                    "[setup] re-pointed lucerna:// registration at {}",
+                                    exe.display()
+                                ),
+                                Err(e) => crate::diag!(
+                                    "[setup] failed to re-point lucerna:// registration: {e}"
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
 
             // Re-arm per-server auto-backup schedulers. The interval task only
             // lives for the launcher session it was set in, so without this an
