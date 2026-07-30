@@ -41,4 +41,11 @@ describe('ModpacksModal', () => {
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(3);
   });
+
+  it('states in the header that installing a pack creates a new instance', () => {
+    render(ModpacksModal, { props: { open: true, onClose: () => {} } });
+    expect(screen.getByTestId('modpacks-scope-note').textContent).toContain(
+      'creates a new instance',
+    );
+  });
 });

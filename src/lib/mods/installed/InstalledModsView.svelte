@@ -524,15 +524,17 @@
     </div>
 
     <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). -->
-    <Pagination
-      page={filters.page}
-      pageCount={filters.pageCount}
-      onPage={(n) => (filters.page = n)}
-    >
-      {#snippet end()}
-        <PageSizePicker prefsKey="installedPageSize" />
-      {/snippet}
-    </Pagination>
+    <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+      <Pagination
+        page={filters.page}
+        pageCount={filters.pageCount}
+        onPage={(n) => (filters.page = n)}
+      >
+        {#snippet end()}
+          <PageSizePicker prefsKey="installedPageSize" />
+        {/snippet}
+      </Pagination>
+    </div>
   {/if}
 
   {#if detail && instanceId}

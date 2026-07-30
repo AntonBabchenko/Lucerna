@@ -1041,11 +1041,13 @@
         </div>
       {/if}
       <!-- Steam-style footer: shared pagination control, per-page selector right. -->
-      <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
-        {#snippet end()}
-          <PageSizePicker />
-        {/snippet}
-      </Pagination>
+      <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+        <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
+          {#snippet end()}
+            <PageSizePicker />
+          {/snippet}
+        </Pagination>
+      </div>
     {:else}
       <div class="text-placeholder text-sm py-8 text-center">{$t('mods.browse.noResults')}</div>
     {/if}

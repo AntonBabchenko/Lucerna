@@ -221,7 +221,10 @@
   });
 </script>
 
-<div data-tour-ctx="modpacks-filters" class="pt-2">
+<div
+  data-tour-ctx="modpacks-filters"
+  class="pt-2 sticky top-0 z-10 bg-surface border-b border-border-subtle"
+>
   <BrowseFilterBar
     searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
     searchPlaceholder={modpackBrowseState.source === 'curseforge'
@@ -269,7 +272,7 @@
     <div class="mt-8 text-sm text-placeholder text-center">{$t('modpacks.browse.noResults')}</div>
   {:else if page}
     {#if browserPrefs.layout === 'grid'}
-      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
         {#each sortedHits as hit (hit.project_id)}
           <ModpackCard
             {hit}
@@ -299,16 +302,24 @@
         {/each}
       </div>
     {/if}
-    <!-- Steam-style footer: shared pagination control, per-page selector right. -->
-    <Pagination
-      page={pageNum}
-      pageCount={Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
-      disabled={loading}
-      onPage={(n) => (pageNum = n)}
-    >
-      {#snippet end()}
-        <PageSizePicker />
-      {/snippet}
-    </Pagination>
+    <!-- Steam-style footer: shared pagination control, per-page selector right.
+         Pinned to the bottom of the scroll area so paging never requires
+         scrolling past the whole grid. The opaque background lives HERE and not
+         inside Pagination: that component is shared by five views whose scroll
+         containers have different backgrounds. This one sits in the modpacks
+         modal, whose panel is bg-surface (Modal.svelte) — the mods and servers
+         browsers use bg-base for the same reason. -->
+    <div class="sticky bottom-0 z-10 bg-surface border-t border-border-subtle">
+      <Pagination
+        page={pageNum}
+        pageCount={Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
+        disabled={loading}
+        onPage={(n) => (pageNum = n)}
+      >
+        {#snippet end()}
+          <PageSizePicker />
+        {/snippet}
+      </Pagination>
+    </div>
   {/if}
 </div>

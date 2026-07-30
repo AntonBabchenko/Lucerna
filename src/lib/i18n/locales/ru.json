@@ -764,6 +764,7 @@
   "modpacks": {
     "modal": {
       "title": "Сборки",
+      "scopeNote": "Установка сборки создаёт новый инстанс — существующие не затрагиваются.",
       "closeScrimAriaLabel": "Закрыть",
       "closeAriaLabel": "Закрыть браузер сборок"
     },
@@ -943,13 +944,14 @@
     },
     "card": {
       "byAuthor": "{author}",
-      "quickInstall": "Установить последнюю версию",
+      "quickInstall": "Установить последнюю версию как новый инстанс",
       "downloads": "{count, plural, one {# скачивание} few {# скачивания} many {# скачиваний} other {# скачивания}}",
       "downloadsShort": "{count} скач.",
       "distributionDisabled": "Загрузка через CurseForge отключена",
       "distributionDisabledShort": "CF отключён"
     },
     "detail": {
+      "scopeNote": "Установится в новый инстанс.",
       "dialogAriaLabel": "Сведения о сборке",
       "closeScrimAriaLabel": "Закрыть",
       "closeAriaLabel": "Закрыть сведения о сборке",

@@ -69,12 +69,12 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick: () => {}, onQuickInstall: () => {} },
     });
-    expect(getByLabelText('Install latest version')).toBeTruthy();
+    expect(getByLabelText('Install latest version as a new instance')).toBeTruthy();
   });
 
   it('has no quick-install button when onQuickInstall is omitted', () => {
     const { queryByLabelText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
-    expect(queryByLabelText('Install latest version')).toBeNull();
+    expect(queryByLabelText('Install latest version as a new instance')).toBeNull();
   });
 
   it('quick-install click fires onQuickInstall and not the card onClick (grid)', async () => {
@@ -83,7 +83,7 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick, onQuickInstall },
     });
-    await fireEvent.click(getByLabelText('Install latest version'));
+    await fireEvent.click(getByLabelText('Install latest version as a new instance'));
     expect(onQuickInstall).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -94,7 +94,7 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick, onQuickInstall, layout: 'list' },
     });
-    await fireEvent.click(getByLabelText('Install latest version'));
+    await fireEvent.click(getByLabelText('Install latest version as a new instance'));
     expect(onQuickInstall).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -103,6 +103,8 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick: () => {}, onQuickInstall: () => {}, installing: true },
     });
-    expect((getByLabelText('Install latest version') as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (getByLabelText('Install latest version as a new instance') as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });

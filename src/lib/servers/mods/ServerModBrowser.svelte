@@ -374,7 +374,9 @@
       onToggle={(h) => void toggleInstalled(h)}
       onUninstall={(h) => void uninstallInstalled(h)}
     />
-    <Pagination {page} {pageCount} disabled={loading} {onPage} />
+    <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+      <Pagination {page} {pageCount} disabled={loading} {onPage} />
+    </div>
   {/if}
 </div>
 
