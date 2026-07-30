@@ -334,6 +334,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	applyLogRetention: (instanceId: string) => typedError<CleanupResult, Error>(__TAURI_INVOKE("apply_log_retention", { instanceId })),
 	/**
+	 *  Newest-first slice of the instance's journal. `limit` is clamped to
+	 *  `[1, MAX_ENTRIES]`; `0` means "the caller has no opinion" and maps to
+	 *  the default page size. An instance with no recorded activity returns an
+	 *  empty list, not an error.
+	 */
+	instanceJournalRead: (instanceId: string, limit: number) => typedError<JournalEntry[], Error>(__TAURI_INVOKE("instance_journal_read", { instanceId, limit })),
+	/**
+	 *  Delete the instance's journal. The history is the user's own local data,
+	 *  so they get an explicit way to drop it (mirrors "clear old logs"). Absent
+	 *  journal is a no-op.
+	 */
+	instanceJournalClear: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("instance_journal_clear", { instanceId })),
+	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
 	 *  Cached 5 minutes per `mc_id`.
@@ -1941,6 +1954,13 @@ export type ConflictCandidate = {
 	swap_version_label: string | null,
 };
 
+/**
+ *  The content-change vocabulary. Adding a variant costs one entry here, one
+ *  icon/tone/copy row on the frontend, and two locale keys — the frontend
+ *  completeness test enforces the latter two.
+ */
+export type ContentAction = "mod_installed" | "mod_updated" | "mod_removed" | "mod_enabled" | "mod_disabled" | "asset_installed" | "asset_updated" | "asset_removed" | "modpack_imported" | "modpack_updated" | "integrity_repaired";
+
 /**  One copyable content category in a foreign instance. */
 export type ContentCategory = "mods" | "config" | "saves" | "resource_packs" | "shaderpacks" | "options_txt";
 
@@ -2680,6 +2700,54 @@ export type IntegrityStatus = {
 	problem_count: number,
 };
 
+/**  One recorded moment in an instance's life. */
+export type JournalEntry = {
+	/**
+	 *  Wall-clock time of the recorded action. `f64` because
+	 *  specta-typescript forbids 64-bit integer exports.
+	 */
+	at_unix_ms: number | null,
+	event: JournalEvent,
+};
+
+/**
+ *  What happened. Two variants, each internally uniform, so the UI renders
+ *  from a fixed field set per branch instead of a wide grab-bag struct.
+ */
+export type JournalEvent = 
+/**  A change to the instance's installed content. */
+{ kind: "content"; action: ContentAction; 
+/**
+ *  Display name of the affected content (mod title, pack name, asset
+ *  filename). Empty for instance-wide actions like integrity repair
+ *  or a bulk dependency install.
+ */
+subject: string; from_version: string | null; to_version: string | null; 
+/**
+ *  Item count for actions that touch more than one file (install with
+ *  dependencies, modpack update, integrity repair). `None` for
+ *  single-subject actions.
+ */
+affected: number | null } | 
+/**
+ *  A launch attempt that has finished. In-flight launches are never
+ *  recorded — the running-instances popover already shows those, and a
+ *  half-written row would be a second source of truth.
+ */
+{ kind: "launch"; outcome: LaunchOutcome; 
+/**
+ *  `None` when the code is genuinely unknown — the app-exit teardown
+ *  kills the game and removes the registry entry before the
+ *  exit-watcher can read a status. Recording a fake `0` there would
+ *  claim a clean exit that was never observed.
+ */
+exit_code: number | null; duration_seconds: number | null; 
+/**
+ *  The captured game-console log for this run, so a journal row can
+ *  deep-link into the log viewer.
+ */
+log_path: string | null };
+
 export type KeyStatus = "missing" | "set" | "invalid";
 
 /**
@@ -2733,6 +2801,14 @@ export type LaunchIntent =
 { kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
 /**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
 { kind: "open_url"; url: string };
+
+export type LaunchOutcome = 
+/**  Exited cleanly (code 0). */
+"ok" | 
+/**  Non-zero exit, or signal termination (`-1`), without a Stop request. */
+"crashed" | 
+/**  The user pressed Stop. */
+"stopped";
 
 /**  One annotated line: 0-based index into the text split by '\n'. */
 export type LineAnnotation = {

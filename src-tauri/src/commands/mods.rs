@@ -487,6 +487,22 @@ pub async fn mods_install_with_deps(
             installed_dependencies.push(inst.name.clone());
         }
     }
+    // ONE journal row per user action, not one per written jar: "installed
+    // Create" is the history the user recognises, with the dependency count as
+    // supporting detail. Written after the batch COMMITS (so a rolled-back
+    // install leaves no trace) but BEFORE the fallible `set_requires` below —
+    // the jars are already durably on disk at this point, so a `set_requires`
+    // failure must not erase the record of a change that really happened.
+    crate::journal::record(
+        &inst_root,
+        crate::journal::JournalEvent::Content {
+            action: crate::journal::ContentAction::ModInstalled,
+            subject: primary_v.name.clone(),
+            from_version: None,
+            to_version: Some(primary_v.version_number.clone()),
+            affected: Some(installed_all.len() as f64),
+        },
+    );
     if let Some(sha1) = primary_sha1 {
         crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
     }
@@ -1258,7 +1274,19 @@ pub async fn mods_disable(
     sha1: String,
 ) -> crate::error::Result<()> {
     let inst_root = instance_root(&app, &instance_id)?;
+    let identity = mod_identity(&inst_root, &sha1).await;
     crate::mods::install::disable(&inst_root, &sha1).await?;
+    if let Some((name, version)) = identity {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModDisabled,
+                name,
+                version,
+                None,
+            ),
+        );
+    }
     let _ = ModToggle {
         instance_id,
         sha1,
@@ -1277,7 +1305,19 @@ pub async fn mods_enable(
     sha1: String,
 ) -> crate::error::Result<()> {
     let inst_root = instance_root(&app, &instance_id)?;
+    let identity = mod_identity(&inst_root, &sha1).await;
     crate::mods::install::enable(&inst_root, &sha1).await?;
+    if let Some((name, version)) = identity {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModEnabled,
+                name,
+                version,
+                None,
+            ),
+        );
+    }
     let _ = ModToggle {
         instance_id,
         sha1,
@@ -1297,7 +1337,21 @@ pub async fn mods_uninstall(
     sha1: String,
 ) -> crate::error::Result<()> {
     let inst_root = instance_root(&app, &instance_id)?;
+    // Resolve BEFORE the removal: afterwards the registry row is gone and the
+    // mod has no name left to record.
+    let identity = mod_identity(&inst_root, &sha1).await;
     crate::mods::install::uninstall(&inst_root, &sha1).await?;
+    if let Some((name, version)) = identity {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModRemoved,
+                name,
+                version,
+                None,
+            ),
+        );
+    }
     let _ = ModUninstalled { instance_id, sha1 }.emit(&app);
     Ok(())
 }
@@ -1492,6 +1546,10 @@ pub async fn mods_update_one(
         });
 
         let target_project_id = target.project_id.clone();
+        // The outgoing version, read before the swap removes its registry row.
+        let previous = mod_identity(&inst_root, &old_sha1).await;
+        let target_name = target.name.clone();
+        let target_version = target.version_number.clone();
         match crate::mods::install::update_one(
             &dd,
             &inst_root,
@@ -1503,6 +1561,15 @@ pub async fn mods_update_one(
         .await
         {
             Ok(outcome) => {
+                crate::journal::record(
+                    &inst_root,
+                    crate::journal::content_versioned(
+                        crate::journal::ContentAction::ModUpdated,
+                        target_name,
+                        previous.and_then(|(_, v)| v),
+                        Some(target_version),
+                    ),
+                );
                 let _ = ModUninstalled {
                     instance_id: instance_id.clone(),
                     sha1: outcome.removed_sha1,
@@ -1592,6 +1659,15 @@ pub async fn mods_install_local(
         meta.display_name.as_deref(),
     )
     .await?;
+    // A hand-dropped jar carries no platform version, so `to_version` stays
+    // `None` — the history says "installed", not "installed vX" it cannot know.
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content(
+            crate::journal::ContentAction::ModInstalled,
+            inst.name.clone(),
+        ),
+    );
     let _ = ModInstalled {
         instance_id,
         sha1: inst.sha1.clone(),
@@ -1898,7 +1974,19 @@ pub async fn mods_install_missing_required(
         return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
     }
 
+    // `candidate` is consumed by `install_one`; keep its version for the journal
+    // so this path's rows carry the same detail as every other platform install.
+    let candidate_version = candidate.version_number.clone();
     let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content_versioned(
+            crate::journal::ContentAction::ModInstalled,
+            inst.name.clone(),
+            None,
+            Some(candidate_version),
+        ),
+    );
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: inst.sha1,

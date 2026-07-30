@@ -8,6 +8,7 @@
     type Error as IpcError,
     type ModCompat,
   } from '$lib/ipc/bindings';
+  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
@@ -645,6 +646,10 @@
               }}
             >
               <div class="font-medium flex items-center gap-1.5">
+                <!-- Same 20px avatar the sidebar rows use, so an instance looks
+                     the same in both lists. The ready/download glyph stays: it
+                     carries the install status, not identity. -->
+                <InstanceAvatar instance={i} size={20} />
                 <Icon
                   name={i.ready ? 'success' : 'download'}
                   class="shrink-0"
@@ -771,26 +776,33 @@
             onblur={commitName}
           />
 
-          <div class="mb-3 flex items-center gap-1">
-            <button
-              type="button"
-              class="btn-secondary btn-sm"
-              disabled={!selected}
-              onclick={() => selected && iconDialog.pick(selected.id)}
-            >
-              {$t('instance.icon.changeBtn')}
-            </button>
-            {#if selected?.has_icon}
+          <!-- The picture next to the buttons that change it: 52px and this
+               composition mirror InstanceHeader, so the modal and the Overview
+               header read as one control. The letter fallback keeps the "no
+               custom picture" state legible rather than blank. -->
+          <div class="mb-3 flex items-center gap-3">
+            <InstanceAvatar instance={selected} size={52} />
+            <div class="flex items-center gap-1">
               <button
                 type="button"
-                class="btn-icon btn-icon-sm btn-icon-danger"
-                onclick={() => selected && iconDialog.requestRemove(selected.id)}
-                aria-label={$t('instance.icon.remove')}
-                use:tooltip={$t('instance.icon.remove')}
+                class="btn-secondary btn-sm"
+                disabled={!selected}
+                onclick={() => selected && iconDialog.pick(selected.id)}
               >
-                <Icon name="trash" size={14} />
+                {$t('instance.icon.changeBtn')}
               </button>
-            {/if}
+              {#if selected?.has_icon}
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  onclick={() => selected && iconDialog.requestRemove(selected.id)}
+                  aria-label={$t('instance.icon.remove')}
+                  use:tooltip={$t('instance.icon.remove')}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              {/if}
+            </div>
           </div>
 
           <label for="detail-mc-version" class="block text-xs text-secondary mb-1"

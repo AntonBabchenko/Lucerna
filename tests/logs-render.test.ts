@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { groupStackFolds, maybeParseCrashReport, tagWithSeverity } from '$lib/logs/render';
+import {
+  collapseRepeats,
+  groupStackFolds,
+  maybeParseCrashReport,
+  type RenderUnit,
+  repeatKey,
+  tagWithSeverity,
+} from '$lib/logs/render';
 
 describe('tagWithSeverity', () => {
   it('parses MC level prefix INFO/WARN/ERROR', () => {
@@ -91,6 +98,131 @@ describe('groupStackFolds', () => {
     const units = groupStackFolds(tagged);
     const lineUnits = units.filter((u) => u.kind === 'line');
     expect(lineUnits.map((u) => (u.kind === 'line' ? u.index : -1))).toEqual([0, 1, 2]);
+  });
+});
+
+describe('repeatKey', () => {
+  it('strips a leading MC timestamp so spam lines compare equal', () => {
+    expect(repeatKey('[12:04:01] [Server thread/WARN]: Can not keep up!')).toBe(
+      repeatKey('[12:04:59] [Server thread/WARN]: Can not keep up!'),
+    );
+  });
+
+  it('strips a millisecond timestamp too', () => {
+    expect(repeatKey('[12:04:01.123] [main/INFO]: tick')).toBe(
+      repeatKey('[12:04:02.999] [main/INFO]: tick'),
+    );
+  });
+
+  it('leaves a line with no timestamp untouched', () => {
+    expect(repeatKey('java.lang.OutOfMemoryError: Java heap space')).toBe(
+      'java.lang.OutOfMemoryError: Java heap space',
+    );
+  });
+
+  it('does not treat different messages as equal', () => {
+    expect(repeatKey('[12:04:01] [main/INFO]: a')).not.toBe(repeatKey('[12:04:01] [main/INFO]: b'));
+  });
+});
+
+describe('collapseRepeats', () => {
+  function unit(text: string, level: 'info' | 'warn' | 'error' = 'warn', index = 0): RenderUnit {
+    return { kind: 'line', text, level, index };
+  }
+  function spam(second: number): RenderUnit {
+    return unit(
+      `[12:04:${String(second).padStart(2, '0')}] [Server thread/WARN]: Can not keep up!`,
+    );
+  }
+
+  it('collapses consecutive lines that differ only by timestamp', () => {
+    const out = collapseRepeats([spam(1), spam(2), spam(3), spam(4)]);
+    expect(out.length).toBe(1);
+    expect(out[0].kind).toBe('repeat');
+    if (out[0].kind === 'repeat') {
+      expect(out[0].count).toBe(4);
+      // The first line stays visible; the rest are behind the expander.
+      expect(out[0].hiddenLines.length).toBe(3);
+      expect(out[0].text).toContain('[12:04:01]');
+      expect(out[0].hiddenLines[0]).toContain('[12:04:02]');
+    }
+  });
+
+  it('leaves a run below the threshold alone', () => {
+    const out = collapseRepeats([spam(1), spam(2)]);
+    expect(out.length).toBe(2);
+    expect(out.every((u) => u.kind === 'line')).toBe(true);
+  });
+
+  it('collapses a run of exactly the threshold', () => {
+    // Pins the boundary: `run >= threshold`, not `run > threshold`. Without
+    // this, an off-by-one would still pass every other case here.
+    const out = collapseRepeats([spam(1), spam(2), spam(3)]);
+    expect(out.length).toBe(1);
+    expect(out[0].kind === 'repeat' && out[0].count).toBe(3);
+  });
+
+  it('does not collapse lines from different threads', () => {
+    // Thread names are real information: Worker-1 and Worker-2 are different
+    // producers, and merging them would hide that.
+    const out = collapseRepeats([
+      unit('[12:04:01] [Worker-Main-1/WARN]: slow'),
+      unit('[12:04:02] [Worker-Main-2/WARN]: slow'),
+      unit('[12:04:03] [Worker-Main-3/WARN]: slow'),
+    ]);
+    expect(out.length).toBe(3);
+  });
+
+  it('collapses identical lines that carry no timestamp', () => {
+    const out = collapseRepeats([
+      unit('OpenGL error 1281'),
+      unit('OpenGL error 1281'),
+      unit('OpenGL error 1281'),
+    ]);
+    expect(out.length).toBe(1);
+    expect(out[0].kind === 'repeat' && out[0].count).toBe(3);
+  });
+
+  it('a stack fold breaks a run instead of merging across it', () => {
+    const fold: RenderUnit = {
+      kind: 'fold',
+      level: 'error',
+      firstFrame: '\tat com.foo.A.a(A.java:1)',
+      hiddenFrames: ['\tat com.foo.B.b(B.java:2)'],
+    };
+    const out = collapseRepeats([spam(1), spam(2), spam(3), fold, spam(4), spam(5), spam(6)]);
+    expect(out.map((u) => u.kind)).toEqual(['repeat', 'fold', 'repeat']);
+  });
+
+  it('keeps the first member level and original line index', () => {
+    const out = collapseRepeats([
+      unit('[12:04:01] [main/ERROR]: boom', 'error', 41),
+      unit('[12:04:02] [main/ERROR]: boom', 'error', 42),
+      unit('[12:04:03] [main/ERROR]: boom', 'error', 43),
+    ]);
+    expect(out[0].kind).toBe('repeat');
+    if (out[0].kind === 'repeat') {
+      expect(out[0].level).toBe('error');
+      // Index preserved so an inline hint badge still attaches to the row.
+      expect(out[0].index).toBe(41);
+    }
+  });
+
+  it('preserves surrounding lines and their order', () => {
+    const out = collapseRepeats([
+      unit('[12:04:00] [main/INFO]: before', 'info', 0),
+      spam(1),
+      spam(2),
+      spam(3),
+      unit('[12:04:10] [main/INFO]: after', 'info', 4),
+    ]);
+    expect(out.map((u) => u.kind)).toEqual(['line', 'repeat', 'line']);
+    expect(out[0].kind === 'line' && out[0].text).toContain('before');
+    expect(out[2].kind === 'line' && out[2].text).toContain('after');
+  });
+
+  it('is identity for an empty list', () => {
+    expect(collapseRepeats([])).toEqual([]);
   });
 });
 

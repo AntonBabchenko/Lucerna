@@ -159,14 +159,15 @@ fn note_session_start(instance_id: &str, instance_root: std::path::PathBuf) {
         );
 }
 
-fn note_session_end(instance_id: &str) {
-    let Some(start) = sessions()
+/// Close the in-flight playtime session and return the instance root plus the
+/// session length in seconds, so the caller can journal the launch attempt
+/// without duplicating the session bookkeeping. `None` when no session was
+/// open (a stale watcher, or a start that never registered).
+fn note_session_end(instance_id: &str) -> Option<(std::path::PathBuf, u64)> {
+    let start = sessions()
         .lock()
         .expect("playtime session mutex poisoned")
-        .remove(instance_id)
-    else {
-        return;
-    };
+        .remove(instance_id)?;
     let end = chrono::Utc::now().timestamp_millis();
     let seconds = ((end - start.started_unix_ms).max(0) as u64) / 1000;
     if let Err(e) = crate::playtime::record_session_at(&start.instance_root, seconds) {
@@ -175,6 +176,7 @@ fn note_session_end(instance_id: &str) {
             start.instance_root.display()
         );
     }
+    Some((start.instance_root, seconds))
 }
 
 /// Wall-clock start time (unix ms) of the in-flight playtime session for
@@ -472,18 +474,34 @@ pub async fn start(
         // Consume the stop request: did this exit come from the user pressing
         // Stop for THIS instance?
         let user_requested = take_stop_requested(&instance_id_for_event);
+        let log_path_for_journal = log_path_owned.to_string_lossy().into_owned();
         let _ = ProcessExited {
             instance_id: instance_id_for_event.clone(),
             version_id: version_id_owned,
             code: exit_code,
             user_requested,
-            log_path: log_path_owned.to_string_lossy().into_owned(),
+            log_path: log_path_for_journal.clone(),
         }
         .emit(&app_clone);
         // Record session end. Fires for both clean (code 0) and crash
         // (non-zero / -1) exits — the spec requires we always persist
         // the duration regardless of exit reason.
-        note_session_end(&instance_id_for_event);
+        //
+        // The same close-out feeds the instance journal: one row per FINISHED
+        // launch, classified by the same (user_requested, exit_code) pair the
+        // `ProcessExited` event above carries, so the history can never
+        // disagree with the exit toast the user just saw.
+        if let Some((inst_root, seconds)) = note_session_end(&instance_id_for_event) {
+            crate::journal::record(
+                &inst_root,
+                crate::journal::JournalEvent::Launch {
+                    outcome: crate::journal::launch_outcome(user_requested, exit_code),
+                    exit_code: Some(exit_code),
+                    duration_seconds: seconds as f64,
+                    log_path: Some(log_path_for_journal),
+                },
+            );
+        }
         // Opt-in old-log cleanup. Runs after the session's logs have
         // settled (MC rotates latest.log at START, so the full set is
         // complete at exit). Non-fatal: a cleanup failure must never
@@ -538,8 +556,22 @@ pub fn kill_all_running() {
         mark_stop_requested(&id);
         crate::platform::kill_process_tree(pid);
         // record playtime ourselves: we remove the registry entry below, so the
-        // exit-watcher's remove_if_pid will no-op and skip note_session_end
-        note_session_end(&id);
+        // exit-watcher's remove_if_pid will no-op and skip note_session_end.
+        // Same reason the journal row is written here: without it, quitting the
+        // launcher with the game running would drop that launch from history.
+        // No exit code is observable on this path — we killed the process and
+        // dropped the registry entry before anything could read a status.
+        if let Some((inst_root, seconds)) = note_session_end(&id) {
+            crate::journal::record(
+                &inst_root,
+                crate::journal::JournalEvent::Launch {
+                    outcome: crate::journal::LaunchOutcome::Stopped,
+                    exit_code: None,
+                    duration_seconds: seconds as f64,
+                    log_path: None,
+                },
+            );
+        }
         registry().remove(&id);
     }
 }

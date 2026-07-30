@@ -72,6 +72,11 @@ vi.mock('$lib/ipc/bindings', () => ({
     clearOldLogs: vi
       .fn()
       .mockResolvedValue({ status: 'ok', data: { deleted_count: 0, freed_bytes: 0 } }),
+    // JournalCrashContext mounts inside LogsPopover whenever the open file has a
+    // diagnosis or is a crash report, and JournalPanel when the History view is
+    // selected — both read the per-instance journal.
+    instanceJournalRead: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    instanceJournalClear: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },

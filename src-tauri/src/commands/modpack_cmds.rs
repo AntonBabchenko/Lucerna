@@ -73,7 +73,7 @@ pub async fn modpack_import(
     if is_staged_summary_sidecar(&path) {
         let summary = read_staged_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
-        return modpack::import::install_resolved_pack(
+        let imported = modpack::import::install_resolved_pack(
             &app,
             summary,
             &selected_shas,
@@ -88,7 +88,9 @@ pub async fn modpack_import(
             },
             install_progress,
         )
-        .await;
+        .await?;
+        journal_pack_import(&app, &imported);
+        return Ok(imported);
     }
 
     // Archive path (Modrinth `.mrpack` / CurseForge `.zip`).
@@ -98,7 +100,7 @@ pub async fn modpack_import(
             path: path.clone(),
             details: e.to_string(),
         })?;
-    modpack::import::import(
+    let imported = modpack::import::import(
         &app,
         &bytes,
         &selected_shas,
@@ -112,7 +114,32 @@ pub async fn modpack_import(
         },
         install_progress,
     )
-    .await
+    .await?;
+    journal_pack_import(&app, &imported);
+    Ok(imported)
+}
+
+/// Open the freshly-created instance's journal with the import that made it.
+/// Shared by the sidecar and archive paths so the two cannot record the pack
+/// differently. Silent on a path failure — the import itself succeeded.
+fn journal_pack_import(
+    app: &tauri::AppHandle,
+    imported: &crate::instances::schema::InstanceWithStatus,
+) {
+    if let Ok(inst_root) = instance_root(app, &imported.id) {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModpackImported,
+                imported
+                    .mrpack_name
+                    .clone()
+                    .unwrap_or_else(|| imported.name.clone()),
+                None,
+                imported.mrpack_version.clone(),
+            ),
+        );
+    }
 }
 
 /// Search a modpack catalogue. `source` selects Modrinth (anonymous)
@@ -371,6 +398,18 @@ pub async fn modpack_restore_file(
         )
         .await?;
     }
+    // Restoring a pack file is an install from the user's point of view; the
+    // action reflects WHAT was restored so the history reads consistently with
+    // the rest of the mod/asset rows.
+    let restored_action = if file.install_path.starts_with("mods/") {
+        crate::journal::ContentAction::ModInstalled
+    } else {
+        crate::journal::ContentAction::AssetInstalled
+    };
+    crate::journal::record(
+        &inst_root,
+        crate::journal::content(restored_action, file.name.clone()),
+    );
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: file.sha1.clone(),
@@ -561,6 +600,12 @@ pub async fn modpack_apply_update(
         .ok_or_else(|| crate::error::Error::ModsNotFound {
             platform: "pack_origin".into(),
         })?;
+    // Captured before `origin` is moved into `with_carried_notes` below — the
+    // journal row for the version bump still needs to name where it came from.
+    // (Two independently-green PRs, #312 and #315, collided here: one made
+    // `with_carried_notes` take ownership, the other added a read after it.)
+    let previous_pack_name = origin.project_name.clone();
+    let previous_version = origin.version.clone();
     let bytes = tokio::fs::read(&mrpack_path)
         .await
         .map_err(|e| crate::error::Error::Io {
@@ -679,6 +724,23 @@ pub async fn modpack_apply_update(
         &origin.project_name,
     );
     new_origin.files.extend(bundled);
+    // Phase 2 has finished writing the new mod set, so the mods dir can be
+    // re-classified for jars built for a loader family this instance cannot
+    // load. Recomputing beats carrying the old verdict (stale after a loader
+    // change) and beats clearing it (blanks the warning exactly when a loader
+    // migration makes it most useful).
+    let inert_loader_jars = crate::mods::modpack::import::classify_inert_loader_jars(
+        &crate::mods::installed::mods_dir(&inst_root),
+        summary.loader,
+        &summary.game_version,
+    );
+    // The carried notes describe state an apply cannot alter — see
+    // `with_carried_notes`.
+    let new_origin = crate::mods::modpack::import::with_carried_notes(
+        new_origin,
+        origin,
+        inert_loader_jars.clone(),
+    );
     crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
 
     let updated_inst = crate::instances::set_instance_pack_update(
@@ -690,12 +752,26 @@ pub async fn modpack_apply_update(
         summary.loader_version.clone(),
         new_version_id,
     )?;
+    // One row for the whole version bump, with the file churn as detail —
+    // the per-mod installs above are the mechanism, not the user's action.
+    crate::journal::record(
+        &inst_root,
+        crate::journal::JournalEvent::Content {
+            action: crate::journal::ContentAction::ModpackUpdated,
+            subject: previous_pack_name,
+            from_version: Some(previous_version),
+            to_version: Some(summary.version.clone()),
+            affected: Some((diff.added.len() + diff.updated.len() + diff.removed.len()) as f64),
+        },
+    );
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
         // A version update never touches `overrides/`, so nothing is skipped.
         skipped_overrides: vec![],
-        // No fresh import scan on a version update — nothing to report.
-        inert_loader_jars: vec![],
+        // The mods dir WAS re-classified above, so report it: a switch that
+        // changes the loader family is precisely when the user needs to know
+        // which bundled jars have stopped loading.
+        inert_loader_jars,
     });
     Ok(updated_inst)
 }
@@ -747,11 +823,30 @@ pub async fn modpack_reimport_overrides(
         });
     })
     .await?;
+    // Persist, don't just announce. The drawer's "Bundled files skipped" and
+    // "Files that won't load" sections read `pack_origin`, not this event — so
+    // reporting the fresh lists only here left the persisted ones stale after a
+    // reimport. That staleness used to be cleared by accident on the next
+    // version apply (which wiped the notes); now that an apply correctly carries
+    // them forward, a stale note would survive indefinitely.
+    //
+    // Re-extracting `overrides/` can drop bundled jars into `mods/`, so the
+    // inert-loader classification is redone here too rather than left alone.
+    let inert_loader_jars = crate::mods::modpack::import::classify_inert_loader_jars(
+        &crate::mods::installed::mods_dir(&inst_root),
+        inst.loader,
+        &inst.mc_version,
+    );
+    if let Some(mut origin) = crate::mods::installed::get_pack_origin(&inst_root).await? {
+        origin.skipped_overrides = outcome.skipped.clone();
+        origin.inert_loader_jars = inert_loader_jars.clone();
+        crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
+    }
+
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
         skipped_overrides: outcome.skipped,
-        // Re-extracting overrides does not re-classify the mods folder.
-        inert_loader_jars: vec![],
+        inert_loader_jars,
     });
     Ok(())
 }
