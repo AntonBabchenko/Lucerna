@@ -8,11 +8,13 @@
   import { t } from '$lib/i18n';
 
   // Full-viewport modal shell for the modpacks browser. Purely presentational:
-  // it owns the scrim, the large centered panel, and the header (title + ×),
-  // and projects its body via the `children` snippet. The modpacks browser is
-  // NOT instance-scoped (installing a pack creates a new instance), so framing
-  // it as a modal over a scrim signals "separate context, not the current
-  // instance" — the spatial fix for the modpack/mod confusion.
+  // it owns the scrim, the large centered panel, and the header (title + scope
+  // note + ×), and projects its body via the `children` snippet. The modpacks
+  // browser is NOT instance-scoped (installing a pack creates a new instance),
+  // so framing it as a modal over a scrim signals "separate context, not the
+  // current instance" — the spatial fix for the modpack/mod confusion. The
+  // scrim alone proved not to be enough, so the header also states the scope in
+  // words; the (?) keeps the long, explanation-level-aware version.
   //
   // Closing is unconditional and user-driven (× / scrim / Esc) — an import
   // finishing does NOT close the modal, so a mid-browse session isn't
@@ -38,20 +40,25 @@
     panelClass="w-[92vw] max-w-5xl h-[92vh] flex flex-col"
   >
     <header
-      class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0"
+      class="p-4 border-b border-border-subtle flex flex-col gap-1 shrink-0"
       data-testid="modpacks-modal"
     >
-      <h2 id="modpacks-modal-title" class="font-semibold text-primary">
-        {$t('modpacks.modal.title')}
-      </h2>
-      <HelpPopover
-        body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
-        triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
-        triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
-        closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}
-      />
-      <span class="flex-1"></span>
-      <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
+      <div class="flex items-center gap-1">
+        <h2 id="modpacks-modal-title" class="font-semibold text-primary">
+          {$t('modpacks.modal.title')}
+        </h2>
+        <HelpPopover
+          body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
+          triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
+          triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
+          closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}
+        />
+        <span class="flex-1"></span>
+        <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
+      </div>
+      <p class="text-xs text-muted" data-testid="modpacks-scope-note">
+        {$t('modpacks.modal.scopeNote')}
+      </p>
     </header>
     <div class="flex-1 overflow-hidden flex flex-col min-h-0">
       {@render children?.()}
