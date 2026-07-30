@@ -195,7 +195,9 @@
     </BusyButton>
   </div>
 
-  <div class="p-4 pb-2 flex flex-wrap gap-2">
+  <div
+    class="p-4 pb-2 flex flex-wrap gap-2 sticky top-0 z-10 bg-surface border-b border-border-subtle"
+  >
     <input
       type="search"
       bind:value={query}
@@ -225,7 +227,7 @@
     />
   </div>
 
-  <div class="p-4 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+  <div class="p-4 pt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
     {#if packs.length === 0}
       <div class="col-span-full text-sm text-placeholder text-center mt-8">
         {$t('modpacks.imported.view.noResults')}

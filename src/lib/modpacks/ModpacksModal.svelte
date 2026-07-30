@@ -37,7 +37,7 @@
   <Modal
     ariaLabelledby="modpacks-modal-title"
     {onClose}
-    panelClass="w-[92vw] max-w-5xl h-[92vh] flex flex-col"
+    panelClass="w-[92vw] h-[92vh] flex flex-col"
   >
     <header
       class="p-4 border-b border-border-subtle flex flex-col gap-1 shrink-0"

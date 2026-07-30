@@ -221,7 +221,10 @@
   });
 </script>
 
-<div data-tour-ctx="modpacks-filters" class="pt-2">
+<div
+  data-tour-ctx="modpacks-filters"
+  class="pt-2 sticky top-0 z-10 bg-surface border-b border-border-subtle"
+>
   <BrowseFilterBar
     searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
     searchPlaceholder={modpackBrowseState.source === 'curseforge'
@@ -269,7 +272,7 @@
     <div class="mt-8 text-sm text-placeholder text-center">{$t('modpacks.browse.noResults')}</div>
   {:else if page}
     {#if browserPrefs.layout === 'grid'}
-      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
         {#each sortedHits as hit (hit.project_id)}
           <ModpackCard
             {hit}
