@@ -887,11 +887,15 @@ pub async fn install_local(
         }
         // same name + same bytes → idempotent: fall through to record.
     } else {
-        fs::write(&dest, bytes)
+        // A hand-dropped jar exists nowhere else, so it is never linked:
+        // corruption of shared bytes would be unrecoverable, where a
+        // platform-sourced mod is only a re-download away. `place_bytes` still
+        // gives the temp-then-rename guarantee.
+        crate::mods::store::place_bytes(&dest, bytes)
             .await
             .map_err(|e| Error::ModsInstancePath {
-                path: dest.display().to_string(),
-                details: e.to_string(),
+                path: e.path.display().to_string(),
+                details: e.details(),
             })?;
     }
 
