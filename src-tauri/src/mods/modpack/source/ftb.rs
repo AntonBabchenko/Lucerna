@@ -537,6 +537,18 @@ impl ModpackSource for FtbModpackSource {
     ) -> Result<String, Error> {
         stage_impl(app, FTB_BASE, project_id, version_id).await
     }
+
+    async fn resolve_project_hit(
+        &self,
+        _project_ref: &str,
+    ) -> Result<crate::mods::modpack::schema::ModpackHit, Error> {
+        // FTB pack pages ARE keyed by the numeric API id, so this is mappable —
+        // but it needs a single-pack → hit mapper that does not exist yet, and
+        // v1 of import-by-link ships Modrinth + CurseForge. Tracked in ROADMAP.
+        Err(Error::ImportUrlUnsupportedSource {
+            platform: "FTB".into(),
+        })
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

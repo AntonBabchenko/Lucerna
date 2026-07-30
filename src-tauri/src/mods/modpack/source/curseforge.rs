@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::error::Error;
 use crate::mods::modpack::schema::{
-    ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
+    ModpackHit, ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
 };
 use crate::mods::modpack::source::{ModpackSource, SourceCaps};
 use crate::mods::platform::LoaderKind;
@@ -70,6 +70,11 @@ impl ModpackSource for CurseforgeModpackSource {
             version_id,
         )
         .await
+    }
+
+    async fn resolve_project_hit(&self, project_ref: &str) -> Result<ModpackHit, Error> {
+        let key = crate::mods::curseforge::keyring::resolve();
+        crate::mods::modpack::cf_api::fetch_hit_by_ref(CF_BASE, key.as_deref(), project_ref).await
     }
 }
 

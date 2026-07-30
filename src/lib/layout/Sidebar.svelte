@@ -45,6 +45,7 @@
     onOpenManage,
     onManageInstance = () => {},
     onCloneInstance = () => {},
+    onCreateShortcut,
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
@@ -97,6 +98,9 @@
     // Open the clone dialog for a specific profile (the right-click menu on a
     // row in the profile dropdown). Defaults to a no-op.
     onCloneInstance?: (instanceId: string) => void;
+    /** Undefined on platforms without desktop-shortcut support — the menu item
+     *  is then omitted rather than shown disabled. */
+    onCreateShortcut?: (instanceId: string) => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
     // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
@@ -540,6 +544,18 @@
                   testId: 'sidebar-ctx-clone-instance',
                   onSelect: () => onCloneInstance(instanceMenuTargetId),
                 },
+                // Omitted entirely where the OS has no shortcut support (the page
+                // leaves the handler undefined) rather than shown disabled.
+                ...(onCreateShortcut
+                  ? [
+                      {
+                        label: $t('sidebar.createShortcut'),
+                        icon: 'monitor' as const,
+                        testId: 'sidebar-ctx-create-shortcut',
+                        onSelect: () => onCreateShortcut?.(instanceMenuTargetId),
+                      },
+                    ]
+                  : []),
               ]}
               ariaLabel={$t('sidebar.instanceMenuAria')}
               top={instanceMenu.top}

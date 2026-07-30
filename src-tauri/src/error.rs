@@ -217,6 +217,14 @@ pub enum Error {
     #[error("Modpack archive is invalid: {details}")]
     ModpackInvalidArchive { details: String },
 
+    #[error("Not a supported Lucerna import link: {reason}")]
+    ImportUrlInvalid { reason: String },
+
+    // Field is `platform`, not `source`: thiserror reserves a field literally
+    // named `source` for the error-cause chain.
+    #[error("Import by link is not supported for {platform} yet")]
+    ImportUrlUnsupportedSource { platform: String },
+
     #[error("Modpack format unknown — no modrinth.index.json or manifest.json found")]
     ModpackFormatUnknown,
 

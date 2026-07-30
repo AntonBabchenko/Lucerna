@@ -316,6 +316,13 @@ pub struct GeneralSettings {
     /// later versions stay forward/backward compatible.
     #[serde(default)]
     pub hidden_sidebar_buttons: Vec<String>,
+    /// Opt-in OS registration of the `lucerna://` link scheme, so an
+    /// "Open in Lucerna" link from a browser opens the import dialog.
+    /// `#[serde(default)]` → false for app.json written before this field: the
+    /// launcher never writes to the user's registry unasked, and pasting a URL
+    /// into the import dialog works without it.
+    #[serde(default)]
+    pub register_url_scheme: bool,
 }
 
 impl Default for GeneralSettings {
@@ -332,6 +339,7 @@ impl Default for GeneralSettings {
             mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
             sftp_upload_concurrency: default_sftp_upload_concurrency(),
             hidden_sidebar_buttons: Vec::new(),
+            register_url_scheme: false,
         }
     }
 }

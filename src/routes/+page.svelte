@@ -61,7 +61,10 @@
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import type { PreflightReport } from '$lib/ipc/bindings';
+  import type { PreflightReport, QuickPlay } from '$lib/ipc/bindings';
+  import { listen } from '@tauri-apps/api/event';
+  import { dispatchIntent } from '$lib/launch/intent';
+  import CreateShortcutDialog from '$lib/instances/CreateShortcutDialog.svelte';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
   import { createQuickWorlds } from '$lib/worlds/quick-worlds.svelte';
@@ -167,6 +170,10 @@
   // Source instance for the clone dialog (null = closed). Shared by the
   // sidebar right-click menu and the Manage modal's Clone button.
   let cloneTargetId = $state<string | null>(null);
+  let shortcutTargetId = $state<string | null>(null);
+  // Whether this OS can write desktop shortcuts at all; the entry points are
+  // hidden rather than offering a button that could only ever fail.
+  let shortcutSupported = $state(false);
   let msSigningIn = $state(false);
   let exportDialogOpen = $state(false);
 
@@ -282,6 +289,7 @@
   let modInstalledUnlisten: (() => void) | null = null;
   let modUninstalledUnlisten: (() => void) | null = null;
   let modToggleUnlisten: (() => void) | null = null;
+  let intentUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
   let quickJoinOpen = $state(false);
@@ -714,6 +722,16 @@
     await accountsReady;
 
     void initOnboarding();
+
+    // Drain once for a cold start (the OS launched us WITH the link/shortcut
+    // args), and subscribe for the already-running case, where the
+    // single-instance guard parks a second launch's intent and emits this event.
+    // Registered after `instances` has loaded so a launch intent can resolve its
+    // instance id.
+    intentUnlisten = await listen('intent-pending', () => void drainIntent());
+    void drainIntent();
+
+    shortcutSupported = await commands.shortcutSupported();
   });
 
   onDestroy(() => mcv.dispose());
@@ -727,7 +745,55 @@
     modInstalledUnlisten?.();
     modUninstalledUnlisten?.();
     modToggleUnlisten?.();
+    intentUnlisten?.();
   });
+
+  // ── Inbound launch intents (desktop shortcuts, `lucerna://` links) ────────
+  // A shortcut's `--launch` and an OS-dispatched link both land in the backend's
+  // PendingIntent slot — at cold start from this process's argv, or forwarded by
+  // the single-instance guard from a second launch. We PULL (rather than only
+  // listening) so a cold-start intent cannot be missed by a listener that was
+  // not attached yet; take-once semantics in Rust make the double-drain safe.
+  let importUrlPrefill = $state<string | null>(null);
+  let importUrlFromExternal = $state(false);
+
+  /** A shortcut asked to launch `instanceId`. Runs the SAME path the Play button
+   *  uses, so every gate and every toast is inherited rather than re-implemented:
+   *  select the instance, then play (optionally into a world / onto a server). */
+  async function launchFromShortcut(instanceId: string, quickPlay: QuickPlay | null) {
+    if (!instances.some((i) => i.id === instanceId)) {
+      // Renamed or deleted instance: say so plainly instead of failing silently.
+      // The shortcut file itself is left alone — it is the user's to delete.
+      installError = $t('shortcut.instanceMissing');
+      return;
+    }
+    if (activeInstance?.id !== instanceId) {
+      await onSelectInstance(instanceId);
+      if (activeInstance?.id !== instanceId) return;
+    }
+    if (quickPlay === null) {
+      await onPlay();
+      return;
+    }
+    if (quickPlay.kind === 'singleplayer') {
+      await onQuickPlayWorld(quickPlay.world);
+    } else {
+      await connectToAddress(quickPlay.address);
+    }
+  }
+
+  async function drainIntent() {
+    const intent = await commands.takePendingIntent();
+    await dispatchIntent(intent, {
+      onUrl: (url) => {
+        // Only ever OPENS the import dialog — a link cannot install or launch.
+        importUrlPrefill = url;
+        importUrlFromExternal = true;
+        modpacksModalOpen = true;
+      },
+      onLaunch: (instanceId, quickPlay) => launchFromShortcut(instanceId, quickPlay),
+    });
+  }
 
   async function onSelectAccount(id: string) {
     const result = await commands.setActiveAccount(id);
@@ -1100,6 +1166,7 @@
         manageOpen = true;
       }}
       onCloneInstance={(id) => (cloneTargetId = id)}
+      onCreateShortcut={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
       {onOpenMods}
       onOpenLogs={() => {
         // Plain "Logs" open is not a deep-link — clear any stale crash path so
@@ -1319,6 +1386,7 @@
     isRunning={selectedRunning}
     initialSelectedId={manageInitialId}
     onCloneRequest={(id) => (cloneTargetId = id)}
+    onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
   />
 
   {#if cloneTargetId !== null}
@@ -1328,11 +1396,24 @@
     {/if}
   {/if}
 
+  {#if shortcutTargetId !== null}
+    {@const shortcutSource = instances.find((i) => i.id === shortcutTargetId)}
+    {#if shortcutSource}
+      <CreateShortcutDialog instance={shortcutSource} onClose={() => (shortcutTargetId = null)} />
+    {/if}
+  {/if}
+
   <InstanceIconDialog onSaved={refreshInstances} />
 
   <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>
     <ModpacksTab
       {instances}
+      urlPrefill={importUrlPrefill}
+      urlFromExternal={importUrlFromExternal}
+      onUrlConsumed={() => {
+        importUrlPrefill = null;
+        importUrlFromExternal = false;
+      }}
       onImport={(req) =>
         enqueueImport(req.projectId ?? req.path.split(/[\\/]/).pop() ?? 'modpack', req)}
       onInstanceCreated={(id) => {

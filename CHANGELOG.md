@@ -12,6 +12,20 @@ release is **0.9.0**.
 
 ### Added
 
+- **Import a modpack from a link, and one-click shortcuts on your desktop.**
+  Paste a Modrinth or CurseForge modpack page link into Modpacks → "Import from
+  URL…" and you land in the usual import flow — pack details, pick a version,
+  choose the files. A website or another app can hand Lucerna a `lucerna://`
+  link too, but a link can only ever *open* that dialog: it can never install a
+  pack or start the game on its own, and Lucerna says so when a link arrived
+  from somewhere else. Handling those links is off until you switch it on in
+  Settings → Integrations, which names the exact registry key it writes and
+  removes it again when you switch it back off. Separately, you can now create a
+  desktop shortcut for an instance — or straight into a specific world or onto a
+  saved server (Minecraft 1.20+) — from the instance right-click menu or the
+  Manage window. Link handling is Windows-only for now; shortcuts also work on
+  Linux.
+
 - **Everything lives in the install folder now.** On a fresh start, Lucerna
   creates its data root (`LucernaData` — instances, worlds, mods, caches,
   Java runtimes, logs, and in release builds the embedded browser profile)
