@@ -228,21 +228,41 @@
         </button>
       </div>
 
-      <!-- Mods -->
-      <div class="rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col gap-2.5">
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+      <!--
+        Mods. Header + body are navigation zones (Installed, or the browser
+        when nothing is installed yet); Optimise and Export are real actions
+        and stay as buttons in their own row below the clickable surface.
+      -->
+      <div class="rounded-xl border border-border-subtle bg-surface overflow-hidden flex flex-col">
+        <button
+          type="button"
+          class="card-zone px-3.5 pt-3.5 pb-2 text-[10px] uppercase tracking-wider text-muted"
+          aria-label={installedStats.total === 0
+            ? $t('page.overview.openBrowseAria')
+            : $t('page.overview.openInstalledAria')}
+          data-testid="overview-mods-header"
+          onclick={() => (installedStats.total === 0 ? onNavBrowse() : onNavInstalled())}
+        >
           {$t('page.overview.sectionMods')}
-        </div>
+        </button>
         {#if installedStats.total === 0}
-          <p class="text-sm text-muted">
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 text-sm text-muted"
+            aria-label={$t('page.overview.openBrowseAria')}
+            data-testid="overview-mods-empty"
+            onclick={onNavBrowse}
+          >
             {$t('page.overview.noModsHint')}
-            <button type="button" class="btn-tertiary" onclick={onNavBrowse}>
-              {$t('nav.modBrowser')}
-            </button>
-            {$t('page.overview.noModsHintSuffix')}
-          </p>
+          </button>
         {:else}
-          <div class="flex gap-4 text-sm">
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 flex gap-4 text-sm"
+            aria-label={$t('page.overview.openInstalledAria')}
+            data-testid="overview-mods-stats"
+            onclick={onNavInstalled}
+          >
             <span
               >{$t('page.overview.statsTotal')}
               <span class="font-medium text-secondary">{installedStats.total}</span></span
@@ -255,33 +275,27 @@
               >{$t('page.overview.statsDisabled')}
               <span class="font-medium text-secondary">{installedStats.disabled}</span></span
             >
-          </div>
-          <div class="flex gap-4">
-            <button type="button" class="btn-tertiary text-xs" onclick={onNavInstalled}>
-              {$t('page.overview.installedTab')}
-            </button>
-            <button type="button" class="btn-tertiary text-xs" onclick={onNavBrowse}>
-              {$t('nav.modBrowser')}
-            </button>
-          </div>
+          </button>
+        {/if}
+        <div class="px-3.5 pt-1 pb-3.5 flex flex-wrap gap-2">
           {#if installedStats.enabled >= 1}
-            <button type="button" class="btn-secondary btn-sm self-start" onclick={onExport}>
+            <button type="button" class="btn-secondary btn-sm" onclick={onExport}>
               {$t('page.overview.exportModpack')}
             </button>
           {/if}
-        {/if}
-        <!-- One-click Optimise: install a curated performance-mod set. Disabled
-             on vanilla (no loader to run the mods). -->
-        <button
-          type="button"
-          class="btn-secondary btn-sm self-start"
-          disabled={activeInstance.loader === 'vanilla' || optimiseResolving}
-          title={activeInstance.loader === 'vanilla' ? $t('optimise.vanillaTooltip') : undefined}
-          data-testid="optimise-btn"
-          onclick={onOptimise}
-        >
-          {optimiseResolving ? $t('optimise.resolving') : $t('optimise.button')}
-        </button>
+          <!-- One-click Optimise: install a curated performance-mod set. Disabled
+               on vanilla (no loader to run the mods). -->
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            disabled={activeInstance.loader === 'vanilla' || optimiseResolving}
+            title={activeInstance.loader === 'vanilla' ? $t('optimise.vanillaTooltip') : undefined}
+            data-testid="optimise-btn"
+            onclick={onOptimise}
+          >
+            {optimiseResolving ? $t('optimise.resolving') : $t('optimise.button')}
+          </button>
+        </div>
       </div>
 
       <!-- Modpack (pack instances only, full width) -->
@@ -322,43 +336,45 @@
         {/if}
       </div>
 
-      <!-- Integrity -->
-      <div
-        class="rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col gap-2"
+      <!--
+        Integrity. One zone for the whole card in all three states — the repair
+        action itself lives in IntegritySection inside Manage, and unhealthy
+        instances are additionally surfaced by AttentionPanel. Children are
+        <span>s: a <button> may only contain phrasing content.
+      -->
+      <button
+        type="button"
+        class="card-zone rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col items-start gap-2"
         data-testid="overview-integrity"
+        aria-label={$t('instance.integrity.openManageAria')}
+        onclick={() => onManage('integrity')}
       >
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+        <span class="text-[10px] uppercase tracking-wider text-muted">
           {$t('instance.integrity.heading')}
-        </div>
+        </span>
         {#if !activeInstance.integrity || isIntegrityStale(activeInstance.integrity)}
-          <p class="text-sm text-muted">{$t('instance.integrity.statusNotChecked')}</p>
-          <button type="button" class="btn-tertiary self-start text-xs" onclick={onManage}>
-            {$t('instance.integrity.overviewOpenManage')}
-          </button>
+          <span class="text-sm text-muted">{$t('instance.integrity.statusNotChecked')}</span>
         {:else if activeInstance.integrity.healthy}
-          <p class="text-sm text-success flex items-center gap-1.5">
+          <span class="text-sm text-success flex items-center gap-1.5">
             <Icon name="success" />
             {$t('instance.integrity.statusOk')}
-          </p>
+          </span>
           {#if activeInstance.integrity.checked_unix_ms}
-            <p class="text-xs text-muted">
+            <span class="text-xs text-muted">
               {$t('instance.integrity.checkedAt', {
                 date: new Date(activeInstance.integrity.checked_unix_ms).toLocaleString(),
               })}
-            </p>
+            </span>
           {/if}
         {:else}
-          <p class="text-sm text-warning-text flex items-center gap-1.5">
+          <span class="text-sm text-warning-text flex items-center gap-1.5">
             <Icon name="warning" class="text-warning-text" />
             {$t('instance.integrity.statusProblems', {
               count: activeInstance.integrity.problem_count,
             })}
-          </p>
-          <button type="button" class="btn-warning-soft btn-sm self-start" onclick={onManage}>
-            {$t('instance.integrity.overviewOpenRepair')}
-          </button>
+          </span>
         {/if}
-      </div>
+      </button>
     </div>
 
     <!-- Footer notices: install/mods errors + last exit code -->
