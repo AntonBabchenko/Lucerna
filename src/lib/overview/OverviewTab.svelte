@@ -4,6 +4,7 @@
   import { formatDuration } from '$lib/format/duration';
   import { relativeTime } from '$lib/format/relative-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
+  import type { ManageFocusField } from '$lib/instances/manage-focus';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
@@ -59,7 +60,7 @@
     installError: string | null;
     modsError: string | null;
     errors: Record<ErrorKey, string | null>;
-    onManage: () => void;
+    onManage: (field?: ManageFocusField | null) => void;
     onExport: () => void;
     onOpenPackDrawer: () => void;
     onPackUpdated?: () => void;
@@ -112,7 +113,8 @@
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled();
     else if (kind === 'server_log_fix') onOpenServers();
-    else onManage(); // pick_version + integrity
+    else if (kind === 'integrity') onManage('integrity');
+    else onManage('mc'); // pick_version
   }
 
   const ERROR_ORDER: ErrorKey[] = ['listAccounts', 'remove', 'instances', 'versions'];
@@ -169,28 +171,60 @@
     {/if}
 
     <div class="grid gap-3" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-      <!-- Configuration -->
-      <div class="rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col gap-2">
-        <div class="text-[10px] uppercase tracking-wider text-muted">
+      <!--
+        Configuration. The card carries no padding of its own: each zone
+        button carries it, so the buttons tile the whole card surface and any
+        point the user aims at is live. A <button> cannot nest another, so
+        "the whole card is clickable" has to be expressed this way.
+      -->
+      <div class="rounded-xl border border-border-subtle bg-surface overflow-hidden">
+        <button
+          type="button"
+          class="card-zone px-3.5 pt-3.5 pb-2 text-[10px] uppercase tracking-wider text-muted"
+          aria-label={$t('page.overview.openManageAria')}
+          data-testid="overview-config-header"
+          onclick={() => onManage(null)}
+        >
           {$t('page.overview.sectionConfiguration')}
-        </div>
-        <div class="flex justify-between text-sm">
+        </button>
+        <button
+          type="button"
+          class="card-zone px-3.5 py-1 flex justify-between gap-3 text-sm"
+          aria-label={$t('page.overview.editFieldAria', {
+            field: $t('page.overview.labelMinecraft'),
+          })}
+          data-testid="overview-config-mc"
+          onclick={() => onManage('mc')}
+        >
           <span class="text-muted">{$t('page.overview.labelMinecraft')}</span>
           <span class="font-mono">{activeInstance.mc_version || $t('page.overview.notSet')}</span>
-        </div>
-        <div class="flex justify-between text-sm">
+        </button>
+        <button
+          type="button"
+          class="card-zone px-3.5 py-1 flex justify-between gap-3 text-sm"
+          aria-label={$t('page.overview.editFieldAria', {
+            field: $t('page.overview.labelLoader'),
+          })}
+          data-testid="overview-config-loader"
+          onclick={() => onManage('loader')}
+        >
           <span class="text-muted">{$t('page.overview.labelLoader')}</span>
           <span class="font-mono">
             {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
               {' '}{activeInstance.loader_version}{/if}
           </span>
-        </div>
-        <div class="flex justify-between text-sm">
+        </button>
+        <button
+          type="button"
+          class="card-zone px-3.5 pt-1 pb-3.5 flex justify-between gap-3 text-sm"
+          aria-label={$t('page.overview.editFieldAria', {
+            field: $t('page.overview.labelMemory'),
+          })}
+          data-testid="overview-config-memory"
+          onclick={() => onManage('memory')}
+        >
           <span class="text-muted">{$t('page.overview.labelMemory')}</span>
           <span class="font-mono">{activeInstance.max_heap_mb} {$t('format.unit.megabyte')}</span>
-        </div>
-        <button type="button" class="btn-tertiary self-start text-xs" onclick={onManage}>
-          {$t('page.overview.manageBtn')}
         </button>
       </div>
 
