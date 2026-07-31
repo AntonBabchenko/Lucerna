@@ -11,6 +11,7 @@
 //!     assumption, not something this repo can prove. Sniff the magic and
 //!     re-emit in whatever framing was read.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 
 use fastnbt::Value;
@@ -56,6 +57,110 @@ pub fn serialize(root: &Value, framing: Framing) -> Result<Vec<u8>> {
             enc.finish().map_err(|e| parse_err(format!("gzip: {e}")))
         }
     }
+}
+
+/// Read the two lists. Absent or malformed shapes read as empty rather than
+/// erroring — listing a world must never fail because its level.dat is odd.
+pub fn lists(root: &Value) -> (Vec<String>, Vec<String>) {
+    let Value::Compound(map) = root else {
+        return (Vec::new(), Vec::new());
+    };
+    let Some(Value::Compound(data)) = map.get("Data") else {
+        return (Vec::new(), Vec::new());
+    };
+    let Some(Value::Compound(dp)) = data.get("DataPacks") else {
+        return (Vec::new(), Vec::new());
+    };
+    (
+        string_list(dp.get("Enabled")),
+        string_list(dp.get("Disabled")),
+    )
+}
+
+fn string_list(v: Option<&Value>) -> Vec<String> {
+    let Some(Value::List(items)) = v else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|i| match i {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Mutable access to `Data.DataPacks`, creating the compounds when absent and
+/// rejecting a key that exists with the wrong tag type. Mirrors
+/// `servers::nbt::servers_list_mut`.
+fn datapacks_mut(root: &mut Value) -> Result<&mut HashMap<String, Value>> {
+    let Value::Compound(map) = root else {
+        return Err(parse_err("level.dat root is not a compound"));
+    };
+    let data_slot = map
+        .entry("Data".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+    let Value::Compound(data) = data_slot else {
+        return Err(parse_err("level.dat Data is not a compound"));
+    };
+    let dp_slot = data
+        .entry("DataPacks".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+    match dp_slot {
+        Value::Compound(dp) => Ok(dp),
+        _ => Err(parse_err("level.dat Data.DataPacks is not a compound")),
+    }
+}
+
+fn list_mut<'a>(dp: &'a mut HashMap<String, Value>, key: &str) -> Result<&'a mut Vec<Value>> {
+    let slot = dp
+        .entry(key.to_string())
+        .or_insert_with(|| Value::List(Vec::new()));
+    match slot {
+        Value::List(list) => Ok(list),
+        _ => Err(parse_err(format!(
+            "level.dat Data.DataPacks.{key} is not a list"
+        ))),
+    }
+}
+
+fn drop_entry(list: &mut Vec<Value>, entry: &str) {
+    list.retain(|v| !matches!(v, Value::String(s) if s == entry));
+}
+
+fn push_unique(list: &mut Vec<Value>, entry: &str) {
+    if !list
+        .iter()
+        .any(|v| matches!(v, Value::String(s) if s == entry))
+    {
+        list.push(Value::String(entry.to_string()));
+    }
+}
+
+/// Put `entry` (a `file/<filename>` value) in exactly one of the two lists.
+/// Idempotent.
+pub fn set_enabled(root: &mut Value, entry: &str, enabled: bool) -> Result<()> {
+    let dp = datapacks_mut(root)?;
+    // Take both lists in turn — the borrow checker will not hand out two
+    // mutable borrows of the same map at once.
+    {
+        let from = if enabled { "Disabled" } else { "Enabled" };
+        drop_entry(list_mut(dp, from)?, entry);
+    }
+    {
+        let to = if enabled { "Enabled" } else { "Disabled" };
+        push_unique(list_mut(dp, to)?, entry);
+    }
+    Ok(())
+}
+
+/// Remove `entry` from both lists. Idempotent — this is what clears the
+/// "data packs are no longer present" screen after a pack is removed.
+pub fn forget(root: &mut Value, entry: &str) -> Result<()> {
+    let dp = datapacks_mut(root)?;
+    drop_entry(list_mut(dp, "Enabled")?, entry);
+    drop_entry(list_mut(dp, "Disabled")?, entry);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -104,6 +209,111 @@ mod tests {
     #[test]
     fn garbage_yields_level_dat_parse_not_a_panic() {
         let err = parse(b"absolutely not nbt").unwrap_err();
+        assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+    }
+
+    fn root_with_unknown_keys() -> Value {
+        let mut data = HashMap::new();
+        data.insert("LevelName".to_string(), Value::String("Survival".into()));
+        data.insert("RandomSeed".to_string(), Value::Long(12345));
+        let mut gamerules = HashMap::new();
+        gamerules.insert("keepInventory".to_string(), Value::String("true".into()));
+        data.insert("GameRules".to_string(), Value::Compound(gamerules));
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        root.insert("SomethingWeNeverModelled".to_string(), Value::Byte(7));
+        Value::Compound(root)
+    }
+
+    #[test]
+    fn lists_are_empty_when_datapacks_is_absent() {
+        let root = root_with_unknown_keys();
+        let (enabled, disabled) = lists(&root);
+        assert!(enabled.is_empty());
+        assert!(disabled.is_empty());
+    }
+
+    #[test]
+    fn set_enabled_true_adds_to_enabled_and_removes_from_disabled() {
+        let mut root = root_with_unknown_keys();
+        set_enabled(&mut root, "file/vm.zip", false).unwrap();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        let (enabled, disabled) = lists(&root);
+        assert_eq!(enabled, vec!["file/vm.zip".to_string()]);
+        assert!(disabled.is_empty());
+    }
+
+    #[test]
+    fn set_enabled_false_moves_the_entry_to_disabled() {
+        let mut root = root_with_unknown_keys();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        set_enabled(&mut root, "file/vm.zip", false).unwrap();
+        let (enabled, disabled) = lists(&root);
+        assert!(enabled.is_empty());
+        assert_eq!(disabled, vec!["file/vm.zip".to_string()]);
+    }
+
+    #[test]
+    fn set_enabled_is_idempotent() {
+        let mut root = root_with_unknown_keys();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        assert_eq!(lists(&root).0, vec!["file/vm.zip".to_string()]);
+    }
+
+    #[test]
+    fn forget_removes_the_entry_from_both_lists() {
+        let mut root = root_with_unknown_keys();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        set_enabled(&mut root, "file/other.zip", false).unwrap();
+        forget(&mut root, "file/vm.zip").unwrap();
+        forget(&mut root, "file/other.zip").unwrap();
+        let (enabled, disabled) = lists(&root);
+        assert!(enabled.is_empty());
+        assert!(disabled.is_empty());
+    }
+
+    #[test]
+    fn an_edit_preserves_every_unmodelled_key_through_a_gzip_round_trip() {
+        let mut root = root_with_unknown_keys();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        let bytes = serialize(&root, Framing::Gzip).unwrap();
+        let (back, _) = parse(&bytes).unwrap();
+
+        let Value::Compound(map) = &back else {
+            panic!("root must be a compound")
+        };
+        assert_eq!(map.get("SomethingWeNeverModelled"), Some(&Value::Byte(7)));
+        let Some(Value::Compound(data)) = map.get("Data") else {
+            panic!("Data must be a compound")
+        };
+        assert_eq!(data.get("RandomSeed"), Some(&Value::Long(12345)));
+        assert!(matches!(data.get("GameRules"), Some(Value::Compound(_))));
+        assert_eq!(
+            data.get("LevelName"),
+            Some(&Value::String("Survival".into()))
+        );
+    }
+
+    #[test]
+    fn a_wrong_tag_type_is_rejected_rather_than_overwritten() {
+        let mut data = HashMap::new();
+        data.insert(
+            "DataPacks".to_string(),
+            Value::String("not a compound".into()),
+        );
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        let mut root = Value::Compound(root);
+
+        let err = set_enabled(&mut root, "file/vm.zip", true).unwrap_err();
+        assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+    }
+
+    #[test]
+    fn a_non_compound_root_is_rejected() {
+        let mut root = Value::Int(1);
+        let err = set_enabled(&mut root, "file/vm.zip", true).unwrap_err();
         assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
     }
 }
