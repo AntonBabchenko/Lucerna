@@ -16,6 +16,7 @@
 //! `WRITE_SEQ` of its own.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -24,6 +25,29 @@ use crate::datapacks::{library_dir_at, registry_path_at, InstalledDatapack};
 use crate::error::{Error, Result};
 
 const FILE_VERSION: u32 = 1;
+
+/// Serializes every read-modify-write of the registry file: `list`'s
+/// reconcile-then-persist and `add`/`remove`'s own read-modify-write can
+/// otherwise interleave across the concurrent tasks Tauri runs each command
+/// as, and whichever write lands last wins with the other's entry silently
+/// dropped — the registry equivalent of `world_link`'s level.dat lost-update
+/// bug. `reconcile` re-adopts a physically-present file on the next read, but
+/// it cannot reconstruct `installed_at`, nor (once the catalog lands)
+/// `source`/`project_id`/`version_id` — those are gone for good.
+///
+/// A SEPARATE mutex from `world_link::level_dat_lock`, not the same one:
+/// nothing in this file ever calls into `world_link`, and the one place
+/// `world_link` calls into this module — `list_for_world_at` calling
+/// `registry::list` — does so without ever having taken `level_dat_lock`
+/// first (only the three level.dat-mutating entry points take that lock, and
+/// none of them calls `registry::*`). So the two locks are never both held by
+/// the same call stack, and keeping them apart cannot deadlock.
+/// `tokio::sync::Mutex`, not `std::sync::Mutex`: the critical section spans
+/// the `.await` points in `read_or_empty`/`reconcile`/`write`.
+fn registry_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 // Deliberately no `#[derive(Default)]`: a default `version: u32` would be `0`,
 // and calling `.unwrap_or_default()` anywhere would reintroduce exactly the
@@ -97,12 +121,31 @@ async fn write(instance_root: &Path, state: &OnDisk) -> Result<()> {
 async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
     let lib = library_dir_at(instance_root);
     let mut on_disk: Vec<String> = Vec::new();
-    if let Ok(mut rd) = fs::read_dir(&lib).await {
-        while let Ok(Some(e)) = rd.next_entry().await {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.to_ascii_lowercase().ends_with(".zip") {
-                on_disk.push(name);
+    match fs::read_dir(&lib).await {
+        Ok(mut rd) => {
+            while let Ok(Some(e)) = rd.next_entry().await {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.to_ascii_lowercase().ends_with(".zip") {
+                    on_disk.push(name);
+                }
             }
+        }
+        // A fresh instance with no datapacks/ dir yet: every entry really is
+        // gone, so retaining against an empty on_disk list is correct.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // Anything else — permission denied, a relocated data root caught
+        // mid-move, a transient hiccup — is NOT proof the library is empty.
+        // Treating it as one would `retain` every entry away and `list` would
+        // persist that empty state, permanently losing every pack's
+        // provenance for a problem that was never about the packs. Skip
+        // reconciling entirely; report nothing changed so the caller does
+        // not persist a wipe.
+        Err(e) => {
+            crate::diag!(
+                "datapacks: registry reconcile skipped, could not read {}: {e}",
+                lib.display()
+            );
+            return false;
         }
     }
 
@@ -115,7 +158,21 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
             continue;
         }
         let path = lib.join(&name);
-        let bytes = fs::read(&path).await.unwrap_or_default();
+        // A merely-unreadable file (permission change, AV hold, deleted
+        // between the listing above and this read) must not be adopted as a
+        // fabricated zero-byte entry — that presents a guess as fact (empty
+        // sha1, no pack_format, size 0). Skip adoption this pass; the next
+        // `list()` call tries again.
+        let bytes = match fs::read(&path).await {
+            Ok(b) => b,
+            Err(e) => {
+                crate::diag!(
+                    "datapacks: skipping adoption of {}, unreadable: {e}",
+                    path.display()
+                );
+                continue;
+            }
+        };
         let meta = crate::datapacks::pack_meta::read_meta(&bytes);
         state.datapacks.push(InstalledDatapack {
             name: meta
@@ -137,13 +194,21 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
 
 /// Read the registry, reconciled against `{instance}/datapacks/`. Persists the
 /// reconciled state (and any schema migration) back to disk when either
-/// changed anything.
+/// changed anything. The persist is best-effort: a full disk or a read-only
+/// data root must not turn an otherwise-successful listing into an error page
+/// — every pack still listed fine, only the housekeeping write failed.
 pub async fn list(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
+    let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
     let migrated = migrate(&mut state);
     let reconciled = reconcile(instance_root, &mut state).await;
     if migrated || reconciled {
-        write(instance_root, &state).await?;
+        if let Err(e) = write(instance_root, &state).await {
+            crate::diag!(
+                "datapacks: registry persist failed for {}: {e}",
+                instance_root.display()
+            );
+        }
     }
     let mut out = state.datapacks;
     out.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
@@ -153,6 +218,7 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
 /// Append a new entry, replacing any existing entry with the same filename.
 /// Caller has already placed the file in `{instance}/datapacks/`.
 pub async fn add(instance_root: &Path, item: InstalledDatapack) -> Result<()> {
+    let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
     state.datapacks.retain(|d| d.filename != item.filename);
     state.datapacks.push(item);
@@ -163,6 +229,7 @@ pub async fn add(instance_root: &Path, item: InstalledDatapack) -> Result<()> {
 /// Remove the entry with the given filename. Caller is responsible for
 /// removing the physical file, if that is also wanted.
 pub async fn remove(instance_root: &Path, filename: &str) -> Result<()> {
+    let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
     state.datapacks.retain(|d| d.filename != filename);
     state.version = FILE_VERSION;
@@ -278,5 +345,95 @@ mod tests {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, b"{ not json").unwrap();
         assert!(list(td.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_non_notfound_read_dir_error_does_not_wipe_the_registry() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
+        add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
+
+        // Replace the library DIRECTORY with a plain FILE. `read_dir` against
+        // a file fails with something other than `NotFound` on every
+        // platform — the same shape as a permission error or a relocated
+        // data root caught mid-move, and NOT the "fresh instance" case.
+        std::fs::remove_dir_all(&lib).unwrap();
+        std::fs::write(&lib, b"not a directory").unwrap();
+
+        let got = list(td.path()).await.unwrap();
+        assert_eq!(
+            got.len(),
+            1,
+            "a transient (non-NotFound) read_dir failure must not wipe existing entries"
+        );
+        assert_eq!(got[0].filename, "vm.zip");
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_pack_is_not_adopted_as_a_fabricated_zero_byte_entry() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        // A DIRECTORY named "sneaky.zip" passes the on-disk `.zip` name
+        // filter, but `fs::read` on a directory fails — reconcile must skip
+        // adopting it rather than recording `size_bytes: 0` and an empty
+        // sha1 as if that were a real (if empty) pack.
+        std::fs::create_dir_all(lib.join("sneaky.zip")).unwrap();
+
+        let got = list(td.path()).await.unwrap();
+        assert!(
+            got.is_empty(),
+            "an unreadable entry must not be adopted with fabricated metadata"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_persist_failure_does_not_turn_list_into_an_error() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
+
+        // Occupy the `lucerna/` directory's own path with a plain file, so
+        // the persist that adopting "vm.zip" would trigger fails inside
+        // `write`'s `create_dir_all` — the same shape as a full disk or a
+        // read-only data root. `list` must still return the reconciled data.
+        let lucerna_dir = td.path().join("lucerna");
+        std::fs::write(&lucerna_dir, b"occupied").unwrap();
+
+        let got = list(td.path()).await.unwrap();
+        assert_eq!(got.len(), 1, "reconciled data must still be returned");
+        assert_eq!(got[0].filename, "vm.zip");
+    }
+
+    /// Regression for the registry's lost-update window: `add`'s
+    /// read-modify-write on `installed-datapacks.json` used to have no mutual
+    /// exclusion, so two concurrent `add` calls could both read the same
+    /// on-disk state, and whichever wrote last would silently drop the
+    /// other's entry. With `registry_lock` serializing every call, this is
+    /// deterministic regardless of scheduling.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_adds_do_not_lose_an_entry() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        for i in 0..8 {
+            std::fs::write(lib.join(format!("p{i}.zip")), b"PACK").unwrap();
+        }
+
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let root = td.path().to_path_buf();
+            handles.push(tokio::spawn(async move {
+                add(&root, entry(&format!("p{i}.zip"), "sha")).await
+            }));
+        }
+        for h in handles {
+            h.await.unwrap().unwrap();
+        }
+
+        let got = list(td.path()).await.unwrap();
+        assert_eq!(got.len(), 8, "every concurrent add must survive");
     }
 }
