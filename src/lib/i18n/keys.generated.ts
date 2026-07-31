@@ -141,6 +141,7 @@ export type TranslationKey =
   | 'errors.ioTruncatedHint'
   | 'errors.javaSpawn'
   | 'errors.lastInstance'
+  | 'errors.levelDatParse'
   | 'errors.loaderUnavailable'
   | 'errors.mcLogsUpload'
   | 'errors.modpackBundledNoUrl'

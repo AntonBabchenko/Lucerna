@@ -372,6 +372,7 @@ describe('formatError', () => {
       import_no_provenance: { kind: 'import_no_provenance', id: 'abc' },
       import_source_missing: { kind: 'import_source_missing', path: 'C:/x/y' },
       servers_dat_parse: { kind: 'servers_dat_parse', reason: 'bad tag' },
+      level_dat_parse: { kind: 'level_dat_parse', reason: 'invalid tag id 99' },
       saved_server_name_invalid: {
         kind: 'saved_server_name_invalid',
         name: 'x',

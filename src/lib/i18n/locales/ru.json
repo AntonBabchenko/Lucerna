@@ -1837,6 +1837,7 @@
     "importNoProvenance": "Этот профиль не был импортирован из другого лаунчера.",
     "importSourceMissing": "Исходная папка больше не существует: {path}",
     "serversDatParse": "Не удалось прочитать список серверов (servers.dat)",
+    "levelDatParse": "Не удалось прочитать level.dat мира",
     "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
     "offlineNameInvalid": "Аккаунт «{name}» нельзя использовать: {reason} Смени ник на латиницу.",
     "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите.",

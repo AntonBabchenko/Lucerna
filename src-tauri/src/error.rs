@@ -488,6 +488,11 @@ pub enum Error {
         "your data folder is unavailable; reconnect it and restart before creating or launching"
     )]
     DataLocationUnavailable,
+
+    /// A world's `level.dat` could not be read or rewritten. `reason` is a raw
+    /// NBT/gzip library message — Opaque on the TS side.
+    #[error("level.dat could not be parsed: {reason}")]
+    LevelDatParse { reason: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1009,5 +1014,15 @@ mod tests {
         let e = Error::DataLocationUnavailable;
         let json = serde_json::to_string(&e).unwrap();
         assert_eq!(json, r#"{"kind":"data_location_unavailable"}"#);
+    }
+
+    #[test]
+    fn level_dat_parse_serializes_with_its_kind_and_reason() {
+        let e = Error::LevelDatParse {
+            reason: "invalid tag id 99".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "level_dat_parse");
+        assert_eq!(v["reason"], "invalid tag id 99");
     }
 }

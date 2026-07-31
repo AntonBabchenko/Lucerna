@@ -2264,7 +2264,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  data root is unavailable and the launcher is running from the temporary
  *  default fallback. Writing now would land in the wrong root.
  */
-{ kind: "data_location_unavailable" };
+{ kind: "data_location_unavailable" } | 
+/**
+ *  A world's `level.dat` could not be read or rewritten. `reason` is a raw
+ *  NBT/gzip library message — Opaque on the TS side.
+ */
+{ kind: "level_dat_parse"; reason: string };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,

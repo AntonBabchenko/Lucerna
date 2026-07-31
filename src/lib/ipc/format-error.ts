@@ -87,6 +87,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mc_logs_upload: 'opaque',
   server_import_invalid_archive: 'opaque',
   servers_dat_parse: 'opaque',
+  level_dat_parse: 'opaque',
   cosmetic_image_invalid: 'opaque',
   skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
@@ -447,6 +448,10 @@ export function formatError(e: IpcError): string {
       // sites — Opaque, so it truncates and points at Logs rather than leaking
       // English library text into the UI.
       return withDetailTail(translate('errors.serversDatParse'), e.reason);
+    case 'level_dat_parse':
+      // `reason` is a raw fastnbt/gzip message — Opaque, so it truncates and
+      // points at Logs rather than leaking English library text into the UI.
+      return withDetailTail(translate('errors.levelDatParse'), e.reason);
     case 'saved_server_name_invalid':
       return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
     case 'saved_server_list_changed':
