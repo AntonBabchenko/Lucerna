@@ -10,6 +10,24 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+
+- **Datapacks for singleplayer worlds.** A world's detail view gets a new
+  **Datapacks** tab next to Backups: install a datapack `.zip` into the
+  instance's shared library, then decide per world whether a pack is present
+  and whether it's enabled. Removing a pack from a world also clears its
+  `level.dat` entry, so a removed pack no longer leaves Minecraft asking about
+  a missing data pack the next time that world loads.
+
+### Fixed
+
+- A resource pack could be installed as a datapack on an own-server, and a
+  datapack as a resource pack — both are now told apart by their top-level
+  folder rather than by `pack.mcmeta` alone.
+- World deletion, restore, backup and import are refused while the instance
+  is running instead of racing the live game.
+- Cloning an instance now carries its datapack library along with it.
+
 ## [0.21.0] — 2026-07-31
 
 ### Added
