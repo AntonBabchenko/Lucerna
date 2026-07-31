@@ -62,6 +62,8 @@ mod skin_library;
 pub use skin_library::*;
 mod desktop;
 pub use desktop::*;
+mod datapacks;
+pub use datapacks::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)

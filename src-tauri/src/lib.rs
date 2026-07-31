@@ -348,6 +348,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::shortcut_supported,
             commands::shortcut_create,
             commands::shortcut_default_name,
+            // Client-side datapacks (Batch G: IPC surface):
+            commands::datapacks_list_library,
+            commands::datapacks_install_from_file,
+            commands::datapacks_remove_from_library,
+            commands::datapacks_list_for_world,
+            commands::datapacks_add_to_world,
+            commands::datapacks_remove_from_world,
+            commands::datapacks_set_enabled_in_world,
         ])
         .events(collect_events![
             network::DownloadProgress,

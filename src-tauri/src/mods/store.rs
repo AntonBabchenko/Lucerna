@@ -40,7 +40,8 @@ const FORCE_LINK_FAILURE: &str = "LUCERNA_TEST_FORCE_LINK_FAILURE";
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// How a store entry ended up in the instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
 pub enum Placement {
     /// One physical file, shared with the store and any other instance.
     Linked,

@@ -1577,6 +1577,40 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  pre-filled with the same value the backend would pick.
 	 */
 	shortcutDefaultName: (instanceName: string, target: ShortcutTarget) => __TAURI_INVOKE<string>("shortcut_default_name", { instanceName, target }),
+	/**
+	 *  List the instance's datapack library (`<instance>/datapacks/`), reconciled
+	 *  against disk. Unguarded — read-only.
+	 */
+	datapacksListLibrary: (instanceId: string) => typedError<InstalledDatapack[], Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
+	/**
+	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
+	 *  result) into the instance's library.
+	 */
+	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<InstalledDatapack, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
+	/**  Remove a datapack from the instance's library and its registry entry. */
+	datapacksRemoveFromLibrary: (instanceId: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename })),
+	/**
+	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
+	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
+	 *  compatibility against the instance's installed Minecraft. Unguarded —
+	 *  read-only.
+	 */
+	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapack[], Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
+	/**
+	 *  Link a library datapack into a world's `datapacks/` folder and enable it
+	 *  in level.dat.
+	 */
+	datapacksAddToWorld: (instanceId: string, world: string, filename: string) => typedError<Placement, Error>(__TAURI_INVOKE("datapacks_add_to_world", { instanceId, world, filename })),
+	/**
+	 *  Unlink a datapack from a world and drop its level.dat entry. Also the
+	 *  repair path for an `Orphaned` row.
+	 */
+	datapacksRemoveFromWorld: (instanceId: string, world: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_world", { instanceId, world, filename })),
+	/**
+	 *  Toggle a datapack's enabled/disabled state for one world. level.dat only —
+	 *  the file itself is never touched.
+	 */
+	datapacksSetEnabledInWorld: (instanceId: string, world: string, filename: string, enabled: boolean) => typedError<null, Error>(__TAURI_INVOKE("datapacks_set_enabled_in_world", { instanceId, world, filename, enabled })),
 };
 
 /** Events */
@@ -2657,6 +2691,30 @@ export type InstalledAsset = {
 	installed_at: string,
 };
 
+/**
+ *  One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
+ *  it deliberately carries no `enabled` field — one library entry fans out to N
+ *  worlds, each with its own state in its own `level.dat`.
+ */
+export type InstalledDatapack = {
+	filename: string,
+	sha1: string,
+	size_bytes: number | null,
+	/**  `pack.pack_format` from `pack.mcmeta`; `None` when unreadable. */
+	pack_format: number | null,
+	/**
+	 *  Display name: `pack.description` when it is a plain string, else the
+	 *  filename without its extension.
+	 */
+	name: string,
+	/**  Always `None` in slice 1 (local files only). Reserved for the catalog. */
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	/**  RFC 3339. */
+	installed_at: string,
+};
+
 export type InstalledMod = {
 	filename: string,
 	sha1: string,
@@ -3651,6 +3709,8 @@ export type OrphanRef = {
 	project_id: string,
 };
 
+export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
+
 /**
  *  Snapshot of the mods the user selected at modpack-import time, kept
  *  in `installed-mods.json` alongside the live entries so the launcher
@@ -3717,6 +3777,13 @@ export type PackOriginSummary = {
 	project_name: string,
 	mod_shas: string[],
 };
+
+/**  How a store entry ended up in the instance. */
+export type Placement = 
+/**  One physical file, shared with the store and any other instance. */
+"linked" | 
+/**  An independent physical copy (link unsupported here, or policy). */
+"copied";
 
 /**  A dependency the launcher plans to install, plus why that build was chosen. */
 export type PlannedDep = PlannedDep_Serialize | PlannedDep_Deserialize;
@@ -4622,6 +4689,26 @@ export type World = {
 	modified_unix_ms: number | null,
 	backup_count: number,
 };
+
+/**  One datapack as it appears for a single world. */
+export type WorldDatapack = {
+	filename: string,
+	state: WorldPackState,
+	/**
+	 *  False for a file the user (or a world import) put in the world folder
+	 *  directly. Supported, not an error — only "remove from library" is
+	 *  unavailable for it.
+	 */
+	in_library: boolean,
+	compat: PackCompat,
+};
+
+export type WorldPackState = "enabled" | "disabled" | "not_added" | 
+/**
+ *  Named in `level.dat`'s Enabled list but the file is gone — this is what
+ *  Minecraft turns into the "data packs are no longer present" screen.
+ */
+"orphaned";
 
 /**
  *  Lightweight world entry for the sidebar Play-button dropdown: folder
