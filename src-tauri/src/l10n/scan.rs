@@ -113,11 +113,35 @@ fn parse_lang_path(path: &str) -> Option<LangEntry> {
     if namespace.is_empty() || stem.is_empty() {
         return None;
     }
+    // Trust boundary: this is the one place an arbitrary third-party jar's
+    // zip-entry string becomes a typed `LangEntry`. Later code (the
+    // generated-pack assembler) composes NEW zip-entry paths straight from
+    // `namespace`/`code` — e.g. `format!("assets/{namespace}/lang/{code}.json", ..)`
+    // — without re-validating them, so a value that survives this function
+    // is trusted everywhere downstream. A forward slash can never reach
+    // `namespace`/`stem` (we split on it above), but `.`/`..` and a
+    // backslash (a directory separator on Windows) would still let a
+    // hostile or merely broken jar write outside the `assets/` tree of a
+    // pack we later generate, and an embedded control character (including
+    // NUL) can corrupt a path silently on some filesystems. Deliberately
+    // NOT tightened to Minecraft's full namespace grammar (`[a-z0-9_.-]`):
+    // we only count strings for a coverage report, so rejecting an
+    // unusual-but-harmless namespace would silently under-report a mod
+    // rather than protect anything.
+    if is_traversal_unsafe(namespace) || is_traversal_unsafe(stem) {
+        return None;
+    }
     Some(LangEntry {
         namespace: namespace.to_string(),
         code: stem.to_ascii_lowercase(),
         legacy,
     })
+}
+
+/// True when `s` is unsafe to compose into a future zip-entry path: see the
+/// trust-boundary comment in `parse_lang_path`.
+fn is_traversal_unsafe(s: &str) -> bool {
+    s == "." || s == ".." || s.contains('\\') || s.chars().any(|c| c.is_ascii_control())
 }
 
 /// Read one entry's raw bytes out of a jar. `None` when absent or unreadable —
@@ -354,5 +378,79 @@ mod tests {
             assert_eq!(map.get("k").map(String::as_str), Some(expected));
         }
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn rejects_dotdot_namespace_as_traversal() {
+        // `assets/../lang/en_us.json` → rest = "../lang/en_us.json", so a
+        // naive parse would hand back namespace == ".." — a value later code
+        // composes straight into a NEW zip-entry path (the generated-pack
+        // assembler). This is the trust boundary; the value must die here.
+        let bytes = jar(&[("assets/../lang/en_us.json", "{}")]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn rejects_dot_namespace_as_traversal() {
+        let bytes = jar(&[("assets/./lang/en_us.json", "{}")]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn rejects_namespace_containing_a_backslash() {
+        // A forward slash can never reach `namespace` — we split on it — but
+        // a backslash is a directory separator on Windows and needs an
+        // explicit check.
+        let bytes = jar(&[("assets/foo\\bar/lang/en_us.json", "{}")]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn rejects_stem_of_dotdot() {
+        // "...json".rsplit_once('.') splits at the LAST dot, giving
+        // stem = ".." and ext = "json" — this exercises the stem side of the
+        // guard, not the namespace side.
+        let bytes = jar(&[("assets/x/lang/...json", "{}")]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn existing_empty_namespace_and_empty_stem_guards_stay_pinned() {
+        // These two guards predate the traversal fix above; pin them so a
+        // future refactor of `parse_lang_path` can't silently drop either.
+        let empty_namespace = jar(&[("assets//lang/x.json", "{}")]);
+        assert!(list_lang_entries(&empty_namespace)
+            .expect("readable zip")
+            .is_empty());
+
+        let empty_stem = jar(&[("assets/x/lang/.json", "{}")]);
+        assert!(list_lang_entries(&empty_stem)
+            .expect("readable zip")
+            .is_empty());
+    }
+
+    #[test]
+    fn read_entry_on_unreadable_bytes_is_none() {
+        // The doc comment promises "absent OR unreadable"; only the
+        // "valid zip, missing entry" half was covered before
+        // (`reads_an_absent_entry_as_none`).
+        assert!(read_entry(b"not a zip", "assets/create/lang/en_us.json").is_none());
+    }
+
+    #[test]
+    fn namespace_containing_a_dot_is_still_accepted() {
+        // The guard targets bare `.`/`..`, not dots in general — a namespace
+        // like `some.mod` is legal and must not be silently dropped from the
+        // coverage report.
+        let bytes = jar(&[("assets/some.mod/lang/en_us.json", "{}")]);
+        let found = entries_only(list_lang_entries(&bytes).expect("readable zip"));
+        assert_eq!(
+            found,
+            vec![LangEntry {
+                namespace: "some.mod".into(),
+                code: "en_us".into(),
+                legacy: false,
+            }]
+        );
     }
 }
