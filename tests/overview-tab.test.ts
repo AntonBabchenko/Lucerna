@@ -242,6 +242,33 @@ describe('OverviewTab', () => {
     await fireEvent.click(getByTestId('overview-mods-header'));
     expect(browse).toBe(2);
   });
+
+  it('shows the localization row once mods are installed', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst },
+    });
+    expect(getByTestId('overview-localization')).toBeTruthy();
+  });
+
+  it('hides the localization row when no mods are installed', () => {
+    const { queryByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: { total: 0, enabled: 0, disabled: 0 },
+      },
+    });
+    expect(queryByTestId('overview-localization')).toBeNull();
+  });
+
+  it('opens localization when the row is clicked', async () => {
+    let opened = 0;
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, onOpenLocalization: () => opened++ },
+    });
+    await fireEvent.click(getByTestId('overview-localization'));
+    expect(opened).toBe(1);
+  });
 });
 
 describe('OverviewTab attention dismiss', () => {

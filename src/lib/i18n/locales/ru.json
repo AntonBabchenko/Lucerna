@@ -2189,7 +2189,6 @@
       "sectionMods": "Моды",
       "localization": "Перевод",
       "localizationValue": "{percent}%",
-      "openLocalizationAria": "Открыть перевод этой сборки",
       "pillTooltip": {
         "running": "Minecraft сейчас запущен для этого профиля.",
         "ready": "Готово к запуску — файлы установлены и актуальны.",

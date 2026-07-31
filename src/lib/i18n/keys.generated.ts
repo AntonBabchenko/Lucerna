@@ -1386,7 +1386,6 @@ export type TranslationKey =
   | 'page.overview.notYetPlayed'
   | 'page.overview.openBrowseAria'
   | 'page.overview.openInstalledAria'
-  | 'page.overview.openLocalizationAria'
   | 'page.overview.openManageAria'
   | 'page.overview.pillInstalling'
   | 'page.overview.pillNeedsInstall'

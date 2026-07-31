@@ -2189,7 +2189,6 @@
       "sectionMods": "Mods",
       "localization": "Translation",
       "localizationValue": "{percent}%",
-      "openLocalizationAria": "Open translation for this instance",
       "pillTooltip": {
         "running": "Minecraft is currently running for this instance.",
         "ready": "Ready to play — files are installed and up to date.",

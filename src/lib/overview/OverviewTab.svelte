@@ -302,13 +302,14 @@
           <button
             type="button"
             class="card-zone px-3.5 pb-2 flex justify-between gap-3 text-sm"
-            aria-label={$t('page.overview.openLocalizationAria')}
             data-testid="overview-localization"
             onclick={onOpenLocalization}
           >
             <span>{$t('page.overview.localization')}</span>
             <span class="font-medium text-secondary"
-              >{$t('page.overview.localizationValue', { percent: l10nPercent ?? 0 })}</span
+              >{l10nPercent === null || l10nPercent === undefined
+                ? '—'
+                : $t('page.overview.localizationValue', { percent: l10nPercent })}</span
             >
           </button>
         {/if}
