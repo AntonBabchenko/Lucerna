@@ -7,9 +7,9 @@
 //!
 //! Every write goes through `store::place_bytes`. A folder datapack is zipped
 //! IN MEMORY and placed with the same call, so this module holds no raw write
-//! primitive. That invariant is currently held by convention only — the
-//! structural guard (`tests/structural_no_inplace_mods_write.rs`) scans just
-//! `src/mods/` today; a later batch widens it to cover `src/datapacks/` too.
+//! primitive — enforced by the structural guard
+//! (`tests/structural_no_inplace_mods_write.rs`), which scans `src/datapacks/`
+//! alongside `src/mods/` and `src/worlds/`.
 
 use std::io::{Cursor, Write};
 use std::path::Path;

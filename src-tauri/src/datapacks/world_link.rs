@@ -6,10 +6,9 @@
 //! NAME for the library's physical file, not a copy. Creating and deleting a
 //! name is safe; writing through one is not (see `mods::store`'s module doc).
 //! Every placement here goes through `mods::store::materialize`, so this
-//! module holds no raw write primitive. That invariant is currently held by
-//! convention only — the structural guard
-//! (`tests/structural_no_inplace_mods_write.rs`) scans just `src/mods/`
-//! today; a later batch widens it to cover `src/datapacks/` too.
+//! module holds no raw write primitive — enforced by the structural guard
+//! (`tests/structural_no_inplace_mods_write.rs`), which scans `src/datapacks/`
+//! alongside `src/mods/` and `src/worlds/`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
