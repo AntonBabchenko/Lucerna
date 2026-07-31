@@ -2,9 +2,15 @@
 //! delegation into `crate::datapacks::*` — no business logic lives here.
 //!
 //! Read commands (`list_library`, `list_for_world`) are unguarded: they never
-//! touch `level.dat` or the library dir's contents, only read them. Every
-//! command that writes opens with [`guard`] — see `datapacks::guard`'s module
-//! doc for why this feature needs a hard gate the mods commands don't.
+//! touch `level.dat`. They are not, however, read-only in the strictest
+//! sense — both call `registry::list`, which reconciles against the library
+//! dir and persists the result when reconciliation changes anything. The
+//! only write this can ever produce is to the launcher-owned
+//! `installed-datapacks.json`; the game never reads that file, so this
+//! cannot race or corrupt anything Minecraft touches. Every command that
+//! writes to `level.dat` or the library dir's *content* opens with [`guard`]
+//! — see `datapacks::guard`'s module doc for why this feature needs a hard
+//! gate the mods commands don't.
 
 /// Fully-qualified per this file's neighbours (`commands::instances`): a
 /// re-export exists, but every existing guard call site spells out
