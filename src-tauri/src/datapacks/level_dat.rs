@@ -25,6 +25,15 @@ pub enum Framing {
     Raw,
 }
 
+/// A level.dat is a few KB. The cap is not about the honest case — it is
+/// about a crafted level.dat (from an imported world or a modpack override,
+/// both already treated as untrusted) inflating a gzip stream (up to
+/// ~1032:1) into a `Value` tree that costs far more per byte than the wire
+/// encoding — a `TAG_List` of `TAG_Byte` costs 1 byte on disk and roughly 56
+/// bytes as a `Value`. Left unbounded, that is not a caught error, it is an
+/// allocation failure, and Rust **aborts** the process.
+const MAX_DECOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
+
 fn parse_err(e: impl std::fmt::Display) -> Error {
     Error::LevelDatParse {
         reason: e.to_string(),
@@ -36,8 +45,17 @@ pub fn parse(bytes: &[u8]) -> Result<(Value, Framing)> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut buf = Vec::new();
         flate2::read::GzDecoder::new(bytes)
+            .take(MAX_DECOMPRESSED_BYTES)
             .read_to_end(&mut buf)
             .map_err(|e| parse_err(format!("gzip: {e}")))?;
+        // `.take` silently stops at the cap instead of erroring, so a stream
+        // that was truncated here would otherwise reach `from_bytes` and
+        // fail with a confusing NBT error instead of an honest one about size.
+        if buf.len() as u64 == MAX_DECOMPRESSED_BYTES {
+            return Err(parse_err(format!(
+                "gzip stream exceeds the {MAX_DECOMPRESSED_BYTES}-byte decompressed cap"
+            )));
+        }
         let v = fastnbt::from_bytes(&buf).map_err(parse_err)?;
         Ok((v, Framing::Gzip))
     } else {
@@ -118,7 +136,19 @@ fn list_mut<'a>(dp: &'a mut HashMap<String, Value>, key: &str) -> Result<&'a mut
         .entry(key.to_string())
         .or_insert_with(|| Value::List(Vec::new()));
     match slot {
-        Value::List(list) => Ok(list),
+        // An empty list passes `.all()` vacuously — the common case (a world
+        // with no packs recorded yet), and correct: there is nothing for it
+        // to be heterogeneous with.
+        Value::List(list) if list.iter().all(|v| matches!(v, Value::String(_))) => Ok(list),
+        // A non-string element is already present. Appending a `Value::String`
+        // to it would build a list fastnbt CAN write but Minecraft cannot
+        // read: the wire format's element-type byte comes from the first
+        // element only, so a mixed list serializes as one tag type with the
+        // wrong-shaped payloads behind it, desynchronising every tag that
+        // follows in the file.
+        Value::List(_) => Err(parse_err(format!(
+            "level.dat Data.DataPacks.{key} is not a list of strings"
+        ))),
         _ => Err(parse_err(format!(
             "level.dat Data.DataPacks.{key} is not a list"
         ))),
@@ -164,31 +194,102 @@ pub fn forget(root: &mut Value, entry: &str) -> Result<()> {
     Ok(())
 }
 
+/// The world folder's own name, for user-facing messages. `world_dir` is
+/// always the caller-supplied world directory itself (never derived from
+/// some other path), so this can only come back empty for a path with no
+/// normal final component — not a real world directory.
+fn folder_name_of(world_dir: &Path) -> String {
+    world_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// Maps a `std::fs::read` failure on `level.dat` to a typed error. A locked
+/// level.dat means "quit Minecraft", not "your world is corrupt" — telling a
+/// user their world is unparseable invites destructive recovery
+/// (delete-and-recreate, restore a stale backup) for a problem that goes away
+/// on its own once the game closes.
+///
+/// Windows-only: access denied (5), sharing violation (32) and lock
+/// violation (33) are the codes a held-open file surfaces there. On POSIX,
+/// `rename(2)` over a file another process has open SUCCEEDS, so a write
+/// against a world Minecraft has open on Linux/macOS is not caught by this
+/// mapping — or by this module — at all; Minecraft's next autosave silently
+/// overwrites what we wrote. A caller that must not race a running world has
+/// to consult the running-instance registry itself.
+fn map_read_err(path: &Path, e: std::io::Error, world_dir: &Path) -> Error {
+    if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+        Error::WorldInUse {
+            folder_name: folder_name_of(world_dir),
+        }
+    } else {
+        Error::io(path.display().to_string(), e)
+    }
+}
+
 /// Read `<world_dir>/level.dat`.
 pub fn read_at(world_dir: &Path) -> Result<(Value, Framing)> {
     let path = world_dir.join("level.dat");
-    let bytes = std::fs::read(&path).map_err(|e| parse_err(format!("{}: {e}", path.display())))?;
+    let bytes = std::fs::read(&path).map_err(|e| map_read_err(&path, e, world_dir))?;
     parse(&bytes)
 }
 
 /// Rewrite `<world_dir>/level.dat`, keeping the pre-edit bytes in
 /// `level.dat_lucerna.bak`.
 ///
-/// Deliberately NOT `level.dat_old` — that is Minecraft's own recovery copy and
-/// overwriting it would trade away the user's fallback.
+/// Deliberately NOT `level.dat_old` — that is Minecraft's own recovery copy
+/// and overwriting it would trade away the user's fallback.
 ///
-/// Both writes go through `store::place_bytes` (temp + rename), so a crash can
-/// never leave a half-written level.dat, and this module needs no raw write
-/// primitive of its own.
+/// Both writes go through `store::place_bytes` (temp + rename), so a
+/// *process* crash can never leave a half-written level.dat. `place_bytes`
+/// does not fsync, so a power-loss during the rename window can still lose
+/// the tail of whichever file was mid-write — Minecraft's own `level.dat_old`
+/// remains the last line of defence against that case.
 pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Result<()> {
     let path = world_dir.join("level.dat");
     let new_bytes = serialize(root, framing)?;
 
-    if let Ok(old) = std::fs::read(&path) {
-        let bak = world_dir.join("level.dat_lucerna.bak");
-        crate::mods::store::place_bytes(&bak, &old)
-            .await
-            .map_err(|e| map_store_err(&e))?;
+    // Verify what we are about to write can be read back, before touching
+    // disk at all: a level.dat is a few KB, so the reparse is free next to
+    // the consequence of silently writing something unopenable. Deliberately
+    // NOT whole-Value equality — `Value::Float`/`Value::Double` derive
+    // `PartialEq`, so a world whose `Data.Player.Pos` holds a NaN (a real
+    // corruption state this function might be asked to repair) would fail
+    // equality and block a legitimate write. Checking that the
+    // enabled/disabled lists read back as intended catches structural
+    // corruption and truncation without that false positive.
+    let (reparsed, _) = parse(&new_bytes)?;
+    if lists(&reparsed) != lists(root) {
+        return Err(parse_err(
+            "level.dat re-read did not match the edit; not writing",
+        ));
+    }
+
+    // Never overwrite level.dat unless the pre-edit bytes are either safely
+    // copied to the backup, or provably absent. `if let Ok(old) = read(..)`
+    // would treat every non-`NotFound` read failure — permission denied, a
+    // lock, a bad sector — the same as "no file yet" and overwrite anyway: on
+    // POSIX, `rename(2)` needs write+execute on the *directory* and no
+    // permission on the destination file itself, so a level.dat we cannot
+    // read can still rename over fine. That would silently destroy the only
+    // copy of the world's metadata.
+    match std::fs::read(&path) {
+        Ok(old) => {
+            let bak = world_dir.join("level.dat_lucerna.bak");
+            crate::mods::store::place_bytes(&bak, &old)
+                .await
+                .map_err(|e| map_store_err(&e))?;
+            // The entire safety story here rests on a file the user has
+            // never heard of — name it so a shared log points at the
+            // recovery copy.
+            crate::diag!("datapacks: backed up {} before rewriting", bak.display());
+        }
+        // Absent is the only benign case: a world with no level.dat yet.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // The file exists and we could not read it to back it up. Never
+        // overwrite what we could not preserve.
+        Err(e) => return Err(map_read_err(&path, e, world_dir)),
     }
 
     crate::mods::store::place_bytes(&path, &new_bytes)
@@ -197,8 +298,9 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
 }
 
 /// A running Minecraft holds level.dat open — surface that as the friendly
-/// typed `WorldInUse` rather than a raw IO string. Windows: access denied (5),
-/// sharing violation (32), lock violation (33).
+/// typed `WorldInUse` rather than a raw IO string. See `map_read_err` for the
+/// identical mapping applied to a plain read, and its POSIX caveat, which
+/// applies here unchanged.
 fn map_store_err(e: &crate::mods::store::StoreIoError) -> Error {
     if matches!(e.source.raw_os_error(), Some(5) | Some(32) | Some(33)) {
         let folder_name = e
@@ -367,6 +469,23 @@ mod tests {
         assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
     }
 
+    #[test]
+    fn a_heterogeneous_list_is_rejected_rather_than_appended_to() {
+        // Enabled already holds a non-string element. Appending a string to
+        // it would build a list fastnbt can write but Minecraft cannot read
+        // (the wire element-type byte comes from the first element only).
+        let mut dp = HashMap::new();
+        dp.insert("Enabled".to_string(), Value::List(vec![Value::Int(1)]));
+        let mut data = HashMap::new();
+        data.insert("DataPacks".to_string(), Value::Compound(dp));
+        let mut root_map = HashMap::new();
+        root_map.insert("Data".to_string(), Value::Compound(data));
+        let mut root = Value::Compound(root_map);
+
+        let err = set_enabled(&mut root, "file/vm.zip", true).unwrap_err();
+        assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+    }
+
     #[tokio::test]
     async fn write_at_creates_a_backup_and_keeps_the_original_readable() {
         let td = tempfile::tempdir().unwrap();
@@ -398,10 +517,29 @@ mod tests {
         assert!(world.join("level.dat").exists());
     }
 
+    #[tokio::test]
+    async fn write_at_refuses_to_overwrite_when_it_cannot_back_up() {
+        let td = tempfile::tempdir().unwrap();
+        let world = td.path();
+        // A directory at level.dat's path makes `fs::read` fail with
+        // something other than NotFound on every platform — the same shape
+        // as a locked-down file we have no permission to read.
+        std::fs::create_dir(world.join("level.dat")).unwrap();
+
+        let result = write_at(world, &sample_root(), Framing::Gzip).await;
+        assert!(result.is_err());
+        // Nothing was destroyed and nothing was fabricated: the path is
+        // still exactly what it was, and no backup was ever created.
+        assert!(world.join("level.dat").is_dir());
+        assert!(!world.join("level.dat_lucerna.bak").exists());
+    }
+
     #[test]
-    fn read_at_reports_a_missing_file_as_level_dat_parse() {
+    fn read_at_reports_a_missing_file_as_an_io_error_not_corruption() {
         let td = tempfile::tempdir().unwrap();
         let err = read_at(td.path()).unwrap_err();
-        assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+        // Missing is not corrupt: LevelDatParse would tell a user their
+        // world is broken when there is simply no world there yet.
+        assert!(matches!(err, crate::error::Error::Io { .. }));
     }
 }
