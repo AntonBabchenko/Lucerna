@@ -52,6 +52,19 @@ pub async fn install_local_at(instance_root: &Path, src: &Path) -> Result<Instal
             .map_err(|e| Error::io(name.clone(), format!("join: {e}")))??;
         install_named_at(instance_root, &filename, &bytes).await
     } else {
+        // Minecraft's pack-folder scanner only loads directory entries and
+        // `*.zip` — a file whose CONTENT is a valid datapack but whose NAME
+        // doesn't end `.zip` would install cleanly, list in the registry and
+        // the UI, and link into a world, then simply never load. Reject the
+        // name before spending a read on the bytes.
+        if !name.to_ascii_lowercase().ends_with(".zip") {
+            return Err(Error::ModsDecode {
+                platform: "datapack".into(),
+                details: format!(
+                    "{name} is not a .zip file — Minecraft only loads directories and .zip archives from datapacks/"
+                ),
+            });
+        }
         let bytes = tokio::fs::read(src)
             .await
             .map_err(|e| Error::io(src.display().to_string(), e))?;
@@ -274,6 +287,25 @@ mod tests {
         };
         assert!(details.contains("resource pack"), "message was: {details}");
         assert!(!td.path().join("datapacks/Faithful.zip").exists());
+    }
+
+    #[tokio::test]
+    async fn rejects_a_non_zip_extension_even_with_valid_datapack_content() {
+        let td = tempfile::tempdir().unwrap();
+        // The BYTES are a perfectly valid datapack zip; only the on-disk name
+        // is wrong. Minecraft's scanner only loads directories and `*.zip`,
+        // so a `.rar`-named pack would never load despite passing every
+        // content check.
+        let src = td.path().join("MyPack.rar");
+        std::fs::write(&src, datapack_zip()).unwrap();
+
+        let err = install_local_at(td.path(), &src).await.unwrap_err();
+
+        let Error::ModsDecode { details, .. } = err else {
+            panic!("expected Error::ModsDecode, got {err:?}");
+        };
+        assert!(details.contains(".zip"), "message was: {details}");
+        assert!(!td.path().join("datapacks").exists());
     }
 
     #[tokio::test]
