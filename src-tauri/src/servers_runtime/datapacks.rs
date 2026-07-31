@@ -1,8 +1,10 @@
 //! Server datapack management. Datapacks live in `runtime/<level>/datapacks/`
 //! where `<level>` is `level-name` from `server.properties` (default `world`).
-//! A datapack ships as a `.zip` with `pack.mcmeta` at its root (Minecraft also
-//! loads unzipped folders, but the launcher only installs zips). Pure-of-network;
-//! I/O around a plain directory, mirroring [`super::quarantine`]'s style.
+//! A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
+//! `data/` tree — see [`crate::datapacks::pack_meta`] for why `pack.mcmeta`
+//! alone is not enough (Minecraft also loads unzipped folders, but the launcher
+//! only installs zips). Pure-of-network; I/O around a plain directory,
+//! mirroring [`super::quarantine`]'s style.
 
 use crate::error::{Error, Result};
 use std::io::Read;
@@ -38,22 +40,11 @@ pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
     runtime.join(safe).join("datapacks")
 }
 
-/// True iff `bytes` is a zip carrying `pack.mcmeta` at its root — the marker
-/// Minecraft uses to recognise a datapack. Best-effort: a non-zip / unreadable
-/// archive yields `false`. A `pack.mcmeta` nested under a sub-folder does NOT
-/// count (Minecraft would not load such a zip as a datapack either).
+/// A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
+/// `data/` tree. The `pack.mcmeta`-only check this used to do accepted every
+/// resource pack; classification now lives in one place.
 pub fn zip_is_datapack(bytes: &[u8]) -> bool {
-    let Ok(mut zip) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
-        return false;
-    };
-    for i in 0..zip.len() {
-        let Ok(entry) = zip.by_index(i) else { continue };
-        // `name()` is the full path inside the zip; root means no separator.
-        if entry.name() == "pack.mcmeta" {
-            return true;
-        }
-    }
-    false
+    crate::datapacks::pack_meta::classify(bytes) == crate::datapacks::pack_meta::PackKind::Datapack
 }
 
 /// List datapack archive filenames in `dir` (sorted). A missing dir yields an
@@ -213,6 +204,24 @@ mod tests {
     #[test]
     fn zip_is_datapack_false_on_garbage() {
         assert!(!zip_is_datapack(b"not a zip"));
+    }
+
+    #[test]
+    fn zip_is_datapack_rejects_a_resource_pack() {
+        // Regression: the shipped check accepted any zip with a root pack.mcmeta,
+        // which every resource pack has.
+        use std::io::Write;
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":34}}"#).unwrap();
+        zw.start_file("assets/minecraft/textures/x.png", opts)
+            .unwrap();
+        zw.write_all(b"\x89PNG").unwrap();
+        let bytes = zw.finish().unwrap().into_inner();
+
+        assert!(!zip_is_datapack(&bytes));
     }
 
     #[test]
