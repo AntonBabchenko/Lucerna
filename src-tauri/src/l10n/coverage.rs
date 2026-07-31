@@ -94,6 +94,138 @@ pub fn instance_percent(all: &[NamespaceCoverage]) -> u32 {
     (covered * 100 / total) as u32
 }
 
+/// Coverage for one instance: per-namespace counts plus the languages the
+/// installed mods actually ship, so the UI can offer a real target list rather
+/// than a hardcoded one.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceCoverage {
+    pub lang: String,
+    pub percent: u32,
+    pub namespaces: Vec<NamespaceCoverage>,
+    /// Every language code found in any installed mod, sorted. Always contains
+    /// `lang` even when nothing ships it, so the picker can show the current
+    /// selection.
+    pub available_codes: Vec<String>,
+}
+
+/// Map a launcher UI locale (`ru`, `en`, or a fuller tag) to a Minecraft
+/// language code. Minecraft codes are always `<lang>_<region>` lowercase; for
+/// the common case the region repeats the language.
+pub fn default_target_code(ui_locale: &str) -> String {
+    let lower = ui_locale.to_ascii_lowercase().replace('-', "_");
+    if lower.is_empty() {
+        return "en_us".to_string();
+    }
+    if lower.contains('_') {
+        return lower;
+    }
+    match lower.as_str() {
+        "en" => "en_us".to_string(),
+        "ru" => "ru_ru".to_string(),
+        other => format!("{other}_{other}"),
+    }
+}
+
+/// Scan every enabled mod jar of an instance and aggregate coverage.
+///
+/// Reads jars only. An instance's mod jars are HARDLINKS into a shared content
+/// store — opening one for writing would corrupt that mod for every instance
+/// sharing it.
+pub async fn scan_instance(
+    inst_root: &Path,
+    cache_path: &Path,
+    store_dir: &Path,
+    lang: &str,
+) -> Result<InstanceCoverage, crate::error::Error> {
+    let installed = crate::mods::installed::list(inst_root).await?;
+    let mods_dir = crate::mods::installed::mods_dir(inst_root);
+
+    let cached = ScanCache::load(cache_path);
+
+    let mut per_ns: BTreeMap<String, NamespaceCoverage> = BTreeMap::new();
+    let mut available: BTreeSet<String> = BTreeSet::new();
+    let mut fresh: Vec<(String, Vec<NamespaceCoverage>)> = Vec::new();
+
+    for m in installed.iter().filter(|m| m.enabled) {
+        if let Some(hit) = cached.get(lang, &m.sha1) {
+            for c in hit {
+                merge_into(&mut per_ns, c.clone());
+            }
+            continue;
+        }
+        let Ok(bytes) = tokio::fs::read(mods_dir.join(&m.filename)).await else {
+            continue; // a jar that vanished between list() and here
+        };
+        let (cov, codes) = scan_one_jar(&bytes, lang, store_dir)?;
+        available.extend(codes);
+        for c in &cov {
+            merge_into(&mut per_ns, c.clone());
+        }
+        fresh.push((m.sha1.clone(), cov));
+    }
+
+    if !fresh.is_empty() {
+        ScanCache::update(cache_path, |c| {
+            for (sha, cov) in fresh {
+                c.put(lang, &sha, cov);
+            }
+        });
+    }
+
+    let namespaces: Vec<NamespaceCoverage> = per_ns.into_values().collect();
+    available.insert(lang.to_string());
+    Ok(InstanceCoverage {
+        lang: lang.to_string(),
+        percent: instance_percent(&namespaces),
+        namespaces,
+        available_codes: available.into_iter().collect(),
+    })
+}
+
+/// Fold one namespace's counts into the aggregate. Two jars may both supply a
+/// namespace (Jar-in-Jar); their key sets are unioned by summing.
+fn merge_into(acc: &mut BTreeMap<String, NamespaceCoverage>, c: NamespaceCoverage) {
+    acc.entry(c.namespace.clone())
+        .and_modify(|e| {
+            e.total_keys += c.total_keys;
+            e.from_mod += c.from_mod;
+            e.overridden += c.overridden;
+        })
+        .or_insert(c);
+}
+
+/// Coverage for one jar, plus every language code it ships.
+/// `store_dir` is unused in this PR (no overrides exist yet) and is threaded
+/// through so the next PR adds the override count without changing signatures.
+fn scan_one_jar(
+    jar_bytes: &[u8],
+    lang: &str,
+    _store_dir: &Path,
+) -> Result<(Vec<NamespaceCoverage>, Vec<String>), crate::error::Error> {
+    let entries = crate::l10n::scan::list_lang_entries(jar_bytes)?;
+    let codes: Vec<String> = entries.iter().map(|(e, _)| e.code.clone()).collect();
+
+    let mut out = Vec::new();
+    let namespaces: BTreeSet<String> = entries.iter().map(|(e, _)| e.namespace.clone()).collect();
+
+    for ns in namespaces {
+        let en = entries
+            .iter()
+            .find(|(e, _)| e.namespace == ns && e.code == "en_us")
+            .and_then(|(e, p)| crate::l10n::scan::read_lang_map(jar_bytes, e, p));
+        let Some(en) = en else {
+            continue; // no English source ⇒ nothing to measure against
+        };
+        let target = entries
+            .iter()
+            .find(|(e, _)| e.namespace == ns && e.code == lang)
+            .and_then(|(e, p)| crate::l10n::scan::read_lang_map(jar_bytes, e, p));
+        out.push(namespace_coverage(&ns, &en, target.as_ref(), &[]));
+    }
+    Ok((out, codes))
+}
+
 /// Serializes the disk read-modify-write; held only over the synchronous
 /// load/save, never across a scan. Mirrors `mods::summary_cache::DISK_LOCK`.
 static CACHE_DISK_LOCK: Mutex<()> = Mutex::new(());
@@ -434,5 +566,18 @@ mod tests {
             namespace_coverage("x", &en, Some(&target), &[]).percent(),
             99
         );
+    }
+
+    #[test]
+    fn default_target_language_maps_ui_locale_to_a_minecraft_code() {
+        assert_eq!(default_target_code("ru"), "ru_ru");
+        assert_eq!(default_target_code("en"), "en_us");
+        // Unknown UI locale: mirror the code (`fr` → `fr_fr`) rather than
+        // silently falling back to English, which would hide the mismatch.
+        assert_eq!(default_target_code("fr"), "fr_fr");
+        // Already a full code: pass through, lowercased and underscored.
+        assert_eq!(default_target_code("pt_BR"), "pt_br");
+        assert_eq!(default_target_code("zh-Hans"), "zh_hans");
+        assert_eq!(default_target_code(""), "en_us");
     }
 }

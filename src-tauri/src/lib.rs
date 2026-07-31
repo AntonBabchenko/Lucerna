@@ -348,6 +348,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::shortcut_supported,
             commands::shortcut_create,
             commands::shortcut_default_name,
+            // In-game mod localization (translation coverage):
+            commands::l10n_coverage,
         ])
         .events(collect_events![
             network::DownloadProgress,

@@ -62,6 +62,8 @@ mod skin_library;
 pub use skin_library::*;
 mod desktop;
 pub use desktop::*;
+mod l10n;
+pub use l10n::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)

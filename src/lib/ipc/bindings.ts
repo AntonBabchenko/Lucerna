@@ -1577,6 +1577,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  pre-filled with the same value the backend would pick.
 	 */
 	shortcutDefaultName: (instanceName: string, target: ShortcutTarget) => __TAURI_INVOKE<string>("shortcut_default_name", { instanceName, target }),
+	/**
+	 *  Scan the instance's enabled mods for language coverage in `lang`.
+	 * 
+	 *  Per-jar results are cached by (language, jar SHA-1), so an unchanged
+	 *  instance re-renders with zero jar reads. An empty `lang` means "derive from
+	 *  the UI locale", which the caller passes through from the i18n store.
+	 */
+	l10nCoverage: (instanceId: string, lang: string) => typedError<InstanceCoverage, Error>(__TAURI_INVOKE("l10n_coverage", { instanceId, lang })),
 };
 
 /** Events */
@@ -2679,6 +2687,23 @@ export type InstalledMod = {
 	requires?: string[],
 };
 
+/**
+ *  Coverage for one instance: per-namespace counts plus the languages the
+ *  installed mods actually ship, so the UI can offer a real target list rather
+ *  than a hardcoded one.
+ */
+export type InstanceCoverage = {
+	lang: string,
+	percent: number,
+	namespaces: NamespaceCoverage[],
+	/**
+	 *  Every language code found in any installed mod, sorted. Always contains
+	 *  `lang` even when nothing ships it, so the picker can show the current
+	 *  selection.
+	 */
+	availableCodes: string[],
+};
+
 /**  Base64 PNG returned to the UI (mirrors `accounts::skins::AccountSkin`). */
 export type InstanceIcon = {
 	png_base64: string,
@@ -3528,6 +3553,20 @@ export type ModpackVersionEntry = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+/**  Translation coverage for one resource namespace. */
+export type NamespaceCoverage = {
+	namespace: string,
+	/**  Keys in the namespace's `en_us` file — the denominator. */
+	totalKeys: number,
+	/**  Keys the mod itself translates into the target language. */
+	fromMod: number,
+	/**
+	 *  Keys the user overrides that the mod does NOT already translate.
+	 *  Disjoint from `from_mod` by construction so `covered()` is a plain sum.
+	 */
+	overridden: number,
+};
 
 /**  Why a pack instance cannot be update-checked (structural, not transient). */
 export type NotCheckableReason = 
