@@ -32,6 +32,12 @@ pub async fn backup_world(
     instance_id: String,
     world_folder_name: String,
 ) -> Result<crate::worlds::Backup, crate::error::Error> {
+    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
+    // on exit — a mutation now is clobbered at best. Same gate the datapack
+    // commands use.
+    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
+        &instance_id,
+    ))?;
     crate::worlds::backup::backup_world(&app, &instance_id, &world_folder_name).await
 }
 
@@ -59,6 +65,12 @@ pub async fn restore_backup(
     backup_filename: String,
     mode: crate::worlds::RestoreMode,
 ) -> Result<crate::worlds::RestoredWorld, crate::error::Error> {
+    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
+    // on exit — a mutation now is clobbered at best. Same gate the datapack
+    // commands use.
+    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
+        &instance_id,
+    ))?;
     crate::worlds::restore::restore_backup(
         &app,
         &instance_id,
@@ -78,6 +90,7 @@ pub fn delete_backup(
     world_folder_name: String,
     backup_filename: String,
 ) -> Result<(), crate::error::Error> {
+    // No running guard: backups live outside the world tree the JVM holds.
     crate::worlds::backup::delete_backup(&app, &instance_id, &world_folder_name, &backup_filename)
 }
 
@@ -89,6 +102,12 @@ pub fn delete_world(
     instance_id: String,
     world_folder_name: String,
 ) -> Result<(), crate::error::Error> {
+    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
+    // on exit — a mutation now is clobbered at best. Same gate the datapack
+    // commands use.
+    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
+        &instance_id,
+    ))?;
     crate::worlds::delete_world(&app, &instance_id, &world_folder_name)
 }
 
@@ -143,6 +162,12 @@ pub async fn world_import(
     instance_id: String,
     source_path: String,
 ) -> Result<crate::worlds::World, crate::error::Error> {
+    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
+    // on exit — a mutation now is clobbered at best. Same gate the datapack
+    // commands use.
+    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
+        &instance_id,
+    ))?;
     crate::data_root::reject_if_fallen_back(&app)?;
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     let source = std::path::PathBuf::from(source_path);
