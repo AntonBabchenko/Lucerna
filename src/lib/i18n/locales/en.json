@@ -1075,6 +1075,26 @@
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
     },
+    "datapacks": {
+      "tab": "Datapacks",
+      "title": "Datapacks",
+      "empty": "No datapacks yet",
+      "add": "Add datapack",
+      "addToWorld": "Add to this world",
+      "removeFromWorld": "Remove from this world",
+      "enable": "Enable in this world",
+      "disable": "Disable in this world",
+      "stateEnabled": "Enabled",
+      "stateDisabled": "Disabled",
+      "stateNotAdded": "Not in this world",
+      "stateOrphaned": "Missing — the world still expects it",
+      "orphanedHint": "Minecraft will ask about this pack when the world loads. Removing it from the world clears the prompt.",
+      "external": "Not in the library",
+      "copyNotLinked": "This pack was copied instead of linked — it now uses its own disk space.",
+      "formatMismatch": "Made for data pack format {packFormat}; this version expects {expected}. It may stop the world from loading.",
+      "blockedRunning": "Quit Minecraft to change this world's datapacks",
+      "blockedBusy": "Another datapack change is still running"
+    },
     "restore": {
       "title": "Restore \"{world}\" from {timestamp}",
       "replaceLabel": "Replace current world",
