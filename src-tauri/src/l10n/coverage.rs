@@ -145,11 +145,12 @@ pub async fn scan_instance(
 
     let mut per_ns: BTreeMap<String, NamespaceCoverage> = BTreeMap::new();
     let mut available: BTreeSet<String> = BTreeSet::new();
-    let mut fresh: Vec<(String, Vec<NamespaceCoverage>)> = Vec::new();
+    let mut fresh: Vec<(String, CachedJarScan)> = Vec::new();
 
     for m in installed.iter().filter(|m| m.enabled) {
         if let Some(hit) = cached.get(lang, &m.sha1) {
-            for c in hit {
+            available.extend(hit.codes.iter().cloned());
+            for c in &hit.namespaces {
                 merge_into(&mut per_ns, c.clone());
             }
             continue;
@@ -157,18 +158,34 @@ pub async fn scan_instance(
         let Ok(bytes) = tokio::fs::read(mods_dir.join(&m.filename)).await else {
             continue; // a jar that vanished between list() and here
         };
-        let (cov, codes) = scan_one_jar(&bytes, lang, store_dir)?;
-        available.extend(codes);
+        // A present-but-unreadable jar (truncated download, unusual archive)
+        // is no worse than the already-handled "missing" case above: both
+        // mean this mod's coverage is unknowable right now. Skip it rather
+        // than aborting the whole instance's report over one bad jar.
+        let (cov, codes) = match scan_one_jar(&bytes, lang, store_dir) {
+            Ok(v) => v,
+            Err(e) => {
+                crate::diag!("[l10n] scan failed for {}: {e}", m.filename);
+                continue;
+            }
+        };
+        available.extend(codes.iter().cloned());
         for c in &cov {
             merge_into(&mut per_ns, c.clone());
         }
-        fresh.push((m.sha1.clone(), cov));
+        fresh.push((
+            m.sha1.clone(),
+            CachedJarScan {
+                codes,
+                namespaces: cov,
+            },
+        ));
     }
 
     if !fresh.is_empty() {
         ScanCache::update(cache_path, |c| {
-            for (sha, cov) in fresh {
-                c.put(lang, &sha, cov);
+            for (sha, entry) in fresh {
+                c.put(lang, &sha, entry);
             }
         });
     }
@@ -183,8 +200,18 @@ pub async fn scan_instance(
     })
 }
 
-/// Fold one namespace's counts into the aggregate. Two jars may both supply a
-/// namespace (Jar-in-Jar); their key sets are unioned by summing.
+/// Fold one namespace's counts into the aggregate.
+///
+/// Two jars may both supply the same namespace (Jar-in-Jar). This SUMS their
+/// counts rather than deduplicating shared keys, so a key both jars translate
+/// is double-counted — a known, accepted over-count, not a union. Fixing it
+/// properly would mean caching each jar's actual key SET instead of just
+/// counts: a 150-mod instance's cache would then hold on the order of
+/// 300,000 strings, which is precisely the memory/disk blowup the cache
+/// exists to avoid. The case this would fix is rare in practice — modern
+/// Jar-in-Jar nests dependencies as opaque `.jar` entries this scanner never
+/// opens, so overlapping namespaces are mostly a pre-1.13 concern — so the
+/// double-count is accepted rather than paid for.
 fn merge_into(acc: &mut BTreeMap<String, NamespaceCoverage>, c: NamespaceCoverage) {
     acc.entry(c.namespace.clone())
         .and_modify(|e| {
@@ -230,6 +257,21 @@ fn scan_one_jar(
 /// load/save, never across a scan. Mirrors `mods::summary_cache::DISK_LOCK`.
 static CACHE_DISK_LOCK: Mutex<()> = Mutex::new(());
 
+/// One jar's cached scan result. Both halves are needed: the coverage rows
+/// feed the report, and the language codes feed the UI's target-language
+/// picker. An earlier version cached only the rows, which made
+/// `available_codes` collapse to the requested language as soon as the cache
+/// warmed — the picker lost its options on the second render.
+///
+/// Deliberately NOT `specta::Type`: this is a disk-cache record, not part of
+/// any command's return type, so it never crosses IPC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedJarScan {
+    #[serde(default)]
+    pub codes: Vec<String>,
+    pub namespaces: Vec<NamespaceCoverage>,
+}
+
 /// Per-jar coverage, keyed by `(target language, jar SHA-1)`.
 ///
 /// SHA-1 is the right invalidation key: it is already computed and stored in
@@ -238,7 +280,7 @@ static CACHE_DISK_LOCK: Mutex<()> = Mutex::new(());
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ScanCache {
     #[serde(default)]
-    entries: BTreeMap<String, Vec<NamespaceCoverage>>,
+    entries: BTreeMap<String, CachedJarScan>,
 }
 
 fn cache_key(lang: &str, sha1: &str) -> String {
@@ -262,12 +304,12 @@ impl ScanCache {
         self.entries.is_empty()
     }
 
-    pub fn get(&self, lang: &str, sha1: &str) -> Option<&[NamespaceCoverage]> {
-        self.entries.get(&cache_key(lang, sha1)).map(Vec::as_slice)
+    pub fn get(&self, lang: &str, sha1: &str) -> Option<&CachedJarScan> {
+        self.entries.get(&cache_key(lang, sha1))
     }
 
-    pub fn put(&mut self, lang: &str, sha1: &str, cov: Vec<NamespaceCoverage>) {
-        self.entries.insert(cache_key(lang, sha1), cov);
+    pub fn put(&mut self, lang: &str, sha1: &str, entry: CachedJarScan) {
+        self.entries.insert(cache_key(lang, sha1), entry);
     }
 
     /// Atomic write (per-process temp + rename), creating the parent dir.
@@ -325,18 +367,26 @@ mod tests {
         }]
     }
 
+    /// Build a `CachedJarScan` for the `ScanCache` tests below.
+    fn entry(ns: &str, total: u32, from_mod: u32, codes: &[&str]) -> CachedJarScan {
+        CachedJarScan {
+            codes: codes.iter().map(|s| s.to_string()).collect(),
+            namespaces: cov(ns, total, from_mod),
+        }
+    }
+
     #[test]
     fn cache_round_trips_and_is_keyed_by_sha_and_language() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("l10n/scan-cache.json");
-        let c = cov("create", 10, 5);
+        let c = entry("create", 10, 5, &["ru_ru", "en_us"]);
 
         let mut cache = ScanCache::load(&path);
         cache.put("ru_ru", "abc123", c.clone());
         cache.save(&path).unwrap();
 
         let reloaded = ScanCache::load(&path);
-        assert_eq!(reloaded.get("ru_ru", "abc123"), Some(c.as_slice()));
+        assert_eq!(reloaded.get("ru_ru", "abc123"), Some(&c));
         // A different target language is a different entry, not a hit.
         assert_eq!(reloaded.get("de_de", "abc123"), None);
         // A different jar is a miss.
@@ -350,7 +400,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("scan-cache.json");
         let mut cache = ScanCache::load(&path);
-        cache.put("ru_ru", "ABC123", cov("create", 1, 1));
+        cache.put("ru_ru", "ABC123", entry("create", 1, 1, &[]));
         assert!(cache.get("ru_ru", "abc123").is_some());
     }
 
@@ -372,11 +422,39 @@ mod tests {
     }
 
     #[test]
+    fn cache_entry_missing_codes_field_still_loads() {
+        // `#[serde(default)]` on `CachedJarScan::codes`: an on-disk cache
+        // written by the pre-fix shape of this file (namespaces only, no
+        // codes) must still load rather than being discarded as malformed.
+        // Belt-and-braces alongside `malformed_cache_file_loads_empty...`,
+        // which already covers the "can't parse at all" case — this covers
+        // "parses, but an old shape".
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("scan-cache.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let legacy = serde_json::json!({
+            "entries": {
+                "ru_ru/sha1": {
+                    "namespaces": [
+                        { "namespace": "create", "totalKeys": 10, "fromMod": 5, "overridden": 0 }
+                    ]
+                }
+            }
+        });
+        std::fs::write(&path, legacy.to_string()).unwrap();
+
+        let cache = ScanCache::load(&path);
+        let hit = cache.get("ru_ru", "sha1").expect("still loads");
+        assert!(hit.codes.is_empty());
+        assert_eq!(hit.namespaces.len(), 1);
+    }
+
+    #[test]
     fn save_creates_the_parent_directory() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("deep/nested/scan-cache.json");
         let mut cache = ScanCache::default();
-        cache.put("ru_ru", "x", cov("y", 1, 1));
+        cache.put("ru_ru", "x", entry("y", 1, 1, &[]));
         cache.save(&path).unwrap();
         assert!(path.exists());
     }
@@ -384,21 +462,44 @@ mod tests {
     #[test]
     fn put_replaces_a_prior_entry_for_the_same_jar_and_language() {
         let mut cache = ScanCache::default();
-        cache.put("ru_ru", "sha", cov("create", 10, 1));
-        cache.put("ru_ru", "sha", cov("create", 10, 9));
+        cache.put("ru_ru", "sha", entry("create", 10, 1, &[]));
+        cache.put("ru_ru", "sha", entry("create", 10, 9, &[]));
         assert_eq!(cache.len(), 1);
-        assert_eq!(cache.get("ru_ru", "sha").unwrap()[0].from_mod, 9);
+        assert_eq!(cache.get("ru_ru", "sha").unwrap().namespaces[0].from_mod, 9);
     }
 
     #[test]
     fn update_persists_through_the_disk_lock() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("scan-cache.json");
-        ScanCache::update(&path, |c| c.put("ru_ru", "sha", cov("create", 4, 2)));
+        ScanCache::update(&path, |c| c.put("ru_ru", "sha", entry("create", 4, 2, &[])));
         assert_eq!(
-            ScanCache::load(&path).get("ru_ru", "sha").unwrap()[0].total_keys,
+            ScanCache::load(&path)
+                .get("ru_ru", "sha")
+                .unwrap()
+                .namespaces[0]
+                .total_keys,
             4
         );
+    }
+
+    #[test]
+    fn cached_scan_round_trip_preserves_language_codes() {
+        // Regression for the bug this task fixes: an earlier `ScanCache`
+        // stored only `Vec<NamespaceCoverage>` per jar, so a cache hit had no
+        // codes to contribute to `available_codes` — the target-language
+        // picker collapsed to just the requested language on the second
+        // render of an instance, once every mod had been scanned once.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("scan-cache.json");
+        let e = entry("create", 10, 5, &["en_us", "ru_ru", "de_de"]);
+
+        ScanCache::update(&path, |c| c.put("ru_ru", "sha1", e.clone()));
+
+        let reloaded = ScanCache::load(&path);
+        let hit = reloaded.get("ru_ru", "sha1").expect("cache hit");
+        assert_eq!(hit.codes, vec!["en_us", "ru_ru", "de_de"]);
+        assert_eq!(hit.namespaces, e.namespaces);
     }
 
     #[test]
@@ -409,12 +510,12 @@ mod tests {
         let a = dir.path().join("a.json");
         let b = dir.path().join("b.json");
         let mut first = ScanCache::default();
-        first.put("ru_ru", "s2", cov("z", 1, 1));
-        first.put("ru_ru", "s1", cov("y", 2, 2));
+        first.put("ru_ru", "s2", entry("z", 1, 1, &[]));
+        first.put("ru_ru", "s1", entry("y", 2, 2, &[]));
         first.save(&a).unwrap();
         let mut second = ScanCache::default();
-        second.put("ru_ru", "s1", cov("y", 2, 2));
-        second.put("ru_ru", "s2", cov("z", 1, 1));
+        second.put("ru_ru", "s1", entry("y", 2, 2, &[]));
+        second.put("ru_ru", "s2", entry("z", 1, 1, &[]));
         second.save(&b).unwrap();
         assert_eq!(
             std::fs::read_to_string(&a).unwrap(),
@@ -579,5 +680,222 @@ mod tests {
         assert_eq!(default_target_code("pt_BR"), "pt_br");
         assert_eq!(default_target_code("zh-Hans"), "zh_hans");
         assert_eq!(default_target_code(""), "en_us");
+    }
+
+    // ---------------------------------------------------------------------
+    // merge_into
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn merge_into_sums_counts_for_the_same_namespace() {
+        let mut acc: BTreeMap<String, NamespaceCoverage> = BTreeMap::new();
+        merge_into(
+            &mut acc,
+            NamespaceCoverage {
+                namespace: "create".into(),
+                total_keys: 10,
+                from_mod: 4,
+                overridden: 1,
+            },
+        );
+        merge_into(
+            &mut acc,
+            NamespaceCoverage {
+                namespace: "create".into(),
+                total_keys: 5,
+                from_mod: 2,
+                overridden: 0,
+            },
+        );
+        assert_eq!(acc.len(), 1);
+        let c = &acc["create"];
+        assert_eq!(c.total_keys, 15);
+        assert_eq!(c.from_mod, 6);
+        assert_eq!(c.overridden, 1);
+    }
+
+    #[test]
+    fn merge_into_keeps_different_namespaces_separate() {
+        let mut acc: BTreeMap<String, NamespaceCoverage> = BTreeMap::new();
+        merge_into(
+            &mut acc,
+            NamespaceCoverage {
+                namespace: "create".into(),
+                total_keys: 10,
+                from_mod: 4,
+                overridden: 0,
+            },
+        );
+        merge_into(
+            &mut acc,
+            NamespaceCoverage {
+                namespace: "thermal".into(),
+                total_keys: 5,
+                from_mod: 5,
+                overridden: 0,
+            },
+        );
+        assert_eq!(acc.len(), 2);
+        assert_eq!(acc["create"].total_keys, 10);
+        assert_eq!(acc["thermal"].total_keys, 5);
+    }
+
+    // ---------------------------------------------------------------------
+    // scan_one_jar
+    // ---------------------------------------------------------------------
+
+    /// Build an in-memory jar containing the given (path, contents) entries.
+    /// Local copy of the identical helper in `scan.rs`'s test module — not
+    /// worth making `pub` for a six-line helper only tests use.
+    fn jar(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = zip::ZipWriter::new(&mut buf);
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+            for (name, body) in entries {
+                w.start_file(*name, opts).unwrap();
+                w.write_all(body.as_bytes()).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn scan_one_jar_counts_partial_target_coverage() {
+        let bytes = jar(&[
+            (
+                "assets/create/lang/en_us.json",
+                r#"{"a":"A","b":"B","c":"C"}"#,
+            ),
+            ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
+        ]);
+        let store_dir = Path::new("unused");
+        let (cov, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        assert_eq!(cov.len(), 1);
+        assert_eq!(cov[0].namespace, "create");
+        assert_eq!(cov[0].total_keys, 3);
+        assert_eq!(cov[0].from_mod, 1);
+        let mut sorted = codes;
+        sorted.sort();
+        assert_eq!(sorted, vec!["en_us".to_string(), "ru_ru".to_string()]);
+    }
+
+    #[test]
+    fn scan_one_jar_skips_a_namespace_with_no_english_source() {
+        // No en_us file at all ⇒ nothing to measure against, so the
+        // namespace is dropped from the report entirely rather than showing
+        // up with a zero (or worse, undefined) denominator.
+        let bytes = jar(&[("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#)]);
+        let store_dir = Path::new("unused");
+        let (cov, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        assert!(cov.is_empty());
+        // The code list is independent of whether English is present.
+        assert_eq!(codes, vec!["ru_ru".to_string()]);
+    }
+
+    #[test]
+    fn scan_one_jar_reports_every_code_including_ones_not_requested() {
+        // The code list feeds the UI's target-language picker, so it must
+        // include languages the caller did not ask to scan for — not just
+        // the requested `lang`.
+        let bytes = jar(&[
+            ("assets/create/lang/en_us.json", r#"{"a":"A"}"#),
+            ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
+            ("assets/create/lang/de_de.json", r#"{"a":"D"}"#),
+        ]);
+        let store_dir = Path::new("unused");
+        let (_, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        let mut sorted = codes;
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            vec![
+                "de_de".to_string(),
+                "en_us".to_string(),
+                "ru_ru".to_string()
+            ]
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // scan_instance
+    // ---------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn scan_instance_cache_hit_still_returns_the_jars_language_codes() {
+        // The Finding-1 regression, exercised through the real cache-hit
+        // branch of `scan_instance` (not just `ScanCache` in isolation): the
+        // SECOND scan of an unchanged instance — the normal steady state —
+        // must not lose `available_codes`. Before the fix, this second call
+        // would have returned only `["ru_ru"]`.
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+
+        let bytes = jar(&[
+            ("assets/create/lang/en_us.json", r#"{"a":"A","b":"B"}"#),
+            ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
+            ("assets/create/lang/de_de.json", r#"{"a":"D"}"#),
+        ]);
+        tokio::fs::write(mods_dir.join("create.jar"), &bytes)
+            .await
+            .unwrap();
+
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+
+        let first = scan_instance(&inst_root, &cache_path, &store_dir, "ru_ru")
+            .await
+            .unwrap();
+        assert_eq!(
+            first.available_codes,
+            vec![
+                "de_de".to_string(),
+                "en_us".to_string(),
+                "ru_ru".to_string()
+            ]
+        );
+
+        // Nothing on disk changed, so this hits the cache-hit branch.
+        let second = scan_instance(&inst_root, &cache_path, &store_dir, "ru_ru")
+            .await
+            .unwrap();
+        assert_eq!(second.available_codes, first.available_codes);
+        assert_eq!(second.namespaces, first.namespaces);
+    }
+
+    #[tokio::test]
+    async fn scan_instance_skips_a_corrupt_jar_and_still_reports_the_rest() {
+        // Finding 2: a present-but-unreadable jar must not abort the whole
+        // instance's report, the same way an already-vanished jar is
+        // deliberately skipped a few lines above it in `scan_instance`.
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+
+        let good = jar(&[
+            ("assets/create/lang/en_us.json", r#"{"a":"A"}"#),
+            ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
+        ]);
+        tokio::fs::write(mods_dir.join("create.jar"), &good)
+            .await
+            .unwrap();
+        tokio::fs::write(mods_dir.join("broken.jar"), b"not a zip at all")
+            .await
+            .unwrap();
+
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+
+        let out = scan_instance(&inst_root, &cache_path, &store_dir, "ru_ru")
+            .await
+            .expect("one corrupt jar must not fail the whole scan");
+        assert_eq!(out.namespaces.len(), 1);
+        assert_eq!(out.namespaces[0].namespace, "create");
+        assert_eq!(out.namespaces[0].covered(), 1);
     }
 }
