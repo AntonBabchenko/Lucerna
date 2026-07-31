@@ -241,8 +241,9 @@
         </StatusBadge>
 
         <!-- Actions. Start/Stop live in the sidebar (the mirror of the client
-             Play button); Restart stays here as a manage-surface action. -->
-        <div class="flex items-center gap-1.5" data-tour-ctx="server-header-actions">
+             Play button, and where the tour's start/stop step points); Restart
+             stays here as a manage-surface action. -->
+        <div class="flex items-center gap-1.5">
           <span
             class="inline-flex"
             use:tooltip={{ text: createDisabledReason ?? '', describe: false }}

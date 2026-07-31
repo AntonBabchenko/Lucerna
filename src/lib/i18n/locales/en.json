@@ -1669,11 +1669,11 @@
         }
       },
       "serverManage": {
-        "headerActions": {
+        "startStop": {
           "title": "Start, stop, and crash help",
-          "body": "Start, restart, or stop the server from here. If it stops on a crash, a banner appears above the tabs with the likely cause and a one-click fix: accept the EULA, free the port, raise the heap, and more.",
+          "body": "This sidebar button starts the server and turns into Stop while it runs; Restart sits in the panel header. If the server stops on a crash, a banner appears above the tabs with the likely cause and a one-click fix: accept the EULA, free the port, raise the heap, and more.",
           "titleBasic": "Start and stop",
-          "bodyBasic": "Use these buttons to start, restart, or stop your server. If it crashes, a help banner appears with the likely cause and a button to fix it."
+          "bodyBasic": "This button starts your server, and becomes Stop once it's running. Restart is at the top of the panel. If the server crashes, a help banner appears with the likely cause and a button to fix it."
         },
         "overview": {
           "title": "Everything at a glance",

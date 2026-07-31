@@ -40,6 +40,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { SERVER_MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
 import ServerSidebarSection from '$lib/servers/ServerSidebarSection.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
@@ -206,6 +207,33 @@ describe('ServerSidebarSection', () => {
     serverList.mockResolvedValue({ status: 'ok', data: [makeServer('a', false)] });
     await fireEvent.click(stopBtn);
     expect(serverStop).toHaveBeenCalledWith('a');
+  });
+
+  // The server tour's first step claims to teach Start/Stop. Pinning only the
+  // selector string (tests/servers-tour.test.ts) let it drift onto the manage
+  // header after Start/Stop moved into the sidebar: the anchor still existed,
+  // it just wrapped the wrong buttons. These assert the anchor actually
+  // CONTAINS the control it describes, in both server states.
+  describe('server tour start/stop anchor', () => {
+    const anchorSelector = SERVER_MANAGE_STEPS[0].targetSelector ?? '';
+
+    it('wraps the Start button while the selected server is stopped', async () => {
+      await load([makeServer('a', false)]);
+      serversUi.selectServer('a');
+      render(ServerSidebarSection);
+      const anchor = document.querySelector(anchorSelector);
+      expect(anchor).not.toBeNull();
+      expect(anchor?.contains(screen.getByTestId('sidebar-server-start'))).toBe(true);
+    });
+
+    it('wraps the Stop button while the selected server is running', async () => {
+      await load([makeServer('a', true)]);
+      serversUi.selectServer('a');
+      render(ServerSidebarSection);
+      const anchor = document.querySelector(anchorSelector);
+      expect(anchor).not.toBeNull();
+      expect(anchor?.contains(screen.getByTestId('sidebar-server-stop'))).toBe(true);
+    });
   });
 
   describe('add-ons folder button', () => {
