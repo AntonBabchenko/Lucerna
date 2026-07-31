@@ -38,7 +38,11 @@ pub fn validate_asset_zip(bytes: &[u8], kind: ContentKind) -> Result<(), Error> 
         let rejection = match pack_meta::classify(bytes) {
             PackKind::ResourcePack => None,
             PackKind::Datapack => Some("this looks like a datapack, not a resource pack"),
-            PackKind::Neither => Some("missing pack.mcmeta"),
+            // `Neither` also covers "pack.mcmeta present, no assets/ tree" —
+            // do not assert pack.mcmeta is absent, since it may not be.
+            PackKind::Neither => {
+                Some("not a valid resource pack (needs pack.mcmeta and an assets/ folder)")
+            }
         };
         if let Some(details) = rejection {
             return Err(Error::ModsDecode {
@@ -198,6 +202,20 @@ mod tests {
         };
         assert!(details.contains("datapack"), "message was: {details}");
         assert_ne!(details, "missing pack.mcmeta");
+    }
+
+    #[test]
+    fn pack_mcmeta_present_but_no_tree_does_not_claim_it_is_missing() {
+        // Neither also covers "pack.mcmeta present, no data/ or assets/ tree" —
+        // regression, one layer down: the message used to unconditionally say
+        // "missing pack.mcmeta", which is false in this sub-case.
+        let z = zip_with(&[("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)]);
+        let Error::ModsDecode { details, .. } =
+            validate_asset_zip(&z, ContentKind::ResourcePack).unwrap_err()
+        else {
+            panic!("expected Error::ModsDecode");
+        };
+        assert!(!details.contains("missing"), "message was: {details}");
     }
 
     #[test]

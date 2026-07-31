@@ -87,12 +87,22 @@ pub fn install_datapack(dir: &Path, src_zip: &Path) -> Result<String> {
         // pack.mcmeta alone isn't the datapack marker (see pack_meta) — name
         // the real kind when that's why it was rejected. The blanket "no
         // pack.mcmeta" wording would be false for a rejected resource pack,
-        // which carries one too.
+        // which carries one too, and also false for a zip with pack.mcmeta
+        // but no data/ or assets/ tree at all (also `Neither`).
         let details = match crate::datapacks::pack_meta::classify(&bytes) {
             crate::datapacks::pack_meta::PackKind::ResourcePack => {
                 "this looks like a resource pack, not a datapack"
             }
-            _ => "not a datapack (no pack.mcmeta at the zip root)",
+            crate::datapacks::pack_meta::PackKind::Neither => {
+                "not a valid datapack (needs pack.mcmeta and a data/ folder)"
+            }
+            // Unreachable: this branch only runs when `!zip_is_datapack(&bytes)`,
+            // and `zip_is_datapack` is exactly `classify(bytes) == Datapack`.
+            // `classify` is a pure function of its byte-slice argument, so a
+            // second call on the same `bytes` cannot return `Datapack` here.
+            crate::datapacks::pack_meta::PackKind::Datapack => {
+                unreachable!("zip_is_datapack already proved classify(&bytes) != Datapack")
+            }
         };
         return Err(Error::io("<datapack>", details));
     }

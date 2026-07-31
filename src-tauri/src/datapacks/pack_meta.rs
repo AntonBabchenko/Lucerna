@@ -83,9 +83,12 @@ pub fn classify(bytes: &[u8]) -> PackKind {
     }
 }
 
-/// Read `pack.mcmeta` out of a pack zip. Best-effort: any failure (unreadable
-/// zip, missing entry, invalid UTF-8/JSON, wrong-shaped fields) yields
-/// [`PackMeta::default`] rather than an error — see the module doc.
+/// Read `pack.mcmeta` out of a pack zip. Best-effort at two different levels:
+/// a document-level failure (unreadable zip, missing entry, invalid UTF-8,
+/// invalid JSON) returns [`PackMeta::default`] immediately; a per-field shape
+/// mismatch (e.g. a non-string `description`) instead degrades only that
+/// field to `None` through the `.and_then` chain below, leaving any other
+/// field that parsed fine intact. Neither case is ever an error.
 #[must_use]
 pub fn read_meta(bytes: &[u8]) -> PackMeta {
     let Ok(mut zip) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
