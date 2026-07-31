@@ -3,7 +3,7 @@ import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
-import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
+import type { DatapackRejection, Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 
 // Detail-bearing errors are truncated to this many code points in the UI; the
 // full text lives in the launcher log. Slicing is by code point (spread), not
@@ -179,6 +179,10 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
   data_location_unavailable: 'clean',
+  // Built entirely from structured fields (filename + typed reason) — see
+  // `datapackRejectionKey` below for why the reason is a typed lookup rather
+  // than a raw string.
+  datapack_invalid: 'clean',
 };
 
 /**
@@ -204,6 +208,29 @@ function dataLocationInvalidReason(reason: string): string {
       return translate('errors.dataLocationInvalidReason.notWritable');
     default:
       return translate('errors.dataLocationInvalidReason.unknown');
+  }
+}
+
+/**
+ * Map a backend `DatapackRejection` (a typed enum, not a message — see the
+ * variant's doc comment in `error.rs`) to its translation key. The switch has
+ * no `default` fallthrough: every arm returns directly, so a new
+ * `DatapackRejection` variant that isn't handled here falls through to the
+ * `_exhaustive: never` assignment below and fails to compile, rather than
+ * silently rendering nothing for the new reason.
+ */
+function datapackRejectionKey(reason: DatapackRejection): TranslationKey {
+  switch (reason) {
+    case 'not_a_zip':
+      return 'errors.datapackInvalidReason.notAZip';
+    case 'is_a_resource_pack':
+      return 'errors.datapackInvalidReason.isAResourcePack';
+    case 'not_a_pack':
+      return 'errors.datapackInvalidReason.notAPack';
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
   }
 }
 
@@ -528,6 +555,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.dataLocationUnavailable');
     case 'changelog_unsupported':
       return translate('errors.changelogUnsupported');
+    case 'datapack_invalid':
+      return translate('errors.datapackInvalid', {
+        filename: e.filename,
+        reason: translate(datapackRejectionKey(e.reason)),
+      });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

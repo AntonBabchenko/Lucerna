@@ -1877,7 +1877,13 @@
       "unknown": "it is not a valid location"
     },
     "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact.",
-    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching."
+    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching.",
+    "datapackInvalid": "\"{filename}\" isn't a usable datapack. {reason}",
+    "datapackInvalidReason": {
+      "notAZip": "Minecraft only loads folders and .zip files from a world's datapacks folder.",
+      "isAResourcePack": "This looks like a resource pack — it has an assets folder instead of a data folder.",
+      "notAPack": "It's missing pack.mcmeta or a data folder."
+    }
   },
   "settings": {
     "title": "Settings",

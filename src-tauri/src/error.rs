@@ -16,6 +16,21 @@ pub enum ModsAuthKind {
     Invalid,
 }
 
+/// Why a file the user picked is not a usable datapack. A typed reason rather
+/// than a message, so the UI can localise it — the launcher ships in English
+/// and Russian and a hand-written English sentence inside a `clean` error would
+/// reach a Russian user untranslated.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DatapackRejection {
+    /// The picked file is not a `.zip` (and is not a folder).
+    NotAZip,
+    /// Valid pack, wrong kind: it has a top-level `assets/` tree.
+    IsAResourcePack,
+    /// No `pack.mcmeta`, or no `data/` tree.
+    NotAPack,
+}
+
 #[derive(Debug, Clone, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
@@ -493,6 +508,16 @@ pub enum Error {
     /// NBT/gzip library message — Opaque on the TS side.
     #[error("level.dat could not be parsed: {reason}")]
     LevelDatParse { reason: String },
+
+    /// A file the user picked to install as a datapack failed content
+    /// validation (wrong extension, or the zip classifies as something other
+    /// than a datapack). `reason` is typed, not a message — see
+    /// `DatapackRejection`'s doc comment for why.
+    #[error("{filename} is not a usable datapack")]
+    DatapackInvalid {
+        filename: String,
+        reason: DatapackRejection,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1024,5 +1049,19 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "level_dat_parse");
         assert_eq!(v["reason"], "invalid tag id 99");
+    }
+
+    #[test]
+    fn datapack_invalid_serializes_with_tag_filename_and_typed_reason() {
+        let e = Error::DatapackInvalid {
+            filename: "Faithful.zip".into(),
+            reason: DatapackRejection::IsAResourcePack,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "datapack_invalid");
+        assert_eq!(v["filename"], "Faithful.zip");
+        // The reason is a typed enum tag, not a hand-written English sentence —
+        // that's the whole point (see `DatapackRejection`'s doc comment).
+        assert_eq!(v["reason"], "is_a_resource_pack");
     }
 }

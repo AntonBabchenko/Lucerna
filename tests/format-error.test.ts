@@ -440,6 +440,11 @@ describe('formatError', () => {
         reason: 'disk full',
       },
       data_location_unavailable: { kind: 'data_location_unavailable' },
+      datapack_invalid: {
+        kind: 'datapack_invalid',
+        filename: 'MyPack.rar',
+        reason: 'not_a_zip',
+      },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {

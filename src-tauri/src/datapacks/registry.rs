@@ -104,10 +104,8 @@ async fn write(instance_root: &Path, state: &OnDisk) -> Result<()> {
         .expect("registry_path_at always returns a path with a parent directory");
     fs::create_dir_all(dir).await.map_err(|e| io_err(dir, e))?;
 
-    let bytes = serde_json::to_vec_pretty(state).map_err(|e| Error::ModsDecode {
-        platform: "installed-datapacks.json".into(),
-        details: e.to_string(),
-    })?;
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|e| Error::io(final_path.display().to_string(), e))?;
     crate::mods::store::place_bytes(&final_path, &bytes)
         .await
         .map_err(|e| Error::ModsInstancePath {

@@ -21,7 +21,7 @@ use zip::{CompressionMethod, ZipWriter};
 
 use crate::datapacks::pack_meta::{self, PackKind};
 use crate::datapacks::{library_dir_at, registry, InstalledDatapack};
-use crate::error::{Error, Result};
+use crate::error::{DatapackRejection, Error, Result};
 
 /// Lowercase 40-char SHA-1 hex digest.
 #[must_use]
@@ -60,11 +60,9 @@ pub async fn install_local_at(instance_root: &Path, src: &Path) -> Result<Instal
         // the UI, and link into a world, then simply never load. Reject the
         // name before spending a read on the bytes.
         if !name.to_ascii_lowercase().ends_with(".zip") {
-            return Err(Error::ModsDecode {
-                platform: "datapack".into(),
-                details: format!(
-                    "{name} is not a .zip file — Minecraft only loads directories and .zip archives from datapacks/"
-                ),
+            return Err(Error::DatapackInvalid {
+                filename: name,
+                reason: DatapackRejection::NotAZip,
             });
         }
         let bytes = tokio::fs::read(src)
@@ -153,18 +151,19 @@ pub async fn install_named_at(
     if kind != PackKind::Datapack {
         // Name the real kind when that's why it was rejected — mirrors
         // `mods::asset_local::validate_asset_zip`'s equivalent message for the
-        // resource-pack side of the same discriminator.
-        let details = match kind {
-            PackKind::ResourcePack => "this looks like a resource pack, not a datapack",
-            PackKind::Neither => "not a valid datapack (needs pack.mcmeta and a data/ folder)",
+        // resource-pack side of the same discriminator. A typed reason, not a
+        // message: see `DatapackRejection`'s doc comment for why.
+        let reason = match kind {
+            PackKind::ResourcePack => DatapackRejection::IsAResourcePack,
+            PackKind::Neither => DatapackRejection::NotAPack,
             // Unreachable: this branch only runs when `kind != PackKind::Datapack`,
             // and `kind` was computed once above from the same `bytes` — it
             // cannot equal `Datapack` here.
             PackKind::Datapack => unreachable!("kind != PackKind::Datapack was just checked"),
         };
-        return Err(Error::ModsDecode {
-            platform: "datapack".into(),
-            details: details.into(),
+        return Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason,
         });
     }
 
@@ -311,10 +310,14 @@ mod tests {
             .await
             .unwrap_err();
 
-        let Error::ModsDecode { details, .. } = err else {
-            panic!("expected Error::ModsDecode");
+        let Error::DatapackInvalid { filename, reason } = err else {
+            panic!("expected Error::DatapackInvalid");
         };
-        assert!(details.contains("resource pack"), "message was: {details}");
+        assert_eq!(filename, "Faithful.zip");
+        assert!(
+            matches!(reason, DatapackRejection::IsAResourcePack),
+            "reason was: {reason:?}"
+        );
         assert!(!td.path().join("datapacks/Faithful.zip").exists());
     }
 
@@ -330,10 +333,14 @@ mod tests {
 
         let err = install_local_at(td.path(), &src).await.unwrap_err();
 
-        let Error::ModsDecode { details, .. } = err else {
-            panic!("expected Error::ModsDecode, got {err:?}");
+        let Error::DatapackInvalid { filename, reason } = err else {
+            panic!("expected Error::DatapackInvalid, got {err:?}");
         };
-        assert!(details.contains(".zip"), "message was: {details}");
+        assert_eq!(filename, "MyPack.rar");
+        assert!(
+            matches!(reason, DatapackRejection::NotAZip),
+            "reason was: {reason:?}"
+        );
         assert!(!td.path().join("datapacks").exists());
     }
 

@@ -1877,7 +1877,13 @@
       "unknown": "это недопустимое расположение"
     },
     "dataLocationMigrationFailed": "Не удалось перенести папку данных. Исходные данные не пострадали.",
-    "dataLocationUnavailable": "Папка данных недоступна. Подключите её и перезапустите приложение перед созданием или запуском."
+    "dataLocationUnavailable": "Папка данных недоступна. Подключите её и перезапустите приложение перед созданием или запуском.",
+    "datapackInvalid": "«{filename}» — не датапак. {reason}",
+    "datapackInvalidReason": {
+      "notAZip": "Minecraft загружает из папки datapacks только папки и .zip-архивы.",
+      "isAResourcePack": "Похоже, это ресурспак — вместо папки data в нём есть папка assets.",
+      "notAPack": "В архиве нет pack.mcmeta или папки data."
+    }
   },
   "settings": {
     "title": "Настройки",

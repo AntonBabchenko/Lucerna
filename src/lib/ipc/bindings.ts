@@ -2090,6 +2090,20 @@ export type DataMigrationProgress = {
 	phase: string,
 };
 
+/**
+ *  Why a file the user picked is not a usable datapack. A typed reason rather
+ *  than a message, so the UI can localise it — the launcher ships in English
+ *  and Russian and a hand-written English sentence inside a `clean` error would
+ *  reach a Russian user untranslated.
+ */
+export type DatapackRejection = 
+/**  The picked file is not a `.zip` (and is not a folder). */
+"not_a_zip" | 
+/**  Valid pack, wrong kind: it has a top-level `assets/` tree. */
+"is_a_resource_pack" | 
+/**  No `pack.mcmeta`, or no `data/` tree. */
+"not_a_pack";
+
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
 export type DepNodeStatus = "satisfied" | "missing_required" | "optional_present" | "optional_absent";
@@ -2303,7 +2317,14 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  A world's `level.dat` could not be read or rewritten. `reason` is a raw
  *  NBT/gzip library message — Opaque on the TS side.
  */
-{ kind: "level_dat_parse"; reason: string };
+{ kind: "level_dat_parse"; reason: string } | 
+/**
+ *  A file the user picked to install as a datapack failed content
+ *  validation (wrong extension, or the zip classifies as something other
+ *  than a datapack). `reason` is typed, not a message — see
+ *  `DatapackRejection`'s doc comment for why.
+ */
+{ kind: "datapack_invalid"; filename: string; reason: DatapackRejection };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
