@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::Path;
 
 use fastnbt::Value;
 
@@ -161,6 +162,55 @@ pub fn forget(root: &mut Value, entry: &str) -> Result<()> {
     drop_entry(list_mut(dp, "Enabled")?, entry);
     drop_entry(list_mut(dp, "Disabled")?, entry);
     Ok(())
+}
+
+/// Read `<world_dir>/level.dat`.
+pub fn read_at(world_dir: &Path) -> Result<(Value, Framing)> {
+    let path = world_dir.join("level.dat");
+    let bytes = std::fs::read(&path).map_err(|e| parse_err(format!("{}: {e}", path.display())))?;
+    parse(&bytes)
+}
+
+/// Rewrite `<world_dir>/level.dat`, keeping the pre-edit bytes in
+/// `level.dat_lucerna.bak`.
+///
+/// Deliberately NOT `level.dat_old` — that is Minecraft's own recovery copy and
+/// overwriting it would trade away the user's fallback.
+///
+/// Both writes go through `store::place_bytes` (temp + rename), so a crash can
+/// never leave a half-written level.dat, and this module needs no raw write
+/// primitive of its own.
+pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Result<()> {
+    let path = world_dir.join("level.dat");
+    let new_bytes = serialize(root, framing)?;
+
+    if let Ok(old) = std::fs::read(&path) {
+        let bak = world_dir.join("level.dat_lucerna.bak");
+        crate::mods::store::place_bytes(&bak, &old)
+            .await
+            .map_err(|e| map_store_err(&e))?;
+    }
+
+    crate::mods::store::place_bytes(&path, &new_bytes)
+        .await
+        .map_err(|e| map_store_err(&e))
+}
+
+/// A running Minecraft holds level.dat open — surface that as the friendly
+/// typed `WorldInUse` rather than a raw IO string. Windows: access denied (5),
+/// sharing violation (32), lock violation (33).
+fn map_store_err(e: &crate::mods::store::StoreIoError) -> Error {
+    if matches!(e.source.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+        let folder_name = e
+            .path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        Error::WorldInUse { folder_name }
+    } else {
+        Error::io(e.path.display().to_string(), e.details())
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +364,44 @@ mod tests {
     fn a_non_compound_root_is_rejected() {
         let mut root = Value::Int(1);
         let err = set_enabled(&mut root, "file/vm.zip", true).unwrap_err();
+        assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+    }
+
+    #[tokio::test]
+    async fn write_at_creates_a_backup_and_keeps_the_original_readable() {
+        let td = tempfile::tempdir().unwrap();
+        let world = td.path();
+        let original = serialize(&root_with_unknown_keys(), Framing::Gzip).unwrap();
+        std::fs::write(world.join("level.dat"), &original).unwrap();
+
+        let (mut root, framing) = read_at(world).unwrap();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        write_at(world, &root, framing).await.unwrap();
+
+        // Backup holds the pre-edit bytes; live file holds the edit.
+        assert_eq!(
+            std::fs::read(world.join("level.dat_lucerna.bak")).unwrap(),
+            original
+        );
+        let (after, _) = read_at(world).unwrap();
+        assert_eq!(lists(&after).0, vec!["file/vm.zip".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn write_at_without_an_existing_file_writes_no_backup() {
+        let td = tempfile::tempdir().unwrap();
+        let world = td.path();
+        write_at(world, &sample_root(), Framing::Gzip)
+            .await
+            .unwrap();
+        assert!(!world.join("level.dat_lucerna.bak").exists());
+        assert!(world.join("level.dat").exists());
+    }
+
+    #[test]
+    fn read_at_reports_a_missing_file_as_level_dat_parse() {
+        let td = tempfile::tempdir().unwrap();
+        let err = read_at(td.path()).unwrap_err();
         assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
     }
 }
