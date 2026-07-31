@@ -41,6 +41,7 @@ use lucerna_lib::datapacks::pack_meta::{self, PackKind};
 use lucerna_lib::datapacks::{
     level_dat, library, library_dir_at, world_datapacks_dir_at, world_link, WorldPackState,
 };
+use lucerna_lib::mods::store::Placement;
 
 /// Spin up an isolated instance tree: `<td>/instances/<instance_id>/` with
 /// `.minecraft/saves/<world>/` pre-created for each named world. The library
@@ -149,6 +150,92 @@ async fn removing_from_one_world_leaves_the_other_intact() {
         "Beta's bytes must be untouched by removing Alpha's name"
     );
     assert_eq!(pack_meta::classify(&beta_bytes), PackKind::Datapack);
+}
+
+/// The invariant the whole design rests on: a world's `datapacks/` file is a
+/// second NAME for the library's physical file, so writing through one name
+/// changes the bytes every name sees. `removing_from_one_world_leaves_the_
+/// other_intact` above does NOT prove this — both `add_to_world_at` calls
+/// target fresh destination paths, so even a naive copy-per-world
+/// implementation would produce two identical-but-independent files, and
+/// deleting one NAME can never reveal whether the other name shares its
+/// bytes.
+///
+/// This test proves it by writing through Alpha's world-side path directly —
+/// exactly the in-place write `mods::store` forbids and every datapack write
+/// path (`materialize`) is built to avoid — and then reading Beta's path
+/// back.
+///
+/// The assertion is conditional on the `Placement` `add_to_world_at` actually
+/// returned, and that is NOT a weaker test — it is the only correct one:
+/// whether this dev/CI filesystem supports hardlinks is an environment fact
+/// this test does not control (NTFS, ext4, most CI images: yes; some
+/// container overlay filesystems, certain network shares: no).
+///   * Both `Linked` → Alpha's and Beta's files are the SAME inode, so the
+///     in-place write through Alpha's path must be visible through Beta's
+///     path too. Seeing the OLD bytes here would mean the two names do not
+///     actually share storage, i.e. the hardlink invariant this whole
+///     feature is built on does not hold — that must fail the test.
+///   * Either `Copied` → `mods::store::materialize` fell back to an
+///     independent physical copy (the documented, safe degradation when
+///     linking isn't available). Alpha and Beta are then genuinely separate
+///     files, so a write through Alpha's path must NOT reach Beta's — seeing
+///     the NEW bytes here would mean the "fallback" silently produced a
+///     shared file anyway, which is its own bug.
+/// Asserting unconditionally on one outcome would make this test flaky on
+/// exactly the filesystems where linking isn't available — it would either
+/// false-fail in that environment (asserting `Linked`-only behaviour) or
+/// silently stop testing the invariant everywhere it usually matters
+/// (asserting `Copied`-only behaviour). Branching on the real, observed
+/// `Placement` is what keeps this deterministic everywhere while still
+/// proving the right thing in each case.
+#[tokio::test]
+async fn writing_through_one_worlds_path_pins_the_shared_inode_invariant() {
+    let (_td, inst) = make_fixture("inst-shared-inode", &["Alpha", "Beta"]);
+    let original = datapack_zip(48, "Vein Miner");
+
+    library::install_named_at(&inst, "vm.zip", &original)
+        .await
+        .unwrap();
+    let alpha_placement = world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
+        .await
+        .unwrap();
+    let beta_placement = world_link::add_to_world_at(&inst, "Beta", "vm.zip")
+        .await
+        .unwrap();
+
+    let alpha_path = world_datapacks_dir_at(&inst, "Alpha")
+        .unwrap()
+        .join("vm.zip");
+    let beta_path = world_datapacks_dir_at(&inst, "Beta")
+        .unwrap()
+        .join("vm.zip");
+
+    // Simulate the exact write the design forbids: a raw, truncating write
+    // straight through Alpha's world-side name, bypassing `mods::store`
+    // entirely.
+    let corrupted = datapack_zip(48, "Not Vein Miner Anymore");
+    assert_ne!(
+        corrupted, original,
+        "the corrupting write must actually differ from the original"
+    );
+    fs::write(&alpha_path, &corrupted).unwrap();
+
+    let beta_bytes_after = fs::read(&beta_path).unwrap();
+
+    if alpha_placement == Placement::Linked && beta_placement == Placement::Linked {
+        assert_eq!(
+            beta_bytes_after, corrupted,
+            "both adds linked the same inode, so an in-place write through \
+             Alpha's name must be visible through Beta's name too"
+        );
+    } else {
+        assert_eq!(
+            beta_bytes_after, original,
+            "at least one add fell back to an independent copy, so a write \
+             through Alpha's name must not reach Beta's file"
+        );
+    }
 }
 
 #[tokio::test]
