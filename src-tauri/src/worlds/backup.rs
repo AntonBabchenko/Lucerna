@@ -1,7 +1,7 @@
 //! Backup-side operations.
 
 use crate::error::{Error, Result};
-use crate::worlds::{backups_root, fs as wfs, saves_dir, zip as wzip, Backup};
+use crate::worlds::{backups_root, fs as wfs, world_dir, zip as wzip, Backup};
 use chrono::Utc;
 use std::path::PathBuf;
 
@@ -15,15 +15,7 @@ pub async fn backup_world(
     instance_id: &str,
     world_folder_name: &str,
 ) -> Result<Backup> {
-    wfs::validate_segment(world_folder_name)?;
-    let saves = saves_dir(app, instance_id)?;
-    let world_path = saves.join(world_folder_name);
-    if !world_path.is_dir() {
-        return Err(Error::WorldNotFound {
-            instance_id: instance_id.into(),
-            folder_name: world_folder_name.into(),
-        });
-    }
+    let world_path = world_dir(app, instance_id, world_folder_name)?;
     let backups_dir = backups_root(app, instance_id)?.join(world_folder_name);
     std::fs::create_dir_all(&backups_dir)
         .map_err(|e| Error::io(backups_dir.display().to_string(), e))?;

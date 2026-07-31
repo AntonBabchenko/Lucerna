@@ -177,6 +177,38 @@ pub fn backups_root(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf
         .map_err(|e| Error::io("<backups_root>", e))
 }
 
+/// Validate a world folder name and resolve it under a concrete `saves/` dir.
+/// The three-step validate → join → `is_dir` sequence was duplicated at every
+/// call site; it lives here now. Testable without a Tauri `AppHandle`.
+pub fn world_dir_at(saves_dir: &std::path::Path, world_folder_name: &str) -> Result<PathBuf> {
+    fs::validate_segment(world_folder_name)?;
+    let world_path = saves_dir.join(world_folder_name);
+    if !world_path.is_dir() {
+        return Err(Error::WorldNotFound {
+            instance_id: String::new(),
+            folder_name: world_folder_name.into(),
+        });
+    }
+    Ok(world_path)
+}
+
+/// `world_dir_at` for a live app handle; fills in `instance_id` on the
+/// not-found error, which the `*_at` core cannot know.
+pub fn world_dir(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    world_folder_name: &str,
+) -> Result<PathBuf> {
+    let saves = saves_dir(app, instance_id)?;
+    world_dir_at(&saves, world_folder_name).map_err(|e| match e {
+        Error::WorldNotFound { folder_name, .. } => Error::WorldNotFound {
+            instance_id: instance_id.into(),
+            folder_name,
+        },
+        other => other,
+    })
+}
+
 /// Delete a world folder AND its associated backups directory.
 /// Errors with WorldNotFound on missing world; best-effort cleanup
 /// of the backups subdirectory (silently ignores a missing backups
@@ -186,14 +218,7 @@ pub fn delete_world(
     instance_id: &str,
     world_folder_name: &str,
 ) -> Result<()> {
-    fs::validate_segment(world_folder_name)?;
-    let world_path = saves_dir(app, instance_id)?.join(world_folder_name);
-    if !world_path.is_dir() {
-        return Err(Error::WorldNotFound {
-            instance_id: instance_id.into(),
-            folder_name: world_folder_name.into(),
-        });
-    }
+    let world_path = world_dir(app, instance_id, world_folder_name)?;
     std::fs::remove_dir_all(&world_path).map_err(|e| {
         // A running Minecraft holds region/lock files open — surface that as
         // the friendly typed WorldInUse instead of a raw IO error. Windows:
@@ -277,5 +302,29 @@ mod quick_list_tests {
         let got = list_world_names_in(&saves).unwrap();
         let names: Vec<&str> = got.iter().map(|w| w.folder_name.as_str()).collect();
         assert_eq!(names, vec!["Good"]);
+    }
+
+    #[test]
+    fn world_dir_at_rejects_a_path_separator() {
+        let td = tempfile::tempdir().unwrap();
+        let err = world_dir_at(td.path(), "a/b").unwrap_err();
+        assert!(matches!(err, crate::error::Error::WorldPathInvalid { .. }));
+    }
+
+    #[test]
+    fn world_dir_at_reports_missing_world() {
+        let td = tempfile::tempdir().unwrap();
+        let err = world_dir_at(td.path(), "Nope").unwrap_err();
+        assert!(matches!(err, crate::error::Error::WorldNotFound { .. }));
+    }
+
+    #[test]
+    fn world_dir_at_returns_the_dir_when_it_exists() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("Survival")).unwrap();
+        assert_eq!(
+            world_dir_at(td.path(), "Survival").unwrap(),
+            td.path().join("Survival")
+        );
     }
 }
