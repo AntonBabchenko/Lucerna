@@ -33,7 +33,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   modpacks: 'v1',
   worlds: 'v3', // bumped 2026-06-23 — added the import-a-world step
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
-  serverManage: 'v2', // bumped 2026-07-11 — tabs regrouped into the 5-tab panel
+  serverManage: 'v3', // bumped 2026-07-31 — step 1 re-anchored to the sidebar Start/Stop
   addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
 };
 
@@ -193,17 +193,20 @@ export const SERVERS_STEPS: ReadonlyArray<TourStep> = [
 ];
 
 // Server detail view (ServersPanel). The 5 tabs render content only
-// while active, so steps anchor the always-present tab BUTTONS (and the header
-// actions), not tab bodies. The crash-diagnosis banner is empty until a crash,
-// so it has no step of its own — it is described in the header-actions step.
-// Settings and Backups carry no step: the tour teaches the surfaces whose
-// grouping changed in v2, not every tab.
+// while active, so steps anchor the always-present tab BUTTONS (and the
+// sidebar Start/Stop), not tab bodies. The crash-diagnosis banner is empty
+// until a crash, so it has no step of its own — it is described in the
+// start/stop step. Settings and Backups carry no step: the tour teaches the
+// surfaces whose grouping changed in v2, not every tab.
 export const SERVER_MANAGE_STEPS: ReadonlyArray<TourStep> = [
   {
-    titleKey: 'onboarding.contextual.serverManage.headerActions.title',
-    bodyKey: 'onboarding.contextual.serverManage.headerActions.body',
-    targetSelector: '[data-tour-ctx="server-header-actions"]',
-    anchor: 'below',
+    // Start/Stop lives in the SIDEBAR (the mirror of the client Play button),
+    // not in the panel header — anchoring this step to the header actions made
+    // it spotlight the "create client instance" button instead.
+    titleKey: 'onboarding.contextual.serverManage.startStop.title',
+    bodyKey: 'onboarding.contextual.serverManage.startStop.body',
+    targetSelector: '[data-tour-ctx="server-start-stop"]',
+    anchor: 'right',
   },
   {
     titleKey: 'onboarding.contextual.serverManage.overview.title',

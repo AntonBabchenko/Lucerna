@@ -29,7 +29,9 @@ describe('servers mode tour (SERVERS_STEPS)', () => {
 describe('server manage tour (SERVER_MANAGE_STEPS)', () => {
   it('has the five detail-view steps in order, anchored to stable elements', () => {
     expect(SERVER_MANAGE_STEPS.map(selector)).toEqual([
-      '[data-tour-ctx="server-header-actions"]',
+      // Start/Stop is a SIDEBAR control; anchoring this step to the panel
+      // header made it spotlight "create client instance" instead.
+      '[data-tour-ctx="server-start-stop"]',
       '[data-tour-ctx="server-tab-overview"]',
       '[data-tour-ctx="server-tab-addons"]',
       '[data-tour-ctx="server-tab-hosting"]',

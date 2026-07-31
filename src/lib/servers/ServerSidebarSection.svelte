@@ -188,47 +188,54 @@
       </button>
     {/if}
 
-    {#if selected.running}
-      <BusyButton
-        class="btn-danger btn-lg flex items-center justify-center"
-        busy={action === 'stop'}
-        disabled={action !== null && action !== 'stop'}
-        data-testid="sidebar-server-stop"
-        onclick={() => void stopSelected()}
-      >
-        <Icon name="stop" size={16} />
-        {$t('servers.action.stop')}
-      </BusyButton>
-      {#if showForceStop}
-        <!-- Escalation out of a stuck graceful stop: skip the wait, hard-kill now.
-             Surfaces only after FORCE_STOP_HINT_DELAY_MS so a normal stop is clean. -->
+    <!-- Start/Stop wrapper. Both shapes (Stop + Force stop / Start) live inside
+         one anchored box so the server tour's "Start and stop" step spotlights
+         the real control in either state — the step used to point at the manage
+         header, which stopped owning Start/Stop when servers became a mode.
+         The flex column mirrors the parent's so wrapping changes no spacing. -->
+    <div class="flex flex-col gap-1" data-tour-ctx="server-start-stop">
+      {#if selected.running}
         <BusyButton
-          class="btn-ghost-danger flex items-center justify-center"
-          busy={killing}
-          data-testid="sidebar-server-force-stop"
-          onclick={() => void killSelected()}
+          class="btn-danger btn-lg flex items-center justify-center"
+          busy={action === 'stop'}
+          disabled={action !== null && action !== 'stop'}
+          data-testid="sidebar-server-stop"
+          onclick={() => void stopSelected()}
         >
-          {$t('servers.action.forceStop')}
+          <Icon name="stop" size={16} />
+          {$t('servers.action.stop')}
         </BusyButton>
+        {#if showForceStop}
+          <!-- Escalation out of a stuck graceful stop: skip the wait, hard-kill now.
+               Surfaces only after FORCE_STOP_HINT_DELAY_MS so a normal stop is clean. -->
+          <BusyButton
+            class="btn-ghost-danger flex items-center justify-center"
+            busy={killing}
+            data-testid="sidebar-server-force-stop"
+            onclick={() => void killSelected()}
+          >
+            {$t('servers.action.forceStop')}
+          </BusyButton>
+        {/if}
+      {:else}
+        <span
+          class="inline-flex w-full"
+          use:tooltip={uploading
+            ? { text: $t('servers.hosting.startBlockedByUpload'), describe: false }
+            : null}
+        >
+          <BusyButton
+            class="btn-success btn-lg w-full flex items-center justify-center"
+            busy={action === 'start'}
+            disabled={uploading || (action !== null && action !== 'start')}
+            data-testid="sidebar-server-start"
+            onclick={() => void startSelected()}
+          >
+            <Icon name="play" size={16} />
+            {$t('servers.action.start')}
+          </BusyButton>
+        </span>
       {/if}
-    {:else}
-      <span
-        class="inline-flex w-full"
-        use:tooltip={uploading
-          ? { text: $t('servers.hosting.startBlockedByUpload'), describe: false }
-          : null}
-      >
-        <BusyButton
-          class="btn-success btn-lg w-full flex items-center justify-center"
-          busy={action === 'start'}
-          disabled={uploading || (action !== null && action !== 'start')}
-          data-testid="sidebar-server-start"
-          onclick={() => void startSelected()}
-        >
-          <Icon name="play" size={16} />
-          {$t('servers.action.start')}
-        </BusyButton>
-      </span>
-    {/if}
+    </div>
   {/if}
 </div>
