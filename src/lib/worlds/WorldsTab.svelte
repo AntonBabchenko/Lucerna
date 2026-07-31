@@ -24,11 +24,13 @@
     onListChanged,
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
+    running = false,
   }: {
     instanceId: string | null;
     onListChanged: () => void;
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
+    running?: boolean;
   } = $props();
 
   let worlds = $state<World[]>([]);
@@ -297,6 +299,7 @@
   <WorldDetailDialog
     {instanceId}
     world={detailFor}
+    {running}
     onClose={() => {
       detailFor = null;
       void reload();

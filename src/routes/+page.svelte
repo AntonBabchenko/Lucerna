@@ -1341,6 +1341,7 @@
           }}
           {onQuickPlayWorld}
           {quickPlayDisabledReason}
+          running={selectedRunning}
         >
           {#snippet overview()}
             <OverviewTab
