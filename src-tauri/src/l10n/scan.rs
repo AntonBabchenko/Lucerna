@@ -4,6 +4,9 @@
 //! and must never be opened for writing.
 
 use std::collections::BTreeMap;
+use std::io::Cursor;
+
+use crate::error::Error;
 
 /// A language file's contents: translation key → string.
 /// `BTreeMap` so every derived artefact (pack bytes, cache file) is
@@ -51,6 +54,88 @@ pub fn parse_lang_properties(body: &[u8]) -> LangMap {
             Some((k.trim().to_string(), v.to_string()))
         })
         .collect()
+}
+
+/// One language file discovered inside a jar.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LangEntry {
+    /// Resource namespace — the `<ns>` in `assets/<ns>/lang/…`. This, not the
+    /// jar, is the unit a resource pack overrides, and one jar may ship
+    /// several (Jar-in-Jar).
+    pub namespace: String,
+    /// Language code, normalised to lowercase (`en_us`). Pre-1.11 jars ship
+    /// `en_US`; treating those as a separate language would double-count.
+    pub code: String,
+    /// True for a `.lang` properties file, false for `.json`.
+    pub legacy: bool,
+}
+
+/// Enumerate every `assets/<ns>/lang/<code>.{json,lang}` entry in a jar,
+/// paired with its VERBATIM zip path.
+///
+/// The path is returned rather than reconstructed because `LangEntry::code` is
+/// lowercased while the path on disk may not be (`en_US.lang`); rebuilding it
+/// from the normalised code would miss the lookup on exactly the legacy jars
+/// that need it.
+///
+/// Only an unreadable archive is an error; a jar with no language files yields
+/// an empty vec.
+pub fn list_lang_entries(jar_bytes: &[u8]) -> Result<Vec<(LangEntry, String)>, Error> {
+    let zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).map_err(|e| Error::ModsDecode {
+        platform: "local jar".into(),
+        details: e.to_string(),
+    })?;
+    Ok(zip
+        .file_names()
+        .filter_map(|p| parse_lang_path(p).map(|e| (e, p.to_string())))
+        .collect())
+}
+
+/// `assets/<ns>/lang/<code>.<ext>` → `LangEntry`, or `None` for any other path.
+/// Rejects deeper nesting: exactly one path segment after `lang/`.
+fn parse_lang_path(path: &str) -> Option<LangEntry> {
+    let rest = path.strip_prefix("assets/")?;
+    let mut parts = rest.split('/');
+    let namespace = parts.next()?;
+    if parts.next()? != "lang" {
+        return None;
+    }
+    let file = parts.next()?;
+    if parts.next().is_some() {
+        return None; // nested deeper than assets/<ns>/lang/<file>
+    }
+    let (stem, ext) = file.rsplit_once('.')?;
+    let legacy = match ext {
+        "json" => false,
+        "lang" => true,
+        _ => return None,
+    };
+    if namespace.is_empty() || stem.is_empty() {
+        return None;
+    }
+    Some(LangEntry {
+        namespace: namespace.to_string(),
+        code: stem.to_ascii_lowercase(),
+        legacy,
+    })
+}
+
+/// Read one entry's raw bytes out of a jar. `None` when absent or unreadable —
+/// a missing language file is a normal outcome, not an error.
+pub fn read_entry(jar_bytes: &[u8], path: &str) -> Option<Vec<u8>> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).ok()?;
+    crate::mods::local::entry_bytes(&mut zip, path)
+}
+
+/// Read and parse one language file, dispatching on its format.
+/// `zip_path` must be the verbatim path from `list_lang_entries`.
+pub fn read_lang_map(jar_bytes: &[u8], entry: &LangEntry, zip_path: &str) -> Option<LangMap> {
+    let body = read_entry(jar_bytes, zip_path)?;
+    if entry.legacy {
+        Some(parse_lang_properties(&body))
+    } else {
+        parse_lang_json(&body)
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +227,132 @@ mod tests {
         let map = parse_lang_properties("\u{feff}a=1\r\nb=2\r\n".as_bytes());
         assert_eq!(map.get("a").map(String::as_str), Some("1"));
         assert_eq!(map.get("b").map(String::as_str), Some("2"));
+    }
+
+    /// Build an in-memory jar containing the given (path, contents) entries.
+    fn jar(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = zip::ZipWriter::new(&mut buf);
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+            for (name, body) in entries {
+                w.start_file(*name, opts).unwrap();
+                w.write_all(body.as_bytes()).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    /// Enumeration helper: drop the verbatim zip paths, keep the entries.
+    fn entries_only(v: Vec<(LangEntry, String)>) -> Vec<LangEntry> {
+        v.into_iter().map(|(e, _)| e).collect()
+    }
+
+    #[test]
+    fn finds_lang_entries_across_namespaces_and_locales() {
+        let bytes = jar(&[
+            ("assets/create/lang/en_us.json", r#"{"a":"A"}"#),
+            ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
+            ("assets/thermal/lang/en_us.json", r#"{"b":"B"}"#),
+            ("META-INF/mods.toml", "modId=\"create\""),
+            ("assets/create/textures/item/x.png", "notlang"),
+        ]);
+        let mut found = entries_only(list_lang_entries(&bytes).expect("readable zip"));
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                LangEntry {
+                    namespace: "create".into(),
+                    code: "en_us".into(),
+                    legacy: false
+                },
+                LangEntry {
+                    namespace: "create".into(),
+                    code: "ru_ru".into(),
+                    legacy: false
+                },
+                LangEntry {
+                    namespace: "thermal".into(),
+                    code: "en_us".into(),
+                    legacy: false
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn recognises_legacy_lang_extension_and_normalises_uppercase_region() {
+        let bytes = jar(&[("assets/tconstruct/lang/en_US.lang", "a=A")]);
+        let found = entries_only(list_lang_entries(&bytes).expect("readable zip"));
+        assert_eq!(
+            found,
+            vec![LangEntry {
+                namespace: "tconstruct".into(),
+                // Codes are normalised to lowercase so `en_US` and `en_us`
+                // are one language, not two.
+                code: "en_us".into(),
+                legacy: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn keeps_the_verbatim_zip_path_alongside_the_normalised_entry() {
+        // The entry's code is lowercased, but the path on disk may not be —
+        // reading back must use the original casing or the lookup misses.
+        let bytes = jar(&[("assets/tconstruct/lang/en_US.lang", "a=A")]);
+        let found = list_lang_entries(&bytes).expect("readable zip");
+        assert_eq!(found[0].1, "assets/tconstruct/lang/en_US.lang");
+    }
+
+    #[test]
+    fn ignores_nested_paths_that_merely_contain_lang() {
+        let bytes = jar(&[
+            ("assets/x/lang/sub/en_us.json", "{}"),
+            ("assets/x/models/lang/en_us.json", "{}"),
+        ]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn ignores_unrelated_extensions() {
+        let bytes = jar(&[("assets/x/lang/en_us.txt", "a=A")]);
+        assert!(list_lang_entries(&bytes).expect("readable zip").is_empty());
+    }
+
+    #[test]
+    fn unreadable_zip_is_an_error() {
+        assert!(list_lang_entries(b"not a zip").is_err());
+    }
+
+    #[test]
+    fn reads_a_named_entry_body() {
+        let bytes = jar(&[("assets/create/lang/en_us.json", r#"{"a":"A"}"#)]);
+        let body = read_entry(&bytes, "assets/create/lang/en_us.json").expect("present");
+        assert_eq!(parse_lang_json(&body).unwrap().get("a").unwrap(), "A");
+    }
+
+    #[test]
+    fn reads_an_absent_entry_as_none() {
+        let bytes = jar(&[("assets/create/lang/en_us.json", "{}")]);
+        assert!(read_entry(&bytes, "assets/create/lang/nope.json").is_none());
+    }
+
+    #[test]
+    fn read_lang_map_dispatches_on_format() {
+        let bytes = jar(&[
+            ("assets/a/lang/en_us.json", r#"{"k":"json"}"#),
+            ("assets/b/lang/en_us.lang", "k=properties"),
+        ]);
+        let entries = list_lang_entries(&bytes).expect("readable zip");
+        for (entry, path) in &entries {
+            let map = read_lang_map(&bytes, entry, path).expect("parsed");
+            let expected = if entry.legacy { "properties" } else { "json" };
+            assert_eq!(map.get("k").map(String::as_str), Some(expected));
+        }
+        assert_eq!(entries.len(), 2);
     }
 }
