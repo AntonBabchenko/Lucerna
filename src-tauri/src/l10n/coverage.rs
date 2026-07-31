@@ -5,8 +5,6 @@
 //! rest (the game loads en_us into the shared map first, so missing keys fall
 //! back rather than disappearing).
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -91,18 +89,6 @@ pub fn instance_percent(all: &[NamespaceCoverage]) -> u32 {
     }
     let covered: u64 = all.iter().map(|c| c.covered() as u64).sum();
     (covered * 100 / total) as u32
-}
-
-/// Merge per-jar namespace maps: one namespace may be supplied by several jars
-/// (Jar-in-Jar), and the union is what the game sees.
-pub fn merge_namespace_maps(per_jar: Vec<BTreeMap<String, LangMap>>) -> BTreeMap<String, LangMap> {
-    let mut out: BTreeMap<String, LangMap> = BTreeMap::new();
-    for jar in per_jar {
-        for (ns, map) in jar {
-            out.entry(ns).or_default().extend(map);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -204,20 +190,6 @@ mod tests {
     #[test]
     fn instance_percent_of_nothing_is_full() {
         assert_eq!(instance_percent(&[]), 100);
-    }
-
-    #[test]
-    fn merge_unions_namespace_maps_across_jars() {
-        // One namespace may be supplied by several jars (Jar-in-Jar).
-        let mut a = std::collections::BTreeMap::new();
-        a.insert("create".to_string(), map(&[("k1", "v1")]));
-        let mut b = std::collections::BTreeMap::new();
-        b.insert("create".to_string(), map(&[("k2", "v2")]));
-        b.insert("thermal".to_string(), map(&[("k3", "v3")]));
-        let merged = merge_namespace_maps(vec![a, b]);
-        assert_eq!(merged.len(), 2);
-        assert_eq!(merged["create"].len(), 2);
-        assert_eq!(merged["thermal"].len(), 1);
     }
 
     #[test]
