@@ -89,7 +89,9 @@ pub fn library_dir_at(instance_root: &Path) -> PathBuf {
 
 /// `<instance>/lucerna/installed-datapacks.json`.
 pub fn registry_path_at(instance_root: &Path) -> PathBuf {
-    instance_root.join("lucerna").join("installed-datapacks.json")
+    instance_root
+        .join("lucerna")
+        .join("installed-datapacks.json")
 }
 
 /// `<instance>/.minecraft/saves/<world>/datapacks/`. The caller MUST have
