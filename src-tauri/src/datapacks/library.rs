@@ -7,7 +7,9 @@
 //!
 //! Every write goes through `store::place_bytes`. A folder datapack is zipped
 //! IN MEMORY and placed with the same call, so this module holds no raw write
-//! primitive and the structural guard passes over it with no exemption.
+//! primitive. That invariant is currently held by convention only — the
+//! structural guard (`tests/structural_no_inplace_mods_write.rs`) scans just
+//! `src/mods/` today; a later batch widens it to cover `src/datapacks/` too.
 
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -180,6 +182,33 @@ pub async fn install_named_at(
             path: e.path.display().to_string(),
             details: e.details(),
         })?;
+
+    // `place_bytes` is temp-then-rename, so reinstalling over an existing
+    // library file gives the LIBRARY name a brand-new inode while every
+    // world that already links this filename still points at the OLD one —
+    // the ordinary "install a newer zip" workflow would otherwise leave
+    // every such world stuck on stale bytes forever, with nothing able to
+    // detect it (`registry::reconcile` only scans the library dir, never a
+    // world's own `datapacks/`). Re-materialize onto every world that
+    // already has a same-named file so they all pick up the new bytes. A
+    // failure on one world must not abort the install — the library file is
+    // already in place — so this only logs and continues.
+    for world_file in crate::datapacks::world_link::worlds_linking(instance_root, filename) {
+        if let Err(e) = crate::mods::store::materialize(
+            &dest,
+            &world_file,
+            crate::mods::store::LinkPolicy::LinkIfPossible,
+        )
+        .await
+        {
+            crate::diag!(
+                "datapacks: failed to refresh {} from the reinstalled library file {}: {}",
+                world_file.display(),
+                dest.display(),
+                e.details()
+            );
+        }
+    }
 
     let meta = pack_meta::read_meta(bytes);
     let entry = InstalledDatapack {
@@ -366,5 +395,80 @@ mod tests {
         let hash = sha1_hex(b"hello world");
         assert_eq!(hash.len(), 40);
         assert_eq!(hash, hash.to_ascii_lowercase());
+    }
+
+    fn datapack_zip_v2() -> Vec<u8> {
+        zip_with(&[
+            ("pack.mcmeta", MCMETA),
+            ("data/vm/function/tick.mcfunction", b"say updated"),
+        ])
+    }
+
+    /// Regression for the reinstall fan-out: `place_bytes` is temp-then-
+    /// rename, so before the fix a reinstalled library file got a brand-new
+    /// inode while every world's own `datapacks/` link still pointed at the
+    /// OLD one — the ordinary "install a newer zip" workflow silently left
+    /// every world stuck on stale bytes forever.
+    #[tokio::test]
+    async fn reinstalling_over_an_existing_pack_refreshes_every_world_using_it() {
+        // add_to_world_at performs a real hardlink; serialize against the
+        // process-global FORCE_LINK_FAILURE seam other tests may set.
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip())
+            .await
+            .unwrap();
+
+        // `add_to_world_at` requires a real, pre-existing world directory.
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        std::fs::create_dir_all(saves.join("Beta")).unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Beta", "vm.zip")
+            .await
+            .unwrap();
+
+        let new_bytes = datapack_zip_v2();
+        assert_ne!(
+            new_bytes,
+            datapack_zip(),
+            "the reinstall must use genuinely different bytes"
+        );
+        install_named_at(td.path(), "vm.zip", &new_bytes)
+            .await
+            .unwrap();
+
+        let alpha = std::fs::read(saves.join("Alpha").join("datapacks").join("vm.zip")).unwrap();
+        let beta = std::fs::read(saves.join("Beta").join("datapacks").join("vm.zip")).unwrap();
+        assert_eq!(
+            alpha, new_bytes,
+            "Alpha's world-side file must see the reinstalled bytes"
+        );
+        assert_eq!(
+            beta, new_bytes,
+            "Beta's world-side file must see the reinstalled bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn reinstalling_with_no_worlds_linking_it_yet_is_a_plain_reinstall() {
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip())
+            .await
+            .unwrap();
+
+        // No `.minecraft/saves/` at all — `worlds_linking`'s missing-saves
+        // case must yield an empty fan-out, not an error.
+        let entry = install_named_at(td.path(), "vm.zip", &datapack_zip_v2())
+            .await
+            .unwrap();
+
+        assert_eq!(entry.filename, "vm.zip");
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks/vm.zip")).unwrap(),
+            datapack_zip_v2()
+        );
     }
 }
