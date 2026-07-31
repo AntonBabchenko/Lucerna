@@ -9,6 +9,7 @@ pub mod forge;
 pub mod instances;
 pub mod journal;
 pub mod jre;
+pub mod l10n;
 pub mod launch;
 pub mod logs;
 pub mod mods;
