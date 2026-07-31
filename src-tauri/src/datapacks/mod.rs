@@ -115,13 +115,6 @@ pub fn level_dat_entry(filename: &str) -> String {
     format!("file/{filename}")
 }
 
-/// `<instance>/datapacks/` for a live app handle.
-pub fn library_dir(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf> {
-    crate::paths::instance_dir(app, instance_id)
-        .map(|p| library_dir_at(&p))
-        .map_err(|e| Error::io("<datapacks_library_dir>", e))
-}
-
 /// `<instance>/` for a live app handle — the root every `*_at` fn takes.
 pub fn instance_root(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf> {
     crate::paths::instance_dir(app, instance_id).map_err(|e| Error::io("<instance_root>", e))
