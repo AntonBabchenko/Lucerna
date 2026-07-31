@@ -84,10 +84,17 @@ pub fn install_datapack(dir: &Path, src_zip: &Path) -> Result<String> {
         .and_then(|mut f| f.read_to_end(&mut bytes).map(|_| ()))
         .map_err(|e| Error::io(src_zip.display().to_string(), e))?;
     if !zip_is_datapack(&bytes) {
-        return Err(Error::io(
-            "<datapack>",
-            "not a datapack (no pack.mcmeta at the zip root)",
-        ));
+        // pack.mcmeta alone isn't the datapack marker (see pack_meta) — name
+        // the real kind when that's why it was rejected. The blanket "no
+        // pack.mcmeta" wording would be false for a rejected resource pack,
+        // which carries one too.
+        let details = match crate::datapacks::pack_meta::classify(&bytes) {
+            crate::datapacks::pack_meta::PackKind::ResourcePack => {
+                "this looks like a resource pack, not a datapack"
+            }
+            _ => "not a datapack (no pack.mcmeta at the zip root)",
+        };
+        return Err(Error::io("<datapack>", details));
     }
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let dest = dir.join(&filename);
@@ -244,6 +251,26 @@ mod tests {
         let dir = td.path().join("world").join("datapacks");
         assert!(install_datapack(&dir, &src).is_err());
         assert!(!dir.join("notapack.zip").exists());
+    }
+
+    #[test]
+    fn install_datapack_rejects_a_resource_pack_with_an_accurate_message() {
+        // Regression: this used to say "no pack.mcmeta at the zip root", which
+        // is false — a resource pack carries one too.
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("Faithful.zip");
+        std::fs::write(
+            &src,
+            zip(&[
+                ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+                ("assets/minecraft/textures/x.png", b"\x89PNG"),
+            ]),
+        )
+        .unwrap();
+        let dir = td.path().join("world").join("datapacks");
+        let msg = install_datapack(&dir, &src).unwrap_err().to_string();
+        assert!(msg.contains("resource pack"), "message was: {msg}");
+        assert!(!msg.contains("no pack.mcmeta"), "message was: {msg}");
     }
 
     #[test]

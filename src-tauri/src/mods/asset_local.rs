@@ -15,6 +15,7 @@ use chrono::Utc;
 use sha1::{Digest, Sha1};
 use tokio::fs;
 
+use crate::datapacks::pack_meta::{self, PackKind};
 use crate::error::Error;
 use crate::mods::platform::{ContentKind, InstalledAsset};
 
@@ -25,20 +26,26 @@ use crate::mods::platform::{ContentKind, InstalledAsset};
 /// `require_asset_kind`, which rejects both — plugins are server-only
 /// content); neither imposes an extra check here.
 pub fn validate_asset_zip(bytes: &[u8], kind: ContentKind) -> Result<(), Error> {
+    // Fails fast on an unreadable zip before classification runs at all.
     zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModsDecode {
         platform: "local asset zip".into(),
         details: e.to_string(),
     })?;
-    // A datapack also carries a root pack.mcmeta; the discriminator is the
-    // top-level tree. Without this, a datapack installs as a resource pack.
-    if kind == ContentKind::ResourcePack
-        && crate::datapacks::pack_meta::classify(bytes)
-            != crate::datapacks::pack_meta::PackKind::ResourcePack
-    {
-        return Err(Error::ModsDecode {
-            platform: "resource pack".into(),
-            details: "missing pack.mcmeta".into(),
-        });
+    if kind == ContentKind::ResourcePack {
+        // A datapack also carries a root pack.mcmeta; the discriminator is the
+        // top-level tree. Name the real kind when that's why it was rejected —
+        // "missing pack.mcmeta" would be false for a rejected datapack.
+        let rejection = match pack_meta::classify(bytes) {
+            PackKind::ResourcePack => None,
+            PackKind::Datapack => Some("this looks like a datapack, not a resource pack"),
+            PackKind::Neither => Some("missing pack.mcmeta"),
+        };
+        if let Some(details) = rejection {
+            return Err(Error::ModsDecode {
+                platform: "resource pack".into(),
+                details: details.into(),
+            });
+        }
     }
     Ok(())
 }
@@ -182,7 +189,15 @@ mod tests {
         zw.write_all(b"say hi").unwrap();
         let bytes = zw.finish().unwrap().into_inner();
 
-        assert!(validate_asset_zip(&bytes, ContentKind::ResourcePack).is_err());
+        // Regression: this used to say "missing pack.mcmeta", which is false —
+        // this zip has one. The message must name the real kind instead.
+        let Error::ModsDecode { details, .. } =
+            validate_asset_zip(&bytes, ContentKind::ResourcePack).unwrap_err()
+        else {
+            panic!("expected Error::ModsDecode");
+        };
+        assert!(details.contains("datapack"), "message was: {details}");
+        assert_ne!(details, "missing pack.mcmeta");
     }
 
     #[test]
