@@ -139,6 +139,20 @@ pub fn copy_clone_content(
     // The custom picture always travels with the clone.
     copy_meta_file(&src_root.join("icon.png"), &dst_root.join("icon.png"))?;
 
+    // Datapacks: the library dir and its registry both live at the instance
+    // root, outside .minecraft/, so ContentCategory does not reach them. Tied
+    // to `saves` because a datapack library without its worlds is inert.
+    if options.saves {
+        copy_dir_recursive(
+            &crate::datapacks::library_dir_at(src_root),
+            &crate::datapacks::library_dir_at(dst_root),
+        )?;
+        copy_meta_file(
+            &crate::datapacks::registry_path_at(src_root),
+            &crate::datapacks::registry_path_at(dst_root),
+        )?;
+    }
+
     if options.playtime {
         copy_meta_file(
             &crate::playtime::playtime_path(src_root),
@@ -158,6 +172,53 @@ fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
     }
     std::fs::copy(src, dst).map_err(|e| Error::io(dst.display().to_string(), e))?;
+    Ok(())
+}
+
+/// Recursively copy every file under `src` into the matching relative path
+/// under `dst`. A missing `src` is fine (nothing to copy); any copy failure
+/// is fatal, matching every other copy in this module.
+///
+/// Reuses [`pipeline::collect_files`]'s enumeration — the same "list every
+/// real file under a tree" recursion [`copy_category`] already delegates to
+/// for `.minecraft`-relative categories — rather than adding a second
+/// implementation. The datapack library lives at the instance root, outside
+/// `.minecraft/`, so it cannot go through `copy_category`/`ContentCategory`
+/// itself (see `copy_clone_content`'s datapacks comment).
+///
+/// This always produces independent physical copies, never hardlinks — the
+/// same choice `copy_category` and every other copy in this module already
+/// make for mods, saves, resourcepacks, and so on. A source instance's
+/// library file may itself be hardlinked to one or more of its own worlds'
+/// `datapacks/` copies (see `datapacks::world_link`), but a plain byte copy
+/// never extends that sharing across the clone boundary: if the clone's
+/// library file and the source's shared an inode, a write through either
+/// instance's name would change bytes the other instance reads too, which
+/// breaks the isolation a clone promises.
+///
+/// The trade-off: inside the CLONE itself, the copied library file and the
+/// copied world file(s) that used to be hardlinked to it (via the separate
+/// `ContentCategory::Saves` copy, also a plain byte copy) end up as
+/// independent files with identical bytes rather than re-linked to each
+/// other. That is a real loss of the space-saving invariant, but not a
+/// correctness one: nothing in `datapacks::world_link` or `level_dat` reads
+/// inode identity — enabled/disabled/orphaned state comes from file
+/// existence plus `level.dat`, exactly as if every entry had been placed via
+/// `Placement::Copied`, which the design already treats as a fully supported
+/// outcome (see `mods::store::materialize`'s fallback).
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    if !src.is_dir() {
+        return Ok(());
+    }
+    for relpath in crate::instances::import::pipeline::collect_files(src)? {
+        let from = src.join(&relpath);
+        let to = dst.join(&relpath);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        }
+        std::fs::copy(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
+    }
     Ok(())
 }
 
@@ -346,6 +407,14 @@ mod tests {
         write(&root.join(".minecraft/shaderpacks/shader.zip"), "SH");
         write(&root.join(".minecraft/options.txt"), "version:3465");
         write(&root.join("icon.png"), "PNG");
+        // Two files (one nested) so a recursive-copy regression that only
+        // handles a single flat file, or only the top level, is caught.
+        write(&root.join("datapacks/vm.zip"), "PACK");
+        write(&root.join("datapacks/nested/extra.zip"), "PACK2");
+        write(
+            &root.join("lucerna/installed-datapacks.json"),
+            "{\"packs\":[]}",
+        );
         write(
             &root.join(".lucerna/playtime.json"),
             "{\"total_seconds\":60}",
@@ -393,6 +462,53 @@ mod tests {
             "SAVE"
         );
         assert!(!dst.join(".minecraft/config").exists());
+    }
+
+    #[test]
+    fn copy_content_carries_the_datapack_library_and_registry_when_saves_selected() {
+        // The datapack library lives at the instance root, outside
+        // `.minecraft/`, so it cannot ride on `ContentCategory::Saves` — it is
+        // gated on the same `saves` flag by a separate, dedicated copy
+        // because a datapack library without its worlds is inert.
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+        full_source(&src);
+        let options = CloneOptions {
+            saves: true,
+            ..all_off()
+        };
+
+        copy_clone_content(&src, &dst, &options, &mut no_progress()).unwrap();
+
+        // Both library files, including the nested one — proves the copy is
+        // actually recursive and not limited to a single flat file.
+        assert_eq!(
+            std::fs::read_to_string(dst.join("datapacks/vm.zip")).unwrap(),
+            "PACK"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("datapacks/nested/extra.zip")).unwrap(),
+            "PACK2"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("lucerna/installed-datapacks.json")).unwrap(),
+            "{\"packs\":[]}"
+        );
+    }
+
+    #[test]
+    fn copy_content_skips_the_datapack_library_when_saves_not_selected() {
+        // Otherwise the gating on `saves` is untested — a regression that
+        // always copies the library regardless of the option would not be
+        // caught by the "selected" test alone.
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+        full_source(&src);
+
+        copy_clone_content(&src, &dst, &all_off(), &mut no_progress()).unwrap();
+
+        assert!(!dst.join("datapacks").exists());
+        assert!(!dst.join("lucerna/installed-datapacks.json").exists());
     }
 
     #[test]
