@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod cli;
 mod commands;
 pub mod data_root;
+pub mod datapacks;
 pub mod deeplink;
 pub mod diag;
 pub mod error;
