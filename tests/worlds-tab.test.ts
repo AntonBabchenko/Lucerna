@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { markSeen } from '$lib/onboarding/contextual-tours';
-import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
+import WorldDetailDialog from '$lib/worlds/WorldDetailDialog.svelte';
 import WorldsTab from '$lib/worlds/WorldsTab.svelte';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -29,6 +29,17 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { filename: 'b.zip', size_bytes: 10 } }),
     openSavesFolder: vi.fn(),
     openBackupsFolder: vi.fn(),
+    // The detail dialog's Datapacks tab mounts WorldDatapacks, which fires
+    // datapacksListForWorld on mount (and would on any test that switches
+    // tabs, since TabBar activation follows focus). Resolved so it never
+    // throws even in tests that never touch that tab.
+    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksInstallFromFile: vi.fn(),
+    datapacksAddToWorld: vi.fn(),
+    datapacksRemoveFromWorld: vi.fn(),
+    datapacksRemoveFromLibrary: vi.fn(),
+    datapacksSetEnabledInWorld: vi.fn(),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -38,7 +49,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 // The worlds ContextualTour mounts a role="dialog" overlay on first visit
 // (when worlds exist). Mark it seen so role="dialog" unambiguously targets
-// the BackupsDialog under test.
+// the world-detail dialog under test.
 beforeEach(() => markSeen('worlds'));
 afterEach(() => vi.clearAllMocks());
 
@@ -117,53 +128,56 @@ describe('WorldsTab', () => {
     expect(mod.commands.backupWorld).toHaveBeenCalledWith('i1', 'My World');
   });
 
-  it('opens the backups dialog when a world row is clicked', async () => {
+  it('opens the world-detail dialog when a world row is clicked', async () => {
     const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },
     });
     await findByText('My World');
     const row = container.querySelector('[data-testid="world-row"]')!;
     await fireEvent.click(row);
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(await screen.findByTestId('world-detail-dialog')).toBeTruthy();
   });
 
-  it('clicking the play button does NOT open the backups dialog (stopPropagation)', async () => {
+  it('clicking the play button does NOT open the world-detail dialog (stopPropagation)', async () => {
     const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },
     });
     await findByText('My World');
     const play = container.querySelector('button.btn-success')!;
     await fireEvent.click(play);
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByTestId('world-detail-dialog')).toBeNull();
   });
 
-  it('clicking the inline backup icon does NOT open the backups dialog (stopPropagation)', async () => {
+  it('clicking the inline backup icon does NOT open the world-detail dialog (stopPropagation)', async () => {
     const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },
     });
     await findByText('My World');
     const backupBtn = container.querySelector('[data-testid="world-backup-btn"]')!;
     await fireEvent.click(backupBtn);
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByTestId('world-detail-dialog')).toBeNull();
   });
 
-  it('clicking the inline delete icon opens the delete dialog, not the backups dialog (stopPropagation)', async () => {
+  it('clicking the inline delete icon opens the delete dialog, not the world-detail dialog (stopPropagation)', async () => {
     const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },
     });
     await findByText('My World');
     const deleteBtn = container.querySelector('[data-testid="world-delete-btn"]')!;
     await fireEvent.click(deleteBtn);
-    // The delete dialog opens; the backups dialog title must not be present.
-    expect(screen.queryByText(/Backups for/)).toBeNull();
+    // The delete dialog opens; the world-detail dialog must not be present.
+    // (A literal-text check like /Backups for/ would pass vacuously here now
+    // that the detail dialog's title is just the world name — anchor on the
+    // dialog's own testid instead so a real regression is still caught.)
+    expect(screen.queryByTestId('world-detail-dialog')).toBeNull();
   });
 });
 
-describe('BackupsDialog — header back-up action', () => {
+describe('WorldDetailDialog (Backups tab) — header back-up action', () => {
   it('renders a backups-create-btn and calls backupWorld on click', async () => {
     const mod = await import('$lib/ipc/bindings');
     vi.mocked(mod.commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'i1',
         world: {

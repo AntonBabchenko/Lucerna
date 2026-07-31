@@ -8,7 +8,7 @@
 //   CompatWarningDialog   — src/lib/mods/        (mod-browser group)
 //   ImportPickerDialog    — src/lib/modpacks/    (modpacks group)
 //   ModpackUpdateDialog   — src/lib/modpacks/    (modpacks group)
-//   BackupsDialog         — src/lib/worlds/      (worlds group)
+//   WorldDetailDialog     — src/lib/worlds/      (worlds group)
 //   DeleteWorldDialog     — src/lib/worlds/      (worlds group)
 //   RestoreBackupDialog   — src/lib/worlds/      (worlds group)
 //   ManageInstancesModal  — src/lib/instances/   (instance-mgmt group)
