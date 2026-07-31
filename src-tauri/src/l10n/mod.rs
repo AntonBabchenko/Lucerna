@@ -6,5 +6,5 @@
 //! `OpenOptions` anywhere under that tree, so even a read-only open would fail
 //! the build there.
 
-// pub mod coverage; // Task 3
+pub mod coverage;
 pub mod scan;
