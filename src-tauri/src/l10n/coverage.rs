@@ -139,7 +139,17 @@ impl ScanCache {
     }
 
     /// Atomic write (per-process temp + rename), creating the parent dir.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+    /// Private: the temp filename is only `tmp.<pid>`, which is safe across
+    /// separate launcher processes (distinct pids) but NOT against two
+    /// concurrent calls within this same process (same pid, same tmp path —
+    /// the second `rename` loses the race). `update()` is the only caller,
+    /// and it holds `CACHE_DISK_LOCK` for the full cycle, so that intra-process
+    /// race can never happen. Making this a free-standing `pub fn` would let a
+    /// future caller (e.g. two Overview cards racing a save) reintroduce
+    /// exactly the collision `mods/installed.rs` hit before it added a
+    /// sequence number to its temp name — so instead of defending this
+    /// entry point, it is removed.
+    fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -149,7 +159,13 @@ impl ScanCache {
         std::fs::rename(&tmp, path)
     }
 
-    /// Load, mutate, save under the disk lock.
+    /// Load, mutate, save under the disk lock. The ONLY sanctioned write path:
+    /// `save()` is private specifically so a caller cannot skip this lock.
+    /// The lock is what makes `save()`'s `tmp.<pid>` temp name safe — it
+    /// guarantees at most one save-in-flight per process, so two concurrent
+    /// writers (e.g. two Overview cards finishing a scan at once) can never
+    /// collide on that path the way `mods/installed.rs`'s unlocked `write()`
+    /// once did.
     pub fn update<F: FnOnce(&mut Self)>(path: &Path, f: F) {
         // Deliberate poison-recovery, not an unwrap: a prior panicking holder
         // must not permanently break every future cache read/write.
