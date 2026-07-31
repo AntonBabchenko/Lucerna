@@ -1582,7 +1582,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 * 
 	 *  Per-jar results are cached by (language, jar SHA-1), so an unchanged
 	 *  instance re-renders with zero jar reads. An empty `lang` means "derive from
-	 *  the UI locale", which the caller passes through from the i18n store.
+	 *  the UI locale": the persisted `GeneralSettings.language` from `app.json`,
+	 *  mapped through `default_target_code`.
 	 */
 	l10nCoverage: (instanceId: string, lang: string) => typedError<InstanceCoverage, Error>(__TAURI_INVOKE("l10n_coverage", { instanceId, lang })),
 };
