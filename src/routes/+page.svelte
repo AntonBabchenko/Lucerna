@@ -17,6 +17,7 @@
   import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
+  import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import {
@@ -164,6 +165,8 @@
   }
 
   let manageOpen = $state(false);
+  // Opened from the Overview Mods card's translation row.
+  let l10nOpen = $state(false);
   // Which Manage field the modal should scroll to and flash when it opens.
   // Set by whichever entry point opened it; every site that flips manageOpen
   // sets this too, so a stale highlight can never survive into the next open.
@@ -298,6 +301,10 @@
   let intentUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
+  // Feeds the Overview Mods card's translation row. Fetched separately from
+  // LocalizationModal's own coverage read: both hit the same SHA-1-keyed
+  // backend cache, so the second is nearly free — no shared state needed.
+  let l10nPercent = $state<number | null>(null);
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
@@ -465,6 +472,21 @@
     void commands.instanceQuickPlaySupport(id).then((r) => {
       if (activeInstance?.id !== id) return; // ignore stale async result
       quickPlaySupported = r.status === 'ok' ? r.data : false;
+    });
+  });
+
+  // Feeds the Overview Mods card's translation row (l10nPercent). An empty
+  // lang lets the backend derive the target from the persisted UI locale —
+  // the row only needs a number, not the resolved code.
+  $effect(() => {
+    const id = activeInstance?.id ?? null;
+    if (!id) {
+      l10nPercent = null;
+      return;
+    }
+    void commands.l10nCoverage(id, '').then((r) => {
+      if (activeInstance?.id !== id) return; // ignore stale async result
+      l10nPercent = r.status === 'ok' ? r.data.percent : null;
     });
   });
 
@@ -1343,7 +1365,6 @@
           {quickPlayDisabledReason}
         >
           {#snippet overview()}
-            <!-- Task 7 mounts the localization modal here -->
             <OverviewTab
               {activeInstance}
               installedStats={stats.installedStats}
@@ -1395,7 +1416,8 @@
               onOpenServers={() => serversUi.setMode('servers')}
               {onOptimise}
               {optimiseResolving}
-              onOpenLocalization={() => {}}
+              onOpenLocalization={() => (l10nOpen = true)}
+              {l10nPercent}
             />
           {/snippet}
         </MainTabs>
@@ -1454,6 +1476,8 @@
     onCloneRequest={(id) => (cloneTargetId = id)}
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
   />
+
+  <LocalizationModal bind:open={l10nOpen} instanceId={activeInstance?.id ?? null} />
 
   {#if cloneTargetId !== null}
     {@const cloneSource = instances.find((i) => i.id === cloneTargetId)}
