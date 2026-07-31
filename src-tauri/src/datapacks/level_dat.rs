@@ -377,6 +377,85 @@ mod tests {
         Value::Compound(root)
     }
 
+    /// A fixture built to exercise the tag shapes a real level.dat actually
+    /// contains and a naive re-implementation is most likely to mangle:
+    /// an IntArray, nested List<Double>/List<Float>/List<Compound>, an empty
+    /// List, and a string that only round-trips correctly under Java's
+    /// Modified UTF-8 (CESU-8) — not plain UTF-8.
+    fn realistic_root() -> Value {
+        let mut version = HashMap::new();
+        version.insert("Id".to_string(), Value::Int(4189));
+        version.insert("Name".to_string(), Value::String("1.21.5".into()));
+        version.insert("Snapshot".to_string(), Value::Byte(0));
+
+        let inventory_item = |slot: i8, id: &str, count: i8| {
+            let mut m = HashMap::new();
+            m.insert("Slot".to_string(), Value::Byte(slot));
+            m.insert("id".to_string(), Value::String(id.to_string()));
+            m.insert("Count".to_string(), Value::Byte(count));
+            Value::Compound(m)
+        };
+
+        let mut player = HashMap::new();
+        player.insert(
+            "UUID".to_string(),
+            Value::IntArray(fastnbt::IntArray::new(vec![
+                0x1234_5678,
+                -0x1234_5678,
+                0,
+                i32::MIN,
+            ])),
+        );
+        player.insert(
+            "Pos".to_string(),
+            Value::List(vec![
+                Value::Double(12.5),
+                Value::Double(64.0),
+                Value::Double(-8.25),
+            ]),
+        );
+        player.insert(
+            "Rotation".to_string(),
+            Value::List(vec![Value::Float(90.0), Value::Float(-12.5)]),
+        );
+        player.insert(
+            "Inventory".to_string(),
+            Value::List(vec![
+                inventory_item(0, "minecraft:diamond_pickaxe", 1),
+                inventory_item(1, "minecraft:torch", 64),
+            ]),
+        );
+        // Every fresh world's EnderItems list starts empty. fastnbt's own
+        // source calls an empty list the "weird case": there is no element
+        // to infer a type from, so it writes the element-type byte as
+        // TAG_End. This pins that it still reads back as an empty list.
+        player.insert("EnderItems".to_string(), Value::List(Vec::new()));
+
+        let mut data = HashMap::new();
+        data.insert("Version".to_string(), Value::Compound(version));
+        data.insert("Player".to_string(), Value::Compound(player));
+        // NUL and an astral character (outside the Basic Multilingual Plane)
+        // are exactly the two cases where Java's Modified UTF-8 (CESU-8)
+        // diverges from plain UTF-8: NUL becomes an overlong two-byte
+        // sequence, and the astral codepoint becomes a surrogate pair.
+        data.insert(
+            "LevelName".to_string(),
+            Value::String("World \u{0} \u{1F3AE}".into()),
+        );
+        data.insert(
+            "RandomSeed".to_string(),
+            Value::Long(-8_198_552_710_384_193_453),
+        );
+        data.insert("SpawnX".to_string(), Value::Int(128));
+        data.insert("SpawnAngle".to_string(), Value::Float(180.0));
+        data.insert("BorderSize".to_string(), Value::Double(60_000_000.0));
+        data.insert("ViewDistance".to_string(), Value::Short(12));
+
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        Value::Compound(root)
+    }
+
     #[test]
     fn lists_are_empty_when_datapacks_is_absent() {
         let root = root_with_unknown_keys();
@@ -427,24 +506,28 @@ mod tests {
 
     #[test]
     fn an_edit_preserves_every_unmodelled_key_through_a_gzip_round_trip() {
-        let mut root = root_with_unknown_keys();
+        let mut root = realistic_root();
         set_enabled(&mut root, "file/vm.zip", true).unwrap();
         let bytes = serialize(&root, Framing::Gzip).unwrap();
         let (back, _) = parse(&bytes).unwrap();
 
-        let Value::Compound(map) = &back else {
-            panic!("root must be a compound")
-        };
-        assert_eq!(map.get("SomethingWeNeverModelled"), Some(&Value::Byte(7)));
-        let Some(Value::Compound(data)) = map.get("Data") else {
-            panic!("Data must be a compound")
-        };
-        assert_eq!(data.get("RandomSeed"), Some(&Value::Long(12345)));
-        assert!(matches!(data.get("GameRules"), Some(Value::Compound(_))));
-        assert_eq!(
-            data.get("LevelName"),
-            Some(&Value::String("Survival".into()))
-        );
+        // Whole-value equality, not key spot-checks: the point of the
+        // untyped Value design is that EVERYTHING survives, so assert
+        // everything. This fixture deliberately includes an IntArray, nested
+        // List<Double>/List<Float>/List<Compound>, an empty List, and a
+        // CESU-8-only string — the shapes a typed struct or a naive
+        // reimplementation is most likely to mangle.
+        assert_eq!(back, root);
+    }
+
+    #[test]
+    fn an_empty_list_survives_a_round_trip_as_an_empty_list() {
+        let mut root_map = HashMap::new();
+        root_map.insert("Empty".to_string(), Value::List(Vec::new()));
+        let root = Value::Compound(root_map);
+
+        let (back, _) = parse(&serialize(&root, Framing::Raw).unwrap()).unwrap();
+        assert_eq!(back, root);
     }
 
     #[test]
@@ -532,6 +615,26 @@ mod tests {
         // still exactly what it was, and no backup was ever created.
         assert!(world.join("level.dat").is_dir());
         assert!(!world.join("level.dat_lucerna.bak").exists());
+    }
+
+    #[tokio::test]
+    async fn write_at_never_touches_level_dat_old() {
+        let td = tempfile::tempdir().unwrap();
+        let world = td.path();
+        let original = serialize(&root_with_unknown_keys(), Framing::Gzip).unwrap();
+        std::fs::write(world.join("level.dat"), &original).unwrap();
+        // Minecraft's OWN recovery copy — not ours, and never to be touched.
+        let old_recovery = b"MINECRAFT-OWNED-RECOVERY-COPY".to_vec();
+        std::fs::write(world.join("level.dat_old"), &old_recovery).unwrap();
+
+        let (mut root, framing) = read_at(world).unwrap();
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        write_at(world, &root, framing).await.unwrap();
+
+        assert_eq!(
+            std::fs::read(world.join("level.dat_old")).unwrap(),
+            old_recovery
+        );
     }
 
     #[test]
