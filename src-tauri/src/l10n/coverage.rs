@@ -5,6 +5,8 @@
 //! rest (the game loads en_us into the shared map first, so missing keys fall
 //! back rather than disappearing).
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -41,42 +43,41 @@ impl NamespaceCoverage {
 }
 
 /// Coverage for one namespace given its English file, the mod's own target
-/// language file (if any) and a count of user overrides.
+/// language file (if any), and the keys the user overrides.
 ///
-/// Only keys present in `en` count: a target file carrying keys the mod has
-/// since dropped must not inflate the result.
+/// Only keys present in `en` count, toward either `from_mod` or `overridden`:
+/// a target file carrying keys the mod has since dropped must not inflate the
+/// result, and neither may an override for a key the mod no longer ships.
+/// `override_keys` may contain duplicates or overlap with what the mod
+/// already translates — both are resolved internally (via a set) so
+/// `covered()` is a correct plain sum for ANY input, not just well-formed
+/// ones. Deliberately not `&BTreeSet<String>`: that would move the dedup
+/// obligation onto every caller, and a function that is correct regardless of
+/// what it is handed is worth the small allocation over one that merely
+/// documents an obligation nobody is forced to honour.
 pub fn namespace_coverage(
     namespace: &str,
     en: &LangMap,
     target: Option<&LangMap>,
-    overridden: u32,
+    override_keys: &[String],
 ) -> NamespaceCoverage {
     let from_mod = match target {
         Some(t) => en.keys().filter(|k| t.contains_key(*k)).count() as u32,
         None => 0,
     };
+    let overridden = override_keys
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|k| en.contains_key(*k) && !target.is_some_and(|t| t.contains_key(*k)))
+        .count() as u32;
     NamespaceCoverage {
         namespace: namespace.to_string(),
         total_keys: en.len() as u32,
         from_mod,
         overridden,
     }
-}
-
-/// As `namespace_coverage`, but derives the override count from the actual key
-/// list so a key the mod already translates is never counted twice.
-pub fn namespace_coverage_with_overrides(
-    namespace: &str,
-    en: &LangMap,
-    target: Option<&LangMap>,
-    override_keys: &[String],
-) -> NamespaceCoverage {
-    let mut c = namespace_coverage(namespace, en, target, 0);
-    c.overridden = override_keys
-        .iter()
-        .filter(|k| en.contains_key(*k) && !target.is_some_and(|t| t.contains_key(*k)))
-        .count() as u32;
-    c
 }
 
 /// Instance-wide percentage, weighted by key count. Averaging the per-namespace
@@ -107,7 +108,7 @@ mod tests {
     fn counts_translated_keys_against_english() {
         let en = map(&[("a", "A"), ("b", "B"), ("c", "C"), ("d", "D")]);
         let target = map(&[("a", "А"), ("b", "Б")]);
-        let c = namespace_coverage("create", &en, Some(&target), 0);
+        let c = namespace_coverage("create", &en, Some(&target), &[]);
         assert_eq!(c.namespace, "create");
         assert_eq!(c.total_keys, 4);
         assert_eq!(c.from_mod, 2);
@@ -119,7 +120,7 @@ mod tests {
     #[test]
     fn no_target_file_is_zero_not_missing() {
         let en = map(&[("a", "A"), ("b", "B")]);
-        let c = namespace_coverage("ae2", &en, None, 0);
+        let c = namespace_coverage("ae2", &en, None, &[]);
         assert_eq!(c.total_keys, 2);
         assert_eq!(c.covered(), 0);
         assert_eq!(c.percent(), 0);
@@ -130,7 +131,7 @@ mod tests {
         // A stale ru_ru carrying keys the mod dropped must not push us over.
         let en = map(&[("a", "A")]);
         let target = map(&[("a", "А"), ("gone", "Удалено")]);
-        let c = namespace_coverage("x", &en, Some(&target), 0);
+        let c = namespace_coverage("x", &en, Some(&target), &[]);
         assert_eq!(c.total_keys, 1);
         assert_eq!(c.covered(), 1);
         assert_eq!(c.percent(), 100);
@@ -142,8 +143,7 @@ mod tests {
         // covered key, not two.
         let en = map(&[("a", "A"), ("b", "B"), ("c", "C")]);
         let target = map(&[("a", "А")]);
-        let c =
-            namespace_coverage_with_overrides("x", &en, Some(&target), &["a".into(), "b".into()]);
+        let c = namespace_coverage("x", &en, Some(&target), &["a".into(), "b".into()]);
         assert_eq!(c.total_keys, 3);
         assert_eq!(c.covered(), 2);
         assert_eq!(c.percent(), 66);
@@ -154,16 +154,40 @@ mod tests {
         // Orphan override: not in en_us, so not part of the denominator and
         // not part of the numerator either.
         let en = map(&[("a", "A")]);
-        let c = namespace_coverage_with_overrides("x", &en, None, &["gone".into()]);
+        let c = namespace_coverage("x", &en, None, &["gone".into()]);
         assert_eq!(c.total_keys, 1);
         assert_eq!(c.covered(), 0);
+    }
+
+    #[test]
+    fn duplicate_override_keys_do_not_inflate_the_count() {
+        // The exact case a review caught empirically: a naive `.count()` over
+        // the raw slice would give overridden=2, covered=2, percent=200 — a
+        // value the type cannot legitimately hold. Dedup must happen inside
+        // the function, since nothing forces a caller to pass a set.
+        let en = map(&[("a", "A")]);
+        let c = namespace_coverage("x", &en, None, &["a".into(), "a".into()]);
+        assert_eq!(c.overridden, 1);
+        assert_eq!(c.percent(), 100);
+    }
+
+    #[test]
+    fn empty_target_map_behaves_like_no_target_file() {
+        // An empty-but-present translation file must read the same as an
+        // absent one, not as partial progress.
+        let en = map(&[("a", "A")]);
+        let empty_target = map(&[]);
+        let c = namespace_coverage("x", &en, Some(&empty_target), &[]);
+        assert_eq!(c.total_keys, 1);
+        assert_eq!(c.covered(), 0);
+        assert_eq!(c.percent(), 0);
     }
 
     #[test]
     fn empty_english_is_defined_as_fully_covered() {
         // Avoids a divide-by-zero and reads correctly in the UI: a namespace
         // with nothing to translate is not "0% translated".
-        let c = namespace_coverage("empty", &map(&[]), None, 0);
+        let c = namespace_coverage("empty", &map(&[]), None, &[]);
         assert_eq!(c.total_keys, 0);
         assert_eq!(c.percent(), 100);
     }
@@ -198,7 +222,10 @@ mod tests {
         // namespace would be a lie the user can see through.
         let en = map(&[("a", "A"), ("b", "B"), ("c", "C")]);
         let target = map(&[("a", "А"), ("b", "Б")]);
-        assert_eq!(namespace_coverage("x", &en, Some(&target), 0).percent(), 66);
+        assert_eq!(
+            namespace_coverage("x", &en, Some(&target), &[]).percent(),
+            66
+        );
     }
 
     #[test]
@@ -210,6 +237,9 @@ mod tests {
         let target: LangMap = (0..999)
             .map(|i| (format!("k{i}"), "т".to_string()))
             .collect();
-        assert_eq!(namespace_coverage("x", &en, Some(&target), 0).percent(), 99);
+        assert_eq!(
+            namespace_coverage("x", &en, Some(&target), &[]).percent(),
+            99
+        );
     }
 }
