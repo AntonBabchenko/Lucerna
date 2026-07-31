@@ -180,6 +180,11 @@ pub fn backups_root(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf
 /// Validate a world folder name and resolve it under a concrete `saves/` dir.
 /// The three-step validate → join → `is_dir` sequence was duplicated at every
 /// call site; it lives here now. Testable without a Tauri `AppHandle`.
+///
+/// The `WorldNotFound` this returns carries an empty `instance_id` — this core
+/// has no handle to one. `Error::WorldNotFound`'s `Display` interpolates that
+/// field into a user-facing string, so a caller that has the real instance id
+/// should fill it in, as `world_dir` does below.
 pub fn world_dir_at(saves_dir: &std::path::Path, world_folder_name: &str) -> Result<PathBuf> {
     fs::validate_segment(world_folder_name)?;
     let world_path = saves_dir.join(world_folder_name);

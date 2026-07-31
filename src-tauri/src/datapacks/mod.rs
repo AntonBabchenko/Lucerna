@@ -2,10 +2,10 @@
 //!
 //! Three levels on disk:
 //!   * library — `<instance>/datapacks/<file>.zip`, the physical file;
-//!   * world   — `<instance>/.minecraft/saves/<world>/datapacks/<file>.zip`,
-//!               a hardlink to the library file;
-//!   * registry — `<instance>/lucerna/installed-datapacks.json`, metadata only,
-//!               reconciled against the library dir on every read.
+//!   * world — `<instance>/.minecraft/saves/<world>/datapacks/<file>.zip`, a
+//!     hardlink to the library file;
+//!   * registry — `<instance>/lucerna/installed-datapacks.json`, metadata
+//!     only, reconciled against the library dir on every read.
 //!
 //! Enabled/disabled is NOT file presence: it lives in the world's `level.dat`
 //! under `Data.DataPacks.{Enabled,Disabled}`. See `level_dat`.
@@ -94,14 +94,19 @@ pub fn registry_path_at(instance_root: &Path) -> PathBuf {
         .join("installed-datapacks.json")
 }
 
-/// `<instance>/.minecraft/saves/<world>/datapacks/`. The caller MUST have
-/// validated `world` with `crate::worlds::fs::validate_segment` first.
-pub fn world_datapacks_dir_at(instance_root: &Path, world: &str) -> PathBuf {
-    instance_root
+/// `<instance>/.minecraft/saves/<world>/datapacks/`.
+///
+/// `world` is validated here rather than trusted from the caller: it reaches us
+/// from the UI and from level.dat, and a doc comment is not a guard. Mirrors
+/// `servers_runtime::datapacks::datapacks_dir`, which guards `level-name` for
+/// the same reason.
+pub fn world_datapacks_dir_at(instance_root: &Path, world: &str) -> Result<PathBuf> {
+    crate::worlds::fs::validate_segment(world)?;
+    Ok(instance_root
         .join(".minecraft")
         .join("saves")
         .join(world)
-        .join("datapacks")
+        .join("datapacks"))
 }
 
 /// The value Minecraft writes into `level.dat`'s Enabled/Disabled lists for a
@@ -146,9 +151,15 @@ mod tests {
     fn world_datapacks_dir_is_under_saves() {
         let root = Path::new("/inst/Foo");
         assert_eq!(
-            world_datapacks_dir_at(root, "Survival"),
+            world_datapacks_dir_at(root, "Survival").unwrap(),
             Path::new("/inst/Foo/.minecraft/saves/Survival/datapacks")
         );
+    }
+
+    #[test]
+    fn world_datapacks_dir_rejects_a_path_separator() {
+        let err = world_datapacks_dir_at(Path::new("/inst/Foo"), "../evil").unwrap_err();
+        assert!(matches!(err, crate::error::Error::WorldPathInvalid { .. }));
     }
 
     #[test]
