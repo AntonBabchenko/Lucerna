@@ -1343,6 +1343,7 @@
           {quickPlayDisabledReason}
         >
           {#snippet overview()}
+            <!-- Task 7 mounts the localization modal here -->
             <OverviewTab
               {activeInstance}
               installedStats={stats.installedStats}
@@ -1394,6 +1395,7 @@
               onOpenServers={() => serversUi.setMode('servers')}
               {onOptimise}
               {optimiseResolving}
+              onOpenLocalization={() => {}}
             />
           {/snippet}
         </MainTabs>

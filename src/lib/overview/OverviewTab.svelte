@@ -48,6 +48,8 @@
     onOpenServers,
     onOptimise = () => {},
     optimiseResolving = false,
+    onOpenLocalization,
+    l10nPercent = null,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -75,6 +77,8 @@
     onOpenServers: () => void;
     onOptimise?: () => void;
     optimiseResolving?: boolean;
+    onOpenLocalization: () => void;
+    l10nPercent?: number | null;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -288,6 +292,23 @@
             <span
               >{$t('page.overview.statsDisabled')}
               <span class="font-medium text-secondary">{installedStats.disabled}</span></span
+            >
+          </button>
+        {/if}
+        <!-- Translation coverage. A third card-zone row rather than a fourth
+             Overview card: localization is a property of the mods, and this
+             card is already a stack of zones. -->
+        {#if installedStats.total > 0}
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 flex justify-between gap-3 text-sm"
+            aria-label={$t('page.overview.openLocalizationAria')}
+            data-testid="overview-localization"
+            onclick={onOpenLocalization}
+          >
+            <span>{$t('page.overview.localization')}</span>
+            <span class="font-medium text-secondary"
+              >{$t('page.overview.localizationValue', { percent: l10nPercent ?? 0 })}</span
             >
           </button>
         {/if}

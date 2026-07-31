@@ -69,6 +69,7 @@ const baseProps = {
   onDismissModsError: () => {},
   onOpenLogs: () => {},
   onOpenServers: () => {},
+  onOpenLocalization: () => {},
 };
 
 describe('OverviewTab', () => {
