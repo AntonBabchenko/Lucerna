@@ -10,6 +10,18 @@
 //!   * That every real `level.dat` is gzip-framed is a Minecraft-format
 //!     assumption, not something this repo can prove. Sniff the magic and
 //!     re-emit in whatever framing was read.
+//!
+//! "Round-trips untouched" has two known exceptions, confirmed against the
+//! vendored fastnbt 2.6.1 source, neither of which loses information
+//! Minecraft cares about:
+//!   * the root compound's NAME is dropped — fastnbt's own `Value` doc says
+//!     so explicitly, and re-emits it as the empty string, which is what
+//!     Minecraft itself writes there;
+//!   * an empty `Value::List` re-serializes with its element-type byte as
+//!     `TAG_End` regardless of the list's original element type (fastnbt's
+//!     own source calls this the "weird case" — there is no element left to
+//!     infer a type from). An empty list stays an empty list either way, so
+//!     no *content* is lost, only that one byte, which nothing reads.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -40,6 +52,17 @@ fn parse_err(e: impl std::fmt::Display) -> Error {
     }
 }
 
+/// Distinct from `parse_err`: this is the write direction (NBT encode / gzip
+/// compress). Keeping it separate stops an encoder failure from surfacing as
+/// "level.dat could not be parsed" — the only message the shared
+/// `LevelDatParse` variant renders — which would misdescribe a write-time
+/// failure as a read-time one.
+fn encode_err(e: impl std::fmt::Display) -> Error {
+    Error::LevelDatParse {
+        reason: format!("encode: {e}"),
+    }
+}
+
 /// Parse `bytes`, detecting the framing from the gzip magic `1f 8b`.
 pub fn parse(bytes: &[u8]) -> Result<(Value, Framing)> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
@@ -66,14 +89,14 @@ pub fn parse(bytes: &[u8]) -> Result<(Value, Framing)> {
 
 /// Serialize in the given framing.
 pub fn serialize(root: &Value, framing: Framing) -> Result<Vec<u8>> {
-    let plain = fastnbt::to_bytes(root).map_err(parse_err)?;
+    let plain = fastnbt::to_bytes(root).map_err(encode_err)?;
     match framing {
         Framing::Raw => Ok(plain),
         Framing::Gzip => {
             let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
             enc.write_all(&plain)
-                .map_err(|e| parse_err(format!("gzip: {e}")))?;
-            enc.finish().map_err(|e| parse_err(format!("gzip: {e}")))
+                .map_err(|e| encode_err(format!("gzip: {e}")))?;
+            enc.finish().map_err(|e| encode_err(format!("gzip: {e}")))
         }
     }
 }
@@ -155,43 +178,54 @@ fn list_mut<'a>(dp: &'a mut HashMap<String, Value>, key: &str) -> Result<&'a mut
     }
 }
 
-fn drop_entry(list: &mut Vec<Value>, entry: &str) {
+/// Returns whether an entry was actually removed.
+fn drop_entry(list: &mut Vec<Value>, entry: &str) -> bool {
+    let before = list.len();
     list.retain(|v| !matches!(v, Value::String(s) if s == entry));
+    list.len() != before
 }
 
-fn push_unique(list: &mut Vec<Value>, entry: &str) {
-    if !list
+/// Returns whether the entry was newly added (`false` if already present).
+fn push_unique(list: &mut Vec<Value>, entry: &str) -> bool {
+    if list
         .iter()
         .any(|v| matches!(v, Value::String(s) if s == entry))
     {
+        false
+    } else {
         list.push(Value::String(entry.to_string()));
+        true
     }
 }
 
 /// Put `entry` (a `file/<filename>` value) in exactly one of the two lists.
-/// Idempotent.
-pub fn set_enabled(root: &mut Value, entry: &str, enabled: bool) -> Result<()> {
+/// Idempotent. Returns whether the lists actually changed, so a caller that
+/// reconciles state on every refresh can skip `write_at` — and skip rolling
+/// the backup forward — on a call that changed nothing.
+pub fn set_enabled(root: &mut Value, entry: &str, enabled: bool) -> Result<bool> {
     let dp = datapacks_mut(root)?;
     // Take both lists in turn — the borrow checker will not hand out two
     // mutable borrows of the same map at once.
-    {
+    let removed = {
         let from = if enabled { "Disabled" } else { "Enabled" };
-        drop_entry(list_mut(dp, from)?, entry);
-    }
-    {
+        drop_entry(list_mut(dp, from)?, entry)
+    };
+    let added = {
         let to = if enabled { "Enabled" } else { "Disabled" };
-        push_unique(list_mut(dp, to)?, entry);
-    }
-    Ok(())
+        push_unique(list_mut(dp, to)?, entry)
+    };
+    Ok(removed || added)
 }
 
 /// Remove `entry` from both lists. Idempotent — this is what clears the
-/// "data packs are no longer present" screen after a pack is removed.
-pub fn forget(root: &mut Value, entry: &str) -> Result<()> {
+/// "data packs are no longer present" screen after a pack is removed. Returns
+/// whether anything was actually removed; see `set_enabled` for why that
+/// matters to the caller.
+pub fn forget(root: &mut Value, entry: &str) -> Result<bool> {
     let dp = datapacks_mut(root)?;
-    drop_entry(list_mut(dp, "Enabled")?, entry);
-    drop_entry(list_mut(dp, "Disabled")?, entry);
-    Ok(())
+    let removed_enabled = drop_entry(list_mut(dp, "Enabled")?, entry);
+    let removed_disabled = drop_entry(list_mut(dp, "Disabled")?, entry);
+    Ok(removed_enabled || removed_disabled)
 }
 
 /// The world folder's own name, for user-facing messages. `world_dir` is
@@ -279,7 +313,7 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
             let bak = world_dir.join("level.dat_lucerna.bak");
             crate::mods::store::place_bytes(&bak, &old)
                 .await
-                .map_err(|e| map_store_err(&e))?;
+                .map_err(|e| map_store_err(&e, world_dir))?;
             // The entire safety story here rests on a file the user has
             // never heard of — name it so a shared log points at the
             // recovery copy.
@@ -294,22 +328,24 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
 
     crate::mods::store::place_bytes(&path, &new_bytes)
         .await
-        .map_err(|e| map_store_err(&e))
+        .map_err(|e| map_store_err(&e, world_dir))
 }
 
 /// A running Minecraft holds level.dat open — surface that as the friendly
 /// typed `WorldInUse` rather than a raw IO string. See `map_read_err` for the
 /// identical mapping applied to a plain read, and its POSIX caveat, which
 /// applies here unchanged.
-fn map_store_err(e: &crate::mods::store::StoreIoError) -> Error {
+///
+/// Takes `world_dir` explicitly rather than re-deriving it from `e.path`'s
+/// parent: `write_at` already holds it, and deriving it independently here
+/// coupled this function to another module's path-shape invariant for no
+/// reason — a `StoreIoError` whose path had no parent would silently render
+/// `World '' is currently in use`.
+fn map_store_err(e: &crate::mods::store::StoreIoError, world_dir: &Path) -> Error {
     if matches!(e.source.raw_os_error(), Some(5) | Some(32) | Some(33)) {
-        let folder_name = e
-            .path
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        Error::WorldInUse { folder_name }
+        Error::WorldInUse {
+            folder_name: folder_name_of(world_dir),
+        }
     } else {
         Error::io(e.path.display().to_string(), e.details())
     }
@@ -487,8 +523,11 @@ mod tests {
     #[test]
     fn set_enabled_is_idempotent() {
         let mut root = root_with_unknown_keys();
-        set_enabled(&mut root, "file/vm.zip", true).unwrap();
-        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        // First call actually changes the lists...
+        assert!(set_enabled(&mut root, "file/vm.zip", true).unwrap());
+        // ...the repeat does not, so a caller reconciling on every refresh
+        // can skip rewriting level.dat and rolling the backup forward.
+        assert!(!set_enabled(&mut root, "file/vm.zip", true).unwrap());
         assert_eq!(lists(&root).0, vec!["file/vm.zip".to_string()]);
     }
 
@@ -502,6 +541,17 @@ mod tests {
         let (enabled, disabled) = lists(&root);
         assert!(enabled.is_empty());
         assert!(disabled.is_empty());
+    }
+
+    #[test]
+    fn forget_reports_whether_anything_was_removed() {
+        let mut root = root_with_unknown_keys();
+        // Nothing to forget yet: this must report false, not silently create
+        // empty Enabled/Disabled lists and call that "no change".
+        assert!(!forget(&mut root, "file/never-added.zip").unwrap());
+        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        assert!(forget(&mut root, "file/vm.zip").unwrap());
+        assert!(!forget(&mut root, "file/vm.zip").unwrap());
     }
 
     #[test]
