@@ -1048,6 +1048,9 @@
       "disabledRunning": "Minecraft is already running",
       "disabledUnsupported": "Requires Minecraft 1.20 or newer"
     },
+    "detail": {
+      "tabsLabel": "World details"
+    },
     "tab": {
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",
@@ -1065,6 +1068,7 @@
       "toastAdded": "Added world \"{name}\""
     },
     "backups": {
+      "tab": "Backups",
       "title": "Backups for \"{world}\"",
       "loading": "Loading backups…",
       "empty": "No backups yet. Click \"Back up now\" to create one.",

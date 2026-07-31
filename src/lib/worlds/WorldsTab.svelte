@@ -6,7 +6,7 @@
   import { formatSize } from '$lib/format/size';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
-  import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
+  import WorldDetailDialog from '$lib/worlds/WorldDetailDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -34,7 +34,7 @@
   let worlds = $state<World[]>([]);
   let listError = $state<string | null>(null);
   let loading = $state(false);
-  let backupsFor = $state<World | null>(null);
+  let detailFor = $state<World | null>(null);
   let deleteFor = $state<World | null>(null);
 
   async function reload() {
@@ -191,8 +191,9 @@
       data-tour-ctx="worlds-list"
     >
       {#each worlds as w (w.folder_name)}
-        <!-- Deliberate: the whole row is the primary affordance (opens backups),
-             with keyboard activation below — see spec §9. -->
+        <!-- Deliberate: the whole row is the primary affordance (opens the
+             world-detail dialog — Backups | Datapacks), with keyboard
+             activation below — see spec §9. -->
         <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
         <li
           class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle cursor-pointer"
@@ -200,11 +201,11 @@
           role="button"
           tabindex="0"
           aria-label={$t('worlds.tab.openBackupsAriaLabel', { name: w.folder_name })}
-          onclick={() => (backupsFor = w)}
+          onclick={() => (detailFor = w)}
           onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              backupsFor = w;
+              detailFor = w;
             }
           }}
         >
@@ -292,12 +293,12 @@
   {/if}
 </div>
 
-{#if backupsFor && instanceId}
-  <BackupsDialog
+{#if detailFor && instanceId}
+  <WorldDetailDialog
     {instanceId}
-    world={backupsFor}
+    world={detailFor}
     onClose={() => {
-      backupsFor = null;
+      detailFor = null;
       void reload();
     }}
     onChanged={() => {
