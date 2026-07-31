@@ -67,14 +67,18 @@ fn encode_err(e: impl std::fmt::Display) -> Error {
 pub fn parse(bytes: &[u8]) -> Result<(Value, Framing)> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut buf = Vec::new();
+        // Read one byte past the cap: reading exactly `MAX_DECOMPRESSED_BYTES`
+        // must not be conflated with exceeding it, or a stream that
+        // decompresses to precisely the cap gets rejected with a message that
+        // says "exceeds" when it did not.
         flate2::read::GzDecoder::new(bytes)
-            .take(MAX_DECOMPRESSED_BYTES)
+            .take(MAX_DECOMPRESSED_BYTES + 1)
             .read_to_end(&mut buf)
             .map_err(|e| parse_err(format!("gzip: {e}")))?;
         // `.take` silently stops at the cap instead of erroring, so a stream
         // that was truncated here would otherwise reach `from_bytes` and
         // fail with a confusing NBT error instead of an honest one about size.
-        if buf.len() as u64 == MAX_DECOMPRESSED_BYTES {
+        if buf.len() as u64 > MAX_DECOMPRESSED_BYTES {
             return Err(parse_err(format!(
                 "gzip stream exceeds the {MAX_DECOMPRESSED_BYTES}-byte decompressed cap"
             )));
@@ -415,9 +419,11 @@ mod tests {
 
     /// A fixture built to exercise the tag shapes a real level.dat actually
     /// contains and a naive re-implementation is most likely to mangle:
-    /// an IntArray, nested List<Double>/List<Float>/List<Compound>, an empty
-    /// List, and a string that only round-trips correctly under Java's
-    /// Modified UTF-8 (CESU-8) — not plain UTF-8.
+    /// an IntArray, nested List<Double>/List<Float>/List<Compound>, a
+    /// List<IntArray> (`CustomBossEvents.*.Players`, real saves' one corner
+    /// where an array sentinel resolves against a delayed LIST header rather
+    /// than a map entry), an empty List, and a string that only round-trips
+    /// correctly under Java's Modified UTF-8 (CESU-8) — not plain UTF-8.
     fn realistic_root() -> Value {
         let mut version = HashMap::new();
         version.insert("Id".to_string(), Value::Int(4189));
@@ -467,9 +473,31 @@ mod tests {
         // TAG_End. This pins that it still reads back as an empty list.
         player.insert("EnderItems".to_string(), Value::List(Vec::new()));
 
+        // A real save's `Data.CustomBossEvents.<id>.Players` is the one
+        // corner where a List<IntArray> resolves against a delayed LIST
+        // header rather than a map entry — ByteArray/LongArray share the
+        // identical code path so they don't need their own fixture entry.
+        let mut boss_event = HashMap::new();
+        boss_event.insert(
+            "Players".to_string(),
+            Value::List(vec![
+                Value::IntArray(fastnbt::IntArray::new(vec![1, 2, 3, 4])),
+                Value::IntArray(fastnbt::IntArray::new(vec![5, 6, 7, 8])),
+            ]),
+        );
+        let mut custom_boss_events = HashMap::new();
+        custom_boss_events.insert(
+            "minecraft:example_boss".to_string(),
+            Value::Compound(boss_event),
+        );
+
         let mut data = HashMap::new();
         data.insert("Version".to_string(), Value::Compound(version));
         data.insert("Player".to_string(), Value::Compound(player));
+        data.insert(
+            "CustomBossEvents".to_string(),
+            Value::Compound(custom_boss_events),
+        );
         // NUL and an astral character (outside the Basic Multilingual Plane)
         // are exactly the two cases where Java's Modified UTF-8 (CESU-8)
         // diverges from plain UTF-8: NUL becomes an overlong two-byte
@@ -617,6 +645,13 @@ mod tests {
 
         let err = set_enabled(&mut root, "file/vm.zip", true).unwrap_err();
         assert!(matches!(err, crate::error::Error::LevelDatParse { .. }));
+
+        // `forget` shares the same all-strings guard via `list_mut`, but only
+        // `set_enabled` was exercised above. Pin the `forget` path too.
+        assert!(matches!(
+            forget(&mut root, "file/vm.zip").unwrap_err(),
+            crate::error::Error::LevelDatParse { .. }
+        ));
     }
 
     #[tokio::test]
