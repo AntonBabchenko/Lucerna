@@ -75,6 +75,19 @@ pub fn mods_cache_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("mods-cache").join("summaries.json"))
 }
 
+/// Global override store + scan cache for in-game mod localization. The store
+/// is USER DATA (hand-written translations) and travels with the relocatable
+/// data root; only `scan-cache.json` inside it is disposable.
+pub fn l10n_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("l10n"))
+}
+
+/// Per-jar coverage cache keyed by (target language, jar SHA-1). Derived data —
+/// safe to delete; repopulated on demand.
+pub fn l10n_scan_cache_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(l10n_dir(app)?.join("scan-cache.json"))
+}
+
 pub fn instance_json(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
     Ok(instance_dir(app, id)?.join("instance.json"))
 }

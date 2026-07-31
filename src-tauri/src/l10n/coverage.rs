@@ -5,7 +5,9 @@
 //! rest (the game loads en_us into the shared map first, so missing keys fall
 //! back rather than disappearing).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -92,10 +94,185 @@ pub fn instance_percent(all: &[NamespaceCoverage]) -> u32 {
     (covered * 100 / total) as u32
 }
 
+/// Serializes the disk read-modify-write; held only over the synchronous
+/// load/save, never across a scan. Mirrors `mods::summary_cache::DISK_LOCK`.
+static CACHE_DISK_LOCK: Mutex<()> = Mutex::new(());
+
+/// Per-jar coverage, keyed by `(target language, jar SHA-1)`.
+///
+/// SHA-1 is the right invalidation key: it is already computed and stored in
+/// `installed-mods.json`, and it changes exactly when the jar's contents do.
+/// Derived data — safe to delete, rebuilt on demand.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ScanCache {
+    #[serde(default)]
+    entries: BTreeMap<String, Vec<NamespaceCoverage>>,
+}
+
+fn cache_key(lang: &str, sha1: &str) -> String {
+    format!("{lang}/{}", sha1.to_ascii_lowercase())
+}
+
+impl ScanCache {
+    /// A missing or malformed file yields an empty cache — never an error.
+    pub fn load(path: &Path) -> Self {
+        let Ok(raw) = std::fs::read_to_string(path) else {
+            return Self::default();
+        };
+        serde_json::from_str(&raw).unwrap_or_default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn get(&self, lang: &str, sha1: &str) -> Option<&[NamespaceCoverage]> {
+        self.entries.get(&cache_key(lang, sha1)).map(Vec::as_slice)
+    }
+
+    pub fn put(&mut self, lang: &str, sha1: &str, cov: Vec<NamespaceCoverage>) {
+        self.entries.insert(cache_key(lang, sha1), cov);
+    }
+
+    /// Atomic write (per-process temp + rename), creating the parent dir.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, path)
+    }
+
+    /// Load, mutate, save under the disk lock.
+    pub fn update<F: FnOnce(&mut Self)>(path: &Path, f: F) {
+        // Deliberate poison-recovery, not an unwrap: a prior panicking holder
+        // must not permanently break every future cache read/write.
+        let _g = CACHE_DISK_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let mut cache = Self::load(path);
+        f(&mut cache);
+        if let Err(e) = cache.save(path) {
+            crate::diag!("[l10n] scan cache save failed ({}): {e}", path.display());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::l10n::scan::LangMap;
+    use tempfile::tempdir;
+
+    fn cov(ns: &str, total: u32, from_mod: u32) -> Vec<NamespaceCoverage> {
+        vec![NamespaceCoverage {
+            namespace: ns.into(),
+            total_keys: total,
+            from_mod,
+            overridden: 0,
+        }]
+    }
+
+    #[test]
+    fn cache_round_trips_and_is_keyed_by_sha_and_language() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("l10n/scan-cache.json");
+        let c = cov("create", 10, 5);
+
+        let mut cache = ScanCache::load(&path);
+        cache.put("ru_ru", "abc123", c.clone());
+        cache.save(&path).unwrap();
+
+        let reloaded = ScanCache::load(&path);
+        assert_eq!(reloaded.get("ru_ru", "abc123"), Some(c.as_slice()));
+        // A different target language is a different entry, not a hit.
+        assert_eq!(reloaded.get("de_de", "abc123"), None);
+        // A different jar is a miss.
+        assert_eq!(reloaded.get("ru_ru", "other"), None);
+    }
+
+    #[test]
+    fn sha_lookup_is_case_insensitive() {
+        // Registries and hashers disagree on hex casing; the same jar must not
+        // occupy two cache entries.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("scan-cache.json");
+        let mut cache = ScanCache::load(&path);
+        cache.put("ru_ru", "ABC123", cov("create", 1, 1));
+        assert!(cache.get("ru_ru", "abc123").is_some());
+    }
+
+    #[test]
+    fn missing_cache_file_loads_empty() {
+        let dir = tempdir().unwrap();
+        assert_eq!(ScanCache::load(&dir.path().join("nope.json")).len(), 0);
+    }
+
+    #[test]
+    fn malformed_cache_file_loads_empty_rather_than_failing() {
+        // Derived data: a corrupt file must degrade to a rescan, never surface
+        // as an error to the user.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("scan-cache.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+        assert_eq!(ScanCache::load(&path).len(), 0);
+    }
+
+    #[test]
+    fn save_creates_the_parent_directory() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("deep/nested/scan-cache.json");
+        let mut cache = ScanCache::default();
+        cache.put("ru_ru", "x", cov("y", 1, 1));
+        cache.save(&path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn put_replaces_a_prior_entry_for_the_same_jar_and_language() {
+        let mut cache = ScanCache::default();
+        cache.put("ru_ru", "sha", cov("create", 10, 1));
+        cache.put("ru_ru", "sha", cov("create", 10, 9));
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.get("ru_ru", "sha").unwrap()[0].from_mod, 9);
+    }
+
+    #[test]
+    fn update_persists_through_the_disk_lock() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("scan-cache.json");
+        ScanCache::update(&path, |c| c.put("ru_ru", "sha", cov("create", 4, 2)));
+        assert_eq!(
+            ScanCache::load(&path).get("ru_ru", "sha").unwrap()[0].total_keys,
+            4
+        );
+    }
+
+    #[test]
+    fn a_saved_cache_is_byte_stable_across_rewrites() {
+        // Same content in, same bytes out — so an unchanged cache does not
+        // churn on disk and diffs cleanly if a human ever looks at it.
+        let dir = tempdir().unwrap();
+        let a = dir.path().join("a.json");
+        let b = dir.path().join("b.json");
+        let mut first = ScanCache::default();
+        first.put("ru_ru", "s2", cov("z", 1, 1));
+        first.put("ru_ru", "s1", cov("y", 2, 2));
+        first.save(&a).unwrap();
+        let mut second = ScanCache::default();
+        second.put("ru_ru", "s1", cov("y", 2, 2));
+        second.put("ru_ru", "s2", cov("z", 1, 1));
+        second.save(&b).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&a).unwrap(),
+            std::fs::read_to_string(&b).unwrap()
+        );
+    }
 
     fn map(pairs: &[(&str, &str)]) -> LangMap {
         pairs
