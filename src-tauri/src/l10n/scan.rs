@@ -38,6 +38,16 @@ pub fn parse_lang_properties(body: &[u8]) -> LangMap {
         })
         .filter_map(|line| {
             let (k, v) = line.split_once('=')?;
+            // The key is trimmed but the value is kept VERBATIM — do not
+            // "fix" this to `v.trim()`. We are reading somebody else's data,
+            // and trailing/leading whitespace in a translation string can be
+            // load-bearing (e.g. `"Level: "` before an appended number).
+            // Silently trimming it would make our copy diverge from what the
+            // game actually displays, which defeats the exact-string
+            // comparison this parser exists to support (staleness detection
+            // in later tasks). A key with surrounding spaces, by contrast,
+            // could never match a lookup, so whitespace there is
+            // unambiguously an authoring artefact, not data.
             Some((k.trim().to_string(), v.to_string()))
         })
         .collect()
@@ -75,6 +85,15 @@ mod tests {
     }
 
     #[test]
+    fn json_top_level_array_is_none() {
+        // Valid JSON, but the wrong shape — not an object at all, so there is
+        // no key/value pairing to read. Distinct code path from
+        // `malformed_json_is_none_not_panic`: this exits via `as_object()`,
+        // not via the `from_slice` parse failure.
+        assert!(parse_lang_json(b"[1,2]").is_none());
+    }
+
+    #[test]
     fn parses_legacy_lang_body() {
         let body = b"# a comment\n\nitem.wrench=Wrench\ntile.x.name=Value with = sign\n";
         let map = parse_lang_properties(body);
@@ -93,6 +112,29 @@ mod tests {
         let map = parse_lang_properties(b"garbage line\nok=1\n");
         assert_eq!(map.len(), 1);
         assert_eq!(map.get("ok").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn legacy_lang_key_with_no_value_is_empty_string() {
+        // The properties-side mirror of `gui.create.empty` in the JSON test:
+        // an empty value is a real entry, not a missing one.
+        let map = parse_lang_properties(b"key=\n");
+        assert_eq!(map.get("key").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn legacy_lang_value_whitespace_is_preserved_verbatim() {
+        // Deliberate asymmetry: the key is trimmed, the value is not. A
+        // hand-authored line like `gui.container.crafting = Crafting Table`
+        // is a real style in the wild, and the leading space before the
+        // value must survive so an exact-string comparison against the
+        // game's own rendering (staleness detection, later tasks) isn't
+        // fooled by whitespace we introduced ourselves.
+        let map = parse_lang_properties(b"gui.container.crafting = Crafting Table\n");
+        assert_eq!(
+            map.get("gui.container.crafting").map(String::as_str),
+            Some(" Crafting Table")
+        );
     }
 
     #[test]
