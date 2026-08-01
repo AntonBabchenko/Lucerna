@@ -140,7 +140,13 @@ fn parse_lang_path(path: &str) -> Option<LangEntry> {
 
 /// True when `s` is unsafe to compose into a future zip-entry path: see the
 /// trust-boundary comment in `parse_lang_path`.
-fn is_traversal_unsafe(s: &str) -> bool {
+///
+/// `pub(crate)`, not private: `l10n::pack` re-applies this same rule to a
+/// `NamespaceStore::namespace` read back off disk (where nothing re-validates
+/// it the way this module validates a jar's own paths) before composing it
+/// into a NEW archive entry name. One rule, one implementation, reused at
+/// both trust boundaries rather than a second copy drifting out of sync.
+pub(crate) fn is_traversal_unsafe(s: &str) -> bool {
     s == "." || s == ".." || s.contains('\\') || s.chars().any(|c| c.is_ascii_control())
 }
 
