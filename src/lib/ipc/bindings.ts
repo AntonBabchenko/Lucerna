@@ -2106,9 +2106,18 @@ export type DepViolation = {
 	installed_version: string | null,
 	/**
 	 *  The version range the dependent declared (empty string for
-	 *  `MissingRequired`).
+	 *  `MissingRequired`), verbatim from the jar. Kept for remediation
+	 *  (`mods_filter_satisfying` evaluates it) and for the log line — the UI
+	 *  renders `needed_desc` instead, because raw Maven bracket notation is
+	 *  unreadable.
 	 */
 	needed: string,
+	/**
+	 *  `needed`, decomposed into displayable clauses. The UI formats these
+	 *  through i18n and only falls back to the raw string when
+	 *  `needed_desc.unparseable`.
+	 */
+	needed_desc: RangeDescription,
 	/**
 	 *  Platform project reference for the provider, if we could link it.
 	 *  Powers a "View on Modrinth / CurseForge" link in the UI.
@@ -3824,6 +3833,49 @@ export type RamWarning = {
 	total_mb: number,
 };
 
+/**  One readable statement about acceptable versions. */
+export type RangeClause = 
+/**  Any version at all — an omitted or `*` range. */
+{ kind: "any" } | 
+/**
+ *  A Maven soft requirement: the version is a recommendation and every
+ *  version is accepted. Must never be worded as a requirement.
+ */
+{ kind: "soft"; version: string } | 
+/**  Exactly this version. */
+{ kind: "exact"; version: string } | 
+/**  This version or newer. */
+{ kind: "at_least"; version: string } | 
+/**  Strictly newer than this. */
+{ kind: "above"; version: string } | 
+/**  This version or older. */
+{ kind: "at_most"; version: string } | 
+/**  Strictly older than this. */
+{ kind: "below"; version: string } | 
+/**  Between two bounds. */
+{ kind: "between"; low: string; low_inclusive: boolean; high: string; high_inclusive: boolean };
+
+/**
+ *  A whole range, decomposed. `alternatives` is an OR of ANDs: the outer list
+ *  is the alternatives (Maven's comma-separated groups, a predicate's `||`),
+ *  the inner list the terms that must all hold (a predicate's space-separated
+ *  terms).
+ */
+export type RangeDescription = {
+	/**
+	 *  The string the mod actually declared. Shown to the user only when
+	 *  `unparseable` — quoting the mod beats inventing a phrase we cannot
+	 *  justify.
+	 */
+	raw: string,
+	family: RangeFamily,
+	alternatives: RangeClause[][],
+	/**  The range could not be decomposed; render `raw` verbatim. */
+	unparseable: boolean,
+	/**  Every alternative is `Soft` or `Any` — this constrains nothing. */
+	soft: boolean,
+};
+
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
 
@@ -4599,7 +4651,17 @@ export type ViolationKind =
  *  A required dependency is present but its version does not satisfy
  *  the declared version range.
  */
-"version_out_of_range";
+"version_out_of_range" | 
+/**
+ *  An optional dependency is installed but out of range. The loader treats
+ *  this exactly as it treats a missing requirement: it aborts.
+ */
+"optional_out_of_range" | 
+/**
+ *  A mod declares itself incompatible with the installed version of
+ *  another mod. The range is inverted: it names the versions that clash.
+ */
+"incompatible_installed";
 
 /**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
 export type WhitelistEntry = {

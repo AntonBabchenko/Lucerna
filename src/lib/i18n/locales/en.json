@@ -689,16 +689,30 @@
       "subRequires": "requires: {name}",
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
     },
+    "range": {
+      "any": "any version",
+      "soft": "{version} recommended (any version works)",
+      "exact": "exactly {version}",
+      "atLeast": "{version} or newer",
+      "above": "newer than {version}",
+      "atMost": "{version} or older",
+      "below": "older than {version}",
+      "joinAnd": "{a} and {b}",
+      "joinOr": "{a}, or {b}"
+    },
     "preflight": {
       "panelTitle": "Compatibility check",
       "missing": "{dependent} needs {dep}, which is not installed",
       "outOfRange": "{dependent} needs {dep} {needed} — installed: {installed}",
+      "incompatibleWith": "{dependent} is incompatible with {dep} {needed} — installed: {installed}",
+      "incompatibleWithAny": "{dependent} is incompatible with {dep} — installed: {installed}",
+      "optionalOutOfRange": "{dependent} supports {dep} {needed} — installed: {installed}",
       "update": "Update",
       "gateTitle": "Some mods may not load",
       "gateUpdateLaunch": "Update & launch",
       "gateLaunchAnyway": "Launch anyway",
       "gateCancel": "Cancel",
-      "treeOutOfRange": "version too old",
+      "treeOutOfRange": "version mismatch",
       "checkFailed": "Couldn't check compatibility",
       "updateFailed": "No compatible update was available — nothing was changed.",
       "install": "Install {dep}",
@@ -712,7 +726,7 @@
       "pickerUnfit": "out of range",
       "installTip": "Installs this missing required mod.",
       "updateTip": "Updates to the newest version that satisfies this dependency and fits this instance's Minecraft and loader.",
-      "chooseVersionTip": "Pick a specific version by hand, including older ones.",
+      "chooseVersionTip": "Pick a specific version by hand.",
       "findAlternativeTip": "Search for a replacement mod when no version fits."
     }
   },

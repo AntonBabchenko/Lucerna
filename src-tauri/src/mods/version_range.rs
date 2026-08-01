@@ -120,32 +120,68 @@ pub fn satisfying_indices(
     range: &str,
     family: RangeFamily,
 ) -> Vec<usize> {
-    version_numbers
+    let all: Vec<usize> = version_numbers
         .iter()
         .enumerate()
         .filter(|(_, v)| satisfies(v, range, family) == Satisfaction::Satisfied)
         .map(|(i, _)| i)
-        .collect()
+        .collect();
+    // A bare Maven spec accepts every version, so `all` would be every index
+    // and the caller would lose all discrimination — the version picker would
+    // badge everything as fitting and auto-pick could hand back a stale build.
+    // Maven carries a `recommendedVersion` alongside `Restriction.EVERYTHING`;
+    // mirror that by preferring versions provably at or above it, and fall back
+    // to `all` when none qualify (the loader does accept those too).
+    if family == RangeFamily::Maven && is_bare_maven_spec(range) {
+        let preferred: Vec<usize> = all
+            .iter()
+            .copied()
+            .filter(|&i| {
+                matches!(
+                    compare_numeric(version_numbers[i], range.trim()),
+                    Cmp::Greater | Cmp::Equal
+                )
+            })
+            .collect();
+        if !preferred.is_empty() {
+            return preferred;
+        }
+    }
+    all
 }
 
 /// One Maven restriction: lower/upper bounds with inclusivity. `None` bound =
 /// unbounded on that side.
-struct Restriction {
-    lower: Option<String>,
-    lower_inclusive: bool,
-    upper: Option<String>,
-    upper_inclusive: bool,
+pub(crate) struct Restriction {
+    pub(crate) lower: Option<String>,
+    pub(crate) lower_inclusive: bool,
+    pub(crate) upper: Option<String>,
+    pub(crate) upper_inclusive: bool,
+}
+
+/// A non-empty Maven spec with no bracket — Maven's "soft requirement".
+/// The version names a RECOMMENDATION; the range itself matches anything.
+pub(crate) fn is_bare_maven_spec(range: &str) -> bool {
+    let t = range.trim();
+    !t.is_empty() && t != "*" && !t.starts_with('[') && !t.starts_with('(')
 }
 
 fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
     let range = range.trim();
-    // Empty range = any version (Forge doc).
+    // An omitted versionRange is FML's `UNBOUNDED` — itself a bare spec, i.e.
+    // any version (`ModInfo.java:221-223`).
     if range.is_empty() || range == "*" {
         return Satisfaction::Satisfied;
     }
-    // No brackets => bare version, redefined as a minimum (>=).
-    if !range.starts_with('[') && !range.starts_with('(') {
-        return cmp_to_sat(compare_numeric(installed, range));
+    // No brackets => a Maven SOFT requirement. Maven pushes
+    // `Restriction.EVERYTHING` for a bare spec (maven-artifact
+    // `VersionRange.java:155`) and keeps the version only as a recommendation;
+    // NeoForge's `MavenVersionAdapter` delegates to Maven unchanged, so the
+    // loader accepts every version here. Reading it as a `>=` minimum is what
+    // made `versionRange="1.21-1.3"` reject an installed 1.3.2.
+    // `satisfying_indices` still prefers the recommended version when picking.
+    if is_bare_maven_spec(range) {
+        return Satisfaction::Satisfied;
     }
     let restrictions = match parse_maven_restrictions(range) {
         Some(r) if !r.is_empty() => r,
@@ -164,14 +200,6 @@ fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
         Satisfaction::Unknown
     } else {
         Satisfaction::Violated
-    }
-}
-
-fn cmp_to_sat(c: Cmp) -> Satisfaction {
-    match c {
-        Cmp::Greater | Cmp::Equal => Satisfaction::Satisfied, // installed >= bare
-        Cmp::Less => Satisfaction::Violated,
-        Cmp::Unknown => Satisfaction::Unknown,
     }
 }
 
@@ -197,7 +225,7 @@ fn restriction_holds(installed: &str, r: &Restriction) -> Satisfaction {
 
 /// Parse `[a,b]`, `(a,b)`, `[a]`, `[a,)`, `(,b]`, and comma-separated groups of
 /// these. Returns `None` on malformed input.
-fn parse_maven_restrictions(range: &str) -> Option<Vec<Restriction>> {
+pub(crate) fn parse_maven_restrictions(range: &str) -> Option<Vec<Restriction>> {
     let mut out = Vec::new();
     let bytes = range.as_bytes();
     let mut i = 0;
@@ -212,6 +240,17 @@ fn parse_maven_restrictions(range: &str) -> Option<Vec<Restriction>> {
                     Some((lo, hi)) => (opt(lo), opt(hi)),
                     None => (opt(inner), opt(inner)), // [a] exact
                 };
+                // `[]` / `()` — brackets with nothing in them at all. Maven
+                // reads `[]` as an exact pin on an empty version, i.e. matches
+                // nothing; we return Unknown (via `None` here) instead, so a
+                // degenerate range never flags in EITHER direction. That
+                // matters because an `incompatible` dep inverts the test: an
+                // "everything satisfies" reading would fire the incompatibility
+                // always, and a real jar ships exactly
+                // `type="incompatible" versionRange="[]"`.
+                if lower.is_none() && upper.is_none() && !inner.contains(',') {
+                    return None;
+                }
                 out.push(Restriction {
                     lower,
                     lower_inclusive,
@@ -287,32 +326,40 @@ fn alternative_holds(installed: &str, alt: &str, is_quilt: bool) -> Satisfaction
     }
 }
 
-fn term_holds(installed: &str, term: &str, is_quilt: bool) -> Satisfaction {
-    let (op, ver) = if let Some(v) = term.strip_prefix(">=") {
-        (">=", v)
-    } else if let Some(v) = term.strip_prefix("<=") {
-        ("<=", v)
-    } else if let Some(v) = term.strip_prefix('>') {
-        (">", v)
-    } else if let Some(v) = term.strip_prefix('<') {
-        ("<", v)
-    } else if let Some(v) = term.strip_prefix('=') {
-        ("=", v)
-    } else if let Some(v) = term.strip_prefix('^') {
-        ("^", v)
-    } else if let Some(v) = term.strip_prefix('~') {
-        ("~", v)
-    } else {
-        // bare
-        if is_quilt {
-            ("^", term) // Quilt bare = caret
-        } else {
-            ("=", term) // Fabric bare = exact
+/// Split one Fabric/Quilt predicate term into its operator and version. A bare
+/// term is exact on Fabric and a caret on Quilt — the one place the two
+/// grammars genuinely differ. Shared with [`crate::mods::range_describe`].
+pub(crate) fn split_predicate_term(term: &str, is_quilt: bool) -> (&'static str, &str) {
+    for (op, prefix) in [
+        (">=", ">="),
+        ("<=", "<="),
+        (">", ">"),
+        ("<", "<"),
+        ("=", "="),
+        ("^", "^"),
+        ("~", "~"),
+    ] {
+        if let Some(v) = term.strip_prefix(prefix) {
+            return (op, v);
         }
-    };
-    // x-range (e.g. 1.2.x) — treat as caret on the fixed prefix; conservative
-    // fallback to Unknown if it contains a wildcard we don't model precisely.
-    if ver.contains('x') || ver.contains('X') || ver.contains('*') {
+    }
+    if is_quilt {
+        ("^", term)
+    } else {
+        ("=", term)
+    }
+}
+
+/// A term we deliberately do not model: an x-range or a wildcard.
+pub(crate) fn is_wildcard_version(ver: &str) -> bool {
+    ver.contains('x') || ver.contains('X') || ver.contains('*')
+}
+
+fn term_holds(installed: &str, term: &str, is_quilt: bool) -> Satisfaction {
+    let (op, ver) = split_predicate_term(term, is_quilt);
+    // x-range (e.g. 1.2.x) — conservative fallback to Unknown, since we do not
+    // model the wildcard precisely.
+    if is_wildcard_version(ver) {
         return Satisfaction::Unknown;
     }
     let c = compare_numeric(installed, ver);
@@ -343,39 +390,31 @@ fn bool_sat(b: bool) -> Satisfaction {
 ///   - `^0.x.y` = `>=0.x.y <0.(x+1).0`  (zero-major: minor is the breaking digit)
 ///   - `^M.x.y` (M >= 1) = `>=M.x.y <(M+1).0.0`
 ///   - `~a.b.c` = `>=a.b.c <a.(b+1).0`  (minor bump, regardless of major)
+/// The exclusive upper bound a `^`/`~` term implies, or `None` when the base
+/// version is not shaped well enough to derive one. Shared with
+/// [`crate::mods::range_describe`] so the displayed bound and the evaluated
+/// bound can never disagree.
+pub(crate) fn caret_upper(base: &str, caret: bool) -> Option<String> {
+    let parts: Vec<&str> = base.split('.').collect();
+    let major = parts.first().and_then(|s| s.parse::<u64>().ok());
+    let minor = parts.get(1).and_then(|s| s.parse::<u64>().ok());
+    match (caret, major, minor) {
+        // ^0.x.y — zero-major: upper = 0.(x+1).0
+        (true, Some(0), Some(n)) => n.checked_add(1).map(|n1| format!("0.{n1}.0")),
+        // ^M.x.y (M >= 1) — upper = (M+1).0.0
+        (true, Some(m), _) => m.checked_add(1).map(|m1| format!("{m1}.0.0")),
+        // ~M.x.y — upper = M.(x+1).0
+        (false, Some(m), Some(n)) => n.checked_add(1).map(|n1| format!("{m}.{n1}.0")),
+        _ => None,
+    }
+}
+
 fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
     if compare_numeric(installed, base) == Cmp::Less {
         return Satisfaction::Violated;
     }
-    let parts: Vec<&str> = base.split('.').collect();
-    let major = parts.first().and_then(|s| s.parse::<u64>().ok());
-    let minor = parts.get(1).and_then(|s| s.parse::<u64>().ok());
-    let upper = match (caret, major, minor) {
-        // ^0.x.y — zero-major: upper = 0.(x+1).0
-        (true, Some(0), Some(n)) => {
-            let n1 = match n.checked_add(1) {
-                Some(v) => v,
-                None => return Satisfaction::Unknown,
-            };
-            format!("0.{n1}.0")
-        }
-        // ^M.x.y (M >= 1) — upper = (M+1).0.0
-        (true, Some(m), _) => {
-            let m1 = match m.checked_add(1) {
-                Some(v) => v,
-                None => return Satisfaction::Unknown,
-            };
-            format!("{m1}.0.0")
-        }
-        // ~M.x.y — upper = M.(x+1).0
-        (false, Some(m), Some(n)) => {
-            let n1 = match n.checked_add(1) {
-                Some(v) => v,
-                None => return Satisfaction::Unknown,
-            };
-            format!("{m}.{n1}.0")
-        }
-        _ => return Satisfaction::Unknown,
+    let Some(upper) = caret_upper(base, caret) else {
+        return Satisfaction::Unknown;
     };
     match compare_numeric(installed, &upper) {
         Cmp::Less => Satisfaction::Satisfied,
@@ -456,10 +495,40 @@ mod tests {
     }
 
     #[test]
-    fn maven_bare_is_minimum_and_empty_is_any() {
-        assert_eq!(satisfies("0.9", "1.0", Maven), Satisfaction::Violated); // bare = >=
+    fn maven_bare_spec_matches_any_version() {
+        // Maven pushes Restriction.EVERYTHING for a bare spec (maven-artifact
+        // VersionRange.java:155) and NeoForge's MavenVersionAdapter delegates
+        // to it unchanged, so a bare spec is a recommendation, not a floor.
+        assert_eq!(satisfies("0.9", "1.0", Maven), Satisfaction::Satisfied);
         assert_eq!(satisfies("1.5", "1.0", Maven), Satisfaction::Satisfied);
         assert_eq!(satisfies("0.1", "", Maven), Satisfaction::Satisfied); // empty = any
+                                                                          // The reported bug, end to end: MyNethersDelight declares a bare
+                                                                          // "1.21-1.3" and Farmer's Delight declares version "1.3.2".
+        assert_eq!(
+            satisfies("1.3.2", "1.21-1.3", Maven),
+            Satisfaction::Satisfied
+        );
+    }
+
+    #[test]
+    fn degenerate_bracketed_range_is_unknown_not_satisfied() {
+        // AsyncParticles ships `type="incompatible" versionRange="[]"`.
+        // Treating it as "everything satisfies" would fire that incompatibility
+        // against every installed version.
+        assert_eq!(satisfies("6.0.10", "[]", Maven), Satisfaction::Unknown);
+        assert_eq!(satisfies("6.0.10", "()", Maven), Satisfaction::Unknown);
+    }
+
+    #[test]
+    fn bare_maven_spec_still_prefers_the_recommended_version_when_picking() {
+        // Maven models a bare spec as EVERYTHING + a recommendedVersion. If we
+        // only kept "everything fits", the picker would hand back a stale build.
+        let versions = ["2.0", "1.0.0-beta", "0.9"];
+        assert_eq!(satisfying_indices(&versions, "1.5", Maven), vec![0]);
+        // When nothing is provably at or above the recommendation, fall back to
+        // all of them — the loader does accept any version.
+        let old = ["0.9", "0.8"];
+        assert_eq!(satisfying_indices(&old, "1.5", Maven), vec![0, 1]);
     }
 
     #[test]
