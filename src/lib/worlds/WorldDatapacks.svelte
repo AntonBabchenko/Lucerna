@@ -115,12 +115,19 @@
     return pack.state === 'disabled';
   }
 
-  async function addDatapackToLibrary() {
+  // `source` picks the Tauri dialog mode: a `.zip` file, or a folder datapack
+  // (the backend zips a directory in memory — see
+  // `datapacks::library::install_local_at` — so both are equally supported,
+  // but `open()` cannot offer a file-or-folder chooser in one dialog).
+  async function addDatapackToLibrary(source: 'zip' | 'folder') {
     actionError = null;
-    const picked = await openFile({
-      multiple: false,
-      filters: [{ name: $t('common.fileFilter.datapack'), extensions: ['zip'] }],
-    });
+    const picked =
+      source === 'zip'
+        ? await openFile({
+            multiple: false,
+            filters: [{ name: $t('common.fileFilter.datapack'), extensions: ['zip'] }],
+          })
+        : await openFile({ directory: true });
     if (typeof picked !== 'string') return;
     busyAdd = true;
     busy = true;
@@ -208,23 +215,42 @@
 <div class="flex flex-col gap-2" data-testid="world-datapacks">
   <div class="flex items-center justify-between gap-2">
     <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <span
-      class="inline-flex"
-      tabindex={disabledKey !== null ? 0 : undefined}
-      use:tooltip={{ text: disabledReason ?? '', describe: false }}
-    >
-      <BusyButton
-        class="btn-secondary btn-sm"
-        busy={busyAdd}
-        disabled={disabledKey !== null}
-        onclick={() => void addDatapackToLibrary()}
-        data-testid="world-datapack-add-library"
+    <div class="flex items-center gap-2">
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <span
+        class="inline-flex"
+        tabindex={disabledKey !== null ? 0 : undefined}
+        use:tooltip={{ text: disabledReason ?? '', describe: false }}
       >
-        <Icon name="archive" size={14} />
-        {$t('worlds.datapacks.add')}
-      </BusyButton>
-    </span>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyAdd}
+          disabled={disabledKey !== null}
+          onclick={() => void addDatapackToLibrary('zip')}
+          data-testid="world-datapack-add-library"
+        >
+          <Icon name="archive" size={14} />
+          {$t('worlds.datapacks.add')}
+        </BusyButton>
+      </span>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <span
+        class="inline-flex"
+        tabindex={disabledKey !== null ? 0 : undefined}
+        use:tooltip={{ text: disabledReason ?? '', describe: false }}
+      >
+        <button
+          type="button"
+          class="btn-tertiary inline-flex items-center gap-1"
+          disabled={disabledKey !== null}
+          data-testid="world-datapack-add-library-folder"
+          onclick={() => void addDatapackToLibrary('folder')}
+        >
+          <Icon name="folderOpen" size={14} />
+          {$t('worlds.datapacks.addFromFolder')}
+        </button>
+      </span>
+    </div>
   </div>
 
   {#if actionError}

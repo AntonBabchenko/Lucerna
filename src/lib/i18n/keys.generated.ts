@@ -2303,6 +2303,7 @@ export type TranslationKey =
   | 'worlds.backups.title'
   | 'worlds.backups.total'
   | 'worlds.datapacks.add'
+  | 'worlds.datapacks.addFromFolder'
   | 'worlds.datapacks.addToWorld'
   | 'worlds.datapacks.blockedBusy'
   | 'worlds.datapacks.blockedRunning'

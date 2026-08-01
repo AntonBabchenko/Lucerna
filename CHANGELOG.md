@@ -13,11 +13,11 @@ release is **0.9.0**.
 ### Added
 
 - **Datapacks for singleplayer worlds.** A world's detail view gets a new
-  **Datapacks** tab next to Backups: install a datapack `.zip` into the
-  instance's shared library, then decide per world whether a pack is present
-  and whether it's enabled. Removing a pack from a world also clears its
-  `level.dat` entry, so a removed pack no longer leaves Minecraft asking about
-  a missing data pack the next time that world loads.
+  **Datapacks** tab next to Backups: install a datapack `.zip` **or folder**
+  into the instance's shared library, then decide per world whether a pack is
+  present and whether it's enabled. Removing a pack from a world also clears
+  its `level.dat` entry, so a removed pack no longer leaves Minecraft asking
+  about a missing data pack the next time that world loads.
 
 ### Fixed
 

@@ -142,9 +142,11 @@ describe('WorldDatapacks — running disables mutating controls', () => {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
     });
     const addBtn = await screen.findByTestId('world-datapack-add-library');
+    const addFolderBtn = screen.getByTestId('world-datapack-add-library-folder');
     const toggleBtn = screen.getByTestId('world-datapack-toggle');
     const removeBtn = screen.getByTestId('world-datapack-remove-world');
     expect((addBtn as HTMLButtonElement).disabled).toBe(true);
+    expect((addFolderBtn as HTMLButtonElement).disabled).toBe(true);
     expect((toggleBtn as HTMLButtonElement).disabled).toBe(true);
     expect((removeBtn as HTMLButtonElement).disabled).toBe(true);
   });

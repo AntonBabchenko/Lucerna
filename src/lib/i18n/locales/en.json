@@ -1084,6 +1084,7 @@
       "title": "Datapacks",
       "empty": "No datapacks yet",
       "add": "Add datapack",
+      "addFromFolder": "From folder…",
       "addToWorld": "Add to this world",
       "removeFromWorld": "Remove from this world",
       "enable": "Enable in this world",
