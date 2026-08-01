@@ -8,4 +8,5 @@
 
 pub mod coverage;
 pub mod scan;
+pub mod store;
 pub mod validate;
