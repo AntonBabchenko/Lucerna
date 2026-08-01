@@ -27,11 +27,12 @@ use std::path::{Path, PathBuf};
 /// `instances::status::ready_status` and `launch::spawn`, which both resolve
 /// the same path the same way.
 ///
-/// Private: the only caller is [`expected_data_format`] below, in this same
-/// file; nothing else in the crate or in `tests/datapacks_integration.rs`
-/// needs it.
+/// `pub(crate)`: besides [`expected_data_format`] below, `l10n::pack_format`
+/// resolves the SAME jar (to read its `pack_version` for the resource-pack
+/// format rather than the datapack format) and reuses this instead of a
+/// second copy of the path formula.
 #[must_use]
-fn client_jar_path(versions_dir: &Path, mc_version: &str) -> PathBuf {
+pub(crate) fn client_jar_path(versions_dir: &Path, mc_version: &str) -> PathBuf {
     versions_dir
         .join(mc_version)
         .join(format!("{mc_version}.jar"))

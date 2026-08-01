@@ -518,6 +518,33 @@ pub enum Error {
         filename: String,
         reason: DatapackRejection,
     },
+
+    /// A translation the user typed failed Minecraft's `%s`/`%N$s` format
+    /// grammar and was refused before it ever reached the override store.
+    /// `reason` is typed, not a message — mirrors `DatapackInvalid`'s reason
+    /// field, for the same "the UI localises it" argument documented on
+    /// `l10n::validate::FormatError`.
+    #[error("Translation for '{key}' is not valid: {reason:?}")]
+    L10nTranslationInvalid {
+        key: String,
+        reason: crate::l10n::validate::FormatError,
+    },
+
+    /// `l10n_apply` could not determine the instance's resource-pack format:
+    /// its client jar is missing, unreadable, or its `version.json` is a
+    /// shape `l10n::pack_format` does not recognise. Most commonly because
+    /// the instance has never been launched, so
+    /// `versions/<mc_version>/<mc_version>.jar` does not exist yet.
+    #[error("Could not determine the resource-pack format for Minecraft {mc_version}")]
+    L10nFormatUnknown { mc_version: String },
+
+    /// `l10n_apply` refused a Minecraft version below resource format 4
+    /// (1.12.2 and older): FML/Forge on these versions loads a mod's own
+    /// lang file AFTER the resource pack stack, so an applied override would
+    /// silently have no effect (MinecraftForge #4907, closed stale, never
+    /// fixed — see `l10n::pack_format`'s module doc).
+    #[error("Minecraft {mc_version} is too old to apply a translation override pack")]
+    L10nFormatTooOld { mc_version: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1063,5 +1090,40 @@ mod tests {
         // The reason is a typed enum tag, not a hand-written English sentence —
         // that's the whole point (see `DatapackRejection`'s doc comment).
         assert_eq!(v["reason"], "is_a_resource_pack");
+    }
+
+    #[test]
+    fn l10n_translation_invalid_serializes_with_tag_key_and_nested_reason() {
+        let e = Error::L10nTranslationInvalid {
+            key: "item.create.wrench".into(),
+            reason: crate::l10n::validate::FormatError::UnsupportedSpecifier { specifier: 'd' },
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_translation_invalid");
+        assert_eq!(v["key"], "item.create.wrench");
+        // `FormatError` is itself internally tagged with `kind`; nested under
+        // `reason` this cannot collide with the outer `Error`'s own `kind`.
+        assert_eq!(v["reason"]["kind"], "unsupported_specifier");
+        assert_eq!(v["reason"]["specifier"], "d");
+    }
+
+    #[test]
+    fn l10n_format_unknown_carries_mc_version() {
+        let e = Error::L10nFormatUnknown {
+            mc_version: "1.20.1".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_format_unknown");
+        assert_eq!(v["mc_version"], "1.20.1");
+    }
+
+    #[test]
+    fn l10n_format_too_old_carries_mc_version() {
+        let e = Error::L10nFormatTooOld {
+            mc_version: "1.12.2".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_format_too_old");
+        assert_eq!(v["mc_version"], "1.12.2");
     }
 }

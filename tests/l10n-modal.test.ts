@@ -14,7 +14,14 @@ function ns(over: Partial<NamespaceCoverage> = {}): NamespaceCoverage {
 }
 
 function coverage(over: Partial<InstanceCoverage> = {}): InstanceCoverage {
-  return { lang: 'en_us', percent: 50, namespaces: [], availableCodes: ['en_us'], ...over };
+  return {
+    lang: 'en_us',
+    percent: 50,
+    namespaces: [],
+    availableCodes: ['en_us'],
+    applyGate: 'ready',
+    ...over,
+  };
 }
 
 function mockCoverageOk(data: InstanceCoverage) {

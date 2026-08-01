@@ -3,7 +3,12 @@ import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
-import type { DatapackRejection, Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
+import type {
+  DatapackRejection,
+  FormatError,
+  Error as IpcError,
+  LoaderKind,
+} from '$lib/ipc/bindings';
 
 // Detail-bearing errors are truncated to this many code points in the UI; the
 // full text lives in the launcher log. Slicing is by code point (spread), not
@@ -183,6 +188,11 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // `datapackRejectionKey` below for why the reason is a typed lookup rather
   // than a raw string.
   datapack_invalid: 'clean',
+  // In-game mod localization — the override editor. All three are built
+  // entirely from structured fields; nothing to truncate or hide.
+  l10n_translation_invalid: 'clean',
+  l10n_format_unknown: 'clean',
+  l10n_format_too_old: 'clean',
 };
 
 /**
@@ -227,6 +237,38 @@ function datapackRejectionKey(reason: DatapackRejection): TranslationKey {
       return 'errors.datapackInvalidReason.isAResourcePack';
     case 'not_a_pack':
       return 'errors.datapackInvalidReason.notAPack';
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Render a backend `FormatError` (Minecraft's `%s`/`%N$s` grammar rejection —
+ * see the variant's doc comment in `l10n/validate.rs`) as a translated
+ * clause. Unlike `datapackRejectionKey`, this returns the rendered STRING
+ * directly rather than a `TranslationKey`: each variant carries different
+ * fields to interpolate (the offending specifier, or the index/available
+ * pair), so there is no single flat `values` shape a caller could pass to
+ * `translate()` uniformly. The switch has no `default` fallthrough, so a new
+ * `FormatError` variant that isn't handled here fails to compile rather than
+ * silently rendering nothing.
+ */
+function formatErrorReason(reason: FormatError): string {
+  const translate = get(t);
+  switch (reason.kind) {
+    case 'unsupported_specifier':
+      return translate('errors.l10nTranslationInvalidReason.unsupportedSpecifier', {
+        specifier: reason.specifier,
+      });
+    case 'dangling_percent':
+      return translate('errors.l10nTranslationInvalidReason.danglingPercent');
+    case 'index_out_of_range':
+      return translate('errors.l10nTranslationInvalidReason.indexOutOfRange', {
+        index: reason.index,
+        available: reason.available,
+      });
     default: {
       const _exhaustive: never = reason;
       return _exhaustive;
@@ -560,6 +602,15 @@ export function formatError(e: IpcError): string {
         filename: e.filename,
         reason: translate(datapackRejectionKey(e.reason)),
       });
+    case 'l10n_translation_invalid':
+      return translate('errors.l10nTranslationInvalid', {
+        key: e.key,
+        reason: formatErrorReason(e.reason),
+      });
+    case 'l10n_format_unknown':
+      return translate('errors.l10nFormatUnknown', { mcVersion: e.mc_version });
+    case 'l10n_format_too_old':
+      return translate('errors.l10nFormatTooOld', { mcVersion: e.mc_version });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

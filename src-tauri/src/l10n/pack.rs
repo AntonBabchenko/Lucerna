@@ -56,6 +56,21 @@ pub fn build(
     fmt: PackFormat,
     description: &str,
 ) -> Option<Vec<u8>> {
+    // `code` is composed straight into EVERY entry name below
+    // (`assets/<namespace>/lang/<code>.json`), and by the time it reaches
+    // this IPC-adjacent function it has already crossed one trust boundary
+    // (the command layer passes through whatever target-language string the
+    // frontend sent). Unlike `namespace` — checked per-store just below,
+    // with a comment explaining why a bad one is dropped rather than fatal —
+    // a bad `code` would corrupt every entry in the archive, so the whole
+    // build refuses rather than silently composing an escaping path. Reuses
+    // the identical rule `scan::parse_lang_path` and `store::store_path`
+    // already apply to the same class of value, rather than inventing a
+    // second one.
+    if scan::is_traversal_unsafe(code) {
+        return None;
+    }
+
     let mcmeta = pack_format::pack_mcmeta(fmt, description)?;
 
     // Defence in depth. `namespace` reaches this function by being read back
@@ -337,6 +352,25 @@ mod tests {
         // path, so absence is checked at the archive-listing level instead.
         let names = entry_names(&bytes);
         assert!(names.iter().all(|n| !n.contains("..")));
+    }
+
+    #[test]
+    fn a_traversal_unsafe_code_refuses_the_whole_build() {
+        // Unlike a bad NAMESPACE (dropped, other namespaces still ship), a
+        // bad `code` (the target language) would corrupt every entry name in
+        // the archive, so the whole build must refuse rather than silently
+        // composing an escaping path into `assets/<namespace>/lang/<code>.json`.
+        let s = store("create", "..", &[("a", "А", "A")]);
+        assert!(build(
+            &[s],
+            "..",
+            PackFormat {
+                major: 34,
+                minor: 0
+            },
+            "x"
+        )
+        .is_none());
     }
 
     #[test]

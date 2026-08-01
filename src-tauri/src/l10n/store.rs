@@ -17,7 +17,7 @@
 //! deferred AI-assist stage — so that stage adds a value to an existing enum
 //! rather than a schema migration.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -86,8 +86,8 @@ pub enum KeyState {
 
 /// One namespace's worth of user overrides for one target language. This is
 /// the on-disk shape (`<store_dir>/<lang>/<namespace>.json`), not an IPC
-/// return type — `Entry`/`Origin`/`KeyState` cross IPC in a later task, but
-/// this container never does (mirrors `AccountFile` in `accounts/store.rs`,
+/// return type — `Entry`/`Origin`/`KeyState` cross IPC as fields of [`KeyRow`]
+/// below, but this container never does (mirrors `AccountFile` in `accounts/store.rs`,
 /// which likewise skips `specta::Type` while its element type `Account`
 /// carries it). It also has no `#[serde(rename_all)]`, matching that same
 /// precedent: an on-disk-only struct here keeps plain Rust field names on
@@ -158,6 +158,70 @@ impl NamespaceStore {
         }
         KeyState::Missing
     }
+}
+
+/// One key's editor row: what the mod ships (English + its own target-language
+/// translation, if any), what the user overrode (if anything), and the
+/// combined [`KeyState`]. Crosses IPC — this is `commands::l10n_namespace_keys`'s
+/// element type.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyRow {
+    pub key: String,
+    pub source_en: String,
+    pub mod_value: Option<String>,
+    pub override_value: Option<String>,
+    pub state: KeyState,
+}
+
+/// Every key the editor should show for one namespace.
+///
+/// The key UNIVERSE is `en` — every key in the mod's own English file — PLUS
+/// any override whose key `en` no longer has: an orphan the user must still
+/// be able to find and clear (see the module doc on `Entry::source_en`, the
+/// staleness oracle this exists to serve). Without appending orphans
+/// explicitly here, a translation for a key the mod dropped would become
+/// permanently invisible to the user who wrote it.
+///
+/// For an orphan row, `source_en` is the entry's OWN recorded
+/// `Entry::source_en` (what it was translated against) rather than an empty
+/// string — showing "you translated *(was: 'Old Text')*" is far more useful
+/// than a blank field, and it is exactly the value `state_of` already uses to
+/// detect the key is an orphan in the first place.
+///
+/// `mod_tr` mirrors [`state_of`]'s parameter: the mod's own target-language
+/// file for this namespace, if any. Rows are returned in key-sorted order —
+/// deterministic, not meaningful UI ordering; the caller sorts however it
+/// likes.
+pub fn namespace_key_rows(
+    store: &NamespaceStore,
+    en: &LangMap,
+    mod_tr: Option<&LangMap>,
+) -> Vec<KeyRow> {
+    let keys: BTreeSet<&str> = en
+        .keys()
+        .map(String::as_str)
+        .chain(store.entries.keys().map(String::as_str))
+        .collect();
+
+    keys.into_iter()
+        .map(|key| {
+            let source_en = en.get(key).cloned().unwrap_or_else(|| {
+                store
+                    .entries
+                    .get(key)
+                    .map(|e| e.source_en.clone())
+                    .unwrap_or_default()
+            });
+            KeyRow {
+                key: key.to_string(),
+                source_en,
+                mod_value: mod_tr.and_then(|m| m.get(key)).cloned(),
+                override_value: store.entries.get(key).map(|e| e.value.clone()),
+                state: store.state_of(key, en, mod_tr),
+            }
+        })
+        .collect()
 }
 
 /// Percent-encode `s` so it is always safe to compose into a filesystem path
@@ -588,5 +652,88 @@ mod tests {
             namespaces_with_overrides(dir.path(), "ru_ru"),
             vec!["create".to_string()]
         );
+    }
+
+    // -----------------------------------------------------------------
+    // namespace_key_rows
+    // -----------------------------------------------------------------
+
+    fn row_for<'a>(rows: &'a [KeyRow], key: &str) -> &'a KeyRow {
+        rows.iter().find(|r| r.key == key).unwrap_or_else(|| {
+            panic!("no row for key {key:?} in {rows:?}");
+        })
+    }
+
+    #[test]
+    fn every_english_key_gets_a_row_even_with_no_override_or_mod_translation() {
+        let store = NamespaceStore::new("create", "ru_ru");
+        let en = map(&[("a", "A"), ("b", "B")]);
+        let rows = namespace_key_rows(&store, &en, None);
+        assert_eq!(rows.len(), 2);
+        let a = row_for(&rows, "a");
+        assert_eq!(a.source_en, "A");
+        assert_eq!(a.mod_value, None);
+        assert_eq!(a.override_value, None);
+        assert_eq!(a.state, KeyState::Missing);
+    }
+
+    #[test]
+    fn a_key_the_mod_translates_reports_from_mod_and_carries_the_mod_value() {
+        let store = NamespaceStore::new("create", "ru_ru");
+        let en = map(&[("a", "A")]);
+        let mod_tr = map(&[("a", "А")]);
+        let rows = namespace_key_rows(&store, &en, Some(&mod_tr));
+        let a = row_for(&rows, "a");
+        assert_eq!(a.mod_value.as_deref(), Some("А"));
+        assert_eq!(a.override_value, None);
+        assert_eq!(a.state, KeyState::FromMod);
+    }
+
+    #[test]
+    fn an_overridden_key_carries_the_override_value_and_wins_over_the_mod() {
+        let mut store = NamespaceStore::new("create", "ru_ru");
+        store.set("a", "Мой перевод", "A", 1.0);
+        let en = map(&[("a", "A")]);
+        let mod_tr = map(&[("a", "Перевод мода")]);
+        let rows = namespace_key_rows(&store, &en, Some(&mod_tr));
+        let a = row_for(&rows, "a");
+        assert_eq!(a.override_value.as_deref(), Some("Мой перевод"));
+        assert_eq!(a.mod_value.as_deref(), Some("Перевод мода"));
+        assert_eq!(a.state, KeyState::Ok);
+    }
+
+    #[test]
+    fn an_orphan_override_is_appended_with_its_own_recorded_source_en() {
+        // The key the user translated is gone from `en` entirely. It must
+        // still appear (orphans are the whole point of appending overrides
+        // that `en` doesn't have), and its `source_en` must be the STALE
+        // value it was written against, not an empty string — otherwise the
+        // editor would show a blank source for a row the user needs to
+        // review and possibly clear.
+        let mut store = NamespaceStore::new("create", "ru_ru");
+        store.set("gone", "Устарело", "Old English", 1.0);
+        let en = map(&[("a", "A")]);
+        let rows = namespace_key_rows(&store, &en, None);
+        assert_eq!(rows.len(), 2); // "a" (from en) + "gone" (orphan)
+        let orphan = row_for(&rows, "gone");
+        assert_eq!(orphan.source_en, "Old English");
+        assert_eq!(orphan.override_value.as_deref(), Some("Устарело"));
+        assert_eq!(orphan.state, KeyState::Orphan);
+    }
+
+    #[test]
+    fn rows_are_returned_in_key_sorted_order() {
+        let store = NamespaceStore::new("create", "ru_ru");
+        let en = map(&[("z", "Z"), ("a", "A"), ("m", "M")]);
+        let rows = namespace_key_rows(&store, &en, None);
+        let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, vec!["a", "m", "z"]);
+    }
+
+    #[test]
+    fn an_empty_namespace_with_no_overrides_yields_no_rows() {
+        let store = NamespaceStore::new("create", "ru_ru");
+        let en = map(&[]);
+        assert!(namespace_key_rows(&store, &en, None).is_empty());
     }
 }

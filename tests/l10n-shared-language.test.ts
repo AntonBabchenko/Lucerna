@@ -20,7 +20,13 @@ import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 
 function coverage(lang: string): InstanceCoverage {
-  return { lang, percent: 81, namespaces: [], availableCodes: ['en_us', lang] };
+  return {
+    lang,
+    percent: 81,
+    namespaces: [],
+    availableCodes: ['en_us', lang],
+    applyGate: 'ready',
+  };
 }
 
 const fabricInst = {

@@ -445,6 +445,18 @@ describe('formatError', () => {
         filename: 'MyPack.rar',
         reason: 'not_a_zip',
       },
+      // `reason` is a nested tagged enum (`FormatError`), the first exported
+      // type in this crate to carry another exported tagged enum as a field.
+      // The sample uses the specifier the validator exists to catch: `%d` is
+      // not valid Minecraft syntax, and a mismatch renders the raw template
+      // in game rather than throwing, so nothing but this check would notice.
+      l10n_translation_invalid: {
+        kind: 'l10n_translation_invalid',
+        key: 'item.create.wrench',
+        reason: { kind: 'unsupported_specifier', specifier: 'd' },
+      },
+      l10n_format_unknown: { kind: 'l10n_format_unknown', mc_version: '1.21.1' },
+      l10n_format_too_old: { kind: 'l10n_format_too_old', mc_version: '1.12.2' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {

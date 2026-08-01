@@ -77,6 +77,9 @@
 //! overwrites the resource pack's override (MinecraftForge issue #4907,
 //! closed stale, never fixed). See [`supports_apply`].
 
+use serde::Serialize;
+use specta::Type;
+
 use crate::l10n::scan;
 
 /// A resource pack format version. `minor` is 0 for every version before
@@ -181,6 +184,73 @@ pub fn from_client_jar(jar_bytes: &[u8]) -> PackFormat {
     scan::read_entry(jar_bytes, "version.json")
         .and_then(|body| parse_version_json(&body))
         .unwrap_or(PackFormat::UNKNOWN)
+}
+
+/// Read the format out of an instance's client jar FILE at `path`, without
+/// loading the whole jar into memory — only the central directory and the
+/// (tiny) `version.json` entry are read, mirroring
+/// `datapacks::compat::expected_data_format` (which reads the same jar for
+/// the datapack format). [`PackFormat::UNKNOWN`] on any failure: missing or
+/// unreadable file, not a zip, absent `version.json`, or an unrecognised
+/// `pack_version` shape — never a panic, never a guess.
+///
+/// A separate entry point from [`from_client_jar`] (which takes bytes
+/// already in memory) rather than a `std::fs::read` + delegate: the client
+/// jar is a real Mojang jar (tens of megabytes), and reading it whole just to
+/// look at a sub-kilobyte JSON entry would be wasteful on every coverage scan
+/// and every Apply.
+pub fn from_client_jar_path(path: &std::path::Path) -> PackFormat {
+    let Ok(file) = std::fs::File::open(path) else {
+        return PackFormat::UNKNOWN;
+    };
+    let Ok(mut zip) = zip::ZipArchive::new(file) else {
+        return PackFormat::UNKNOWN;
+    };
+    let Ok(mut entry) = zip.by_name("version.json") else {
+        return PackFormat::UNKNOWN;
+    };
+    let mut text = String::new();
+    if std::io::Read::read_to_string(&mut entry, &mut text).is_err() {
+        return PackFormat::UNKNOWN;
+    }
+    parse_version_json(text.as_bytes()).unwrap_or(PackFormat::UNKNOWN)
+}
+
+/// Whether the override editor's Apply action is available for an instance,
+/// and — when it is not — which of the two distinct reasons applies, so the
+/// UI can disable the button with an explanation instead of letting the user
+/// press it and hit an error. Mirrors [`supports_apply`]'s two-part refusal
+/// but names the parts separately: `UnknownFormat` and `TooOld` need
+/// different copy ("launch the instance once" vs "this Minecraft version
+/// can't load resource-pack overrides at all").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyGate {
+    /// A translation pack can be built and applied.
+    Ready,
+    /// The client jar is missing, unreadable, or its `version.json` is in a
+    /// shape this module does not recognise — most commonly because the
+    /// instance has never been launched, so
+    /// `versions/<mc_version>/<mc_version>.jar` does not exist yet.
+    UnknownFormat,
+    /// The format is known but below resource format 4 (Minecraft 1.13):
+    /// FML/Forge on these versions loads a mod's own lang file AFTER the
+    /// resource pack stack, so an override would silently lose (see the
+    /// module docs and MinecraftForge #4907).
+    TooOld,
+}
+
+/// Classify `fmt` into an [`ApplyGate`]. Built directly on [`supports_apply`]
+/// so the two can never disagree about which formats are appliable — this
+/// only adds the WHY when they are not.
+pub fn apply_gate(fmt: PackFormat) -> ApplyGate {
+    if fmt == PackFormat::UNKNOWN {
+        ApplyGate::UnknownFormat
+    } else if !supports_apply(fmt) {
+        ApplyGate::TooOld
+    } else {
+        ApplyGate::Ready
+    }
 }
 
 /// Render a `pack.mcmeta` body, or `None` when the format is unknown — the
@@ -452,5 +522,88 @@ mod tests {
     #[test]
     fn from_client_jar_is_unknown_for_unreadable_bytes() {
         assert_eq!(from_client_jar(b"not a zip"), PackFormat::UNKNOWN);
+    }
+
+    // -----------------------------------------------------------------
+    // from_client_jar_path
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn from_client_jar_path_reads_a_file_backed_jar() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("1.21.1.jar");
+        let jar =
+            jar_with_version_json(r#"{"id":"1.21.1","pack_version":{"resource":34,"data":48}}"#);
+        std::fs::write(&path, jar).unwrap();
+
+        assert_eq!(
+            from_client_jar_path(&path),
+            PackFormat {
+                major: 34,
+                minor: 0
+            }
+        );
+    }
+
+    #[test]
+    fn from_client_jar_path_is_unknown_for_a_missing_file() {
+        let td = tempfile::tempdir().unwrap();
+        assert_eq!(
+            from_client_jar_path(&td.path().join("nope.jar")),
+            PackFormat::UNKNOWN
+        );
+    }
+
+    #[test]
+    fn from_client_jar_path_is_unknown_for_a_non_zip_file() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("garbage.jar");
+        std::fs::write(&path, b"not a zip at all").unwrap();
+        assert_eq!(from_client_jar_path(&path), PackFormat::UNKNOWN);
+    }
+
+    #[test]
+    fn from_client_jar_path_is_unknown_for_a_jar_without_version_json() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("no-version.jar");
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+        zw.start_file("net/minecraft/Main.class", opts).unwrap();
+        zw.write_all(b"\xCA\xFE\xBA\xBE").unwrap();
+        std::fs::write(&path, zw.finish().unwrap().into_inner()).unwrap();
+
+        assert_eq!(from_client_jar_path(&path), PackFormat::UNKNOWN);
+    }
+
+    // -----------------------------------------------------------------
+    // apply_gate
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn apply_gate_is_unknown_format_for_the_unknown_sentinel() {
+        assert_eq!(apply_gate(PackFormat::UNKNOWN), ApplyGate::UnknownFormat);
+    }
+
+    #[test]
+    fn apply_gate_is_too_old_below_format_4() {
+        assert_eq!(
+            apply_gate(PackFormat { major: 3, minor: 0 }),
+            ApplyGate::TooOld
+        );
+    }
+
+    #[test]
+    fn apply_gate_is_ready_at_format_4_and_above() {
+        assert_eq!(
+            apply_gate(PackFormat { major: 4, minor: 0 }),
+            ApplyGate::Ready
+        );
+        assert_eq!(
+            apply_gate(PackFormat {
+                major: 75,
+                minor: 0
+            }),
+            ApplyGate::Ready
+        );
     }
 }
