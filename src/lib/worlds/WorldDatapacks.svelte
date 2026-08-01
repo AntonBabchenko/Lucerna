@@ -193,7 +193,12 @@
 <div class="flex flex-col gap-2" data-testid="world-datapacks">
   <div class="flex items-center justify-between gap-2">
     <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
-    <span class="inline-flex" use:tooltip={{ text: disabledReason ?? '', describe: false }}>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <span
+      class="inline-flex"
+      tabindex={disabledKey !== null ? 0 : undefined}
+      use:tooltip={{ text: disabledReason ?? '', describe: false }}
+    >
       <BusyButton
         class="btn-secondary btn-sm"
         busy={busyAdd}
@@ -252,8 +257,10 @@
           </div>
           <div class="flex flex-shrink-0 items-center gap-1">
             {#if pack.state === 'not_added'}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
+                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
                 use:tooltip={{
                   text: disabledReason ?? $t('worlds.datapacks.addToWorld'),
                   describe: false,
@@ -275,8 +282,10 @@
                 </button>
               </span>
             {:else if pack.state === 'orphaned'}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
+                tabindex={disabledKey !== null ? 0 : undefined}
                 use:tooltip={{ text: disabledReason ?? '', describe: false }}
               >
                 <BusyButton
@@ -291,8 +300,10 @@
                 </BusyButton>
               </span>
             {:else}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
+                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
                 use:tooltip={{
                   text:
                     disabledReason ??
@@ -315,8 +326,10 @@
                   <Icon name="power" size={15} />
                 </button>
               </span>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
+                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
                 use:tooltip={{
                   text: disabledReason ?? $t('worlds.datapacks.removeFromWorld'),
                   describe: false,

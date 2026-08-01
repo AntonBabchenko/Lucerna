@@ -147,6 +147,32 @@ describe('WorldDatapacks — running disables mutating controls', () => {
   });
 });
 
+describe('WorldDatapacks — disabled controls stay keyboard-reachable for their tooltip', () => {
+  it('the tooltip-wrapper span around a disabled control gains tabindex="0", and drops it again once re-enabled', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makePack({ filename: 'gate-pack.zip', state: 'enabled' })],
+    });
+    const { rerender } = render(WorldDatapacks, {
+      props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
+    });
+    const toggleBtn = await screen.findByTestId('world-datapack-toggle');
+    const wrapperWhileDisabled = toggleBtn.closest('span');
+    // A disabled <button> is unreachable by Tab, so the wrapping span picks up
+    // the tab stop instead — otherwise tooltip.ts's focusin handler (which
+    // fires on the span, see tooltip.ts) never gets a chance to run and the
+    // "why is this disabled" text is mouse-only.
+    expect(wrapperWhileDisabled?.getAttribute('tabindex')).toBe('0');
+
+    await rerender({ instanceId: 'inst-1', world: 'MyWorld', running: false });
+    // Once the control is enabled again it is directly focusable itself, so
+    // the wrapper must NOT also be a tab stop — that would be a second,
+    // redundant stop for the same control.
+    expect(wrapperWhileDisabled?.getAttribute('tabindex')).toBeNull();
+  });
+});
+
 describe('WorldDatapacks — command error surfaces', () => {
   it('shows the formatted error when datapacksSetEnabledInWorld fails, instead of swallowing it', async () => {
     const { commands } = await import('$lib/ipc/bindings');
