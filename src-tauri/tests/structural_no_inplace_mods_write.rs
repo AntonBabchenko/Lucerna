@@ -21,6 +21,33 @@
 //! meaning anything. The guard's subject is hardlink-bearing instance
 //! content, and exactly these three trees write there.
 //!
+//! `src/l10n/` was evaluated as a candidate fourth tree and rejected on the
+//! same grounds. It writes into instance content (a generated translation
+//! resource pack) and rewrites `options.txt`, but neither path is
+//! hardlink-bearing:
+//!
+//! - the resource pack write happens in `commands::l10n::l10n_apply`, via
+//!   `mods::asset_local::install_asset_local` -> `mods::store::place_bytes` —
+//!   already inside the `mods` tree above, through the sanctioned sink — and
+//!   that call site is not even under `src/l10n/` to begin with;
+//! - `options.txt` is a plain per-instance file, never shared: it is already
+//!   copied instance-to-instance with an ordinary `std::fs::copy` in
+//!   `instances::clone` and `instances::import::pipeline::copy_category`,
+//!   with no link concern, because there is no second name for any
+//!   instance's `options.txt` to protect.
+//!
+//! `l10n`'s own on-disk writes (`l10n::store::save`,
+//! `l10n::coverage::ScanCache::save`, `l10n::options_txt::update_atomically`)
+//! already self-discipline with temp-then-rename on their own merits, but
+//! none of them touch a path any other instance or world could be linked
+//! to. Folding them in here would mean allowlisting three files against a
+//! hardlink risk none of them carry — the same drift the paragraph above
+//! already warns about, just at tree granularity instead of whole-`src/`
+//! granularity. If `l10n` ever starts sharing physical bytes across
+//! instances (the generated pack becoming a cached, linked file rather than
+//! a per-instance `place_bytes` write; `options.txt` becoming linked rather
+//! than copied), that changes this analysis and the tree belongs here.
+//!
 //! ## Why this is a build-breaking rule
 //!
 //! Opening a hardlinked path for writing — including `fs::copy`, whose

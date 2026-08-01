@@ -408,13 +408,52 @@
       "title": "Покрытие перевода",
       "closeLabel": "Закрыть покрытие перевода",
       "languageLabel": "Целевой язык",
-      "listRegionLabel": "Пространства имён",
-      "resizeList": "Изменить ширину списка пространств имён",
+      "listRegionLabel": "Моды",
+      "resizeList": "Изменить ширину списка модов",
       "loading": "Загрузка покрытия перевода…",
       "loadFailed": "Не удалось загрузить покрытие перевода: {error}",
       "empty": "В этом профиле пока нет текста для перевода.",
       "percentValue": "{percent}%",
-      "detailPlaceholder": "Выберите пространство имён, чтобы увидеть ключи."
+      "detailPlaceholder": "Выберите мод, чтобы увидеть его строки.",
+      "apply": {
+        "button": "Применить",
+        "reasonUnknownFormat": "Запустите этот профиль хотя бы раз, затем примените перевод.",
+        "reasonTooOld": "Эта версия Minecraft не умеет загружать ресурспаки поверх модов.",
+        "toastAppliedTitle": "Перевод применён",
+        "toastDeferredTitle": "Перевод сохранён",
+        "toastDeferredLine": "Он включится при следующем запуске этого профиля.",
+        "toastFailedTitle": "Не удалось применить перевод"
+      },
+      "packDisabled": {
+        "message": "Обновление сборки отключило ваш перевод. Файл пакета остался на месте — включите его снова.",
+        "reenableButton": "Включить снова"
+      },
+      "keyTable": {
+        "searchPlaceholder": "Поиск по ключу или английскому тексту…",
+        "searchAriaLabel": "Поиск ключей перевода",
+        "filterGroupAriaLabel": "Фильтр по состоянию",
+        "filterAllLabel": "Все",
+        "filterTranslatedLabel": "Переведено",
+        "filterMissingLabel": "Не переведено",
+        "filterStaleLabel": "Нужна проверка",
+        "filterOrphanLabel": "Устарело",
+        "loading": "Загрузка ключей…",
+        "loadFailed": "Не удалось загрузить ключи: {error}",
+        "noResults": "Ничего не найдено по вашему запросу.",
+        "sourceLabel": "Английский",
+        "modValueLabel": "Перевод мода",
+        "yourTranslationLabel": "Ваш перевод",
+        "saveLabel": "Сохранить",
+        "clearLabel": "Очистить",
+        "orphanHint": "Мод больше не содержит этот ключ — ваш перевод ни на что не влияет. Очистите его, чтобы убрать.",
+        "staleHint": "Английский текст мода изменился после того, как вы его перевели. Проверьте свой перевод.",
+        "stateFromMod": "Из мода",
+        "stateOk": "Сохранено",
+        "stateStale": "Нужна проверка",
+        "stateOrphan": "Устарело",
+        "stateMissing": "Не переведено",
+        "perPage": "На странице:"
+      }
     }
   },
   "instances": {
@@ -1934,7 +1973,17 @@
       "notAZip": "Minecraft загружает из папки datapacks только папки и .zip-архивы.",
       "isAResourcePack": "Похоже, это ресурспак — вместо папки data в нём есть папка assets.",
       "notAPack": "В архиве нет pack.mcmeta или папки data."
-    }
+    },
+    "l10nTranslationInvalid": "«{key}» — недопустимый перевод: {reason}",
+    "l10nTranslationInvalidReason": {
+      "unsupportedSpecifier": "Minecraft поддерживает только %s и %% (не %{specifier}).",
+      "danglingPercent": "Одинокий символ % без ничего после него.",
+      "indexOutOfRange": "Ссылается на аргумент {index}, но в оригинале их только {available}."
+    },
+    "l10nFormatUnknown": "Не удалось определить формат ресурспака для Minecraft {mcVersion}. Запустите этот инстанс один раз, чтобы Lucerna считала версию, а затем повторите попытку.",
+    "l10nFormatTooOld": "Minecraft {mcVersion} слишком стар для этого: версии до 1.13 загружают собственные переводы мода раньше ресурспака, поэтому переопределение здесь не сработает. Отчёт о покрытии переводом по-прежнему работает.",
+    "l10nNamespaceInvalid": "«{namespace}» — недопустимое пространство имён мода.",
+    "l10nLangInvalid": "«{lang}» — недопустимый целевой язык."
   },
   "settings": {
     "title": "Настройки",

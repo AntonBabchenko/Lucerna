@@ -518,6 +518,59 @@ pub enum Error {
         filename: String,
         reason: DatapackRejection,
     },
+
+    /// A translation the user typed failed Minecraft's `%s`/`%N$s` format
+    /// grammar and was refused before it ever reached the override store.
+    /// `reason` is typed, not a message — mirrors `DatapackInvalid`'s reason
+    /// field, for the same "the UI localises it" argument documented on
+    /// `l10n::validate::FormatError`.
+    #[error("Translation for '{key}' is not valid: {reason:?}")]
+    L10nTranslationInvalid {
+        key: String,
+        reason: crate::l10n::validate::FormatError,
+    },
+
+    /// `l10n_apply` could not determine the instance's resource-pack format:
+    /// its client jar is missing, unreadable, or its `version.json` is a
+    /// shape `l10n::pack_format` does not recognise. Most commonly because
+    /// the instance has never been launched, so
+    /// `versions/<mc_version>/<mc_version>.jar` does not exist yet.
+    #[error("Could not determine the resource-pack format for Minecraft {mc_version}")]
+    L10nFormatUnknown { mc_version: String },
+
+    /// `l10n_apply` refused a Minecraft version below resource format 4
+    /// (1.12.2 and older): FML/Forge on these versions loads a mod's own
+    /// lang file AFTER the resource pack stack, so an applied override would
+    /// silently have no effect (MinecraftForge #4907, closed stale, never
+    /// fixed — see `l10n::pack_format`'s module doc).
+    #[error("Minecraft {mc_version} is too old to apply a translation override pack")]
+    L10nFormatTooOld { mc_version: String },
+
+    /// The `namespace` parameter of `l10n_set_override` failed
+    /// `l10n::scan::is_traversal_unsafe` — refused at the IPC boundary,
+    /// before it can ever reach `NamespaceStore` or be persisted into the
+    /// on-disk override store. Necessary because `store::store_path`'s
+    /// percent-encoding only sanitises the FILE NAME the store lands at,
+    /// never the `namespace` value persisted INSIDE the JSON body; without
+    /// this check a value like `"../../evil"` would be silently written to
+    /// disk and only dropped later, when a pack is actually built
+    /// (`pack::build`'s own defence-in-depth guard, which just drops that
+    /// one namespace rather than refusing the write in the first place).
+    #[error("Invalid namespace '{namespace}': contains a path-traversal segment")]
+    L10nNamespaceInvalid { namespace: String },
+
+    /// Same defect as [`Error::L10nNamespaceInvalid`], for the `lang`
+    /// parameter of `l10n_set_override`. Kept as a separate variant — rather
+    /// than a shared `field` marker — so the UI copy can name "target
+    /// language" without embedding a raw Rust field name; mirrors how
+    /// `WorldPathInvalid`/`ScreenshotPathInvalid` stay two variants sharing
+    /// one validator instead of a generic `PathInvalid { field, .. }`. Worth
+    /// catching separately from a bad namespace: unlike a bad namespace
+    /// (which `pack::build` merely drops), a bad `lang` refuses the WHOLE
+    /// pack build for every namespace, because `lang` doubles as `code`,
+    /// composed into every entry name in the archive.
+    #[error("Invalid target language '{lang}': contains a path-traversal segment")]
+    L10nLangInvalid { lang: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1063,5 +1116,60 @@ mod tests {
         // The reason is a typed enum tag, not a hand-written English sentence —
         // that's the whole point (see `DatapackRejection`'s doc comment).
         assert_eq!(v["reason"], "is_a_resource_pack");
+    }
+
+    #[test]
+    fn l10n_translation_invalid_serializes_with_tag_key_and_nested_reason() {
+        let e = Error::L10nTranslationInvalid {
+            key: "item.create.wrench".into(),
+            reason: crate::l10n::validate::FormatError::UnsupportedSpecifier { specifier: 'd' },
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_translation_invalid");
+        assert_eq!(v["key"], "item.create.wrench");
+        // `FormatError` is itself internally tagged with `kind`; nested under
+        // `reason` this cannot collide with the outer `Error`'s own `kind`.
+        assert_eq!(v["reason"]["kind"], "unsupported_specifier");
+        assert_eq!(v["reason"]["specifier"], "d");
+    }
+
+    #[test]
+    fn l10n_format_unknown_carries_mc_version() {
+        let e = Error::L10nFormatUnknown {
+            mc_version: "1.20.1".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_format_unknown");
+        assert_eq!(v["mc_version"], "1.20.1");
+    }
+
+    #[test]
+    fn l10n_format_too_old_carries_mc_version() {
+        let e = Error::L10nFormatTooOld {
+            mc_version: "1.12.2".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_format_too_old");
+        assert_eq!(v["mc_version"], "1.12.2");
+    }
+
+    #[test]
+    fn l10n_namespace_invalid_serializes_with_tag_and_namespace() {
+        let e = Error::L10nNamespaceInvalid {
+            namespace: "../../evil".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_namespace_invalid");
+        assert_eq!(v["namespace"], "../../evil");
+    }
+
+    #[test]
+    fn l10n_lang_invalid_serializes_with_tag_and_lang() {
+        let e = Error::L10nLangInvalid {
+            lang: "../../evil".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "l10n_lang_invalid");
+        assert_eq!(v["lang"], "../../evil");
     }
 }

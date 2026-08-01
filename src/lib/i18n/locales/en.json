@@ -408,13 +408,52 @@
       "title": "Translation coverage",
       "closeLabel": "Close translation coverage",
       "languageLabel": "Target language",
-      "listRegionLabel": "Namespaces",
-      "resizeList": "Resize the namespace list",
+      "listRegionLabel": "Mods",
+      "resizeList": "Resize the mod list",
       "loading": "Loading translation coverage…",
       "loadFailed": "Couldn't load translation coverage: {error}",
       "empty": "This instance has no translatable text yet.",
       "percentValue": "{percent}%",
-      "detailPlaceholder": "Select a namespace to see its keys."
+      "detailPlaceholder": "Select a mod to see its strings.",
+      "apply": {
+        "button": "Apply",
+        "reasonUnknownFormat": "Launch this instance once, then apply translations.",
+        "reasonTooOld": "This Minecraft version can't load resource-pack overrides.",
+        "toastAppliedTitle": "Translations applied",
+        "toastDeferredTitle": "Translations saved",
+        "toastDeferredLine": "They'll turn on the next time you launch this instance.",
+        "toastFailedTitle": "Couldn't apply translations"
+      },
+      "packDisabled": {
+        "message": "A modpack update turned off your translations. The pack is still here — turn it back on.",
+        "reenableButton": "Re-enable"
+      },
+      "keyTable": {
+        "searchPlaceholder": "Search keys or English text…",
+        "searchAriaLabel": "Search translation keys",
+        "filterGroupAriaLabel": "Filter by state",
+        "filterAllLabel": "All",
+        "filterTranslatedLabel": "Translated",
+        "filterMissingLabel": "Untranslated",
+        "filterStaleLabel": "Needs review",
+        "filterOrphanLabel": "Orphaned",
+        "loading": "Loading keys…",
+        "loadFailed": "Couldn't load keys: {error}",
+        "noResults": "No keys match your search.",
+        "sourceLabel": "English",
+        "modValueLabel": "Mod's translation",
+        "yourTranslationLabel": "Your translation",
+        "saveLabel": "Save",
+        "clearLabel": "Clear",
+        "orphanHint": "This mod no longer ships this key — your translation has no effect. Clear it to remove.",
+        "staleHint": "The mod's English text changed since you translated this. Review your translation.",
+        "stateFromMod": "From mod",
+        "stateOk": "Saved",
+        "stateStale": "Needs review",
+        "stateOrphan": "Orphaned",
+        "stateMissing": "Untranslated",
+        "perPage": "Per page:"
+      }
     }
   },
   "instances": {
@@ -1934,7 +1973,17 @@
       "notAZip": "Minecraft only loads folders and .zip files from a world's datapacks folder.",
       "isAResourcePack": "This looks like a resource pack — it has an assets folder instead of a data folder.",
       "notAPack": "It's missing pack.mcmeta or a data folder."
-    }
+    },
+    "l10nTranslationInvalid": "\"{key}\" isn't a valid translation: {reason}",
+    "l10nTranslationInvalidReason": {
+      "unsupportedSpecifier": "Minecraft only supports %s and %% (not %{specifier}).",
+      "danglingPercent": "There's a stray % with nothing after it.",
+      "indexOutOfRange": "It references argument {index}, but the original text only provides {available}."
+    },
+    "l10nFormatUnknown": "Couldn't confirm the resource-pack format for Minecraft {mcVersion}. Launch this instance once so Lucerna can read its version, then try applying translations again.",
+    "l10nFormatTooOld": "Minecraft {mcVersion} is too old for this: versions before 1.13 load a mod's own translations ahead of resource packs, so an override here would have no effect. The coverage report still works.",
+    "l10nNamespaceInvalid": "\"{namespace}\" isn't a valid mod namespace.",
+    "l10nLangInvalid": "\"{lang}\" isn't a valid target language."
   },
   "settings": {
     "title": "Settings",

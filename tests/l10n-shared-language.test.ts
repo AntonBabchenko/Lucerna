@@ -20,7 +20,17 @@ import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 
 function coverage(lang: string): InstanceCoverage {
-  return { lang, percent: 81, namespaces: [], availableCodes: ['en_us', lang] };
+  return {
+    lang,
+    percent: 81,
+    namespaces: [],
+    availableCodes: ['en_us', lang],
+    applyGate: 'ready',
+    // 'enabled' keeps this fixture focused on the shared-language contract:
+    // any other state renders the re-enable banner, which is a different
+    // test's subject.
+    packState: 'enabled',
+  };
 }
 
 const fabricInst = {

@@ -119,15 +119,17 @@ fn parse_lang_path(path: &str) -> Option<LangEntry> {
     // `namespace`/`code` — e.g. `format!("assets/{namespace}/lang/{code}.json", ..)`
     // — without re-validating them, so a value that survives this function
     // is trusted everywhere downstream. A forward slash can never reach
-    // `namespace`/`stem` (we split on it above), but `.`/`..` and a
-    // backslash (a directory separator on Windows) would still let a
-    // hostile or merely broken jar write outside the `assets/` tree of a
-    // pack we later generate, and an embedded control character (including
-    // NUL) can corrupt a path silently on some filesystems. Deliberately
-    // NOT tightened to Minecraft's full namespace grammar (`[a-z0-9_.-]`):
-    // we only count strings for a coverage report, so rejecting an
-    // unusual-but-harmless namespace would silently under-report a mod
-    // rather than protect anything.
+    // `namespace`/`stem` HERE (we split on it above — `is_traversal_unsafe`
+    // rejects one anyway, defending its other, less-constrained call sites;
+    // see its own doc comment), but `.`/`..` and a backslash (a directory
+    // separator on Windows) would still let a hostile or merely broken jar
+    // write outside the `assets/` tree of a pack we later generate, and an
+    // embedded control character (including NUL) can corrupt a path
+    // silently on some filesystems. Deliberately NOT tightened to
+    // Minecraft's full namespace grammar (`[a-z0-9_.-]`): we only count
+    // strings for a coverage report, so rejecting an unusual-but-harmless
+    // namespace would silently under-report a mod rather than protect
+    // anything.
     if is_traversal_unsafe(namespace) || is_traversal_unsafe(stem) {
         return None;
     }
@@ -138,10 +140,36 @@ fn parse_lang_path(path: &str) -> Option<LangEntry> {
     })
 }
 
-/// True when `s` is unsafe to compose into a future zip-entry path: see the
-/// trust-boundary comment in `parse_lang_path`.
-fn is_traversal_unsafe(s: &str) -> bool {
-    s == "." || s == ".." || s.contains('\\') || s.chars().any(|c| c.is_ascii_control())
+/// True when `s` is unsafe to compose as a single path component into a
+/// future zip-entry path: see the trust-boundary comment in `parse_lang_path`.
+///
+/// A GENERAL guard, not one that leans on a caller having already split `s`
+/// off of `/` the way THIS module's own call site does — checks `.`, `..`,
+/// an embedded `/` (not just `\`), and any control character. The `/` check
+/// was added after `l10n::pack::build` started reusing this same predicate
+/// for a `NamespaceStore::namespace` (and separately, `code`/the target
+/// language) read back off disk, where nothing upstream guarantees the value
+/// never contains one — unlike `parse_lang_path` below, where a forward
+/// slash can never reach `namespace`/`stem` because they are themselves the
+/// output of splitting on `/`. Without the `/` check here, a namespace like
+/// `"../../evil"` handed back by a hand-edited or corrupted store file would
+/// pass this guard unchanged and land verbatim in a composed zip-entry name
+/// (`assets/../../evil/lang/<code>.json`).
+///
+/// `pub(crate)`, not private: `l10n::pack` re-applies this same rule to a
+/// `NamespaceStore::namespace` (and `code`) read back off disk (where
+/// nothing re-validates it the way this module validates a jar's own paths)
+/// before composing it into a NEW archive entry name, and
+/// `commands::l10n_set_override` applies it a third time, at the IPC
+/// boundary, before either value can ever reach the store. One rule, one
+/// implementation, reused at every trust boundary rather than a second copy
+/// drifting out of sync.
+pub(crate) fn is_traversal_unsafe(s: &str) -> bool {
+    s == "."
+        || s == ".."
+        || s.contains('/')
+        || s.contains('\\')
+        || s.chars().any(|c| c.is_ascii_control())
 }
 
 /// Read one entry's raw bytes out of a jar. `None` when absent or unreadable —
@@ -435,6 +463,42 @@ mod tests {
         // "valid zip, missing entry" half was covered before
         // (`reads_an_absent_entry_as_none`).
         assert!(read_entry(b"not a zip", "assets/create/lang/en_us.json").is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // is_traversal_unsafe (direct — the guard itself, not just through
+    // parse_lang_path, since it now also protects call sites that do NOT
+    // pre-split their input on '/': `l10n::pack::build` and
+    // `commands::l10n_set_override`)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn is_traversal_unsafe_rejects_a_forward_slash() {
+        // The Finding-1 regression: `l10n::pack::build` reuses this guard on
+        // `NamespaceStore::namespace`/`code` read back off disk, which is NOT
+        // pre-split on '/' the way this module's own `parse_lang_path` input
+        // is. Before this check existed, "../../evil" would have passed.
+        assert!(is_traversal_unsafe("../../evil"));
+        assert!(is_traversal_unsafe("a/b"));
+        assert!(is_traversal_unsafe("/leading"));
+    }
+
+    #[test]
+    fn is_traversal_unsafe_still_rejects_every_pre_existing_case() {
+        assert!(is_traversal_unsafe("."));
+        assert!(is_traversal_unsafe(".."));
+        assert!(is_traversal_unsafe("a\\b"));
+        assert!(is_traversal_unsafe("a\u{0}b"));
+    }
+
+    #[test]
+    fn is_traversal_unsafe_accepts_ordinary_namespaces() {
+        // Must stay permissive for real, unusual-but-harmless namespaces —
+        // see the comment in `parse_lang_path` on why this is deliberately
+        // not tightened to Minecraft's full namespace grammar.
+        assert!(!is_traversal_unsafe("create"));
+        assert!(!is_traversal_unsafe("some.mod"));
+        assert!(!is_traversal_unsafe("ru_ru"));
     }
 
     #[test]

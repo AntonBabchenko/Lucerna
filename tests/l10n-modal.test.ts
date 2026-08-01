@@ -3,18 +3,35 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceCoverage, NamespaceCoverage } from '$lib/ipc/bindings';
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { l10nCoverage: vi.fn() },
+  commands: {
+    l10nCoverage: vi.fn(),
+    l10nNamespaceKeys: vi.fn(),
+    l10nSetOverride: vi.fn(),
+    l10nApply: vi.fn(),
+  },
 }));
 
 import { commands } from '$lib/ipc/bindings';
 import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
+// Toasts are read back from the real store rather than mocking the module —
+// it's plain reactive state with no IPC or Svelte-runtime dependency, so
+// there's nothing to fake, and this exercises exactly what a user would see.
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 
 function ns(over: Partial<NamespaceCoverage> = {}): NamespaceCoverage {
   return { namespace: 'create', totalKeys: 10, fromMod: 5, overridden: 0, ...over };
 }
 
 function coverage(over: Partial<InstanceCoverage> = {}): InstanceCoverage {
-  return { lang: 'en_us', percent: 50, namespaces: [], availableCodes: ['en_us'], ...over };
+  return {
+    lang: 'en_us',
+    percent: 50,
+    namespaces: [],
+    availableCodes: ['en_us'],
+    applyGate: 'ready',
+    packState: 'not_applied',
+    ...over,
+  };
 }
 
 function mockCoverageOk(data: InstanceCoverage) {
@@ -42,7 +59,16 @@ function mockCoverageEcho(availableCodes: string[]) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  for (const toast of [...toastList()]) dismiss(toast.id);
 });
+
+function mockKeysOk() {
+  vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue({
+    status: 'ok',
+    data: [],
+    // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+  } as any);
+}
 
 describe('LocalizationModal', () => {
   it('does not fetch while closed', () => {
@@ -229,5 +255,172 @@ describe('LocalizationModal', () => {
     await screen.findByRole('dialog');
     await fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  describe('namespace selection', () => {
+    it('shows the placeholder until a namespace is picked, then the key table', async () => {
+      mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'create' })] }));
+      mockKeysOk();
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      expect(await screen.findByTestId('l10n-detail-placeholder')).toBeTruthy();
+
+      await fireEvent.click(await screen.findByTestId('l10n-namespace-row'));
+
+      await waitFor(() => expect(screen.queryByTestId('l10n-detail-placeholder')).toBeNull());
+      await waitFor(() =>
+        expect(commands.l10nNamespaceKeys).toHaveBeenCalledWith('a', 'create', 'en_us'),
+      );
+    });
+
+    it('drops the selection when the instance changes, so the old namespace is not shown under the new instance', async () => {
+      mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'create' })] }));
+      mockKeysOk();
+      const { rerender } = render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us' },
+      });
+      await fireEvent.click(await screen.findByTestId('l10n-namespace-row'));
+      await waitFor(() => expect(screen.queryByTestId('l10n-detail-placeholder')).toBeNull());
+
+      mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'thermal' })] }));
+      await rerender({ open: true, instanceId: 'b', lang: 'en_us' });
+
+      await waitFor(() => expect(screen.getByTestId('l10n-detail-placeholder')).toBeTruthy());
+    });
+  });
+
+  describe('Apply', () => {
+    it('disables Apply with the "launch once" reason when the format is unknown', async () => {
+      mockCoverageOk(coverage({ applyGate: 'unknown_format' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = (await screen.findByTestId('l10n-apply')) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('disables Apply when the Minecraft version is too old for resource-pack overrides', async () => {
+      mockCoverageOk(coverage({ applyGate: 'too_old' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = (await screen.findByTestId('l10n-apply')) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('enables Apply when the gate is ready and shows success when it applies', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: true,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = (await screen.findByTestId('l10n-apply')) as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+
+      await fireEvent.click(btn);
+
+      await waitFor(() => expect(commands.l10nApply).toHaveBeenCalledWith('a', 'en_us'));
+      await waitFor(() => expect(toastList().some((t) => t.kind === 'success')).toBe(true));
+    });
+
+    // `l10nApply` returning `false` means "written, not yet enabled" — not a
+    // failure. It must read as neutral information, not success and not error.
+    it('shows a neutral info toast — not success, not a warning — when Apply is deferred', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: false,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+
+      await waitFor(() => expect(toastList().some((t) => t.kind === 'info')).toBe(true));
+      expect(toastList().some((t) => t.kind === 'success' || t.kind === 'warning')).toBe(false);
+    });
+
+    it('shows a warning toast with the real error when Apply fails outright', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'error',
+        error: { kind: 'io', path: 'p', details: 'disk full' },
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+
+      await waitFor(() => expect(toastList().some((t) => t.kind === 'warning')).toBe(true));
+    });
+  });
+
+  describe('pack re-enable banner (Finding 2: PackState wiring)', () => {
+    it('does not show the banner when the pack is enabled', async () => {
+      mockCoverageOk(coverage({ packState: 'enabled' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByRole('dialog');
+      expect(screen.queryByTestId('l10n-pack-disabled-banner')).toBeNull();
+    });
+
+    it('does not show the banner when no pack has ever been applied', async () => {
+      mockCoverageOk(coverage({ packState: 'not_applied' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByRole('dialog');
+      expect(screen.queryByTestId('l10n-pack-disabled-banner')).toBeNull();
+    });
+
+    it('shows the re-enable banner when a modpack update wiped options.txt but the pack file survives', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      expect(await screen.findByTestId('l10n-pack-disabled-banner')).toBeTruthy();
+      expect(screen.getByTestId('l10n-pack-reenable')).toBeTruthy();
+    });
+
+    it('pressing the re-enable button calls l10nApply', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: true,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = await screen.findByTestId('l10n-pack-reenable');
+
+      await fireEvent.click(btn);
+
+      await waitFor(() => expect(commands.l10nApply).toHaveBeenCalledWith('a', 'en_us'));
+    });
+
+    it('disables the re-enable button when Apply is not gated ready', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled', applyGate: 'too_old' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = (await screen.findByTestId('l10n-pack-reenable')) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+  });
+
+  it('silently refreshes coverage after a save in the key table, without a loading flash', async () => {
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'create', totalKeys: 10, fromMod: 0 })] }),
+    );
+    vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue({
+      status: 'ok',
+      data: [{ key: 'a', sourceEn: 'A', modValue: null, overrideValue: null, state: 'missing' }],
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    await fireEvent.click(await screen.findByTestId('l10n-namespace-row'));
+    await screen.findByTestId('l10n-key-row');
+    // Only the initial coverage fetch so far.
+    expect(commands.l10nCoverage).toHaveBeenCalledTimes(1);
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'А' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    // Saving triggers a second, silent coverage fetch — the loading spinner
+    // in the namespace sidebar must not reappear for it.
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('l10n-namespace-row')).toBeTruthy();
   });
 });
