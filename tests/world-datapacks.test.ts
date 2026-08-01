@@ -1,6 +1,7 @@
 // WorldDatapacks panel — unit coverage for the empty state, each WorldPackState
 // row shape (enabled/disabled toggle, orphaned removal, not_added add), the
-// format-mismatch warning, the running-instance gate, and error surfacing.
+// format-mismatch warning, the running-instance gate, error surfacing, and a
+// reload that fails AFTER a successful action (the stale-row bug).
 //
 // WorldDatapacks does not import or mount ContextualTour (that overlay lives in
 // WorldsTab, gated on the worlds list being non-empty) — so, unlike
@@ -162,5 +163,42 @@ describe('WorldDatapacks — command error surfaces', () => {
     await fireEvent.click(toggleBtn);
     const err = await screen.findByText(/IO error at \/datapacks/i);
     expect(err.className).toContain('text-danger');
+  });
+});
+
+// A failed reload after a SUCCESSFUL action — the action itself worked, only
+// the follow-up list refresh failed. Reachable with no race: click Disable →
+// the backend call succeeds → reload() fails. Before this fix, `packs` was
+// never cleared on a failed reload, and the template's loadError / list
+// conditionals were independent — so the user saw a red error AND the same
+// pack still rendered as "Enabled" with a live, clickable toggle: the UI
+// contradicting an action that actually worked.
+describe('WorldDatapacks — a reload that fails after a successful action', () => {
+  it('shows the error and renders NO pack row, instead of a stale interactive row next to it', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld)
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: [makePack({ filename: 'flaky-pack.zip', state: 'enabled' })],
+      })
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { kind: 'io', path: '/datapacks', details: 'reload failed' },
+      });
+    vi.mocked(commands.datapacksSetEnabledInWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: null,
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const toggleBtn = await screen.findByRole('button', { name: /^disable in this world$/i });
+    // The disable command ITSELF succeeds; only the follow-up reload fails.
+    await fireEvent.click(toggleBtn);
+    await screen.findByText(/IO error at \/datapacks/i);
+    // No stale row: neither the filename nor its toggle survive the failed
+    // reload — an error and an interactive "still enabled" row must never
+    // render together.
+    expect(screen.queryByText('flaky-pack.zip')).toBeNull();
+    expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
+    expect(screen.queryByText(/no datapacks yet/i)).toBeNull();
   });
 });

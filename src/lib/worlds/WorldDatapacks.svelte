@@ -49,6 +49,11 @@
     if (res.status === 'ok') {
       packs = res.data;
     } else {
+      // Clear the list on failure too: an error and a stale, still-interactive
+      // row list must never render together (see the template's mutually
+      // exclusive loadError / empty / list branches below) — a row surviving
+      // a failed reload would contradict whatever action just triggered it.
+      packs = [];
       loadError = formatError(res.error);
     }
   }
@@ -56,6 +61,12 @@
   $effect(() => {
     void instanceId;
     void world;
+    // A stale action error from the PREVIOUS world must not survive a world
+    // switch and render on top of the new world's (perfectly valid) pack
+    // list — same "stale message outlives its context" defect family as the
+    // loadError fix above, just triggered by a prop change instead of a
+    // failed reload.
+    actionError = null;
     void reload();
   });
 
@@ -196,14 +207,13 @@
     </span>
   </div>
 
-  {#if loadError}
-    <p class="text-sm text-danger">{loadError}</p>
-  {/if}
   {#if actionError}
     <p class="text-sm text-danger">{actionError}</p>
   {/if}
 
-  {#if packs.length === 0 && !loadError}
+  {#if loadError}
+    <p class="text-sm text-danger">{loadError}</p>
+  {:else if packs.length === 0}
     <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
