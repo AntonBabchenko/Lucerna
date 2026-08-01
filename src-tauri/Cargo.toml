@@ -40,6 +40,10 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Mod descriptors (`META-INF/mods.toml`) are TOML. Already in the runtime tree
+# via tauri-utils / tauri-plugin-fs, so this declaration unifies an existing
+# version rather than adding a crate to the binary.
+toml = "1.1"
 specta-typescript = "0.0.12"
 specta = { version = "2.0.0-rc.25", default-features = false, features = ["function", "derive"] }
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }

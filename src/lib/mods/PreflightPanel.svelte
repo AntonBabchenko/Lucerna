@@ -4,6 +4,8 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
+  import { formatRange } from './range-format';
+  import { isRangeRemediable } from './preflight.svelte';
 
   let {
     report,
@@ -34,6 +36,30 @@
 
   const violations = $derived(report?.violations ?? []);
   const rowKey = (v: DepViolation): string => `${v.dependent_sha1}:${v.dep_id}`;
+
+  /**
+   * One sentence per violation kind. The range is rendered in plain language —
+   * raw Maven bracket notation (`(,6.0.9]`) is not something a player can read,
+   * and for an incompatibility it would read backwards.
+   */
+  function rowMessage(v: DepViolation): string {
+    const dep = v.dep_display_name ?? v.dep_id;
+    if (v.kind === 'missing_required') {
+      return $t('mods.preflight.missing', { dependent: v.dependent_name, dep });
+    }
+    const key =
+      v.kind === 'incompatible_installed'
+        ? 'mods.preflight.incompatibleWith'
+        : v.kind === 'optional_out_of_range'
+          ? 'mods.preflight.optionalOutOfRange'
+          : 'mods.preflight.outOfRange';
+    return $t(key, {
+      dependent: v.dependent_name,
+      dep,
+      needed: formatRange($t, v.needed_desc),
+      installed: v.installed_version ?? '',
+    });
+  }
 </script>
 
 {#if violations.length > 0}
@@ -69,19 +95,7 @@
         >
           <Icon name="warning" class="text-warning-text shrink-0" />
           <span class="flex-1 text-sm text-warning-text">
-            {#if v.kind === 'missing_required'}
-              {$t('mods.preflight.missing', {
-                dependent: v.dependent_name,
-                dep: v.dep_display_name ?? v.dep_id,
-              })}
-            {:else}
-              {$t('mods.preflight.outOfRange', {
-                dependent: v.dependent_name,
-                dep: v.dep_display_name ?? v.dep_id,
-                needed: v.needed,
-                installed: v.installed_version ?? '',
-              })}
-            {/if}
+            {rowMessage(v)}
           </span>
           {#if showRowActions && v.kind === 'missing_required'}
             <button
@@ -94,7 +108,7 @@
             >
               {$t('mods.preflight.install', { dep: v.dep_display_name ?? v.dep_id })}
             </button>
-          {:else if showRowActions && v.kind === 'version_out_of_range' && v.provider_project !== null}
+          {:else if showRowActions && isRangeRemediable(v) && v.provider_project !== null}
             {@const key = rowKey(v)}
             {#if busyKeys.has(key)}
               <Spinner size="sm" class="shrink-0 text-warning-text" />

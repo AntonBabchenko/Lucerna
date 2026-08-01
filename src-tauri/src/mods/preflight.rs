@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::mods::local::{DepSide, ManifestDeps};
+use crate::mods::local::{DepSide, DependencyKind, ManifestDeps};
 use crate::mods::version_range::{satisfies, Satisfaction};
 
 /// One installed mod joined with its parsed manifest.
@@ -89,6 +89,27 @@ pub enum Violation {
         installed: String,
         family: crate::mods::version_range::RangeFamily,
     },
+    /// An `optional` dependency that IS installed but out of range. The loader
+    /// aborts on this exactly as it does on a missing requirement
+    /// (`ModSorter.java:281` feeds both into `versionResolution`).
+    OptionalOutOfRange {
+        dependent_sha1: String,
+        dependent_name: String,
+        dep_id: String,
+        needed: String,
+        installed: String,
+        family: crate::mods::version_range::RangeFamily,
+    },
+    /// An `incompatible` declaration whose range the installed version falls
+    /// INSIDE — the inverted check (`ModSorter.java:286-288`).
+    IncompatibleInstalled {
+        dependent_sha1: String,
+        dependent_name: String,
+        dep_id: String,
+        needed: String,
+        installed: String,
+        family: crate::mods::version_range::RangeFamily,
+    },
 }
 
 /// The launcher launches a client; a SERVER-only dep is not enforced.
@@ -122,7 +143,9 @@ pub fn resolve(
     let mut out = Vec::new();
     for m in mods {
         for dep in &m.manifest.deps {
-            if !dep.required || dep.side == DepSide::Server {
+            // Side is filtered BEFORE the kind, matching `ModSorter.java:275`
+            // — a side-filtered dep is invisible to every check.
+            if dep.side == DepSide::Server {
                 continue;
             }
             // Only enforce deps from the descriptor the instance's loader reads;
@@ -131,28 +154,65 @@ pub fn resolve(
             if !dep_applies_to_loader(dep.family, loader) {
                 continue;
             }
-            if !index.is_provided(&dep.dep_id) {
-                out.push(Violation::MissingRequired {
-                    dependent_sha1: m.sha1.clone(),
-                    dependent_name: m.name.clone(),
-                    dep_id: dep.dep_id.clone(),
-                });
+            // The loader only logs a warning for `discouraged` and carries on.
+            if dep.kind == DependencyKind::Discouraged {
                 continue;
             }
-            // present — range-check only if a concrete version is known via direct lookup
-            if let Some(Some(v)) = index.get(&dep.dep_id) {
-                if satisfies(v, &dep.range, dep.family) == Satisfaction::Violated {
-                    out.push(Violation::VersionOutOfRange {
+            if !index.is_provided(&dep.dep_id) {
+                // Absent: only a requirement is a problem. An optional or an
+                // incompatible declaration is satisfied by absence.
+                if dep.kind.is_required() {
+                    out.push(Violation::MissingRequired {
+                        dependent_sha1: m.sha1.clone(),
+                        dependent_name: m.name.clone(),
+                        dep_id: dep.dep_id.clone(),
+                    });
+                }
+                continue;
+            }
+            // Present — range-check only when a concrete version is known via a
+            // direct lookup. Version None, or satisfied-via-alias-only, means
+            // the provider is there but its version is unknown => stay silent.
+            let Some(Some(v)) = index.get(&dep.dep_id) else {
+                continue;
+            };
+            let sat = satisfies(v, &dep.range, dep.family);
+            let violation = match (dep.kind, sat) {
+                (DependencyKind::Required, Satisfaction::Violated) => {
+                    Violation::VersionOutOfRange {
                         dependent_sha1: m.sha1.clone(),
                         dependent_name: m.name.clone(),
                         dep_id: dep.dep_id.clone(),
                         needed: dep.range.clone(),
                         installed: v.clone(),
                         family: dep.family,
-                    });
+                    }
                 }
-            }
-            // version None or satisfied-via-alias-only => provider present but version unknown => silent
+                (DependencyKind::Optional, Satisfaction::Violated) => {
+                    Violation::OptionalOutOfRange {
+                        dependent_sha1: m.sha1.clone(),
+                        dependent_name: m.name.clone(),
+                        dep_id: dep.dep_id.clone(),
+                        needed: dep.range.clone(),
+                        installed: v.clone(),
+                        family: dep.family,
+                    }
+                }
+                // Inverted: an incompatibility fires when the installed version
+                // IS inside the declared range.
+                (DependencyKind::Incompatible, Satisfaction::Satisfied) => {
+                    Violation::IncompatibleInstalled {
+                        dependent_sha1: m.sha1.clone(),
+                        dependent_name: m.name.clone(),
+                        dep_id: dep.dep_id.clone(),
+                        needed: dep.range.clone(),
+                        installed: v.clone(),
+                        family: dep.family,
+                    }
+                }
+                _ => continue,
+            };
+            out.push(violation);
         }
     }
     out
@@ -169,6 +229,12 @@ pub enum ViolationKind {
     /// A required dependency is present but its version does not satisfy
     /// the declared version range.
     VersionOutOfRange,
+    /// An optional dependency is installed but out of range. The loader treats
+    /// this exactly as it treats a missing requirement: it aborts.
+    OptionalOutOfRange,
+    /// A mod declares itself incompatible with the installed version of
+    /// another mod. The range is inverted: it names the versions that clash.
+    IncompatibleInstalled,
 }
 
 /// One resolved dependency violation, enriched with enough context for the
@@ -189,8 +255,15 @@ pub struct DepViolation {
     /// The version that is actually installed (`None` for `MissingRequired`).
     pub installed_version: Option<String>,
     /// The version range the dependent declared (empty string for
-    /// `MissingRequired`).
+    /// `MissingRequired`), verbatim from the jar. Kept for remediation
+    /// (`mods_filter_satisfying` evaluates it) and for the log line — the UI
+    /// renders `needed_desc` instead, because raw Maven bracket notation is
+    /// unreadable.
     pub needed: String,
+    /// `needed`, decomposed into displayable clauses. The UI formats these
+    /// through i18n and only falls back to the raw string when
+    /// `needed_desc.unparseable`.
+    pub needed_desc: crate::mods::range_describe::RangeDescription,
     /// Platform project reference for the provider, if we could link it.
     /// Powers a "View on Modrinth / CurseForge" link in the UI.
     pub provider_project: Option<crate::mods::platform::DepProjectRef>,
@@ -260,6 +333,12 @@ fn enrich(
             kind: ViolationKind::MissingRequired,
             installed_version: None,
             needed: String::new(),
+            // Nothing is installed, so there is no range to read against — an
+            // empty range describes as "any version".
+            needed_desc: crate::mods::range_describe::describe(
+                "",
+                crate::mods::version_range::RangeFamily::Maven,
+            ),
             provider_project: None,
             provider_sha1: None,
             family: None,
@@ -271,27 +350,86 @@ fn enrich(
             needed,
             installed,
             family,
-        } => {
-            // Normalize '-'/'_' + lowercase on BOTH sides so a `fabric-api`
-            // dep routes to a `fabric_api` provider (the two are used
-            // interchangeably by the ecosystem). Matches `canon_id`, which the
-            // provider index already uses.
-            let key = canon_id(&dep_id);
-            let provider_project = provider_owner.get(&key).cloned();
-            let provider_sha1 = provider_sha1_map.get(&key).cloned();
-            DepViolation {
-                dependent_sha1,
-                dependent_name,
-                dep_id,
-                dep_display_name: None,
-                kind: ViolationKind::VersionOutOfRange,
-                installed_version: Some(installed),
-                needed,
-                provider_project,
-                provider_sha1,
-                family: Some(family),
-            }
-        }
+        } => ranged(
+            ViolationKind::VersionOutOfRange,
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+            provider_owner,
+            provider_sha1_map,
+        ),
+        Violation::OptionalOutOfRange {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+        } => ranged(
+            ViolationKind::OptionalOutOfRange,
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+            provider_owner,
+            provider_sha1_map,
+        ),
+        Violation::IncompatibleInstalled {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+        } => ranged(
+            ViolationKind::IncompatibleInstalled,
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+            provider_owner,
+            provider_sha1_map,
+        ),
+    }
+}
+
+/// Shared enrichment for the three violations that carry a range and an
+/// installed version.
+#[allow(clippy::too_many_arguments)]
+fn ranged(
+    kind: ViolationKind,
+    dependent_sha1: String,
+    dependent_name: String,
+    dep_id: String,
+    needed: String,
+    installed: String,
+    family: crate::mods::version_range::RangeFamily,
+    provider_owner: &std::collections::HashMap<String, crate::mods::platform::DepProjectRef>,
+    provider_sha1_map: &std::collections::HashMap<String, String>,
+) -> DepViolation {
+    // Normalize '-'/'_' + lowercase on BOTH sides so a `fabric-api` dep routes
+    // to a `fabric_api` provider (the two are used interchangeably by the
+    // ecosystem). Matches `canon_id`, which the provider index already uses.
+    let key = canon_id(&dep_id);
+    DepViolation {
+        dependent_sha1,
+        dependent_name,
+        dep_display_name: None,
+        kind,
+        installed_version: Some(installed),
+        needed_desc: crate::mods::range_describe::describe(&needed, family),
+        needed,
+        provider_project: provider_owner.get(&key).cloned(),
+        provider_sha1: provider_sha1_map.get(&key).cloned(),
+        family: Some(family),
+        dep_id,
     }
 }
 
@@ -390,7 +528,7 @@ pub async fn dependency_preflight_for_root(
 mod tests {
     use super::*;
     use crate::instances::schema::LoaderKind;
-    use crate::mods::local::{DeclaredDep, ManifestDeps, ProvidedMod};
+    use crate::mods::local::{DeclaredDep, DependencyKind, ManifestDeps, ProvidedMod};
     use crate::mods::version_range::RangeFamily;
 
     #[test]
@@ -413,6 +551,118 @@ mod tests {
         // Vanilla loads no mods → nothing applies.
         assert!(!dep_applies_to_loader(F::Maven, L::Vanilla));
         assert!(!dep_applies_to_loader(F::FabricPredicate, L::Vanilla));
+    }
+
+    #[test]
+    fn incompatible_fires_only_when_the_installed_version_is_inside_the_range() {
+        // `ModSorter.java:286-288` — an incompatibility fires when the mod is
+        // PRESENT and its version IS contained in the declared range.
+        let ap = modz(
+            "a",
+            vec![prov("asyncparticles", "21.1.0")],
+            vec![dep_of(
+                "create",
+                "(,6.0.9]",
+                RangeFamily::Maven,
+                DependencyKind::Incompatible,
+            )],
+        );
+        let create_new = modz("b", vec![prov("create", "6.0.10")], vec![]);
+        let mods = vec![ap.clone(), create_new];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(
+            resolve(&mods, &index, LoaderKind::NeoForge).is_empty(),
+            "6.0.10 is outside (,6.0.9] — the incompatibility does not apply"
+        );
+
+        let create_old = modz("c", vec![prov("create", "6.0.5")], vec![]);
+        let clashing = vec![ap, create_old];
+        let index = ProviderIndex::build(&clashing, &[]);
+        assert!(matches!(
+            resolve(&clashing, &index, LoaderKind::NeoForge).as_slice(),
+            [Violation::IncompatibleInstalled { dep_id, .. }] if dep_id == "create"
+        ));
+    }
+
+    #[test]
+    fn incompatible_never_fires_when_the_mod_is_absent() {
+        let mods = vec![modz(
+            "a",
+            vec![],
+            vec![dep_of(
+                "create",
+                "(,6.0.9]",
+                RangeFamily::Maven,
+                DependencyKind::Incompatible,
+            )],
+        )];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(resolve(&mods, &index, LoaderKind::NeoForge).is_empty());
+    }
+
+    #[test]
+    fn optional_is_checked_only_when_present_and_then_it_can_block() {
+        // `ModSorter.java:281` puts an installed-but-out-of-range OPTIONAL into
+        // versionResolution, which aborts startup at `ModSorter.java:72`.
+        let declaring = modz(
+            "a",
+            vec![],
+            vec![dep_of(
+                "curios",
+                "[9.0,)",
+                RangeFamily::Maven,
+                DependencyKind::Optional,
+            )],
+        );
+        let absent = vec![declaring.clone()];
+        let index = ProviderIndex::build(&absent, &[]);
+        assert!(
+            resolve(&absent, &index, LoaderKind::NeoForge).is_empty(),
+            "an absent optional dependency is not a problem"
+        );
+
+        let present = vec![declaring, modz("b", vec![prov("curios", "5.4.0")], vec![])];
+        let index = ProviderIndex::build(&present, &[]);
+        assert!(matches!(
+            resolve(&present, &index, LoaderKind::NeoForge).as_slice(),
+            [Violation::OptionalOutOfRange { dep_id, .. }] if dep_id == "curios"
+        ));
+    }
+
+    #[test]
+    fn discouraged_never_produces_a_violation() {
+        // FML logs "Issues may arise. Continue at your own risk." and carries on.
+        let mods = vec![
+            modz(
+                "a",
+                vec![],
+                vec![dep_of(
+                    "create",
+                    "(,6.0.9]",
+                    RangeFamily::Maven,
+                    DependencyKind::Discouraged,
+                )],
+            ),
+            modz("b", vec![prov("create", "6.0.5")], vec![]),
+        ];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(resolve(&mods, &index, LoaderKind::NeoForge).is_empty());
+    }
+
+    #[test]
+    fn bare_maven_range_no_longer_reports_a_violation() {
+        // The reported bug: MyNethersDelight declares a bare "1.21-1.3" and
+        // Farmer's Delight declares version "1.3.2".
+        let mods = vec![
+            modz(
+                "a",
+                vec![prov("mynethersdelight", "1.10.2")],
+                vec![dep("farmersdelight", "1.21-1.3", RangeFamily::Maven)],
+            ),
+            modz("b", vec![prov("farmersdelight", "1.3.2")], vec![]),
+        ];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(resolve(&mods, &index, LoaderKind::NeoForge).is_empty());
     }
 
     #[test]
@@ -460,10 +710,13 @@ mod tests {
     }
 
     fn dep(id: &str, range: &str, family: RangeFamily) -> DeclaredDep {
+        dep_of(id, range, family, DependencyKind::Required)
+    }
+    fn dep_of(id: &str, range: &str, family: RangeFamily, kind: DependencyKind) -> DeclaredDep {
         DeclaredDep {
             dep_id: id.into(),
             range: range.into(),
-            required: true,
+            kind,
             side: DepSide::Both,
             family,
         }
@@ -573,6 +826,10 @@ mod tests {
                 kind: ViolationKind::VersionOutOfRange,
                 installed_version: Some("1.3.50".into()),
                 needed: "[1.3.51,)".into(),
+                needed_desc: crate::mods::range_describe::describe(
+                    "[1.3.51,)",
+                    crate::mods::version_range::RangeFamily::Maven,
+                ),
                 provider_project: Some(DepProjectRef::Modrinth {
                     project_id: "sc".into(),
                     version_id: None,

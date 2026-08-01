@@ -374,7 +374,11 @@ where
     let mut resolved = Vec::new();
     let mut unresolved = Vec::new();
     for dep in manifest.deps {
-        if !dep.required || dep.side == DepSide::Server {
+        // Only a genuine requirement is auto-installed. Before dependency kinds
+        // were modelled, an `incompatible` declaration parsed as required here,
+        // so installing such a jar pulled in the very mod it declares itself
+        // incompatible with.
+        if !dep.kind.is_required() || dep.side == DepSide::Server {
             continue;
         }
         if !seen.insert(norm_id(&dep.dep_id)) {

@@ -689,16 +689,29 @@
       "subRequires": "требует: {name}",
       "installBtn": "{count, plural, one {Установить (# мод)} few {Установить (# мода)} many {Установить (# модов)} other {Установить (# мода)}}"
     },
+    "range": {
+      "any": "любая версия",
+      "soft": "рекомендуется {version} (подойдёт любая)",
+      "exact": "ровно {version}",
+      "atLeast": "{version} и новее",
+      "above": "выше {version}",
+      "atMost": "{version} и старее",
+      "below": "ниже {version}",
+      "joinAnd": "{a} и {b}",
+      "joinOr": "{a} либо {b}"
+    },
     "preflight": {
       "panelTitle": "Проверка совместимости",
       "missing": "{dependent} требует {dep}, который не установлен",
       "outOfRange": "{dependent} требует {dep} {needed} — установлено: {installed}",
+      "incompatibleWith": "{dependent} несовместим с {dep} {needed} — установлено: {installed}",
+      "optionalOutOfRange": "{dependent} работает с {dep} {needed} — установлено: {installed}",
       "update": "Обновить",
       "gateTitle": "Часть модов может не загрузиться",
       "gateUpdateLaunch": "Обновить и запустить",
       "gateLaunchAnyway": "Запустить всё равно",
       "gateCancel": "Отмена",
-      "treeOutOfRange": "версия устарела",
+      "treeOutOfRange": "версия не подходит",
       "checkFailed": "Не удалось проверить совместимость",
       "updateFailed": "Совместимое обновление не найдено — ничего не изменилось.",
       "install": "Установить {dep}",
@@ -712,7 +725,7 @@
       "pickerUnfit": "вне диапазона",
       "installTip": "Устанавливает недостающий обязательный мод.",
       "updateTip": "Обновляет до новейшей версии, которая удовлетворяет зависимость и подходит версии Minecraft и загрузчику профиля.",
-      "chooseVersionTip": "Выбрать конкретную версию вручную, включая более старые.",
+      "chooseVersionTip": "Выбрать конкретную версию вручную.",
       "findAlternativeTip": "Искать замену, если подходящей версии нет."
     }
   },

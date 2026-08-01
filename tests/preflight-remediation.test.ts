@@ -34,6 +34,7 @@ import {
   remediateViolation,
   violationKey,
 } from '$lib/mods/preflight.svelte';
+import { rawRangeDesc } from './test-utils/range-desc';
 
 // ---------------------------------------------------------------------------
 // Shared violation fixtures
@@ -46,6 +47,7 @@ const modrinthViolation: DepViolation = {
   dep_id: 'sophisticatedcore',
   dep_display_name: 'Sophisticated Core',
   needed: '[1.3.51,)',
+  needed_desc: rawRangeDesc('[1.3.51,)'),
   installed_version: '1.3.50',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
   provider_sha1: null,
@@ -59,6 +61,7 @@ const curseforgeViolation: DepViolation = {
   dep_id: 'somecfdep',
   dep_display_name: null,
   needed: '[2.0,)',
+  needed_desc: rawRangeDesc('[2.0,)'),
   installed_version: '1.9',
   provider_project: { source: 'curseforge', mod_id: 99999, file_id: null },
   provider_sha1: null,
@@ -72,6 +75,7 @@ const noProviderViolation: DepViolation = {
   dep_id: 'unknowndep',
   dep_display_name: null,
   needed: '[1.0,)',
+  needed_desc: rawRangeDesc('[1.0,)'),
   installed_version: '0.9',
   provider_project: null,
   provider_sha1: null,
@@ -85,6 +89,7 @@ const missingViolation: DepViolation = {
   dep_id: 'missingmod',
   dep_display_name: null,
   needed: '',
+  needed_desc: rawRangeDesc(''),
   installed_version: null,
   provider_project: null,
   provider_sha1: null,
@@ -246,6 +251,7 @@ describe('remediateViolation', () => {
     const v = {
       ...modrinthViolation,
       needed: '0.5.11',
+      needed_desc: rawRangeDesc('0.5.11'),
       family: 'fabric_predicate' as const,
       provider_sha1: 'old',
     };

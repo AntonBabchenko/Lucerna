@@ -9,6 +9,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
+import { rangeDesc, rawRangeDesc } from './test-utils/range-desc';
 
 function missing(i: number): DepViolation {
   return {
@@ -18,6 +19,7 @@ function missing(i: number): DepViolation {
     dep_id: `dep-${i}`,
     dep_display_name: null,
     needed: '',
+    needed_desc: rawRangeDesc(''),
     installed_version: null,
     provider_project: null,
     provider_sha1: null,
@@ -34,6 +36,7 @@ function outOfRange(): DepViolation {
     dep_id: 'sodium',
     dep_display_name: null,
     needed: '0.5.11',
+    needed_desc: rawRangeDesc('0.5.11'),
     installed_version: '0.9.0-beta.1',
     provider_project: { source: 'modrinth', project_id: 'AANobbMI', version_id: null },
     provider_sha1: 'old-sha',
@@ -44,6 +47,60 @@ function outOfRange(): DepViolation {
 function reportWith(count: number): PreflightReport {
   return { violations: Array.from({ length: count }, (_, i) => missing(i)) };
 }
+
+describe('PreflightPanel violation wording', () => {
+  /** The real AsyncParticles row: `type="incompatible"` with `(,6.0.9]`. */
+  function incompatible(): DepViolation {
+    return {
+      kind: 'incompatible_installed',
+      dependent_name: 'AsyncParticles',
+      dependent_sha1: 'ap-sha',
+      dep_id: 'create',
+      dep_display_name: null,
+      needed: '(,6.0.9]',
+      needed_desc: rangeDesc('(,6.0.9]', [{ kind: 'at_most', version: '6.0.9' }]),
+      installed_version: '6.0.5',
+      provider_project: { source: 'modrinth', project_id: 'create-id', version_id: null },
+      provider_sha1: 'create-sha',
+      family: 'maven',
+    };
+  }
+
+  it('says "incompatible with", not "needs", and never shows Maven brackets', () => {
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [incompatible()] }, onUpdate: () => {} },
+    });
+    const row = getByTestId('preflight-row').textContent ?? '';
+    expect(row).toContain('is incompatible with create 6.0.9 or older');
+    expect(row).toContain('installed: 6.0.5');
+    expect(row).not.toContain('(,6.0.9]');
+  });
+
+  it('offers no version remediation for an incompatibility', () => {
+    // "Update" routes through modsFilterSatisfying, whose satisfying set is
+    // exactly the versions that clash here — it would install a worse one.
+    const { queryByText } = render(PreflightPanel, {
+      props: { report: { violations: [incompatible()] }, onUpdate: () => {} },
+    });
+    expect(queryByText('Update')).toBeNull();
+    expect(queryByText('Choose version')).toBeNull();
+  });
+
+  it('words an out-of-range optional dependency as support, not a requirement', () => {
+    const v: DepViolation = {
+      ...incompatible(),
+      kind: 'optional_out_of_range',
+      dep_id: 'curios',
+      needed: '[9.0,)',
+      needed_desc: rangeDesc('[9.0,)', [{ kind: 'at_least', version: '9.0' }]),
+      installed_version: '5.4.0',
+    };
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [v] }, onUpdate: () => {} },
+    });
+    expect(getByTestId('preflight-row').textContent).toContain('supports curios 9.0 or newer');
+  });
+});
 
 describe('PreflightPanel', () => {
   it('renders nothing when there are no violations', () => {
@@ -90,6 +147,7 @@ describe('PreflightPanel', () => {
           kind: 'missing_required',
           installed_version: null,
           needed: '',
+          needed_desc: rawRangeDesc(''),
           provider_project: null,
           provider_sha1: null,
           family: null,
