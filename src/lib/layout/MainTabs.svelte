@@ -168,7 +168,13 @@
     {:else if active === 'mod_browser'}
       <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
-      <WorldsTab {instanceId} {onListChanged} {onQuickPlayWorld} {quickPlayDisabledReason} {running} />
+      <WorldsTab
+        {instanceId}
+        {onListChanged}
+        {onQuickPlayWorld}
+        {quickPlayDisabledReason}
+        {running}
+      />
     {:else if active === 'screenshots'}
       <ScreenshotsTab {instanceId} />
     {/if}
