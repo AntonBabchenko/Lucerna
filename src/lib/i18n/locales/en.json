@@ -2199,7 +2199,7 @@
       "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
       "modpackCheckFailed": "Couldn't check for updates.",
       "sectionMods": "Mods",
-      "localization": "Translation",
+      "localization": "Translation ({lang})",
       "localizationValue": "{percent}%",
       "pillTooltip": {
         "running": "Minecraft is currently running for this instance.",

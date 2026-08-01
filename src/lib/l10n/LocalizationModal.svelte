@@ -19,11 +19,18 @@
   let {
     open = $bindable(),
     instanceId,
+    lang = $bindable(),
   }: {
     open: boolean;
     /** The instance to report on. Null while nothing is selected — the
      *  fetch effect below simply skips. */
     instanceId: string | null;
+    /** The target language, owned by +page.svelte and shared with the
+     *  Overview row's translation percentage — see l10nLang there. Changing
+     *  it here (via the picker) propagates straight out through the binding,
+     *  so the row refetches for the same language instead of the two
+     *  surfaces silently measuring different things. */
+    lang: string;
   } = $props();
 
   const LIST_MIN_WIDTH = 220;
@@ -31,13 +38,6 @@
   let listWidth = $state(280);
 
   let coverage = $state<InstanceCoverage | null>(null);
-  // The user's explicit language pick. Null means "not overridden yet": the
-  // load effect sends an empty lang so the backend derives one from the UI
-  // locale, and the picker is seeded from the resolved `coverage.lang`
-  // (via `selectedLang` below) rather than writing it back into `userLang` —
-  // that keeps the seed from re-triggering the fetch a second time for the
-  // same instance.
-  let userLang = $state<string | null>(null);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
 
@@ -46,68 +46,45 @@
   // the user has since navigated away from can't clobber newer state.
   let requestId = 0;
 
-  async function load(id: string, lang: string) {
+  async function load(id: string, requestedLang: string) {
     const myRequest = ++requestId;
     loading = true;
     loadError = null;
-    const res = await commands.l10nCoverage(id, lang);
+    const res = await commands.l10nCoverage(id, requestedLang);
     if (myRequest !== requestId) return; // superseded by a newer request
     loading = false;
     if (res.status === 'ok') {
       coverage = res.data;
+      // The backend may resolve a bare launcher locale (e.g. "ru", from the
+      // page's initial guess) to a full Minecraft code ("ru_ru"). Write the
+      // resolved code back through the bindable prop so this picker and the
+      // Overview row converge on the same value instead of one of them
+      // being stuck on the bare guess forever. A no-op once `lang` is
+      // already a full code, since the backend just echoes it back.
+      if (res.data.lang !== requestedLang) lang = res.data.lang;
     } else {
       coverage = null;
       loadError = $t('instance.l10n.loadFailed', { error: formatError(res.error) });
     }
   }
 
-  // Sentinel so the very first run (mount) always counts as an instance
-  // change, even when `instanceId` starts out null.
-  let lastInstanceId: string | null | undefined = undefined;
-
-  // Split into two effects rather than one: the fetch effect below needs to
-  // depend on BOTH `instanceId` and `userLang` (an instance switch OR an
-  // explicit pick must each trigger a load), but this reset must run only
-  // once per instance change and must not itself count as "the user picked a
-  // language" for the fetch effect. Folding the reset into the fetch effect
-  // (guarding the write with `untrack`) was tried first — it does not work:
-  // `untrack` only skips new dependency registration for reads *inside* the
-  // callback, so an unrelated ordinary read of `userLang` elsewhere in the
-  // same run still resubscribes to the value it just (untracked-ly) wrote,
-  // and the effect fires a second, redundant time. Keeping the reset in its
-  // own instanceId-only effect sidesteps that: it never reads `userLang` at
-  // all, so its write can't create a self-loop, and Svelte coalesces the
-  // resulting instanceId + userLang invalidations of the fetch effect below
-  // into a single run.
-  $effect(() => {
-    const id = instanceId;
-    if (id !== lastInstanceId) {
-      lastInstanceId = id;
-      userLang = null;
-    }
-  });
-
   $effect(() => {
     if (!open) return;
     const id = instanceId;
-    const lang = userLang ?? '';
+    const targetLang = lang;
     if (!id) {
       coverage = null;
       loadError = null;
       loading = false;
       return;
     }
-    void load(id, lang);
+    void load(id, targetLang);
   });
 
   const sortedNamespaces = $derived(coverage ? sortNamespaces(coverage.namespaces) : []);
   const languageOptions = $derived(
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
   );
-  // The user's pending pick wins immediately, so the picker reflects the
-  // click before the response lands; once nothing is pending, fall back to
-  // whatever the backend last resolved.
-  const selectedLang = $derived(userLang ?? coverage?.lang ?? '');
 
   function toneClass(tone: CoverageTone): string {
     if (tone === 'ok') return 'text-success';
@@ -134,9 +111,9 @@
       <div class="flex items-center gap-2">
         {#if languageOptions.length > 0}
           <Select
-            value={selectedLang}
+            value={lang}
             options={languageOptions}
-            onChange={(v) => (userLang = String(v))}
+            onChange={(v) => (lang = String(v))}
             ariaLabel={$t('instance.l10n.languageLabel')}
             dataTestid="l10n-language-select"
           />

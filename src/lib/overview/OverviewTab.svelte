@@ -50,6 +50,7 @@
     optimiseResolving = false,
     onOpenLocalization,
     l10nPercent = null,
+    l10nLang,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -79,6 +80,12 @@
     optimiseResolving?: boolean;
     onOpenLocalization: () => void;
     l10nPercent?: number | null;
+    /** Target language the coverage percent was measured against, e.g.
+     *  `"ru_ru"` — the shared selection owned by +page.svelte (see
+     *  LocalizationModal's `lang` prop). Always shown so the number can
+     *  never be mistaken for "coverage into whatever the UI happens to be
+     *  in right now". */
+    l10nLang: string;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -305,7 +312,7 @@
             data-testid="overview-localization"
             onclick={onOpenLocalization}
           >
-            <span>{$t('page.overview.localization')}</span>
+            <span>{$t('page.overview.localization', { lang: l10nLang })}</span>
             <span class="font-medium text-secondary"
               >{l10nPercent === null || l10nPercent === undefined
                 ? '—'

@@ -76,7 +76,7 @@
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { initLocale } from '$lib/i18n/state.svelte';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
@@ -301,10 +301,17 @@
   let intentUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
-  // Feeds the Overview Mods card's translation row. Fetched separately from
-  // LocalizationModal's own coverage read: both hit the same SHA-1-keyed
-  // backend cache, so the second is nearly free — no shared state needed.
+  // Feeds the Overview Mods card's translation row.
   let l10nPercent = $state<number | null>(null);
+  // The target language for translation-coverage checks — shared with
+  // LocalizationModal via its bindable `lang` prop so the row and the modal
+  // can never silently disagree about which language they're measuring
+  // (that mismatch, with the backend defaulting an unset language to
+  // "en_us", was the "modal shows 81% but the row says 100%" bug). Seeded
+  // from the launcher's already-*resolved* UI locale rather than the raw
+  // 'system' preference — the backend has no way to know what "system"
+  // resolves to, but the frontend just rendered the whole UI in it.
+  let l10nLang = $state($locale ?? 'en');
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
@@ -475,18 +482,28 @@
     });
   });
 
-  // Feeds the Overview Mods card's translation row (l10nPercent). An empty
-  // lang lets the backend derive the target from the persisted UI locale —
-  // the row only needs a number, not the resolved code.
+  // Feeds the Overview Mods card's translation row (l10nPercent), against
+  // the shared l10nLang target — see its declaration above.
   $effect(() => {
     const id = activeInstance?.id ?? null;
+    const targetLang = l10nLang;
     if (!id) {
       l10nPercent = null;
       return;
     }
-    void commands.l10nCoverage(id, '').then((r) => {
+    void commands.l10nCoverage(id, targetLang).then((r) => {
       if (activeInstance?.id !== id) return; // ignore stale async result
-      l10nPercent = r.status === 'ok' ? r.data.percent : null;
+      if (r.status !== 'ok') {
+        l10nPercent = null;
+        return;
+      }
+      l10nPercent = r.data.percent;
+      // The backend may resolve a bare launcher locale (e.g. "ru") to a
+      // full Minecraft code ("ru_ru"). Write the resolved code back so the
+      // row's own label — and LocalizationModal's picker, via the same
+      // bindable — converge on it instead of the row being stuck showing
+      // the bare guess. A no-op once l10nLang is already a full code.
+      if (r.data.lang !== targetLang) l10nLang = r.data.lang;
     });
   });
 
@@ -1418,6 +1435,7 @@
               {optimiseResolving}
               onOpenLocalization={() => (l10nOpen = true)}
               {l10nPercent}
+              {l10nLang}
             />
           {/snippet}
         </MainTabs>
@@ -1477,7 +1495,11 @@
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
   />
 
-  <LocalizationModal bind:open={l10nOpen} instanceId={activeInstance?.id ?? null} />
+  <LocalizationModal
+    bind:open={l10nOpen}
+    bind:lang={l10nLang}
+    instanceId={activeInstance?.id ?? null}
+  />
 
   {#if cloneTargetId !== null}
     {@const cloneSource = instances.find((i) => i.id === cloneTargetId)}

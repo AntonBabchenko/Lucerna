@@ -11,7 +11,10 @@ pub use crate::l10n::coverage::InstanceCoverage;
 /// Per-jar results are cached by (language, jar SHA-1), so an unchanged
 /// instance re-renders with zero jar reads. An empty `lang` means "derive from
 /// the UI locale": the persisted `GeneralSettings.language` from `app.json`,
-/// mapped through `default_target_code`.
+/// mapped through `default_target_code`. A non-empty `lang` is normalized
+/// through `default_target_code` too, so a caller may pass either a bare
+/// launcher locale (`"ru"`) or a full Minecraft code (`"ru_ru"`) — the
+/// function is idempotent for the latter.
 #[tauri::command]
 #[specta::specta]
 pub async fn l10n_coverage(
@@ -27,7 +30,7 @@ pub async fn l10n_coverage(
     let lang = if lang.is_empty() {
         ui_locale_target_code(&app)
     } else {
-        lang
+        crate::l10n::coverage::default_target_code(&lang)
     };
     crate::l10n::coverage::scan_instance(&inst_root, &cache_path, &store_dir, &lang).await
 }

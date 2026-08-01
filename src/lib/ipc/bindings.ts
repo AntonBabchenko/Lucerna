@@ -1583,7 +1583,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Per-jar results are cached by (language, jar SHA-1), so an unchanged
 	 *  instance re-renders with zero jar reads. An empty `lang` means "derive from
 	 *  the UI locale": the persisted `GeneralSettings.language` from `app.json`,
-	 *  mapped through `default_target_code`.
+	 *  mapped through `default_target_code`. A non-empty `lang` is normalized
+	 *  through `default_target_code` too, so a caller may pass either a bare
+	 *  launcher locale (`"ru"`) or a full Minecraft code (`"ru_ru"`) — the
+	 *  function is idempotent for the latter.
 	 */
 	l10nCoverage: (instanceId: string, lang: string) => typedError<InstanceCoverage, Error>(__TAURI_INVOKE("l10n_coverage", { instanceId, lang })),
 };

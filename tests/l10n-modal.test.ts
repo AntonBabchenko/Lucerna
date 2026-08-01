@@ -25,6 +25,21 @@ function mockCoverageOk(data: InstanceCoverage) {
   } as any);
 }
 
+// Real `default_target_code` is idempotent for a full code (ru_ru -> ru_ru),
+// so the real backend always echoes back whatever full code it was given.
+// `mockCoverageOk`'s fixed `lang` doesn't model that — it would make the
+// write-back logic in LocalizationModal look like it "reverts" a user's
+// pick to whatever the fixture happened to hardcode. Use this instead
+// whenever a test picks a language and needs a realistic response.
+function mockCoverageEcho(availableCodes: string[]) {
+  vi.mocked(commands.l10nCoverage).mockImplementation(
+    async (_id: string, lang: string) =>
+      ({ status: 'ok', data: coverage({ lang, availableCodes }) }) as Awaited<
+        ReturnType<typeof commands.l10nCoverage>
+      >,
+  );
+}
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -32,35 +47,59 @@ afterEach(() => {
 describe('LocalizationModal', () => {
   it('does not fetch while closed', () => {
     mockCoverageOk(coverage());
-    render(LocalizationModal, { props: { open: false, instanceId: 'inst-1' } });
+    render(LocalizationModal, { props: { open: false, instanceId: 'inst-1', lang: 'en_us' } });
     expect(commands.l10nCoverage).not.toHaveBeenCalled();
   });
 
   it('does not fetch when no instance is selected', () => {
     mockCoverageOk(coverage());
-    render(LocalizationModal, { props: { open: true, instanceId: null } });
+    render(LocalizationModal, { props: { open: true, instanceId: null, lang: 'en_us' } });
     expect(commands.l10nCoverage).not.toHaveBeenCalled();
   });
 
-  it('fetches with an empty lang on first open, letting the backend resolve it', async () => {
+  // The modal no longer owns the target language (see +page.svelte's
+  // l10nLang) — it's handed a value by the caller and fetches with it
+  // directly. An empty-string special case belongs to the backend only.
+  it('fetches with the given lang on first open', async () => {
     mockCoverageOk(coverage({ lang: 'ru_ru', namespaces: [ns()] }));
-    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', ''));
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'ru_ru' } });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', 'ru_ru'));
   });
 
-  it('seeds the language picker from the backend-resolved language, without re-fetching', async () => {
-    mockCoverageOk(coverage({ lang: 'ru_ru', availableCodes: ['en_us', 'ru_ru'] }));
-    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', ''));
+  it('shows the given language pre-selected in the picker', async () => {
+    mockCoverageEcho(['en_us', 'ru_ru']);
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'ru_ru' } });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', 'ru_ru'));
 
     const combo = await screen.findByRole('combobox');
     expect(combo.textContent).toContain('ru_ru');
 
-    // Seeding the picker from the response must not itself trigger a second
-    // fetch — give any errant reactive loop a chance to fire, then check the
-    // call count stayed at one.
+    // The response's resolved language matches what was requested, so there
+    // is nothing to write back — give an errant extra fetch every chance to
+    // fire before checking the call count stayed at one.
     await new Promise((r) => setTimeout(r, 0));
     expect(commands.l10nCoverage).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression coverage for the shared-state fix: +page.svelte seeds `lang`
+  // with the launcher's resolved UI locale, which can be a bare code like
+  // "ru" (see resolve.ts — AVAILABLE_LOCALES only has 2-letter codes). The
+  // backend resolves that to a full Minecraft code and returns it in
+  // `coverage.lang`; the modal must write it back through the bindable prop
+  // so its own picker (and, via the same binding, the Overview row) settle
+  // on the full code instead of being stuck on the bare guess.
+  it('writes the backend-resolved language back through the bindable prop', async () => {
+    mockCoverageOk(coverage({ lang: 'ru_ru', availableCodes: ['en_us', 'ru_ru'] }));
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'ru' } });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', 'ru'));
+
+    // The write-back changes `lang`, which the fetch effect depends on, so
+    // a second — cheap, cache-hit — request follows for the resolved code.
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('inst-1', 'ru_ru'));
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
+
+    const combo = await screen.findByRole('combobox');
+    expect(combo.textContent).toContain('ru_ru');
   });
 
   it('renders namespaces least-translated-first', async () => {
@@ -73,7 +112,7 @@ describe('LocalizationModal', () => {
         ],
       }),
     );
-    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1' } });
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'en_us' } });
     const rows = await screen.findAllByTestId('l10n-namespace-row');
     expect(rows[0].textContent).toContain('ae2');
     expect(rows[1].textContent).toContain('create');
@@ -82,7 +121,7 @@ describe('LocalizationModal', () => {
 
   it('shows the empty state when the instance has no translatable namespaces', async () => {
     mockCoverageOk(coverage({ namespaces: [] }));
-    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1' } });
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'en_us' } });
     expect(await screen.findByTestId('l10n-empty')).toBeTruthy();
   });
 
@@ -92,24 +131,26 @@ describe('LocalizationModal', () => {
       error: { kind: 'io', path: 'p', details: 'nope' },
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
-    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1' } });
+    render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'en_us' } });
     expect(await screen.findByTestId('l10n-error')).toBeTruthy();
     expect(screen.queryByTestId('l10n-empty')).toBeNull();
   });
 
   it('refetches when the instance prop changes', async () => {
     mockCoverageOk(coverage());
-    const { rerender } = render(LocalizationModal, { props: { open: true, instanceId: 'a' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', ''));
+    const { rerender } = render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us' },
+    });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', 'en_us'));
 
-    await rerender({ open: true, instanceId: 'b' });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', ''));
+    await rerender({ open: true, instanceId: 'b', lang: 'en_us' });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', 'en_us'));
   });
 
   it('refetches with the newly picked target language', async () => {
-    mockCoverageOk(coverage({ lang: 'en_us', availableCodes: ['en_us', 'ru_ru'] }));
-    render(LocalizationModal, { props: { open: true, instanceId: 'a' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', ''));
+    mockCoverageEcho(['en_us', 'ru_ru']);
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', 'en_us'));
 
     await fireEvent.click(screen.getByRole('combobox'));
     await fireEvent.mouseDown(screen.getByRole('option', { name: 'ru_ru' }));
@@ -126,13 +167,15 @@ describe('LocalizationModal', () => {
         }),
     );
 
-    const { rerender } = render(LocalizationModal, { props: { open: true, instanceId: 'a' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', ''));
+    const { rerender } = render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us' },
+    });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', 'en_us'));
 
     // Switch to instance b before a's response arrives; b resolves immediately.
     mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'b-namespace' })] }));
-    await rerender({ open: true, instanceId: 'b' });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', ''));
+    await rerender({ open: true, instanceId: 'b', lang: 'en_us' });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', 'en_us'));
     expect(await screen.findAllByTestId('l10n-namespace-row')).toHaveLength(1);
 
     // The stale A response now lands — it must not clobber b's already-newer state.
@@ -153,31 +196,36 @@ describe('LocalizationModal', () => {
     expect(rows[0].textContent).toContain('b-namespace');
   });
 
-  it('does not double-fetch when switching instance right after an explicit pick', async () => {
-    // Regression coverage for a reactive-loop trap: resetting the pending
-    // language pick on instance switch must not itself look like a second
-    // "user changed the language" trigger.
-    mockCoverageOk(coverage({ lang: 'en_us', availableCodes: ['en_us', 'ru_ru'] }));
-    const { rerender } = render(LocalizationModal, { props: { open: true, instanceId: 'a' } });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', ''));
+  // Regression coverage for the shared-state redesign: the target language
+  // is now a page-level selection (+page.svelte's l10nLang), not something
+  // this modal resets per instance. An explicit pick must survive an
+  // instance switch instead of quietly reverting.
+  it('keeps an explicitly picked language when switching instances', async () => {
+    mockCoverageEcho(['en_us', 'ru_ru']);
+    const { rerender } = render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us' },
+    });
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', 'en_us'));
 
     await fireEvent.click(screen.getByRole('combobox'));
     await fireEvent.mouseDown(screen.getByRole('option', { name: 'ru_ru' }));
     await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('a', 'ru_ru'));
 
     vi.mocked(commands.l10nCoverage).mockClear();
-    mockCoverageOk(coverage({ lang: 'en_us', availableCodes: ['en_us', 'ru_ru'] }));
-    await rerender({ open: true, instanceId: 'b' });
-    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', ''));
+    mockCoverageEcho(['en_us', 'ru_ru']);
+    // The caller (here: the test) owns `lang` for a bindable prop with no
+    // real parent binding — mirror the picked value forward exactly like
+    // +page.svelte's bind:lang would, so the instance switch doesn't
+    // silently revert the pick.
+    await rerender({ open: true, instanceId: 'b', lang: 'ru_ru' });
 
-    // Give an errant extra reactive pass every chance to fire before checking.
-    await new Promise((r) => setTimeout(r, 30));
-    expect(commands.l10nCoverage).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledWith('b', 'ru_ru'));
+    expect(commands.l10nCoverage).not.toHaveBeenCalledWith('b', 'en_us');
   });
 
   it('closes via the close button', async () => {
     mockCoverageOk(coverage());
-    render(LocalizationModal, { props: { open: true, instanceId: 'a' } });
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
     await screen.findByRole('dialog');
     await fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.queryByRole('dialog')).toBeNull();
