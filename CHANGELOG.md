@@ -12,6 +12,24 @@ release is **0.9.0**.
 
 ### Added
 
+- **Translate the mods you play with.** The Translation screen now lets you write
+  your own text for any string a mod shows — the ones nobody has translated, and
+  the ones translated badly. Lucerna collects what you write into a resource pack
+  and switches it on for you. Your mods are never modified; the pack sits
+  alongside them and can be removed at any time.
+
+  Only the strings you change go into the pack, so when a mod author later
+  improves their own translation, you get their fix and keep your edits. If a mod
+  updates and the original English text behind one of your strings changed,
+  that string is flagged as needing another look rather than silently drifting
+  out of date.
+
+  Translations are stored per mod rather than per instance, so a string you fix
+  once applies to every instance with that mod in it. Applying requires
+  Minecraft 1.13 or newer — on older versions a mod's own translations take
+  priority over any resource pack, so an override there would have no effect.
+  The coverage report still works on those instances.
+
 - **Datapacks for singleplayer worlds.** A world's detail view gets a new
   **Datapacks** tab next to Backups: install a datapack `.zip` **or folder**
   into the instance's shared library, then decide per world whether a pack is
