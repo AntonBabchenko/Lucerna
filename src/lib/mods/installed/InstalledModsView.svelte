@@ -51,11 +51,18 @@
     instanceId,
     mcVersion,
     loader,
+    requestedFilter = null,
+    onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
   }: {
     instanceId: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // A status view asked for by a deep-link (Overview → "N incompatible
+    // mods"). Applied once, then cleared by the parent so an in-tab click is
+    // never hijacked afterwards.
+    requestedFilter?: 'incompatible' | null;
+    onFilterApplied?: () => void;
     onBrowseFor?: (query: string) => void;
   } = $props();
 
@@ -263,6 +270,16 @@
     void mcVersion;
     void loader;
     void compat.runOfflineScan();
+  });
+
+  // Apply a deep-linked status view once. The scan that populates the chip may
+  // still be in flight when this lands, so it is applied unconditionally — the
+  // composable's existing auto-reset drops back to `all` if the count really
+  // is zero, which keeps a stale link from stranding the user on an empty list.
+  $effect(() => {
+    if (requestedFilter === null) return;
+    filters.viewFilter = requestedFilter;
+    onFilterApplied();
   });
 
   // Single-row ops (toggle/uninstall/detail install) live in the shell, so they

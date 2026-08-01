@@ -135,7 +135,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
+import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('hover cross-highlight across dep-tree nodes and rows', () => {
   it("hovering a dep-tree node highlights the same mod's main row", async () => {

@@ -1413,7 +1413,7 @@
               onPackUpdated={() => {
                 void refreshInstances();
               }}
-              onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
+              onNavInstalled={(filter) => (modBrowserNav.value = { view: 'installed', filter })}
               onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
               onDismissError={(key) => {
                 if (key === 'listAccounts') listAccountsError = null;

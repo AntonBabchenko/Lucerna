@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { depGraphCache } from '$lib/mods/dep-graph-cache';
-import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
+import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 vi.mock('$lib/ipc/bindings', async (orig) => {
   const actual = await orig<typeof import('$lib/ipc/bindings')>();

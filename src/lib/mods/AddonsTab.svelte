@@ -11,7 +11,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
-  import InstalledModsView from './InstalledModsView.svelte';
+  import InstalledModsView from './installed/InstalledModsView.svelte';
   import InstalledAssetsView from './InstalledAssetsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
@@ -137,11 +137,16 @@
   // sub-view directly. Only applies to mods (the Overview link is
   // "Installed mods"); we leave `kind` untouched so the mod path stays
   // intact. Resets the rune so subsequent in-tab clicks aren't hijacked.
+  // A status view requested by a deep-link (the Overview's incompatible-mods
+  // indicator). Handed to the Installed view, which applies it once.
+  let requestedFilter = $state<'incompatible' | null>(null);
+
   $effect(() => {
     if (modBrowserNav.value !== null) {
       view = modBrowserNav.value.view;
       if (modBrowserNav.value.view === 'installed') {
         installedOpenedForKind = new Set([...installedOpenedForKind, kind]);
+        requestedFilter = modBrowserNav.value.filter ?? null;
       }
       modBrowserNav.value = null;
     }
@@ -554,7 +559,14 @@
     {#if installedMounted}
       <div class:hidden={view !== 'installed'}>
         {#if kind === 'mod'}
-          <InstalledModsView {instanceId} {mcVersion} {loader} onBrowseFor={browseForDependency} />
+          <InstalledModsView
+            {instanceId}
+            {mcVersion}
+            {loader}
+            {requestedFilter}
+            onFilterApplied={() => (requestedFilter = null)}
+            onBrowseFor={browseForDependency}
+          />
         {:else}
           <InstalledAssetsView {instanceId} {kind} {mcVersion} {loader} />
         {/if}

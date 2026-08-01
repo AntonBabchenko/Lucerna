@@ -120,7 +120,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
+import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('InstalledModsView', () => {
   it('renders rows with Disable button when enabled and Enable when disabled', async () => {

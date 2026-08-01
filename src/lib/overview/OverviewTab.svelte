@@ -67,7 +67,7 @@
     onExport: () => void;
     onOpenPackDrawer: () => void;
     onPackUpdated?: () => void;
-    onNavInstalled: () => void;
+    onNavInstalled: (filter?: 'incompatible') => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
     onRetryError?: (key: ErrorKey) => void;
@@ -132,7 +132,7 @@
   function onAttention(kind: AttentionKind) {
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
-    else if (kind === 'incompatible') onNavInstalled();
+    else if (kind === 'incompatible') onNavInstalled('incompatible');
     else if (kind === 'server_log_fix') onOpenServers();
     else if (kind === 'integrity') onManage('integrity');
     else onManage('mc'); // pick_version
@@ -286,7 +286,7 @@
             type="button"
             class="card-zone px-3.5 pb-2 flex gap-4 text-sm"
             data-testid="overview-mods-stats"
-            onclick={onNavInstalled}
+            onclick={() => onNavInstalled()}
           >
             <span
               >{$t('page.overview.statsTotal')}

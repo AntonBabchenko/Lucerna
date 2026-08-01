@@ -156,7 +156,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
+import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('quick-filter auto-resets to "all" when its set empties', () => {
   it("clearing the last missing dependency reveals the full list again (doesn't strand an empty filter)", async () => {
