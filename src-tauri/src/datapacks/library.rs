@@ -24,8 +24,13 @@ use crate::datapacks::{library_dir_at, registry, InstalledDatapack};
 use crate::error::{DatapackRejection, Error, Result};
 
 /// Lowercase 40-char SHA-1 hex digest.
+///
+/// `pub(crate)`, not `pub`: the only caller outside this file is
+/// `registry::reconcile` adopting a hand-dropped library file (same crate);
+/// nothing outside `lucerna_lib` — including
+/// `tests/datapacks_integration.rs` — reaches this directly.
 #[must_use]
-pub fn sha1_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha1_hex(bytes: &[u8]) -> String {
     hex::encode(Sha1::digest(bytes))
 }
 

@@ -409,8 +409,11 @@ pub async fn list_for_world_at(
 /// Compare a pack's own `pack_format` against what the instance's Minecraft
 /// expects. `Unknown` when either side is unavailable — an unreadable pack,
 /// or (see `compat` module) a client jar that hasn't been installed yet.
+///
+/// Private: the only call site is [`list_for_world_at`] above, in this same
+/// file; nothing else in the crate needs it.
 #[must_use]
-pub fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
+fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
     match (pack_format, expected) {
         (Some(p), Some(e)) if p == e => PackCompat::Compatible,
         (Some(p), Some(e)) => PackCompat::Mismatch {

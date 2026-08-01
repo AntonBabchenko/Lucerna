@@ -26,8 +26,12 @@ use std::path::{Path, PathBuf};
 /// Forge/NeoForge omit a client jar from the classpath entirely — see
 /// `instances::status::ready_status` and `launch::spawn`, which both resolve
 /// the same path the same way.
+///
+/// Private: the only caller is [`expected_data_format`] below, in this same
+/// file; nothing else in the crate or in `tests/datapacks_integration.rs`
+/// needs it.
 #[must_use]
-pub fn client_jar_path(versions_dir: &Path, mc_version: &str) -> PathBuf {
+fn client_jar_path(versions_dir: &Path, mc_version: &str) -> PathBuf {
     versions_dir
         .join(mc_version)
         .join(format!("{mc_version}.jar"))
@@ -58,11 +62,20 @@ fn parse_pack_version(v: &serde_json::Value) -> Option<u32> {
     u32::try_from(raw).ok()
 }
 
-/// Read the datapack format out of an in-memory client jar. Exposed
+/// Read the datapack format out of an in-memory client jar. Exists
 /// separately from [`expected_data_format`] purely for testability — tests
 /// build a jar in memory rather than on disk.
-#[must_use]
-pub fn data_format_from_jar_bytes(jar: &[u8]) -> Option<u32> {
+///
+/// `#[cfg(test)]`, not `pub(crate)`: verified against reality (not assumed)
+/// that [`expected_data_format`] does NOT call this — it reads the shared
+/// `data_format_from_archive` helper directly instead — so this has no
+/// production caller at all, only its own unit tests below. Compiling it out
+/// of a non-test build is what a `pub(crate)` fn with the same zero callers
+/// would not get for free: rustc's dead-code lint only spares fully `pub`
+/// items on the assumption they may be used externally, so once this drops
+/// below `pub` a normal build would otherwise flag it as unused.
+#[cfg(test)]
+fn data_format_from_jar_bytes(jar: &[u8]) -> Option<u32> {
     let zip = zip::ZipArchive::new(std::io::Cursor::new(jar)).ok()?;
     data_format_from_archive(zip)
 }
