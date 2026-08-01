@@ -1057,7 +1057,7 @@
       "empty": "No worlds yet. Play Minecraft to create one.",
       "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
       "openSavesFolder": "Open saves folder",
-      "openBackupsAriaLabel": "View backups for {name}",
+      "openBackupsAriaLabel": "Open details for {name}",
       "backupNow": "Back up now",
       "deleteWorld": "Delete world",
       "toastBackedUp": "Backed up {name} ({size})"
@@ -1069,7 +1069,6 @@
     },
     "backups": {
       "tab": "Backups",
-      "title": "Backups for \"{world}\"",
       "loading": "Loading backups…",
       "empty": "No backups yet. Click \"Back up now\" to create one.",
       "backupNow": "Back up now",

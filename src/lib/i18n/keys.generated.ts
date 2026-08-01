@@ -2300,7 +2300,6 @@ export type TranslationKey =
   | 'worlds.backups.openBackupsFolder'
   | 'worlds.backups.restore'
   | 'worlds.backups.tab'
-  | 'worlds.backups.title'
   | 'worlds.backups.total'
   | 'worlds.datapacks.add'
   | 'worlds.datapacks.addFromFolder'
