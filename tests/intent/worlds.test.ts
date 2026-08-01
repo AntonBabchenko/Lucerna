@@ -50,7 +50,7 @@
 //     warning body text has text-secondary class
 //     error block uses text-danger
 
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backup, World } from '$lib/ipc/bindings';
 import { markSeen } from '$lib/onboarding/contextual-tours';
@@ -348,6 +348,37 @@ describe('WorldDetailDialog — role=dialog aria-modal aria-labelledby', () => {
     });
     const title = document.getElementById('world-detail-title');
     expect(title?.textContent).toContain('MyBackupWorld');
+  });
+});
+
+// ── WorldDetailDialog — tab/tabpanel ARIA wiring (FIX 8) ──────────────────────
+
+describe('WorldDetailDialog — the tab panel is wired to its active tab', () => {
+  it('the body has role=tabpanel with an id, and the active tab has a matching aria-controls + its own id', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
+    render(WorldDetailDialog, {
+      props: {
+        instanceId: 'inst-1',
+        world: makeWorld({ folder_name: 'TabbedWorld' }),
+        onClose: () => {},
+        onChanged: () => {},
+      },
+    });
+    const panel = screen.getByRole('tabpanel');
+    const panelId = panel.getAttribute('id');
+    expect(panelId).toBeTruthy();
+
+    const backupsTab = screen.getByRole('tab', { name: /backups/i });
+    expect(backupsTab.getAttribute('aria-controls')).toBe(panelId);
+    expect(backupsTab.getAttribute('id')).toBeTruthy();
+    expect(panel.getAttribute('aria-labelledby')).toBe(backupsTab.getAttribute('id'));
+
+    // Switching tabs re-labels the SAME panel to the newly active tab.
+    const datapacksTab = screen.getByRole('tab', { name: /datapacks/i });
+    await fireEvent.click(datapacksTab);
+    expect(datapacksTab.getAttribute('aria-controls')).toBe(panelId);
+    expect(panel.getAttribute('aria-labelledby')).toBe(datapacksTab.getAttribute('id'));
   });
 });
 

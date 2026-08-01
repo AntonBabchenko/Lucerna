@@ -58,13 +58,21 @@
         ]}
         active={tab}
         ariaLabel={$t('worlds.detail.tabsLabel')}
+        panelId="world-detail-panel"
         onChange={(id) => (tab = id as TabId)}
       />
     </div>
   </div>
 
-  <!-- Scrollable body. -->
-  <div class="flex-1 overflow-y-auto min-h-0 p-4 pt-3">
+  <!-- Scrollable body. role=tabpanel + id + aria-labelledby completes the
+       WAI-ARIA tabs wiring TabBar's panelId prop sets up on the tab side
+       (aria-controls + each tab's own id, formula `${panelId}-tab-${tab.id}`). -->
+  <div
+    class="flex-1 overflow-y-auto min-h-0 p-4 pt-3"
+    role="tabpanel"
+    id="world-detail-panel"
+    aria-labelledby="world-detail-panel-tab-{tab}"
+  >
     {#if tab === 'backups'}
       <BackupsPanel {instanceId} {world} {onClose} {onChanged} />
     {:else}
