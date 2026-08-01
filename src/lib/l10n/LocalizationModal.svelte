@@ -1,20 +1,24 @@
 <script lang="ts">
   // Full-window shell for the per-instance translation-coverage report: a
   // namespace list (least-translated first) on the left, a target-language
-  // picker in the header, and a placeholder detail pane on the right.
+  // picker + Apply action in the header, and the key editor (KeyTable) on
+  // the right once a namespace is picked.
   //
-  // This is the shell only — the key table and per-key editing land in a
-  // later PR. Own module rather than a section of ManageInstancesModal.svelte,
-  // which is already at this project's 800-line file ceiling.
+  // Own module rather than a section of ManageInstancesModal.svelte, which is
+  // already at this project's 800-line file ceiling.
   import { commands, type InstanceCoverage } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { coverageTone, namespacePercent, sortNamespaces, type CoverageTone } from './coverage';
+  import KeyTable from './KeyTable.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     open = $bindable(),
@@ -40,11 +44,23 @@
   let coverage = $state<InstanceCoverage | null>(null);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
+  let selectedNamespace = $state<string | null>(null);
+  let applying = $state(false);
 
   // Monotonic request id: a response only applies if it's still the most
   // recent request in flight, so a late response for an instance or language
-  // the user has since navigated away from can't clobber newer state.
+  // the user has since navigated away from can't clobber newer state. Shared
+  // with the silent coverage refresh below so the two compete on the same
+  // "most recent wins" ordering instead of being able to race each other.
   let requestId = 0;
+
+  // A namespace list is per-instance — a namespace name that happens to
+  // match between two instances would otherwise show that instance's key
+  // table under a stale selection from before the switch.
+  $effect(() => {
+    void instanceId;
+    selectedNamespace = null;
+  });
 
   async function load(id: string, requestedLang: string) {
     const myRequest = ++requestId;
@@ -79,6 +95,61 @@
       return;
     }
     void load(id, targetLang);
+  });
+
+  // Best-effort background refresh of the coverage percentages after a save
+  // in the key table: KeyTable patches its own row locally rather than
+  // re-fetching (see its doc comment), so the namespace list's percentages
+  // and the header total would otherwise drift stale for the rest of the
+  // session. l10nCoverage is cheap to re-run (jar results are cached by
+  // SHA-1), so this doesn't need a loading state of its own — a failure here
+  // just leaves the percentages stale for a moment rather than surfacing an
+  // error banner over a background sync the user didn't ask for.
+  async function refreshCoverageSilently() {
+    if (!instanceId) return;
+    const id = instanceId;
+    const targetLang = lang;
+    const myRequest = ++requestId;
+    const res = await commands.l10nCoverage(id, targetLang);
+    if (myRequest !== requestId) return;
+    if (res.status === 'ok') coverage = res.data;
+  }
+
+  // l10nApply builds the pack from every namespace's saved overrides at
+  // once — there is no per-namespace variant of it — so Apply lives once for
+  // the whole modal rather than beside each namespace, where it would
+  // misleadingly suggest applying just that namespace's changes.
+  async function apply() {
+    if (!instanceId || !coverage || coverage.applyGate !== 'ready' || applying) return;
+    applying = true;
+    try {
+      const res = await commands.l10nApply(instanceId, lang);
+      if (res.status === 'ok') {
+        if (res.data) {
+          pushSuccess($t('instance.l10n.apply.toastAppliedTitle'));
+        } else {
+          // `false` is not a failure — the pack is written and registered,
+          // it just can't flip on in options.txt yet because the instance
+          // has never been launched. Say so plainly instead of either
+          // claiming success or raising an error for something that worked.
+          pushInfo($t('instance.l10n.apply.toastDeferredTitle'), [
+            $t('instance.l10n.apply.toastDeferredLine'),
+          ]);
+        }
+      } else {
+        pushWarning($t('instance.l10n.apply.toastFailedTitle'), [formatError(res.error)]);
+      }
+    } finally {
+      applying = false;
+    }
+  }
+
+  const applyReason = $derived.by(() => {
+    if (!coverage) return '';
+    if (coverage.applyGate === 'unknown_format')
+      return $t('instance.l10n.apply.reasonUnknownFormat');
+    if (coverage.applyGate === 'too_old') return $t('instance.l10n.apply.reasonTooOld');
+    return '';
   });
 
   const sortedNamespaces = $derived(coverage ? sortNamespaces(coverage.namespaces) : []);
@@ -118,6 +189,22 @@
             dataTestid="l10n-language-select"
           />
         {/if}
+        {#if coverage}
+          <span
+            class="inline-flex"
+            use:tooltip={applyReason ? { text: applyReason, describe: false } : null}
+          >
+            <BusyButton
+              busy={applying}
+              disabled={coverage.applyGate !== 'ready'}
+              class="btn-secondary btn-sm"
+              data-testid="l10n-apply"
+              onclick={apply}
+            >
+              {$t('instance.l10n.apply.button')}
+            </BusyButton>
+          </span>
+        {/if}
         <CloseButton onClick={close} ariaLabel={$t('instance.l10n.closeLabel')} />
       </div>
     </header>
@@ -139,6 +226,7 @@
           <ul class="flex flex-col gap-1">
             {#each sortedNamespaces as row (row.namespace)}
               {@const percent = namespacePercent(row)}
+              {@const selected = selectedNamespace === row.namespace}
               <li>
                 <!--
                   No aria-label: the namespace name and its percentage below
@@ -146,15 +234,19 @@
                   aria-label would replace both with nothing useful. See
                   OverviewTab.svelte's body-zone rule.
                 -->
-                <div
-                  class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm"
+                <button
+                  type="button"
+                  class="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm"
+                  class:bg-accent-soft={selected}
+                  aria-current={selected ? 'true' : undefined}
                   data-testid="l10n-namespace-row"
+                  onclick={() => (selectedNamespace = row.namespace)}
                 >
                   <span class="truncate">{row.namespace}</span>
                   <span class="font-mono {toneClass(coverageTone(percent))}">
                     {$t('instance.l10n.percentValue', { percent })}
                   </span>
-                </div>
+                </button>
               </li>
             {/each}
           </ul>
@@ -167,12 +259,22 @@
         label={$t('instance.l10n.resizeList')}
         testId="l10n-list-splitter"
       />
-      <!-- Placeholder — the key table and per-key editing land in a later PR. -->
-      <section
-        class="flex flex-1 min-w-0 items-center justify-center p-4 text-center text-sm text-muted"
-        data-testid="l10n-detail-placeholder"
-      >
-        {$t('instance.l10n.detailPlaceholder')}
+      <section class="flex flex-1 min-w-0 flex-col overflow-hidden" data-testid="l10n-detail-pane">
+        {#if selectedNamespace && instanceId}
+          <KeyTable
+            {instanceId}
+            namespace={selectedNamespace}
+            {lang}
+            onOverrideSaved={refreshCoverageSilently}
+          />
+        {:else}
+          <div
+            class="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted"
+            data-testid="l10n-detail-placeholder"
+          >
+            {$t('instance.l10n.detailPlaceholder')}
+          </div>
+        {/if}
       </section>
     </div>
   </Modal>

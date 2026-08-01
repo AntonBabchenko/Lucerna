@@ -414,7 +414,42 @@
       "loadFailed": "Couldn't load translation coverage: {error}",
       "empty": "This instance has no translatable text yet.",
       "percentValue": "{percent}%",
-      "detailPlaceholder": "Select a namespace to see its keys."
+      "detailPlaceholder": "Select a namespace to see its keys.",
+      "apply": {
+        "button": "Apply",
+        "reasonUnknownFormat": "Launch this instance once, then apply translations.",
+        "reasonTooOld": "This Minecraft version can't load resource-pack overrides.",
+        "toastAppliedTitle": "Translations applied",
+        "toastDeferredTitle": "Translations saved",
+        "toastDeferredLine": "They'll turn on the next time you launch this instance.",
+        "toastFailedTitle": "Couldn't apply translations"
+      },
+      "keyTable": {
+        "searchPlaceholder": "Search keys or English text…",
+        "searchAriaLabel": "Search translation keys",
+        "filterGroupAriaLabel": "Filter by state",
+        "filterAllLabel": "All",
+        "filterTranslatedLabel": "Translated",
+        "filterMissingLabel": "Untranslated",
+        "filterStaleLabel": "Needs review",
+        "filterOrphanLabel": "Orphaned",
+        "loading": "Loading keys…",
+        "loadFailed": "Couldn't load keys: {error}",
+        "noResults": "No keys match your search.",
+        "sourceLabel": "English",
+        "modValueLabel": "Mod's translation",
+        "yourTranslationLabel": "Your translation",
+        "saveLabel": "Save",
+        "clearLabel": "Clear",
+        "orphanHint": "This mod no longer ships this key — your translation has no effect. Clear it to remove.",
+        "staleHint": "The mod's English text changed since you translated this. Review your translation.",
+        "stateFromMod": "From mod",
+        "stateOk": "Saved",
+        "stateStale": "Needs review",
+        "stateOrphan": "Orphaned",
+        "stateMissing": "Untranslated",
+        "perPage": "Per page:"
+      }
     }
   },
   "instances": {
