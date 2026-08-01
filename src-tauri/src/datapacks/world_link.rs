@@ -10,7 +10,7 @@
 //! (`tests/structural_no_inplace_mods_write.rs`), which scans `src/datapacks/`
 //! alongside `src/mods/` and `src/worlds/`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -318,17 +318,96 @@ pub async fn set_enabled_in_world_at(
     Ok(())
 }
 
-/// Append `n` to `names` unless an equal string is already present.
-fn push_unique(names: &mut Vec<String>, n: String) {
-    if !names.contains(&n) {
-        names.push(n);
+/// The `.zip` files and directories Minecraft's own `datapacks/` scanner
+/// would load out of one world's folder: any directory, regardless of what
+/// it's called, plus any file whose name ends `.zip`. Without the directory
+/// branch, a hand-installed folder datapack never appears "present" here,
+/// which `state::derive` then turns into a false `Orphaned`.
+///
+/// A directory that cannot be read (missing `datapacks/` folder, a world
+/// that has never had a pack added) yields an empty list, never an error —
+/// mirrors `read_level_dat_or_empty`'s "absent is a supported state" policy.
+async fn list_on_disk_entries(dp_dir: &Path) -> Vec<String> {
+    let mut on_disk = Vec::new();
+    let Ok(mut rd) = tokio::fs::read_dir(dp_dir).await else {
+        return on_disk;
+    };
+    while let Ok(Some(e)) = rd.next_entry().await {
+        let name = e.file_name().to_string_lossy().to_string();
+        let is_datapack_entry = match e.file_type().await {
+            Ok(ft) if ft.is_dir() => true,
+            Ok(_) => name.to_ascii_lowercase().ends_with(".zip"),
+            Err(_) => false,
+        };
+        if is_datapack_entry {
+            on_disk.push(name);
+        }
     }
+    on_disk
+}
+
+/// Merge one world's three datapack name sources — the library registry, the
+/// files/folders actually present in the world's `datapacks/` folder, and
+/// the names level.dat references (its own `file/` prefix already stripped
+/// by the caller) — into one deduplicated, sorted list.
+///
+/// NTFS is case-insensitive: a level.dat entry spelled `file/VeinMiner.zip`
+/// and an on-disk file named `veinminer.zip` name the SAME file. Deduping on
+/// exact string equality (the bug this replaces) kept both spellings as two
+/// separate rows — a phantom `Orphaned` for the level.dat spelling (nothing
+/// matched it byte-for-byte) alongside a genuine `Enabled` for the on-disk
+/// spelling. One physical pack must never render as two contradictory rows,
+/// so dedup keys on a case-folded name instead.
+///
+/// The kept SPELLING for a case-folded collision prefers, in order: on-disk
+/// (that's what the file is actually named), then the registry's, then
+/// level.dat's. On-disk wins because [`list_for_world_at`]'s own
+/// `file_present` check is a plain, un-folded `on_disk.contains(&filename)`
+/// — that only stays correct if, whenever a match exists on disk, the
+/// chosen spelling IS the on-disk one.
+///
+/// Display/merge only. Nothing returned from here is written back to the
+/// filesystem or level.dat; every write path keeps using the exact filename
+/// its own caller gave it.
+fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) -> Vec<String> {
+    let mut by_key: BTreeMap<String, String> = BTreeMap::new();
+    // Insertion order is the priority order, LOWEST first: a later insert
+    // for the same case-folded key overwrites the earlier one, so the
+    // desired winner (on-disk) has to go last.
+    for n in level_dat {
+        by_key.insert(n.to_lowercase(), n.clone());
+    }
+    for n in registry {
+        by_key.insert(n.to_lowercase(), n.clone());
+    }
+    for n in on_disk {
+        by_key.insert(n.to_lowercase(), n.clone());
+    }
+    // `BTreeMap` iterates in key order, and the key IS the case-folded name —
+    // already sorted the same way the old `sort_by(|a, b|
+    // a.to_lowercase().cmp(&b.to_lowercase()))` produced.
+    by_key.into_values().collect()
+}
+
+/// Case-insensitive membership check against a level.dat name list (the
+/// `Enabled`/`Disabled` lists `level_dat::lists` returns). The spelling
+/// [`union_names`] picked for a pack may differ in case from what level.dat
+/// actually holds for that same file — an exact `contains` here would then
+/// miss the match, turning a `Disabled` pack into a reported `Enabled` (or
+/// vice versa), which is worse than the phantom-row bug `union_names` fixes.
+/// Query-only: never compare a value here that is about to be written back
+/// to level.dat — those writes must keep the caller's exact filename.
+#[must_use]
+fn contains_ci(haystack: &[String], needle: &str) -> bool {
+    let needle = needle.to_lowercase();
+    haystack.iter().any(|h| h.to_lowercase() == needle)
 }
 
 /// List every datapack relevant to one world: the union of the library's
 /// filenames, the `.zip` files actually present in the world's `datapacks/`
 /// folder, and the names level.dat references (its own `file/` prefix
-/// stripped). Sorted case-insensitively by filename.
+/// stripped). Sorted case-insensitively by filename, deduplicated
+/// case-insensitively too — see [`union_names`] for why.
 ///
 /// `compat` is computed from the pack_format the REGISTRY recorded at
 /// install time, never by opening a zip here — listing a world must cost no
@@ -345,52 +424,31 @@ pub async fn list_for_world_at(
     let registry_entries: Vec<InstalledDatapack> = registry::list(instance_root).await?;
     let (root, _framing) = read_level_dat_or_empty(&world_dir)?;
     let (enabled, disabled) = level_dat::lists(&root);
+    let on_disk = list_on_disk_entries(&dp_dir).await;
 
-    let mut on_disk: Vec<String> = Vec::new();
-    if let Ok(mut rd) = tokio::fs::read_dir(&dp_dir).await {
-        while let Ok(Some(e)) = rd.next_entry().await {
-            let name = e.file_name().to_string_lossy().to_string();
-            // Minecraft's own datapacks/ scanner loads directories as well as
-            // `.zip` files, under any name — so a directory counts regardless
-            // of what it's called, and only a FILE is additionally gated on
-            // the `.zip` extension. Without the directory branch, a
-            // hand-installed folder datapack never appears "present" here,
-            // which `state::derive` then turns into a false `Orphaned`.
-            let is_datapack_entry = match e.file_type().await {
-                Ok(ft) if ft.is_dir() => true,
-                Ok(_) => name.to_ascii_lowercase().ends_with(".zip"),
-                Err(_) => false,
-            };
-            if is_datapack_entry {
-                on_disk.push(name);
-            }
-        }
-    }
-
-    let mut names: Vec<String> = Vec::new();
-    for e in &registry_entries {
-        push_unique(&mut names, e.filename.clone());
-    }
-    for n in &on_disk {
-        push_unique(&mut names, n.clone());
-    }
-    for n in enabled.iter().chain(disabled.iter()) {
-        if let Some(stripped) = n.strip_prefix("file/") {
-            push_unique(&mut names, stripped.to_string());
-        }
-    }
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    let registry_names: Vec<String> = registry_entries
+        .iter()
+        .map(|e| e.filename.clone())
+        .collect();
+    let level_dat_names: Vec<String> = enabled
+        .iter()
+        .chain(disabled.iter())
+        .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
+        .collect();
+    let names = union_names(&registry_names, &on_disk, &level_dat_names);
 
     let out = names
         .into_iter()
         .map(|filename| {
             let file_present = on_disk.contains(&filename);
             let entry = level_dat_entry(&filename);
-            let in_enabled = enabled.contains(&entry);
-            let in_disabled = disabled.contains(&entry);
+            let in_enabled = contains_ci(&enabled, &entry);
+            let in_disabled = contains_ci(&disabled, &entry);
             let pack_state = state::derive(file_present, in_enabled, in_disabled);
 
-            let reg = registry_entries.iter().find(|e| e.filename == filename);
+            let reg = registry_entries
+                .iter()
+                .find(|e| e.filename.to_lowercase() == filename.to_lowercase());
             let in_library = reg.is_some();
             let compat = compat_of(reg.and_then(|e| e.pack_format), expected);
 
@@ -563,6 +621,86 @@ mod tests {
         assert_eq!(listed[0].filename, "vm.zip");
         assert_eq!(listed[0].state, WorldPackState::NotAdded);
         assert!(listed[0].in_library);
+    }
+
+    /// NTFS is case-insensitive: `veinminer.zip` on disk and level.dat's own
+    /// `file/VeinMiner.zip` entry name the SAME file. Before the case-folded
+    /// union in `union_names`, exact-string dedup kept both spellings as two
+    /// separate rows — a phantom `Orphaned` for the level.dat spelling (no
+    /// file matched it byte-for-byte) alongside a genuine `Enabled` for the
+    /// on-disk spelling. One physical pack must render as exactly one row.
+    #[tokio::test]
+    async fn a_case_mismatched_name_between_level_dat_and_disk_merges_into_one_row() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
+        let mut root = Value::Compound(HashMap::new());
+        level_dat::set_enabled(&mut root, "file/VeinMiner.zip", true).unwrap();
+        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
+            .await
+            .unwrap();
+
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap();
+
+        assert_eq!(listed.len(), 1, "one physical pack must be one row");
+        assert_eq!(
+            listed[0].filename, "veinminer.zip",
+            "the on-disk spelling must win over level.dat's"
+        );
+        assert_eq!(listed[0].state, WorldPackState::Enabled);
+    }
+
+    /// Regression for the membership check, not just the union: merging
+    /// names case-insensitively is not enough if `in_enabled`/`in_disabled`
+    /// still compare exact strings against level.dat's own spelling — that
+    /// would report this pack `Enabled` (present and unlisted, per
+    /// `state::derive`) when level.dat actually disabled it, which is WORSE
+    /// than the phantom-row bug the union fixes, because it silently
+    /// re-enables a pack the user turned off.
+    #[tokio::test]
+    async fn a_case_mismatched_disabled_entry_still_reports_disabled() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
+        let mut root = Value::Compound(HashMap::new());
+        level_dat::set_enabled(&mut root, "file/VeinMiner.zip", false).unwrap();
+        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
+            .await
+            .unwrap();
+
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap();
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "veinminer.zip");
+        assert_eq!(
+            listed[0].state,
+            WorldPackState::Disabled,
+            "an exact-string membership check would miss level.dat's \
+             differently-cased entry and report this Enabled instead"
+        );
+    }
+
+    /// Direct unit coverage for the three-way spelling collision
+    /// `union_names` itself resolves: same case-folded key, three different
+    /// spellings, one from each source. On-disk must win regardless of
+    /// insertion order because [`list_for_world_at`]'s `file_present` check
+    /// is an un-folded `on_disk.contains(&filename)` — only correct if the
+    /// chosen spelling equals the on-disk one whenever a match exists there.
+    #[test]
+    fn union_names_prefers_on_disk_over_registry_and_level_dat() {
+        let registry = vec!["VEINMINER.zip".to_string()];
+        let on_disk = vec!["veinminer.zip".to_string()];
+        let level_dat = vec!["VeinMiner.zip".to_string()];
+
+        let names = union_names(&registry, &on_disk, &level_dat);
+
+        assert_eq!(names, vec!["veinminer.zip".to_string()]);
     }
 
     #[tokio::test]
