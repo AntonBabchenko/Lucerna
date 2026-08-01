@@ -58,9 +58,11 @@ export function offlineMismatchCount(): number {
  * (instance, mc, loader). `force` re-runs it regardless — used by the manual
  * "Check compatibility" button, which must not report a stale verdict.
  *
- * A failed scan leaves the previous result in place rather than blanking it: an
- * empty list reads as "nothing is wrong", which a transient error must never
- * be allowed to say.
+ * A failed REFRESH of the instance already on screen leaves the previous result
+ * in place rather than blanking it: an empty list reads as "nothing is wrong",
+ * which a transient error must never be allowed to say. A scan for a DIFFERENT
+ * instance clears first — showing another instance's verdicts, even briefly, is
+ * worse than showing none.
  */
 export async function ensureCompatScan(
   instanceId: string | null,
@@ -75,12 +77,19 @@ export async function ensureCompatScan(
     return;
   }
   const next: ScanKey = { instanceId, mcVersion, loader };
-  if (!opts.force && sameKey(key, next)) return;
+  const isRefresh = sameKey(key, next);
+  if (!opts.force && isRefresh) return;
 
   const gen = ++generation;
+  if (!isRefresh) {
+    // Different instance/version/loader: drop the old verdicts synchronously so
+    // nothing renders the previous instance's chip while this scan is in flight.
+    key = null;
+    entries = [];
+  }
   const r = await commands.scanInstanceModCompat(instanceId, mcVersion, loader);
   if (gen !== generation) return; // superseded by a newer scan
-  if (r.status !== 'ok') return; // keep the last good result
+  if (r.status !== 'ok') return; // keep whatever we had
   key = next;
   entries = r.data;
 }
