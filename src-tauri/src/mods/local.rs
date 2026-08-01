@@ -730,7 +730,9 @@ fn predicate_value(v: &serde_json::Value) -> String {
 }
 
 /// Read a zip entry's raw bytes, or `None` if absent / unreadable.
-fn entry_bytes(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<u8>> {
+/// `pub(crate)` because `l10n::scan` also reads named entries out of a jar
+/// (language files, discovered by path rather than known up front).
+pub(crate) fn entry_bytes(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<u8>> {
     let mut f = zip.by_name(name).ok()?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf).ok()?;

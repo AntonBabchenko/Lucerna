@@ -403,6 +403,18 @@
       "editTooltip": "Change instance picture",
       "errorDecode": "That file is not a supported image.",
       "errorSave": "Could not save the picture. Please try again."
+    },
+    "l10n": {
+      "title": "Translation coverage",
+      "closeLabel": "Close translation coverage",
+      "languageLabel": "Target language",
+      "listRegionLabel": "Namespaces",
+      "resizeList": "Resize the namespace list",
+      "loading": "Loading translation coverage…",
+      "loadFailed": "Couldn't load translation coverage: {error}",
+      "empty": "This instance has no translatable text yet.",
+      "percentValue": "{percent}%",
+      "detailPlaceholder": "Select a namespace to see its keys."
     }
   },
   "instances": {
@@ -2233,6 +2245,8 @@
       "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
       "modpackCheckFailed": "Couldn't check for updates.",
       "sectionMods": "Mods",
+      "localization": "Translation ({lang})",
+      "localizationValue": "{percent}%",
       "pillTooltip": {
         "running": "Minecraft is currently running for this instance.",
         "ready": "Ready to play — files are installed and up to date.",

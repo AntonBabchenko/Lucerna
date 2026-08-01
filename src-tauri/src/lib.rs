@@ -10,6 +10,7 @@ pub mod forge;
 pub mod instances;
 pub mod journal;
 pub mod jre;
+pub mod l10n;
 pub mod launch;
 pub mod logs;
 pub mod mods;
@@ -356,6 +357,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::datapacks_add_to_world,
             commands::datapacks_remove_from_world,
             commands::datapacks_set_enabled_in_world,
+            // In-game mod localization (translation coverage):
+            commands::l10n_coverage,
         ])
         .events(collect_events![
             network::DownloadProgress,

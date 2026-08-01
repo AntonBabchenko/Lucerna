@@ -17,6 +17,7 @@
   import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
+  import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import {
@@ -75,7 +76,7 @@
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { initLocale } from '$lib/i18n/state.svelte';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
@@ -164,6 +165,8 @@
   }
 
   let manageOpen = $state(false);
+  // Opened from the Overview Mods card's translation row.
+  let l10nOpen = $state(false);
   // Which Manage field the modal should scroll to and flash when it opens.
   // Set by whichever entry point opened it; every site that flips manageOpen
   // sets this too, so a stale highlight can never survive into the next open.
@@ -298,6 +301,17 @@
   let intentUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
+  // Feeds the Overview Mods card's translation row.
+  let l10nPercent = $state<number | null>(null);
+  // The target language for translation-coverage checks — shared with
+  // LocalizationModal via its bindable `lang` prop so the row and the modal
+  // can never silently disagree about which language they're measuring
+  // (that mismatch, with the backend defaulting an unset language to
+  // "en_us", was the "modal shows 81% but the row says 100%" bug). Seeded
+  // from the launcher's already-*resolved* UI locale rather than the raw
+  // 'system' preference — the backend has no way to know what "system"
+  // resolves to, but the frontend just rendered the whole UI in it.
+  let l10nLang = $state($locale ?? 'en');
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
@@ -465,6 +479,31 @@
     void commands.instanceQuickPlaySupport(id).then((r) => {
       if (activeInstance?.id !== id) return; // ignore stale async result
       quickPlaySupported = r.status === 'ok' ? r.data : false;
+    });
+  });
+
+  // Feeds the Overview Mods card's translation row (l10nPercent), against
+  // the shared l10nLang target — see its declaration above.
+  $effect(() => {
+    const id = activeInstance?.id ?? null;
+    const targetLang = l10nLang;
+    if (!id) {
+      l10nPercent = null;
+      return;
+    }
+    void commands.l10nCoverage(id, targetLang).then((r) => {
+      if (activeInstance?.id !== id) return; // ignore stale async result
+      if (r.status !== 'ok') {
+        l10nPercent = null;
+        return;
+      }
+      l10nPercent = r.data.percent;
+      // The backend may resolve a bare launcher locale (e.g. "ru") to a
+      // full Minecraft code ("ru_ru"). Write the resolved code back so the
+      // row's own label — and LocalizationModal's picker, via the same
+      // bindable — converge on it instead of the row being stuck showing
+      // the bare guess. A no-op once l10nLang is already a full code.
+      if (r.data.lang !== targetLang) l10nLang = r.data.lang;
     });
   });
 
@@ -1395,6 +1434,9 @@
               onOpenServers={() => serversUi.setMode('servers')}
               {onOptimise}
               {optimiseResolving}
+              onOpenLocalization={() => (l10nOpen = true)}
+              {l10nPercent}
+              {l10nLang}
             />
           {/snippet}
         </MainTabs>
@@ -1452,6 +1494,12 @@
     focusField={manageFocus}
     onCloneRequest={(id) => (cloneTargetId = id)}
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
+  />
+
+  <LocalizationModal
+    bind:open={l10nOpen}
+    bind:lang={l10nLang}
+    instanceId={activeInstance?.id ?? null}
   />
 
   {#if cloneTargetId !== null}

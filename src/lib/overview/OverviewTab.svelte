@@ -48,6 +48,9 @@
     onOpenServers,
     onOptimise = () => {},
     optimiseResolving = false,
+    onOpenLocalization,
+    l10nPercent = null,
+    l10nLang,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -75,6 +78,14 @@
     onOpenServers: () => void;
     onOptimise?: () => void;
     optimiseResolving?: boolean;
+    onOpenLocalization: () => void;
+    l10nPercent?: number | null;
+    /** Target language the coverage percent was measured against, e.g.
+     *  `"ru_ru"` — the shared selection owned by +page.svelte (see
+     *  LocalizationModal's `lang` prop). Always shown so the number can
+     *  never be mistaken for "coverage into whatever the UI happens to be
+     *  in right now". */
+    l10nLang: string;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -288,6 +299,24 @@
             <span
               >{$t('page.overview.statsDisabled')}
               <span class="font-medium text-secondary">{installedStats.disabled}</span></span
+            >
+          </button>
+        {/if}
+        <!-- Translation coverage. A third card-zone row rather than a fourth
+             Overview card: localization is a property of the mods, and this
+             card is already a stack of zones. -->
+        {#if installedStats.total > 0}
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 flex justify-between gap-3 text-sm"
+            data-testid="overview-localization"
+            onclick={onOpenLocalization}
+          >
+            <span>{$t('page.overview.localization', { lang: l10nLang })}</span>
+            <span class="font-medium text-secondary"
+              >{l10nPercent === null || l10nPercent === undefined
+                ? '—'
+                : $t('page.overview.localizationValue', { percent: l10nPercent })}</span
             >
           </button>
         {/if}

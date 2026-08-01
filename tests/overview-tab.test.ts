@@ -69,6 +69,8 @@ const baseProps = {
   onDismissModsError: () => {},
   onOpenLogs: () => {},
   onOpenServers: () => {},
+  onOpenLocalization: () => {},
+  l10nLang: 'ru_ru',
 };
 
 describe('OverviewTab', () => {
@@ -240,6 +242,61 @@ describe('OverviewTab', () => {
     await fireEvent.click(getByTestId('overview-mods-empty'));
     await fireEvent.click(getByTestId('overview-mods-header'));
     expect(browse).toBe(2);
+  });
+
+  it('shows the localization row once mods are installed', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst },
+    });
+    expect(getByTestId('overview-localization')).toBeTruthy();
+  });
+
+  it('hides the localization row when no mods are installed', () => {
+    const { queryByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: { total: 0, enabled: 0, disabled: 0 },
+      },
+    });
+    expect(queryByTestId('overview-localization')).toBeNull();
+  });
+
+  it('opens localization when the row is clicked', async () => {
+    let opened = 0;
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, onOpenLocalization: () => opened++ },
+    });
+    await fireEvent.click(getByTestId('overview-localization'));
+    expect(opened).toBe(1);
+  });
+
+  // Regression coverage: measuring against the wrong language and reporting
+  // a bare percentage is how the original bug hid itself (81% in the modal
+  // for ru_ru, 100% on this row — because the row silently measured en_us
+  // instead). The row must always say which language its number is for.
+  it('names the language the translation percent was measured against', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, l10nPercent: 81, l10nLang: 'ru_ru' },
+    });
+    expect(getByTestId('overview-localization').textContent).toContain('ru_ru');
+    expect(getByTestId('overview-localization').textContent).toContain('81%');
+  });
+
+  it('updates the row label when the shared language changes', async () => {
+    const { getByTestId, rerender } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, l10nPercent: 81, l10nLang: 'ru_ru' },
+    });
+    expect(getByTestId('overview-localization').textContent).toContain('ru_ru');
+
+    await rerender({
+      ...baseProps,
+      activeInstance: fabricInst,
+      l10nPercent: 42,
+      l10nLang: 'de_de',
+    });
+    expect(getByTestId('overview-localization').textContent).toContain('de_de');
+    expect(getByTestId('overview-localization').textContent).not.toContain('ru_ru');
   });
 });
 
