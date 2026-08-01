@@ -1,14 +1,16 @@
 // WorldDatapacks panel — unit coverage for the empty state, each WorldPackState
 // row shape (enabled/disabled toggle, orphaned removal, not_added add), the
-// format-mismatch warning, the running-instance gate, error surfacing, and a
-// reload that fails AFTER a successful action (the stale-row bug).
+// format-mismatch warning, the unknown-compatibility indicator, the
+// running-instance gate, error surfacing (including a reload that fails AFTER
+// a successful action — the stale-row bug), and a mixed-state list rendering
+// all four states at once.
 //
 // WorldDatapacks does not import or mount ContextualTour (that overlay lives in
 // WorldsTab, gated on the worlds list being non-empty) — so, unlike
 // tests/worlds-tab.test.ts and tests/intent/worlds.test.ts, no
 // markSeen('worlds') call is needed here: the panel alone cannot trigger it.
 
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorldDatapack } from '$lib/ipc/bindings';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
@@ -77,7 +79,7 @@ describe('WorldDatapacks — orphaned row', () => {
     // nothing to read a pack_format from once the file is gone).
     expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
-    const removeBtn = screen.getByTestId('world-datapack-remove');
+    const removeBtn = screen.getByTestId('world-datapack-remove-orphaned');
     await fireEvent.click(removeBtn);
     expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
       'inst-1',
@@ -95,10 +97,11 @@ describe('WorldDatapacks — not_added row', () => {
       data: [makePack({ filename: 'library-pack.zip', state: 'not_added' })],
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    // The header's own "Add datapack" (library-install) button shares the
-    // world-datapack-add testid with this row's button, so disambiguate by
-    // accessible name rather than testid.
+    // The header's own "Add datapack" (library-install) button now has its
+    // own distinct testid (world-datapack-add-library), so this row's button
+    // (world-datapack-add-world) no longer collides with it — verify both.
     const addBtn = await screen.findByRole('button', { name: /^add to this world$/i });
+    expect(addBtn.getAttribute('data-testid')).toBe('world-datapack-add-world');
     await fireEvent.click(addBtn);
     expect(commands.datapacksAddToWorld).toHaveBeenCalledWith(
       'inst-1',
@@ -138,9 +141,9 @@ describe('WorldDatapacks — running disables mutating controls', () => {
     render(WorldDatapacks, {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
     });
-    const addBtn = await screen.findByTestId('world-datapack-add');
+    const addBtn = await screen.findByTestId('world-datapack-add-library');
     const toggleBtn = screen.getByTestId('world-datapack-toggle');
-    const removeBtn = screen.getByTestId('world-datapack-remove');
+    const removeBtn = screen.getByTestId('world-datapack-remove-world');
     expect((addBtn as HTMLButtonElement).disabled).toBe(true);
     expect((toggleBtn as HTMLButtonElement).disabled).toBe(true);
     expect((removeBtn as HTMLButtonElement).disabled).toBe(true);
@@ -226,5 +229,149 @@ describe('WorldDatapacks — a reload that fails after a successful action', () 
     expect(screen.queryByText('flaky-pack.zip')).toBeNull();
     expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
     expect(screen.queryByText(/no datapacks yet/i)).toBeNull();
+  });
+});
+
+describe('WorldDatapacks — unknown compatibility', () => {
+  it('renders a neutral "compatibility unknown" indicator rather than looking identical to a compatible pack', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        makePack({
+          filename: 'unknown-compat.zip',
+          state: 'enabled',
+          compat: { kind: 'unknown' },
+        }),
+      ],
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText('unknown-compat.zip');
+    expect(screen.getByText(/compatibility unknown/i)).toBeTruthy();
+  });
+});
+
+// The whole premise of the feature — a world's datapacks each carrying their
+// own independent state — was never exercised by a fixture with more than one
+// pack. Four packs, one per WorldPackState, rendered together: each row must
+// stay visually distinguishable and every action must target only its own
+// filename, never a neighbour's.
+describe('WorldDatapacks — mixed state list (all four states rendered together)', () => {
+  function mixedPacks(): WorldDatapack[] {
+    return [
+      makePack({ filename: 'enabled-mix.zip', state: 'enabled' }),
+      makePack({ filename: 'disabled-mix.zip', state: 'disabled' }),
+      makePack({ filename: 'notadded-mix.zip', state: 'not_added' }),
+      makePack({ filename: 'orphaned-mix.zip', state: 'orphaned' }),
+    ];
+  }
+
+  function rowFor(filename: string): HTMLElement {
+    const cell = screen.getByText(filename);
+    const row = cell.closest('[data-card-shell]');
+    if (!row) throw new Error(`no row rendered for ${filename}`);
+    return row as HTMLElement;
+  }
+
+  it('renders one row per pack and dims only the disabled one (the shared card-status.ts convention)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: mixedPacks(),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
+    await screen.findByText('enabled-mix.zip');
+    await screen.findByText('disabled-mix.zip');
+    await screen.findByText('notadded-mix.zip');
+    await screen.findByText('orphaned-mix.zip');
+
+    const enabledRow = rowFor('enabled-mix.zip');
+    const disabledRow = rowFor('disabled-mix.zip');
+    const notAddedRow = rowFor('notadded-mix.zip');
+    const orphanedRow = rowFor('orphaned-mix.zip');
+
+    expect(disabledRow.className).toContain('opacity-60');
+    expect(enabledRow.className).not.toContain('opacity-60');
+    expect(notAddedRow.className).not.toContain('opacity-60');
+    expect(orphanedRow.className).not.toContain('opacity-60');
+
+    // Distinct accent strips per state (data-card-accent is CardShell's own
+    // accent strip hook — see src/lib/ui/cards/CardShell.svelte).
+    expect(orphanedRow.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+    expect(disabledRow.querySelector('[data-card-accent]')?.className).toContain(
+      'bg-border-emphasis',
+    );
+    expect(enabledRow.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+    expect(notAddedRow.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+  });
+
+  it('the enabled row toggle targets only its own filename', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: mixedPacks(),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
+    await screen.findByText('enabled-mix.zip');
+    const row = rowFor('enabled-mix.zip');
+    await fireEvent.click(within(row).getByTestId('world-datapack-toggle'));
+    expect(commands.datapacksSetEnabledInWorld).toHaveBeenCalledWith(
+      'inst-1',
+      'MixedWorld',
+      'enabled-mix.zip',
+      false,
+    );
+  });
+
+  it('the disabled row toggle targets only its own filename', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: mixedPacks(),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
+    await screen.findByText('disabled-mix.zip');
+    const row = rowFor('disabled-mix.zip');
+    await fireEvent.click(within(row).getByTestId('world-datapack-toggle'));
+    expect(commands.datapacksSetEnabledInWorld).toHaveBeenCalledWith(
+      'inst-1',
+      'MixedWorld',
+      'disabled-mix.zip',
+      true,
+    );
+  });
+
+  it('the not_added row add-to-world action targets only its own filename', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: mixedPacks(),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
+    await screen.findByText('notadded-mix.zip');
+    const row = rowFor('notadded-mix.zip');
+    await fireEvent.click(within(row).getByTestId('world-datapack-add-world'));
+    expect(commands.datapacksAddToWorld).toHaveBeenCalledWith(
+      'inst-1',
+      'MixedWorld',
+      'notadded-mix.zip',
+    );
+  });
+
+  it('the orphaned row remove action targets only its own filename', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: mixedPacks(),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
+    await screen.findByText('orphaned-mix.zip');
+    const row = rowFor('orphaned-mix.zip');
+    await fireEvent.click(within(row).getByTestId('world-datapack-remove-orphaned'));
+    expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
+      'inst-1',
+      'MixedWorld',
+      'orphaned-mix.zip',
+    );
   });
 });

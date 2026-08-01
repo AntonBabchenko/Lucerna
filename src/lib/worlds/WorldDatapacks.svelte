@@ -98,10 +98,21 @@
 
   // Orphaned (file gone) outranks a format mismatch for the row's accent —
   // there is nothing to read a pack_format from once the file is missing.
+  // A merely-disabled pack ranks below both: it follows the shared
+  // disabled/muted convention from card-status.ts (see rowDim below), but a
+  // real compatibility problem is more important information than "it's off".
   function rowAccent(pack: WorldDatapack): CardAccent {
     if (pack.state === 'orphaned') return 'danger';
     if (pack.compat.kind === 'mismatch') return 'warning';
+    if (pack.state === 'disabled') return 'muted';
     return 'none';
+  }
+
+  // Mirrors card-status.ts's `disabled: { dim: true }` — every other CardShell
+  // surface dims a disabled row, so a disabled datapack shouldn't read as
+  // equally prominent as an enabled one.
+  function rowDim(pack: WorldDatapack): boolean {
+    return pack.state === 'disabled';
   }
 
   async function addDatapackToLibrary() {
@@ -122,10 +133,14 @@
       const placed = await commands.datapacksAddToWorld(instanceId, world, installed.data.filename);
       if (placed.status === 'ok') {
         if (placed.data === 'copied') pushInfo($t('worlds.datapacks.copyNotLinked'));
-        await reload();
       } else {
+        // The install itself succeeded — the pack IS now in the library, and
+        // must show up as `not_added` rather than silently vanishing — so
+        // reload runs below regardless of whether adding it to THIS world
+        // also succeeded.
         actionError = formatError(placed.error);
       }
+      await reload();
     } finally {
       busyAdd = false;
       busy = false;
@@ -204,7 +219,7 @@
         busy={busyAdd}
         disabled={disabledKey !== null}
         onclick={() => void addDatapackToLibrary()}
-        data-testid="world-datapack-add"
+        data-testid="world-datapack-add-library"
       >
         <Icon name="archive" size={14} />
         {$t('worlds.datapacks.add')}
@@ -223,7 +238,7 @@
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as pack (pack.filename)}
-        <CardShell variant="compact-row" accent={rowAccent(pack)}>
+        <CardShell variant="compact-row" accent={rowAccent(pack)} dim={rowDim(pack)}>
           <CardMedia placeholder="package" size="sm" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -239,6 +254,11 @@
               >
                 {stateLabel(pack.state)}
               </StatusBadge>
+              {#if pack.compat.kind === 'unknown'}
+                <StatusBadge variant="neutral" icon="info"
+                  >{$t('worlds.datapacks.compatUnknown')}</StatusBadge
+                >
+              {/if}
               {#if !pack.in_library}
                 <StatusBadge variant="neutral">{$t('worlds.datapacks.external')}</StatusBadge>
               {/if}
@@ -269,7 +289,7 @@
                 <button
                   type="button"
                   class="btn-icon btn-icon-sm !text-accent"
-                  data-testid="world-datapack-add"
+                  data-testid="world-datapack-add-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
                   aria-label={$t('worlds.datapacks.addToWorld')}
                   onclick={() => void addToWorld(pack.filename)}
@@ -293,7 +313,7 @@
                   busy={busyRow === pack.filename}
                   disabled={disabledKey !== null}
                   onclick={() => void removeFromWorld(pack.filename)}
-                  data-testid="world-datapack-remove"
+                  data-testid="world-datapack-remove-orphaned"
                 >
                   <Icon name="trash" size={14} />
                   {$t('worlds.datapacks.removeFromWorld')}
@@ -323,7 +343,11 @@
                     : $t('worlds.datapacks.enable')}
                   onclick={() => void toggleEnabled(pack)}
                 >
-                  <Icon name="power" size={15} />
+                  {#if busyRow === pack.filename}
+                    <Spinner size="sm" />
+                  {:else}
+                    <Icon name="power" size={15} />
+                  {/if}
                 </button>
               </span>
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -338,12 +362,16 @@
                 <button
                   type="button"
                   class="btn-icon btn-icon-sm btn-icon-danger"
-                  data-testid="world-datapack-remove"
+                  data-testid="world-datapack-remove-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
                   aria-label={$t('worlds.datapacks.removeFromWorld')}
                   onclick={() => void removeFromWorld(pack.filename)}
                 >
-                  <Icon name="trash" size={15} />
+                  {#if busyRow === pack.filename}
+                    <Spinner size="sm" />
+                  {:else}
+                    <Icon name="trash" size={15} />
+                  {/if}
                 </button>
               </span>
             {/if}

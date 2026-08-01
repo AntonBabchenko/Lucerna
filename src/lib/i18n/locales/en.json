@@ -1096,6 +1096,7 @@
       "external": "Not in the library",
       "copyNotLinked": "This pack was copied instead of linked — it now uses its own disk space.",
       "formatMismatch": "Made for data pack format {packFormat}; this version expects {expected}. It may stop the world from loading.",
+      "compatUnknown": "Compatibility unknown",
       "blockedRunning": "Quit Minecraft to change this world's datapacks",
       "blockedBusy": "Another datapack change is still running"
     },

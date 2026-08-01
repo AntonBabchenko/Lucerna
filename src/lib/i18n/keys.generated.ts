@@ -2306,6 +2306,7 @@ export type TranslationKey =
   | 'worlds.datapacks.addToWorld'
   | 'worlds.datapacks.blockedBusy'
   | 'worlds.datapacks.blockedRunning'
+  | 'worlds.datapacks.compatUnknown'
   | 'worlds.datapacks.copyNotLinked'
   | 'worlds.datapacks.disable'
   | 'worlds.datapacks.empty'
