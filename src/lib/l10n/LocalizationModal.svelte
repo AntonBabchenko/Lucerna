@@ -208,6 +208,32 @@
         <CloseButton onClick={close} ariaLabel={$t('instance.l10n.closeLabel')} />
       </div>
     </header>
+    {#if coverage?.packState === 'present_not_enabled'}
+      <!--
+        The Finding-2 scenario: a modpack update's own overrides/options.txt
+        overwrote the instance's options.txt wholesale, wiping the
+        resourcePacks entry while leaving the generated pack file itself on
+        disk (see l10n::options_txt's module doc). Re-running Apply rebuilds
+        and re-registers the pack AND re-enables it in options.txt in one
+        call — the same action the header's Apply button already performs —
+        so this reuses it rather than a distinct command.
+      -->
+      <div
+        class="flex items-center justify-between gap-3 border-b bg-warning-bg px-4 py-2 text-sm text-warning-text"
+        data-testid="l10n-pack-disabled-banner"
+      >
+        <span>{$t('instance.l10n.packDisabled.message')}</span>
+        <BusyButton
+          busy={applying}
+          disabled={coverage.applyGate !== 'ready'}
+          class="btn-secondary btn-sm shrink-0"
+          data-testid="l10n-pack-reenable"
+          onclick={apply}
+        >
+          {$t('instance.l10n.packDisabled.reenableButton')}
+        </BusyButton>
+      </div>
+    {/if}
     <div class="flex flex-1 overflow-hidden">
       <aside
         class="shrink-0 overflow-y-auto p-2"

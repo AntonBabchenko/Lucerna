@@ -116,6 +116,17 @@ pub struct InstanceCoverage {
     /// compute on every scan: only the jar's central directory and its tiny
     /// `version.json` entry are read, never the ~tens-of-megabytes jar body.
     pub apply_gate: crate::l10n::pack_format::ApplyGate,
+    /// Whether `lang`'s generated resource pack is on disk and whether
+    /// `options.txt` currently lists it — `l10n::options_txt::pack_state`,
+    /// wired up here the same way `apply_gate` is: resolved from the SAME
+    /// two facts a re-enable action would itself act on, so the report and
+    /// the UI's affordance can never disagree. A modpack update's own
+    /// `overrides/options.txt` can wipe the `resourcePacks` entry while
+    /// leaving the pack file itself on disk (see `l10n::options_txt`'s
+    /// module doc) — this is how the UI detects exactly that split and
+    /// offers to re-enable, rather than leaving the user's translations
+    /// silently missing with no explanation.
+    pub pack_state: crate::l10n::options_txt::PackState,
 }
 
 /// Map a launcher UI locale (`ru`, `en`, or a fuller tag) to a Minecraft
@@ -214,6 +225,7 @@ pub async fn scan_instance(
     let client_jar = crate::datapacks::compat::client_jar_path(versions_dir, mc_version);
     let fmt = crate::l10n::pack_format::from_client_jar_path(&client_jar);
     let apply_gate = crate::l10n::pack_format::apply_gate(fmt);
+    let pack_state = lang_pack_state(inst_root, lang);
 
     Ok(InstanceCoverage {
         lang: lang.to_string(),
@@ -221,7 +233,32 @@ pub async fn scan_instance(
         namespaces,
         available_codes: available.into_iter().collect(),
         apply_gate,
+        pack_state,
     })
+}
+
+/// Classify `lang`'s generated pack for `l10n::options_txt::pack_state`:
+/// whether `<inst_root>/.minecraft/resourcepacks/lucerna-translation-<lang>.zip`
+/// exists, and what `<inst_root>/.minecraft/options.txt` currently says.
+///
+/// Both reads are synchronous `std::fs`, matching how the rest of this
+/// module already reads small local files inside an async function
+/// (`ScanCache::load`, a few lines above). `options.txt` missing entirely
+/// (the instance has never been launched) degrades to an empty string —
+/// `pack_state` then reports `PresentNotEnabled` if the pack file exists,
+/// which is the same "written, not yet active" outcome `l10n_apply` itself
+/// already explains to the user as deferred activation, not a modpack-wipe
+/// — re-running Apply resolves either cause identically.
+fn lang_pack_state(inst_root: &Path, lang: &str) -> crate::l10n::options_txt::PackState {
+    let filename = format!("{}{lang}.zip", crate::l10n::options_txt::PACK_PREFIX);
+    let mc_dir = inst_root.join(".minecraft");
+    let pack_path = mc_dir.join(crate::mods::install::asset_subpath(
+        crate::mods::platform::ContentKind::ResourcePack,
+        &filename,
+    ));
+    let pack_on_disk = pack_path.is_file();
+    let options_txt = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap_or_default();
+    crate::l10n::options_txt::pack_state(pack_on_disk, &options_txt)
 }
 
 /// Fold one namespace's counts into the aggregate.
@@ -1039,5 +1076,165 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(out.apply_gate, crate::l10n::pack_format::ApplyGate::TooOld);
+    }
+
+    // ---------------------------------------------------------------------
+    // InstanceCoverage::pack_state (Finding 2)
+    // ---------------------------------------------------------------------
+
+    fn resourcepacks_dir(inst_root: &Path) -> std::path::PathBuf {
+        inst_root.join(".minecraft").join("resourcepacks")
+    }
+
+    /// The bare minimum an instance root needs for `scan_instance` to run at
+    /// all: an (empty) mods directory. Every `pack_state` test below has no
+    /// mod jars to scan — it is only exercising the pack-file / options.txt
+    /// side of the report.
+    async fn init_instance(inst_root: &Path) {
+        let mods_dir = crate::mods::installed::mods_dir(inst_root);
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scan_instance_reports_not_applied_when_no_pack_file_exists() {
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+        init_instance(&inst_root).await;
+
+        let out = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out.pack_state,
+            crate::l10n::options_txt::PackState::NotApplied
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_instance_reports_present_not_enabled_when_the_pack_survives_a_modpack_wipe() {
+        // The Finding-2 scenario: the generated pack file is still on disk,
+        // but options.txt no longer lists it (a modpack update's own
+        // overrides/options.txt overwrote it — see options_txt's module doc).
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+        init_instance(&inst_root).await;
+
+        let rp_dir = resourcepacks_dir(&inst_root);
+        tokio::fs::create_dir_all(&rp_dir).await.unwrap();
+        tokio::fs::write(
+            rp_dir.join(format!(
+                "{}ru_ru.zip",
+                crate::l10n::options_txt::PACK_PREFIX
+            )),
+            b"pk",
+        )
+        .await
+        .unwrap();
+        let mc_dir = inst_root.join(".minecraft");
+        tokio::fs::write(mc_dir.join("options.txt"), "version:3465\n")
+            .await
+            .unwrap();
+
+        let out = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out.pack_state,
+            crate::l10n::options_txt::PackState::PresentNotEnabled
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_instance_reports_enabled_when_options_txt_lists_the_pack() {
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+        init_instance(&inst_root).await;
+
+        let filename = format!("{}ru_ru.zip", crate::l10n::options_txt::PACK_PREFIX);
+        let rp_dir = resourcepacks_dir(&inst_root);
+        tokio::fs::create_dir_all(&rp_dir).await.unwrap();
+        tokio::fs::write(rp_dir.join(&filename), b"pk")
+            .await
+            .unwrap();
+        let mc_dir = inst_root.join(".minecraft");
+        let enabled =
+            crate::l10n::options_txt::with_pack_enabled("version:3465\n", &filename, true);
+        tokio::fs::write(mc_dir.join("options.txt"), enabled)
+            .await
+            .unwrap();
+
+        let out = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.pack_state, crate::l10n::options_txt::PackState::Enabled);
+    }
+
+    #[tokio::test]
+    async fn scan_instance_pack_state_is_language_specific() {
+        // A pack for a DIFFERENT language on disk must not read as this
+        // language's pack being present — the filename is lang-specific.
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+        init_instance(&inst_root).await;
+
+        let rp_dir = resourcepacks_dir(&inst_root);
+        tokio::fs::create_dir_all(&rp_dir).await.unwrap();
+        tokio::fs::write(
+            rp_dir.join(format!(
+                "{}de_de.zip",
+                crate::l10n::options_txt::PACK_PREFIX
+            )),
+            b"pk",
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out.pack_state,
+            crate::l10n::options_txt::PackState::NotApplied
+        );
     }
 }

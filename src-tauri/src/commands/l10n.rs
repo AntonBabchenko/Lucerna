@@ -118,6 +118,34 @@ pub async fn l10n_namespace_keys(
     ))
 }
 
+/// Reject a `namespace` or `lang` that would corrupt a later composed
+/// zip-entry path if persisted verbatim: `l10n::store::load` (the very next
+/// thing `l10n_set_override` calls) constructs a fresh `NamespaceStore` from
+/// these two values verbatim when no file exists yet for the pair, and
+/// `store::save` then persists them INSIDE the JSON body — `store_path`'s
+/// percent-encoding only sanitises the FILE NAME the store lands at, never
+/// that stored field. Without this check, a namespace like `"../../evil"`
+/// would be silently written to disk and only dropped later, when a pack is
+/// actually built (`pack::build`'s own defence-in-depth guard). Reuses
+/// `l10n::scan::is_traversal_unsafe` — the identical rule `pack::build`
+/// already applies to the same class of value read back off disk — rather
+/// than inventing a second one. Split out as its own pure function (mirrors
+/// `apply_write_allowed` above) purely so the decision is unit-testable
+/// without a Tauri `AppHandle`.
+fn validate_override_identifiers(namespace: &str, lang: &str) -> Result<(), crate::error::Error> {
+    if crate::l10n::scan::is_traversal_unsafe(namespace) {
+        return Err(crate::error::Error::L10nNamespaceInvalid {
+            namespace: namespace.to_string(),
+        });
+    }
+    if crate::l10n::scan::is_traversal_unsafe(lang) {
+        return Err(crate::error::Error::L10nLangInvalid {
+            lang: lang.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Write or clear one translation override in the global per-`(lang,
 /// namespace)` store.
 ///
@@ -131,7 +159,9 @@ pub async fn l10n_namespace_keys(
 /// Validation happens HERE, before anything reaches the store: `source_en`
 /// is the English string the caller already has (from the `KeyRow` it
 /// fetched via `l10n_namespace_keys`), so no extra read is needed to check
-/// `value` against Minecraft's `%s`/`%N$s` format grammar.
+/// `value` against Minecraft's `%s`/`%N$s` format grammar. `namespace` and
+/// `lang` are validated too, via `validate_override_identifiers` — see its
+/// doc comment for why this specific boundary is the one that matters.
 #[tauri::command]
 #[specta::specta]
 pub fn l10n_set_override(
@@ -142,6 +172,8 @@ pub fn l10n_set_override(
     value: String,
     source_en: String,
 ) -> Result<(), crate::error::Error> {
+    validate_override_identifiers(&namespace, &lang)?;
+
     let store_dir =
         crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
     let mut store = crate::l10n::store::load(&store_dir, &lang, &namespace);
@@ -376,6 +408,44 @@ mod tests {
     fn a_real_language_setting_is_mapped_through_default_target_code() {
         assert_eq!(resolve_ui_language("ru"), "ru_ru");
         assert_eq!(resolve_ui_language("pt-BR"), "pt_br");
+    }
+
+    // -----------------------------------------------------------------
+    // validate_override_identifiers
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn validate_override_identifiers_rejects_a_slash_bearing_namespace() {
+        let err = validate_override_identifiers("../../evil", "ru_ru").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::L10nNamespaceInvalid { namespace } if namespace == "../../evil"
+        ));
+    }
+
+    #[test]
+    fn validate_override_identifiers_rejects_a_slash_bearing_lang() {
+        let err = validate_override_identifiers("create", "../../evil").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::L10nLangInvalid { lang } if lang == "../../evil"
+        ));
+    }
+
+    #[test]
+    fn validate_override_identifiers_checks_namespace_before_lang() {
+        // Both are bad: the namespace error must win, so a caller always
+        // learns about the FIRST problem rather than a nondeterministic one.
+        let err = validate_override_identifiers("..", "..").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::L10nNamespaceInvalid { .. }
+        ));
+    }
+
+    #[test]
+    fn validate_override_identifiers_accepts_ordinary_values() {
+        assert!(validate_override_identifiers("create", "ru_ru").is_ok());
     }
 
     // -----------------------------------------------------------------

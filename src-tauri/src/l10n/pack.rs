@@ -355,6 +355,34 @@ mod tests {
     }
 
     #[test]
+    fn a_slash_bearing_namespace_is_dropped_not_fatal_to_the_pack() {
+        // Finding 1: `is_traversal_unsafe` originally had no '/' check
+        // because its only call site (`scan::parse_lang_path`) could never
+        // see one — its input is already split on '/'. `store::load` (this
+        // function's own input) performs no such split, so a hand-edited or
+        // corrupted store file CAN hand back a namespace containing a
+        // slash, e.g. "../../evil" — must be dropped the same way a bare
+        // ".." already is, not silently composed into
+        // "assets/../../evil/lang/ru_ru.json".
+        let unsafe_store = store("../../evil", "ru_ru", &[("a", "А", "A")]);
+        let safe_store = store("create", "ru_ru", &[("b", "Б", "B")]);
+        let bytes = build(
+            &[unsafe_store, safe_store],
+            "ru_ru",
+            PackFormat {
+                major: 34,
+                minor: 0,
+            },
+            "x",
+        )
+        .expect("the safe namespace alone is enough to ship a pack");
+
+        assert!(scan::read_entry(&bytes, "assets/create/lang/ru_ru.json").is_some());
+        let names = entry_names(&bytes);
+        assert!(names.iter().all(|n| !n.contains("evil")));
+    }
+
+    #[test]
     fn a_traversal_unsafe_code_refuses_the_whole_build() {
         // Unlike a bad NAMESPACE (dropped, other namespaces still ship), a
         // bad `code` (the target language) would corrupt every entry name in

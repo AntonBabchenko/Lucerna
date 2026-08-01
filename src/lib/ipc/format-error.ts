@@ -193,6 +193,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   l10n_translation_invalid: 'clean',
   l10n_format_unknown: 'clean',
   l10n_format_too_old: 'clean',
+  l10n_namespace_invalid: 'clean',
+  l10n_lang_invalid: 'clean',
 };
 
 /**
@@ -611,6 +613,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.l10nFormatUnknown', { mcVersion: e.mc_version });
     case 'l10n_format_too_old':
       return translate('errors.l10nFormatTooOld', { mcVersion: e.mc_version });
+    case 'l10n_namespace_invalid':
+      return translate('errors.l10nNamespaceInvalid', { namespace: e.namespace });
+    case 'l10n_lang_invalid':
+      return translate('errors.l10nLangInvalid', { lang: e.lang });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

@@ -29,6 +29,7 @@ function coverage(over: Partial<InstanceCoverage> = {}): InstanceCoverage {
     namespaces: [],
     availableCodes: ['en_us'],
     applyGate: 'ready',
+    packState: 'not_applied',
     ...over,
   };
 }
@@ -346,6 +347,51 @@ describe('LocalizationModal', () => {
       await fireEvent.click(await screen.findByTestId('l10n-apply'));
 
       await waitFor(() => expect(toastList().some((t) => t.kind === 'warning')).toBe(true));
+    });
+  });
+
+  describe('pack re-enable banner (Finding 2: PackState wiring)', () => {
+    it('does not show the banner when the pack is enabled', async () => {
+      mockCoverageOk(coverage({ packState: 'enabled' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByRole('dialog');
+      expect(screen.queryByTestId('l10n-pack-disabled-banner')).toBeNull();
+    });
+
+    it('does not show the banner when no pack has ever been applied', async () => {
+      mockCoverageOk(coverage({ packState: 'not_applied' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByRole('dialog');
+      expect(screen.queryByTestId('l10n-pack-disabled-banner')).toBeNull();
+    });
+
+    it('shows the re-enable banner when a modpack update wiped options.txt but the pack file survives', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      expect(await screen.findByTestId('l10n-pack-disabled-banner')).toBeTruthy();
+      expect(screen.getByTestId('l10n-pack-reenable')).toBeTruthy();
+    });
+
+    it('pressing the re-enable button calls l10nApply', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: true,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = await screen.findByTestId('l10n-pack-reenable');
+
+      await fireEvent.click(btn);
+
+      await waitFor(() => expect(commands.l10nApply).toHaveBeenCalledWith('a', 'en_us'));
+    });
+
+    it('disables the re-enable button when Apply is not gated ready', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled', applyGate: 'too_old' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const btn = (await screen.findByTestId('l10n-pack-reenable')) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
     });
   });
 

@@ -1650,7 +1650,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Validation happens HERE, before anything reaches the store: `source_en`
 	 *  is the English string the caller already has (from the `KeyRow` it
 	 *  fetched via `l10n_namespace_keys`), so no extra read is needed to check
-	 *  `value` against Minecraft's `%s`/`%N$s` format grammar.
+	 *  `value` against Minecraft's `%s`/`%N$s` format grammar. `namespace` and
+	 *  `lang` are validated too, via `validate_override_identifiers` — see its
+	 *  doc comment for why this specific boundary is the one that matters.
 	 */
 	l10nSetOverride: (namespace: string, lang: string, key: string, value: string, sourceEn: string) => typedError<null, Error>(__TAURI_INVOKE("l10n_set_override", { namespace, lang, key, value, sourceEn })),
 	/**
@@ -2440,7 +2442,33 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  silently have no effect (MinecraftForge #4907, closed stale, never
  *  fixed — see `l10n::pack_format`'s module doc).
  */
-{ kind: "l10n_format_too_old"; mc_version: string };
+{ kind: "l10n_format_too_old"; mc_version: string } | 
+/**
+ *  The `namespace` parameter of `l10n_set_override` failed
+ *  `l10n::scan::is_traversal_unsafe` — refused at the IPC boundary,
+ *  before it can ever reach `NamespaceStore` or be persisted into the
+ *  on-disk override store. Necessary because `store::store_path`'s
+ *  percent-encoding only sanitises the FILE NAME the store lands at,
+ *  never the `namespace` value persisted INSIDE the JSON body; without
+ *  this check a value like `"../../evil"` would be silently written to
+ *  disk and only dropped later, when a pack is actually built
+ *  (`pack::build`'s own defence-in-depth guard, which just drops that
+ *  one namespace rather than refusing the write in the first place).
+ */
+{ kind: "l10n_namespace_invalid"; namespace: string } | 
+/**
+ *  Same defect as [`Error::L10nNamespaceInvalid`], for the `lang`
+ *  parameter of `l10n_set_override`. Kept as a separate variant — rather
+ *  than a shared `field` marker — so the UI copy can name "target
+ *  language" without embedding a raw Rust field name; mirrors how
+ *  `WorldPathInvalid`/`ScreenshotPathInvalid` stay two variants sharing
+ *  one validator instead of a generic `PathInvalid { field, .. }`. Worth
+ *  catching separately from a bad namespace: unlike a bad namespace
+ *  (which `pack::build` merely drops), a bad `lang` refuses the WHOLE
+ *  pack build for every namespace, because `lang` doubles as `code`,
+ *  composed into every entry name in the archive.
+ */
+{ kind: "l10n_lang_invalid"; lang: string };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2937,6 +2965,19 @@ export type InstanceCoverage = {
 	 *  `version.json` entry are read, never the ~tens-of-megabytes jar body.
 	 */
 	applyGate: ApplyGate,
+	/**
+	 *  Whether `lang`'s generated resource pack is on disk and whether
+	 *  `options.txt` currently lists it — `l10n::options_txt::pack_state`,
+	 *  wired up here the same way `apply_gate` is: resolved from the SAME
+	 *  two facts a re-enable action would itself act on, so the report and
+	 *  the UI's affordance can never disagree. A modpack update's own
+	 *  `overrides/options.txt` can wipe the `resourcePacks` entry while
+	 *  leaving the pack file itself on disk (see `l10n::options_txt`'s
+	 *  module doc) — this is how the UI detects exactly that split and
+	 *  offers to re-enable, rather than leaving the user's translations
+	 *  silently missing with no explanation.
+	 */
+	packState: PackState,
 };
 
 /**  Base64 PNG returned to the UI (mirrors `accounts::skins::AccountSkin`). */
@@ -4024,6 +4065,16 @@ export type PackOriginSummary = {
 	project_name: string,
 	mod_shas: string[],
 };
+
+/**  Whether the generated pack is on disk and whether the game will load it. */
+export type PackState = 
+/**  No generated pack in the instance. */
+"not_applied" | 
+/**
+ *  Pack file exists but options.txt does not list it — the state a
+ *  modpack update leaves behind. The UI offers to re-enable.
+ */
+"present_not_enabled" | "enabled";
 
 /**  How a store entry ended up in the instance. */
 export type Placement = 

@@ -26,6 +26,10 @@ function coverage(lang: string): InstanceCoverage {
     namespaces: [],
     availableCodes: ['en_us', lang],
     applyGate: 'ready',
+    // 'enabled' keeps this fixture focused on the shared-language contract:
+    // any other state renders the re-enable banner, which is a different
+    // test's subject.
+    packState: 'enabled',
   };
 }
 

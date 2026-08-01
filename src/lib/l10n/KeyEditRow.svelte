@@ -123,7 +123,10 @@
       data-testid="l10n-key-state">{stateLabel}</span
     >
   </div>
-  <p class="text-sm text-primary">{row.sourceEn}</p>
+  <div class="flex flex-col gap-0.5">
+    <span class="text-[11px] text-muted">{$t('instance.l10n.keyTable.sourceLabel')}</span>
+    <p class="text-sm text-primary">{row.sourceEn}</p>
+  </div>
   {#if row.modValue !== null && row.state !== 'from_mod'}
     <p class="text-xs text-muted">
       {$t('instance.l10n.keyTable.modValueLabel')}: {row.modValue}
