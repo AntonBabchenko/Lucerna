@@ -185,6 +185,17 @@ pub async fn add_to_world_at(
         })?;
 
     let dest = dp_dir.join(filename);
+    // `LinkIfPossible`, not `ForceCopy`: deduplicating one physical pack
+    // across every world that installs it is worth keeping. But `store.rs`'s
+    // stated justification for `LinkIfPossible` — "corruption is a
+    // re-download, never data loss" — does NOT hold here: a datapack's
+    // `source` is always `None` in this slice, so this library copy is the
+    // only one Lucerna has. The accepted consequence is the mod-jar hazard
+    // this feature inherits on purpose: a user opening
+    // `saves/<world>/datapacks/<file>.zip` in an archive tool and saving
+    // edits the library copy and every other world linking it, in place.
+    // That is the user acting on their own file, not a hazard Lucerna
+    // introduces, so the link stays.
     let placement = materialize(&src, &dest, LinkPolicy::LinkIfPossible)
         .await
         .map_err(|e| Error::ModsInstancePath {
