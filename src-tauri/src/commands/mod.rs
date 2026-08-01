@@ -62,6 +62,8 @@ mod skin_library;
 pub use skin_library::*;
 mod desktop;
 pub use desktop::*;
+mod datapacks;
+pub use datapacks::*;
 mod l10n;
 pub use l10n::*;
 

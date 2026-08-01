@@ -26,10 +26,24 @@ import { preflightCache } from './preflight-cache';
 export function toOverlayKeys(report: PreflightReport): Set<string> {
   const out = new Set<string>();
   for (const v of report.violations) {
-    if (v.kind !== 'version_out_of_range' || v.provider_project === null) continue;
+    if (!isRangeRemediable(v) || v.provider_project === null) continue;
     out.add(depProjectRefKey(v.provider_project));
   }
   return out;
+}
+
+/**
+ * True when "install a version that satisfies the declared range" is the right
+ * repair for this violation.
+ *
+ * Deliberately EXCLUDES `incompatible_installed`: there the range names the
+ * versions that clash, so the satisfying set is exactly what must be avoided —
+ * remediating it with `modsFilterSatisfying` would install a worse version.
+ * That row is informational until a dedicated "pick a version outside the
+ * range" flow exists.
+ */
+export function isRangeRemediable(v: DepViolation): boolean {
+  return v.kind === 'version_out_of_range' || v.kind === 'optional_out_of_range';
 }
 
 function depProjectRefKey(ref: DepProjectRef): string {
@@ -118,8 +132,9 @@ export async function remediateViolation(
 }
 
 /**
- * Attempt to remediate all `version_out_of_range` violations with a
- * `provider_project` in the given report. Runs sequentially (install-order
+ * Attempt to remediate every range-remediable violation with a
+ * `provider_project` in the given report (see `isRangeRemediable` — an
+ * incompatibility is not one of them). Runs sequentially (install-order
  * safety). Returns the number of violations that were successfully updated.
  */
 export async function remediateAll(
@@ -130,7 +145,7 @@ export async function remediateAll(
 ): Promise<number> {
   let updated = 0;
   for (const v of report.violations) {
-    if (v.kind !== 'version_out_of_range' || v.provider_project === null) continue;
+    if (!isRangeRemediable(v) || v.provider_project === null) continue;
     const result = await remediateViolation(instanceId, v, mc, loader);
     if (result.ok) updated++;
   }

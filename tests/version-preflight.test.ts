@@ -4,6 +4,7 @@ import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindin
 import DepTree from '$lib/mods/DepTree.svelte';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 import { hasBlocking, toOverlayKeys } from '$lib/mods/preflight.svelte';
+import { rawRangeDesc } from './test-utils/range-desc';
 
 const report: PreflightReport = {
   violations: [
@@ -14,6 +15,7 @@ const report: PreflightReport = {
       dep_id: 'sophisticatedcore',
       dep_display_name: 'Sophisticated Core',
       needed: '[1.3.51,)',
+      needed_desc: rawRangeDesc('[1.3.51,)'),
       installed_version: '1.3.50.2005',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
       provider_sha1: null,
@@ -43,6 +45,7 @@ describe('toOverlayKeys edge cases', () => {
           dep_id: 'missingmod',
           dep_display_name: null,
           needed: '',
+          needed_desc: rawRangeDesc(''),
           installed_version: null,
           provider_project: null,
           provider_sha1: null,
@@ -63,6 +66,7 @@ describe('toOverlayKeys edge cases', () => {
           dep_id: 'unknowndep',
           dep_display_name: null,
           needed: '[1.0,)',
+          needed_desc: rawRangeDesc('[1.0,)'),
           installed_version: '0.9',
           provider_project: null,
           provider_sha1: null,
@@ -83,6 +87,7 @@ describe('toOverlayKeys edge cases', () => {
           dep_id: 'cfmod',
           dep_display_name: null,
           needed: '[2.0,)',
+          needed_desc: rawRangeDesc('[2.0,)'),
           installed_version: '1.9',
           provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
           provider_sha1: null,
@@ -109,6 +114,7 @@ const outOfRangeViolation: DepViolation = {
   dep_id: 'sophisticatedcore',
   dep_display_name: 'Sophisticated Core',
   needed: '[1.3.51,)',
+  needed_desc: rawRangeDesc('[1.3.51,)'),
   installed_version: '1.3.50.2005',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
   provider_sha1: null,
@@ -122,6 +128,7 @@ const missingViolation: DepViolation = {
   dep_id: 'missingmod',
   dep_display_name: null,
   needed: '',
+  needed_desc: rawRangeDesc(''),
   installed_version: null,
   provider_project: null,
   provider_sha1: null,
@@ -208,7 +215,9 @@ describe('DepTree overlay', () => {
     const { getByText, queryByText } = render(DepTree, {
       props: { nodes: [satisfiedNode], outOfRangeKeys, ...treeProps },
     });
-    expect(getByText('version too old')).toBeTruthy();
+    // Direction-neutral: the overlay also fires for an UPPER bound, where
+    // "too old" would be the opposite of the truth.
+    expect(getByText('version mismatch')).toBeTruthy();
     expect(queryByText('installed')).toBeNull();
   });
 

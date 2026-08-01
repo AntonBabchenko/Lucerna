@@ -15,13 +15,25 @@
     onChange,
     ariaLabel = undefined,
     testid = undefined,
+    panelId = undefined,
   }: {
     tabs: Tab[];
     active: string;
     onChange: (id: string) => void;
     ariaLabel?: string | undefined;
     testid?: string | undefined;
+    // Optional: when the caller's panel is a proper `role="tabpanel"` (with
+    // its own `id`), pass that id here so each tab gets a matching
+    // `aria-controls` and a stable `id` of its own for the panel's
+    // `aria-labelledby` to point back to (formula: `${panelId}-tab-${tab.id}`
+    // — see WorldDetailDialog for the consumer side). Left undefined, tabs
+    // render exactly as before — every existing consumer is unaffected.
+    panelId?: string | undefined;
   } = $props();
+
+  function tabButtonId(tabId: string): string | undefined {
+    return panelId ? `${panelId}-tab-${tabId}` : undefined;
+  }
 
   // The rendered tab buttons, in DOM order, so arrow-key navigation can move
   // focus to a sibling. Bound via the each-block index below.
@@ -60,6 +72,8 @@
       bind:this={tabEls[i]}
       type="button"
       role="tab"
+      id={tabButtonId(tab.id)}
+      aria-controls={panelId}
       aria-selected={active === tab.id}
       tabindex={active === tab.id ? 0 : -1}
       class="px-3 py-2 text-sm border-b-2 -mb-px inline-flex items-center gap-1.5"

@@ -80,7 +80,12 @@ pub fn copy_category(
 }
 
 /// Relative file paths under `root`, not following symlinked dirs.
-fn collect_files(root: &Path) -> Result<Vec<std::path::PathBuf>> {
+///
+/// `pub(crate)`: also reused by [`crate::instances::clone::copy_dir_recursive`]
+/// for the datapack library, which needs the same "list every real file
+/// under a tree" recursion but is not a `.minecraft`-relative
+/// [`ContentCategory`] and so cannot go through [`copy_category`] itself.
+pub(crate) fn collect_files(root: &Path) -> Result<Vec<std::path::PathBuf>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(d) = stack.pop() {

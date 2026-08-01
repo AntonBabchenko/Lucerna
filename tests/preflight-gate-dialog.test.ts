@@ -9,6 +9,7 @@ import { fireEvent, render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { PreflightReport } from '$lib/ipc/bindings';
 import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
+import { rawRangeDesc } from './test-utils/range-desc';
 
 const report: PreflightReport = {
   violations: [
@@ -19,6 +20,7 @@ const report: PreflightReport = {
       dep_id: 'sophisticatedcore',
       dep_display_name: 'Sophisticated Core',
       needed: '[1.3.51,)',
+      needed_desc: rawRangeDesc('[1.3.51,)'),
       installed_version: '1.3.50',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
       provider_sha1: null,

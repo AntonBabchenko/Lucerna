@@ -15,25 +15,41 @@ use chrono::Utc;
 use sha1::{Digest, Sha1};
 use tokio::fs;
 
+use crate::datapacks::pack_meta::{self, PackKind};
 use crate::error::Error;
 use crate::mods::platform::{ContentKind, InstalledAsset};
 
 /// Validate that `bytes` is a readable zip suitable for `kind`. A resource
-/// pack must additionally contain a `pack.mcmeta` entry (Minecraft requires it
-/// at the archive root). A shader only needs to be a readable zip. `kind ==
+/// pack must additionally classify as a resource pack (see
+/// `datapacks::pack_meta`). A shader only needs to be a readable zip. `kind ==
 /// Mod` and `kind == Plugin` never reach here (the command guards with
 /// `require_asset_kind`, which rejects both — plugins are server-only
 /// content); neither imposes an extra check here.
 pub fn validate_asset_zip(bytes: &[u8], kind: ContentKind) -> Result<(), Error> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModsDecode {
+    // Fails fast on an unreadable zip before classification runs at all.
+    zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModsDecode {
         platform: "local asset zip".into(),
         details: e.to_string(),
     })?;
-    if kind == ContentKind::ResourcePack && zip.by_name("pack.mcmeta").is_err() {
-        return Err(Error::ModsDecode {
-            platform: "resource pack".into(),
-            details: "missing pack.mcmeta".into(),
-        });
+    if kind == ContentKind::ResourcePack {
+        // A datapack also carries a root pack.mcmeta; the discriminator is the
+        // top-level tree. Name the real kind when that's why it was rejected —
+        // "missing pack.mcmeta" would be false for a rejected datapack.
+        let rejection = match pack_meta::classify(bytes) {
+            PackKind::ResourcePack => None,
+            PackKind::Datapack => Some("this looks like a datapack, not a resource pack"),
+            // `Neither` also covers "pack.mcmeta present, no assets/ tree" —
+            // do not assert pack.mcmeta is absent, since it may not be.
+            PackKind::Neither => {
+                Some("not a valid resource pack (needs pack.mcmeta and an assets/ folder)")
+            }
+        };
+        if let Some(details) = rejection {
+            return Err(Error::ModsDecode {
+                platform: "resource pack".into(),
+                details: details.into(),
+            });
+        }
     }
     Ok(())
 }
@@ -149,7 +165,12 @@ mod tests {
 
     #[test]
     fn resource_pack_with_mcmeta_is_valid() {
-        let z = zip_with(&[("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)]);
+        // A real resource pack needs its assets/ tree, not just pack.mcmeta
+        // (every datapack has the latter too — see pack_meta).
+        let z = zip_with(&[
+            ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+            ("assets/minecraft/textures/x.png", b"\x89PNG"),
+        ]);
         assert!(validate_asset_zip(&z, ContentKind::ResourcePack).is_ok());
     }
 
@@ -158,6 +179,43 @@ mod tests {
         let z = zip_with(&[("assets/minecraft/x.png", b"x")]);
         let err = validate_asset_zip(&z, ContentKind::ResourcePack).unwrap_err();
         assert!(matches!(err, Error::ModsDecode { .. }));
+    }
+
+    #[test]
+    fn validate_asset_zip_rejects_a_datapack_as_a_resource_pack() {
+        use std::io::Write;
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":48}}"#).unwrap();
+        zw.start_file("data/x/function/a.mcfunction", opts).unwrap();
+        zw.write_all(b"say hi").unwrap();
+        let bytes = zw.finish().unwrap().into_inner();
+
+        // Regression: this used to say "missing pack.mcmeta", which is false —
+        // this zip has one. The message must name the real kind instead.
+        let Error::ModsDecode { details, .. } =
+            validate_asset_zip(&bytes, ContentKind::ResourcePack).unwrap_err()
+        else {
+            panic!("expected Error::ModsDecode");
+        };
+        assert!(details.contains("datapack"), "message was: {details}");
+        assert_ne!(details, "missing pack.mcmeta");
+    }
+
+    #[test]
+    fn pack_mcmeta_present_but_no_tree_does_not_claim_it_is_missing() {
+        // Neither also covers "pack.mcmeta present, no data/ or assets/ tree" —
+        // regression, one layer down: the message used to unconditionally say
+        // "missing pack.mcmeta", which is false in this sub-case.
+        let z = zip_with(&[("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)]);
+        let Error::ModsDecode { details, .. } =
+            validate_asset_zip(&z, ContentKind::ResourcePack).unwrap_err()
+        else {
+            panic!("expected Error::ModsDecode");
+        };
+        assert!(!details.contains("missing"), "message was: {details}");
     }
 
     #[test]
@@ -172,8 +230,14 @@ mod tests {
         assert!(matches!(err, Error::ModsDecode { .. }));
     }
 
+    /// A minimal real resource pack: pack.mcmeta AND an assets/ tree. `rp_zip`
+    /// (not `datapack_zip`) is deliberately shaped without a `data/` tree so it
+    /// stays classified as a resource pack under the new discriminator.
     fn rp_zip() -> Vec<u8> {
-        zip_with(&[("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)])
+        zip_with(&[
+            ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+            ("assets/minecraft/textures/x.png", b"\x89PNG"),
+        ])
     }
 
     #[tokio::test]
@@ -245,6 +309,7 @@ mod tests {
             .unwrap();
         let z2 = zip_with(&[
             ("pack.mcmeta", br#"{"pack":{"pack_format":18}}"#),
+            ("assets/minecraft/textures/x.png", b"v2"),
             ("extra.txt", b"v2"),
         ]);
         install_asset_local(td.path(), ContentKind::ResourcePack, "P.zip", &z2)

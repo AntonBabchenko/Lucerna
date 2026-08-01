@@ -1,9 +1,12 @@
 // Worlds group intent coverage: WorldsTab (structural elements, world-card row,
-// action menu items, empty/loading/error states), BackupsDialog (dialog
-// structure, backup row, action buttons, empty/error states), RestoreBackupDialog
-// (dialog structure, radio modes, action buttons), DeleteWorldDialog (dialog
-// container, confirm input, warning body colour — action buttons NOT duplicated
-// from cluster D's button-intents-dialogs.test.ts which covers Cancel/Delete).
+// action menu items, empty/loading/error states), WorldDetailDialog's Backups
+// tab (dialog structure, backup row, action buttons, empty/error states — the
+// content lives in BackupsPanel, shared with the now-retired standalone
+// BackupsDialog), RestoreBackupDialog (dialog structure, radio modes, action
+// buttons), DeleteWorldDialog (dialog container, confirm input, warning body
+// colour — action buttons NOT duplicated from cluster D's
+// button-intents-dialogs.test.ts which covers Cancel/Delete). The Datapacks
+// tab is covered separately in tests/world-datapacks.test.ts.
 //
 // Cluster D covers:
 //   - button-intents-dialogs: DeleteWorldDialog Cancel (btn-secondary btn-sm)
@@ -12,7 +15,7 @@
 // Inventory rows covered:
 //   WorldsTab:
 //     data-testid="worlds-tab" container
-//     clickable world row — data-testid="world-row" role="button" (opens BackupsDialog)
+//     clickable world row — data-testid="world-row" role="button" (opens WorldDetailDialog)
 //     world folder_name is visible in the card
 //     backup-count badge — bg-warning-bg text-warning-text (when backup_count > 0)
 //     size + modified meta — text-muted class
@@ -23,15 +26,14 @@
 //     loading state — "Loading worlds…" text-muted (class-string integrity)
 //     error state — text-danger class
 //     no-instance state — "Select an instance" text-muted
-//   BackupsDialog:
-//     dialog role="dialog" aria-modal="true" aria-labelledby
+//   WorldDetailDialog (Backups tab, the default-active tab):
+//     dialog role="dialog" aria-modal="true" aria-labelledby="world-detail-title"
 //     header "Back up now" action — data-testid="backups-create-btn"
 //     backup formatted timestamp visible
 //     backup size text-muted
 //     inline "Restore" icon — data-testid="backup-restore-btn" btn-icon btn-icon-sm
 //     inline "Delete backup" icon — data-testid="backup-delete-btn" btn-icon-danger
 //     "Open backups folder ↗" button — btn-tertiary
-//     "Close" button — btn-secondary btn-sm
 //     empty state — "No backups yet." text-muted
 //     error state — text-danger class
 //     loading state — text-muted (class-string integrity)
@@ -48,7 +50,7 @@
 //     warning body text has text-secondary class
 //     error block uses text-danger
 
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backup, World } from '$lib/ipc/bindings';
 import { markSeen } from '$lib/onboarding/contextual-tours';
@@ -64,6 +66,17 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteWorld: vi.fn(),
     openSavesFolder: vi.fn(),
     openBackupsFolder: vi.fn(),
+    // WorldDetailDialog's Datapacks tab mounts WorldDatapacks, which fires
+    // datapacksListForWorld on mount (and on any test that switches tabs, since
+    // TabBar activation follows focus) — resolved so it never throws even in
+    // tests below that never touch that tab.
+    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksInstallFromFile: vi.fn(),
+    datapacksAddToWorld: vi.fn(),
+    datapacksRemoveFromWorld: vi.fn(),
+    datapacksRemoveFromLibrary: vi.fn(),
+    datapacksSetEnabledInWorld: vi.fn(),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -71,9 +84,9 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
 import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
 import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
+import WorldDetailDialog from '$lib/worlds/WorldDetailDialog.svelte';
 import WorldsTab from '$lib/worlds/WorldsTab.svelte';
 
 // ── Fixture factories ─────────────────────────────────────────────────────────
@@ -283,7 +296,7 @@ describe('WorldsTab — inline row action icons', () => {
     expect(btn.className).toContain('btn-icon-danger');
   });
 
-  it('world row is a role=button that opens the backups dialog', async () => {
+  it('world row is a role=button that opens the world-detail dialog', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listWorlds).mockResolvedValueOnce({
       status: 'ok',
@@ -299,17 +312,17 @@ describe('WorldsTab — inline row action icons', () => {
     const row = container.querySelector('[data-testid="world-row"]')!;
     expect(row.getAttribute('role')).toBe('button');
     row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(await screen.findByTestId('world-detail-dialog')).toBeTruthy();
   });
 });
 
-// ── BackupsDialog — dialog structure ─────────────────────────────────────────
+// ── WorldDetailDialog (Backups tab) — dialog structure ───────────────────────
 
-describe('BackupsDialog — role=dialog aria-modal aria-labelledby', () => {
-  it('dialog has role="dialog" aria-modal="true" and aria-labelledby="backups-dialog-title"', async () => {
+describe('WorldDetailDialog — role=dialog aria-modal aria-labelledby', () => {
+  it('dialog has role="dialog" aria-modal="true" and aria-labelledby="world-detail-title"', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld({ folder_name: 'OldWorld' }),
@@ -319,13 +332,13 @@ describe('BackupsDialog — role=dialog aria-modal aria-labelledby', () => {
     });
     const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-labelledby')).toBe('backups-dialog-title');
+    expect(dialog.getAttribute('aria-labelledby')).toBe('world-detail-title');
   });
 
   it('dialog title contains the world folder_name', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld({ folder_name: 'MyBackupWorld' }),
@@ -333,18 +346,49 @@ describe('BackupsDialog — role=dialog aria-modal aria-labelledby', () => {
         onChanged: () => {},
       },
     });
-    const title = document.getElementById('backups-dialog-title');
+    const title = document.getElementById('world-detail-title');
     expect(title?.textContent).toContain('MyBackupWorld');
   });
 });
 
-// ── BackupsDialog — empty state ───────────────────────────────────────────────
+// ── WorldDetailDialog — tab/tabpanel ARIA wiring (FIX 8) ──────────────────────
 
-describe('BackupsDialog — empty state', () => {
+describe('WorldDetailDialog — the tab panel is wired to its active tab', () => {
+  it('the body has role=tabpanel with an id, and the active tab has a matching aria-controls + its own id', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
+    render(WorldDetailDialog, {
+      props: {
+        instanceId: 'inst-1',
+        world: makeWorld({ folder_name: 'TabbedWorld' }),
+        onClose: () => {},
+        onChanged: () => {},
+      },
+    });
+    const panel = screen.getByRole('tabpanel');
+    const panelId = panel.getAttribute('id');
+    expect(panelId).toBeTruthy();
+
+    const backupsTab = screen.getByRole('tab', { name: /backups/i });
+    expect(backupsTab.getAttribute('aria-controls')).toBe(panelId);
+    expect(backupsTab.getAttribute('id')).toBeTruthy();
+    expect(panel.getAttribute('aria-labelledby')).toBe(backupsTab.getAttribute('id'));
+
+    // Switching tabs re-labels the SAME panel to the newly active tab.
+    const datapacksTab = screen.getByRole('tab', { name: /datapacks/i });
+    await fireEvent.click(datapacksTab);
+    expect(datapacksTab.getAttribute('aria-controls')).toBe(panelId);
+    expect(panel.getAttribute('aria-labelledby')).toBe(datapacksTab.getAttribute('id'));
+  });
+});
+
+// ── WorldDetailDialog (Backups tab) — empty state ─────────────────────────────
+
+describe('WorldDetailDialog (Backups tab) — empty state', () => {
   it('shows "No backups yet." with text-muted when backup list is empty', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -357,9 +401,9 @@ describe('BackupsDialog — empty state', () => {
   });
 });
 
-// ── BackupsDialog — loading state (class-string integrity) ───────────────────
+// ── WorldDetailDialog (Backups tab) — loading state (class-string integrity) ─
 
-describe('BackupsDialog — loading state class-string', () => {
+describe('WorldDetailDialog (Backups tab) — loading state class-string', () => {
   it('"Loading backups…" text has text-muted class (class-string integrity)', () => {
     const p = document.createElement('p');
     p.className = 'text-sm text-muted';
@@ -369,16 +413,16 @@ describe('BackupsDialog — loading state class-string', () => {
   });
 });
 
-// ── BackupsDialog — error state ───────────────────────────────────────────────
+// ── WorldDetailDialog (Backups tab) — error state ─────────────────────────────
 
-describe('BackupsDialog — error state', () => {
+describe('WorldDetailDialog (Backups tab) — error state', () => {
   it('error text has text-danger class when listBackups returns an error', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({
       status: 'error',
       error: { kind: 'io', path: '/backups', details: 'permission denied' },
     });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -391,14 +435,14 @@ describe('BackupsDialog — error state', () => {
   });
 });
 
-// ── BackupsDialog — backup row ────────────────────────────────────────────────
+// ── WorldDetailDialog (Backups tab) — backup row ──────────────────────────────
 
-describe('BackupsDialog — backup row', () => {
+describe('WorldDetailDialog (Backups tab) — backup row', () => {
   it('backup timestamp is visible in the row', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const backup = makeBackup();
     vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [backup] });
-    const { container } = render(BackupsDialog, {
+    const { container } = render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -418,7 +462,7 @@ describe('BackupsDialog — backup row', () => {
       status: 'ok',
       data: [makeBackup({ size_bytes: 1024 * 100 })],
     });
-    const { container } = render(BackupsDialog, {
+    const { container } = render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -433,16 +477,16 @@ describe('BackupsDialog — backup row', () => {
   });
 });
 
-// ── BackupsDialog — inline backup action icons ────────────────────────────────
+// ── WorldDetailDialog (Backups tab) — inline backup action icons ─────────────
 
-describe('BackupsDialog — inline backup action icons', () => {
+describe('WorldDetailDialog (Backups tab) — inline backup action icons', () => {
   it('restore icon is btn-icon btn-icon-sm with the restore aria-label', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({
       status: 'ok',
       data: [makeBackup({ filename: 'restore-test.zip' })],
     });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
     });
     const btn = await screen.findByRole('button', { name: /^restore$/i });
@@ -456,7 +500,7 @@ describe('BackupsDialog — inline backup action icons', () => {
       status: 'ok',
       data: [makeBackup({ filename: 'delete-test.zip' })],
     });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
     });
     const btn = await screen.findByRole('button', { name: /^delete backup$/i });
@@ -465,16 +509,23 @@ describe('BackupsDialog — inline backup action icons', () => {
   });
 });
 
-// ── BackupsDialog — "Open backups folder ↗" and "Close" buttons ──────────────
+// ── WorldDetailDialog (Backups tab) — "Open backups folder ↗" button ─────────
+//
+// The old standalone BackupsDialog also had a "Close" button pinned here
+// (btn-secondary btn-sm). WorldDetailDialog closes via the shared header
+// CloseButton instead (matching ModDetailModal / ModpackDetailModal, the
+// existing tabbed-detail-modal convention), and — like the Datapacks tab —
+// the Backups tab body has no close affordance of its own. That pin had no
+// equivalent to move to, so it is dropped rather than re-anchored.
 
-describe('BackupsDialog — "Open backups folder ↗" is btn-tertiary', () => {
+describe('WorldDetailDialog (Backups tab) — "Open backups folder ↗" is btn-tertiary', () => {
   it('"Open backups folder ↗" button is btn-tertiary when backups are present', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({
       status: 'ok',
       data: [makeBackup()],
     });
-    render(BackupsDialog, {
+    render(WorldDetailDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -484,24 +535,6 @@ describe('BackupsDialog — "Open backups folder ↗" is btn-tertiary', () => {
     });
     const btn = await screen.findByRole('button', { name: /open backups folder/i });
     expect(btn).toHaveBtnVariant('tertiary');
-  });
-});
-
-describe('BackupsDialog — "Close" button is btn-secondary btn-sm', () => {
-  it('"Close" button has btn-secondary and btn-sm', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(BackupsDialog, {
-      props: {
-        instanceId: 'inst-1',
-        world: makeWorld(),
-        onClose: () => {},
-        onChanged: () => {},
-      },
-    });
-    const btn = screen.getByRole('button', { name: /^close$/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('sm');
   });
 });
 

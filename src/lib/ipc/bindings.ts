@@ -1578,6 +1578,40 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	shortcutDefaultName: (instanceName: string, target: ShortcutTarget) => __TAURI_INVOKE<string>("shortcut_default_name", { instanceName, target }),
 	/**
+	 *  List the instance's datapack library (`<instance>/datapacks/`), reconciled
+	 *  against disk. Unguarded — read-only.
+	 */
+	datapacksListLibrary: (instanceId: string) => typedError<InstalledDatapack[], Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
+	/**
+	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
+	 *  result) into the instance's library.
+	 */
+	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<InstalledDatapack, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
+	/**  Remove a datapack from the instance's library and its registry entry. */
+	datapacksRemoveFromLibrary: (instanceId: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename })),
+	/**
+	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
+	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
+	 *  compatibility against the instance's installed Minecraft. Unguarded —
+	 *  read-only.
+	 */
+	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapack[], Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
+	/**
+	 *  Link a library datapack into a world's `datapacks/` folder and enable it
+	 *  in level.dat.
+	 */
+	datapacksAddToWorld: (instanceId: string, world: string, filename: string) => typedError<Placement, Error>(__TAURI_INVOKE("datapacks_add_to_world", { instanceId, world, filename })),
+	/**
+	 *  Unlink a datapack from a world and drop its level.dat entry. Also the
+	 *  repair path for an `Orphaned` row.
+	 */
+	datapacksRemoveFromWorld: (instanceId: string, world: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_world", { instanceId, world, filename })),
+	/**
+	 *  Toggle a datapack's enabled/disabled state for one world. level.dat only —
+	 *  the file itself is never touched.
+	 */
+	datapacksSetEnabledInWorld: (instanceId: string, world: string, filename: string, enabled: boolean) => typedError<null, Error>(__TAURI_INVOKE("datapacks_set_enabled_in_world", { instanceId, world, filename, enabled })),
+	/**
 	 *  Scan the instance's enabled mods for language coverage in `lang`.
 	 * 
 	 *  Per-jar results are cached by (language, jar SHA-1), so an unchanged
@@ -2068,6 +2102,20 @@ export type DataMigrationProgress = {
 	phase: string,
 };
 
+/**
+ *  Why a file the user picked is not a usable datapack. A typed reason rather
+ *  than a message, so the UI can localise it — the launcher ships in English
+ *  and Russian and a hand-written English sentence inside a `clean` error would
+ *  reach a Russian user untranslated.
+ */
+export type DatapackRejection = 
+/**  The picked file is not a `.zip` (and is not a folder). */
+"not_a_zip" | 
+/**  Valid pack, wrong kind: it has a top-level `assets/` tree. */
+"is_a_resource_pack" | 
+/**  No `pack.mcmeta`, or no `data/` tree. */
+"not_a_pack";
+
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
 export type DepNodeStatus = "satisfied" | "missing_required" | "optional_present" | "optional_absent";
@@ -2118,9 +2166,18 @@ export type DepViolation = {
 	installed_version: string | null,
 	/**
 	 *  The version range the dependent declared (empty string for
-	 *  `MissingRequired`).
+	 *  `MissingRequired`), verbatim from the jar. Kept for remediation
+	 *  (`mods_filter_satisfying` evaluates it) and for the log line — the UI
+	 *  renders `needed_desc` instead, because raw Maven bracket notation is
+	 *  unreadable.
 	 */
 	needed: string,
+	/**
+	 *  `needed`, decomposed into displayable clauses. The UI formats these
+	 *  through i18n and only falls back to the raw string when
+	 *  `needed_desc.unparseable`.
+	 */
+	needed_desc: RangeDescription,
 	/**
 	 *  Platform project reference for the provider, if we could link it.
 	 *  Powers a "View on Modrinth / CurseForge" link in the UI.
@@ -2276,7 +2333,19 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  data root is unavailable and the launcher is running from the temporary
  *  default fallback. Writing now would land in the wrong root.
  */
-{ kind: "data_location_unavailable" };
+{ kind: "data_location_unavailable" } | 
+/**
+ *  A world's `level.dat` could not be read or rewritten. `reason` is a raw
+ *  NBT/gzip library message — Opaque on the TS side.
+ */
+{ kind: "level_dat_parse"; reason: string } | 
+/**
+ *  A file the user picked to install as a datapack failed content
+ *  validation (wrong extension, or the zip classifies as something other
+ *  than a datapack). `reason` is typed, not a message — see
+ *  `DatapackRejection`'s doc comment for why.
+ */
+{ kind: "datapack_invalid"; filename: string; reason: DatapackRejection };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2661,6 +2730,30 @@ export type InstalledAsset = {
 	version_id: string | null,
 	name: string,
 	version_number: string | null,
+	installed_at: string,
+};
+
+/**
+ *  One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
+ *  it deliberately carries no `enabled` field — one library entry fans out to N
+ *  worlds, each with its own state in its own `level.dat`.
+ */
+export type InstalledDatapack = {
+	filename: string,
+	sha1: string,
+	size_bytes: number | null,
+	/**  `pack.pack_format` from `pack.mcmeta`; `None` when unreadable. */
+	pack_format: number | null,
+	/**
+	 *  Display name: `pack.description` when it is a plain string, else the
+	 *  filename without its extension.
+	 */
+	name: string,
+	/**  Always `None` in slice 1 (local files only). Reserved for the catalog. */
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	/**  RFC 3339. */
 	installed_at: string,
 };
 
@@ -3689,6 +3782,8 @@ export type OrphanRef = {
 	project_id: string,
 };
 
+export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
+
 /**
  *  Snapshot of the mods the user selected at modpack-import time, kept
  *  in `installed-mods.json` alongside the live entries so the launcher
@@ -3755,6 +3850,13 @@ export type PackOriginSummary = {
 	project_name: string,
 	mod_shas: string[],
 };
+
+/**  How a store entry ended up in the instance. */
+export type Placement = 
+/**  One physical file, shared with the store and any other instance. */
+"linked" | 
+/**  An independent physical copy (link unsupported here, or policy). */
+"copied";
 
 /**  A dependency the launcher plans to install, plus why that build was chosen. */
 export type PlannedDep = PlannedDep_Serialize | PlannedDep_Deserialize;
@@ -3865,6 +3967,49 @@ export type QuickPlay = { kind: "singleplayer"; world: string } | { kind: "multi
 export type RamWarning = {
 	reserved_mb: number,
 	total_mb: number,
+};
+
+/**  One readable statement about acceptable versions. */
+export type RangeClause = 
+/**  Any version at all — an omitted or `*` range. */
+{ kind: "any" } | 
+/**
+ *  A Maven soft requirement: the version is a recommendation and every
+ *  version is accepted. Must never be worded as a requirement.
+ */
+{ kind: "soft"; version: string } | 
+/**  Exactly this version. */
+{ kind: "exact"; version: string } | 
+/**  This version or newer. */
+{ kind: "at_least"; version: string } | 
+/**  Strictly newer than this. */
+{ kind: "above"; version: string } | 
+/**  This version or older. */
+{ kind: "at_most"; version: string } | 
+/**  Strictly older than this. */
+{ kind: "below"; version: string } | 
+/**  Between two bounds. */
+{ kind: "between"; low: string; low_inclusive: boolean; high: string; high_inclusive: boolean };
+
+/**
+ *  A whole range, decomposed. `alternatives` is an OR of ANDs: the outer list
+ *  is the alternatives (Maven's comma-separated groups, a predicate's `||`),
+ *  the inner list the terms that must all hold (a predicate's space-separated
+ *  terms).
+ */
+export type RangeDescription = {
+	/**
+	 *  The string the mod actually declared. Shown to the user only when
+	 *  `unparseable` — quoting the mod beats inventing a phrase we cannot
+	 *  justify.
+	 */
+	raw: string,
+	family: RangeFamily,
+	alternatives: RangeClause[][],
+	/**  The range could not be decomposed; render `raw` verbatim. */
+	unparseable: boolean,
+	/**  Every alternative is `Soft` or `Any` — this constrains nothing. */
+	soft: boolean,
 };
 
 /**  Which grammar a raw range string uses. */
@@ -4642,7 +4787,17 @@ export type ViolationKind =
  *  A required dependency is present but its version does not satisfy
  *  the declared version range.
  */
-"version_out_of_range";
+"version_out_of_range" | 
+/**
+ *  An optional dependency is installed but out of range. The loader treats
+ *  this exactly as it treats a missing requirement: it aborts.
+ */
+"optional_out_of_range" | 
+/**
+ *  A mod declares itself incompatible with the installed version of
+ *  another mod. The range is inverted: it names the versions that clash.
+ */
+"incompatible_installed";
 
 /**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
 export type WhitelistEntry = {
@@ -4660,6 +4815,26 @@ export type World = {
 	modified_unix_ms: number | null,
 	backup_count: number,
 };
+
+/**  One datapack as it appears for a single world. */
+export type WorldDatapack = {
+	filename: string,
+	state: WorldPackState,
+	/**
+	 *  False for a file the user (or a world import) put in the world folder
+	 *  directly. Supported, not an error — only "remove from library" is
+	 *  unavailable for it.
+	 */
+	in_library: boolean,
+	compat: PackCompat,
+};
+
+export type WorldPackState = "enabled" | "disabled" | "not_added" | 
+/**
+ *  Named in `level.dat`'s Enabled list but the file is gone — this is what
+ *  Minecraft turns into the "data packs are no longer present" screen.
+ */
+"orphaned";
 
 /**
  *  Lightweight world entry for the sidebar Play-button dropdown: folder

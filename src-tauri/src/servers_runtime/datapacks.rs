@@ -1,8 +1,10 @@
 //! Server datapack management. Datapacks live in `runtime/<level>/datapacks/`
 //! where `<level>` is `level-name` from `server.properties` (default `world`).
-//! A datapack ships as a `.zip` with `pack.mcmeta` at its root (Minecraft also
-//! loads unzipped folders, but the launcher only installs zips). Pure-of-network;
-//! I/O around a plain directory, mirroring [`super::quarantine`]'s style.
+//! A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
+//! `data/` tree — see [`crate::datapacks::pack_meta`] for why `pack.mcmeta`
+//! alone is not enough (Minecraft also loads unzipped folders, but the launcher
+//! only installs zips). Pure-of-network; I/O around a plain directory,
+//! mirroring [`super::quarantine`]'s style.
 
 use crate::error::{Error, Result};
 use std::io::Read;
@@ -38,22 +40,11 @@ pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
     runtime.join(safe).join("datapacks")
 }
 
-/// True iff `bytes` is a zip carrying `pack.mcmeta` at its root — the marker
-/// Minecraft uses to recognise a datapack. Best-effort: a non-zip / unreadable
-/// archive yields `false`. A `pack.mcmeta` nested under a sub-folder does NOT
-/// count (Minecraft would not load such a zip as a datapack either).
+/// A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
+/// `data/` tree. The `pack.mcmeta`-only check this used to do accepted every
+/// resource pack; classification now lives in one place.
 pub fn zip_is_datapack(bytes: &[u8]) -> bool {
-    let Ok(mut zip) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
-        return false;
-    };
-    for i in 0..zip.len() {
-        let Ok(entry) = zip.by_index(i) else { continue };
-        // `name()` is the full path inside the zip; root means no separator.
-        if entry.name() == "pack.mcmeta" {
-            return true;
-        }
-    }
-    false
+    crate::datapacks::pack_meta::classify(bytes) == crate::datapacks::pack_meta::PackKind::Datapack
 }
 
 /// List datapack archive filenames in `dir` (sorted). A missing dir yields an
@@ -93,10 +84,27 @@ pub fn install_datapack(dir: &Path, src_zip: &Path) -> Result<String> {
         .and_then(|mut f| f.read_to_end(&mut bytes).map(|_| ()))
         .map_err(|e| Error::io(src_zip.display().to_string(), e))?;
     if !zip_is_datapack(&bytes) {
-        return Err(Error::io(
-            "<datapack>",
-            "not a datapack (no pack.mcmeta at the zip root)",
-        ));
+        // pack.mcmeta alone isn't the datapack marker (see pack_meta) — name
+        // the real kind when that's why it was rejected. The blanket "no
+        // pack.mcmeta" wording would be false for a rejected resource pack,
+        // which carries one too, and also false for a zip with pack.mcmeta
+        // but no data/ or assets/ tree at all (also `Neither`).
+        let details = match crate::datapacks::pack_meta::classify(&bytes) {
+            crate::datapacks::pack_meta::PackKind::ResourcePack => {
+                "this looks like a resource pack, not a datapack"
+            }
+            crate::datapacks::pack_meta::PackKind::Neither => {
+                "not a valid datapack (needs pack.mcmeta and a data/ folder)"
+            }
+            // Unreachable: this branch only runs when `!zip_is_datapack(&bytes)`,
+            // and `zip_is_datapack` is exactly `classify(bytes) == Datapack`.
+            // `classify` is a pure function of its byte-slice argument, so a
+            // second call on the same `bytes` cannot return `Datapack` here.
+            crate::datapacks::pack_meta::PackKind::Datapack => {
+                unreachable!("zip_is_datapack already proved classify(&bytes) != Datapack")
+            }
+        };
+        return Err(Error::io("<datapack>", details));
     }
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let dest = dir.join(&filename);
@@ -216,6 +224,24 @@ mod tests {
     }
 
     #[test]
+    fn zip_is_datapack_rejects_a_resource_pack() {
+        // Regression: the shipped check accepted any zip with a root pack.mcmeta,
+        // which every resource pack has.
+        use std::io::Write;
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":34}}"#).unwrap();
+        zw.start_file("assets/minecraft/textures/x.png", opts)
+            .unwrap();
+        zw.write_all(b"\x89PNG").unwrap();
+        let bytes = zw.finish().unwrap().into_inner();
+
+        assert!(!zip_is_datapack(&bytes));
+    }
+
+    #[test]
     fn install_datapack_writes_validated_zip() {
         let td = tempfile::tempdir().unwrap();
         let src = td.path().join("CoolPack.zip");
@@ -235,6 +261,26 @@ mod tests {
         let dir = td.path().join("world").join("datapacks");
         assert!(install_datapack(&dir, &src).is_err());
         assert!(!dir.join("notapack.zip").exists());
+    }
+
+    #[test]
+    fn install_datapack_rejects_a_resource_pack_with_an_accurate_message() {
+        // Regression: this used to say "no pack.mcmeta at the zip root", which
+        // is false — a resource pack carries one too.
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("Faithful.zip");
+        std::fs::write(
+            &src,
+            zip(&[
+                ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+                ("assets/minecraft/textures/x.png", b"\x89PNG"),
+            ]),
+        )
+        .unwrap();
+        let dir = td.path().join("world").join("datapacks");
+        let msg = install_datapack(&dir, &src).unwrap_err().to_string();
+        assert!(msg.contains("resource pack"), "message was: {msg}");
+        assert!(!msg.contains("no pack.mcmeta"), "message was: {msg}");
     }
 
     #[test]

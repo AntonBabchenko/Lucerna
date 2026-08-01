@@ -17,6 +17,7 @@
     onListChanged = () => {},
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
+    running = false,
   }: {
     overview?: Snippet;
     instanceId?: string | null;
@@ -26,6 +27,7 @@
     onListChanged?: () => void;
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
+    running?: boolean;
   } = $props();
 
   let active = $state<Tab>('overview');
@@ -166,7 +168,13 @@
     {:else if active === 'mod_browser'}
       <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
-      <WorldsTab {instanceId} {onListChanged} {onQuickPlayWorld} {quickPlayDisabledReason} />
+      <WorldsTab
+        {instanceId}
+        {onListChanged}
+        {onQuickPlayWorld}
+        {quickPlayDisabledReason}
+        {running}
+      />
     {:else if active === 'screenshots'}
       <ScreenshotsTab {instanceId} />
     {/if}
