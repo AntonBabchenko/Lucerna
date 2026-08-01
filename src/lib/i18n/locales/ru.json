@@ -705,6 +705,7 @@
       "missing": "{dependent} требует {dep}, который не установлен",
       "outOfRange": "{dependent} требует {dep} {needed} — установлено: {installed}",
       "incompatibleWith": "{dependent} несовместим с {dep} {needed} — установлено: {installed}",
+      "incompatibleWithAny": "{dependent} несовместим с {dep} любой версии — установлено: {installed}",
       "optionalOutOfRange": "{dependent} работает с {dep} {needed} — установлено: {installed}",
       "update": "Обновить",
       "gateTitle": "Часть модов может не загрузиться",

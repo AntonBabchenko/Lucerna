@@ -4,7 +4,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
-  import { formatRange } from './range-format';
+  import { formatRange, isSoftRange } from './range-format';
   import { isRangeRemediable } from './preflight.svelte';
 
   let {
@@ -46,6 +46,19 @@
     const dep = v.dep_display_name ?? v.dep_id;
     if (v.kind === 'missing_required') {
       return $t('mods.preflight.missing', { dependent: v.dependent_name, dep });
+    }
+    // An incompatibility fires when the installed version is INSIDE the
+    // declared range, so a range that constrains nothing fires for every
+    // version. Naming versions there would contradict itself — "incompatible
+    // with X 1.2 recommended (any version works)" — so drop the range instead.
+    // Only this kind can reach a soft range: the other two need a Violated
+    // verdict, which a soft range never produces.
+    if (v.kind === 'incompatible_installed' && isSoftRange(v.needed_desc)) {
+      return $t('mods.preflight.incompatibleWithAny', {
+        dependent: v.dependent_name,
+        dep,
+        installed: v.installed_version ?? '',
+      });
     }
     const key =
       v.kind === 'incompatible_installed'

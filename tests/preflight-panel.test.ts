@@ -86,6 +86,42 @@ describe('PreflightPanel violation wording', () => {
     expect(queryByText('Choose version')).toBeNull();
   });
 
+  it('drops the range when an incompatibility constrains nothing', () => {
+    // `type="incompatible"` with no versionRange is the natural way to say
+    // "I break with this mod, period". Splicing the range in would produce
+    // "incompatible with create any version" — or, for a bare spec,
+    // "incompatible with create 1.2 recommended (any version works)", which
+    // contradicts the very row it appears in.
+    const v: DepViolation = {
+      ...incompatible(),
+      needed: '',
+      needed_desc: rangeDesc('', [{ kind: 'any' }]),
+      installed_version: '6.0.10',
+    };
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [v] }, onUpdate: () => {} },
+    });
+    const row = getByTestId('preflight-row').textContent ?? '';
+    expect(row).toContain('AsyncParticles is incompatible with create — installed: 6.0.10');
+    expect(row).not.toContain('any version');
+  });
+
+  it('never says "any version works" inside an incompatibility', () => {
+    // A bare (unbracketed) Maven spec on an `incompatible` dep: the range
+    // accepts everything, so the incompatibility always fires. Rendering the
+    // soft phrasing would tell the player any version works in the same
+    // sentence that refuses to launch.
+    const bare: DepViolation = {
+      ...incompatible(),
+      needed: '6.0.9',
+      needed_desc: rangeDesc('6.0.9', [{ kind: 'soft', version: '6.0.9' }]),
+    };
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [bare] }, onUpdate: () => {} },
+    });
+    expect(getByTestId('preflight-row').textContent).not.toContain('any version works');
+  });
+
   it('words an out-of-range optional dependency as support, not a requirement', () => {
     const v: DepViolation = {
       ...incompatible(),

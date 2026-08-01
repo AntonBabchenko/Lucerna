@@ -705,6 +705,7 @@
       "missing": "{dependent} needs {dep}, which is not installed",
       "outOfRange": "{dependent} needs {dep} {needed} — installed: {installed}",
       "incompatibleWith": "{dependent} is incompatible with {dep} {needed} — installed: {installed}",
+      "incompatibleWithAny": "{dependent} is incompatible with {dep} — installed: {installed}",
       "optionalOutOfRange": "{dependent} supports {dep} {needed} — installed: {installed}",
       "update": "Update",
       "gateTitle": "Some mods may not load",

@@ -1109,6 +1109,7 @@ export type TranslationKey =
   | 'mods.preflight.gateTitle'
   | 'mods.preflight.gateUpdateLaunch'
   | 'mods.preflight.incompatibleWith'
+  | 'mods.preflight.incompatibleWithAny'
   | 'mods.preflight.install'
   | 'mods.preflight.installSearchFallback'
   | 'mods.preflight.installTip'
