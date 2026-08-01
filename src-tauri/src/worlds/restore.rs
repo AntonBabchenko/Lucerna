@@ -1,7 +1,9 @@
 //! Restore-side operations.
 
 use crate::error::{Error, Result};
-use crate::worlds::{backups_root, fs as wfs, saves_dir, zip as wzip, RestoreMode, RestoredWorld};
+use crate::worlds::{
+    backups_root, fs as wfs, saves_dir, world_dir_at, zip as wzip, RestoreMode, RestoredWorld,
+};
 use chrono::Utc;
 
 /// Public entrypoint. Resolves paths from the AppHandle then
@@ -57,13 +59,7 @@ async fn restore_replace(
     backup_path: &std::path::Path,
     world_folder: &str,
 ) -> Result<RestoredWorld> {
-    let world_path = saves.join(world_folder);
-    if !world_path.is_dir() {
-        return Err(Error::WorldNotFound {
-            instance_id: "<unknown>".into(),
-            folder_name: world_folder.into(),
-        });
-    }
+    let world_path = world_dir_at(saves, world_folder)?;
 
     // 1. Auto-pre-restore zip BEFORE any destructive step. Failure
     //    here aborts cleanly — original world untouched.

@@ -1062,13 +1062,16 @@
       "disabledRunning": "Minecraft is already running",
       "disabledUnsupported": "Requires Minecraft 1.20 or newer"
     },
+    "detail": {
+      "tabsLabel": "World details"
+    },
     "tab": {
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",
       "empty": "No worlds yet. Play Minecraft to create one.",
       "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
       "openSavesFolder": "Open saves folder",
-      "openBackupsAriaLabel": "View backups for {name}",
+      "openBackupsAriaLabel": "Open details for {name}",
       "backupNow": "Back up now",
       "deleteWorld": "Delete world",
       "toastBackedUp": "Backed up {name} ({size})"
@@ -1079,7 +1082,7 @@
       "toastAdded": "Added world \"{name}\""
     },
     "backups": {
-      "title": "Backups for \"{world}\"",
+      "tab": "Backups",
       "loading": "Loading backups…",
       "empty": "No backups yet. Click \"Back up now\" to create one.",
       "backupNow": "Back up now",
@@ -1088,6 +1091,28 @@
       "restore": "Restore",
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
+    },
+    "datapacks": {
+      "tab": "Datapacks",
+      "title": "Datapacks",
+      "empty": "No datapacks yet",
+      "add": "Add datapack",
+      "addFromFolder": "From folder…",
+      "addToWorld": "Add to this world",
+      "removeFromWorld": "Remove from this world",
+      "enable": "Enable in this world",
+      "disable": "Disable in this world",
+      "stateEnabled": "Enabled",
+      "stateDisabled": "Disabled",
+      "stateNotAdded": "Not in this world",
+      "stateOrphaned": "Missing — the world still expects it",
+      "orphanedHint": "Minecraft will ask about this pack when the world loads. Removing it from the world clears the prompt.",
+      "external": "Not in the library",
+      "copyNotLinked": "This pack was copied instead of linked — it now uses its own disk space.",
+      "formatMismatch": "Made for data pack format {packFormat}; this version expects {expected}. It may stop the world from loading.",
+      "compatUnknown": "Compatibility unknown",
+      "blockedRunning": "Quit Minecraft to change this world's datapacks",
+      "blockedBusy": "Another datapack change is still running"
     },
     "restore": {
       "title": "Restore \"{world}\" from {timestamp}",
@@ -1851,6 +1876,7 @@
     "importNoProvenance": "This instance wasn't imported from another launcher.",
     "importSourceMissing": "The original source folder no longer exists: {path}",
     "serversDatParse": "Could not read the server list (servers.dat)",
+    "levelDatParse": "Could not read the world's data (level.dat)",
     "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
     "offlineNameInvalid": "The account \"{name}\" can't be used: {reason} Switch to a Latin nickname.",
     "savedServerListChanged": "The saved server list changed — reopen the dialog and try again.",
@@ -1890,7 +1916,13 @@
       "unknown": "it is not a valid location"
     },
     "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact.",
-    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching."
+    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching.",
+    "datapackInvalid": "\"{filename}\" isn't a usable datapack. {reason}",
+    "datapackInvalidReason": {
+      "notAZip": "Minecraft only loads folders and .zip files from a world's datapacks folder.",
+      "isAResourcePack": "This looks like a resource pack — it has an assets folder instead of a data folder.",
+      "notAPack": "It's missing pack.mcmeta or a data folder."
+    }
   },
   "settings": {
     "title": "Settings",

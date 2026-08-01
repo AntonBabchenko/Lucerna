@@ -1,49 +1,91 @@
-//! Structural guard: no raw file-write primitive under `src/mods/` outside the
-//! two modules that own writing. Every byte that lands in an instance's content
-//! directories goes through `mods::store` (temp file + rename, link or copy);
-//! every byte that lands in the content-addressed store goes through
-//! `mods::cache` (temp file + rename, SHA-keyed).
+//! Structural guard: no raw file-write primitive under the three
+//! hardlink-bearing trees — `src/mods/`, `src/datapacks/`, `src/worlds/` —
+//! outside the modules that own writing there.
+//!
+//! ## Why these three trees, and no others
+//!
+//! Instance mod jars in `<instance>/.minecraft/mods/` are HARDLINKS to one
+//! shared physical file in the mod cache; a world's datapack in
+//! `saves/<world>/datapacks/` is a hardlink into the instance's datapack
+//! library (see `datapacks::library`'s module doc); `src/worlds/` is the
+//! module that writes into the very `saves/` tree those datapack links live
+//! in (backup/restore/import). These three trees are the ones that write
+//! hardlink-bearing content; every byte that lands there goes through
+//! `mods::store` (temp file + rename, link or copy) or `mods::cache`
+//! (temp file + rename, SHA-keyed).
+//!
+//! This is deliberately NOT widened to all of `src/`: `src/logs`,
+//! `src/screenshots`, `src/instances`, `src/servers_runtime` and others
+//! legitimately write files no other instance or world shares, so a
+//! whole-tree scan would need a sprawling allowlist and the guard would stop
+//! meaning anything. The guard's subject is hardlink-bearing instance
+//! content, and exactly these three trees write there.
 //!
 //! ## Why this is a build-breaking rule
 //!
-//! Instance mod jars are HARDLINKS to one shared physical file. Opening such a
-//! path for writing — including `fs::copy`, whose destination is opened with
-//! truncate — changes the bytes for EVERY instance sharing that mod, and zeroes
-//! the file before the first byte is written. A plain `fs::copy` that would
-//! corrupt one instance before dedup corrupts all of them after it. The only
-//! safe shape is write-to-temp-then-rename, which replaces a directory entry
-//! and leaves the other links intact.
+//! Opening a hardlinked path for writing — including `fs::copy`, whose
+//! destination is opened with truncate — changes the bytes for EVERY name
+//! sharing that physical file, and zeroes it before the first byte is
+//! written. A plain `fs::copy` that would corrupt one instance or world
+//! before dedup corrupts all of them after it. The only safe shape is
+//! write-to-temp-then-rename, which replaces a directory entry and leaves
+//! the other links intact.
 //!
 //! Removals are deliberately NOT covered: deleting one name cannot affect the
-//! store entry or another instance's link, so the uninstall sites keep their
-//! plain `remove_file`.
+//! store entry or another instance's/world's link, so the uninstall/unlink
+//! sites keep their plain `remove_file` / `remove_dir_all`.
 //!
 //! Guardrail, not a sandbox — same framing as `structural_no_raw_http.rs` and
-//! `structural_no_raw_spawn.rs`. Its job is to make a NEW write into instance
-//! content fail the build, so the author routes it through `store` or justifies
-//! an addition to the allowlist below.
+//! `structural_no_raw_spawn.rs`. Its job is to make a NEW write into
+//! hardlink-bearing content fail the build, so the author routes it through
+//! `store` or justifies an addition to the allowlist below.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Modules under `src/mods/` allowed to call write primitives directly, with
-/// the class of path each one writes. Only the first two write instance or
-/// store *content*; the rest write metadata or paths outside any instance.
+/// The three trees scanned, relative to `src/`. See the module doc for why
+/// exactly these three and no others.
+const ROOTS: &[&str] = &["mods", "datapacks", "worlds"];
+
+/// Files allowed to call write primitives directly, with the class of path
+/// each one writes, relative to `src/`.
 ///
-/// Adding a file here means stating which class of path it writes and why that
-/// path can never be a hardlink shared between instances.
+/// Adding a file here means stating which class of path it writes and why
+/// that path can never be a hardlink shared between instances or worlds.
 const ALLOWLIST: &[&str] = &[
     // The two owners of writing.
-    "store.rs", // instance side: temp + rename, link-or-copy
-    "cache.rs", // store side: temp + rename, SHA-keyed
+    "mods/store.rs", // instance side: temp + rename, link-or-copy
+    "mods/cache.rs", // store side: temp + rename, SHA-keyed
     // Metadata and caches — JSON sidecars, never content bytes.
-    "installed.rs",     // .lucerna/installed-mods.json (already temp + rename)
-    "summary_cache.rs", // mod summary JSON cache
-    "assets.rs",        // installed-assets registry JSON (temp + rename)
+    "mods/installed.rs", // .lucerna/installed-mods.json (already temp + rename)
+    "mods/summary_cache.rs", // mod summary JSON cache
+    "mods/assets.rs",    // installed-assets registry JSON (temp + rename)
     // Paths outside any instance's content directories.
-    "dep_resolve.rs", // server mods dirs — out of scope, see the session spec
-    "modpack/export/assembly.rs", // the export zip being assembled
-    "modpack/source/stage.rs", // downloaded pack archive staging
+    "mods/dep_resolve.rs", // server mods dirs — out of scope, see the session spec
+    "mods/modpack/export/assembly.rs", // the export zip being assembled
+    "mods/modpack/source/stage.rs", // downloaded pack archive staging
+    // `src/worlds/` — writes into the `saves/` tree, but never in place onto
+    // a live world's own files or a datapack hardlink living inside it.
+    //
+    // `File::create` writes only: (1) a freshly timestamped backup `.zip`
+    // under `backups/<world>/` (`zip_dir`, called from
+    // `worlds::backup::backup_world` via `pick_unused_filename`, which
+    // guarantees an unused destination name), and (2) an entry path inside
+    // `extract_zip_capped`'s `dest_dir` — every production caller
+    // (`worlds::restore`'s `restore_replace` / `restore_as_copy`,
+    // `worlds::import`'s `import_from_zip`, and the unrelated
+    // `servers_runtime` backup/import paths) extracts into a freshly
+    // created staging or runtime directory and only `rename`s the verified
+    // result into place afterward — never straight onto a live world or its
+    // `datapacks/` folder. Verified by reading every call site.
+    "worlds/zip.rs",
+    // `std::fs::copy` in `copy_tree` only ever writes into a destination
+    // built from `dest = saves.join(&chosen)`, where `chosen` is a name
+    // `pick_free_world_name` proved did NOT already exist on disk — so
+    // every path `copy_tree` writes through is a fresh name under a
+    // brand-new world folder, never a pre-existing, possibly-hardlinked
+    // datapack.
+    "worlds/import.rs",
 ];
 
 const PRIMITIVES: &[&str] = &["fs::copy(", "fs::write(", "File::create(", "OpenOptions"];
@@ -81,20 +123,20 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn no_raw_write_primitive_under_mods_outside_the_owners() {
-    let mods = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
-        .join("mods");
+fn no_raw_write_primitive_under_mods_datapacks_worlds_outside_the_owners() {
+    let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
-    rust_files(&mods, &mut files);
+    for root in ROOTS {
+        rust_files(&src_dir.join(root), &mut files);
+    }
 
     let mut violations = Vec::new();
     for file in files {
-        // Path relative to src/mods/, normalised to forward slashes so the
+        // Path relative to src/, normalised to forward slashes so the
         // allowlist matches on every platform.
         let rel = file
-            .strip_prefix(&mods)
-            .expect("file under src/mods")
+            .strip_prefix(&src_dir)
+            .expect("file under src/")
             .to_string_lossy()
             .replace('\\', "/");
         if ALLOWLIST.contains(&rel.as_str()) {
@@ -120,12 +162,13 @@ fn no_raw_write_primitive_under_mods_outside_the_owners() {
 
     assert!(
         violations.is_empty(),
-        "raw write primitive under src/mods/ outside mods::store / mods::cache.\n\
-         Instance mod jars are hardlinks to ONE shared physical file — writing \
-         such a path in place corrupts every instance sharing that mod, and \
-         truncates it to zero before the first byte lands. Route the write \
-         through `mods::store::materialize` / `mods::store::place_bytes`, or add \
-         the file to ALLOWLIST stating the class of path it writes:\n{}",
+        "raw write primitive under a hardlink-bearing tree (src/mods, src/datapacks, \
+         src/worlds) outside mods::store / mods::cache.\n\
+         Instance mod jars and world datapack links are hardlinks to ONE shared physical \
+         file — writing such a path in place corrupts every instance or world sharing it, \
+         and truncates it to zero before the first byte lands. Route the write through \
+         `mods::store::materialize` / `mods::store::place_bytes`, or add the file to \
+         ALLOWLIST stating the class of path it writes:\n{}",
         violations.join("\n"),
     );
 }

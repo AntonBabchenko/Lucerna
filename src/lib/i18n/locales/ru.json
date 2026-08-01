@@ -23,7 +23,7 @@
       "modJar": "Файл мода (jar)",
       "pluginJar": "Файл плагина (jar)",
       "addonZip": "Дополнение (zip)",
-      "datapack": "Набор данных",
+      "datapack": "Датапак",
       "zip": "Zip",
       "serverZip": "Zip сервера",
       "mod": "Мод",
@@ -1062,13 +1062,16 @@
       "disabledRunning": "Minecraft уже запущен",
       "disabledUnsupported": "Нужен Minecraft 1.20 или новее"
     },
+    "detail": {
+      "tabsLabel": "Сведения о мире"
+    },
     "tab": {
       "noInstance": "Выберите профиль, чтобы увидеть его миры.",
       "loading": "Загрузка миров…",
       "empty": "Миров пока нет. Запустите Minecraft, чтобы создать один.",
       "backupCountAriaLabel": "{count, plural, one {# резервная копия} few {# резервные копии} many {# резервных копий} other {# резервные копии}}",
       "openSavesFolder": "Открыть папку сохранений",
-      "openBackupsAriaLabel": "Резервные копии мира {name}",
+      "openBackupsAriaLabel": "Открыть сведения о мире «{name}»",
       "backupNow": "Создать резервную копию",
       "deleteWorld": "Удалить мир",
       "toastBackedUp": "Создана резервная копия {name} ({size})"
@@ -1079,7 +1082,7 @@
       "toastAdded": "Мир «{name}» добавлен"
     },
     "backups": {
-      "title": "Резервные копии «{world}»",
+      "tab": "Резервные копии",
       "loading": "Загрузка резервных копий…",
       "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию», чтобы создать.",
       "backupNow": "Создать резервную копию",
@@ -1088,6 +1091,28 @@
       "restore": "Восстановить",
       "deleteBackup": "Удалить резервную копию",
       "confirmDelete": "Удалить резервную копию {timestamp}?"
+    },
+    "datapacks": {
+      "tab": "Датапаки",
+      "title": "Датапаки",
+      "empty": "Датапаков пока нет",
+      "add": "Добавить датапак",
+      "addFromFolder": "Из папки…",
+      "addToWorld": "Добавить в этот мир",
+      "removeFromWorld": "Убрать из этого мира",
+      "enable": "Включить в этом мире",
+      "disable": "Отключить в этом мире",
+      "stateEnabled": "Включён",
+      "stateDisabled": "Отключён",
+      "stateNotAdded": "Не добавлен в этот мир",
+      "stateOrphaned": "Отсутствует — мир всё ещё его ожидает",
+      "orphanedHint": "При загрузке мира Minecraft спросит об этом датапаке. Уберите его из мира, чтобы запрос больше не появлялся.",
+      "external": "Не в библиотеке",
+      "copyNotLinked": "Этот датапак был скопирован, а не связан ссылкой, — теперь он занимает отдельное место на диске.",
+      "formatMismatch": "Датапак сделан для формата {packFormat}, а эта версия Minecraft ожидает {expected}. Из-за этого мир может не загрузиться.",
+      "compatUnknown": "Совместимость неизвестна",
+      "blockedRunning": "Закройте Minecraft, чтобы изменить датапаки этого мира",
+      "blockedBusy": "Ещё выполняется другое изменение датапаков"
     },
     "restore": {
       "title": "Восстановить «{world}» из {timestamp}",
@@ -1851,6 +1876,7 @@
     "importNoProvenance": "Этот профиль не был импортирован из другого лаунчера.",
     "importSourceMissing": "Исходная папка больше не существует: {path}",
     "serversDatParse": "Не удалось прочитать список серверов (servers.dat)",
+    "levelDatParse": "Не удалось прочитать данные мира (level.dat)",
     "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
     "offlineNameInvalid": "Аккаунт «{name}» нельзя использовать: {reason} Смени ник на латиницу.",
     "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите.",
@@ -1890,7 +1916,13 @@
       "unknown": "это недопустимое расположение"
     },
     "dataLocationMigrationFailed": "Не удалось перенести папку данных. Исходные данные не пострадали.",
-    "dataLocationUnavailable": "Папка данных недоступна. Подключите её и перезапустите приложение перед созданием или запуском."
+    "dataLocationUnavailable": "Папка данных недоступна. Подключите её и перезапустите приложение перед созданием или запуском.",
+    "datapackInvalid": "«{filename}» — не датапак. {reason}",
+    "datapackInvalidReason": {
+      "notAZip": "Minecraft загружает из папки datapacks только папки и .zip-архивы.",
+      "isAResourcePack": "Похоже, это ресурспак — вместо папки data в нём есть папка assets.",
+      "notAPack": "В архиве нет pack.mcmeta или папки data."
+    }
   },
   "settings": {
     "title": "Настройки",

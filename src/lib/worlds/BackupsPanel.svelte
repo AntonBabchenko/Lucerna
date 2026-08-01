@@ -10,6 +10,13 @@
   import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
+  // Body content for the Backups tab of WorldDetailDialog. Used to live in
+  // BackupsDialog, which owned its own Modal — now retired in favour of the
+  // shared tabbed dialog (see WorldDetailDialog.svelte), so this panel owns
+  // no chrome (no Modal, no title heading, no Close button): the caller's
+  // Modal supplies the title and the close affordance. Owns all backup
+  // state/actions itself so the caller stays a thin shell.
+
   let {
     instanceId,
     world,
@@ -88,83 +95,73 @@
   const totalSize = $derived(backups.reduce((a, b) => a + (b.size_bytes ?? 0), 0));
 </script>
 
-<Modal ariaLabelledby="backups-dialog-title" {onClose} panelClass="max-w-lg w-full p-4">
-  <div class="flex items-center justify-between gap-2 mb-3">
-    <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary">
-      {$t('worlds.backups.title', { world: world.folder_name })}
-    </h3>
-    <BusyButton
+<div class="flex items-center justify-end gap-2 mb-3">
+  <BusyButton
+    type="button"
+    class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+    data-testid="backups-create-btn"
+    busy={backingUp}
+    onclick={() => void onBackupNow()}
+  >
+    <Icon name="archive" size={14} />
+    {$t('worlds.backups.backupNow')}
+  </BusyButton>
+</div>
+{#if loading}
+  <LoadingPanel label={$t('worlds.backups.loading')} />
+{:else if error}
+  <p class="text-sm text-danger mb-2">{error}</p>
+{:else if backups.length === 0}
+  <p class="text-sm text-muted">
+    {$t('worlds.backups.empty')}
+  </p>
+{:else}
+  <ul
+    class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
+  >
+    {#each backups as b (b.filename)}
+      <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
+        <div class="min-w-0">
+          <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
+          <div class="text-xs text-muted">{formatSize($t, b.size_bytes)}</div>
+        </div>
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm"
+            data-testid="backup-restore-btn"
+            aria-label={$t('worlds.backups.restore')}
+            use:tooltip={$t('worlds.backups.restore')}
+            onclick={() => (restoreFor = b)}
+          >
+            <Icon name="restore" size={15} />
+          </button>
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm btn-icon-danger"
+            data-testid="backup-delete-btn"
+            aria-label={$t('worlds.backups.deleteBackup')}
+            use:tooltip={$t('worlds.backups.deleteBackup')}
+            onclick={() => (deleteFor = b)}
+          >
+            <Icon name="trash" size={15} />
+          </button>
+        </div>
+      </li>
+    {/each}
+  </ul>
+  <div class="text-xs text-muted mb-3 flex justify-between">
+    <span>{$t('worlds.backups.total', { size: formatSize($t, totalSize) })}</span>
+    <button
       type="button"
-      class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
-      data-testid="backups-create-btn"
-      busy={backingUp}
-      onclick={() => void onBackupNow()}
+      class="btn-tertiary inline-flex items-center gap-1"
+      onclick={() => void onOpenBackupsFolder()}
     >
-      <Icon name="archive" size={14} />
-      {$t('worlds.backups.backupNow')}
-    </BusyButton>
+      {$t('worlds.backups.openBackupsFolder')}
+      <Icon name="folderOpen" size={14} />
+    </button>
   </div>
-  {#if loading}
-    <LoadingPanel label={$t('worlds.backups.loading')} />
-  {:else if error}
-    <p class="text-sm text-danger mb-2">{error}</p>
-  {:else if backups.length === 0}
-    <p class="text-sm text-muted">
-      {$t('worlds.backups.empty')}
-    </p>
-  {:else}
-    <ul
-      class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
-    >
-      {#each backups as b (b.filename)}
-        <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
-          <div class="min-w-0">
-            <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-            <div class="text-xs text-muted">{formatSize($t, b.size_bytes)}</div>
-          </div>
-          <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              data-testid="backup-restore-btn"
-              aria-label={$t('worlds.backups.restore')}
-              use:tooltip={$t('worlds.backups.restore')}
-              onclick={() => (restoreFor = b)}
-            >
-              <Icon name="restore" size={15} />
-            </button>
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm btn-icon-danger"
-              data-testid="backup-delete-btn"
-              aria-label={$t('worlds.backups.deleteBackup')}
-              use:tooltip={$t('worlds.backups.deleteBackup')}
-              onclick={() => (deleteFor = b)}
-            >
-              <Icon name="trash" size={15} />
-            </button>
-          </div>
-        </li>
-      {/each}
-    </ul>
-    <div class="text-xs text-muted mb-3 flex justify-between">
-      <span>{$t('worlds.backups.total', { size: formatSize($t, totalSize) })}</span>
-      <button
-        type="button"
-        class="btn-tertiary inline-flex items-center gap-1"
-        onclick={() => void onOpenBackupsFolder()}
-      >
-        {$t('worlds.backups.openBackupsFolder')}
-        <Icon name="folderOpen" size={14} />
-      </button>
-    </div>
-  {/if}
-  <div class="flex justify-end">
-    <button type="button" class="btn-secondary btn-sm" onclick={onClose}
-      >{$t('common.close')}</button
-    >
-  </div>
-</Modal>
+{/if}
 
 {#if restoreFor}
   <RestoreBackupDialog
@@ -184,7 +181,10 @@
 {#if deleteFor}
   <!-- Modal-based delete confirm (replaces the unstyled, event-loop-blocking
        window.confirm). Same shape as DeleteServerDialog: secondary Cancel +
-       danger Delete. Reuses the existing confirmDelete copy for the question. -->
+       danger Delete. Reuses the existing confirmDelete copy for the question.
+       Rendered after the panel's own markup, and the panel itself is rendered
+       inside WorldDetailDialog's Modal, so this confirm always mounts after
+       its ancestor modal — the shared Modal stack gives Escape to this one. -->
   <Modal
     ariaLabelledby="backup-delete-confirm-title"
     onClose={() => (deleteFor = null)}

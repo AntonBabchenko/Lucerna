@@ -219,4 +219,4 @@ Adding a new fixture: append a SHA1SUMS row and verify `fetch.ps1` finds the ups
 
 ## Structural guards
 
-Seven tests in `src-tauri/tests/structural_*.rs` enforce architectural rules by failing the build rather than by review vigilance — HTTP only via `network::`, subprocesses only via `process::`, SFTP only via `servers_runtime::transfer`, OS branching only behind `platform::`, no `std::env::set_var` in production code, and two installer-shape guards. They are listed with what each one enforces in [`PRINCIPLES.md`](PRINCIPLES.md) Appendix B.
+Nine tests in `src-tauri/tests/structural_*.rs` enforce architectural rules by failing the build rather than by review vigilance — HTTP only via `network::`, subprocesses only via `process::`, SFTP only via `servers_runtime::transfer`, TCP dialing only via `network::consent`, no raw file write under `src/mods/`, `src/datapacks/`, or `src/worlds/` outside their store chokepoints, OS branching only behind `platform::`, no `std::env::set_var` in production code, and two installer-shape guards. They are listed with what each one enforces in [`PRINCIPLES.md`](PRINCIPLES.md) Appendix B.
