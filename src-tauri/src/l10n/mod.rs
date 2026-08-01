@@ -7,6 +7,7 @@
 //! the build there.
 
 pub mod coverage;
+pub mod pack_format;
 pub mod scan;
 pub mod store;
 pub mod validate;
