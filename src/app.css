@@ -27,6 +27,11 @@
   --success-bg: 240 253 244; /* green-50 */
   --success-muted: 48 132 79; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 220 38 38; /* red-600 */
+  /* Text-facing danger, split from --danger because the SOLID .btn-danger fill
+     must stay at red-500/600 to keep its white label readable while dark-mode
+     --danger is only ~4.0:1 on --bg-surface, below AA for normal text. Light
+     mode is unchanged (red-600 is ~4.8:1 on white). */
+  --danger-text: 220 38 38; /* red-600 */
   /* red-50 — every other *-bg light token is the -50 tier; kept the family
      consistent (was red-100, the lone outlier). */
   --danger-bg: 254 242 242; /* red-50 */
@@ -112,6 +117,7 @@
   --success-bg: 20 83 45; /* green-900 */
   --success-muted: 64 161 100; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 239 68 68;
+  --danger-text: 248 113 113; /* red-400 — ~5.5:1 on --bg-surface */
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;

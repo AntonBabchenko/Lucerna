@@ -30,6 +30,7 @@ When you add a token: store the bare triple, register it in `tailwind.config.cjs
 | `--success` | `22 163 74` (green-600) | `34 197 94` | Play / enabled green: `.btn-success`, `.btn-icon-success`. |
 | `--success-bg` | `240 253 244` (green-50) | `20 83 45` (green-900) | Soft success surfaces / banners (`bg-success-bg`). |
 | `--danger` | `220 38 38` (red-600) | `239 68 68` | Stop / Delete / error red: `.btn-danger`, `.btn-icon-danger` hover. |
+| `--danger-text` | `220 38 38` (red-600) | `248 113 113` (red-400) | Danger **text** (`text-danger`). Split from `--danger` because the dark fill tier is only ~4.0:1 on `--bg-surface`; the solid `.btn-danger` fill keeps `--danger`. First fill/text split in the palette — the amber family instead reuses one token (`--warning-text`) for both. |
 | `--danger-bg` | `254 242 242` (red-50) | `127 29 29` (red-900) | Soft danger surfaces / error boxes (`bg-danger-bg`). |
 | `--warning-bg` | `255 251 235` (amber-50) | `120 53 15` (amber-900) | Soft warning banners (`bg-warning-bg`). |
 | `--warning-text` | `146 64 14` (amber-800) | `252 211 77` | Warning foreground **and** the solid `.btn-warning` fill, the `.bg-highlight` glow source. |
