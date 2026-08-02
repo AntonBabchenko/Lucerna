@@ -1,5 +1,6 @@
 import { commands, type LoaderKind, type ModLocalCompat, type ModSource } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
 
 // Tooltip hint descriptor. The component maps these to i18n strings (it owns the
 // instance loader/mc for interpolation).
@@ -25,7 +26,10 @@ export function createCompatCheck(
   getLoader: () => LoaderKind | null,
   getRows: () => CompatRow[],
 ) {
-  let offline = $state<Map<string, ModLocalCompat>>(new Map());
+  // The offline half is NOT owned here — it is the app-wide scan, shared with
+  // the Overview indicator. Keeping a private copy is what let the two
+  // surfaces disagree about the same instance.
+  const offline = $derived(new Map(compatScanEntries().map((x) => [x.sha1, x])));
   let live = $state<Map<string, LiveVerdict>>(new Map());
   let checking = $state(false);
   let error = $state<string | null>(null);
@@ -99,35 +103,38 @@ export function createCompatCheck(
     }
   }
 
-  // Stage 1: offline scan, then auto-confirm.
-  async function runOfflineScan() {
+  // Stage 1: offline scan (shared store), then auto-confirm.
+  async function runOfflineScan(opts: { force?: boolean } = {}) {
     const gen = ++generation;
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) {
-      if (gen === generation) {
-        offline = new Map();
-        live = new Map();
-      }
+      if (gen === generation) live = new Map();
+      await ensureCompatScan(id, mc, loader);
       return;
     }
-    const r = await commands.scanInstanceModCompat(id, mc, loader);
+    await ensureCompatScan(id, mc, loader, opts);
     if (gen !== generation) return; // superseded mid-scan
-    offline = r.status === 'ok' ? new Map(r.data.map((x) => [x.sha1, x])) : new Map();
     await autoConfirmSuspects(gen);
   }
 
-  // Manual "Check compatibility" button — FULL re-check of every platform mod
-  // (also catches MC-only incompatibility the suspect pre-filter skips).
+  // Manual "Check compatibility" button — FULL re-check: the offline scan is
+  // re-run first, then every platform mod is queried.
+  //
+  // It used to write only `live`. Both halves of `incompatibleShas` read the
+  // offline scan, so a loader-family mismatch could never be surfaced by this
+  // button — pressing it on an affected instance answered "nothing found",
+  // which is worse than not offering the button at all.
   async function runLiveCheck() {
-    const gen = ++generation;
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) return;
     checking = true;
     error = null;
+    await ensureCompatScan(id, mc, loader, { force: true });
+    const gen = ++generation;
     const r = await commands.checkInstanceModCompat(id, mc, loader);
     checking = false;
     if (gen !== generation) return; // superseded (e.g. instance switched mid-check)

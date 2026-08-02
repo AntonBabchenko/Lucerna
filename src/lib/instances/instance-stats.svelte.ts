@@ -16,6 +16,7 @@ import {
   type PlaytimeStats,
 } from '$lib/ipc/bindings';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
+import { ensureCompatScan, offlineMismatchCount } from '$lib/mods/compat-scan.svelte';
 
 export type InstalledStats = { total: number; enabled: number; disabled: number };
 
@@ -76,10 +77,12 @@ export function createInstanceStats() {
       return;
     }
     const seq = ++incompatSeq;
-    const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
+    // One shared scan for the whole app — the Installed tab reads the same
+    // entries and folds its live platform verdicts on top. Keeping a second
+    // private copy here is what let the two surfaces disagree.
+    await ensureCompatScan(inst.id, inst.mc_version, inst.loader);
     if (seq !== incompatSeq) return;
-    incompatibleCount =
-      r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length : 0;
+    incompatibleCount = offlineMismatchCount();
   }
 
   // Per-instance playtime stats — refreshed on instance switch and after every

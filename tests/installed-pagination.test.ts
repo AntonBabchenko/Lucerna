@@ -106,7 +106,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
-import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
+import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('Installed pagination footer (unified)', () => {
   beforeEach(() => {
