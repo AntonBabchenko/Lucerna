@@ -83,6 +83,8 @@
   // what this mod requires AND what requires it. Both share a single panel
   // (DepSection), so a single chip / single toggle is the honest control. The
   // pieces are joined with " · " (e.g. "1 dep · required by 2").
+  const optionalTotal = $derived(root?.optional.length ?? 0);
+
   const expandLabel = $derived.by(() => {
     const parts: string[] = [];
     if (depTotal > 0) {
@@ -92,6 +94,13 @@
     }
     if (requiredBy.length > 0)
       parts.push($t('mods.installed.requiredByCount', { count: requiredBy.length }));
+    // Last resort only, so every row that already renders a label keeps it
+    // byte-identical. A mod whose required deps are all loader-scoped away (a
+    // merged multi-loader jar on one of its loaders) would otherwise have no
+    // label and no chip at all, taking its still-correct optional section with
+    // it — the widened gate below needs something to render.
+    if (parts.length === 0 && optionalTotal > 0)
+      parts.push($t('mods.installed.depOptionalCount', { count: optionalTotal }));
     return parts.join(' · ');
   });
 
@@ -183,11 +192,15 @@
               delayMs={150}
             />
           </span>
-        {:else if depTotal > 0 || requiredBy.length > 0}
+        {:else if depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0}
           <!-- Single toggle for the whole relation. Accent (actionable) when the
-               mod has its own deps; muted when it is only required-by. -->
+               mod has its own deps; muted when it is only required-by.
+               `optionalTotal` is in the condition because it is the sole reason
+               the panel may still be worth opening once every required dep has
+               been loader-scoped away. -->
           <button
             type="button"
+            data-testid="dep-expand-chip"
             class="px-2 py-0.5 rounded inline-flex items-center gap-1.5 {depTotal > 0
               ? 'bg-accent-soft text-accent'
               : 'bg-subtle text-secondary'}"

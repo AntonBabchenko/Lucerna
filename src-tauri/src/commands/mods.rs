@@ -2032,7 +2032,18 @@ pub async fn mods_dependency_graph(
     // this instance cannot load is inert here, so its declared deps must not be
     // shown as required (the depgraph analogue of preflight's #154 scoping).
     let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
-    let installed_mods = crate::mods::installed::list(&root).await?;
+    // Disabled mods are excluded outright, matching preflight (`preflight.rs`,
+    // which skips them before parsing). The loader never reads a `.disabled`
+    // jar, so a disabled mod neither declares dependencies nor satisfies anyone
+    // else's. Without this the two panels contradict each other about the same
+    // mod: the graph would show a disabled mod's deps as missing-and-installable
+    // and would count a disabled jar as satisfying someone else's requirement,
+    // while preflight says neither.
+    let installed_mods: Vec<_> = crate::mods::installed::list(&root)
+        .await?
+        .into_iter()
+        .filter(|m| m.enabled)
+        .collect();
 
     // Roots: platform-identified installed mods only (anonymous local jars have
     // no source metadata and cannot be queried for deps).
@@ -2226,6 +2237,10 @@ fn node_deps_scoped(
     if crate::mods::local::loaders_disjoint_from_instance(&node.loaders, loader) {
         return NodeDeps::default();
     }
+    // Child scoping applies ONLY under a merged multi-loader release, whose
+    // platform dependency list is provably a flat union across loader families.
+    // See `local::spans_foreign_family` for why this bound is not optional.
+    let ambiguous_union = crate::mods::local::spans_foreign_family(&node.loaders, loader);
     let mut required = Vec::new();
     let mut optional = Vec::new();
     for link in &node.deps {
@@ -2242,6 +2257,31 @@ fn node_deps_scoped(
             .unwrap_or(false);
         if is_loader {
             continue;
+        }
+        // Loader-scope the child. Placed before the required/optional split so
+        // an optional row is scoped too: it carries an "Add" button that would
+        // otherwise install a jar this instance cannot load.
+        if ambiguous_union {
+            let child_key = (child_src, child_pid.clone());
+            // An INSTALLED child is judged by its own installed-version loaders
+            // — the same precise granularity the node rule above uses. Falling
+            // back to the project-level union here would be wrong in both
+            // directions: it is coarser than a signal we already hold, and an
+            // inert jar (present but unloadable) must not read as satisfying a
+            // requirement. Installed with no stored version_id ⇒ no entry ⇒
+            // keep, since presence outranks a coarse union.
+            let child_loaders: &[crate::mods::platform::LoaderKind] =
+                match ctx.installed_versions.get(&child_key) {
+                    Some(meta) => &meta.loaders,
+                    None if ctx.installed.contains(&child_key) => &[],
+                    None => summary.and_then(|s| s.loaders.as_deref()).unwrap_or(&[]),
+                };
+            // Reused verbatim: its empty / Vanilla / Vanilla-instance clauses
+            // are what make every unknown signal fail open. A hand-rolled
+            // `!contains(loader)` inverts all of them at once.
+            if crate::mods::local::loaders_disjoint_from_instance(child_loaders, loader) {
+                continue;
+            }
         }
         let name = summary
             .map(|s| s.name.clone())
