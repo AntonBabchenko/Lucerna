@@ -40,11 +40,20 @@
     namespace,
     lang,
     onOverrideSaved,
+    reloadToken = 0,
   }: {
     instanceId: string;
     namespace: string;
     lang: string;
     onOverrideSaved?: () => void;
+    /**
+     * Bump to force a refetch of the SAME (instance, namespace, lang). The
+     * fetch effect is keyed on those three, so a change made outside this
+     * component — an AI pre-fill run rewriting these very rows, a bulk revert
+     * — is invisible to it: the rows on screen would stay pre-run until the
+     * modal was reopened. Per-row edits do not need this; they patch in place.
+     */
+    reloadToken?: number;
   } = $props();
 
   let rows = $state<KeyRow[]>([]);
@@ -87,6 +96,7 @@
     const id = instanceId;
     const ns = namespace;
     const targetLang = lang;
+    void reloadToken;
     void load(id, ns, targetLang);
   });
 
