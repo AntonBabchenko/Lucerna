@@ -2150,6 +2150,7 @@ export type TranslationKey =
   | 'settings.aiTranslation.scopeNote'
   | 'settings.aiTranslation.testButton'
   | 'settings.aiTranslation.testHint'
+  | 'settings.aiTranslation.testHintDisabled'
   | 'settings.aiTranslation.testOk'
   | 'settings.aiTranslation.title'
   | 'settings.changelog.empty'

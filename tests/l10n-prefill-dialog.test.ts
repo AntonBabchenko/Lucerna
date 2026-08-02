@@ -161,6 +161,31 @@ describe('LocalizationModal — prefill triggers', () => {
     expect(await screen.findByTestId('l10n-prefill-all')).toBeTruthy();
     expect(await screen.findByTestId('l10n-prefill-namespace')).toBeTruthy();
   });
+
+  it('refreshes the open key table when a run finishes, not just the coverage', async () => {
+    // A finished run rewrites the very rows the user is looking at. KeyTable
+    // reloads on (instanceId, namespace, lang) and a run changes none of them,
+    // so without an explicit nudge the table keeps showing pre-run values until
+    // the modal is reopened — the strings are on disk and invisible.
+    mockCoverage(coverage({ applyGate: 'ready' }));
+    vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue(ok([]));
+    vi.mocked(commands.l10nPrefillEstimate).mockResolvedValue(ok(estimate()));
+    vi.mocked(commands.l10nPrefillStart).mockResolvedValue(ok(summary()));
+
+    render(LocalizationModal, {
+      props: { open: true, instanceId: 'inst-1', lang: 'ru_ru', aiConsent: true },
+    });
+
+    await fireEvent.click(await screen.findByTestId('l10n-namespace-row'));
+    await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(1));
+
+    await fireEvent.click(screen.getByTestId('l10n-prefill-namespace'));
+    await screen.findByTestId('l10n-prefill-estimate');
+    await fireEvent.click(screen.getByTestId('l10n-prefill-start'));
+
+    await screen.findByTestId('l10n-prefill-summary');
+    await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe('PrefillDialog', () => {

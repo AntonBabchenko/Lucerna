@@ -113,6 +113,17 @@
   // SHA-1), so this doesn't need a loading state of its own — a failure here
   // just leaves the percentages stale for a moment rather than surfacing an
   // error banner over a background sync the user didn't ask for.
+  // A finished pre-fill run rewrites the rows the user is currently looking
+  // at, but KeyTable's fetch is keyed on (instance, namespace, lang) — none of
+  // which a run changes. Bumping this makes it refetch; without it the new
+  // translations sit on disk, invisible until the modal is reopened.
+  let keyReloadToken = $state(0);
+
+  function afterPrefillRun() {
+    void refreshCoverageSilently();
+    keyReloadToken += 1;
+  }
+
   async function refreshCoverageSilently() {
     if (!instanceId) return;
     const id = instanceId;
@@ -340,6 +351,7 @@
             namespace={selectedNamespace}
             {lang}
             onOverrideSaved={refreshCoverageSilently}
+            reloadToken={keyReloadToken}
           />
         {:else}
           <div
@@ -363,7 +375,7 @@
       {lang}
       namespace={prefillScope.namespace}
       onClose={() => (prefillScope = null)}
-      onFinished={refreshCoverageSilently}
+      onFinished={afterPrefillRun}
     />
   {/if}
 {/if}
