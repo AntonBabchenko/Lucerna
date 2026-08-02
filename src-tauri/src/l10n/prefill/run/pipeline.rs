@@ -24,10 +24,15 @@ const FLUSH_EVERY_BATCHES: usize = 8;
 
 /// The pipeline itself, over plain data. Takes no `AppHandle` — see the module
 /// docs on why that seam exists.
-pub(super) async fn execute(
+///
+/// Re-exported as `run::execute`, and `pub` rather than `pub(super)` for the
+/// one caller that needs it from outside the crate:
+/// `tests/l10n_prefill_integration.rs`. An integration test is a separate
+/// crate, so `pub(crate)` would not reach it.
+pub async fn execute(
     ctx: &RunContext,
     cancel: &Arc<AtomicBool>,
-    on_progress: &dyn Fn(PrefillProgress),
+    on_progress: &(dyn Fn(PrefillProgress) + Send + Sync),
 ) -> Result<RunSummary> {
     on_progress(PrefillProgress {
         done: 0,
@@ -52,7 +57,7 @@ async fn run_pipeline(
     ctx: &RunContext,
     units: Vec<PrefillUnit>,
     cancel: &Arc<AtomicBool>,
-    on_progress: &dyn Fn(PrefillProgress),
+    on_progress: &(dyn Fn(PrefillProgress) + Send + Sync),
 ) -> RunSummary {
     let batches = build_batches(&units, MAX_BATCH);
 
@@ -97,7 +102,13 @@ async fn run_pipeline(
 /// The namespace stores loaded here are used only to classify keys and are
 /// then dropped. Holding them for the whole run and saving them back is
 /// exactly the stale-snapshot bug `PendingWrite` exists to avoid.
-async fn discover(ctx: &RunContext) -> Result<Vec<PrefillUnit>> {
+///
+/// `pub(super)` because the estimate command has to count the very units this
+/// run will translate. A second discovery written against the same intent
+/// would drift — a rule about blank English strings, or about which states
+/// count as missing, applied in one place and not the other — and the estimate
+/// exists precisely to be believed.
+pub(super) async fn discover(ctx: &RunContext) -> Result<Vec<PrefillUnit>> {
     let lang_maps =
         crate::l10n::namespace_scan::instance_lang_maps(&ctx.inst_root, &ctx.lang).await?;
 
@@ -157,7 +168,7 @@ async fn run_pass(
     role: UiRole,
     batches: Vec<Batch>,
     cancel: &Arc<AtomicBool>,
-    on_progress: &dyn Fn(PrefillProgress),
+    on_progress: &(dyn Fn(PrefillProgress) + Send + Sync),
 ) -> Result<()> {
     let limit = concurrency_for(ctx.provider);
     let mut queue = batches.into_iter();

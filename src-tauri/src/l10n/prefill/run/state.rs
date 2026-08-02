@@ -64,15 +64,26 @@ pub(super) struct RunState {
     pub(super) total: u32,
 }
 
+/// The address space of the answer cache for one run.
+///
+/// Its own function rather than an inline literal in [`RunState::new`] because
+/// the estimate has to address the same cache: if the estimate hashed against
+/// a different model, prompt version or glossary version than the run, it
+/// would report "0 already answered" for a cache the run then hits in full —
+/// or the reverse. One derivation, two callers.
+pub(super) fn pipeline_id(ctx: &RunContext) -> PipelineId {
+    PipelineId {
+        target_lang: ctx.lang.clone(),
+        model: ctx.model.clone(),
+        prompt_version: PROMPT_VERSION,
+        glossary_version: ctx.glossary.version().to_string(),
+    }
+}
+
 impl RunState {
     pub(super) fn new(ctx: &RunContext) -> Self {
         Self {
-            pipeline: PipelineId {
-                target_lang: ctx.lang.clone(),
-                model: ctx.model.clone(),
-                prompt_version: PROMPT_VERSION,
-                glossary_version: ctx.glossary.version().to_string(),
-            },
+            pipeline: pipeline_id(ctx),
             pending: BTreeMap::new(),
             cache: cache::load(&ctx.cache_path),
             learned: BTreeMap::new(),

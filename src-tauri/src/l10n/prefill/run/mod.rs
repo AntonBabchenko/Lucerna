@@ -65,6 +65,7 @@ mod transport;
 mod types;
 
 pub use batch::{decide_batch, BatchOutcome};
+pub use pipeline::execute;
 pub use types::{PrefillProgress, Rejected, RunSummary};
 
 use std::path::PathBuf;
@@ -72,7 +73,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
-use crate::instances::schema::AiProvider;
+use crate::instances::schema::{AiProvider, GeneralSettings};
+use crate::l10n::prefill::cache;
+use crate::l10n::prefill::estimate::PrefillEstimate;
 use crate::l10n::prefill::glossary::Glossary;
 use crate::l10n::store;
 use crate::network::consent::AiConsent;
@@ -111,13 +114,21 @@ const CACHE_STEM: &str = "answers";
 /// the dispatch loop can see still lets ten running batches queue up to
 /// `MAX_BATCH` single-string retries each, all decided after the user pressed
 /// Cancel.
+///
+/// `on_progress` is `Send + Sync` because it is held across an `.await`, which
+/// makes the returned future `Send` only if it is — and a `#[tauri::command]`
+/// can only return a `Send` future. A bare `&dyn Fn(_)` compiles here and
+/// fails at the one call site that matters. The bound costs the caller
+/// nothing: `tauri::ipc::Channel` is itself `Send + Sync`, so the one-line
+/// adapter in `commands::l10n_prefill_start` satisfies it, and so does the
+/// `&|_| {}` the unit tests pass.
 pub async fn run(
     app: &tauri::AppHandle,
     instance_id: &str,
     lang: &str,
     namespace: Option<&str>,
     cancel: &Arc<AtomicBool>,
-    on_progress: &dyn Fn(PrefillProgress),
+    on_progress: &(dyn Fn(PrefillProgress) + Send + Sync),
 ) -> Result<RunSummary> {
     // The gate. Everything that can reach a model needs this token, and this
     // is the only place one is minted — see the module docs.
@@ -149,8 +160,49 @@ pub async fn run(
     Ok(summary)
 }
 
-/// Everything [`pipeline::execute`] needs, resolved once from the `AppHandle`.
-struct RunContext {
+/// What a run would do, without doing any of it.
+///
+/// Resolved through the very same [`resolve_context`] and [`pipeline::discover`]
+/// the run uses, and addressed against the same cache via
+/// [`state::pipeline_id`]. That is the whole contract of an estimate: numbers
+/// produced by a second, parallel derivation would be numbers the run then
+/// contradicts, which is worse than showing none.
+///
+/// It therefore also inherits the run's preflight — the consent token, the API
+/// key, the model name. That is deliberate: the failures a run would hit
+/// before spending anything are exactly the failures worth surfacing BEFORE
+/// the user is shown "1 200 strings, ~40 000 tokens" and asked to confirm.
+/// Nothing here reaches the network; the consent token is minted because
+/// `resolve_context` carries one, not because a byte is sent.
+pub async fn estimate(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    lang: &str,
+    namespace: Option<&str>,
+) -> Result<PrefillEstimate> {
+    let consent = crate::network::consent::ai_consent(app)?;
+    let ctx = resolve_context(app, consent, instance_id, lang, namespace)?;
+    let units = pipeline::discover(&ctx).await?;
+    Ok(crate::l10n::prefill::estimate::estimate(
+        &units,
+        &cache::load(&ctx.cache_path),
+        &ctx.glossary,
+        &state::pipeline_id(&ctx),
+        ctx.provider,
+    ))
+}
+
+/// Everything [`execute`] needs, resolved once from the `AppHandle`.
+///
+/// `pub` with private fields, for `tests/l10n_prefill_integration.rs`. No
+/// integration test in this repository can build a `tauri::AppHandle` —
+/// `download_integration.rs`, `worlds_integration.rs` and `servers_diagnose.rs`
+/// all say so in their module docs — so [`run`] and [`resolve_context`] are
+/// unreachable from one, and the whole orchestration would otherwise be
+/// coverable only through the UI. The fields stay private so the only way to
+/// build one from outside this module is [`RunContext::for_settings`], which
+/// goes through the consent gate.
+pub struct RunContext {
     /// Proof the AI-translation permission was on when the run started. Plain
     /// data (zero-sized), so carrying it here keeps the `AppHandle`-free
     /// `execute` seam intact while still gating every provider call.
@@ -165,6 +217,76 @@ struct RunContext {
     local_port: u16,
     model: String,
     glossary: Glossary,
+}
+
+impl RunContext {
+    /// The single place a context is assembled, so the `AppHandle` path
+    /// ([`resolve_context`]) and the handle-free one ([`RunContext::for_settings`])
+    /// cannot drift. `cache_path` above all: it addresses a file the run and
+    /// the estimate must agree about, and two derivations of it would be two
+    /// caches.
+    fn assemble(
+        consent: AiConsent,
+        cfg: ProviderConfig,
+        inst_root: PathBuf,
+        store_dir: PathBuf,
+        lang: &str,
+        namespace: Option<&str>,
+        glossary: Glossary,
+    ) -> Self {
+        Self {
+            consent,
+            inst_root,
+            cache_path: store::store_path(&store_dir.join(CACHE_DIR), lang, CACHE_STEM),
+            store_dir,
+            lang: lang.to_string(),
+            namespace: namespace.map(str::to_string),
+            provider: cfg.provider,
+            api_key: cfg.api_key,
+            local_port: cfg.local_port,
+            model: cfg.model,
+            glossary,
+        }
+    }
+
+    /// A context built from settings rather than from a `tauri::AppHandle` —
+    /// the seam `tests/l10n_prefill_integration.rs` drives [`execute`] through.
+    /// See [`RunContext`] on why an integration test needs one.
+    ///
+    /// It is **not** a way around consent. The token is minted by
+    /// `network::consent::ai_consent_from`, which is the same function
+    /// [`run`]'s `ai_consent` ends in — the only difference is where the
+    /// `GeneralSettings` came from. `GeneralSettings::default()` has
+    /// `allow_ai_translation: false`, so the default value cannot mint a token
+    /// here any more than a default `app.json` can mint one there; a caller
+    /// has to state the user's permission as data. `read_app_json` is the only
+    /// legitimate source of a `GeneralSettings` in this crate, so supplying a
+    /// fabricated one is a deliberate, reviewable act rather than something a
+    /// refactor can do by accident.
+    ///
+    /// `api_key` is passed in rather than read: the keychain is reachable
+    /// without an `AppHandle`, but a test must not touch the user's real one.
+    #[doc(hidden)]
+    pub fn for_settings(
+        general: &GeneralSettings,
+        api_key: Option<String>,
+        inst_root: PathBuf,
+        store_dir: PathBuf,
+        lang: &str,
+        namespace: Option<&str>,
+        glossary: Glossary,
+    ) -> Result<Self> {
+        let consent = crate::network::consent::ai_consent_from(general)?;
+        let cfg = ProviderConfig {
+            provider: general.ai_provider,
+            api_key,
+            local_port: general.ai_local_port,
+            model: resolve_model(general.ai_provider, &general.ai_model)?,
+        };
+        Ok(Self::assemble(
+            consent, cfg, inst_root, store_dir, lang, namespace, glossary,
+        ))
+    }
 }
 
 /// The model name to send.
@@ -198,6 +320,72 @@ fn resolve_model(provider: AiProvider, configured: &str) -> Result<String> {
     Ok(default.to_string())
 }
 
+/// Everything needed to reach a model, with nothing instance-specific in it.
+///
+/// Split out of [`resolve_context`] because the Settings "Test key" button
+/// needs exactly this and no instance at all. Re-deriving it there would let
+/// the test round-trip a different model, key or port than the run it exists
+/// to vouch for — the failure mode being a green "Test key" followed by a run
+/// that cannot start.
+pub(crate) struct ProviderConfig {
+    pub(crate) provider: AiProvider,
+    /// `None` only for a provider that needs no key. A cloud provider with no
+    /// key stored fails resolution outright rather than arriving as `None`.
+    pub(crate) api_key: Option<String>,
+    pub(crate) local_port: u16,
+    pub(crate) model: String,
+}
+
+/// The API key filed for `provider`, or `None` when nothing usable is stored.
+///
+/// Trimmed and emptiness-checked HERE, once, so that "is a key stored?" and
+/// "which key will the run send?" can never disagree — a status that reported
+/// a whitespace-only entry as present would send the user back to Settings
+/// with nothing visibly wrong to fix.
+fn stored_key(provider: AiProvider) -> Result<Option<String>> {
+    Ok(
+        crate::accounts::keychain::retrieve(&crate::accounts::keychain::ai_provider_key(
+            provider.id(),
+        ))?
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty()),
+    )
+}
+
+/// Whether a usable API key is stored for `provider`.
+///
+/// The command layer calls this rather than [`stored_key`] so the secret is
+/// never bound to a variable in a file whose whole job is to return values to
+/// the UI. The key status crosses IPC; the key never can.
+pub(crate) fn has_stored_key(provider: AiProvider) -> Result<bool> {
+    Ok(stored_key(provider)?.is_some())
+}
+
+/// Read the AI settings and resolve the model and credential they imply.
+pub(crate) fn resolve_provider(app: &tauri::AppHandle) -> Result<ProviderConfig> {
+    let app_file = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let general = crate::instances::store::read_app_json(&app_file)?.general;
+    let provider = general.ai_provider;
+    let model = resolve_model(provider, &general.ai_model)?;
+
+    let api_key = if provider.needs_key() {
+        Some(
+            stored_key(provider)?.ok_or_else(|| Error::L10nPrefillKeyMissing {
+                provider: provider.id().to_string(),
+            })?,
+        )
+    } else {
+        None
+    };
+
+    Ok(ProviderConfig {
+        provider,
+        api_key,
+        local_port: general.ai_local_port,
+        model,
+    })
+}
+
 fn resolve_context(
     app: &tauri::AppHandle,
     consent: AiConsent,
@@ -205,23 +393,10 @@ fn resolve_context(
     lang: &str,
     namespace: Option<&str>,
 ) -> Result<RunContext> {
-    let app_file = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let general = crate::instances::store::read_app_json(&app_file)?.general;
-    let provider = general.ai_provider;
-    let model = resolve_model(provider, &general.ai_model)?;
-
-    let api_key = if provider.needs_key() {
-        let stored = crate::accounts::keychain::retrieve(
-            &crate::accounts::keychain::ai_provider_key(provider.id()),
-        )?
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty());
-        Some(stored.ok_or_else(|| Error::L10nPrefillKeyMissing {
-            provider: provider.id().to_string(),
-        })?)
-    } else {
-        None
-    };
+    // Settings, model and credential first, exactly as before the split: the
+    // cheap failures that need no instance at all are the ones worth hitting
+    // before any jar is opened.
+    let cfg = resolve_provider(app)?;
 
     let inst_root = crate::commands::instance_root(app, instance_id)?;
     let store_dir = crate::paths::l10n_dir(app).map_err(|e| Error::io("<l10n_dir>", e))?;
@@ -245,19 +420,9 @@ fn resolve_context(
         &mc_version,
     );
 
-    Ok(RunContext {
-        consent,
-        inst_root,
-        cache_path: store::store_path(&store_dir.join(CACHE_DIR), lang, CACHE_STEM),
-        store_dir,
-        lang: lang.to_string(),
-        namespace: namespace.map(str::to_string),
-        provider,
-        api_key,
-        local_port: general.ai_local_port,
-        model,
-        glossary,
-    })
+    Ok(RunContext::assemble(
+        consent, cfg, inst_root, store_dir, lang, namespace, glossary,
+    ))
 }
 
 #[cfg(test)]
