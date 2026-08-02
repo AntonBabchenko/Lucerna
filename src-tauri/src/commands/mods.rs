@@ -2052,6 +2052,15 @@ pub async fn mods_dependency_graph(
         return Ok(DependencyGraph { roots: Vec::new() });
     }
 
+    // Platform identity of every installed mod, for child scoping. Built from
+    // `roots` rather than from the version metadata below: a mod with no stored
+    // `version_id` never reaches `deps_by_project`, and must still count as
+    // installed.
+    let installed_keys: HashSet<(ModSource, String)> = roots
+        .iter()
+        .map(|n| (n.source, n.project_id.clone()))
+        .collect();
+
     // Lowercased installed jar filenames — the cross-source recognition signal
     // (a dep installed from the other platform has a different ProjectKey but the
     // same jar). Declared dep links in this batch path carry no filename, so the
@@ -2147,12 +2156,19 @@ pub async fn mods_dependency_graph(
     //    nothing → emitted as a leaf, no recursion, no network.
     let deps_by_project = Arc::new(deps_by_project);
     let summaries = Arc::new(summaries);
+    let installed_keys = Arc::new(installed_keys);
     let fetch = move |source: ModSource, project_id: String| {
         let deps_by_project = deps_by_project.clone();
         let summaries = summaries.clone();
+        let installed_keys = installed_keys.clone();
         async move {
+            let ctx = ScopeCtx {
+                summaries: &summaries,
+                installed: &installed_keys,
+                installed_versions: &deps_by_project,
+            };
             let result = match deps_by_project.get(&(source, project_id)) {
-                Some(node) => node_deps_scoped(node, loader, &summaries),
+                Some(node) => node_deps_scoped(node, loader, &ctx),
                 None => NodeDeps::default(),
             };
             Ok::<NodeDeps, crate::error::Error>(result)
@@ -2180,6 +2196,20 @@ struct DepNodeMeta {
     deps: Vec<ModDepLink>,
 }
 
+/// Everything `node_deps_scoped` needs about the rest of the instance to judge
+/// one declaring node's children.
+///
+/// `installed` is built from the graph ROOTS, not from `installed_versions`:
+/// a mod with no stored `version_id` is a root but has no entry in the latter,
+/// and treating it as "not installed" would be wrong.
+struct ScopeCtx<'a> {
+    summaries: &'a std::collections::HashMap<(ModSource, String), ModSummary>,
+    installed: &'a std::collections::HashSet<(ModSource, String)>,
+    /// Installed-version metadata per project — the precise, per-version loader
+    /// set for a child that is itself installed.
+    installed_versions: &'a std::collections::HashMap<(ModSource, String), DepNodeMeta>,
+}
+
 /// Project a declaring node's required/optional graph children from its platform
 /// metadata, scoped to the instance loader. A node inert on this instance (its
 /// declared loaders are family-disjoint from `loader`) yields no children — this
@@ -2189,9 +2219,10 @@ struct DepNodeMeta {
 fn node_deps_scoped(
     node: &DepNodeMeta,
     loader: crate::mods::platform::LoaderKind,
-    summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
+    ctx: &ScopeCtx<'_>,
 ) -> crate::mods::depgraph::NodeDeps {
     use crate::mods::depgraph::{DepChild, NodeDeps};
+    let summaries = ctx.summaries;
     if crate::mods::local::loaders_disjoint_from_instance(&node.loaders, loader) {
         return NodeDeps::default();
     }
@@ -2262,9 +2293,77 @@ mod tests {
     use super::*;
     use crate::mods::deps::ProjectKey;
     use crate::mods::platform::{
-        DepKind, DepProjectRef, LoaderKind, ModDepLink, ModFile, ModSource, ModVersion,
+        DepKind, DepProjectRef, LoaderKind, ModDepLink, ModFile, ModSource, ModSummary, ModVersion,
     };
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+
+    /// Owns the maps a [`ScopeCtx`] borrows, so a test can build one in a line.
+    /// Default = nothing cached, nothing installed.
+    #[derive(Default)]
+    struct Fixture {
+        summaries: HashMap<(ModSource, String), ModSummary>,
+        installed: HashSet<(ModSource, String)>,
+        installed_versions: HashMap<(ModSource, String), DepNodeMeta>,
+    }
+
+    impl Fixture {
+        fn ctx(&self) -> ScopeCtx<'_> {
+            ScopeCtx {
+                summaries: &self.summaries,
+                installed: &self.installed,
+                installed_versions: &self.installed_versions,
+            }
+        }
+
+        /// Cache a summary for `pid` declaring `loaders` at project level.
+        fn with_summary(mut self, pid: &str, loaders: Option<Vec<LoaderKind>>) -> Self {
+            self.summaries.insert(
+                (ModSource::Modrinth, pid.into()),
+                ModSummary {
+                    source: ModSource::Modrinth,
+                    project_id: pid.into(),
+                    slug: Some(pid.into()),
+                    name: pid.into(),
+                    summary: String::new(),
+                    icon_url: None,
+                    downloads: 0.0,
+                    author: String::new(),
+                    updated_at: None,
+                    loaders,
+                },
+            );
+            self
+        }
+
+        /// Mark `pid` installed, optionally with its installed-version loaders.
+        fn with_installed(mut self, pid: &str, version_loaders: Option<Vec<LoaderKind>>) -> Self {
+            self.installed.insert((ModSource::Modrinth, pid.into()));
+            if let Some(loaders) = version_loaders {
+                self.installed_versions.insert(
+                    (ModSource::Modrinth, pid.into()),
+                    DepNodeMeta {
+                        loaders,
+                        deps: Vec::new(),
+                    },
+                );
+            }
+            self
+        }
+    }
+
+    /// A declaring node with one required Modrinth child.
+    fn node_requiring(loaders: Vec<LoaderKind>, child: &str) -> DepNodeMeta {
+        DepNodeMeta {
+            loaders,
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Modrinth {
+                    project_id: child.into(),
+                    version_id: None,
+                },
+            }],
+        }
+    }
 
     #[test]
     fn node_deps_scoped_suppresses_inert_fabric_node_on_forge() {
@@ -2279,7 +2378,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
         assert!(
             out.required.is_empty(),
             "inert Fabric node must yield no required deps on Forge"
@@ -2299,7 +2398,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
         assert_eq!(out.required.len(), 1);
         assert_eq!(out.required[0].project_id, "abc");
     }
@@ -2317,7 +2416,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
         assert_eq!(out.required.len(), 1, "unknown loaders must not suppress");
     }
 
