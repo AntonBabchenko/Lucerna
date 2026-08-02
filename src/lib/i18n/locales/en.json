@@ -2243,6 +2243,7 @@
       "keyringNote": "Stored in your operating system's secure keyring. Lucerna can tell that a key is there, but never reads it back into this field.",
       "testButton": "Test connection",
       "testHint": "Sends one tiny request using the provider, model and key you have saved. Save a new key before testing it.",
+      "testHintDisabled": "Turn on the permission above first — testing the connection sends a real request to the provider.",
       "testOk": "The provider accepted the request."
     },
     "curseforge": {

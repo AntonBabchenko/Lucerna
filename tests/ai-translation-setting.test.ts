@@ -95,6 +95,28 @@ describe('Settings → Integrations: AI translation', () => {
     );
   });
 
+  it('explains why testing the connection is unavailable while the permission is off', async () => {
+    // A stored key plus a dead button is the confusing state: the user has
+    // done everything visible on this row and nothing happens. The button is
+    // off because the test is a REAL outbound request, so the hint has to say
+    // that rather than talk about saving keys.
+    l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
+    render(AiTranslationSection);
+
+    const button = (await waitFor(() =>
+      screen.getByTestId('ai-test-connection'),
+    )) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByTestId('ai-test-hint').textContent).toMatch(/permission above/i);
+
+    await fireEvent.click(screen.getByTestId('ai-translation-toggle'));
+
+    await waitFor(() =>
+      expect((screen.getByTestId('ai-test-connection') as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.getByTestId('ai-test-hint').textContent).toMatch(/one tiny request/i);
+  });
+
   it('hides the API key field for the local provider', async () => {
     render(AiTranslationSection);
     // Default provider is a hosted one, so the key field is there to begin with.

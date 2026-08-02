@@ -371,7 +371,12 @@
         </span>
       {/if}
     </div>
-    <span class="text-xs text-muted">{$t('settings.aiTranslation.testHint')}</span>
+    <!-- A disabled control has to say why. Without the permission the button
+         is off because the test is a real outbound request, and the normal
+         hint ("save a new key first") points at the wrong thing entirely. -->
+    <span class="text-xs text-muted" data-testid="ai-test-hint">
+      {$t(allowed ? 'settings.aiTranslation.testHint' : 'settings.aiTranslation.testHintDisabled')}
+    </span>
     {#if testError}
       <p class="text-xs text-danger" role="alert" data-testid="ai-test-error">{testError}</p>
     {/if}
