@@ -8,6 +8,7 @@
   import GamePanel from './GamePanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import UrlSchemeSection from './UrlSchemeSection.svelte';
+  import AiTranslationSection from './AiTranslationSection.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import UpdatesPanel from './UpdatesPanel.svelte';
   import HelpPanel from './HelpPanel.svelte';
@@ -107,6 +108,9 @@
             <CurseForgeKeyForm />
             <div class="border-t pt-4">
               <UrlSchemeSection />
+            </div>
+            <div class="border-t pt-4">
+              <AiTranslationSection />
             </div>
           </div>
         {:else if active === 'storage'}

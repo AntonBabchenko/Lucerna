@@ -108,6 +108,13 @@ const ALLOWED_PATTERNS: &[&str] = &[
     // the project page in the system browser instead.
     "hangar.papermc.io",
     "hangarcdn.papermc.io",
+    // v0.21.0 — AI translation pre-fill. Exact hosts only (no wildcard): these
+    // are OpenAI-compatible chat-completion endpoints the user opts into with
+    // their own key. A local model is NOT here — loopback has its own narrow
+    // seam in `network::loopback`.
+    "api.anthropic.com",
+    "generativelanguage.googleapis.com",
+    "api.groq.com",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -243,8 +250,8 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"api.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"dist.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"api.ipify.org"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo) + 3 Paper/Purpur core hosts + 2 Hangar hosts.
-        assert_eq!(ALLOWED_PATTERNS.len(), 35);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo) + 3 Paper/Purpur core hosts + 2 Hangar hosts + 3 AI translation provider hosts.
+        assert_eq!(ALLOWED_PATTERNS.len(), 38);
     }
 
     #[test]
@@ -322,6 +329,15 @@ mod tests {
         assert!(is_host_allowed("hangarcdn.papermc.io"));
         assert!(!is_host_allowed("evil.hangar.papermc.io"));
         assert!(!is_host_allowed("evilhangar.papermc.io"));
+    }
+
+    #[test]
+    fn ai_provider_hosts_are_allowed_and_lookalikes_are_not() {
+        assert!(is_host_allowed("api.anthropic.com"));
+        assert!(is_host_allowed("generativelanguage.googleapis.com"));
+        assert!(is_host_allowed("api.groq.com"));
+        assert!(!is_host_allowed("anthropic.com"));
+        assert!(!is_host_allowed("api.anthropic.com.attacker.net"));
     }
 
     #[test]

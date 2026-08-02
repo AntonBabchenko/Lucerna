@@ -19,12 +19,20 @@
   import { commands, type KeyRow } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import { PAGE_SIZES, type PageSize } from '$lib/mods/browser-prefs.svelte';
-  import { countKeyStates, filterRows, type KeyFilter } from './key-rows';
+  import {
+    countKeyStates,
+    countOrigins,
+    filterByOrigin,
+    filterRows,
+    type KeyFilter,
+    type OriginFilter,
+  } from './key-rows';
   import KeyEditRow from './KeyEditRow.svelte';
 
   let {
@@ -44,8 +52,16 @@
   let loadError = $state<string | null>(null);
   let search = $state('');
   let filter = $state<KeyFilter>('all');
+  // A SECOND axis, deliberately not folded into `filter`: ToggleChipGroup is a
+  // single-select radiogroup with one `value`, so putting manual/machine in
+  // the same group would make "untranslated" and "machine-written" mutually
+  // exclusive — and they are orthogonal.
+  let originFilter = $state<OriginFilter>('all');
   let page = $state(0);
   let pageSize = $state<PageSize>(50);
+  let revertConfirmOpen = $state(false);
+  let reverting = $state(false);
+  let revertError = $state<string | null>(null);
 
   // Monotonic request id — same race guard as LocalizationModal.load(): a
   // response only applies if it's still the most recent request for this
@@ -81,10 +97,20 @@
     void namespace;
     search = '';
     filter = 'all';
+    // The origin filter resets with the others: a "machine only" selection
+    // carried into a namespace the pre-fill never touched shows an empty
+    // table with no visible reason why.
+    originFilter = 'all';
+    // Defence in depth. ConfirmDialog's backdrop covers the namespace list, so
+    // a switch while the confirm is up should be unreachable today — but if it
+    // ever isn't, the confirm would name one namespace and revert another.
+    revertConfirmOpen = false;
+    revertError = null;
   });
 
-  const filteredRows = $derived(filterRows(rows, search, filter));
+  const filteredRows = $derived(filterByOrigin(filterRows(rows, search, filter), originFilter));
   const counts = $derived(countKeyStates(rows));
+  const origins = $derived(countOrigins(rows));
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
@@ -93,6 +119,7 @@
   $effect(() => {
     void search;
     void filter;
+    void originFilter;
     void pageSize;
     page = 0;
   });
@@ -143,6 +170,54 @@
     },
   ]);
 
+  const originOptions = $derived([
+    {
+      value: 'all',
+      label: $t('instance.l10n.keyTable.originAllLabel'),
+      tone: 'neutral' as const,
+      testId: 'l10n-origin-all',
+    },
+    {
+      value: 'manual',
+      label: $t('instance.l10n.keyTable.originManualLabel'),
+      tone: 'neutral' as const,
+      count: origins.manual,
+      testId: 'l10n-origin-manual',
+    },
+    {
+      value: 'machine',
+      label: $t('instance.l10n.keyTable.originMachineLabel'),
+      tone: 'neutral' as const,
+      count: origins.machine,
+      testId: 'l10n-origin-machine',
+    },
+  ]);
+
+  // One command, not one call per key: the backend loads the namespace file
+  // once, drops every Origin::Machine entry, saves once and rebuilds the pack.
+  // A hand-edited machine string is already Origin::Manual (KeyEditRow's save
+  // reclaims it), so this only ever removes what the user never touched.
+  async function revertMachine() {
+    if (reverting) return;
+    reverting = true;
+    revertError = null;
+    try {
+      const res = await commands.l10nRevertMachine(instanceId, lang, namespace);
+      if (res.status === 'ok') {
+        revertConfirmOpen = false;
+        // Refetch rather than patch: the removal is bulk and the resulting
+        // state of each key depends on whether the mod ships its own
+        // translation — exactly the thing the backend already knows.
+        await load(instanceId, namespace, lang);
+        onOverrideSaved?.();
+      } else {
+        revertError = $t('instance.l10n.keyTable.revertFailed', { error: formatError(res.error) });
+      }
+    } finally {
+      reverting = false;
+    }
+  }
+
   const pageSizeOptions = PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }));
 </script>
 
@@ -162,6 +237,26 @@
       onChange={(v) => (filter = v as KeyFilter)}
       ariaLabel={$t('instance.l10n.keyTable.filterGroupAriaLabel')}
     />
+    <!-- Its own group with its own ariaLabel — see `originFilter` above. -->
+    <ToggleChipGroup
+      options={originOptions}
+      value={originFilter}
+      onChange={(v) => (originFilter = v as OriginFilter)}
+      ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
+    />
+    {#if origins.machine > 0}
+      <button
+        type="button"
+        class="btn-ghost-danger"
+        data-testid="l10n-revert-machine"
+        onclick={() => {
+          revertError = null;
+          revertConfirmOpen = true;
+        }}
+      >
+        {$t('instance.l10n.keyTable.revertMachineButton')}
+      </button>
+    {/if}
   </div>
 
   <div class="flex-1 overflow-y-auto px-3">
@@ -224,3 +319,20 @@
     </div>
   {/if}
 </div>
+
+{#if revertConfirmOpen}
+  <ConfirmDialog
+    title={$t('instance.l10n.keyTable.revertConfirmTitle')}
+    bodyText={$t('instance.l10n.keyTable.revertConfirmBody', {
+      count: origins.machine,
+      namespace,
+    })}
+    confirmLabel={$t('instance.l10n.keyTable.revertConfirmButton')}
+    variant="danger"
+    busy={reverting}
+    error={revertError}
+    confirmTestid="l10n-revert-confirm"
+    onCancel={() => (revertConfirmOpen = false)}
+    onConfirm={revertMachine}
+  />
+{/if}

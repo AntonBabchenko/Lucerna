@@ -50,6 +50,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `fill.papermc.io`, `fill-data.papermc.io` | Paper server core builds (Fill v3 API + jar CDN) | on when user picks the Paper core |
    | `api.purpurmc.org` | Purpur server core builds | on when user picks the Purpur core |
    | `hangar.papermc.io`, `hangarcdn.papermc.io` | Hangar plugin browser + Hangar-hosted plugin files | requested on first open of the plugin browser |
+   | `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.groq.com` | AI translation pre-fill (opt-in, user's own API key) — the chat-completion endpoint of whichever provider the user selects; only that one host is contacted | off by default; only when the user turns on AI translation and starts a pre-fill run |
 
    The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the single source of truth; this table mirrors it for human readers and is kept in sync by code review.
 

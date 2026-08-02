@@ -53,10 +53,13 @@ hex = "0.4.3"
 reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "stream"] }
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
 # `net` is required by the OAuth loopback listener and the consented-dial tier
-# (`network::consent`). It used to arrive only through feature unification with
-# reqwest/tauri; listing it explicitly keeps a dependency change from silently
-# breaking the build. Same crate, no new transitive tree.
-tokio = { version = "1.52.3", features = ["fs", "io-util", "net", "process", "rt", "rt-multi-thread", "macros", "time"] }
+# (`network::consent`). `sync` is required by the AI translation pre-fill, whose
+# runner bounds provider concurrency with a `Semaphore` (unknown hosts get an
+# effectively unlimited throttle bucket, so the bound has to be ours). Both used
+# to arrive only through feature unification with reqwest/tauri; listing them
+# explicitly keeps a dependency change from silently breaking the build. Same
+# crate, no new transitive tree.
+tokio = { version = "1.52.3", features = ["fs", "io-util", "net", "process", "rt", "rt-multi-thread", "macros", "sync", "time"] }
 # url 2.5: RFC 3986 URL parsing for the host-allowlist check on mrpack downloads[]
 url = "2.5"
 uuid = { version = "1.23.1", features = ["v4"] }

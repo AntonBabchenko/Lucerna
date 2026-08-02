@@ -87,9 +87,20 @@ fn consent_module_still_gates_on_the_setting() {
         content.contains("ConsentedChannelDisabled"),
         "consent.rs must refuse a channel whose permission is off",
     );
-    let call = content.find(CONSENT_CALL).unwrap_or_else(|| {
-        panic!("ConsentedTcp::open must call the consent gate: `{CONSENT_CALL}`")
-    });
+    // Anchor the search inside ConsentedTcp::open. A bare first-occurrence
+    // `find` can be satisfied by any other function in the file that happens
+    // to call the gate, which would let the real check inside `open` be
+    // deleted with this guard still green — the regression this test exists
+    // to catch.
+    let open_at = content
+        .find("pub async fn open(")
+        .expect("ConsentedTcp::open must exist");
+    let call = content[open_at..]
+        .find(CONSENT_CALL)
+        .map(|i| i + open_at)
+        .unwrap_or_else(|| {
+            panic!("ConsentedTcp::open must call the consent gate: `{CONSENT_CALL}`")
+        });
 
     // And it must run BEFORE the socket is opened — a check that happens after
     // the dial would leak the very packet the permission is meant to prevent.

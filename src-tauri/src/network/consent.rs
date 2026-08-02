@@ -36,6 +36,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub enum ConsentedChannel {
     /// Server List Ping to the user's own saved multiplayer servers.
     ServerPing,
+    /// AI translation pre-fill — either a cloud provider on the allowlist or
+    /// a local model server via `network::loopback`.
+    AiTranslation,
 }
 
 impl ConsentedChannel {
@@ -44,12 +47,14 @@ impl ConsentedChannel {
     pub fn id(self) -> &'static str {
         match self {
             ConsentedChannel::ServerPing => "server_ping",
+            ConsentedChannel::AiTranslation => "ai_translation",
         }
     }
 
     fn is_enabled(self, general: &GeneralSettings) -> bool {
         match self {
             ConsentedChannel::ServerPing => general.allow_server_ping,
+            ConsentedChannel::AiTranslation => general.allow_ai_translation,
         }
     }
 }
@@ -122,6 +127,80 @@ impl ConsentedTcp {
     }
 }
 
+/// Check a channel's consent without opening a socket. HTTP channels (the AI
+/// pre-fill) need the same gate as a raw dial but reach the network through
+/// `network::request` / `network::loopback` instead of [`ConsentedTcp`].
+///
+/// Re-reads `app.json` on every call, exactly like [`ConsentedTcp::open`]:
+/// turning the permission off must take effect immediately, not at restart.
+///
+/// Deliberately placed BELOW `impl ConsentedTcp` so the first occurrence of
+/// the consent-call expression in this file stays the one inside `open` —
+/// see `structural_consented_dial.rs`.
+pub fn ensure_channel_enabled(app: &tauri::AppHandle, channel: ConsentedChannel) -> Result<()> {
+    let path = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let settings = crate::instances::store::read_app_json(&path)?;
+    ensure_enabled(channel, &settings.general)?;
+    Ok(())
+}
+
+/// Proof that the AI-translation channel was consented to.
+///
+/// The tuple field is private to this module, so the type cannot be named into
+/// existence from outside it: the only way to hold an `AiConsent` is
+/// [`ai_consent`], which performs the check. `l10n::prefill::provider` requires
+/// one on every function that reaches a model, which makes the gate hold **by
+/// construction** rather than by call ordering — the same trick
+/// [`ConsentedTcp`]'s private socket plays, and the reason no source-scanning
+/// tripwire is needed for it.
+///
+/// Ordering guards cannot cover this channel anyway. They can only pin the one
+/// call site they were written against, and `provider::test_credentials` (the
+/// Settings "Test key" button) is not downstream of the run at all.
+///
+/// Zero-sized and `Copy`: it is proof, not a resource, so a run mints it once
+/// and copies it into every batch task as plain data.
+#[derive(Debug, Clone, Copy)]
+pub struct AiConsent(());
+
+impl AiConsent {
+    /// A token for unit tests, so the orchestrator's own plumbing stays
+    /// testable without a Tauri handle. `#[cfg(test)]` means it exists only
+    /// while compiling this crate's unit tests: the integration-test crate in
+    /// `src-tauri/tests/` links the library built WITHOUT it, so nothing there
+    /// can reach a provider without going through [`ai_consent`].
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_test() -> Self {
+        Self(())
+    }
+}
+
+/// The pure half of [`ai_consent`], split out for the same reason
+/// [`ensure_enabled`] is: the gate must be testable without a Tauri handle.
+///
+/// `pub(crate)` rather than private so `l10n::prefill::run::RunContext::for_settings`
+/// can mint a token for the integration tests, which cannot build an
+/// `AppHandle` and therefore cannot call [`ai_consent`]. That is not a hole in
+/// the gate: this IS the gate — a `GeneralSettings` whose `allow_ai_translation`
+/// is false (which is `GeneralSettings::default()`) is refused here exactly as
+/// it is refused there. [`AiConsent::for_test`], the one constructor that
+/// checks nothing, stays `#[cfg(test)]`.
+pub(crate) fn ai_consent_from(general: &GeneralSettings) -> Result<AiConsent> {
+    ensure_enabled(ConsentedChannel::AiTranslation, general)?;
+    Ok(AiConsent(()))
+}
+
+/// Check the AI-translation permission and mint the proof token.
+///
+/// Re-reads `app.json` on every call, like every other gate in this module, so
+/// turning the permission off takes effect immediately.
+pub fn ai_consent(app: &tauri::AppHandle) -> Result<AiConsent> {
+    let path = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let settings = crate::instances::store::read_app_json(&path)?;
+    ai_consent_from(&settings.general)
+}
+
 // Delegating impls keep the socket private while letting protocol code stay
 // generic over `AsyncRead + AsyncWrite` — and therefore testable over
 // `tokio::io::duplex()` with no network at all.
@@ -181,5 +260,47 @@ mod tests {
         // The id is part of the IPC contract (format-error maps it to a setting
         // name) — changing it is a breaking change, not a rename.
         assert_eq!(ConsentedChannel::ServerPing.id(), "server_ping");
+    }
+
+    #[test]
+    fn ai_translation_channel_follows_its_own_setting() {
+        let mut g = GeneralSettings::default();
+        assert!(ensure_enabled(ConsentedChannel::AiTranslation, &g).is_err());
+        g.allow_ai_translation = true;
+        assert!(ensure_enabled(ConsentedChannel::AiTranslation, &g).is_ok());
+        // The two channels are independent.
+        assert!(ensure_enabled(ConsentedChannel::ServerPing, &g).is_err());
+    }
+
+    #[test]
+    fn ai_translation_error_names_its_setting() {
+        let g = GeneralSettings::default();
+        let err = ensure_enabled(ConsentedChannel::AiTranslation, &g).expect_err("off by default");
+        assert!(matches!(
+            err,
+            crate::error::Error::ConsentedChannelDisabled { ref channel } if channel == "ai_translation"
+        ));
+    }
+
+    #[test]
+    fn an_ai_consent_token_cannot_be_minted_while_the_permission_is_off() {
+        // The token is the gate. `prefill::provider` takes one on every
+        // function that reaches a model, so if this ever starts returning a
+        // token with the setting off, every model call in the launcher becomes
+        // ungated at once — including the Settings "Test key" button, which no
+        // ordering guard is even positioned to see.
+        let mut g = GeneralSettings::default();
+        assert!(matches!(
+            ai_consent_from(&g),
+            Err(Error::ConsentedChannelDisabled { ref channel }) if channel == "ai_translation"
+        ));
+        g.allow_ai_translation = true;
+        assert!(ai_consent_from(&g).is_ok());
+        // Turning the OTHER channel on must not mint one.
+        let only_ping = GeneralSettings {
+            allow_server_ping: true,
+            ..Default::default()
+        };
+        assert!(ai_consent_from(&only_ping).is_err());
     }
 }

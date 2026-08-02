@@ -12,8 +12,10 @@
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { coverageTone, namespacePercent, sortNamespaces, type CoverageTone } from './coverage';
   import KeyTable from './KeyTable.svelte';
+  import PrefillDialog from './PrefillDialog.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -24,6 +26,7 @@
     open = $bindable(),
     instanceId,
     lang = $bindable(),
+    aiConsent = false,
   }: {
     open: boolean;
     /** The instance to report on. Null while nothing is selected — the
@@ -35,6 +38,11 @@
      *  so the row refetches for the same language instead of the two
      *  surfaces silently measuring different things. */
     lang: string;
+    /** `general.allow_ai_translation`. A PROP, not a read: this component's
+     *  test suite pins exact `l10nCoverage` call counts, and +page.svelte
+     *  already reads settings — adding a second reader here would only give
+     *  the two of them a way to disagree. */
+    aiConsent?: boolean;
   } = $props();
 
   const LIST_MIN_WIDTH = 220;
@@ -152,6 +160,15 @@
     return '';
   });
 
+  // The pre-fill needs both permissions to be meaningful: consent to reach a
+  // provider at all, and an instance the resulting pack could actually be
+  // applied to. Offering the buttons without the second would let a user pay
+  // for strings this Minecraft version can never load.
+  const canPrefill = $derived(aiConsent && coverage?.applyGate === 'ready');
+
+  // `null` = the dialog is closed. `{ namespace: null }` = whole instance.
+  let prefillScope = $state<{ namespace: string | null } | null>(null);
+
   const sortedNamespaces = $derived(coverage ? sortNamespaces(coverage.namespaces) : []);
   const languageOptions = $derived(
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
@@ -188,6 +205,16 @@
             ariaLabel={$t('instance.l10n.languageLabel')}
             dataTestid="l10n-language-select"
           />
+        {/if}
+        {#if canPrefill}
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            data-testid="l10n-prefill-all"
+            onclick={() => (prefillScope = { namespace: null })}
+          >
+            {$t('instance.l10n.prefill.allButton')}
+          </button>
         {/if}
         {#if coverage}
           <span
@@ -253,7 +280,15 @@
             {#each sortedNamespaces as row (row.namespace)}
               {@const percent = namespacePercent(row)}
               {@const selected = selectedNamespace === row.namespace}
-              <li>
+              <!--
+                A flex row, not a button containing a button: the selector IS
+                a <button>, and nesting the per-namespace translate action
+                inside it would be invalid HTML and a Svelte a11y error. The
+                action is a SIBLING, and deliberately does not carry
+                data-testid="l10n-namespace-row" — the modal's suite counts
+                elements with that testid.
+              -->
+              <li class="flex items-center gap-1">
                 <!--
                   No aria-label: the namespace name and its percentage below
                   ARE the accessible content a screen-reader user needs — an
@@ -262,7 +297,7 @@
                 -->
                 <button
                   type="button"
-                  class="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm"
+                  class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm"
                   class:bg-accent-soft={selected}
                   aria-current={selected ? 'true' : undefined}
                   data-testid="l10n-namespace-row"
@@ -273,6 +308,19 @@
                     {$t('instance.l10n.percentValue', { percent })}
                   </span>
                 </button>
+                {#if canPrefill}
+                  <button
+                    type="button"
+                    class="btn-ghost btn-xs shrink-0"
+                    aria-label={$t('instance.l10n.prefill.namespaceButtonAria', {
+                      namespace: row.namespace,
+                    })}
+                    data-testid="l10n-prefill-namespace"
+                    onclick={() => (prefillScope = { namespace: row.namespace })}
+                  >
+                    <Icon name="globe" size={14} />
+                  </button>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -304,4 +352,18 @@
       </section>
     </div>
   </Modal>
+  <!--
+    Stacked AFTER the modal it covers, per Modal.svelte's mount-order == paint-
+    order invariant: all modals share z-50, so the last-mounted one must also be
+    the last-painted one or Escape would close the wrong layer.
+  -->
+  {#if prefillScope && instanceId}
+    <PrefillDialog
+      {instanceId}
+      {lang}
+      namespace={prefillScope.namespace}
+      onClose={() => (prefillScope = null)}
+      onFinished={refreshCoverageSilently}
+    />
+  {/if}
 {/if}

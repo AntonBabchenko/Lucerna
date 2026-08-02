@@ -401,7 +401,16 @@ describe('LocalizationModal', () => {
     );
     vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue({
       status: 'ok',
-      data: [{ key: 'a', sourceEn: 'A', modValue: null, overrideValue: null, state: 'missing' }],
+      data: [
+        {
+          key: 'a',
+          sourceEn: 'A',
+          modValue: null,
+          overrideValue: null,
+          state: 'missing',
+          origin: null,
+        },
+      ],
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
     vi.mocked(commands.l10nSetOverride).mockResolvedValue({

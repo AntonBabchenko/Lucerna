@@ -11,11 +11,13 @@
 //! ("`src/l10n/` was evaluated as a candidate fourth tree...") for the full
 //! per-write accounting before adding one here.
 
+pub mod apply;
 pub mod coverage;
 pub mod namespace_scan;
 pub mod options_txt;
 pub mod pack;
 pub mod pack_format;
+pub mod prefill;
 pub mod scan;
 pub mod store;
 pub mod validate;

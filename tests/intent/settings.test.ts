@@ -39,6 +39,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     urlSchemeUnregister: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsSetCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsClearCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // AiTranslationSection (the third Integrations block) reads the stored-key
+    // status for the configured provider on mount; without these the whole
+    // integrations tab throws here rather than in its own suite.
+    l10nPrefillKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: false }),
+    l10nPrefillSetKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    l10nPrefillTestKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // StoragePanel
     modsCacheSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 1024 * 1024 }),
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),

@@ -362,6 +362,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::l10n_namespace_keys,
             commands::l10n_set_override,
             commands::l10n_apply,
+            // In-game mod localization (AI pre-fill):
+            commands::l10n_prefill_estimate,
+            commands::l10n_prefill_start,
+            commands::l10n_prefill_cancel,
+            commands::l10n_prefill_set_key,
+            commands::l10n_prefill_key_status,
+            commands::l10n_prefill_test_key,
+            commands::l10n_revert_machine,
         ])
         .events(collect_events![
             network::DownloadProgress,

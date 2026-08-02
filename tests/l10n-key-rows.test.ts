@@ -1,6 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KeyRow } from '$lib/ipc/bindings';
-import { countKeyStates, displayValue, filterRows } from '$lib/l10n/key-rows';
+import {
+  countKeyStates,
+  countOrigins,
+  displayValue,
+  filterByOrigin,
+  filterRows,
+} from '$lib/l10n/key-rows';
+
+// key-rows.ts itself has no IPC — this mock exists only for the KeyEditRow
+// round-trip at the bottom of the file, which defends the other half of the
+// same invariant `filterByOrigin` reads (see its own comment).
+vi.mock('$lib/ipc/bindings', () => ({
+  commands: { l10nSetOverride: vi.fn() },
+}));
+
+import { commands } from '$lib/ipc/bindings';
+import KeyEditRow from '$lib/l10n/KeyEditRow.svelte';
 
 function row(over: Partial<KeyRow> = {}): KeyRow {
   return {
@@ -9,6 +26,7 @@ function row(over: Partial<KeyRow> = {}): KeyRow {
     modValue: null,
     overrideValue: null,
     state: 'missing',
+    origin: null,
     ...over,
   };
 }
@@ -147,5 +165,99 @@ describe('countKeyStates', () => {
 
   it('is all-zero for an empty row set', () => {
     expect(countKeyStates([])).toEqual({ all: 0, translated: 0, stale: 0, orphan: 0, missing: 0 });
+  });
+});
+
+describe('filterByOrigin', () => {
+  const rows: KeyRow[] = [
+    row({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+    row({ key: 'b', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+    row({ key: 'c', state: 'ok', overrideValue: 'В', origin: 'machine' }),
+    // No override at all: nothing to attribute, so it belongs to neither
+    // bucket. Origin is a SECOND axis over the state filter, not a
+    // partition of every row.
+    row({ key: 'd', state: 'missing', origin: null }),
+  ];
+
+  it('filters rows by origin', () => {
+    expect(filterByOrigin(rows, 'machine').map((r) => r.key)).toEqual(['b', 'c']);
+    expect(filterByOrigin(rows, 'manual').map((r) => r.key)).toEqual(['a']);
+  });
+
+  it('"all" is identity — it does not silently drop unoverridden keys', () => {
+    expect(filterByOrigin(rows, 'all')).toHaveLength(4);
+  });
+
+  it('counts each origin, so bulk revert can say how many it would drop', () => {
+    expect(countOrigins(rows)).toEqual({ manual: 1, machine: 2 });
+    expect(countOrigins([])).toEqual({ manual: 0, machine: 0 });
+  });
+});
+
+// The other half of the origin invariant. `filterByOrigin` and the bulk-revert
+// action are only safe because a hand-edited machine string stops being a
+// machine string: KeyEditRow's optimistic patch spreads `...row`, so without an
+// explicit `origin` the marker would survive the edit and the user's own words
+// would be wiped by the next bulk revert.
+describe('KeyEditRow origin round-trip', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('editing a machine row turns it manual', async () => {
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    const onSaved = vi.fn();
+    render(KeyEditRow, {
+      props: {
+        row: row({
+          key: 'a',
+          sourceEn: 'A',
+          state: 'ok',
+          overrideValue: 'Машина',
+          origin: 'machine',
+        }),
+        namespace: 'create',
+        lang: 'ru_ru',
+        onSaved,
+      },
+    });
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Моё' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved.mock.calls[0][0]).toMatchObject({ overrideValue: 'Моё', origin: 'manual' });
+  });
+
+  it('clearing an override drops its origin, so no override never claims one', async () => {
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    const onSaved = vi.fn();
+    render(KeyEditRow, {
+      props: {
+        row: row({
+          key: 'a',
+          sourceEn: 'A',
+          state: 'ok',
+          overrideValue: 'Машина',
+          origin: 'machine',
+        }),
+        namespace: 'create',
+        lang: 'ru_ru',
+        onSaved,
+      },
+    });
+
+    await fireEvent.click(screen.getByTestId('l10n-key-clear'));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved.mock.calls[0][0]).toMatchObject({ overrideValue: null, origin: null });
   });
 });

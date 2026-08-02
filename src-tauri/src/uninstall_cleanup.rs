@@ -218,6 +218,7 @@ pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
 /// reach would orphan that data forever.
 pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
     use crate::accounts::keychain;
+    use crate::instances::schema::AiProvider;
     let mut out = Vec::new();
     for id in &plan.account_ids {
         out.push(report(
@@ -239,6 +240,20 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         "keyring curseforge-api-key".to_string(),
         crate::mods::curseforge::keyring::clear(),
     ));
+    // Every AI provider slot, driven by the enum rather than a hand-kept list:
+    // `ALL` is asserted complete in `instances::schema`, so a new variant
+    // becomes a swept slot here instead of a credential the uninstaller
+    // silently leaves behind. The id comes from `AiProvider::id()` — the same
+    // function that names the keychain account when the key is STORED, so the
+    // two can never drift apart and orphan an entry. `Local` needs no key, but
+    // sweeping its slot costs nothing and keeps the ledger uniform.
+    for provider in AiProvider::ALL {
+        let id = provider.id();
+        out.push(report(
+            format!("keyring ai-api-key {id}"),
+            keychain::delete(&keychain::ai_provider_key(id)),
+        ));
+    }
     for dir in &plan.dirs {
         let preserve_pointer = plan.unreachable_root.is_some() && dir.path == plan.default_dir;
         if preserve_pointer {
@@ -912,6 +927,7 @@ mod tests {
         keychain::store(&keychain::refresh_token_key("uc-acc"), "r").unwrap();
         keychain::store(&keychain::mc_access_key("uc-acc"), "a").unwrap();
         keychain::store(&keychain::sftp_password_key("uc-srv"), "p").unwrap();
+        keychain::store(&keychain::ai_provider_key("groq"), "gsk").unwrap();
         crate::mods::curseforge::keyring::set("cfkey").unwrap();
 
         let plan = CleanupPlan {
@@ -944,6 +960,10 @@ mod tests {
         );
         assert_eq!(
             keychain::retrieve(&keychain::sftp_password_key("uc-srv")).unwrap(),
+            None
+        );
+        assert_eq!(
+            keychain::retrieve(&keychain::ai_provider_key("groq")).unwrap(),
             None
         );
         assert_eq!(crate::mods::curseforge::keyring::get().unwrap(), None);

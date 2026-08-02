@@ -194,6 +194,21 @@ describe('formatError', () => {
     locale.set('en');
   });
 
+  // A channel missing from CONSENTED_CHANNEL_LABELS still renders a whole
+  // sentence — it just names nothing. So asserting "the message mentions the
+  // setting" is not enough on its own; the last assertion is what proves the
+  // channel is actually mapped rather than falling through to the generic.
+  it('names the Settings toggle behind each consented channel', () => {
+    const ping = formatError({ kind: 'consented_channel_disabled', channel: 'server_ping' });
+    expect(ping).toContain('Show status for my saved servers');
+
+    const ai = formatError({ kind: 'consented_channel_disabled', channel: 'ai_translation' });
+    expect(ai).toContain('AI translation');
+
+    const unmapped = formatError({ kind: 'consented_channel_disabled', channel: 'not_a_channel' });
+    expect(ai).not.toBe(unmapped);
+  });
+
   // Exhaustive table: one sample per Error variant. Typing it as a
   // Record keyed by `IpcError['kind']` makes TypeScript fail the build if a
   // new variant lands in bindings.ts without a sample here — complementing
@@ -463,6 +478,17 @@ describe('formatError', () => {
       // ever reaches the override store.
       l10n_namespace_invalid: { kind: 'l10n_namespace_invalid', namespace: '../../evil' },
       l10n_lang_invalid: { kind: 'l10n_lang_invalid', lang: '../../evil' },
+      l10n_prefill_key_missing: { kind: 'l10n_prefill_key_missing', provider: 'anthropic' },
+      // `details` carries a provider's raw error body, which can echo the API
+      // key back. The sample puts a key-shaped string there so the transport
+      // policy assertion above proves it never reaches the rendered message.
+      l10n_prefill_provider: {
+        kind: 'l10n_prefill_provider',
+        provider: 'anthropic',
+        status: 401,
+        details: 'invalid x-api-key: sk-ant-LEAKED-SECRET',
+      },
+      l10n_prefill_busy: { kind: 'l10n_prefill_busy' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {

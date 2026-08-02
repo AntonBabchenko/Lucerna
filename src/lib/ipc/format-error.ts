@@ -21,6 +21,7 @@ const DETAIL_TRUNCATE_CODE_POINTS = 120;
 // printing a raw identifier at the user.
 const CONSENTED_CHANNEL_LABELS: Record<string, TranslationKey> = {
   server_ping: 'settings.general.serverPing.label',
+  ai_translation: 'settings.aiTranslation.label',
 };
 
 /**
@@ -195,6 +196,13 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   l10n_format_too_old: 'clean',
   l10n_namespace_invalid: 'clean',
   l10n_lang_invalid: 'clean',
+  l10n_prefill_key_missing: 'clean',
+  l10n_prefill_busy: 'clean',
+  // Transport, not opaque: `details` is a provider's raw error body, which can
+  // echo the API key we just sent. The transport policy keeps it out of the UI
+  // entirely (and the vitest sweep enforces that), while provider + status are
+  // still enough to tell a bad key from a rate limit from a wrong model name.
+  l10n_prefill_provider: 'transport',
 };
 
 /**
@@ -617,6 +625,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.l10nNamespaceInvalid', { namespace: e.namespace });
     case 'l10n_lang_invalid':
       return translate('errors.l10nLangInvalid', { lang: e.lang });
+    case 'l10n_prefill_key_missing':
+      return translate('errors.l10nPrefillKeyMissing', { provider: e.provider });
+    case 'l10n_prefill_provider':
+      // `e.details` is deliberately not rendered — see ERROR_CLASS.
+      return translate('errors.l10nPrefillProvider', {
+        provider: e.provider,
+        status: e.status,
+      });
+    case 'l10n_prefill_busy':
+      return translate('errors.l10nPrefillBusy');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

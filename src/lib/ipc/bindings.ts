@@ -1669,6 +1669,103 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *      failed; the UI explains this rather than surfacing an error.
 	 */
 	l10nApply: (instanceId: string, lang: string) => typedError<boolean, Error>(__TAURI_INVOKE("l10n_apply", { instanceId, lang })),
+	/**
+	 *  What a pre-fill run would cost, before committing to it: how many keys are
+	 *  missing, how many of those a previous run's cache or vanilla Minecraft
+	 *  already answers, and how many distinct strings would actually reach the
+	 *  model.
+	 * 
+	 *  `namespace` scopes the estimate to one resource namespace; `None` covers
+	 *  the whole instance. Resolved through the same discovery, cache and glossary
+	 *  the run itself uses — see `l10n::prefill::run::estimate`. That also means it
+	 *  inherits the run's preflight, so a missing API key or an unset local model
+	 *  name surfaces here rather than after the user has confirmed a number.
+	 */
+	l10nPrefillEstimate: (instanceId: string, lang: string, namespace: string | null) => typedError<PrefillEstimate, Error>(__TAURI_INVOKE("l10n_prefill_estimate", { instanceId, lang, namespace })),
+	/**
+	 *  Fill the instance's missing translations for `lang` with the configured
+	 *  model, then rebuild the override pack.
+	 * 
+	 *  Progress ticks arrive on `on_progress` — a plain `Channel`, adapted to the
+	 *  domain module's closure here so `tauri::ipc` never reaches
+	 *  `l10n::prefill`. The run is cancellable through [`l10n_prefill_cancel`],
+	 *  and a second run for the same instance is refused while one is registered:
+	 *  two at once would race each other's pack rebuild, and the second would
+	 *  silently pay for strings the first was already buying.
+	 * 
+	 *  The refusal is a check followed by a registration, not one atomic step, so
+	 *  two invocations landing on different worker threads within the same
+	 *  instant can both pass it — the same shape `server_cancel_upload`'s registry
+	 *  has. The damage is bounded rather than absent: each flush re-reads the
+	 *  namespace file before saving, so neither run can delete the other's
+	 *  entries; what the loser costs is duplicate spend and a pack rebuilt twice.
+	 *  Closing the window means a check-and-insert under one lock in
+	 *  `prefill::cancel`, which is worth doing the next time that module is open.
+	 * 
+	 *  A failure part-way through is reported ON the returned summary
+	 *  (`RunSummary::failed`), not in place of it — everything written before the
+	 *  failure was verified and paid for, and the pack is rebuilt around it.
+	 */
+	l10nPrefillStart: (instanceId: string, lang: string, namespace: string | null, onProgress: Channel<PrefillProgress>) => typedError<RunSummary, Error>(__TAURI_INVOKE("l10n_prefill_start", { instanceId, lang, namespace, onProgress })),
+	/**
+	 *  Ask the in-flight pre-fill run for `instance_id` to stop. A no-op when
+	 *  none is running. Sync and trivial, like `server_cancel_upload`: it flips a
+	 *  flag the run polls between batches, and the run itself returns the summary
+	 *  of what it had already bought.
+	 */
+	l10nPrefillCancel: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("l10n_prefill_cancel", { instanceId })),
+	/**
+	 *  Store (or clear) the API key for one AI provider in the OS keyring.
+	 * 
+	 *  An empty `key` CLEARS the stored credential, matching `l10n_set_override`'s
+	 *  convention for the same shape of call. The key is trimmed before it is
+	 *  stored, exactly as it is trimmed after it is read, so a pasted trailing
+	 *  newline can never make a stored key look present and then be sent verbatim.
+	 * 
+	 *  `provider` is the typed [`AiProvider`](crate::instances::schema::AiProvider)
+	 *  rather than its string id: the keyring sweep that runs on uninstall deletes
+	 *  only the ids `AiProvider::ALL` names, so a key filed under an unrecognised
+	 *  string would outlive the uninstall it was meant to be removed by. Taking
+	 *  the enum makes that unrepresentable instead of validated.
+	 */
+	l10nPrefillSetKey: (provider: AiProvider, key: string) => typedError<null, Error>(__TAURI_INVOKE("l10n_prefill_set_key", { provider, key })),
+	/**
+	 *  Whether an API key is stored for `provider`.
+	 * 
+	 *  A bool, never the secret: there is deliberately no command anywhere that
+	 *  reads a stored key back out to the UI, so the Settings field starts empty
+	 *  on every open and a stored key can be replaced but never displayed.
+	 */
+	l10nPrefillKeyStatus: (provider: AiProvider) => typedError<boolean, Error>(__TAURI_INVOKE("l10n_prefill_key_status", { provider })),
+	/**
+	 *  Round-trip the configured provider, model and credential with the smallest
+	 *  possible request. Returns `Ok(())` when the provider accepted it; the
+	 *  answer itself is discarded, since what is being tested is auth, endpoint
+	 *  and model name, and every one of those failures arrives as a status code.
+	 * 
+	 *  This sends the user's key to a third party, so it takes the same consent
+	 *  token a run does — minted here, because the button is not downstream of
+	 *  `prefill::run` at all.
+	 */
+	l10nPrefillTestKey: () => typedError<null, Error>(__TAURI_INVOKE("l10n_prefill_test_key")),
+	/**
+	 *  Drop every machine-written override in one namespace and rebuild the pack.
+	 *  Returns how many entries were removed.
+	 * 
+	 *  One load and one save of the single file that holds them, not one per key:
+	 *  the alternative — N× `l10n_set_override` — would be N IPC round-trips and N
+	 *  full load-plus-atomic-save cycles of the same file, which for a namespace
+	 *  this feature has just filled means two thousand of each.
+	 * 
+	 *  A hand-edited machine string is `Origin::Manual` (the editor's save path
+	 *  reclaims it), so this only ever removes what the user never touched.
+	 * 
+	 *  The pack is rebuilt even when nothing was removed. The store and the pack
+	 *  have to agree at the end of this command, and "nothing to remove" is
+	 *  exactly the state a previously failed rebuild leaves behind — skipping it
+	 *  there would make that state unrecoverable by retrying.
+	 */
+	l10nRevertMachine: (instanceId: string, lang: string, namespace: string) => typedError<number, Error>(__TAURI_INVOKE("l10n_revert_machine", { instanceId, lang, namespace })),
 };
 
 /** Events */
@@ -1742,6 +1839,12 @@ export type AccountSkin = {
 	texture_url: string,
 	skin_png_base64: string,
 };
+
+/**
+ *  Which translation backend the AI pre-fill uses. `Local` talks to an
+ *  OpenAI-compatible server on 127.0.0.1 and needs no key.
+ */
+export type AiProvider = "anthropic" | "gemini" | "groq" | "local";
 
 /**
  *  The wire result: per-line hits plus copy for each distinct pattern
@@ -2468,7 +2571,18 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  pack build for every namespace, because `lang` doubles as `code`,
  *  composed into every entry name in the archive.
  */
-{ kind: "l10n_lang_invalid"; lang: string };
+{ kind: "l10n_lang_invalid"; lang: string } | 
+/**  The selected AI provider has no API key stored. */
+{ kind: "l10n_prefill_key_missing"; provider: string } | 
+/**
+ *  The provider answered, but not with a usable result. `status` is the
+ *  HTTP status, or 0 when the failure was in the body rather than the
+ *  transport. `details` is truncated — a provider error body can echo the
+ *  API key back.
+ */
+{ kind: "l10n_prefill_provider"; provider: string; status: number; details: string } | 
+/**  A pre-fill run is already in flight for this instance. */
+{ kind: "l10n_prefill_busy" };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2704,6 +2818,29 @@ export type GeneralSettings = {
 	 *  into the import dialog works without it.
 	 */
 	register_url_scheme?: boolean,
+	/**
+	 *  Opt-in permission for the AI translation pre-fill to reach a model
+	 *  provider. Enforced in `network::consent`: while false, neither the
+	 *  cloud client nor the loopback client can be constructed.
+	 *  `#[serde(default)]` → off for every app.json written before this field.
+	 */
+	allow_ai_translation?: boolean,
+	/**
+	 *  Which model backend the pre-fill talks to. `#[serde(default)]` →
+	 *  `Anthropic` for app.json written before this field existed; irrelevant
+	 *  until `allow_ai_translation` is turned on.
+	 */
+	ai_provider?: AiProvider,
+	/**
+	 *  Empty means "use the provider's default model". Free text, because
+	 *  nothing can enumerate a provider's model list offline.
+	 */
+	ai_model?: string,
+	/**
+	 *  Port of the local OpenAI-compatible server. Host is always 127.0.0.1 —
+	 *  see `network::loopback`, which takes the port and nothing else.
+	 */
+	ai_local_port?: number,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
@@ -3087,6 +3224,11 @@ export type KeyRow = {
 	modValue: string | null,
 	overrideValue: string | null,
 	state: KeyState,
+	/**
+	 *  Where the override came from, or `None` when the key has no override.
+	 *  Drives the editor's manual/machine filter and the bulk-revert action.
+	 */
+	origin: Origin | null,
 };
 
 /**
@@ -3990,6 +4132,12 @@ export type OptionalDep_Serialize = {
 	requires: PlannedDep_Serialize[],
 };
 
+/**
+ *  Where a translation came from. Written from day one so the machine-
+ *  translation stage adds a value rather than a schema migration.
+ */
+export type Origin = "manual" | "machine";
+
 /**  A mod that would no longer be required by anything after a removal. */
 export type OrphanRef = {
 	sha1: string,
@@ -4119,6 +4267,44 @@ export type PlaytimeStats = {
 export type PreLaunchCheck = {
 	resource_warning: RamWarning | null,
 	account_conflict: AccountConflict | null,
+};
+
+/**  What a pre-fill run would do, before committing to it. */
+export type PrefillEstimate = {
+	/**  Keys with no translation — the number the coverage report shows. */
+	missing: number,
+	/**  Distinct units already answered by a previous run's cache. */
+	fromCache: number,
+	/**  Distinct units vanilla Minecraft already translates verbatim. */
+	fromGlossary: number,
+	/**
+	 *  Distinct units that must actually reach the model. Always ≤ `missing`,
+	 *  and usually far below it.
+	 */
+	toTranslate: number,
+	/**
+	 *  Approximate tokens of source text in those calls. Source only: the
+	 *  prompt scaffolding and the model's own answer are extra, so this is a
+	 *  floor rather than a bill.
+	 */
+	estimatedTokens: number,
+	provider: AiProvider,
+	/**
+	 *  Whether the run spends the user's provider credit. A property of the
+	 *  provider, not of the workload — a local model is free however long it
+	 *  takes.
+	 */
+	billable: boolean,
+};
+
+/**
+ *  Progress tick. `phase` is a stable lowercase token the UI maps to copy —
+ *  `scanning`, `free`, `name`, `prose`, `other`, `applying`.
+ */
+export type PrefillProgress = {
+	done: number,
+	total: number,
+	phase: string,
 };
 
 /**  Aggregated result of the dependency pre-flight scan. */
@@ -4385,6 +4571,51 @@ export type RestoreMode = "replace" | "as_copy";
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+/**  What a finished run did. */
+export type RunSummary = {
+	/**  KEYS written — the number the coverage report will move by. */
+	written: number,
+	/**
+	 *  Distinct units answered from a previous run's cache. Counted in units
+	 *  rather than keys, matching `PrefillEstimate::from_cache`, so the
+	 *  estimate and the summary are comparable.
+	 */
+	fromCache: number,
+	/**  Distinct units vanilla Minecraft already translated verbatim. */
+	fromGlossary: number,
+	/**
+	 *  Distinct units the verifier refused twice. Their keys were not written
+	 *  and the mod's own English still shows.
+	 */
+	rejected: number,
+	cancelled: boolean,
+	promptTokens: number,
+	completionTokens: number,
+	/**
+	 *  False when any completion reported no usage — a local model typically
+	 *  reports none. The UI must then show nothing rather than a fake zero: a
+	 *  run that cost nothing and a run whose cost is unknown are different
+	 *  claims.
+	 */
+	usageKnown: boolean,
+	/**
+	 *  The pack rebuild is best-effort. False means the rebuild itself failed
+	 *  (`pack_rebuild_error` says how); the strings are still on disk and the
+	 *  editor's Apply button can ship them.
+	 */
+	packRebuilt: boolean,
+	packRebuildError: string | null,
+	/**
+	 *  Set when the run stopped early — a provider failure, or a namespace
+	 *  store that could not be written. The run is still REPORTED rather than
+	 *  thrown away: everything before the failure was verified, paid for and
+	 *  flushed to disk, and the pack is rebuilt around it. A user who rotates
+	 *  their key at batch 900 of 1000 keeps 900 batches. `None` means the run
+	 *  finished, which includes a cancelled one.
+	 */
+	failed: string | null,
 };
 
 /**  One currently-running instance, for the aggregate running-instances popover. */

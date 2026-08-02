@@ -1,6 +1,6 @@
 // Pure view logic for the per-namespace key table. No DOM, no IPC — unit-tested
 // in isolation, same split as coverage.ts.
-import type { KeyRow, KeyState } from '$lib/ipc/bindings';
+import type { KeyRow, KeyState, Origin } from '$lib/ipc/bindings';
 
 /** The state filter chips in KeyTable. 'translated' folds together the two
  *  states that need no attention (`from_mod` and `ok`) — the user thinks in
@@ -44,6 +44,33 @@ export function filterRows(rows: KeyRow[], search: string, filter: KeyFilter): K
     if (!q) return true;
     return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
   });
+}
+
+/** The origin filter chips in KeyTable — a SECOND axis over [`KeyFilter`],
+ *  not more options on it. A key has a state *and*, once it is overridden, an
+ *  origin; folding the two into one single-select group would make
+ *  "untranslated" and "machine-written" mutually exclusive, which they are
+ *  not. 'all' means "don't filter on this axis at all". */
+export type OriginFilter = 'all' | Origin;
+
+/** Narrow rows to one override origin. A key with no override has no origin
+ *  to attribute, so it appears under 'all' and under neither of the other
+ *  two — the same reason `null` is a distinct value on the row itself. */
+export function filterByOrigin(rows: KeyRow[], origin: OriginFilter): KeyRow[] {
+  if (origin === 'all') return rows;
+  return rows.filter((row) => row.origin === origin);
+}
+
+/** How many rows carry each override origin, in one pass. The machine count
+ *  also drives bulk revert, which has to be able to say how many entries it
+ *  is about to drop *before* the user confirms it. */
+export function countOrigins(rows: KeyRow[]): { manual: number; machine: number } {
+  const counts = { manual: 0, machine: 0 };
+  for (const row of rows) {
+    if (row.origin === 'manual') counts.manual++;
+    else if (row.origin === 'machine') counts.machine++;
+  }
+  return counts;
 }
 
 export type FilterCounts = {

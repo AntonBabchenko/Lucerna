@@ -212,86 +212,6 @@ fn apply_write_allowed(is_running: bool) -> Result<(), crate::error::Error> {
     Ok(())
 }
 
-/// Remove every Lucerna-generated resource pack — file and Add-ons registry
-/// row — except `keep_filename`, best-effort.
-///
-/// Runs on EVERY `l10n_apply` call, not only when the target language
-/// changes: it also sweeps up packs left behind by an older build of this
-/// feature, or by a language the user has since abandoned. Only one Lucerna
-/// pack is ever meant to exist — `options_txt::with_pack_enabled` already
-/// enforces that for the `options.txt` ENTRY (it strips every prior
-/// `PACK_PREFIX`-matching entry before appending the new one) — so leaving
-/// the FILE and its Add-ons row behind after a language switch would be
-/// inert but user-visible clutter: a resource pack the user never installed,
-/// sitting in the Add-ons list with no explanation.
-///
-/// A removal failure here is untidiness, not a broken apply: logged via
-/// `crate::diag!` and skipped, the same posture `ScanCache::update` takes on
-/// a save failure. `keep_filename = None` sweeps every Lucerna pack — used on
-/// the "nothing to ship" path, where no pack should survive at all.
-async fn sweep_stale_lucerna_packs(inst_root: &std::path::Path, keep_filename: Option<&str>) {
-    let installed = match crate::mods::assets::list(
-        inst_root,
-        crate::mods::platform::ContentKind::ResourcePack,
-    )
-    .await
-    {
-        Ok(items) => items,
-        Err(e) => {
-            crate::diag!("[l10n] apply: could not list resource packs to sweep: {e}");
-            return;
-        }
-    };
-
-    for asset in installed {
-        if !asset
-            .filename
-            .starts_with(crate::l10n::options_txt::PACK_PREFIX)
-        {
-            continue; // not ours — never touched by this sweep
-        }
-        if keep_filename == Some(asset.filename.as_str()) {
-            continue;
-        }
-
-        match crate::mods::install::safe_asset_remove_path(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            &asset.filename,
-        ) {
-            Ok(path) => {
-                if let Err(e) = tokio::fs::remove_file(&path).await {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        crate::diag!(
-                            "[l10n] apply: could not remove stale pack {}: {e}",
-                            asset.filename
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                crate::diag!(
-                    "[l10n] apply: refusing to remove stale pack {} ({e})",
-                    asset.filename
-                );
-            }
-        }
-
-        if let Err(e) = crate::mods::assets::remove(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            &asset.filename,
-        )
-        .await
-        {
-            crate::diag!(
-                "[l10n] apply: could not remove stale pack's registry row {}: {e}",
-                asset.filename
-            );
-        }
-    }
-}
-
 /// Build the override pack for `lang` from every namespace with overrides,
 /// place it, register it in the Add-ons list, and enable it in
 /// `options.txt`.
@@ -312,87 +232,238 @@ pub async fn l10n_apply(
 ) -> Result<bool, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
+    crate::l10n::apply::rebuild_pack(&app, &instance_id, &lang).await
+}
 
-    let inst_root = instance_root(&app, &instance_id)?;
+// =========================================================================
+// In-game mod localization — AI pre-fill
+// =========================================================================
+
+pub use crate::l10n::prefill::estimate::PrefillEstimate;
+pub use crate::l10n::prefill::run::{PrefillProgress, RunSummary};
+
+/// The same boundary check [`validate_override_identifiers`] applies, for the
+/// pre-fill commands — whose `namespace` is an optional SCOPE rather than a
+/// value destined for the store.
+///
+/// `lang` needs the check for exactly the reason `l10n_set_override` does: a
+/// run writes through `l10n::store::load`, which stamps the raw `lang` into
+/// `NamespaceStore::lang` and then persists it INSIDE the JSON body, where
+/// `store_path`'s percent-encoding of the file NAME never reaches it.
+///
+/// `None` means "the whole instance", so there is no namespace to check. The
+/// empty string stands in for that case rather than a placeholder name: it is
+/// the one value guaranteed to pass `is_traversal_unsafe` (not `.`, not `..`,
+/// no separator, no control character), and inventing a fake namespace to
+/// validate would be a lie about what was checked. Pinned by
+/// `validate_prefill_scope_accepts_a_whole_instance_run` below.
+fn validate_prefill_scope(namespace: Option<&str>, lang: &str) -> Result<(), crate::error::Error> {
+    validate_override_identifiers(namespace.unwrap_or(""), lang)
+}
+
+/// What a pre-fill run would cost, before committing to it: how many keys are
+/// missing, how many of those a previous run's cache or vanilla Minecraft
+/// already answers, and how many distinct strings would actually reach the
+/// model.
+///
+/// `namespace` scopes the estimate to one resource namespace; `None` covers
+/// the whole instance. Resolved through the same discovery, cache and glossary
+/// the run itself uses — see `l10n::prefill::run::estimate`. That also means it
+/// inherits the run's preflight, so a missing API key or an unset local model
+/// name surfaces here rather than after the user has confirmed a number.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_prefill_estimate(
+    app: tauri::AppHandle,
+    instance_id: String,
+    lang: String,
+    namespace: Option<String>,
+) -> Result<PrefillEstimate, crate::error::Error> {
+    validate_prefill_scope(namespace.as_deref(), &lang)?;
+    crate::l10n::prefill::run::estimate(&app, &instance_id, &lang, namespace.as_deref()).await
+}
+
+/// Fill the instance's missing translations for `lang` with the configured
+/// model, then rebuild the override pack.
+///
+/// Progress ticks arrive on `on_progress` — a plain `Channel`, adapted to the
+/// domain module's closure here so `tauri::ipc` never reaches
+/// `l10n::prefill`. The run is cancellable through [`l10n_prefill_cancel`],
+/// and a second run for the same instance is refused while one is registered:
+/// two at once would race each other's pack rebuild, and the second would
+/// silently pay for strings the first was already buying.
+///
+/// The refusal is a check followed by a registration, not one atomic step, so
+/// two invocations landing on different worker threads within the same
+/// instant can both pass it — the same shape `server_cancel_upload`'s registry
+/// has. The damage is bounded rather than absent: each flush re-reads the
+/// namespace file before saving, so neither run can delete the other's
+/// entries; what the loser costs is duplicate spend and a pack rebuilt twice.
+/// Closing the window means a check-and-insert under one lock in
+/// `prefill::cancel`, which is worth doing the next time that module is open.
+///
+/// A failure part-way through is reported ON the returned summary
+/// (`RunSummary::failed`), not in place of it — everything written before the
+/// failure was verified and paid for, and the pack is rebuilt around it.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_prefill_start(
+    app: tauri::AppHandle,
+    instance_id: String,
+    lang: String,
+    namespace: Option<String>,
+    on_progress: Channel<PrefillProgress>,
+) -> Result<RunSummary, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    // The run finishes by rebuilding the pack inside the instance and touching
+    // `options.txt` — the same files `l10n_apply` refuses to write while the
+    // game is running, for the same reason.
+    apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
+    if crate::l10n::prefill::cancel::is_active(&instance_id) {
+        return Err(crate::error::Error::L10nPrefillBusy);
+    }
+    validate_prefill_scope(namespace.as_deref(), &lang)?;
+
+    let cancel = crate::l10n::prefill::cancel::begin(&instance_id);
+    let outcome = crate::l10n::prefill::run::run(
+        &app,
+        &instance_id,
+        &lang,
+        namespace.as_deref(),
+        &cancel,
+        &|tick| {
+            // A closed channel (the dialog was dismissed) is not a reason to
+            // stop translating — the run's own cancel flag is.
+            let _ = on_progress.send(tick);
+        },
+    )
+    .await;
+    // Not `?` on the line above, and not a guard object either: the flag has to
+    // be de-registered on EVERY path, or one failed run leaves the instance
+    // permanently "busy" until the launcher restarts.
+    crate::l10n::prefill::cancel::end(&instance_id);
+    outcome
+}
+
+/// Ask the in-flight pre-fill run for `instance_id` to stop. A no-op when
+/// none is running. Sync and trivial, like `server_cancel_upload`: it flips a
+/// flag the run polls between batches, and the run itself returns the summary
+/// of what it had already bought.
+#[tauri::command]
+#[specta::specta]
+pub fn l10n_prefill_cancel(instance_id: String) -> Result<(), crate::error::Error> {
+    crate::l10n::prefill::cancel::cancel(&instance_id);
+    Ok(())
+}
+
+/// Store (or clear) the API key for one AI provider in the OS keyring.
+///
+/// An empty `key` CLEARS the stored credential, matching `l10n_set_override`'s
+/// convention for the same shape of call. The key is trimmed before it is
+/// stored, exactly as it is trimmed after it is read, so a pasted trailing
+/// newline can never make a stored key look present and then be sent verbatim.
+///
+/// `provider` is the typed [`AiProvider`](crate::instances::schema::AiProvider)
+/// rather than its string id: the keyring sweep that runs on uninstall deletes
+/// only the ids `AiProvider::ALL` names, so a key filed under an unrecognised
+/// string would outlive the uninstall it was meant to be removed by. Taking
+/// the enum makes that unrepresentable instead of validated.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_prefill_set_key(
+    provider: crate::instances::schema::AiProvider,
+    key: String,
+) -> Result<(), crate::error::Error> {
+    let slot = crate::accounts::keychain::ai_provider_key(provider.id());
+    let key = key.trim();
+    if key.is_empty() {
+        return crate::accounts::keychain::delete(&slot);
+    }
+    crate::accounts::keychain::store(&slot, key)
+}
+
+/// Whether an API key is stored for `provider`.
+///
+/// A bool, never the secret: there is deliberately no command anywhere that
+/// reads a stored key back out to the UI, so the Settings field starts empty
+/// on every open and a stored key can be replaced but never displayed.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_prefill_key_status(
+    provider: crate::instances::schema::AiProvider,
+) -> Result<bool, crate::error::Error> {
+    crate::l10n::prefill::run::has_stored_key(provider)
+}
+
+/// Round-trip the configured provider, model and credential with the smallest
+/// possible request. Returns `Ok(())` when the provider accepted it; the
+/// answer itself is discarded, since what is being tested is auth, endpoint
+/// and model name, and every one of those failures arrives as a status code.
+///
+/// This sends the user's key to a third party, so it takes the same consent
+/// token a run does — minted here, because the button is not downstream of
+/// `prefill::run` at all.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_prefill_test_key(app: tauri::AppHandle) -> Result<(), crate::error::Error> {
+    let consent = crate::network::consent::ai_consent(&app)?;
+    let cfg = crate::l10n::prefill::run::resolve_provider(&app)?;
+    crate::l10n::prefill::provider::test_credentials(
+        &consent,
+        cfg.provider,
+        cfg.api_key.as_deref(),
+        cfg.local_port,
+        &cfg.model,
+    )
+    .await
+}
+
+/// Drop every machine-written override in one namespace and rebuild the pack.
+/// Returns how many entries were removed.
+///
+/// One load and one save of the single file that holds them, not one per key:
+/// the alternative — N× `l10n_set_override` — would be N IPC round-trips and N
+/// full load-plus-atomic-save cycles of the same file, which for a namespace
+/// this feature has just filled means two thousand of each.
+///
+/// A hand-edited machine string is `Origin::Manual` (the editor's save path
+/// reclaims it), so this only ever removes what the user never touched.
+///
+/// The pack is rebuilt even when nothing was removed. The store and the pack
+/// have to agree at the end of this command, and "nothing to remove" is
+/// exactly the state a previously failed rebuild leaves behind — skipping it
+/// there would make that state unrecoverable by retrying.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_revert_machine(
+    app: tauri::AppHandle,
+    instance_id: String,
+    lang: String,
+    namespace: String,
+) -> Result<u32, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
+    validate_override_identifiers(&namespace, &lang)?;
+
     let store_dir =
         crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
-    let versions_dir = crate::paths::versions_dir(&app)
-        .map_err(|e| crate::error::Error::io("<versions_dir>", e))?;
-    let (mc_version, _loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let mut store = crate::l10n::store::load(&store_dir, &lang, &namespace);
+    let before = store.entries.len();
+    store
+        .entries
+        .retain(|_key, entry| entry.origin != crate::l10n::store::Origin::Machine);
+    let removed = before - store.entries.len();
 
-    let client_jar = crate::datapacks::compat::client_jar_path(&versions_dir, &mc_version);
-    let fmt = crate::l10n::pack_format::from_client_jar_path(&client_jar);
-    match crate::l10n::pack_format::apply_gate(fmt) {
-        crate::l10n::pack_format::ApplyGate::UnknownFormat => {
-            return Err(crate::error::Error::L10nFormatUnknown { mc_version });
-        }
-        crate::l10n::pack_format::ApplyGate::TooOld => {
-            return Err(crate::error::Error::L10nFormatTooOld { mc_version });
-        }
-        crate::l10n::pack_format::ApplyGate::Ready => {}
+    if removed > 0 {
+        crate::l10n::store::save(&store_dir, &store)
+            .map_err(|e| crate::error::Error::io("<l10n override store>", e))?;
     }
-
-    let namespaces = crate::l10n::store::namespaces_with_overrides(&store_dir, &lang);
-    let stores: Vec<_> = namespaces
-        .iter()
-        .map(|ns| crate::l10n::store::load(&store_dir, &lang, ns))
-        .collect();
-    let description = format!("Lucerna translations ({lang})");
-    let built = crate::l10n::pack::build(&stores, &lang, fmt, &description);
-
-    let mc_dir = inst_root.join(".minecraft");
-    let filename = format!("{}{lang}.zip", crate::l10n::options_txt::PACK_PREFIX);
-
-    let Some(bytes) = built else {
-        // Nothing to ship: sweep away every Lucerna pack, including this
-        // language's own if one exists — `keep_filename: None` — plus the
-        // options.txt entry. Emptying every override must leave no Lucerna
-        // pack behind at all.
-        sweep_stale_lucerna_packs(&inst_root, None).await;
-        crate::l10n::options_txt::update_atomically(
-            &mc_dir,
-            crate::launch::spawn::is_running(&instance_id),
-            |s| Some(crate::l10n::options_txt::with_pack_disabled(s)),
-        )?;
-        return Ok(false);
-    };
-
-    // Sweep BEFORE writing: by the time `install_asset_local` runs, no OTHER
-    // Lucerna pack can be sitting in the Add-ons list. The sweep excludes
-    // `filename` itself, so a re-apply of the SAME language never touches
-    // the file/row this call is about to write — there is no ordering race
-    // to get wrong here, only tidiness to get right before the new pack
-    // lands rather than after.
-    sweep_stale_lucerna_packs(&inst_root, Some(&filename)).await;
-
-    // The sanctioned sink (temp-sibling + rename, so a pack that already
-    // exists at this filename is never written through) plus the manual-
-    // install registry convention (`source: None`) — see
-    // `mods::asset_local::install_asset_local`'s own doc comment.
-    crate::mods::asset_local::install_asset_local(
-        &inst_root,
-        crate::mods::platform::ContentKind::ResourcePack,
-        &filename,
-        &bytes,
-    )
-    .await?;
-
-    // `ApplyGate::Ready` already proved `supports_apply(fmt)`, i.e. resource
-    // format >= 4 — Minecraft 1.13+, which is exactly when `options.txt`
-    // stores user pack ids under the `file/` prefix (see `l10n::options_txt`'s
-    // module doc). Re-snapshot `is_running` rather than reusing the guard
-    // above: real time has passed doing the work above this line.
-    let activated = crate::l10n::options_txt::update_atomically(
-        &mc_dir,
-        crate::launch::spawn::is_running(&instance_id),
-        |s| {
-            Some(crate::l10n::options_txt::with_pack_enabled(
-                s, &filename, true,
-            ))
-        },
-    )?;
-
-    Ok(activated)
+    // Propagated, not swallowed: unlike a pre-fill run — which has an hour of
+    // paid work to protect — a revert that cannot reach the pack has left the
+    // game still showing every string the user asked to be rid of, and saying
+    // so is the only honest answer.
+    crate::l10n::apply::rebuild_pack(&app, &instance_id, &lang).await?;
+    Ok(u32::try_from(removed).unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]
@@ -449,6 +520,39 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
+    // validate_prefill_scope
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn validate_prefill_scope_accepts_a_whole_instance_run() {
+        // `None` is the whole-instance case, and it is spelled as the empty
+        // string. If `is_traversal_unsafe` ever started rejecting `""`, every
+        // unscoped pre-fill would fail with "invalid namespace" naming a
+        // namespace the caller never supplied.
+        assert!(validate_prefill_scope(None, "ru_ru").is_ok());
+    }
+
+    #[test]
+    fn validate_prefill_scope_still_checks_the_language_without_a_namespace() {
+        // The reason the check exists at all: a run stamps `lang` into every
+        // namespace store it writes, and the store persists it inside the JSON
+        // body where the file-name sanitiser never reaches it.
+        assert!(matches!(
+            validate_prefill_scope(None, "../../evil").unwrap_err(),
+            crate::error::Error::L10nLangInvalid { .. }
+        ));
+    }
+
+    #[test]
+    fn validate_prefill_scope_checks_a_scoped_namespace() {
+        assert!(matches!(
+            validate_prefill_scope(Some("../../evil"), "ru_ru").unwrap_err(),
+            crate::error::Error::L10nNamespaceInvalid { .. }
+        ));
+        assert!(validate_prefill_scope(Some("create"), "ru_ru").is_ok());
+    }
+
+    // -----------------------------------------------------------------
     // apply_write_allowed
     // -----------------------------------------------------------------
 
@@ -463,183 +567,5 @@ mod tests {
             apply_write_allowed(true).unwrap_err(),
             crate::error::Error::InstanceBusy
         ));
-    }
-
-    // -----------------------------------------------------------------
-    // sweep_stale_lucerna_packs (+ the sweep-then-write sequence l10n_apply
-    // performs, exercised directly since it needs no AppHandle)
-    // -----------------------------------------------------------------
-
-    /// A real generated override pack for `lang`, via `l10n::pack::build` —
-    /// exercises the exact bytes `l10n_apply` would produce, not a hand-rolled
-    /// stand-in.
-    fn generated_pack(lang: &str) -> Vec<u8> {
-        let mut s = crate::l10n::store::NamespaceStore::new("create", lang);
-        s.set("item.create.wrench", "x", "Wrench", 1.0);
-        crate::l10n::pack::build(
-            &[s],
-            lang,
-            crate::l10n::pack_format::PackFormat {
-                major: 34,
-                minor: 0,
-            },
-            "Lucerna translations",
-        )
-        .expect("has an override, known format")
-    }
-
-    /// A minimal but valid hand-authored resource pack — `pack.mcmeta` plus
-    /// an `assets/` tree, no `data/` tree — so `install_asset_local`'s
-    /// `pack_meta::classify` accepts it. Stands in for a pack the USER
-    /// installed, which the sweep must never touch.
-    fn minimal_resource_pack_zip() -> Vec<u8> {
-        use std::io::Write;
-        let mut buf = std::io::Cursor::new(Vec::new());
-        {
-            let mut w = zip::ZipWriter::new(&mut buf);
-            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
-            w.start_file("pack.mcmeta", opts).unwrap();
-            w.write_all(br#"{"pack":{"pack_format":15,"description":"x"}}"#)
-                .unwrap();
-            w.start_file("assets/minecraft/textures/x.png", opts)
-                .unwrap();
-            w.write_all(b"\x89PNG").unwrap();
-            w.finish().unwrap();
-        }
-        buf.into_inner()
-    }
-
-    fn resourcepacks_dir(inst_root: &std::path::Path) -> std::path::PathBuf {
-        inst_root.join(".minecraft").join("resourcepacks")
-    }
-
-    async fn installed_resource_packs(
-        inst_root: &std::path::Path,
-    ) -> Vec<crate::mods::platform::InstalledAsset> {
-        crate::mods::assets::list(inst_root, crate::mods::platform::ContentKind::ResourcePack)
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn two_applies_with_different_languages_leave_exactly_one_pack_the_second() {
-        let td = tempfile::tempdir().unwrap();
-        let inst_root = td.path();
-
-        let ru = format!("{}ru_ru.zip", crate::l10n::options_txt::PACK_PREFIX);
-        sweep_stale_lucerna_packs(inst_root, Some(&ru)).await;
-        crate::mods::asset_local::install_asset_local(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            &ru,
-            &generated_pack("ru_ru"),
-        )
-        .await
-        .unwrap();
-
-        let de = format!("{}de_de.zip", crate::l10n::options_txt::PACK_PREFIX);
-        sweep_stale_lucerna_packs(inst_root, Some(&de)).await;
-        crate::mods::asset_local::install_asset_local(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            &de,
-            &generated_pack("de_de"),
-        )
-        .await
-        .unwrap();
-
-        let installed = installed_resource_packs(inst_root).await;
-        assert_eq!(
-            installed.len(),
-            1,
-            "must leave exactly one pack: {installed:?}"
-        );
-        assert_eq!(
-            installed[0].filename, de,
-            "the survivor must be the SECOND apply"
-        );
-
-        // Not just the registry row — the ru_ru FILE must be gone too.
-        assert!(!resourcepacks_dir(inst_root).join(&ru).exists());
-        assert!(resourcepacks_dir(inst_root).join(&de).exists());
-    }
-
-    #[tokio::test]
-    async fn reapplying_the_same_language_twice_still_leaves_exactly_one_pack() {
-        // Confirms the sweep-then-write ordering doesn't race itself on a
-        // same-filename re-apply: `mods::assets::add` already dedups by
-        // `(kind, filename)` and `place_bytes` already overwrites atomically,
-        // and the sweep explicitly excludes `keep_filename`, so the sweep
-        // never touches the very file this call is about to (re)write.
-        let td = tempfile::tempdir().unwrap();
-        let inst_root = td.path();
-        let filename = format!("{}ru_ru.zip", crate::l10n::options_txt::PACK_PREFIX);
-
-        for _ in 0..2 {
-            sweep_stale_lucerna_packs(inst_root, Some(&filename)).await;
-            crate::mods::asset_local::install_asset_local(
-                inst_root,
-                crate::mods::platform::ContentKind::ResourcePack,
-                &filename,
-                &generated_pack("ru_ru"),
-            )
-            .await
-            .unwrap();
-        }
-
-        let installed = installed_resource_packs(inst_root).await;
-        assert_eq!(installed.len(), 1);
-        assert_eq!(installed[0].filename, filename);
-        assert!(resourcepacks_dir(inst_root).join(&filename).exists());
-    }
-
-    #[tokio::test]
-    async fn sweep_with_no_keep_filename_removes_every_lucerna_pack() {
-        // Mirrors the "nothing to ship" path in `l10n_apply`: emptying every
-        // override must leave no Lucerna pack behind at all.
-        let td = tempfile::tempdir().unwrap();
-        let inst_root = td.path();
-        let filename = format!("{}ru_ru.zip", crate::l10n::options_txt::PACK_PREFIX);
-        crate::mods::asset_local::install_asset_local(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            &filename,
-            &generated_pack("ru_ru"),
-        )
-        .await
-        .unwrap();
-
-        sweep_stale_lucerna_packs(inst_root, None).await;
-
-        assert!(installed_resource_packs(inst_root).await.is_empty());
-        assert!(!resourcepacks_dir(inst_root).join(&filename).exists());
-    }
-
-    #[tokio::test]
-    async fn sweep_never_touches_a_pack_the_user_installed_by_hand() {
-        let td = tempfile::tempdir().unwrap();
-        let inst_root = td.path();
-        crate::mods::asset_local::install_asset_local(
-            inst_root,
-            crate::mods::platform::ContentKind::ResourcePack,
-            "Faithful.zip",
-            &minimal_resource_pack_zip(),
-        )
-        .await
-        .unwrap();
-
-        sweep_stale_lucerna_packs(inst_root, None).await;
-
-        let installed = installed_resource_packs(inst_root).await;
-        assert_eq!(installed.len(), 1);
-        assert_eq!(installed[0].filename, "Faithful.zip");
-        assert!(resourcepacks_dir(inst_root).join("Faithful.zip").exists());
-    }
-
-    #[tokio::test]
-    async fn sweep_on_an_instance_with_no_resource_packs_at_all_is_a_harmless_no_op() {
-        let td = tempfile::tempdir().unwrap();
-        sweep_stale_lucerna_packs(td.path(), None).await;
-        assert!(installed_resource_packs(td.path()).await.is_empty());
     }
 }
