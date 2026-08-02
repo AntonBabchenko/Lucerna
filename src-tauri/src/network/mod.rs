@@ -14,6 +14,7 @@ pub mod client;
 pub mod consent;
 pub mod download;
 pub mod json;
+pub mod loopback;
 pub mod request;
 pub mod text;
 pub mod throttle;
