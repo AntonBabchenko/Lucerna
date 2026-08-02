@@ -432,4 +432,15 @@ describe('LocalizationModal', () => {
     await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
     expect(screen.queryByTestId('l10n-namespace-row')).toBeTruthy();
   });
+
+  it('renders an untranslated namespace as muted, not as an error', async () => {
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'quark', totalKeys: 40, fromMod: 0 })] }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const row = await screen.findByTestId('l10n-namespace-row');
+    const percent = row.querySelector('.font-mono');
+    expect(percent?.className).toContain('text-muted');
+    expect(percent?.className).not.toContain('text-danger');
+  });
 });

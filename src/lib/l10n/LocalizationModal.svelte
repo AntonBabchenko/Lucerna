@@ -185,10 +185,14 @@
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
   );
 
+  // 'none' is muted, not danger: coverage.ts documents zero as "nothing is
+  // wrong, it is just untranslated", the detail pane already tones the same
+  // concept muted (KeyTable's `missing` chip, KeyEditRow's `missing` pill),
+  // and danger has to stay legible for orphans and load failures.
   function toneClass(tone: CoverageTone): string {
     if (tone === 'ok') return 'text-success';
     if (tone === 'partial') return 'text-warning-text';
-    return 'text-danger';
+    return 'text-muted';
   }
 
   function close() {
