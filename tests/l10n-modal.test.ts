@@ -443,4 +443,77 @@ describe('LocalizationModal', () => {
     expect(percent?.className).toContain('text-muted');
     expect(percent?.className).not.toContain('text-danger');
   });
+
+  it('shows translated/total counts next to the percentage', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [ns({ namespace: 'quark', totalKeys: 40, fromMod: 3, overridden: 1 })],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const row = await screen.findByTestId('l10n-namespace-row');
+    expect(row.textContent).toContain('4/40');
+  });
+
+  it('keeps the namespace order stable across a silent refresh, so a save does not move the row', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha', totalKeys: 10, fromMod: 0 }), // 0%
+          ns({ namespace: 'beta', totalKeys: 10, fromMod: 0 }), // 0%
+        ],
+      }),
+    );
+    vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          key: 'a',
+          sourceEn: 'A',
+          modValue: null,
+          overrideValue: null,
+          state: 'missing',
+          origin: null,
+        },
+      ],
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    let rows = await screen.findAllByTestId('l10n-namespace-row');
+    expect(rows[0].textContent).toContain('alpha');
+
+    await fireEvent.click(rows[0]);
+    await screen.findByTestId('l10n-key-row');
+
+    // Saving fires the silent refresh, and this response reports alpha as
+    // fully translated. It must keep its slot — re-sorting here is what
+    // throws the user out of their place.
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha', totalKeys: 10, fromMod: 10 }), // 100%
+          ns({ namespace: 'beta', totalKeys: 10, fromMod: 0 }),
+        ],
+      }),
+    );
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'A' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
+    // Order-independent, so the wait itself can't be what fails when the bug
+    // is present: it only confirms the refreshed numbers reached the DOM.
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('l10n-namespace-row').some((r) => r.textContent?.includes('100%')),
+      ).toBe(true),
+    );
+
+    rows = screen.getAllByTestId('l10n-namespace-row');
+    expect(rows[0].textContent).toContain('alpha');
+    expect(rows[1].textContent).toContain('beta');
+  });
 });

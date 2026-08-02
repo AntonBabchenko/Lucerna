@@ -390,6 +390,7 @@ export type TranslationKey =
   | 'instance.l10n.listRegionLabel'
   | 'instance.l10n.loadFailed'
   | 'instance.l10n.loading'
+  | 'instance.l10n.namespaceCount'
   | 'instance.l10n.packDisabled.message'
   | 'instance.l10n.packDisabled.reenableButton'
   | 'instance.l10n.percentValue'

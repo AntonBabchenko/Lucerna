@@ -414,6 +414,7 @@
       "loadFailed": "Couldn't load translation coverage: {error}",
       "empty": "This instance has no translatable text yet.",
       "percentValue": "{percent}%",
+      "namespaceCount": "{covered}/{total}",
       "detailPlaceholder": "Select a mod to see its strings.",
       "apply": {
         "button": "Apply",

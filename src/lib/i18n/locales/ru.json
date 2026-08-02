@@ -414,6 +414,7 @@
       "loadFailed": "Не удалось загрузить покрытие перевода: {error}",
       "empty": "В этом профиле пока нет текста для перевода.",
       "percentValue": "{percent}%",
+      "namespaceCount": "{covered}/{total}",
       "detailPlaceholder": "Выберите мод, чтобы увидеть его строки.",
       "apply": {
         "button": "Применить",

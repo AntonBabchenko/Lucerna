@@ -6,7 +6,7 @@
   //
   // Own module rather than a section of ManageInstancesModal.svelte, which is
   // already at this project's 800-line file ceiling.
-  import { commands, type InstanceCoverage } from '$lib/ipc/bindings';
+  import { commands, type InstanceCoverage, type NamespaceCoverage } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -55,6 +55,13 @@
   let selectedNamespace = $state<string | null>(null);
   let applying = $state(false);
 
+  // The sidebar order is decided once per load, not re-derived on every
+  // silent refresh: sortNamespaces puts the least-translated first, so the
+  // user's first save would otherwise lift their namespace above every
+  // remaining 0% row and out of the viewport. Percentages still update live;
+  // only the ORDER is pinned.
+  let nsOrder = $state<string[]>([]);
+
   // Monotonic request id: a response only applies if it's still the most
   // recent request in flight, so a late response for an instance or language
   // the user has since navigated away from can't clobber newer state. Shared
@@ -79,6 +86,7 @@
     loading = false;
     if (res.status === 'ok') {
       coverage = res.data;
+      nsOrder = sortNamespaces(res.data.namespaces).map((r) => r.namespace);
       // The backend may resolve a bare launcher locale (e.g. "ru", from the
       // page's initial guess) to a full Minecraft code ("ru_ru"). Write the
       // resolved code back through the bindable prop so this picker and the
@@ -180,7 +188,18 @@
   // `null` = the dialog is closed. `{ namespace: null }` = whole instance.
   let prefillScope = $state<{ namespace: string | null } | null>(null);
 
-  const sortedNamespaces = $derived(coverage ? sortNamespaces(coverage.namespaces) : []);
+  // Rows in the pinned order, with any namespace that appeared after the last
+  // full load appended (sorted) rather than dropped.
+  const sortedNamespaces = $derived.by(() => {
+    if (!coverage) return [];
+    const byName = new Map(coverage.namespaces.map((r) => [r.namespace, r]));
+    const pinned = nsOrder
+      .map((name) => byName.get(name))
+      .filter((r): r is NamespaceCoverage => r !== undefined);
+    const seen = new Set(nsOrder);
+    const fresh = sortNamespaces(coverage.namespaces.filter((r) => !seen.has(r.namespace)));
+    return [...pinned, ...fresh];
+  });
   const languageOptions = $derived(
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
   );
@@ -312,15 +331,23 @@
                 -->
                 <button
                   type="button"
-                  class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm"
+                  class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-subtle"
                   class:bg-accent-soft={selected}
                   aria-current={selected ? 'true' : undefined}
                   data-testid="l10n-namespace-row"
                   onclick={() => (selectedNamespace = row.namespace)}
                 >
                   <span class="truncate">{row.namespace}</span>
-                  <span class="font-mono {toneClass(coverageTone(percent))}">
-                    {$t('instance.l10n.percentValue', { percent })}
+                  <span class="flex shrink-0 items-center gap-2">
+                    <span class="font-mono {toneClass(coverageTone(percent))}">
+                      {$t('instance.l10n.percentValue', { percent })}
+                    </span>
+                    <span class="text-xs text-muted">
+                      {$t('instance.l10n.namespaceCount', {
+                        covered: row.fromMod + row.overridden,
+                        total: row.totalKeys,
+                      })}
+                    </span>
                   </span>
                 </button>
                 {#if canPrefill}
