@@ -178,7 +178,15 @@ impl AiConsent {
 
 /// The pure half of [`ai_consent`], split out for the same reason
 /// [`ensure_enabled`] is: the gate must be testable without a Tauri handle.
-fn ai_consent_from(general: &GeneralSettings) -> Result<AiConsent> {
+///
+/// `pub(crate)` rather than private so `l10n::prefill::run::RunContext::for_settings`
+/// can mint a token for the integration tests, which cannot build an
+/// `AppHandle` and therefore cannot call [`ai_consent`]. That is not a hole in
+/// the gate: this IS the gate — a `GeneralSettings` whose `allow_ai_translation`
+/// is false (which is `GeneralSettings::default()`) is refused here exactly as
+/// it is refused there. [`AiConsent::for_test`], the one constructor that
+/// checks nothing, stays `#[cfg(test)]`.
+pub(crate) fn ai_consent_from(general: &GeneralSettings) -> Result<AiConsent> {
     ensure_enabled(ConsentedChannel::AiTranslation, general)?;
     Ok(AiConsent(()))
 }
