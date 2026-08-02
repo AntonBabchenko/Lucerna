@@ -266,6 +266,124 @@ mod tests {
         save(path, &map).unwrap();
     }
 
+    /// Seed an entry as a pre-migration write would leave it: fresh timestamp,
+    /// no `loaders` key.
+    fn seed_without_loaders(path: &Path, source: ModSource, id: &str, fetched_at: DateTime<Utc>) {
+        let mut map = load(path);
+        let mut s = summary(source, id);
+        s.loaders = None;
+        map.insert(
+            (source, id.to_string()),
+            StoredEntry {
+                fetched_at: fetched_at.to_rfc3339(),
+                summary: s,
+            },
+        );
+        save(path, &map).unwrap();
+    }
+
+    /// A fresh entry written before `loaders` existed must still be re-fetched
+    /// when the caller depends on that field — otherwise the dependency graph
+    /// reads it as "unknown", never suppresses, and the fix looks dead on every
+    /// warm cache until the TTL expires.
+    #[tokio::test]
+    async fn refetches_fresh_entry_that_predates_the_loaders_field() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_loaders(&path, ModSource::Modrinth, "jei", now);
+        let (calls, f) = recording_fetcher(ModSource::Modrinth);
+        let out = get_many_inner(
+            &path,
+            ModSource::Modrinth,
+            &["jei".to_string()],
+            7,
+            true,
+            now,
+            f,
+        )
+        .await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            1,
+            "a None loaders field must count as stale"
+        );
+    }
+
+    /// …and at `ttl_days == 0`, a supported setting that short-circuits
+    /// `is_fresh` to always-fresh. The loaders clause must be OR'd with it, not
+    /// nested inside it, or the entry would never migrate.
+    #[tokio::test]
+    async fn refetches_entry_missing_loaders_even_at_ttl_zero() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_loaders(&path, ModSource::Modrinth, "jei", now);
+        let (calls, f) = recording_fetcher(ModSource::Modrinth);
+        let out = get_many_inner(
+            &path,
+            ModSource::Modrinth,
+            &["jei".to_string()],
+            0,
+            true,
+            now,
+            f,
+        )
+        .await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    /// A source that cannot report loaders must NOT be re-fetched on their
+    /// account — it would be permanently stale, i.e. a fresh 429 source on every
+    /// single graph resolve.
+    #[tokio::test]
+    async fn does_not_refetch_a_source_that_cannot_report_loaders() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_loaders(&path, ModSource::Hangar, "plug", now);
+        let (calls, f) = recording_fetcher(ModSource::Hangar);
+        let out = get_many_inner(
+            &path,
+            ModSource::Hangar,
+            &["plug".to_string()],
+            7,
+            true,
+            now,
+            f,
+        )
+        .await;
+        assert_eq!(out.len(), 1);
+        assert!(
+            calls.lock().unwrap().is_empty(),
+            "Hangar has no loader concept — never stale for that reason"
+        );
+    }
+
+    /// Callers that only display metadata must not pay for the migration.
+    #[tokio::test]
+    async fn does_not_refetch_missing_loaders_when_not_required() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_loaders(&path, ModSource::Modrinth, "jei", now);
+        let (calls, f) = recording_fetcher(ModSource::Modrinth);
+        let out = get_many_inner(
+            &path,
+            ModSource::Modrinth,
+            &["jei".to_string()],
+            7,
+            false,
+            now,
+            f,
+        )
+        .await;
+        assert_eq!(out.len(), 1);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn is_fresh_honors_ttl_and_zero_means_never_expire() {
         let now = DateTime::parse_from_rfc3339("2026-06-19T12:00:00Z")

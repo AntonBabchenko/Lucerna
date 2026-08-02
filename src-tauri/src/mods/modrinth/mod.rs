@@ -902,7 +902,8 @@ mod tests {
                 r#"[
                   {"id":"jei","slug":"jei","title":"JEI","description":"Items",
                    "body":"","icon_url":"https://media.modrinth.com/i.png","downloads":10,
-                   "source_url":null,"wiki_url":null,"team":"t","gallery":[]},
+                   "source_url":null,"wiki_url":null,"team":"t","gallery":[],
+                   "loaders":["fabric","neoforge","iris"]},
                   {"id":"sodium","slug":"sodium","title":"Sodium","description":"Perf",
                    "body":"","icon_url":null,"downloads":99,
                    "source_url":null,"wiki_url":null,"team":"jelly","gallery":[]}
@@ -918,6 +919,19 @@ mod tests {
         assert_eq!(out[0].name, "JEI");
         assert_eq!(out[0].slug.as_deref(), Some("jei"));
         assert_eq!(out[1].author, "jelly");
+        // The batch endpoint carries project-level `loaders`; unknown tags
+        // ("iris") are dropped rather than failing the decode.
+        assert_eq!(
+            out[0].loaders,
+            Some(vec![LoaderKind::Fabric, LoaderKind::NeoForge])
+        );
+        // Absent key ⇒ empty vec, NOT None: Modrinth *can* report loaders, and
+        // `None` would mark the cached entry permanently stale.
+        assert_eq!(
+            out[1].loaders,
+            Some(Vec::new()),
+            "a project with no loaders key must be Some(empty), never None"
+        );
     }
 
     #[tokio::test]

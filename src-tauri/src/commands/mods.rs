@@ -2351,16 +2351,20 @@ mod tests {
         }
     }
 
+    fn mr_ref(pid: &str) -> DepProjectRef {
+        DepProjectRef::Modrinth {
+            project_id: pid.into(),
+            version_id: None,
+        }
+    }
+
     /// A declaring node with one required Modrinth child.
     fn node_requiring(loaders: Vec<LoaderKind>, child: &str) -> DepNodeMeta {
         DepNodeMeta {
             loaders,
             deps: vec![ModDepLink {
                 kind: DepKind::Required,
-                project_ref: DepProjectRef::Modrinth {
-                    project_id: child.into(),
-                    version_id: None,
-                },
+                project_ref: mr_ref(child),
             }],
         }
     }
@@ -2418,6 +2422,143 @@ mod tests {
         };
         let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
         assert_eq!(out.required.len(), 1, "unknown loaders must not suppress");
+    }
+
+    /// THE BUG. A Forgix-merged release is published as ONE version tagged for
+    /// several loader families, so its platform dependency list is a flat union
+    /// across them: Fabric API is real for the Fabric half only. The node itself
+    /// must stay (it does load on NeoForge) while the foreign-family child goes,
+    /// and the child that genuinely ships NeoForge builds must survive.
+    #[test]
+    fn node_deps_scoped_drops_foreign_family_child_of_merged_jar() {
+        let node = DepNodeMeta {
+            loaders: vec![LoaderKind::Fabric, LoaderKind::NeoForge, LoaderKind::Quilt],
+            deps: vec![
+                ModDepLink {
+                    kind: DepKind::Required,
+                    project_ref: mr_ref("P7dR8mSH"), // fabric-api
+                },
+                ModDepLink {
+                    kind: DepKind::Optional,
+                    project_ref: mr_ref("AANobbMI"), // sodium
+                },
+            ],
+        };
+        let fx = Fixture::default()
+            .with_summary("P7dR8mSH", Some(vec![LoaderKind::Fabric]))
+            .with_summary(
+                "AANobbMI",
+                Some(vec![
+                    LoaderKind::Fabric,
+                    LoaderKind::NeoForge,
+                    LoaderKind::Quilt,
+                ]),
+            );
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        assert!(
+            out.required.is_empty(),
+            "Fabric API is not required on NeoForge — the toml declares only minecraft + neoforge"
+        );
+        assert_eq!(
+            out.optional.len(),
+            1,
+            "Sodium ships NeoForge builds — the optional row must survive"
+        );
+    }
+
+    /// An installed child is judged by its INSTALLED-VERSION loaders, not merely
+    /// carved out for being present. A Fabric jar sitting inert in a NeoForge
+    /// instance is physically there and semantically absent; claiming it
+    /// satisfies a requirement would be a second false statement, not a fix.
+    #[test]
+    fn node_deps_scoped_scopes_installed_child_by_installed_version_loaders() {
+        let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "P7dR8mSH");
+        let fx = Fixture::default()
+            .with_summary("P7dR8mSH", Some(vec![LoaderKind::Fabric]))
+            .with_installed("P7dR8mSH", Some(vec![LoaderKind::Fabric]));
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        assert!(
+            out.required.is_empty(),
+            "an inert Fabric jar does not satisfy a NeoForge requirement"
+        );
+    }
+
+    /// Installed, but with no stored `version_id`, so no installed-version
+    /// loaders exist. The coarse project-level union must not overrule physical
+    /// presence — keep the row.
+    #[test]
+    fn node_deps_scoped_keeps_installed_child_when_its_version_is_unknown() {
+        let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "lib");
+        let fx = Fixture::default()
+            .with_summary("lib", Some(vec![LoaderKind::Fabric]))
+            .with_installed("lib", None);
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        assert_eq!(out.required.len(), 1, "presence outranks a coarse union");
+    }
+
+    /// The ambiguity gate. A single-family release declares unambiguous
+    /// dependencies, so the coarse project-level union is not evidence enough to
+    /// remove one. Deleting the gate makes this fail — that is its purpose.
+    #[test]
+    fn node_deps_scoped_keeps_foreign_child_of_single_family_node() {
+        let node = node_requiring(vec![LoaderKind::NeoForge], "lib");
+        let fx = Fixture::default().with_summary("lib", Some(vec![LoaderKind::Fabric]));
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        assert_eq!(
+            out.required.len(),
+            1,
+            "nothing is ambiguous here, so nothing may be adjudicated"
+        );
+    }
+
+    /// Every unknown child signal fails open. These pin the three fail-open
+    /// clauses inside `loaders_disjoint_from_instance`, which the child rule
+    /// must reuse verbatim — a hand-rolled `!contains(loader)` inverts all of
+    /// them at once and would blank the panel whenever summaries are missing.
+    #[test]
+    fn node_deps_scoped_fails_open_on_every_unknown_child_signal() {
+        let merged = || node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "lib");
+        let cases: Vec<(&str, Fixture)> = vec![
+            ("absent from the summary map", Fixture::default()),
+            (
+                "source cannot report loaders",
+                Fixture::default().with_summary("lib", None),
+            ),
+            (
+                "reported, but nothing mappable (shader/datapack tags)",
+                Fixture::default().with_summary("lib", Some(vec![])),
+            ),
+            (
+                "Vanilla-tagged child is loader-agnostic",
+                Fixture::default().with_summary("lib", Some(vec![LoaderKind::Vanilla])),
+            ),
+        ];
+        for (label, fx) in cases {
+            let out = node_deps_scoped(&merged(), LoaderKind::NeoForge, &fx.ctx());
+            assert_eq!(out.required.len(), 1, "must not suppress when {label}");
+        }
+    }
+
+    /// Quilt runs Fabric mods, so a Fabric child is same-family there. A Vanilla
+    /// instance has no family at all, so nothing is ever adjudicated on it.
+    #[test]
+    fn node_deps_scoped_respects_quilt_fabric_kinship_and_vanilla_instances() {
+        let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::Forge], "lib");
+        let fx = Fixture::default().with_summary("lib", Some(vec![LoaderKind::Fabric]));
+        assert_eq!(
+            node_deps_scoped(&node, LoaderKind::Quilt, &fx.ctx())
+                .required
+                .len(),
+            1,
+            "Quilt loads Fabric mods"
+        );
+        assert_eq!(
+            node_deps_scoped(&node, LoaderKind::Vanilla, &fx.ctx())
+                .required
+                .len(),
+            1,
+            "a Vanilla instance has no loader family to compare against"
+        );
     }
 
     /// Mirror the `mv` helper from `dep_resolve.rs` tests: a minimal Modrinth

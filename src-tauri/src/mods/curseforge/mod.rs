@@ -766,6 +766,90 @@ mod tests {
         CurseForgeClient::with_base_and_key(uri, Some("test-key".into()))
     }
 
+    /// Build a `latestFilesIndexes` shape from `(gameVersion, modLoader)` pairs.
+    fn idx(pairs: &[(&str, Option<u8>)]) -> Vec<types::FileIndex> {
+        pairs
+            .iter()
+            .map(|(gv, ml)| types::FileIndex {
+                game_version: (*gv).to_string(),
+                mod_loader: *ml,
+            })
+            .collect()
+    }
+
+    /// Fully tagged index ⇒ derivable. Sodium's real shape: it has never
+    /// shipped a Forge build, so this doubles as a positive control that the
+    /// derivation does not fabricate loaders it never saw.
+    #[test]
+    fn project_loaders_derives_from_a_fully_tagged_index() {
+        let got = project_loaders(&idx(&[
+            ("1.21.1", Some(4)),
+            ("1.21.1", Some(5)),
+            ("1.21.1", Some(6)),
+            ("1.20.1", Some(4)),
+        ]));
+        let got = got.expect("a fully tagged index is derivable");
+        assert!(got.contains(&LoaderKind::Fabric));
+        assert!(got.contains(&LoaderKind::Quilt));
+        assert!(got.contains(&LoaderKind::NeoForge));
+        assert!(
+            !got.contains(&LoaderKind::Forge),
+            "Sodium ships no Forge build — the derivation must not invent one"
+        );
+    }
+
+    /// A single untagged entry disqualifies the whole project. Those files
+    /// predate CurseForge's loader tagging and can belong to ANY loader, so
+    /// deriving from the tagged remainder could hide a real dependency.
+    /// JEI's real index is 30 untagged of 105.
+    #[test]
+    fn project_loaders_is_unknown_when_any_entry_is_untagged() {
+        assert_eq!(
+            project_loaders(&idx(&[
+                ("1.8.9", None),
+                ("1.21.1", Some(1)),
+                ("1.21.1", Some(4)),
+            ])),
+            None
+        );
+        // All untagged (a project that stopped publishing before tagging).
+        assert_eq!(project_loaders(&idx(&[("1.2.5", None)])), None);
+    }
+
+    /// `modLoader: 0` is the documented "Any" wildcard — an unbounded set, so
+    /// it cannot license a suppression either.
+    #[test]
+    fn project_loaders_is_unknown_for_the_any_wildcard() {
+        assert_eq!(
+            project_loaders(&idx(&[("1.21.1", Some(0)), ("1.21.1", Some(6))])),
+            None
+        );
+    }
+
+    /// Degenerate inputs must never read as "supports nothing".
+    #[test]
+    fn project_loaders_is_unknown_for_empty_and_unmappable_indexes() {
+        assert_eq!(project_loaders(&[]), None, "no index at all");
+        assert_eq!(
+            project_loaders(&idx(&[("1.6.4", Some(2)), ("1.6.4", Some(3))])),
+            None,
+            "only Cauldron/LiteLoader — tagged, but never an instance loader"
+        );
+    }
+
+    /// The field is absent on older/drifted responses; that must decode to an
+    /// empty index rather than failing the whole batch.
+    #[test]
+    fn mod_decodes_without_latest_files_indexes() {
+        let m: types::Mod = serde_json::from_str(
+            r#"{"id":1,"slug":"s","name":"N","summary":"","downloadCount":0,
+                "authors":[],"logo":null,"dateModified":null,"links":{}}"#,
+        )
+        .expect("an absent latestFilesIndexes must not be a decode error");
+        assert!(m.latest_files_indexes.is_empty());
+        assert_eq!(project_loaders(&m.latest_files_indexes), None);
+    }
+
     #[tokio::test]
     async fn summaries_batches_mods_and_skips_non_numeric() {
         let s = MockServer::start().await;
