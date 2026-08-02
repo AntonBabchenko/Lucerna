@@ -112,8 +112,8 @@ impl NamespaceStore {
     }
 
     /// Record or replace the override for `key`. Always writes `Origin::Manual`
-    /// — this is the hand-edit path; the machine-translation stage (later
-    /// task) will have its own write path that sets `Origin::Machine`.
+    /// — this is the hand-edit path; the machine-translation stage has its own
+    /// write path, [`set_with_origin`](Self::set_with_origin).
     pub fn set(
         &mut self,
         key: impl Into<String>,
@@ -121,12 +121,26 @@ impl NamespaceStore {
         source_en: impl Into<String>,
         updated_at_ms: f64,
     ) {
+        self.set_with_origin(key, value, source_en, updated_at_ms, Origin::Manual);
+    }
+
+    /// Write an entry with an explicit origin. The machine-translation stage
+    /// writes `Origin::Machine`; the hand-edit path goes through [`set`](Self::set)
+    /// and stays `Manual`, so a user editing a machine string reclaims it.
+    pub fn set_with_origin(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        source_en: impl Into<String>,
+        updated_at_ms: f64,
+        origin: Origin,
+    ) {
         self.entries.insert(
             key.into(),
             Entry {
                 value: value.into(),
                 source_en: source_en.into(),
-                origin: Origin::Manual,
+                origin,
                 updated_at: updated_at_ms,
             },
         );
@@ -172,6 +186,9 @@ pub struct KeyRow {
     pub mod_value: Option<String>,
     pub override_value: Option<String>,
     pub state: KeyState,
+    /// Where the override came from, or `None` when the key has no override.
+    /// Drives the editor's manual/machine filter and the bulk-revert action.
+    pub origin: Option<Origin>,
 }
 
 /// Every key the editor should show for one namespace.
@@ -206,19 +223,18 @@ pub fn namespace_key_rows(
 
     keys.into_iter()
         .map(|key| {
-            let source_en = en.get(key).cloned().unwrap_or_else(|| {
-                store
-                    .entries
-                    .get(key)
-                    .map(|e| e.source_en.clone())
-                    .unwrap_or_default()
-            });
+            let entry = store.entries.get(key);
+            let source_en = en
+                .get(key)
+                .cloned()
+                .unwrap_or_else(|| entry.map(|e| e.source_en.clone()).unwrap_or_default());
             KeyRow {
                 key: key.to_string(),
                 source_en,
                 mod_value: mod_tr.and_then(|m| m.get(key)).cloned(),
-                override_value: store.entries.get(key).map(|e| e.value.clone()),
+                override_value: entry.map(|e| e.value.clone()),
                 state: store.state_of(key, en, mod_tr),
+                origin: entry.map(|e| e.origin),
             }
         })
         .collect()
@@ -493,6 +509,15 @@ mod tests {
     }
 
     #[test]
+    fn set_with_origin_records_machine_and_set_stays_manual() {
+        let mut s = NamespaceStore::new("create", "ru_ru");
+        s.set_with_origin("block.a", "Блок", "Block", 1.0, Origin::Machine);
+        s.set("block.b", "Блок Б", "Block B", 2.0);
+        assert_eq!(s.entries["block.a"].origin, Origin::Machine);
+        assert_eq!(s.entries["block.b"].origin, Origin::Manual);
+    }
+
+    #[test]
     fn set_replaces_a_prior_entry_for_the_same_key() {
         let mut store = NamespaceStore::new("create", "ru_ru");
         store.set("a", "first", "A", 1.0);
@@ -728,6 +753,23 @@ mod tests {
         let rows = namespace_key_rows(&store, &en, None);
         let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
         assert_eq!(keys, vec!["a", "m", "z"]);
+    }
+
+    #[test]
+    fn key_rows_expose_origin_only_for_overridden_keys() {
+        let mut s = NamespaceStore::new("create", "ru_ru");
+        s.set_with_origin("block.a", "Блок", "Block", 1.0, Origin::Machine);
+        let en: LangMap = [
+            ("block.a".to_string(), "Block".to_string()),
+            ("block.b".to_string(), "Block B".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let rows = namespace_key_rows(&s, &en, None);
+        let a = rows.iter().find(|r| r.key == "block.a").expect("row a");
+        let b = rows.iter().find(|r| r.key == "block.b").expect("row b");
+        assert_eq!(a.origin, Some(Origin::Machine));
+        assert_eq!(b.origin, None);
     }
 
     #[test]

@@ -20,6 +20,7 @@ function keyRow(over: Partial<KeyRow> = {}): KeyRow {
     modValue: null,
     overrideValue: null,
     state: 'missing',
+    origin: null,
     ...over,
   };
 }

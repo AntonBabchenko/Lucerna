@@ -1744,6 +1744,12 @@ export type AccountSkin = {
 };
 
 /**
+ *  Which translation backend the AI pre-fill uses. `Local` talks to an
+ *  OpenAI-compatible server on 127.0.0.1 and needs no key.
+ */
+export type AiProvider = "anthropic" | "gemini" | "groq" | "local";
+
+/**
  *  The wire result: per-line hits plus copy for each distinct pattern
  *  that matched (deduplicated — spam-heavy logs stay cheap).
  */
@@ -2468,7 +2474,18 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  pack build for every namespace, because `lang` doubles as `code`,
  *  composed into every entry name in the archive.
  */
-{ kind: "l10n_lang_invalid"; lang: string };
+{ kind: "l10n_lang_invalid"; lang: string } | 
+/**  The selected AI provider has no API key stored. */
+{ kind: "l10n_prefill_key_missing"; provider: string } | 
+/**
+ *  The provider answered, but not with a usable result. `status` is the
+ *  HTTP status, or 0 when the failure was in the body rather than the
+ *  transport. `details` is truncated — a provider error body can echo the
+ *  API key back.
+ */
+{ kind: "l10n_prefill_provider"; provider: string; status: number; details: string } | 
+/**  A pre-fill run is already in flight for this instance. */
+{ kind: "l10n_prefill_busy" };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2704,6 +2721,29 @@ export type GeneralSettings = {
 	 *  into the import dialog works without it.
 	 */
 	register_url_scheme?: boolean,
+	/**
+	 *  Opt-in permission for the AI translation pre-fill to reach a model
+	 *  provider. Enforced in `network::consent`: while false, neither the
+	 *  cloud client nor the loopback client can be constructed.
+	 *  `#[serde(default)]` → off for every app.json written before this field.
+	 */
+	allow_ai_translation?: boolean,
+	/**
+	 *  Which model backend the pre-fill talks to. `#[serde(default)]` →
+	 *  `Anthropic` for app.json written before this field existed; irrelevant
+	 *  until `allow_ai_translation` is turned on.
+	 */
+	ai_provider?: AiProvider,
+	/**
+	 *  Empty means "use the provider's default model". Free text, because
+	 *  nothing can enumerate a provider's model list offline.
+	 */
+	ai_model?: string,
+	/**
+	 *  Port of the local OpenAI-compatible server. Host is always 127.0.0.1 —
+	 *  see `network::loopback`, which takes the port and nothing else.
+	 */
+	ai_local_port?: number,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
@@ -3087,6 +3127,11 @@ export type KeyRow = {
 	modValue: string | null,
 	overrideValue: string | null,
 	state: KeyState,
+	/**
+	 *  Where the override came from, or `None` when the key has no override.
+	 *  Drives the editor's manual/machine filter and the bulk-revert action.
+	 */
+	origin: Origin | null,
 };
 
 /**
@@ -3989,6 +4034,12 @@ export type OptionalDep_Serialize = {
 	version: ModVersion_Serialize,
 	requires: PlannedDep_Serialize[],
 };
+
+/**
+ *  Where a translation came from. Written from day one so the machine-
+ *  translation stage adds a value rather than a schema migration.
+ */
+export type Origin = "manual" | "machine";
 
 /**  A mod that would no longer be required by anything after a removal. */
 export type OrphanRef = {
