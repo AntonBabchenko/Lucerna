@@ -25,6 +25,7 @@ use crate::error::Result;
 const SERVICE_REFRESH: &str = "lucerna-microsoft-refresh";
 const SERVICE_MC_ACCESS: &str = "lucerna-mc-access";
 const SERVICE_SFTP_PASSWORD: &str = "lucerna-sftp-password";
+const SERVICE_AI_KEY: &str = "lucerna-ai-api-key";
 
 pub fn refresh_token_key(account_id: &str) -> Key {
     Key {
@@ -45,6 +46,15 @@ pub fn sftp_password_key(server_id: &str) -> Key {
     Key {
         service: SERVICE_SFTP_PASSWORD,
         account: server_id.to_string(),
+    }
+}
+
+/// One API key per AI translation provider, keyed by the provider's stable
+/// id (`"anthropic"`, `"gemini"`, `"groq"`). `Local` needs no key.
+pub fn ai_provider_key(provider_id: &str) -> Key {
+    Key {
+        service: SERVICE_AI_KEY,
+        account: provider_id.to_string(),
     }
 }
 
@@ -164,6 +174,22 @@ mod tests {
         let k = sftp_password_key("srv-1");
         assert_eq!(k.service, "lucerna-sftp-password");
         assert_eq!(k.account, "srv-1");
+    }
+
+    #[test]
+    fn ai_provider_keys_are_per_provider() {
+        let anthropic = ai_provider_key("anthropic");
+        let groq = ai_provider_key("groq");
+        store(&anthropic, "key-a").expect("store anthropic");
+        store(&groq, "key-g").expect("store groq");
+        assert_eq!(
+            retrieve(&anthropic).expect("get"),
+            Some("key-a".to_string())
+        );
+        assert_eq!(retrieve(&groq).expect("get"), Some("key-g".to_string()));
+        delete(&anthropic).expect("delete");
+        assert_eq!(retrieve(&anthropic).expect("get"), None);
+        assert_eq!(retrieve(&groq).expect("get"), Some("key-g".to_string()));
     }
 
     #[test]

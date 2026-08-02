@@ -256,6 +256,36 @@ fn default_sftp_upload_concurrency() -> u32 {
     4
 }
 
+/// Which translation backend the AI pre-fill uses. `Local` talks to an
+/// OpenAI-compatible server on 127.0.0.1 and needs no key.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AiProvider {
+    #[default]
+    Anthropic,
+    Gemini,
+    Groq,
+    Local,
+}
+
+impl AiProvider {
+    /// Every variant. The uninstall keyring sweep iterates this, so adding a
+    /// variant without adding it here is caught by a test rather than by a
+    /// user discovering a leftover credential.
+    pub const ALL: [AiProvider; 4] = [
+        AiProvider::Anthropic,
+        AiProvider::Gemini,
+        AiProvider::Groq,
+        AiProvider::Local,
+    ];
+}
+
+/// Default port of a local OpenAI-compatible model server. 11434 is Ollama's,
+/// the most common such server; any other one is a port change away.
+fn default_ai_local_port() -> u16 {
+    11434
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -331,6 +361,25 @@ pub struct GeneralSettings {
     /// into the import dialog works without it.
     #[serde(default)]
     pub register_url_scheme: bool,
+    /// Opt-in permission for the AI translation pre-fill to reach a model
+    /// provider. Enforced in `network::consent`: while false, neither the
+    /// cloud client nor the loopback client can be constructed.
+    /// `#[serde(default)]` → off for every app.json written before this field.
+    #[serde(default)]
+    pub allow_ai_translation: bool,
+    /// Which model backend the pre-fill talks to. `#[serde(default)]` →
+    /// `Anthropic` for app.json written before this field existed; irrelevant
+    /// until `allow_ai_translation` is turned on.
+    #[serde(default)]
+    pub ai_provider: AiProvider,
+    /// Empty means "use the provider's default model". Free text, because
+    /// nothing can enumerate a provider's model list offline.
+    #[serde(default)]
+    pub ai_model: String,
+    /// Port of the local OpenAI-compatible server. Host is always 127.0.0.1 —
+    /// see `network::loopback`, which takes the port and nothing else.
+    #[serde(default = "default_ai_local_port")]
+    pub ai_local_port: u16,
 }
 
 impl Default for GeneralSettings {
@@ -349,6 +398,10 @@ impl Default for GeneralSettings {
             hidden_sidebar_buttons: Vec::new(),
             allow_server_ping: false,
             register_url_scheme: false,
+            allow_ai_translation: false,
+            ai_provider: AiProvider::default(),
+            ai_model: String::new(),
+            ai_local_port: default_ai_local_port(),
         }
     }
 }
@@ -1083,5 +1136,24 @@ mod tests {
         s.created_from_server = Some("srv-xyz".into());
         let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.created_from_server.as_deref(), Some("srv-xyz"));
+    }
+
+    #[test]
+    fn ai_translation_settings_default_off_and_parse_from_empty_json() {
+        let g: GeneralSettings = serde_json::from_str("{}").expect("empty object parses");
+        assert!(!g.allow_ai_translation);
+        assert_eq!(g.ai_provider, AiProvider::Anthropic);
+        assert_eq!(g.ai_local_port, 11434);
+        assert_eq!(g.ai_model, "");
+    }
+
+    #[test]
+    fn every_ai_provider_is_listed_in_all() {
+        // ALL drives the uninstall keyring sweep. A variant missing from it
+        // leaks a stored key past uninstall, which no test would otherwise see.
+        assert_eq!(AiProvider::ALL.len(), 4);
+        for p in AiProvider::ALL {
+            assert!(!format!("{p:?}").is_empty());
+        }
     }
 }
