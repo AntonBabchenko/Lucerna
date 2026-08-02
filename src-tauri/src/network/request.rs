@@ -27,14 +27,21 @@ const MAX_RETRIES: u32 = 3;
 /// climbed.
 const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Seconds to wait after a 429: `X-Ratelimit-Reset` (Modrinth) if present and
-/// sane, else exponential backoff (1s, 2s, 4s) by attempt. Capped at MAX_BACKOFF.
+/// Seconds to wait after a 429: `retry-after` (every AI provider, and
+/// Anthropic documents it explicitly) or `X-Ratelimit-Reset` (Modrinth) when
+/// present and sane, else exponential backoff (1s, 2s, 4s) by attempt. Capped
+/// at MAX_BACKOFF. The `.min(6)` clamp keeps `1u64 << attempt` safe if
+/// MAX_RETRIES is ever raised.
 fn backoff_after_429(headers: &reqwest::header::HeaderMap, attempt: u32) -> std::time::Duration {
-    let from_header = headers
-        .get("x-ratelimit-reset")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .map(std::time::Duration::from_secs);
+    let from_header = ["retry-after", "x-ratelimit-reset"]
+        .iter()
+        .find_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .map(std::time::Duration::from_secs)
+        });
     let dur = from_header.unwrap_or_else(|| std::time::Duration::from_secs(1u64 << attempt.min(6)));
     dur.min(MAX_BACKOFF)
 }
@@ -42,14 +49,23 @@ fn backoff_after_429(headers: &reqwest::header::HeaderMap, attempt: u32) -> std:
 /// Send a built request and return the response for any HTTP status.
 /// `Err` only on a transport-level failure (send failure, or a body-read
 /// failure after a status was received).
+///
+/// `timeout` is a **total** per-request budget (connect through body); `None`
+/// leaves the client's own timeouts as the only bound. It is applied before the
+/// retry loop because `try_clone` preserves it, so every attempt carries it.
 async fn send(
     req: reqwest::RequestBuilder,
     method: &str,
     url: &str,
     initiator: &str,
+    timeout: Option<std::time::Duration>,
 ) -> Result<HttpResponse> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
     let host = host_of(url);
+    let req = match timeout {
+        Some(t) => req.timeout(t),
+        None => req,
+    };
     // `RequestBuilder` is consumed by `.send()`, so to retry on a 429 we hold
     // the builder in an `Option` and `try_clone()` it for non-final attempts,
     // moving the original out on the final attempt (or when it can't be cloned).
@@ -146,7 +162,7 @@ pub async fn get(url: &str, headers: &[(&str, &str)], initiator: &str) -> Result
     for (name, value) in headers {
         req = req.header(*name, *value);
     }
-    send(req, "GET", url, initiator).await
+    send(req, "GET", url, initiator, None).await
 }
 
 /// POST `body` to `url` on the shared chokepoint client with `headers`
@@ -162,7 +178,26 @@ pub async fn post(
     for (name, value) in headers {
         req = req.header(*name, *value);
     }
-    send(req, "POST", url, initiator).await
+    send(req, "POST", url, initiator, None).await
+}
+
+/// Like [`post`], but built on the generation client (no read timeout) with
+/// an explicit total budget. For calls that wait on a model rather than
+/// stream a file — see `network::client::http_generation`.
+pub async fn post_with_timeout(
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+    initiator: &str,
+    timeout: std::time::Duration,
+) -> Result<HttpResponse> {
+    let mut req = crate::network::client::http_generation()
+        .post(url)
+        .body(body.to_vec());
+    for (name, value) in headers {
+        req = req.header(*name, *value);
+    }
+    send(req, "POST", url, initiator, Some(timeout)).await
 }
 
 /// Parse the host out of a URL for gate lookup. Returns None for an unparseable
@@ -342,6 +377,20 @@ mod tests {
         let mut big = HeaderMap::new();
         big.insert("x-ratelimit-reset", "9999".parse().unwrap());
         assert_eq!(backoff_after_429(&big, 0), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn backoff_prefers_retry_after_over_the_reset_header() {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(
+            "retry-after",
+            reqwest::header::HeaderValue::from_static("7"),
+        );
+        h.insert(
+            "x-ratelimit-reset",
+            reqwest::header::HeaderValue::from_static("30"),
+        );
+        assert_eq!(backoff_after_429(&h, 0), std::time::Duration::from_secs(7));
     }
 
     #[tokio::test]
