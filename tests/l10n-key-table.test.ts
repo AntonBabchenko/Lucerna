@@ -6,6 +6,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     l10nNamespaceKeys: vi.fn(),
     l10nSetOverride: vi.fn(),
+    l10nRevertMachine: vi.fn(),
   },
 }));
 
@@ -261,6 +262,111 @@ describe('KeyTable', () => {
     await waitFor(() =>
       expect((screen.getByTestId('l10n-key-search') as HTMLInputElement).value).toBe(''),
     );
+  });
+
+  // Origin is a SECOND axis over the state filter, not more options on it.
+  // ToggleChipGroup is a single-select radiogroup with one `value`, so folding
+  // the two together would make "translated" and "machine-written" mutually
+  // exclusive — which is what these two tests would catch.
+  describe('origin filter', () => {
+    it('narrows within the state filter rather than replacing it', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' }),
+        keyRow({ key: 'b', state: 'stale', overrideValue: 'Б', modValue: 'B2', origin: 'machine' }),
+        keyRow({ key: 'c', state: 'ok', overrideValue: 'В', origin: 'manual' }),
+      ]);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      await fireEvent.click(screen.getByTestId('l10n-filter-translated'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(2));
+
+      // Both axes now apply: translated AND machine-written is exactly 'a'.
+      await fireEvent.click(screen.getByTestId('l10n-origin-machine'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('a')).toBeTruthy();
+    });
+
+    it('resets on a namespace switch, so a machine-only view cannot strand the user on an empty table', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      const { rerender } = render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-origin-machine'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      // A namespace the pre-fill never touched: every row has origin null, so
+      // a carried-over "machine only" selection would hide all of them with no
+      // visible reason why.
+      mockKeysOk([keyRow({ key: 'z', state: 'missing', origin: null })]);
+      await rerender({ ...props, namespace: 'thermal' });
+      await waitFor(() =>
+        expect(commands.l10nNamespaceKeys).toHaveBeenCalledWith('inst-1', 'thermal', 'ru_ru'),
+      );
+
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.queryByTestId('l10n-key-table-empty')).toBeNull();
+    });
+  });
+
+  describe('bulk revert', () => {
+    it('is offered only when the namespace actually has machine translations', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' })]);
+      const manualOnly = render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      expect(screen.queryByTestId('l10n-revert-machine')).toBeNull();
+      manualOnly.unmount();
+
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      expect(screen.getByTestId('l10n-revert-machine')).toBeTruthy();
+    });
+
+    it('confirms first, then reverts in ONE command and refetches the namespace', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      vi.mocked(commands.l10nRevertMachine).mockResolvedValue({
+        status: 'ok',
+        data: 1,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
+      // Destructive and bulk — nothing happens until the confirm is pressed.
+      expect(commands.l10nRevertMachine).not.toHaveBeenCalled();
+
+      await fireEvent.click(await screen.findByTestId('l10n-revert-confirm'));
+      await waitFor(() =>
+        expect(commands.l10nRevertMachine).toHaveBeenCalledWith('inst-1', 'ru_ru', 'create'),
+      );
+      // One command for the whole namespace, not one per key.
+      expect(commands.l10nRevertMachine).toHaveBeenCalledTimes(1);
+      // The resulting state of each key depends on what the mod itself ships,
+      // so the rows come back from the backend rather than being patched here.
+      await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+    });
+
+    it('reports a failed revert inside the confirm, not behind it', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      vi.mocked(commands.l10nRevertMachine).mockResolvedValue({
+        status: 'error',
+        error: { kind: 'io', path: 'p', details: 'disk full' },
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
+      await fireEvent.click(await screen.findByTestId('l10n-revert-confirm'));
+
+      // The confirm stays up carrying the reason — an error rendered in the
+      // toolbar underneath would be invisible behind the dialog's backdrop.
+      await waitFor(() => expect(screen.getByText(/disk full/)).toBeTruthy());
+      expect(screen.getByTestId('l10n-revert-confirm')).toBeTruthy();
+      // Nothing changed, so nothing was refetched.
+      expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(1);
+    });
   });
 
   // Regression coverage: translation keys are IDENTICAL across languages —

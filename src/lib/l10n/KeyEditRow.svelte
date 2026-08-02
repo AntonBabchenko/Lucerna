@@ -73,7 +73,13 @@
         // sent, so the resulting state is deterministic: an override that
         // matches the current English is 'ok', full stop — no re-fetch
         // needed to know that.
-        onSaved({ ...row, overrideValue: draft, state: 'ok' });
+        //
+        // `origin: 'manual'` is not decoration: the patch spreads `...row`, so
+        // a hand-edited machine string would otherwise keep its marker and
+        // then be silently wiped by the next bulk revert. It also mirrors what
+        // the backend just did — `NamespaceStore::set` hardcodes
+        // `Origin::Manual`, so the row would be wrong until the next refetch.
+        onSaved({ ...row, overrideValue: draft, state: 'ok', origin: 'manual' });
       } else {
         error = formatError(res.error);
       }
@@ -93,6 +99,10 @@
           ...row,
           overrideValue: null,
           state: row.modValue !== null ? 'from_mod' : 'missing',
+          // Restores the invariant the backend pins: no override means no
+          // origin. Without this the spread would keep the old marker on a
+          // row that no longer has anything to attribute.
+          origin: null,
         };
         draft = displayValue(updated);
         onSaved(updated);
@@ -118,6 +128,18 @@
 >
   <div class="flex items-start justify-between gap-2">
     <code class="min-w-0 flex-1 truncate text-xs text-muted" title={row.key}>{row.key}</code>
+    {#if row.origin === 'machine'}
+      <!--
+        Machine-written and untouched. The marker is what makes bulk revert
+        honest — it is exactly the set that action would drop — and it clears
+        the moment the user saves an edit over it (see `save`).
+      -->
+      <span
+        class="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-secondary"
+        title={$t('instance.l10n.keyTable.machineBadgeTitle')}
+        data-testid="l10n-key-origin-machine">{$t('instance.l10n.keyTable.machineBadge')}</span
+      >
+    {/if}
     <span
       class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium {STATE_TONE[row.state]}"
       data-testid="l10n-key-state">{stateLabel}</span

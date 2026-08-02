@@ -167,6 +167,19 @@
   let manageOpen = $state(false);
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
+  // `general.allow_ai_translation`, handed to LocalizationModal as a prop.
+  // Read fresh every time that modal opens rather than once at startup — the
+  // same reason refreshPingEnabled re-reads: the permission can be revoked in
+  // Settings mid-session and the translate buttons must follow it without a
+  // restart. The modal itself must NOT read this (its suite pins exact
+  // l10nCoverage call counts), and this page already reads settings.
+  let l10nAiConsent = $state(false);
+
+  async function openLocalization() {
+    l10nOpen = true;
+    const r = await commands.appSettingsGet();
+    l10nAiConsent = r.status === 'ok' ? (r.data.general.allow_ai_translation ?? false) : false;
+  }
   // Which Manage field the modal should scroll to and flash when it opens.
   // Set by whichever entry point opened it; every site that flips manageOpen
   // sets this too, so a stale highlight can never survive into the next open.
@@ -1434,7 +1447,7 @@
               onOpenServers={() => serversUi.setMode('servers')}
               {onOptimise}
               {optimiseResolving}
-              onOpenLocalization={() => (l10nOpen = true)}
+              onOpenLocalization={() => void openLocalization()}
               {l10nPercent}
               {l10nLang}
             />
@@ -1500,6 +1513,7 @@
     bind:open={l10nOpen}
     bind:lang={l10nLang}
     instanceId={activeInstance?.id ?? null}
+    aiConsent={l10nAiConsent}
   />
 
   {#if cloneTargetId !== null}
