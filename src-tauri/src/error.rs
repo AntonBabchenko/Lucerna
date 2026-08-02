@@ -571,6 +571,25 @@ pub enum Error {
     /// composed into every entry name in the archive.
     #[error("Invalid target language '{lang}': contains a path-traversal segment")]
     L10nLangInvalid { lang: String },
+
+    /// The selected AI provider has no API key stored.
+    #[error("No API key stored for AI provider {provider}")]
+    L10nPrefillKeyMissing { provider: String },
+
+    /// The provider answered, but not with a usable result. `status` is the
+    /// HTTP status, or 0 when the failure was in the body rather than the
+    /// transport. `details` is truncated — a provider error body can echo the
+    /// API key back.
+    #[error("AI provider {provider} failed ({status}): {details}")]
+    L10nPrefillProvider {
+        provider: String,
+        status: u16,
+        details: String,
+    },
+
+    /// A pre-fill run is already in flight for this instance.
+    #[error("A translation pre-fill is already running for this instance")]
+    L10nPrefillBusy,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

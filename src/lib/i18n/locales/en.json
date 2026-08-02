@@ -1983,7 +1983,10 @@
     "l10nFormatUnknown": "Couldn't confirm the resource-pack format for Minecraft {mcVersion}. Launch this instance once so Lucerna can read its version, then try applying translations again.",
     "l10nFormatTooOld": "Minecraft {mcVersion} is too old for this: versions before 1.13 load a mod's own translations ahead of resource packs, so an override here would have no effect. The coverage report still works.",
     "l10nNamespaceInvalid": "\"{namespace}\" isn't a valid mod namespace.",
-    "l10nLangInvalid": "\"{lang}\" isn't a valid target language."
+    "l10nLangInvalid": "\"{lang}\" isn't a valid target language.",
+    "l10nPrefillKeyMissing": "No API key saved for {provider}. Add one in Settings → Integrations.",
+    "l10nPrefillProvider": "{provider} refused the translation request (HTTP {status}). Check the API key and the model name — the full response is in Logs.",
+    "l10nPrefillBusy": "A translation run is already in progress for this instance."
   },
   "settings": {
     "title": "Settings",

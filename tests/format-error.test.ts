@@ -463,6 +463,17 @@ describe('formatError', () => {
       // ever reaches the override store.
       l10n_namespace_invalid: { kind: 'l10n_namespace_invalid', namespace: '../../evil' },
       l10n_lang_invalid: { kind: 'l10n_lang_invalid', lang: '../../evil' },
+      l10n_prefill_key_missing: { kind: 'l10n_prefill_key_missing', provider: 'anthropic' },
+      // `details` carries a provider's raw error body, which can echo the API
+      // key back. The sample puts a key-shaped string there so the transport
+      // policy assertion above proves it never reaches the rendered message.
+      l10n_prefill_provider: {
+        kind: 'l10n_prefill_provider',
+        provider: 'anthropic',
+        status: 401,
+        details: 'invalid x-api-key: sk-ant-LEAKED-SECRET',
+      },
+      l10n_prefill_busy: { kind: 'l10n_prefill_busy' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
