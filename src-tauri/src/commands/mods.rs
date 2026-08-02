@@ -101,6 +101,9 @@ pub async fn mods_projects(
         source,
         &project_ids,
         ttl,
+        // Display metadata only — a pre-migration entry without `loaders` is
+        // perfectly serviceable here, so never re-fetch on its account.
+        false,
         move |ids: Vec<String>| async move {
             let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
             platform.summaries(&refs).await
@@ -2121,6 +2124,11 @@ pub async fn mods_dependency_graph(
             source,
             &ids,
             ttl,
+            // The graph SCOPES dependency children by these loaders, so an entry
+            // that predates the field must be re-fetched rather than silently
+            // read as "unknown" — otherwise the fix would not take effect on a
+            // warm cache until the TTL expired (never, at ttl = 0).
+            true,
             move |q: Vec<String>| async move {
                 let refs: Vec<&str> = q.iter().map(String::as_str).collect();
                 platform.summaries(&refs).await

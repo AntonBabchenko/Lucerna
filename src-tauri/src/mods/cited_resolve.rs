@@ -222,6 +222,11 @@ async fn resolve_one(
                             downloads: 0.0,
                             author: String::new(),
                             updated_at: None,
+                            // Synthesized locally, not fetched — we have a
+                            // ModVersion here, but its per-version loaders are a
+                            // different granularity from the project-level union
+                            // this field carries and must not be spliced in.
+                            loaders: None,
                         };
                         return ResolveTier::Exact {
                             candidate: Box::new(make_candidate(&summary, v)),
@@ -356,6 +361,7 @@ mod tests {
             downloads: 1.0,
             author: "a".into(),
             updated_at: None,
+            loaders: None,
         }
     }
 

@@ -591,7 +591,53 @@ impl ModPlatform for CurseForgeClient {
     }
 }
 
+/// Loader families a CurseForge project is *known* to support, derived from
+/// `latestFilesIndexes`.
+///
+/// Returns `None` for UNKNOWN — callers must never treat that as "supports
+/// nothing". Never returns `Some(empty)`.
+///
+/// The index itself is a full-history union (verified by exhaustive
+/// pagination), so on the game-version axis it can only over-state support,
+/// which is the safe direction. The hazard is the *loader* axis: `modLoader` is
+/// absent on pre-tagging-era files — 30 of JEI's 105 entries, 26 of Bookshelf's
+/// 132 — and those untagged files can belong to any loader. Collecting only the
+/// tagged entries would therefore derive `[Forge]` for a project whose Fabric
+/// builds happen to be untagged, and the dependency graph would then silently
+/// hide a genuinely missing dependency. So a single untagged entry disqualifies
+/// the whole project.
+///
+/// `modLoader: 0` is the documented "Any" wildcard and is disqualifying for the
+/// same reason. Measured effect of this conservatism: 7 of 14 popular
+/// dependency libraries stay derivable, including Fabric API — the single most
+/// common phantom dependency.
+fn project_loaders(idx: &[types::FileIndex]) -> Option<Vec<LoaderKind>> {
+    // Any untagged or wildcard entry ⇒ the tagging is provably incomplete.
+    if idx.iter().any(|e| matches!(e.mod_loader, None | Some(0))) {
+        return None;
+    }
+    let mut out: Vec<LoaderKind> = Vec::new();
+    for e in idx {
+        // 2 = Cauldron, 3 = LiteLoader: real tags, but never an instance loader
+        // here, so their presence cannot change a disjointness test.
+        let kind = match e.mod_loader {
+            Some(1) => LoaderKind::Forge,
+            Some(4) => LoaderKind::Fabric,
+            Some(5) => LoaderKind::Quilt,
+            Some(6) => LoaderKind::NeoForge,
+            _ => continue,
+        };
+        if !out.contains(&kind) {
+            out.push(kind);
+        }
+    }
+    // An empty set is never authoritative (no entries at all, or only
+    // Cauldron/LiteLoader) — report unknown rather than "supports nothing".
+    (!out.is_empty()).then_some(out)
+}
+
 fn convert_mod_summary(m: types::Mod) -> ModSummary {
+    let loaders = project_loaders(&m.latest_files_indexes);
     ModSummary {
         source: ModSource::Curseforge,
         project_id: m.id.to_string(),
@@ -607,6 +653,7 @@ fn convert_mod_summary(m: types::Mod) -> ModSummary {
             .next()
             .unwrap_or_default(),
         updated_at: m.date_modified,
+        loaders,
     }
 }
 
