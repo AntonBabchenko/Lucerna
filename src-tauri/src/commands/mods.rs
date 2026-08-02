@@ -2063,15 +2063,6 @@ pub async fn mods_dependency_graph(
         return Ok(DependencyGraph { roots: Vec::new() });
     }
 
-    // Platform identity of every installed mod, for child scoping. Built from
-    // `roots` rather than from the version metadata below: a mod with no stored
-    // `version_id` never reaches `deps_by_project`, and must still count as
-    // installed.
-    let installed_keys: HashSet<(ModSource, String)> = roots
-        .iter()
-        .map(|n| (n.source, n.project_id.clone()))
-        .collect();
-
     // Lowercased installed jar filenames — the cross-source recognition signal
     // (a dep installed from the other platform has a different ProjectKey but the
     // same jar). Declared dep links in this batch path carry no filename, so the
@@ -2167,19 +2158,12 @@ pub async fn mods_dependency_graph(
     //    nothing → emitted as a leaf, no recursion, no network.
     let deps_by_project = Arc::new(deps_by_project);
     let summaries = Arc::new(summaries);
-    let installed_keys = Arc::new(installed_keys);
     let fetch = move |source: ModSource, project_id: String| {
         let deps_by_project = deps_by_project.clone();
         let summaries = summaries.clone();
-        let installed_keys = installed_keys.clone();
         async move {
-            let ctx = ScopeCtx {
-                summaries: &summaries,
-                installed: &installed_keys,
-                installed_versions: &deps_by_project,
-            };
             let result = match deps_by_project.get(&(source, project_id)) {
-                Some(node) => node_deps_scoped(node, loader, &ctx),
+                Some(node) => node_deps_scoped(node, loader, &summaries),
                 None => NodeDeps::default(),
             };
             Ok::<NodeDeps, crate::error::Error>(result)
@@ -2207,20 +2191,6 @@ struct DepNodeMeta {
     deps: Vec<ModDepLink>,
 }
 
-/// Everything `node_deps_scoped` needs about the rest of the instance to judge
-/// one declaring node's children.
-///
-/// `installed` is built from the graph ROOTS, not from `installed_versions`:
-/// a mod with no stored `version_id` is a root but has no entry in the latter,
-/// and treating it as "not installed" would be wrong.
-struct ScopeCtx<'a> {
-    summaries: &'a std::collections::HashMap<(ModSource, String), ModSummary>,
-    installed: &'a std::collections::HashSet<(ModSource, String)>,
-    /// Installed-version metadata per project — the precise, per-version loader
-    /// set for a child that is itself installed.
-    installed_versions: &'a std::collections::HashMap<(ModSource, String), DepNodeMeta>,
-}
-
 /// Project a declaring node's required/optional graph children from its platform
 /// metadata, scoped to the instance loader. A node inert on this instance (its
 /// declared loaders are family-disjoint from `loader`) yields no children — this
@@ -2230,10 +2200,9 @@ struct ScopeCtx<'a> {
 fn node_deps_scoped(
     node: &DepNodeMeta,
     loader: crate::mods::platform::LoaderKind,
-    ctx: &ScopeCtx<'_>,
+    summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
 ) -> crate::mods::depgraph::NodeDeps {
     use crate::mods::depgraph::{DepChild, NodeDeps};
-    let summaries = ctx.summaries;
     if crate::mods::local::loaders_disjoint_from_instance(&node.loaders, loader) {
         return NodeDeps::default();
     }
@@ -2262,20 +2231,27 @@ fn node_deps_scoped(
         // an optional row is scoped too: it carries an "Add" button that would
         // otherwise install a jar this instance cannot load.
         if ambiguous_union {
-            let child_key = (child_src, child_pid.clone());
-            // An INSTALLED child is judged by its own installed-version loaders
-            // — the same precise granularity the node rule above uses. Falling
-            // back to the project-level union here would be wrong in both
-            // directions: it is coarser than a signal we already hold, and an
-            // inert jar (present but unloadable) must not read as satisfying a
-            // requirement. Installed with no stored version_id ⇒ no entry ⇒
-            // keep, since presence outranks a coarse union.
-            let child_loaders: &[crate::mods::platform::LoaderKind] =
-                match ctx.installed_versions.get(&child_key) {
-                    Some(meta) => &meta.loaders,
-                    None if ctx.installed.contains(&child_key) => &[],
-                    None => summary.and_then(|s| s.loaders.as_deref()).unwrap_or(&[]),
-                };
+            // Judged by the child PROJECT's loader union, uniformly — including
+            // when the child is already installed.
+            //
+            // Applicability ("does this instance's edition of the declaring mod
+            // require C at all?") is a property of C the project, not of the
+            // copy of C currently in the mods folder. Whether that copy
+            // satisfies the requirement is a separate question, answered
+            // downstream by `depgraph::build_graph`.
+            //
+            // Judging applicability by the INSTALLED version's loaders conflates
+            // the two and manufactures a silent false negative: a library that
+            // genuinely ships both Fabric and NeoForge builds, left behind as
+            // its stale Fabric jar after a loader switch, would look
+            // family-disjoint and its row would vanish — exactly when the user
+            // most needs to be told the dependency is unsatisfied.
+            //
+            // The project union still handles the inert-jar case the other way
+            // round: a Fabric-only library sitting unloaded in a NeoForge
+            // instance has a Fabric-only project union, so its row is dropped
+            // and it never reads as satisfying anything.
+            let child_loaders = summary.and_then(|s| s.loaders.as_deref()).unwrap_or(&[]);
             // Reused verbatim: its empty / Vanilla / Vanilla-instance clauses
             // are what make every unknown signal fail open. A hand-rolled
             // `!contains(loader)` inverts all of them at once.
@@ -2337,22 +2313,16 @@ mod tests {
     };
     use std::collections::{HashMap, HashSet};
 
-    /// Owns the maps a [`ScopeCtx`] borrows, so a test can build one in a line.
-    /// Default = nothing cached, nothing installed.
+    /// Owns the summary map `node_deps_scoped` borrows, so a test can build one
+    /// in a line. Default = nothing cached.
     #[derive(Default)]
     struct Fixture {
         summaries: HashMap<(ModSource, String), ModSummary>,
-        installed: HashSet<(ModSource, String)>,
-        installed_versions: HashMap<(ModSource, String), DepNodeMeta>,
     }
 
     impl Fixture {
-        fn ctx(&self) -> ScopeCtx<'_> {
-            ScopeCtx {
-                summaries: &self.summaries,
-                installed: &self.installed,
-                installed_versions: &self.installed_versions,
-            }
+        fn ctx(&self) -> &HashMap<(ModSource, String), ModSummary> {
+            &self.summaries
         }
 
         /// Cache a summary for `pid` declaring `loaders` at project level.
@@ -2372,21 +2342,6 @@ mod tests {
                     loaders,
                 },
             );
-            self
-        }
-
-        /// Mark `pid` installed, optionally with its installed-version loaders.
-        fn with_installed(mut self, pid: &str, version_loaders: Option<Vec<LoaderKind>>) -> Self {
-            self.installed.insert((ModSource::Modrinth, pid.into()));
-            if let Some(loaders) = version_loaders {
-                self.installed_versions.insert(
-                    (ModSource::Modrinth, pid.into()),
-                    DepNodeMeta {
-                        loaders,
-                        deps: Vec::new(),
-                    },
-                );
-            }
             self
         }
     }
@@ -2422,7 +2377,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, Fixture::default().ctx());
         assert!(
             out.required.is_empty(),
             "inert Fabric node must yield no required deps on Forge"
@@ -2442,7 +2397,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, Fixture::default().ctx());
         assert_eq!(out.required.len(), 1);
         assert_eq!(out.required[0].project_id, "abc");
     }
@@ -2460,7 +2415,7 @@ mod tests {
                 },
             }],
         };
-        let out = node_deps_scoped(&node, LoaderKind::Forge, &Fixture::default().ctx());
+        let out = node_deps_scoped(&node, LoaderKind::Forge, Fixture::default().ctx());
         assert_eq!(out.required.len(), 1, "unknown loaders must not suppress");
     }
 
@@ -2494,7 +2449,7 @@ mod tests {
                     LoaderKind::Quilt,
                 ]),
             );
-        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, fx.ctx());
         assert!(
             out.required.is_empty(),
             "Fabric API is not required on NeoForge — the toml declares only minecraft + neoforge"
@@ -2506,34 +2461,40 @@ mod tests {
         );
     }
 
-    /// An installed child is judged by its INSTALLED-VERSION loaders, not merely
-    /// carved out for being present. A Fabric jar sitting inert in a NeoForge
-    /// instance is physically there and semantically absent; claiming it
-    /// satisfies a requirement would be a second false statement, not a fix.
+    /// A Fabric-only library gets no reprieve for being installed. Applicability
+    /// is a property of the PROJECT, so an inert jar's row is dropped and it
+    /// never reads as satisfying a NeoForge requirement.
     #[test]
-    fn node_deps_scoped_scopes_installed_child_by_installed_version_loaders() {
+    fn node_deps_scoped_drops_a_fabric_only_child_even_when_installed() {
         let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "P7dR8mSH");
-        let fx = Fixture::default()
-            .with_summary("P7dR8mSH", Some(vec![LoaderKind::Fabric]))
-            .with_installed("P7dR8mSH", Some(vec![LoaderKind::Fabric]));
-        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        let fx = Fixture::default().with_summary("P7dR8mSH", Some(vec![LoaderKind::Fabric]));
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, fx.ctx());
         assert!(
             out.required.is_empty(),
             "an inert Fabric jar does not satisfy a NeoForge requirement"
         );
     }
 
-    /// Installed, but with no stored `version_id`, so no installed-version
-    /// loaders exist. The coarse project-level union must not overrule physical
-    /// presence — keep the row.
+    /// REGRESSION (rust-review HIGH): applicability must be judged by the child
+    /// PROJECT's union, never by the loaders of the copy currently on disk.
+    ///
+    /// A library that genuinely ships both Fabric and NeoForge is still required
+    /// on NeoForge even when the jar left in the folder is its stale Fabric
+    /// build — which is exactly the moment the user needs the row. Scoping by
+    /// the installed version's loaders would find `[Fabric]` disjoint from
+    /// NeoForge and delete the row: a silent false negative, and the panel would
+    /// no longer explain why the library must be updated.
     #[test]
-    fn node_deps_scoped_keeps_installed_child_when_its_version_is_unknown() {
-        let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "lib");
+    fn node_deps_scoped_keeps_a_child_whose_project_ships_the_instance_family() {
+        let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::NeoForge], "libX");
         let fx = Fixture::default()
-            .with_summary("lib", Some(vec![LoaderKind::Fabric]))
-            .with_installed("lib", None);
-        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
-        assert_eq!(out.required.len(), 1, "presence outranks a coarse union");
+            .with_summary("libX", Some(vec![LoaderKind::Fabric, LoaderKind::NeoForge]));
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, fx.ctx());
+        assert_eq!(
+            out.required.len(),
+            1,
+            "libX ships NeoForge builds — the requirement is real here"
+        );
     }
 
     /// The ambiguity gate. A single-family release declares unambiguous
@@ -2543,7 +2504,7 @@ mod tests {
     fn node_deps_scoped_keeps_foreign_child_of_single_family_node() {
         let node = node_requiring(vec![LoaderKind::NeoForge], "lib");
         let fx = Fixture::default().with_summary("lib", Some(vec![LoaderKind::Fabric]));
-        let out = node_deps_scoped(&node, LoaderKind::NeoForge, &fx.ctx());
+        let out = node_deps_scoped(&node, LoaderKind::NeoForge, fx.ctx());
         assert_eq!(
             out.required.len(),
             1,
@@ -2574,7 +2535,7 @@ mod tests {
             ),
         ];
         for (label, fx) in cases {
-            let out = node_deps_scoped(&merged(), LoaderKind::NeoForge, &fx.ctx());
+            let out = node_deps_scoped(&merged(), LoaderKind::NeoForge, fx.ctx());
             assert_eq!(out.required.len(), 1, "must not suppress when {label}");
         }
     }
@@ -2586,14 +2547,14 @@ mod tests {
         let node = node_requiring(vec![LoaderKind::Fabric, LoaderKind::Forge], "lib");
         let fx = Fixture::default().with_summary("lib", Some(vec![LoaderKind::Fabric]));
         assert_eq!(
-            node_deps_scoped(&node, LoaderKind::Quilt, &fx.ctx())
+            node_deps_scoped(&node, LoaderKind::Quilt, fx.ctx())
                 .required
                 .len(),
             1,
             "Quilt loads Fabric mods"
         );
         assert_eq!(
-            node_deps_scoped(&node, LoaderKind::Vanilla, &fx.ctx())
+            node_deps_scoped(&node, LoaderKind::Vanilla, fx.ctx())
                 .required
                 .len(),
             1,

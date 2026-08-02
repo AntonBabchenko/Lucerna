@@ -201,6 +201,7 @@
           <button
             type="button"
             data-testid="dep-expand-chip"
+            aria-expanded={expanded}
             class="px-2 py-0.5 rounded inline-flex items-center gap-1.5 {depTotal > 0
               ? 'bg-accent-soft text-accent'
               : 'bg-subtle text-secondary'}"

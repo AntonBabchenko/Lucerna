@@ -104,9 +104,10 @@ describe('dependency relation chip', () => {
       },
     });
     const chip = screen.getByTestId('dep-expand-chip');
-    // A widened gate without a label part renders a bare chevron — assert the
-    // text, not merely the element.
-    expect((chip.textContent ?? '').trim().length).toBeGreaterThan(0);
+    // Assert WHICH label fills the slot, not merely that one exists: a widened
+    // gate with no label part renders a bare chevron, and a wrong/stale i18n key
+    // would still satisfy a non-empty check.
+    expect(chip.textContent).toMatch(/optional/i);
   });
 
   it('renders a SINGLE toggle combining both counts when the mod has deps AND is required-by', async () => {
