@@ -36,6 +36,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub enum ConsentedChannel {
     /// Server List Ping to the user's own saved multiplayer servers.
     ServerPing,
+    /// AI translation pre-fill — either a cloud provider on the allowlist or
+    /// a local model server via `network::loopback`.
+    AiTranslation,
 }
 
 impl ConsentedChannel {
@@ -44,12 +47,14 @@ impl ConsentedChannel {
     pub fn id(self) -> &'static str {
         match self {
             ConsentedChannel::ServerPing => "server_ping",
+            ConsentedChannel::AiTranslation => "ai_translation",
         }
     }
 
     fn is_enabled(self, general: &GeneralSettings) -> bool {
         match self {
             ConsentedChannel::ServerPing => general.allow_server_ping,
+            ConsentedChannel::AiTranslation => general.allow_ai_translation,
         }
     }
 }
@@ -122,6 +127,23 @@ impl ConsentedTcp {
     }
 }
 
+/// Check a channel's consent without opening a socket. HTTP channels (the AI
+/// pre-fill) need the same gate as a raw dial but reach the network through
+/// `network::request` / `network::loopback` instead of [`ConsentedTcp`].
+///
+/// Re-reads `app.json` on every call, exactly like [`ConsentedTcp::open`]:
+/// turning the permission off must take effect immediately, not at restart.
+///
+/// Deliberately placed BELOW `impl ConsentedTcp` so the first occurrence of
+/// the consent-call expression in this file stays the one inside `open` —
+/// see `structural_consented_dial.rs`.
+pub fn ensure_channel_enabled(app: &tauri::AppHandle, channel: ConsentedChannel) -> Result<()> {
+    let path = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let settings = crate::instances::store::read_app_json(&path)?;
+    ensure_enabled(channel, &settings.general)?;
+    Ok(())
+}
+
 // Delegating impls keep the socket private while letting protocol code stay
 // generic over `AsyncRead + AsyncWrite` — and therefore testable over
 // `tokio::io::duplex()` with no network at all.
@@ -181,5 +203,25 @@ mod tests {
         // The id is part of the IPC contract (format-error maps it to a setting
         // name) — changing it is a breaking change, not a rename.
         assert_eq!(ConsentedChannel::ServerPing.id(), "server_ping");
+    }
+
+    #[test]
+    fn ai_translation_channel_follows_its_own_setting() {
+        let mut g = GeneralSettings::default();
+        assert!(ensure_enabled(ConsentedChannel::AiTranslation, &g).is_err());
+        g.allow_ai_translation = true;
+        assert!(ensure_enabled(ConsentedChannel::AiTranslation, &g).is_ok());
+        // The two channels are independent.
+        assert!(ensure_enabled(ConsentedChannel::ServerPing, &g).is_err());
+    }
+
+    #[test]
+    fn ai_translation_error_names_its_setting() {
+        let g = GeneralSettings::default();
+        let err = ensure_enabled(ConsentedChannel::AiTranslation, &g).expect_err("off by default");
+        assert!(matches!(
+            err,
+            crate::error::Error::ConsentedChannelDisabled { ref channel } if channel == "ai_translation"
+        ));
     }
 }

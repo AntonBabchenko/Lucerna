@@ -21,6 +21,7 @@ const DETAIL_TRUNCATE_CODE_POINTS = 120;
 // printing a raw identifier at the user.
 const CONSENTED_CHANNEL_LABELS: Record<string, TranslationKey> = {
   server_ping: 'settings.general.serverPing.label',
+  ai_translation: 'settings.aiTranslation.label',
 };
 
 /**

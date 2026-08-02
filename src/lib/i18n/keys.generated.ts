@@ -2067,6 +2067,7 @@ export type TranslationKey =
   | 'settings.about.title'
   | 'settings.about.trademark'
   | 'settings.about.viewOnGitHub'
+  | 'settings.aiTranslation.label'
   | 'settings.changelog.empty'
   | 'settings.changelog.openReleaseLabel'
   | 'settings.changelog.sections.added'

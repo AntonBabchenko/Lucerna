@@ -2156,6 +2156,9 @@
         "security": "Security"
       }
     },
+    "aiTranslation": {
+      "label": "AI translation"
+    },
     "curseforge": {
       "statusLabel": "Status:",
       "statusOk": "OK — key is set",

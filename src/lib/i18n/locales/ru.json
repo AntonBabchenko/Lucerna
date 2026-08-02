@@ -2156,6 +2156,9 @@
         "security": "Безопасность"
       }
     },
+    "aiTranslation": {
+      "label": "ИИ-перевод"
+    },
     "curseforge": {
       "statusLabel": "Статус:",
       "statusOk": "OK — ключ установлен",

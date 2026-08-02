@@ -194,6 +194,21 @@ describe('formatError', () => {
     locale.set('en');
   });
 
+  // A channel missing from CONSENTED_CHANNEL_LABELS still renders a whole
+  // sentence — it just names nothing. So asserting "the message mentions the
+  // setting" is not enough on its own; the last assertion is what proves the
+  // channel is actually mapped rather than falling through to the generic.
+  it('names the Settings toggle behind each consented channel', () => {
+    const ping = formatError({ kind: 'consented_channel_disabled', channel: 'server_ping' });
+    expect(ping).toContain('Show status for my saved servers');
+
+    const ai = formatError({ kind: 'consented_channel_disabled', channel: 'ai_translation' });
+    expect(ai).toContain('AI translation');
+
+    const unmapped = formatError({ kind: 'consented_channel_disabled', channel: 'not_a_channel' });
+    expect(ai).not.toBe(unmapped);
+  });
+
   // Exhaustive table: one sample per Error variant. Typing it as a
   // Record keyed by `IpcError['kind']` makes TypeScript fail the build if a
   // new variant lands in bindings.ts without a sample here — complementing
