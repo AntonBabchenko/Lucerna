@@ -8,9 +8,13 @@
 //! `structural_loopback_confined.rs` fails the build if anything outside
 //! `l10n::prefill` calls it.
 //!
-//! Consent is enforced before this is reachable — see
-//! `network::consent::ensure_channel_enabled`, ordered by
-//! `structural_prefill_consent_order.rs`.
+//! Consent is enforced before this is reachable, but not by this module and
+//! not by an ordering rule: the only caller is `l10n::prefill::provider`, and
+//! every function there that reaches a model requires a
+//! `network::consent::AiConsent` — a token whose field is private to
+//! `network::consent`, so the only way to hold one is to have passed the
+//! permission check. Confinement (above) plus that token is what makes the
+//! 127.0.0.1 bypass safe.
 //!
 //! Uses the generation client (no read timeout): a local model on CPU can
 //! take minutes to produce its first token. The caller's total timeout is the

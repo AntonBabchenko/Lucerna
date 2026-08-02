@@ -62,12 +62,17 @@ pub fn load(path: &Path) -> CacheMap {
         .unwrap_or_default()
 }
 
-/// Write the cache atomically (tmp + rename), matching `l10n::store::save`.
+/// Write the cache atomically (tmp + rename), matching `l10n::store::save` —
+/// including its per-call temp suffix. This path depends only on the target
+/// language, so two runs in one process (two instances pre-filling at once,
+/// which the run's own concurrency doc says is expected) write the very same
+/// file; a temp name shared between them lets one rename a half-written cache
+/// into place, which `load` would then silently read as empty.
 pub fn save(path: &Path, cache: &CacheMap) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    let tmp = path.with_extension(crate::l10n::store::temp_suffix());
     std::fs::write(
         &tmp,
         // Unreachable: a `BTreeMap<String, String>` has no non-serialisable

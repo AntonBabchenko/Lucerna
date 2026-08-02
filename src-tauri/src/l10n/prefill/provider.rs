@@ -6,8 +6,14 @@
 //! `network::request` chokepoint (their hosts are on the allowlist); `Local`
 //! goes through `network::loopback`, which owns the 127.0.0.1 constant.
 //!
-//! Consent is checked in `prefill::run` before anything here is reachable —
-//! `structural_prefill_consent_order.rs` pins that ordering.
+//! Consent is enforced **by construction**, not by ordering: every function
+//! here that reaches a model takes a `network::consent::AiConsent`, whose only
+//! constructor is `network::consent::ai_consent` — which checks the setting.
+//! The token's field is private to that module, so no caller can forge one and
+//! no call site can be reordered around the gate. That matters because
+//! [`test_credentials`] is not downstream of `prefill::run` at all: it is the
+//! Settings "Test key" button, and a guard that pinned the run's call order
+//! would never have covered it.
 //!
 //! Two documented quirks of Anthropic's OpenAI-compatibility layer shape this
 //! module: it ignores `response_format` (so no JSON mode is requested — the
@@ -15,6 +21,7 @@
 
 use crate::error::{Error, Result};
 use crate::instances::schema::AiProvider;
+use crate::network::consent::AiConsent;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -201,6 +208,7 @@ fn provider_error(provider: AiProvider, status: u16, details: &str) -> Error {
 /// [`Error::L10nPrefillProvider`]; a transport failure propagates from the
 /// chokepoint unchanged.
 async fn send_chat(
+    _consent: &AiConsent,
     provider: AiProvider,
     api_key: Option<&str>,
     local_port: u16,
@@ -251,7 +259,12 @@ async fn send_chat(
 
 /// Send one chat completion. `Err` means no usable answer; the caller decides
 /// whether to retry, and never writes anything on failure.
+///
+/// `consent` is the proof token from `network::consent::ai_consent`. It is the
+/// gate: holding one is the only way to call this, and minting one is the only
+/// place the setting is read.
 pub async fn complete(
+    consent: &AiConsent,
     provider: AiProvider,
     api_key: Option<&str>,
     local_port: u16,
@@ -260,7 +273,7 @@ pub async fn complete(
     user: &str,
 ) -> Result<Completion> {
     let body = build_request_body(model, system, user);
-    let answer = send_chat(provider, api_key, local_port, &body).await?;
+    let answer = send_chat(consent, provider, api_key, local_port, &body).await?;
     // `status: 0` — the transport succeeded, the body did not make sense.
     parse_completion(&answer).map_err(|reason| provider_error(provider, 0, &reason))
 }
@@ -270,14 +283,20 @@ pub async fn complete(
 /// The answer is discarded on purpose. What is being tested is auth, host and
 /// model name, and every one of those failures arrives as a non-2xx status —
 /// so a model that replies with something unparseable is still a pass.
+///
+/// This sends a real request carrying the user's key, so it takes the same
+/// `AiConsent` token [`complete`] does. It is deliberately NOT reachable from
+/// `prefill::run`, which is exactly why the token — rather than an ordering
+/// assertion over `run.rs` — is what gates it.
 pub async fn test_credentials(
+    consent: &AiConsent,
     provider: AiProvider,
     api_key: Option<&str>,
     local_port: u16,
     model: &str,
 ) -> Result<()> {
     let body = build_request_body(model, PROBE_SYSTEM, PROBE_USER);
-    send_chat(provider, api_key, local_port, &body).await?;
+    send_chat(consent, provider, api_key, local_port, &body).await?;
     Ok(())
 }
 

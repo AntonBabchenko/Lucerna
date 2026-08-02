@@ -144,6 +144,55 @@ pub fn ensure_channel_enabled(app: &tauri::AppHandle, channel: ConsentedChannel)
     Ok(())
 }
 
+/// Proof that the AI-translation channel was consented to.
+///
+/// The tuple field is private to this module, so the type cannot be named into
+/// existence from outside it: the only way to hold an `AiConsent` is
+/// [`ai_consent`], which performs the check. `l10n::prefill::provider` requires
+/// one on every function that reaches a model, which makes the gate hold **by
+/// construction** rather than by call ordering — the same trick
+/// [`ConsentedTcp`]'s private socket plays, and the reason no source-scanning
+/// tripwire is needed for it.
+///
+/// Ordering guards cannot cover this channel anyway. They can only pin the one
+/// call site they were written against, and `provider::test_credentials` (the
+/// Settings "Test key" button) is not downstream of the run at all.
+///
+/// Zero-sized and `Copy`: it is proof, not a resource, so a run mints it once
+/// and copies it into every batch task as plain data.
+#[derive(Debug, Clone, Copy)]
+pub struct AiConsent(());
+
+impl AiConsent {
+    /// A token for unit tests, so the orchestrator's own plumbing stays
+    /// testable without a Tauri handle. `#[cfg(test)]` means it exists only
+    /// while compiling this crate's unit tests: the integration-test crate in
+    /// `src-tauri/tests/` links the library built WITHOUT it, so nothing there
+    /// can reach a provider without going through [`ai_consent`].
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_test() -> Self {
+        Self(())
+    }
+}
+
+/// The pure half of [`ai_consent`], split out for the same reason
+/// [`ensure_enabled`] is: the gate must be testable without a Tauri handle.
+fn ai_consent_from(general: &GeneralSettings) -> Result<AiConsent> {
+    ensure_enabled(ConsentedChannel::AiTranslation, general)?;
+    Ok(AiConsent(()))
+}
+
+/// Check the AI-translation permission and mint the proof token.
+///
+/// Re-reads `app.json` on every call, like every other gate in this module, so
+/// turning the permission off takes effect immediately.
+pub fn ai_consent(app: &tauri::AppHandle) -> Result<AiConsent> {
+    let path = crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let settings = crate::instances::store::read_app_json(&path)?;
+    ai_consent_from(&settings.general)
+}
+
 // Delegating impls keep the socket private while letting protocol code stay
 // generic over `AsyncRead + AsyncWrite` — and therefore testable over
 // `tokio::io::duplex()` with no network at all.
@@ -223,5 +272,27 @@ mod tests {
             err,
             crate::error::Error::ConsentedChannelDisabled { ref channel } if channel == "ai_translation"
         ));
+    }
+
+    #[test]
+    fn an_ai_consent_token_cannot_be_minted_while_the_permission_is_off() {
+        // The token is the gate. `prefill::provider` takes one on every
+        // function that reaches a model, so if this ever starts returning a
+        // token with the setting off, every model call in the launcher becomes
+        // ungated at once — including the Settings "Test key" button, which no
+        // ordering guard is even positioned to see.
+        let mut g = GeneralSettings::default();
+        assert!(matches!(
+            ai_consent_from(&g),
+            Err(Error::ConsentedChannelDisabled { ref channel }) if channel == "ai_translation"
+        ));
+        g.allow_ai_translation = true;
+        assert!(ai_consent_from(&g).is_ok());
+        // Turning the OTHER channel on must not mint one.
+        let only_ping = GeneralSettings {
+            allow_server_ping: true,
+            ..Default::default()
+        };
+        assert!(ai_consent_from(&only_ping).is_err());
     }
 }

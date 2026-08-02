@@ -19,6 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -26,6 +27,26 @@ use specta::Type;
 use crate::l10n::scan::LangMap;
 
 const FILE_VERSION: u32 = 1;
+
+/// Bumped once per atomic write so no two writes in one process can share a
+/// temp path. See [`temp_suffix`].
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// The extension suffix for an atomic write's temp file: process id **and** a
+/// per-call sequence number.
+///
+/// The process id alone makes the name unique across launcher processes but
+/// not across concurrent callers inside one, and two of those writing the same
+/// destination share the same temp path — so one can rename a half-written
+/// file into place. The AI pre-fill made that reachable: the override store
+/// and its answer cache are global (`<store_dir>/<lang>/…`), not
+/// instance-scoped, and two instances pre-filling at once is an expected
+/// state. Same shape as `mods::installed`'s and `l10n::options_txt`'s
+/// `WRITE_SEQ`.
+pub(crate) fn temp_suffix() -> String {
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("tmp.{}.{seq}", std::process::id())
+}
 
 /// Where a translation came from. Written from day one so the machine-
 /// translation stage adds a value rather than a schema migration.
@@ -308,21 +329,25 @@ pub fn load(store_dir: &Path, lang: &str, namespace: &str) -> NamespaceStore {
     serde_json::from_str(&raw).unwrap_or_else(|_| NamespaceStore::new(namespace, lang))
 }
 
-/// Persist one namespace's overrides atomically (per-process temp file +
-/// rename), creating the language directory if needed. The temp name is only
-/// unique per-process, not per-call — safe against two separate launcher
-/// processes, but a caller that saves the same `(lang, namespace)` twice
-/// concurrently within one process could race on the rename, exactly like the
-/// equivalent comment on `ScanCache::save` in `coverage.rs` explains for that
-/// store. Nothing in this task calls `save` concurrently for the same key, so
-/// the narrower guarantee is accepted rather than paid for here.
+/// Persist one namespace's overrides atomically (temp file + rename), creating
+/// the language directory if needed.
+///
+/// The temp name is unique per **call** (see [`temp_suffix`]), not merely per
+/// process. That stopped being optional with the AI pre-fill: this file is
+/// global rather than instance-scoped, so two runs in one process can save the
+/// same `(lang, namespace)` at the same time, and a shared temp path lets one
+/// rename the other's half-written file into place.
+///
+/// This rewrites the WHOLE file from `store`. A caller holding a long-lived
+/// snapshot must re-[`load`] before saving, or it will delete every entry
+/// written by anyone else since it read.
 pub fn save(store_dir: &Path, store: &NamespaceStore) -> std::io::Result<()> {
     let path = store_path(store_dir, &store.lang, &store.namespace);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(store)?;
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    let tmp = path.with_extension(temp_suffix());
     std::fs::write(&tmp, json)?;
     std::fs::rename(&tmp, path)
 }
@@ -777,5 +802,20 @@ mod tests {
         let store = NamespaceStore::new("create", "ru_ru");
         let en = map(&[]);
         assert!(namespace_key_rows(&store, &en, None).is_empty());
+    }
+
+    #[test]
+    fn two_saves_of_the_same_file_never_share_a_temp_path() {
+        // `<store_dir>/<lang>/<ns>.json` is global, not instance-scoped, so two
+        // pre-fill runs in ONE process can save it concurrently. A temp name
+        // keyed only on the process id would be identical for both, and the
+        // loser's rename would publish the winner's half-written file.
+        let a = temp_suffix();
+        let b = temp_suffix();
+        assert_ne!(
+            a, b,
+            "a temp suffix must be unique per call, not per process"
+        );
+        assert!(a.starts_with(&format!("tmp.{}.", std::process::id())));
     }
 }
