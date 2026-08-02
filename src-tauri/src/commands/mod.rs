@@ -380,7 +380,10 @@ pub struct GpuPrefApplied {
 /// Per-instance root, e.g. `<app_data>/instances/<id>/`. The mod install
 /// pipeline writes under `{root}/.minecraft/mods/` and tracks state in
 /// `{root}/lucerna/installed-mods.json`.
-fn instance_root(
+///
+/// `pub(crate)` for `l10n::apply`, which was lifted out of `l10n_apply` and
+/// resolves the same instance the same way.
+pub(crate) fn instance_root(
     app: &tauri::AppHandle,
     instance_id: &str,
 ) -> Result<PathBuf, crate::error::Error> {
@@ -395,7 +398,11 @@ fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::Error> {
 
 /// Read the active MC version + loader for an instance from
 /// `instance.json`. Returns `InstanceNotFound` if the file is missing.
-fn read_active_mc_and_loader(
+///
+/// `pub(crate)` for `l10n::apply`: the pack rebuild moved out of
+/// `l10n_apply`, and a second copy of this existence check would be free to
+/// drift from the one every other instance-scoped command uses.
+pub(crate) fn read_active_mc_and_loader(
     app: &tauri::AppHandle,
     instance_id: &str,
 ) -> Result<(String, LoaderKind), crate::error::Error> {
