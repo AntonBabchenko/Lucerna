@@ -241,17 +241,14 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         crate::mods::curseforge::keyring::clear(),
     ));
     // Every AI provider slot, driven by the enum rather than a hand-kept list:
-    // `ALL` is asserted complete in `instances::schema`, and the exhaustive
-    // match below turns a new variant into a build failure here instead of a
-    // credential the uninstaller silently leaves behind. `Local` needs no key,
-    // but sweeping its slot costs nothing and keeps the ledger uniform.
+    // `ALL` is asserted complete in `instances::schema`, so a new variant
+    // becomes a swept slot here instead of a credential the uninstaller
+    // silently leaves behind. The id comes from `AiProvider::id()` — the same
+    // function that names the keychain account when the key is STORED, so the
+    // two can never drift apart and orphan an entry. `Local` needs no key, but
+    // sweeping its slot costs nothing and keeps the ledger uniform.
     for provider in AiProvider::ALL {
-        let id = match provider {
-            AiProvider::Anthropic => "anthropic",
-            AiProvider::Gemini => "gemini",
-            AiProvider::Groq => "groq",
-            AiProvider::Local => "local",
-        };
+        let id = provider.id();
         out.push(report(
             format!("keyring ai-api-key {id}"),
             keychain::delete(&keychain::ai_provider_key(id)),
