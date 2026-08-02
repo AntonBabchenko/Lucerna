@@ -454,7 +454,9 @@ body[data-tour-active] .tour-overlay {
 }
 /* Destructive icon button — neutral at rest, danger colour on hover/focus (no
    background plate). Always rendered (no opacity reveal); the colour appears
-   only when you point at it. */
+   only when you point at it. Deliberately --danger and not --danger-text: an
+   icon is non-text content, which WCAG holds to 3:1, so icon foregrounds stay
+   on the fill token. The split is text-utilities-only (DESIGN.md §1). */
 .btn-icon-danger:hover,
 .btn-icon-danger:focus-visible {
   color: rgb(var(--danger));

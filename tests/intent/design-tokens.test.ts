@@ -6,6 +6,14 @@
 // because both spellings produce a valid red. So the contract is asserted
 // on the source files directly, the way tests/intent/browser-feel.test.ts
 // asserts the CSS rules happy-dom cannot compute.
+//
+// The accessibility assertions derive the contrast ratio rather than pinning
+// the foreground triple, because the ratio is what the token exists for and it
+// has two inputs. --bg-surface has already been retuned once (23 23 23 →
+// 38 38 38, recorded in app.css), and a pinned foreground would sail through a
+// future background lift that broke AA. Deriving also lets a deliberate red
+// retune pass on its own merits instead of failing for a colour nobody can
+// see the difference in.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,6 +21,9 @@ import { describe, expect, it } from 'vitest';
 
 const appCss = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
 const tailwindConfig = readFileSync(resolve(process.cwd(), 'tailwind.config.cjs'), 'utf8');
+
+/** WCAG 2.1 AA floor for normal-size text. */
+const AA_NORMAL_TEXT = 4.5;
 
 /** Both files are heavily commented with rationale, and a comment is free to
  *  mention a brace (`@media (…) { … }`). Stripping comments before slicing
@@ -51,15 +62,57 @@ function darkThemeBlock(): string {
   return declarations(appCss, /\.dark\s*\{([^}]*)\}/, '.dark');
 }
 
+type Rgb = readonly [number, number, number];
+
+/** The bare `R G B` triple a token is declared as. Throws rather than
+ *  returning a default, so a token deleted outright fails as loudly as one
+ *  retuned past the threshold. */
+function token(block: string, name: string, theme: string): Rgb {
+  const match = new RegExp(`--${name}:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`).exec(block);
+  if (match === null) {
+    throw new Error(`--${name} is not declared in the ${theme} theme block`);
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** WCAG 2.1 relative luminance of an sRGB colour. */
+function relativeLuminance([r, g, b]: Rgb): number {
+  const linear = (raw: number): number => {
+    const c = raw / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/** WCAG 2.1 contrast ratio between two sRGB colours, order-independent. */
+function contrastRatio(a: Rgb, b: Rgb): number {
+  const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 describe('--danger-text token', () => {
-  it('is defined in the light theme', () => {
-    expect(lightThemeBlock()).toMatch(/--danger-text:\s*220 38 38/);
+  // Scope: --bg-surface is the pairing this token is guaranteed on — cards,
+  // inputs, popovers, and the modal body. It is deliberately NOT asserted
+  // against --danger-bg: text-danger inside a bg-danger-bg error box is ~4.4:1
+  // light and ~3.6:1 dark and misses AA today. That gap is recorded in
+  // DESIGN.md §1 rather than pinned here, because a test can only lock in a
+  // contract the palette actually meets.
+  it('clears AA for normal text on --bg-surface in the light theme', () => {
+    const light = lightThemeBlock();
+    const ratio = contrastRatio(
+      token(light, 'danger-text', 'light'),
+      token(light, 'bg-surface', 'light'),
+    );
+    expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   });
 
-  it('is defined in the dark theme at the AA-safe red-400 tier', () => {
-    // red-500 (239 68 68) is ~4.0:1 on --bg-surface and fails AA for normal
-    // text; red-400 clears it at ~5.5:1.
-    expect(darkThemeBlock()).toMatch(/--danger-text:\s*248 113 113/);
+  it('clears AA for normal text on --bg-surface in the dark theme', () => {
+    const dark = darkThemeBlock();
+    const ratio = contrastRatio(
+      token(dark, 'danger-text', 'dark'),
+      token(dark, 'bg-surface', 'dark'),
+    );
+    expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   });
 
   it('keeps --danger itself at the saturated fill tier in both themes', () => {
