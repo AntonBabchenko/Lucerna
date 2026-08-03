@@ -94,3 +94,24 @@ export function countKeyStates(rows: KeyRow[]): FilterCounts {
   }
   return counts;
 }
+
+/** State chips that always render: they define the surface, so hiding one at
+ *  zero would make the toolbar's shape depend on the data. The three
+ *  attention buckets appear only when they have something to show — the same
+ *  rule InstalledToolbar applies to Updates / Issues / Incompatible. */
+const ANCHOR_STATE_FILTERS: readonly KeyFilter[] = ['all', 'translated', 'missing'];
+
+export function visibleStateFilters(counts: FilterCounts): KeyFilter[] {
+  const extra: KeyFilter[] = [];
+  if (counts.stale > 0) extra.push('stale');
+  if (counts.orphan > 0) extra.push('orphan');
+  return [...ANCHOR_STATE_FILTERS, ...extra];
+}
+
+/** 'all' is the origin axis's anchor; a bucket with no rows is dropped. */
+export function visibleOriginFilters(origins: { manual: number; machine: number }): OriginFilter[] {
+  const out: OriginFilter[] = ['all'];
+  if (origins.manual > 0) out.push('manual');
+  if (origins.machine > 0) out.push('machine');
+  return out;
+}

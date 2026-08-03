@@ -57,6 +57,10 @@
 
 <!-- A focusable window splitter is a valid ARIA pattern that the a11y linter
      flags as non-interactive. -->
+<!-- No focus:outline-none here: Tab is the only way a keyboard user finds this
+     handle, and the global ring draws outside the 4px width, so suppressing it
+     in favour of the colour swap alone costs the sole "you are here" cue and
+     buys no layout back. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
@@ -68,7 +72,7 @@
   aria-valuemax={max}
   tabindex={0}
   data-testid={testId}
-  class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent focus:outline-none"
+  class="w-1 shrink-0 cursor-col-resize bg-border-subtle hover:bg-border-emphasis focus-visible:bg-accent"
   onpointerdown={onPointerDown}
   onkeydown={onKeyDown}
 ></div>

@@ -32,6 +32,8 @@
     filterRows,
     type KeyFilter,
     type OriginFilter,
+    visibleOriginFilters,
+    visibleStateFilters,
   } from './key-rows';
   import KeyEditRow from './KeyEditRow.svelte';
 
@@ -124,6 +126,19 @@
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
+  // Below the smallest page size there is exactly one page AND the per-page
+  // picker cannot change anything, so the whole footer is chrome. The shared
+  // Pagination deliberately never self-hides — the threshold is this
+  // surface's call, because a near-empty namespace is normal here.
+  const showPagination = $derived(filteredRows.length > PAGE_SIZES[0]);
+
+  // The empty state has two causes and only ever named one of them.
+  const emptyMessage = $derived(
+    search.trim() === ''
+      ? $t('instance.l10n.keyTable.noResultsFilter')
+      : $t('instance.l10n.keyTable.noResults'),
+  );
+
   // Reset to page 0 whenever the visible set's shape changes; clamp down if
   // it shrinks (e.g. switching to a near-empty filter while on a later page).
   $effect(() => {
@@ -142,7 +157,7 @@
     onOverrideSaved?.();
   }
 
-  const filterOptions = $derived([
+  const allFilterOptions = $derived([
     {
       value: 'all',
       label: $t('instance.l10n.keyTable.filterAllLabel'),
@@ -179,8 +194,12 @@
       testId: 'l10n-filter-orphan',
     },
   ]);
+  const filterOptions = $derived.by(() => {
+    const visible = new Set<string>(visibleStateFilters(counts));
+    return allFilterOptions.filter((o) => visible.has(o.value));
+  });
 
-  const originOptions = $derived([
+  const allOriginOptions = $derived([
     {
       value: 'all',
       label: $t('instance.l10n.keyTable.originAllLabel'),
@@ -202,6 +221,20 @@
       testId: 'l10n-origin-machine',
     },
   ]);
+  const originOptions = $derived.by(() => {
+    const visible = new Set<string>(visibleOriginFilters(origins));
+    return allOriginOptions.filter((o) => visible.has(o.value));
+  });
+
+  // A chip can vanish under an active selection (the last stale key was
+  // fixed, a revert removed every machine string). Falling back to 'all'
+  // keeps the table from showing an empty list under an invisible filter.
+  $effect(() => {
+    if (!filterOptions.some((o) => o.value === filter)) filter = 'all';
+  });
+  $effect(() => {
+    if (!originOptions.some((o) => o.value === originFilter)) originFilter = 'all';
+  });
 
   // One command, not one call per key: the backend loads the namespace file
   // once, drops every Origin::Machine entry, saves once and rebuilds the pack.
@@ -232,32 +265,36 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <div class="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2">
-    <input
-      type="search"
-      class="h-8 min-w-[10rem] flex-1 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-      placeholder={$t('instance.l10n.keyTable.searchPlaceholder')}
-      aria-label={$t('instance.l10n.keyTable.searchAriaLabel')}
-      data-testid="l10n-key-search"
-      bind:value={search}
-    />
-    <ToggleChipGroup
-      options={filterOptions}
-      value={filter}
-      onChange={(v) => (filter = v as KeyFilter)}
-      ariaLabel={$t('instance.l10n.keyTable.filterGroupAriaLabel')}
-    />
-    <!-- Its own group with its own ariaLabel — see `originFilter` above. -->
-    <ToggleChipGroup
-      options={originOptions}
-      value={originFilter}
-      onChange={(v) => (originFilter = v as OriginFilter)}
-      ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
-    />
-    {#if origins.machine > 0}
+  <div
+    class="flex items-center gap-3 border-b border-border-subtle px-3 py-2"
+    data-testid="l10n-pane-header"
+  >
+    <span class="truncate font-mono text-xs text-primary">{namespace}</span>
+    <!--
+      Both of these describe `rows`, which still holds the PREVIOUS namespace
+      until the in-flight fetch lands — while `namespace` above is already the
+      new one. Rendering them during the load would put one namespace's name
+      beside another's counts, and the revert confirm interpolates both, so it
+      could promise to remove a count that belongs to the namespace the user
+      just left.
+    -->
+    {#if !loading}
+      <span class="shrink-0 text-xs text-muted">
+        {$t('instance.l10n.keyTable.paneSummary', {
+          total: counts.all,
+          translated: counts.translated,
+        })}
+      </span>
+    {/if}
+    {#if !loading && origins.machine > 0}
+      <!--
+        Scoped to THIS namespace (revertMachine passes `namespace`), so it
+        lives in the namespace's own header rather than among the filters,
+        where it read as the undo of the header's instance-wide AI action.
+      -->
       <button
         type="button"
-        class="btn-ghost-danger"
+        class="btn-ghost-danger ml-auto shrink-0"
         data-testid="l10n-revert-machine"
         onclick={() => {
           revertError = null;
@@ -269,14 +306,49 @@
     {/if}
   </div>
 
+  <div class="flex flex-col gap-2 border-b border-border-subtle px-3 py-2">
+    <input
+      type="search"
+      class="filter-control w-full"
+      placeholder={$t('instance.l10n.keyTable.searchPlaceholder')}
+      aria-label={$t('instance.l10n.keyTable.searchAriaLabel')}
+      data-testid="l10n-key-search"
+      bind:value={search}
+    />
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs uppercase tracking-wide text-muted">
+        {$t('instance.l10n.keyTable.filterGroupLabel')}
+      </span>
+      <ToggleChipGroup
+        options={filterOptions}
+        value={filter}
+        onChange={(v) => (filter = v as KeyFilter)}
+        ariaLabel={$t('instance.l10n.keyTable.filterGroupAriaLabel')}
+      />
+      <span class="mx-1 h-5 w-px shrink-0 bg-border-subtle"></span>
+      <!-- Its own group with its own ariaLabel — see `originFilter` above. -->
+      <span class="text-xs uppercase tracking-wide text-muted">
+        {$t('instance.l10n.keyTable.originGroupLabel')}
+      </span>
+      <ToggleChipGroup
+        options={originOptions}
+        value={originFilter}
+        onChange={(v) => (originFilter = v as OriginFilter)}
+        ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
+      />
+    </div>
+  </div>
+
   <div class="flex-1 overflow-y-auto px-3">
     {#if loading}
       <LoadingPanel label={$t('instance.l10n.keyTable.loading')} />
     {:else if loadError}
-      <p class="p-3 text-sm text-danger" data-testid="l10n-key-table-error">{loadError}</p>
+      <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-key-table-error">
+        {loadError}
+      </p>
     {:else if paged.length === 0}
       <p class="p-3 text-sm text-muted" data-testid="l10n-key-table-empty">
-        {$t('instance.l10n.keyTable.noResults')}
+        {emptyMessage}
       </p>
     {:else}
       <!--
@@ -310,7 +382,7 @@
     {/if}
   </div>
 
-  {#if !loading && !loadError && filteredRows.length > 0}
+  {#if !loading && !loadError && showPagination}
     <div class="border-t border-border-subtle px-3">
       <Pagination {page} {pageCount} onPage={(n) => (page = n)}>
         {#snippet end()}

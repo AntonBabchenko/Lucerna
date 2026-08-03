@@ -158,7 +158,10 @@ describe('LocalizationModal', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
     render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'en_us' } });
-    expect(await screen.findByTestId('l10n-error')).toBeTruthy();
+    const err = await screen.findByTestId('l10n-error');
+    // Arrives after mount in place of the namespace list, so it has to
+    // interrupt rather than wait to be tabbed into.
+    expect(err.getAttribute('role')).toBe('alert');
     expect(screen.queryByTestId('l10n-empty')).toBeNull();
   });
 
@@ -257,6 +260,34 @@ describe('LocalizationModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('totals the instance next to the title', async () => {
+    mockCoverageOk(
+      coverage({
+        percent: 10,
+        namespaces: [
+          ns({ namespace: 'a', totalKeys: 100, fromMod: 10, overridden: 0 }),
+          ns({ namespace: 'b', totalKeys: 100, fromMod: 0, overridden: 10 }),
+        ],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const summary = await screen.findByTestId('l10n-summary');
+    expect(summary.textContent).toContain('200');
+    expect(summary.textContent).toContain('20');
+  });
+
+  // DESIGN.md §3: a dialog titles itself through the shared DialogTitle, which
+  // owns both the heading level and the one agreed class recipe. A hand-rolled
+  // heading is free to drift from either.
+  it('titles the modal through the shared DialogTitle primitive', async () => {
+    mockCoverageOk(coverage());
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    await screen.findByRole('dialog');
+    const title = document.getElementById('l10n-modal-title') as HTMLElement;
+    expect(title.tagName).toBe('H3');
+    expect(title.className.split(/\s+/)).toContain('text-base');
+  });
+
   describe('namespace selection', () => {
     it('shows the placeholder until a namespace is picked, then the key table', async () => {
       mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'create' })] }));
@@ -301,6 +332,13 @@ describe('LocalizationModal', () => {
       render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
       const btn = (await screen.findByTestId('l10n-apply')) as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
+    });
+
+    it('renders the apply-gate reason as visible text, not only as a hover tooltip', async () => {
+      mockCoverageOk(coverage({ applyGate: 'too_old' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const reason = await screen.findByTestId('l10n-apply-reason');
+      expect(reason.textContent?.trim().length).toBeGreaterThan(0);
     });
 
     it('enables Apply when the gate is ready and shows success when it applies', async () => {
@@ -368,7 +406,9 @@ describe('LocalizationModal', () => {
     it('shows the re-enable banner when a modpack update wiped options.txt but the pack file survives', async () => {
       mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
       render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
-      expect(await screen.findByTestId('l10n-pack-disabled-banner')).toBeTruthy();
+      const banner = await screen.findByTestId('l10n-pack-disabled-banner');
+      // Advisory, not an error the user caused — status, not alert.
+      expect(banner.getAttribute('role')).toBe('status');
       expect(screen.getByTestId('l10n-pack-reenable')).toBeTruthy();
     });
 
@@ -431,5 +471,187 @@ describe('LocalizationModal', () => {
     // in the namespace sidebar must not reappear for it.
     await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
     expect(screen.queryByTestId('l10n-namespace-row')).toBeTruthy();
+  });
+
+  it('renders an untranslated namespace as muted, not as an error', async () => {
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'quark', totalKeys: 40, fromMod: 0 })] }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const row = await screen.findByTestId('l10n-namespace-row');
+    const percent = row.querySelector('.font-mono');
+    expect(percent?.className).toContain('text-muted');
+    expect(percent?.className).not.toContain('text-danger');
+  });
+
+  it('shows translated/total counts next to the percentage', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [ns({ namespace: 'quark', totalKeys: 40, fromMod: 3, overridden: 1 })],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const row = await screen.findByTestId('l10n-namespace-row');
+    expect(row.textContent).toContain('4/40');
+  });
+
+  it('keeps the namespace order stable across a silent refresh, so a save does not move the row', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha', totalKeys: 10, fromMod: 0 }), // 0%
+          ns({ namespace: 'beta', totalKeys: 10, fromMod: 0 }), // 0%
+        ],
+      }),
+    );
+    vi.mocked(commands.l10nNamespaceKeys).mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          key: 'a',
+          sourceEn: 'A',
+          modValue: null,
+          overrideValue: null,
+          state: 'missing',
+          origin: null,
+        },
+      ],
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    let rows = await screen.findAllByTestId('l10n-namespace-row');
+    expect(rows[0].textContent).toContain('alpha');
+
+    await fireEvent.click(rows[0]);
+    await screen.findByTestId('l10n-key-row');
+
+    // Saving fires the silent refresh, and this response reports alpha as
+    // fully translated. It must keep its slot — re-sorting here is what
+    // throws the user out of their place.
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha', totalKeys: 10, fromMod: 10 }), // 100%
+          ns({ namespace: 'beta', totalKeys: 10, fromMod: 0 }),
+        ],
+      }),
+    );
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'A' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+    await waitFor(() => expect(commands.l10nCoverage).toHaveBeenCalledTimes(2));
+    // Order-independent, so the wait itself can't be what fails when the bug
+    // is present: it only confirms the refreshed numbers reached the DOM.
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('l10n-namespace-row').some((r) => r.textContent?.includes('100%')),
+      ).toBe(true),
+    );
+
+    rows = screen.getAllByTestId('l10n-namespace-row');
+    expect(rows[0].textContent).toContain('alpha');
+    expect(rows[1].textContent).toContain('beta');
+  });
+
+  it('exposes the namespace list as a single tab stop with arrow-key navigation', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha' }),
+          ns({ namespace: 'beta' }),
+          ns({ namespace: 'gamma' }),
+        ],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+
+    // Exactly one row is tabbable at rest.
+    expect(rows.filter((r) => r.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(rows[0].getAttribute('tabindex')).toBe('0');
+
+    await fireEvent.keyDown(rows[0], { key: 'ArrowDown' });
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+    expect(rows[0].getAttribute('tabindex')).toBe('-1');
+
+    await fireEvent.keyDown(rows[1], { key: 'End' });
+    expect(rows[2].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('moves the roving tab stop to the row the user clicks', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha' }),
+          ns({ namespace: 'beta' }),
+          ns({ namespace: 'gamma' }),
+        ],
+      }),
+    );
+    mockKeysOk();
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+
+    await fireEvent.click(rows[1]);
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+    expect(rows[0].getAttribute('tabindex')).toBe('-1');
+
+    // The arrow keys have to continue from the clicked row: the browser
+    // focuses it on click regardless of its tabindex, so a stale roving index
+    // would jump focus somewhere the user never was.
+    await fireEvent.keyDown(rows[1], { key: 'ArrowDown' });
+    expect(rows[2].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('returns the roving tab stop to the top when the instance changes', async () => {
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'alpha' }), ns({ namespace: 'beta' })] }),
+    );
+    mockKeysOk();
+    const { rerender } = render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us' },
+    });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+    await fireEvent.click(rows[1]);
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+
+    // A different instance is a different list. The clamp effect can't catch
+    // this one — the new list is just as long, so the index stays in range
+    // while pointing at an unrelated namespace.
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'delta' }), ns({ namespace: 'epsilon' })] }),
+    );
+    await rerender({ open: true, instanceId: 'b', lang: 'en_us' });
+    await waitFor(() =>
+      expect(screen.getAllByTestId('l10n-namespace-row')[0].textContent).toContain('delta'),
+    );
+
+    const fresh = screen.getAllByTestId('l10n-namespace-row');
+    expect(fresh[0].getAttribute('tabindex')).toBe('0');
+    expect(fresh[1].getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('renders the per-namespace AI action as a tooltipped icon button', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [ns({ namespace: 'quark', fromMod: 0 }), ns({ namespace: 'zeta', fromMod: 9 })],
+      }),
+    );
+    render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us', aiConsent: true },
+    });
+    const btns = await screen.findAllByTestId('l10n-prefill-namespace');
+    expect(btns[0].className).toContain('btn-icon');
+    expect(btns[0].getAttribute('aria-label')).toContain('quark');
+
+    // Turning consent on must not double the list's tab stops: the AI button
+    // rides the same roving index as its row, so Tab reaches the focused
+    // row's button and then leaves the list.
+    expect(btns.filter((b) => b.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(btns[0].getAttribute('tabindex')).toBe('0');
   });
 });

@@ -7,6 +7,8 @@ import {
   displayValue,
   filterByOrigin,
   filterRows,
+  visibleOriginFilters,
+  visibleStateFilters,
 } from '$lib/l10n/key-rows';
 
 // key-rows.ts itself has no IPC — this mock exists only for the KeyEditRow
@@ -191,6 +193,25 @@ describe('filterByOrigin', () => {
   it('counts each origin, so bulk revert can say how many it would drop', () => {
     expect(countOrigins(rows)).toEqual({ manual: 1, machine: 2 });
     expect(countOrigins([])).toEqual({ manual: 0, machine: 0 });
+  });
+});
+
+describe('chip visibility', () => {
+  const anchors = ['all', 'translated', 'missing'];
+
+  it('always keeps the anchor state chips, even at zero', () => {
+    const visible = visibleStateFilters({ all: 0, translated: 0, stale: 0, orphan: 0, missing: 0 });
+    expect(visible).toEqual(anchors);
+  });
+
+  it('adds an attention chip only when it has something to show', () => {
+    const visible = visibleStateFilters({ all: 3, translated: 1, stale: 2, orphan: 0, missing: 0 });
+    expect(visible).toEqual([...anchors, 'stale']);
+  });
+
+  it('keeps the origin anchor and drops empty origin buckets', () => {
+    expect(visibleOriginFilters({ manual: 0, machine: 4 })).toEqual(['all', 'machine']);
+    expect(visibleOriginFilters({ manual: 0, machine: 0 })).toEqual(['all']);
   });
 });
 

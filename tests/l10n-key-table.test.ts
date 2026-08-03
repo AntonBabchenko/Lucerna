@@ -74,7 +74,10 @@ describe('KeyTable', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
     render(KeyTable, { props });
-    expect(await screen.findByTestId('l10n-key-table-error')).toBeTruthy();
+    const err = await screen.findByTestId('l10n-key-table-error');
+    // Appears after mount, replacing content the user was looking at, so it
+    // has to interrupt rather than wait to be tabbed into.
+    expect(err.getAttribute('role')).toBe('alert');
     expect(screen.queryByTestId('l10n-key-table-empty')).toBeNull();
   });
 
@@ -152,7 +155,9 @@ describe('KeyTable', () => {
     );
     // Exactly one call: saving a row must not trigger a full namespace refetch.
     expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByTestId('l10n-key-state').textContent).toBe('Saved'));
+    await waitFor(() =>
+      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Translated'),
+    );
   });
 
   it('disables Save while the draft is empty, so blanking the field can never silently clear an override', async () => {
@@ -185,7 +190,10 @@ describe('KeyTable', () => {
     const err = await screen.findByTestId('l10n-key-error');
     expect(err.textContent).toBeTruthy();
     // The row's state must not have silently flipped to ok on a rejection.
-    expect(screen.getByTestId('l10n-key-state').textContent).not.toBe('Saved');
+    // Trimmed on purpose: StatusBadge's template puts whitespace around the
+    // label, so an untrimmed compare would pass against 'Translated' too and
+    // prove nothing.
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).not.toBe('Translated');
   });
 
   it('clears an override via the explicit Clear action', async () => {
@@ -208,7 +216,7 @@ describe('KeyTable', () => {
     // No mod translation behind it, so clearing drops it to "missing" — and the
     // Clear button itself disappears since there is nothing left to clear.
     await waitFor(() =>
-      expect(screen.getByTestId('l10n-key-state').textContent).toBe('Untranslated'),
+      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Untranslated'),
     );
     expect(screen.queryByTestId('l10n-key-clear')).toBeNull();
   });
@@ -226,7 +234,7 @@ describe('KeyTable', () => {
     render(KeyTable, { props });
     await screen.findAllByTestId('l10n-key-row');
 
-    expect(screen.getByTestId('l10n-key-state').textContent).toBe('Orphaned');
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Removed from mod');
     expect(screen.getByTestId('l10n-key-clear')).toBeTruthy();
   });
 
@@ -262,6 +270,154 @@ describe('KeyTable', () => {
     await waitFor(() =>
       expect((screen.getByTestId('l10n-key-search') as HTMLInputElement).value).toBe(''),
     );
+  });
+
+  it('names the namespace and its counts in a pane header', async () => {
+    mockKeysOk([
+      keyRow({ key: 'a', sourceEn: 'A', overrideValue: 'Aa', state: 'ok', origin: 'manual' }),
+      keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+    ]);
+    render(KeyTable, { props: { ...props, namespace: 'quark' } });
+    const header = await screen.findByTestId('l10n-pane-header');
+    expect(header.textContent).toContain('quark');
+    expect(header.textContent).toContain('2');
+  });
+
+  it('blames the filter, not a search term, when the search box is empty', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.click(screen.getByTestId('l10n-filter-translated'));
+
+    const empty = await screen.findByTestId('l10n-key-table-empty');
+    expect(empty.textContent).toBe(
+      'No keys match the current filter. Clear the filter to see the rest.',
+    );
+  });
+
+  it('hides the pagination footer when everything fits on one page', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+    expect(screen.queryByTestId('pg-first')).toBeNull();
+  });
+
+  it('renders the AI marker as an info StatusBadge with no native title attribute', async () => {
+    mockKeysOk([
+      keyRow({
+        key: 'gui.quark.rune',
+        sourceEn: 'Rune',
+        overrideValue: 'Руна',
+        state: 'ok',
+        origin: 'machine',
+      }),
+    ]);
+    render(KeyTable, { props: { ...props, namespace: 'quark' } });
+    const badge = await screen.findByTestId('l10n-key-origin-machine');
+    expect(badge.className).toContain('bg-accent-soft');
+    // DESIGN.md §5 bans native title=: it is invisible to keyboard users and
+    // unstyleable. Both the marker's explanation and the truncated key go
+    // through use:tooltip instead.
+    expect(badge.getAttribute('title')).toBeNull();
+    expect(screen.getByText('gui.quark.rune').getAttribute('title')).toBeNull();
+  });
+
+  it('announces a successful save and links the error to the input', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const live = await screen.findByTestId('l10n-key-live');
+    await waitFor(() => expect(live.textContent).toBe('Saved'));
+    expect(live.getAttribute('aria-live')).toBe('polite');
+  });
+
+  // A live region announces text CHANGES, so re-writing the same "Saved"
+  // string would be silent — the save-fix-save-again flow would be announced
+  // exactly once per row. Clearing on input restores the transition.
+  it('clears the announcement on the next keystroke so a second save is audible', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+    const live = await screen.findByTestId('l10n-key-live');
+    await waitFor(() => expect(live.textContent).toBe('Saved'));
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Ян' } });
+    expect(live.textContent).toBe('');
+  });
+
+  it('does not double-announce a rejection that the alert paragraph already carries', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: 'p', details: 'nope' },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const alert = await screen.findByTestId('l10n-key-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    // The assertive alert owns the error; the polite region must stay empty or
+    // assistive tech reads the same sentence twice.
+    expect(screen.getByTestId('l10n-key-live').textContent).toBe('');
+  });
+
+  it('marks the input invalid and points it at the rejection text', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'l10n_translation_invalid',
+        key: 'a',
+        reason: { kind: 'unsupported_specifier', specifier: 'd' },
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    const input = screen.getByTestId('l10n-key-input');
+    // A field that is merely empty is not invalid — the flag has to arrive
+    // with the rejection, not sit on the input from the start.
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+
+    await fireEvent.input(input, { target: { value: '%d bad' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const err = await screen.findByTestId('l10n-key-error');
+    expect(err.getAttribute('role')).toBe('alert');
+    expect(err.id).toBeTruthy();
+    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
+    expect(input.getAttribute('aria-describedby')).toBe(err.id);
+  });
+
+  it('names the row after the key it edits', async () => {
+    mockKeysOk([keyRow({ key: 'gui.quark.rune', sourceEn: 'Rune' })]);
+    render(KeyTable, { props });
+    const row = await screen.findByTestId('l10n-key-row');
+    expect(row.getAttribute('role')).toBe('group');
+    expect(row.getAttribute('aria-label')).toBe('gui.quark.rune');
   });
 
   // Origin is a SECOND axis over the state filter, not more options on it.
@@ -345,6 +501,17 @@ describe('KeyTable', () => {
       // The resulting state of each key depends on what the mod itself ships,
       // so the rows come back from the backend rather than being patched here.
       await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+    });
+
+    it('counts the doomed translations in the singular when there is exactly one', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
+
+      const body = await screen.findByText(/This removes/);
+      expect(body.textContent).toContain('This removes 1 AI translation from create.');
     });
 
     it('reports a failed revert inside the confirm, not behind it', async () => {

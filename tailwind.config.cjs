@@ -34,6 +34,10 @@ module.exports = {
         secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
         muted: 'rgb(var(--text-muted) / <alpha-value>)',
         placeholder: 'rgb(var(--text-placeholder) / <alpha-value>)',
+        // Deliberately text-only: bg-danger / border-danger / .btn-danger keep
+        // resolving through colors.danger, so this changes foreground text
+        // without repainting a single fill.
+        danger: 'rgb(var(--danger-text) / <alpha-value>)',
       },
       // Default border color follows the theme token so bare `border`
       // / `border-b` / `border-t` utilities pick up the dark-palette
