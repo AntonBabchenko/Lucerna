@@ -59,6 +59,11 @@ function matchesView(row: KeyRow, view: KeyView): boolean {
 
 const NO_STICKY: ReadonlySet<string> = new Set();
 
+function matchesSearch(row: KeyRow, q: string): boolean {
+  if (!q) return true;
+  return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
+}
+
 /** Apply the view, then the search term. Search matches the key or the English
  *  source — the two things a user knows going in — never the translated value
  *  itself: that may be in a script the user can't even read, which is the
@@ -77,30 +82,42 @@ export function filterRows(
   sticky: ReadonlySet<string> = NO_STICKY,
 ): KeyRow[] {
   const q = search.trim().toLowerCase();
-  return rows.filter((row) => {
-    if (!matchesView(row, view) && !sticky.has(row.key)) return false;
-    if (!q) return true;
-    return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
-  });
+  return rows.filter(
+    (row) => (matchesView(row, view) || sticky.has(row.key)) && matchesSearch(row, q),
+  );
 }
 
-/** How many sticky rows are being shown *despite* not matching the active
- *  view — the number the refresh affordance reports, and the test for whether
- *  it should exist at all. Under 'all', and for a row that re-entered its view
- *  (an override cleared back to 'missing' under the Untranslated view), this
- *  is zero and there is nothing to offer. */
+/** How many of the rows `filterRows` is currently rendering are there ONLY
+ *  because they are sticky — i.e. exactly the number that would disappear if
+ *  the set were cleared. That is the number the refresh affordance reports and
+ *  the test for whether it should exist at all.
+ *
+ *  It takes `search` for the same reason it takes `view`: a sticky row that the
+ *  search excludes is not on screen either, so counting it would promise the
+ *  user a row they cannot see. Both functions share `matchesSearch` so the two
+ *  answers cannot drift apart. Under 'all', and for a row that re-entered its
+ *  view (an override cleared back to 'missing' under the Untranslated view),
+ *  this is zero and there is nothing to offer. */
 export function stickyOutOfView(
   rows: KeyRow[],
+  search: string,
   view: KeyView,
   sticky: ReadonlySet<string>,
 ): number {
   if (sticky.size === 0) return 0;
+  const q = search.trim().toLowerCase();
   let out = 0;
   for (const row of rows) {
-    if (sticky.has(row.key) && !matchesView(row, view)) out++;
+    if (sticky.has(row.key) && !matchesView(row, view) && matchesSearch(row, q)) out++;
   }
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+ * The old two-axis API, superseded by KeyView / viewCount / visibleViews above.
+ * KeyTable still imports these, so they stay until it migrates; they are then
+ * removed as one unit. Do not add callers.
+ * ------------------------------------------------------------------------- */
 
 /** The origin filter chips in KeyTable — a SECOND axis over [`KeyFilter`],
  *  not more options on it. A key has a state *and*, once it is overridden, an
@@ -120,7 +137,7 @@ export function filterByOrigin(rows: KeyRow[], origin: OriginFilter): KeyRow[] {
 /** How many rows carry each override origin, in one pass. The machine count
  *  also drives bulk revert, which has to be able to say how many entries it
  *  is about to drop *before* the user confirms it. */
-export function countOrigins(rows: KeyRow[]): { manual: number; machine: number } {
+export function countOrigins(rows: KeyRow[]): OriginCounts {
   const counts = { manual: 0, machine: 0 };
   for (const row of rows) {
     if (row.origin === 'manual') counts.manual++;

@@ -7,7 +7,6 @@ import {
   displayValue,
   filterByOrigin,
   filterRows,
-  type KeyView,
   stickyOutOfView,
   viewCount,
   visibleOriginFilters,
@@ -376,12 +375,24 @@ describe('one filter axis', () => {
   });
 
   it('counts only the sticky rows that no longer match the view', () => {
-    expect(stickyOutOfView(rows, 'translated', new Set(['d']))).toBe(1);
+    expect(stickyOutOfView(rows, '', 'translated', new Set(['d']))).toBe(1);
     // 'a' is translated, so it is in the view on its own merits — nothing to
     // refresh away.
-    expect(stickyOutOfView(rows, 'translated', new Set(['a']))).toBe(0);
-    expect(stickyOutOfView(rows, 'all', new Set(['a', 'd']))).toBe(0);
-    expect(stickyOutOfView(rows, 'translated', new Set())).toBe(0);
+    expect(stickyOutOfView(rows, '', 'translated', new Set(['a']))).toBe(0);
+    expect(stickyOutOfView(rows, '', 'all', new Set(['a', 'd']))).toBe(0);
+    expect(stickyOutOfView(rows, '', 'translated', new Set())).toBe(0);
+  });
+
+  // The count must equal what a click on the refresh affordance would remove.
+  // A sticky row the search has already excluded is not on screen, so counting
+  // it would promise a row the user cannot see.
+  it('does not count a sticky row the search has already excluded', () => {
+    const sticky = new Set(['d']);
+    expect(filterRows(rows, 'zzz', 'translated', sticky)).toHaveLength(0);
+    expect(stickyOutOfView(rows, 'zzz', 'translated', sticky)).toBe(0);
+    // Same row, a search it does match: back on screen, and counted.
+    expect(filterRows(rows, 'd', 'translated', sticky).map((r) => r.key)).toEqual(['d']);
+    expect(stickyOutOfView(rows, 'd', 'translated', sticky)).toBe(1);
   });
 
   it('reads each view’s count from the bucket that owns it', () => {
@@ -429,7 +440,7 @@ describe('one filter axis', () => {
     const visible = visibleViews(
       { all: 6, translated: 4, stale: 1, orphan: 0, missing: 2 },
       { manual: 0, machine: 0 },
-      'stale' satisfies KeyView,
+      'stale',
     );
     expect(visible).toEqual(['all', 'translated', 'missing', 'stale']);
   });
