@@ -186,6 +186,37 @@ pub fn create_instance(
     Ok(InstanceWithStatus::from_file(&inst, ready, false))
 }
 
+/// This instance's rename-proof identity, creating and persisting one if the
+/// instance predates the field.
+///
+/// Lazy on purpose: a startup migration would rewrite every `instance.json` on
+/// disk to add a field that only desktop shortcuts ever read.
+pub fn ensure_uid(app: &tauri::AppHandle, id: &str) -> Result<String> {
+    let mut inst = read_one(app, id)?;
+    if let Some(uid) = inst.uid.clone() {
+        return Ok(uid);
+    }
+    let uid = crate::instances::ids::new_id();
+    inst.uid = Some(uid.clone());
+    let path = paths::instance_json(app, id).map_err(|e| Error::io("<instance_json>", e))?;
+    store::write_instance_json(&path, &inst)?;
+    Ok(uid)
+}
+
+/// Resolve a `--launch` token — a `uid` written by a shortcut, or a plain
+/// directory name — to the instance's CURRENT directory name.
+///
+/// `uid` is checked first so a renamed instance still answers to the shortcut
+/// that predates the rename. `None` when neither matches, which callers must
+/// surface as "instance not found" rather than launching something else.
+pub fn resolve_launch_target(app: &tauri::AppHandle, token: &str) -> Option<String> {
+    let all = scan::list_all(&paths::instances_dir(app).ok()?);
+    all.iter()
+        .find(|i| i.uid.as_deref() == Some(token))
+        .or_else(|| all.iter().find(|i| i.id == token))
+        .map(|i| i.id.clone())
+}
+
 fn mutate<F>(app: &tauri::AppHandle, id: &str, mutator: F) -> Result<InstanceWithStatus>
 where
     F: FnOnce(&mut InstanceFile),
