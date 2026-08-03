@@ -12,6 +12,8 @@
 //! v1 support (an `.app` alias with arguments is a different mechanism) and
 //! reports that honestly instead of writing a file that would not work.
 
+pub mod icon;
+
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use specta::Type;
