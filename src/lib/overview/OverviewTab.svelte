@@ -87,10 +87,9 @@
      *  never be mistaken for "coverage into whatever the UI happens to be
      *  in right now". */
     l10nLang: string;
-    /** The dependency pre-flight could not be run for this instance (offline,
-     *  IPC error). Owned by the page, which is where the launch gate runs it.
-     *  Never blocks a launch — it only stops "could not check" from reading as
-     *  "checked and clean". */
+    /** The dependency pre-flight could not be run for this instance. Owned by
+     *  the page, which is where the launch gate runs it. Never blocks a launch
+     *  — it only stops "could not check" from reading as "checked and clean". */
     preflightUnknown?: boolean;
   } = $props();
 

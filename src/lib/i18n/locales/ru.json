@@ -2376,7 +2376,7 @@
       "attnLogFixAvailable": "Доступно исправление",
       "attnModpackUpdate": "Доступно обновление сборки",
       "attnServerLogFix": "Серверу нужно исправление в один клик",
-      "attnPreflightUnknown": "Не удалось проверить зависимости — игра запущена без проверки",
+      "attnPreflightUnknown": "Не удалось проверить зависимости этой сборки",
       "attentionView": "Открыть",
       "attentionDismissTooltip": "Я знаю, что я делаю",
       "attentionDismissAria": "Скрыть предупреждения",

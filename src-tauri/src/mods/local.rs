@@ -1787,6 +1787,81 @@ modId=\"evilseagull\"
         assert_eq!(out[0].detected_loader.as_deref(), Some("Fabric"));
     }
 
+    /// The Connector jar as it actually ships: a JIJ container with no
+    /// descriptor of its own.
+    fn connector_container_bytes() -> Vec<u8> {
+        let inner = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        zip_with(&[(
+            "META-INF/jarjar/org.sinytra.connector-2.0.0-mod.jar",
+            inner.as_slice(),
+        )])
+    }
+
+    /// End-to-end for the Connector exception: the flag has to travel from the
+    /// jars on disk, through `connector_installed`, into `compat_verdict`.
+    /// Without this the six pure-helper tests all pass while `scan_instance`
+    /// hard-codes `false` — the whole fix deleted, `cargo test` green.
+    #[tokio::test]
+    async fn scan_does_not_flag_a_fabric_jar_when_connector_is_installed() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let fabric = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &fabric).await.unwrap();
+
+        // Without Connector the same jar IS flagged — that is
+        // `scan_flags_fabric_jar_in_forge_instance` above, same fixture.
+        fs::write(
+            dir.join("connector-2.0.0-full.jar"),
+            &connector_container_bytes(),
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+            .await
+            .unwrap();
+        let x = out
+            .iter()
+            .find(|m| m.sha1 == hex::encode(<sha1::Sha1 as sha1::Digest>::digest(&fabric)))
+            .expect("the fabric jar is in the scan");
+        assert!(
+            !x.loader_mismatch,
+            "Connector remaps and loads it, so it is not dead weight"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_still_flags_when_connector_is_disabled() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let fabric = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &fabric).await.unwrap();
+        // A disabled Connector loads nothing, so it remaps nothing.
+        fs::write(
+            dir.join("connector-2.0.0-full.jar.disabled"),
+            &connector_container_bytes(),
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+            .await
+            .unwrap();
+        let x = out
+            .iter()
+            .find(|m| m.sha1 == hex::encode(<sha1::Sha1 as sha1::Digest>::digest(&fabric)))
+            .expect("the fabric jar is in the scan");
+        assert!(x.loader_mismatch);
+    }
+
     #[tokio::test]
     async fn scan_no_mismatch_for_forge_jar_in_forge_instance() {
         use crate::mods::installed::mods_dir;

@@ -411,12 +411,18 @@
   // the single `doLaunch` constant it used to be. Plain state, not `$state`: it
   // is never read from the template.
   let gatePending: { run: () => Promise<void>; onAbort?: () => void } | null = null;
-  // True when the dependency pre-flight itself failed (offline, IPC error), as
-  // opposed to finding nothing. It never blocks the launch — the maintainer's
-  // decision is that "could not check" marks rather than gates — but it must be
-  // visible, because a check that did not run reading as a check that passed is
-  // the defect this whole pass exists to remove. Cleared by the next successful
-  // pre-flight and on instance switch.
+  // True when the dependency pre-flight itself failed, as opposed to finding
+  // nothing. It never blocks the launch — the maintainer's decision is that
+  // "could not check" marks rather than gates — but it must be visible, because
+  // a check that did not run reading as a check that passed is the defect this
+  // whole pass exists to remove. Cleared by the next pre-flight that returns a
+  // verdict (including a blocking one) and on instance switch.
+  //
+  // NOT an offline signal: `instance_dependency_preflight` is network-free
+  // (pure local jar inspection), so this can only come from an unreadable
+  // instance.json or a filesystem error. It is rare by construction today —
+  // the value is that the state is representable at all, so the detectors that
+  // DO depend on the network can be routed through the same surface later.
   let preflightUnknown = $state(false);
 
   // Soft pre-launch warning (RAM over-commit / same-account). When launching
@@ -1038,15 +1044,16 @@
   async function startLaunch(run: () => Promise<void>, onAbort?: () => void) {
     if (!activeInstance) return;
     const decision = decideLaunch(await commands.instanceDependencyPreflight(activeInstance.id));
+    // Recorded BEFORE the gate branch, not after: `gate` is the outcome that
+    // most conclusively proves the check ran, so returning early without
+    // clearing the flag would leave "couldn't check dependencies" on screen
+    // next to a dialog enumerating the dependency problems it just found.
+    preflightUnknown = decision.kind === 'unknown';
     if (decision.kind === 'gate') {
       gateReport = decision.report;
       gatePending = { run, onAbort };
       return;
     }
-    // A check that could not run never blocks the game, but it must not read as
-    // a check that passed either — the Overview raises a "couldn't check" row
-    // until a later pre-flight succeeds.
-    preflightUnknown = decision.kind === 'unknown';
     await gateLaunch(run, onAbort);
   }
 

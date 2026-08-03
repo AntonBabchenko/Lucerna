@@ -203,8 +203,8 @@ export async function installMissing(
  * `instanceDependencyPreflight`.
  *
  * Three states, not two. A check that could not run and a check that passed
- * are different facts, and collapsing them is how the launcher came to claim
- * "no dependency problems" while offline. `unknown` still launches — a failed
+ * are different facts, and collapsing them is how a detector comes to claim
+ * "no problems" when it never ran. `unknown` still launches — a failed
  * check must never block the game (maintainer decision, 2026-08-03) — but the
  * caller now has to handle it explicitly, which is what makes it surfaceable.
  */

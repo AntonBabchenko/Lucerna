@@ -387,9 +387,11 @@ describe('remediateAll', () => {
 describe('decideLaunch', () => {
   it('reports "unknown" — NOT "launch" — when the preflight command errors', () => {
     // The whole point of the three-state result: a check that could not run and
-    // a check that passed are different facts. Collapsing them is how the
-    // launcher came to claim "no dependency problems" while offline. It still
+    // a check that passed are different facts, and collapsing them is how a
+    // detector comes to report "no problems" when it never ran. It still
     // launches (the caller must not block on this) — but it has to say so.
+    // NB this preflight is network-free, so `unknown` means a local read
+    // failure, not being offline.
     const result = decideLaunch({ status: 'error', error: 'network error' });
     expect(result).toEqual({ kind: 'unknown', error: 'network error' });
   });

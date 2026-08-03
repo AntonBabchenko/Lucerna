@@ -135,12 +135,14 @@ export function createInstanceStats() {
     get installedStats() {
       return installedStats;
     },
-    // Read straight off the shared scan store at call time, so it can never
-    // disagree with the Installed tab's chip, which derives from the same
-    // entries. Counts ONLY offline-decidable mismatches (`!live_checkable`):
-    // confirming a platform suspect needs a network call the Overview must not
-    // make, and counting the raw suspicion would flag multi-loader jars that
-    // are fine.
+    // Read straight off the shared scan store at call time, so it can never be
+    // a STALE copy of a scan the Installed tab has already replaced. The two
+    // numbers can still legitimately differ — the chip folds in live platform
+    // verdicts that the Overview deliberately never requests — what became
+    // unrepresentable is the two surfaces disagreeing about the SAME scan.
+    // Counts ONLY offline-decidable mismatches (`!live_checkable`): confirming
+    // a platform suspect needs a network call the Overview must not make, and
+    // counting the raw suspicion would flag multi-loader jars that are fine.
     get incompatibleCount() {
       return offlineMismatchCount();
     },

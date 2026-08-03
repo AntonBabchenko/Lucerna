@@ -1604,7 +1604,11 @@ pub async fn mods_update_one(
 }
 
 /// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-/// compatibility against the target instance. No filesystem writes.
+/// compatibility against the target instance.
+///
+/// Not write-free despite the name: the Connector probe below goes through
+/// `installed::list`, which reconciles the registry against the mods folder and
+/// persists when that changes. No *mod* file is touched.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_inspect_local(

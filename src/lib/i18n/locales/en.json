@@ -2376,7 +2376,7 @@
       "attnLogFixAvailable": "A fix is available",
       "attnModpackUpdate": "A modpack update is available",
       "attnServerLogFix": "A server needs a one-click fix",
-      "attnPreflightUnknown": "Couldn't check dependencies — the game was launched unchecked",
+      "attnPreflightUnknown": "Couldn't check this instance's dependencies",
       "attentionView": "View",
       "attentionDismissTooltip": "I know what I'm doing",
       "attentionDismissAria": "Dismiss warnings",

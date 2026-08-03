@@ -62,6 +62,29 @@ describe('buildAttentionItems', () => {
     ]);
   });
 
+  it('emits preflight_unknown (count 0) when the dependency check could not run', () => {
+    expect(buildAttentionItems({ ...none, preflightUnknown: true })).toEqual([
+      { kind: 'preflight_unknown', count: 0 },
+    ]);
+  });
+
+  it('orders "could not check" after the confirmed problems and before the server signal', () => {
+    // "We could not check" is weaker news than "here is what is wrong", so it
+    // must never push a real problem down the list; the global server signal
+    // stays last because it is not about this instance at all.
+    const items = buildAttentionItems({
+      ...none,
+      incompatibleCount: 2,
+      preflightUnknown: true,
+      serverFixAvailable: true,
+    });
+    expect(items.map((i) => i.kind)).toEqual([
+      'incompatible',
+      'preflight_unknown',
+      'server_log_fix',
+    ]);
+  });
+
   it('omits signals whose count is zero', () => {
     expect(
       buildAttentionItems({ ...none, incompatibleCount: 0, integrityProblemCount: 4 }),

@@ -732,7 +732,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-	 *  compatibility against the target instance. No filesystem writes.
+	 *  compatibility against the target instance.
+	 * 
+	 *  Not write-free despite the name: the Connector probe below goes through
+	 *  `installed::list`, which reconciles the registry against the mods folder and
+	 *  persists when that changes. No *mod* file is touched.
 	 */
 	modsInspectLocal: (instanceId: string, jarPath: string) => typedError<CompatVerdict, Error>(__TAURI_INVOKE("mods_inspect_local", { instanceId, jarPath })),
 	/**
