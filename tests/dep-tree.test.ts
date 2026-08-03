@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DepTreeNode } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
+import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
+import DepSection from '$lib/mods/installed/DepSection.svelte';
+import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
 
 const tree: DepTreeNode[] = [
   {
@@ -95,5 +98,67 @@ describe('DepTree', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Show Night in the list' }));
     expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'night' }));
     expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+});
+
+describe('DepSection — the author is credited, and the user can settle a claim', () => {
+  const modRef = { source: 'modrinth' as const, project_id: 'PA' };
+  const absentRequired = (pid: string, name: string): DepTreeNode => ({
+    source: 'modrinth',
+    project_id: pid,
+    name,
+    installed: false,
+    declared: 'required',
+    cycle: false,
+    children: [],
+  });
+  const root = () => ({
+    sha1: 'a',
+    source: 'modrinth' as const,
+    project_id: 'PA',
+    name: 'Alpha',
+    required: [absentRequired('PB', 'Stylish Effects'), absentRequired('PC', 'Some Lib')],
+    optional: [],
+  });
+  const sectionProps = () => ({
+    root: root(),
+    requiredBy: [],
+    hoveredKey: null,
+    onHover: () => {},
+    onInstall: () => {},
+    onJump: () => {},
+    onOpenDetail: () => {},
+  });
+
+  beforeEach(() => diagnosisDismiss.reset());
+
+  it('heads the section with attribution rather than an assertion', () => {
+    render(DepSection, { props: sectionProps() });
+    expect(screen.getByText(/author marked required/i)).toBeTruthy();
+    expect(screen.queryByText(/^Requires$/)).toBeNull();
+  });
+
+  it('dismissing one claim leaves the sibling claim visible', async () => {
+    render(DepSection, { props: sectionProps() });
+    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(2);
+    expect(screen.queryByTestId('claim-restore')).toBeNull();
+
+    await fireEvent.click(screen.getAllByTestId('claim-dismiss')[0]);
+
+    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(1);
+    expect(screen.getByText('Some Lib')).toBeTruthy();
+    expect(screen.queryByText('Stylish Effects')).toBeNull();
+    expect(screen.getByTestId('claim-restore').textContent).toMatch(/1/);
+    // Exactly the acknowledged pair is settled — not the mod, not the instance.
+    expect(isClaimDismissed(modRef, { source: 'modrinth', project_id: 'PB' })).toBe(true);
+    expect(isClaimDismissed(modRef, { source: 'modrinth', project_id: 'PC' })).toBe(false);
+  });
+
+  it('restores the hidden claims', async () => {
+    render(DepSection, { props: sectionProps() });
+    await fireEvent.click(screen.getAllByTestId('claim-dismiss')[0]);
+    await fireEvent.click(screen.getByTestId('claim-restore'));
+    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(2);
+    expect(screen.queryByTestId('claim-restore')).toBeNull();
   });
 });
