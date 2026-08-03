@@ -143,7 +143,7 @@ pub fn create_instance(
     // all path resolution downstream is unchanged).
     let instances_parent =
         paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
-    let (id, dir) = crate::naming::reserve_unique_dir(&instances_parent, &name, "instance")?;
+    let (id, dir) = crate::naming::reserve_unique_dir(&instances_parent, &name, None, "instance")?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // create never leaks the slug (which would force every future same-name
     // create to climb -2, -3, …). Disarmed on success via `keep()`.

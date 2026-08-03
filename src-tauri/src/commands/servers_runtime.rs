@@ -340,7 +340,7 @@ pub async fn server_create(
     // concurrent creates race into one directory. The reserved name is the id.
     let servers_parent =
         crate::paths::servers_dir(&app).map_err(|e| Error::io("<servers_dir>", e))?;
-    let (id, reserved_dir) = crate::naming::reserve_unique_dir(&servers_parent, &name, "server")?;
+    let (id, reserved_dir) = crate::naming::reserve_unique_dir(&servers_parent, &name, None, "server")?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // create never leaks the slug (forcing every future same-name create to -2).
     // Disarmed on success via `keep()`.
@@ -1932,7 +1932,7 @@ pub async fn server_import_commit(
         let servers_parent =
             crate::paths::servers_dir(&app).map_err(|e| Error::io("<servers_dir>", e))?;
         let (new_id, reserved_dir) =
-            crate::naming::reserve_unique_dir(&servers_parent, &name, "server")?;
+            crate::naming::reserve_unique_dir(&servers_parent, &name, None, "server")?;
         // Remove the reserved directory if any step below fails (`?` / early
         // return), so a partial import never leaks the slug.
         let cleanup = crate::naming::DirCleanup::new(&reserved_dir);

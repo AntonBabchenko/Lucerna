@@ -243,7 +243,7 @@ pub fn clone_instance(
         crate::paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
 
     let (id, dst_root) =
-        crate::naming::reserve_unique_dir(&instances_parent, &new_name, "instance")?;
+        crate::naming::reserve_unique_dir(&instances_parent, &new_name, None, "instance")?;
     let cleanup = crate::naming::DirCleanup::new(&dst_root);
 
     std::fs::create_dir_all(dst_root.join(".minecraft"))

@@ -69,7 +69,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     } else {
         // Scenario 2 — fresh install. Reserve a readable "Default" directory
         // (atomic, so it never writes into a pre-existing user directory).
-        let (id, dir) = crate::naming::reserve_unique_dir(&instances_dir, "Default", "instance")?;
+        let (id, dir) = crate::naming::reserve_unique_dir(&instances_dir, "Default", None, "instance")?;
         let cleanup = crate::naming::DirCleanup::new(&dir);
         std::fs::create_dir_all(dir.join(".minecraft"))
             .map_err(|e| Error::io(dir.display().to_string(), e))?;
