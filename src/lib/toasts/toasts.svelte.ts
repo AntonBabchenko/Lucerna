@@ -95,3 +95,14 @@ export function pushActionToast(
 export function dismiss(id: number): void {
   store.toasts = store.toasts.filter((t) => t.id !== id);
 }
+
+/** Patch a live toast in place. The only way to turn a sticky progress toast
+ *  into its own outcome toast without losing its slot — dismiss + re-push
+ *  appends a new card at the bottom of the stack with a new id.
+ *  Unknown id is a silent no-op, matching `updateToastProgress`. */
+export function updateToast(
+  id: number,
+  patch: Partial<Pick<Toast, 'title' | 'kind' | 'lines' | 'action'>>,
+): void {
+  store.toasts = store.toasts.map((t) => (t.id === id ? { ...t, ...patch } : t));
+}

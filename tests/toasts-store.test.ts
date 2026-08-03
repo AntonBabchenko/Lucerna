@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dismiss,
   pushInfo,
+  pushProgress,
   pushSuccess,
   pushWarning,
   SUCCESS_TTL_MS,
   toastList,
+  updateToast,
 } from '$lib/toasts/toasts.svelte';
 
 // The store is module-global state shared across tests — clear it in
@@ -65,5 +67,21 @@ describe('toasts store', () => {
     const list = toastList();
     expect(list).toHaveLength(1);
     expect(list[0].id).toBe(id2);
+  });
+
+  it('patches an existing toast in place, keeping its slot', () => {
+    const first = pushProgress('Importing modpack');
+    pushInfo('unrelated');
+
+    updateToast(first, { kind: 'success', title: 'Modpack imported' });
+
+    const list = toastList();
+    expect(list[0].id).toBe(first);
+    expect(list[0].kind).toBe('success');
+    expect(list[0].title).toBe('Modpack imported');
+  });
+
+  it('ignores a patch for an unknown id', () => {
+    expect(() => updateToast(9999, { title: 'x' })).not.toThrow();
   });
 });
