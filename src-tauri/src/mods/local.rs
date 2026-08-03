@@ -381,6 +381,48 @@ fn is_loader_or_mc(id: &str) -> bool {
     LOADER_DEP_IDS.contains(&id.trim().to_ascii_lowercase().as_str())
 }
 
+/// `mcmod.info` — the Forge ≤ 1.12.2 descriptor. PROVIDERS ONLY.
+///
+/// Its `dependencies` array is cosmetic on that era: FML enforces the
+/// `@Mod(dependencies = …)` annotation instead. Measured on a real 1.12.2 jar
+/// that ships `"dependencies": []` alongside a genuine
+/// `required-after:creativecore` annotation — reading this array as the
+/// requirement list would report the opposite of the truth.
+///
+/// Two shapes are in the wild: a bare array of mod objects, and
+/// `{ "modList": [...] }`.
+fn parse_mcmod_info_providers(json_text: &str, out: &mut ManifestDeps) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return;
+    };
+    let list = v
+        .as_array()
+        .or_else(|| v.get("modList").and_then(|m| m.as_array()));
+    let Some(list) = list else { return };
+    for m in list {
+        let Some(id) = m.get("modid").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        // `${version}` / `${mcversion}` are build placeholders Gradle was meant
+        // to substitute. An unsubstituted one is not a version — recording it
+        // would make every range comparison against this provider nonsense.
+        let version = m
+            .get("version")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.starts_with("${"))
+            .map(str::to_string);
+        out.provided.push(ProvidedMod {
+            mod_id: id.to_string(),
+            version,
+        });
+    }
+}
+
 /// Structured manifest read for the dependency pre-flight. Best-effort: a jar
 /// with no recognised descriptor yields an empty `ManifestDeps`. Only an
 /// unreadable zip is an error.
@@ -429,6 +471,12 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
     }
     if let Some(txt) = entry_text(&mut zip, "quilt.mod.json") {
         parse_quilt_manifest(&txt, &mut out);
+    }
+    // A provided mod-id is the same fact whichever descriptor it came from, so
+    // this is era-neutral and unconditional. Requirements are not — those come
+    // from the annotation, era-scoped, and are read separately.
+    if let Some(txt) = entry_text(&mut zip, "mcmod.info") {
+        parse_mcmod_info_providers(&txt, &mut out);
     }
     out.deps.retain(|d| !is_loader_or_mc(&d.dep_id));
     Ok(out)
@@ -1285,6 +1333,46 @@ mod tests {
         )]))
         .unwrap();
         assert_eq!(d.deps[0].source, DescriptorSource::QuiltJson);
+    }
+
+    /// `mcmod.info` is the Forge ≤ 1.12.2 descriptor. 44 of the 50 jars in a
+    /// measured 1.12.2 pack ship it and nothing else, so without this the
+    /// pre-flight sees no provider for any of them.
+    #[test]
+    fn mcmod_info_registers_its_providers() {
+        // The shape CreativeCore_v1.10.71_mc1.12.2.jar actually ships.
+        let bare = r#"[{"modid":"creativecore","name":"CreativeCore","version":"1.10"}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", bare)])).unwrap();
+        assert_eq!(d.provided.len(), 1);
+        assert_eq!(d.provided[0].mod_id, "creativecore");
+        assert_eq!(d.provided[0].version.as_deref(), Some("1.10"));
+
+        // The other shape in the wild.
+        let wrapped = r#"{"modList":[{"modid":"x","version":"2.0"}]}"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", wrapped)])).unwrap();
+        assert_eq!(d.provided[0].mod_id, "x");
+
+        // An unresolved build placeholder is not a version — recording it would
+        // make every range comparison against this provider nonsense.
+        let ph = r#"[{"modid":"y","version":"${version}"}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", ph)])).unwrap();
+        assert_eq!(d.provided[0].version, None);
+
+        // mcmod.info's own `dependencies` array is cosmetic on this era: FML
+        // enforces the @Mod annotation instead, and a measured jar ships
+        // `"dependencies": []` alongside a genuine `required-after:` clause.
+        let deps = r#"[{"modid":"z","dependencies":["something"]}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", deps)])).unwrap();
+        assert!(
+            d.deps.is_empty(),
+            "mcmod.info declares no enforced dependency"
+        );
+
+        // Junk must not panic or invent a provider.
+        let junk = read_jar_manifest_deps(&jar(&[("mcmod.info", "not json")])).unwrap();
+        assert!(junk.provided.is_empty());
+        let noid = read_jar_manifest_deps(&jar(&[("mcmod.info", r#"[{"name":"a"}]"#)])).unwrap();
+        assert!(noid.provided.is_empty());
     }
 
     /// The regex fallback runs on descriptors that are not valid TOML, and must
