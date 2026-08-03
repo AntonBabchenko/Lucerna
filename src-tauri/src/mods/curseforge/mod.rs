@@ -591,7 +591,53 @@ impl ModPlatform for CurseForgeClient {
     }
 }
 
+/// Loader families a CurseForge project is *known* to support, derived from
+/// `latestFilesIndexes`.
+///
+/// Returns `None` for UNKNOWN — callers must never treat that as "supports
+/// nothing". Never returns `Some(empty)`.
+///
+/// The index itself is a full-history union (verified by exhaustive
+/// pagination), so on the game-version axis it can only over-state support,
+/// which is the safe direction. The hazard is the *loader* axis: `modLoader` is
+/// absent on pre-tagging-era files — 30 of JEI's 105 entries, 26 of Bookshelf's
+/// 132 — and those untagged files can belong to any loader. Collecting only the
+/// tagged entries would therefore derive `[Forge]` for a project whose Fabric
+/// builds happen to be untagged, and the dependency graph would then silently
+/// hide a genuinely missing dependency. So a single untagged entry disqualifies
+/// the whole project.
+///
+/// `modLoader: 0` is the documented "Any" wildcard and is disqualifying for the
+/// same reason. Measured effect of this conservatism: 7 of 14 popular
+/// dependency libraries stay derivable, including Fabric API — the single most
+/// common phantom dependency.
+fn project_loaders(idx: &[types::FileIndex]) -> Option<Vec<LoaderKind>> {
+    // Any untagged or wildcard entry ⇒ the tagging is provably incomplete.
+    if idx.iter().any(|e| matches!(e.mod_loader, None | Some(0))) {
+        return None;
+    }
+    let mut out: Vec<LoaderKind> = Vec::new();
+    for e in idx {
+        // 2 = Cauldron, 3 = LiteLoader: real tags, but never an instance loader
+        // here, so their presence cannot change a disjointness test.
+        let kind = match e.mod_loader {
+            Some(1) => LoaderKind::Forge,
+            Some(4) => LoaderKind::Fabric,
+            Some(5) => LoaderKind::Quilt,
+            Some(6) => LoaderKind::NeoForge,
+            _ => continue,
+        };
+        if !out.contains(&kind) {
+            out.push(kind);
+        }
+    }
+    // An empty set is never authoritative (no entries at all, or only
+    // Cauldron/LiteLoader) — report unknown rather than "supports nothing".
+    (!out.is_empty()).then_some(out)
+}
+
 fn convert_mod_summary(m: types::Mod) -> ModSummary {
+    let loaders = project_loaders(&m.latest_files_indexes);
     ModSummary {
         source: ModSource::Curseforge,
         project_id: m.id.to_string(),
@@ -607,6 +653,7 @@ fn convert_mod_summary(m: types::Mod) -> ModSummary {
             .next()
             .unwrap_or_default(),
         updated_at: m.date_modified,
+        loaders,
     }
 }
 
@@ -717,6 +764,90 @@ mod tests {
 
     fn client(uri: String) -> CurseForgeClient {
         CurseForgeClient::with_base_and_key(uri, Some("test-key".into()))
+    }
+
+    /// Build a `latestFilesIndexes` shape from `(gameVersion, modLoader)` pairs.
+    fn idx(pairs: &[(&str, Option<u8>)]) -> Vec<types::FileIndex> {
+        pairs
+            .iter()
+            .map(|(gv, ml)| types::FileIndex {
+                game_version: (*gv).to_string(),
+                mod_loader: *ml,
+            })
+            .collect()
+    }
+
+    /// Fully tagged index ⇒ derivable. Sodium's real shape: it has never
+    /// shipped a Forge build, so this doubles as a positive control that the
+    /// derivation does not fabricate loaders it never saw.
+    #[test]
+    fn project_loaders_derives_from_a_fully_tagged_index() {
+        let got = project_loaders(&idx(&[
+            ("1.21.1", Some(4)),
+            ("1.21.1", Some(5)),
+            ("1.21.1", Some(6)),
+            ("1.20.1", Some(4)),
+        ]));
+        let got = got.expect("a fully tagged index is derivable");
+        assert!(got.contains(&LoaderKind::Fabric));
+        assert!(got.contains(&LoaderKind::Quilt));
+        assert!(got.contains(&LoaderKind::NeoForge));
+        assert!(
+            !got.contains(&LoaderKind::Forge),
+            "Sodium ships no Forge build — the derivation must not invent one"
+        );
+    }
+
+    /// A single untagged entry disqualifies the whole project. Those files
+    /// predate CurseForge's loader tagging and can belong to ANY loader, so
+    /// deriving from the tagged remainder could hide a real dependency.
+    /// JEI's real index is 30 untagged of 105.
+    #[test]
+    fn project_loaders_is_unknown_when_any_entry_is_untagged() {
+        assert_eq!(
+            project_loaders(&idx(&[
+                ("1.8.9", None),
+                ("1.21.1", Some(1)),
+                ("1.21.1", Some(4)),
+            ])),
+            None
+        );
+        // All untagged (a project that stopped publishing before tagging).
+        assert_eq!(project_loaders(&idx(&[("1.2.5", None)])), None);
+    }
+
+    /// `modLoader: 0` is the documented "Any" wildcard — an unbounded set, so
+    /// it cannot license a suppression either.
+    #[test]
+    fn project_loaders_is_unknown_for_the_any_wildcard() {
+        assert_eq!(
+            project_loaders(&idx(&[("1.21.1", Some(0)), ("1.21.1", Some(6))])),
+            None
+        );
+    }
+
+    /// Degenerate inputs must never read as "supports nothing".
+    #[test]
+    fn project_loaders_is_unknown_for_empty_and_unmappable_indexes() {
+        assert_eq!(project_loaders(&[]), None, "no index at all");
+        assert_eq!(
+            project_loaders(&idx(&[("1.6.4", Some(2)), ("1.6.4", Some(3))])),
+            None,
+            "only Cauldron/LiteLoader — tagged, but never an instance loader"
+        );
+    }
+
+    /// The field is absent on older/drifted responses; that must decode to an
+    /// empty index rather than failing the whole batch.
+    #[test]
+    fn mod_decodes_without_latest_files_indexes() {
+        let m: types::Mod = serde_json::from_str(
+            r#"{"id":1,"slug":"s","name":"N","summary":"","downloadCount":0,
+                "authors":[],"logo":null,"dateModified":null,"links":{}}"#,
+        )
+        .expect("an absent latestFilesIndexes must not be a decode error");
+        assert!(m.latest_files_indexes.is_empty());
+        assert_eq!(project_loaders(&m.latest_files_indexes), None);
     }
 
     #[tokio::test]

@@ -148,6 +148,29 @@ pub struct Mod {
     pub links: Links,
     #[serde(default)]
     pub screenshots: Vec<Screenshot>,
+    /// One entry per `(gameVersion, modLoader)` pair the project has ever
+    /// published — a full-history union, verified by paginating every file of
+    /// Sodium (211) and Cloth Config (216) and finding zero missing pairs.
+    /// Present on the `POST /v1/mods` batch, so it costs no extra request.
+    ///
+    /// Consumed only through `super::project_loaders`, which refuses to derive a
+    /// loader set when any entry is untagged. Do NOT read `mod_loader` directly.
+    #[serde(default)]
+    pub latest_files_indexes: Vec<FileIndex>,
+}
+
+/// An entry of [`Mod::latest_files_indexes`].
+///
+/// `mod_loader` is `None` on files uploaded before CurseForge tagged loaders —
+/// still present as late as MC 1.17.1, and 15 game versions carry both tagged
+/// and untagged entries, so there is no clean era boundary to key off.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileIndex {
+    #[allow(dead_code)]
+    pub game_version: String,
+    #[serde(default)]
+    pub mod_loader: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, Default)]
