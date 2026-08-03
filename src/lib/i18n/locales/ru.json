@@ -431,7 +431,7 @@
       },
       "prefill": {
         "allButton": "Перевести через ИИ",
-        "namespaceButtonAria": "Перевести {namespace} через ИИ",
+        "namespaceButtonAria": "Перевести недостающее в {namespace} через ИИ",
         "title": "Перевод через ИИ",
         "scopeAll": "Все моды этого профиля",
         "scopeNamespace": "Только {namespace}",

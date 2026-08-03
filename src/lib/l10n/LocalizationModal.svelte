@@ -434,16 +434,31 @@
                   </span>
                 </button>
                 {#if canPrefill}
+                  <!--
+                    Icon-only action ⇒ .btn-icon family carrying use:tooltip AND
+                    aria-label from the same key (DESIGN.md §5). The tooltip sits
+                    on the button, not on a wrapping span: the action stays
+                    enabled, and the span form only opens on hover — its
+                    :focus-visible check can never match a non-focusable
+                    wrapper, so keyboard focus would reach the button silently.
+                    tabindex follows the roving row so consent-on does not
+                    double the list's tab stops: Tab from the focused row
+                    reaches its own AI button and then leaves the list.
+                  -->
                   <button
                     type="button"
-                    class="btn-ghost btn-xs shrink-0"
+                    class="btn-icon btn-icon-sm shrink-0"
+                    tabindex={i === focusIndex ? 0 : -1}
                     aria-label={$t('instance.l10n.prefill.namespaceButtonAria', {
                       namespace: row.namespace,
                     })}
                     data-testid="l10n-prefill-namespace"
                     onclick={() => (prefillScope = { namespace: row.namespace })}
+                    use:tooltip={$t('instance.l10n.prefill.namespaceButtonAria', {
+                      namespace: row.namespace,
+                    })}
                   >
-                    <Icon name="globe" size={14} />
+                    <Icon name="aiTranslate" size={14} />
                   </button>
                 {/if}
               </li>

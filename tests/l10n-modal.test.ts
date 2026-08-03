@@ -594,4 +594,24 @@ describe('LocalizationModal', () => {
     expect(fresh[0].getAttribute('tabindex')).toBe('0');
     expect(fresh[1].getAttribute('tabindex')).toBe('-1');
   });
+
+  it('renders the per-namespace AI action as a tooltipped icon button', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [ns({ namespace: 'quark', fromMod: 0 }), ns({ namespace: 'zeta', fromMod: 9 })],
+      }),
+    );
+    render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us', aiConsent: true },
+    });
+    const btns = await screen.findAllByTestId('l10n-prefill-namespace');
+    expect(btns[0].className).toContain('btn-icon');
+    expect(btns[0].getAttribute('aria-label')).toContain('quark');
+
+    // Turning consent on must not double the list's tab stops: the AI button
+    // rides the same roving index as its row, so Tab reaches the focused
+    // row's button and then leaves the list.
+    expect(btns.filter((b) => b.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(btns[0].getAttribute('tabindex')).toBe('0');
+  });
 });

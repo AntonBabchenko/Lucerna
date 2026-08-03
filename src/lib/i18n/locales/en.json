@@ -431,7 +431,7 @@
       },
       "prefill": {
         "allButton": "Translate with AI",
-        "namespaceButtonAria": "Translate {namespace} with AI",
+        "namespaceButtonAria": "Translate missing in {namespace} with AI",
         "title": "AI translation",
         "scopeAll": "Every mod in this instance",
         "scopeNamespace": "Only {namespace}",
