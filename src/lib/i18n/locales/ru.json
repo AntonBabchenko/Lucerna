@@ -28,6 +28,12 @@
       "serverZip": "Zip сервера",
       "mod": "Мод",
       "worldZip": "Zip мира"
+    },
+    "editMenu": {
+      "ariaLabel": "Правка",
+      "copy": "Копировать",
+      "cut": "Вырезать",
+      "paste": "Вставить"
     }
   },
   "pagination": {

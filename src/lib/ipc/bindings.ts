@@ -284,6 +284,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	saveScreenshotCopy: (instanceId: string, fileName: string, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_screenshot_copy", { instanceId, fileName, dest })),
 	revealScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("reveal_screenshot", { instanceId, fileName })),
 	openScreenshotsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_screenshots_folder", { instanceId })),
+	/**
+	 *  Read the OS clipboard as text, for the right-click Paste item.
+	 * 
+	 *  Goes through the Rust plugin rather than `navigator.clipboard.readText()`
+	 *  because the three engines Lucerna ships on — WebView2, WebKitGTK and
+	 *  WKWebView — do not agree on whether a custom-scheme origin may read the
+	 *  clipboard without a permission prompt. A refusal would be silent and
+	 *  platform-specific, i.e. found by a user rather than by CI. The plugin is
+	 *  already a dependency (`write_image` backs the screenshot copy), so this
+	 *  adds no crate and no JS package.
+	 * 
+	 *  Reading happens only in direct response to the user picking Paste — never
+	 *  on a timer, on focus, or at startup.
+	 */
+	clipboardReadText: () => typedError<string, Error>(__TAURI_INVOKE("clipboard_read_text")),
 	copyScreenshotToClipboard: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("copy_screenshot_to_clipboard", { instanceId, fileName })),
 	saveAnnotatedScreenshot: (instanceId: string, fileName: string, overlayPngBase64: string, crop: {
 	x: number | null,

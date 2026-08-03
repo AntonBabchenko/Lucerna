@@ -28,6 +28,12 @@
       "serverZip": "Server zip",
       "mod": "Mod",
       "worldZip": "World zip"
+    },
+    "editMenu": {
+      "ariaLabel": "Edit",
+      "copy": "Copy",
+      "cut": "Cut",
+      "paste": "Paste"
     }
   },
   "pagination": {
