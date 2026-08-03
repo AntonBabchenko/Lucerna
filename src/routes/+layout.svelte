@@ -38,7 +38,13 @@
   // a tag: tests/no-native-select.test.ts greps every .svelte file for the
   // literal element and exempts only Select.svelte by filename, so writing it
   // as a tag here — even in a comment — turns this file into an offender.)
+
+  // Same names and maths as ContextMenu.svelte's openAt, so the two read as
+  // siblings: Menu writes top/left into an inline style and clamps nothing
+  // itself, so an unclamped open near an edge puts the items out of reach.
   const MENU_WIDTH = 180;
+  const MARGIN = 8;
+  const ROW = 34;
 
   let menuOpen = $state(false);
   let menuTop = $state(0);
@@ -49,6 +55,9 @@
   // restoring these every item would be a silent no-op.
   let editField = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
   let editRange = $state<SelectionRange | null>(null);
+  // Bumped on every open, so an in-flight paste can tell that a newer menu has
+  // taken over and must not have its focus stolen when the read resolves.
+  let menuGeneration = 0;
 
   function onContextMenu(e: MouseEvent) {
     // e.target may be Window (event dispatched directly on window) or any
@@ -61,8 +70,16 @@
     if (!isTextField(field)) return;
     editField = field;
     editRange = selectionRangeOf(field);
-    menuLeft = e.clientX;
-    menuTop = e.clientY;
+    menuLeft = Math.min(
+      Math.max(e.clientX, MARGIN),
+      Math.max(MARGIN, window.innerWidth - MENU_WIDTH - MARGIN),
+    );
+    const estH = editItems.length * ROW + 10;
+    menuTop = Math.min(
+      Math.max(e.clientY, MARGIN),
+      Math.max(MARGIN, window.innerHeight - estH - MARGIN),
+    );
+    menuGeneration += 1;
     menuOpen = true;
   }
 
@@ -74,6 +91,7 @@
   async function runEdit(action: EditAction) {
     const field = editField;
     const range = editRange;
+    const generation = menuGeneration;
     // Close first so the teardown is ours and ordered, rather than racing the
     // await below.
     menuOpen = false;
@@ -83,6 +101,12 @@
     // between, and execCommand would fire at the wrong element.
     const text = action === 'paste' ? await readClipboard() : null;
     if (action === 'paste' && text === null) return;
+    // A newer menu opened while the read was in flight — it has focus now, and
+    // taking it back would leave that menu deaf to Escape and the arrow keys.
+    // The captured `field` means nothing lands in the wrong input either way;
+    // this is purely about not stealing focus. Only the paste path can suspend,
+    // so this is a no-op for copy and cut.
+    if (generation !== menuGeneration) return;
     field.focus();
     // Only when the field exposes a selection at all — setSelectionRange
     // throws on a number input for the same reason selectionRangeOf does.
@@ -136,7 +160,15 @@
     top={menuTop}
     left={menuLeft}
     width={MENU_WIDTH}
-    onClose={() => (menuOpen = false)}
+    onClose={() => {
+      menuOpen = false;
+      // Every other Menu consumer returns focus to its trigger on close;
+      // here the trigger is the field itself, and dropping focus would strand
+      // a keyboard user who backed out with Escape. On a pick this runs just
+      // before runEdit, which focuses the same element again and then restores
+      // the selection — so the caret restore still wins.
+      editField?.focus();
+    }}
   />
 {/if}
 
