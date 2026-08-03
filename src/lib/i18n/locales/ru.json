@@ -474,7 +474,7 @@
         "doneButton": "Готово"
       },
       "keyTable": {
-        "paneSummary": "{total} ключей · переведено {translated}",
+        "paneSummary": "{total, plural, one {# ключ} few {# ключа} many {# ключей} other {# ключа}} · переведено {translated}",
         "searchPlaceholder": "Поиск по ключу или английскому тексту…",
         "searchAriaLabel": "Поиск ключей перевода",
         "filterGroupLabel": "Статус",

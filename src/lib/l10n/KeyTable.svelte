@@ -270,13 +270,23 @@
     data-testid="l10n-pane-header"
   >
     <span class="truncate font-mono text-xs text-primary">{namespace}</span>
-    <span class="shrink-0 text-xs text-muted">
-      {$t('instance.l10n.keyTable.paneSummary', {
-        total: counts.all,
-        translated: counts.translated,
-      })}
-    </span>
-    {#if origins.machine > 0}
+    <!--
+      Both of these describe `rows`, which still holds the PREVIOUS namespace
+      until the in-flight fetch lands — while `namespace` above is already the
+      new one. Rendering them during the load would put one namespace's name
+      beside another's counts, and the revert confirm interpolates both, so it
+      could promise to remove a count that belongs to the namespace the user
+      just left.
+    -->
+    {#if !loading}
+      <span class="shrink-0 text-xs text-muted">
+        {$t('instance.l10n.keyTable.paneSummary', {
+          total: counts.all,
+          translated: counts.translated,
+        })}
+      </span>
+    {/if}
+    {#if !loading && origins.machine > 0}
       <!--
         Scoped to THIS namespace (revertMachine passes `namespace`), so it
         lives in the namespace's own header rather than among the filters,

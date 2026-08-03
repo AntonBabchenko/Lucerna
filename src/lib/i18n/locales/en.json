@@ -474,7 +474,7 @@
         "doneButton": "Done"
       },
       "keyTable": {
-        "paneSummary": "{total} keys · {translated} translated",
+        "paneSummary": "{total, plural, one {# key} other {# keys}} · {translated} translated",
         "searchPlaceholder": "Search keys or English text…",
         "searchAriaLabel": "Search translation keys",
         "filterGroupLabel": "State",
