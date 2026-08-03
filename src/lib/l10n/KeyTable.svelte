@@ -141,7 +141,14 @@
 
   // Reset to page 0 whenever the visible set's shape changes; clamp down if
   // it shrinks (e.g. switching to a near-empty filter while on a later page).
+  //
+  // `namespace` is read explicitly rather than relying on the reset effect
+  // above: those writes are `===` no-ops whenever the toolbar is already at
+  // its defaults, so without this a user on page 3 of one mod lands on page 3
+  // of the next one. The clamp below only ever clamps downward, so it cannot
+  // stand in for this.
   $effect(() => {
+    void namespace;
     void search;
     void filter;
     void originFilter;

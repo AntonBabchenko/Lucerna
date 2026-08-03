@@ -136,6 +136,24 @@ describe('KeyTable', () => {
     await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(5));
   });
 
+  it('starts a new namespace on the first page', async () => {
+    mockKeysOk(Array.from({ length: 55 }, (_, i) => keyRow({ key: `k${i}`, sourceEn: `K${i}` })));
+    const { rerender } = render(KeyTable, { props });
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(50));
+    await fireEvent.click(screen.getByTestId('pg-next'));
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(5));
+
+    // Same size, so the clamp effect has nothing to clamp — only an explicit
+    // reset can bring the user back to the top of an unrelated key set.
+    mockKeysOk(Array.from({ length: 55 }, (_, i) => keyRow({ key: `t${i}`, sourceEn: `T${i}` })));
+    await rerender({ ...props, namespace: 'thermal' });
+    await waitFor(() =>
+      expect(commands.l10nNamespaceKeys).toHaveBeenCalledWith('inst-1', 'thermal', 'ru_ru'),
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(50));
+  });
+
   it('lets the user save a new override, and reflects the resulting state without a refetch', async () => {
     mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
     vi.mocked(commands.l10nSetOverride).mockResolvedValue({
