@@ -98,6 +98,14 @@ pub fn instance_icon_png(app: &tauri::AppHandle, id: &str) -> tauri::Result<Path
     Ok(instance_dir(app, id)?.join("icon.png"))
 }
 
+/// `<app_data>/instances/<id>/icon.ico` — the Windows shortcut icon rendered
+/// from `icon.png`. A derived cache rather than user data: `instances::clone`
+/// deliberately does not copy it, and deleting the instance takes it along with
+/// the directory. See `shortcuts::icon` for the rules that keep it valid.
+pub fn instance_icon_ico(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
+    Ok(instance_dir(app, id)?.join("icon.ico"))
+}
+
 pub fn minecraft_dir(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
     Ok(instance_dir(app, id)?.join(".minecraft"))
 }

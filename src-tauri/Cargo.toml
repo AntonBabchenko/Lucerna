@@ -114,10 +114,12 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 russh = { version = "0.61.2", default-features = false, features = ["aws-lc-rs", "flate2"] }
 russh-sftp = "2.3.0"
 # Screenshot viewer: decode PNG + downscale to cached JPEG thumbnails/previews
-# (thumb::render_data_url). default-features=false keeps only PNG decode + JPEG
-# encode — the only formats we touch — to minimise the transitive dep surface.
+# (thumb::render_data_url). Desktop shortcuts: encode an instance's picture as a
+# multi-size ICO (shortcuts::icon). default-features=false keeps only PNG decode,
+# JPEG encode and ICO — the only formats we touch — to minimise the transitive
+# dep surface. `ico = ["bmp", "png"]`, both internal, so it adds no new crate.
 # cargo-deny justification: MIT/Apache-2.0; pure-Rust codecs, no system libs.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 # Screenshot viewer: move deleted screenshots to the OS recycle bin (reversible)
 # instead of unlink. cargo-deny justification: `trash` is MIT/Apache-2.0; on
 # Windows it uses the already-present windows-sys shell APIs — no new license class.

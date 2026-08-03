@@ -12,6 +12,8 @@
 //! v1 support (an `.app` alias with arguments is a different mechanism) and
 //! reports that honestly instead of writing a file that would not work.
 
+pub mod icon;
+
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -237,34 +239,77 @@ pub fn create(app: &tauri::AppHandle, target: &ShortcutTarget, label: &str) -> R
         .map_err(|e| Error::io("<desktop_dir>", e.to_string()))?;
     std::fs::create_dir_all(&dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let path = unique_path(&dir, &sanitize_stem(label), ext);
-    write_shortcut(&exe, &build_args(target), label, &path)?;
+    let icon = resolve_icon(app, target.instance_id())?;
+    write_shortcut(&exe, &build_args(target), label, icon.as_deref(), &path)?;
     Ok(path.display().to_string())
 }
 
+/// The file a shortcut should use as its icon, or `None` to leave the icon
+/// unset. Windows needs an `.ico` rendered from the instance picture; a Linux
+/// `.desktop` entry can name the PNG directly.
+fn resolve_icon(app: &tauri::AppHandle, instance_id: &str) -> Result<Option<PathBuf>> {
+    let png = crate::paths::instance_icon_png(app, instance_id)
+        .map_err(|e| Error::io("<instance icon path>", e))?;
+    #[cfg(windows)]
+    {
+        let ico = crate::paths::instance_icon_ico(app, instance_id)
+            .map_err(|e| Error::io("<instance icon path>", e))?;
+        icon::ensure_for_shortcut(&png, &ico)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(png.is_file().then_some(png))
+    }
+}
+
 #[cfg(windows)]
-fn write_shortcut(exe: &Path, args: &[String], _label: &str, path: &Path) -> Result<()> {
+fn write_shortcut(
+    exe: &Path,
+    args: &[String],
+    label: &str,
+    icon: Option<&Path>,
+    path: &Path,
+) -> Result<()> {
     let mut link = mslnk::ShellLink::new(exe)
         .map_err(|e| Error::io(exe.display().to_string(), format!("shortcut target: {e}")))?;
     link.set_arguments(Some(quote_args(args)));
+    link.set_name(Some(label.to_string()));
     if let Some(parent) = exe.parent() {
         link.set_working_dir(Some(parent.display().to_string()));
     }
-    // Index 0 of the launcher exe: instance pictures are PNG, and a .lnk icon
-    // must be an .ico or an exe resource. Per-instance icons are a follow-up.
-    link.set_icon_location(Some(format!("{},0", exe.display())));
+    // ICON_LOCATION is a plain path. The icon INDEX is a separate field of the
+    // header (mslnk defaults it to 0), so the `path,index` form used in the
+    // registry's DefaultIcon values does not belong here — it makes the shell
+    // hunt for a file of that literal name and draw nothing. Leaving the field
+    // unset is not a fallback we tolerate but the one we want: the shell then
+    // takes the target exe's own icon.
+    if let Some(icon) = icon {
+        link.set_icon_location(Some(icon.display().to_string()));
+    }
     link.create_lnk(path)
         .map_err(|e| Error::io(path.display().to_string(), format!("write .lnk: {e}")))
 }
 
 #[cfg(target_os = "linux")]
-fn write_shortcut(exe: &Path, args: &[String], label: &str, path: &Path) -> Result<()> {
+fn write_shortcut(
+    exe: &Path,
+    args: &[String],
+    label: &str,
+    icon: Option<&Path>,
+    path: &Path,
+) -> Result<()> {
     // Plain text entry — no MIME database involved, so nothing to refresh.
+    // `Icon=` takes either a theme name or an absolute path to an image file,
+    // so an instance picture needs no ICO conversion here.
+    let icon_entry = icon
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "lucerna".to_string());
     let body = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name={label}\n\
          Exec={} {}\n\
-         Icon=lucerna\n\
+         Icon={icon_entry}\n\
          Terminal=false\n\
          Categories=Game;\n",
         exe.display(),
@@ -277,7 +322,13 @@ fn write_shortcut(exe: &Path, args: &[String], label: &str, path: &Path) -> Resu
 }
 
 #[cfg(target_os = "macos")]
-fn write_shortcut(_exe: &Path, _args: &[String], _label: &str, _path: &Path) -> Result<()> {
+fn write_shortcut(
+    _exe: &Path,
+    _args: &[String],
+    _label: &str,
+    _icon: Option<&Path>,
+    _path: &Path,
+) -> Result<()> {
     // Unreachable in practice: `create` returns early because
     // `shortcut_extension()` is None on macOS. Kept as a real arm so adding
     // macOS support means writing this function, not finding a panic.
@@ -531,6 +582,92 @@ mod tests {
                 "round-trip failed for command line: {line}"
             );
         }
+    }
+
+    /// UTF-16LE bytes of `s`, the encoding `mslnk` uses for StringData.
+    #[cfg(windows)]
+    fn utf16(s: &str) -> Vec<u8> {
+        s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_written_lnk_points_at_an_icon_file_that_exists() {
+        // The regression that started this work: the icon location used to be
+        // written as `format!("{},0", exe)`. `,0` is the DefaultIcon-registry
+        // convention, NOT the .lnk format — there the icon index is a separate
+        // header field and ICON_LOCATION is a plain path. So the shell looked
+        // for a file literally named `lucerna.exe,0`, failed, and drew nothing.
+        //
+        // A test on the path-resolving function alone cannot catch this: the
+        // defect was at the call site, wrapping an already-correct value. So
+        // this one reads the file we actually wrote.
+        let d = tempfile::tempdir().expect("tempdir");
+        let exe = std::env::current_exe().expect("current_exe");
+        let ico = d.path().join("icon.ico");
+        std::fs::write(&ico, b"only the path matters here").expect("write ico");
+        let lnk = d.path().join("Pack.lnk");
+
+        write_shortcut(
+            &exe,
+            &["--launch".into(), "p".into()],
+            "Pack",
+            Some(&ico),
+            &lnk,
+        )
+        .expect("write shortcut");
+
+        let bytes = std::fs::read(&lnk).expect("read lnk");
+        // ICON_LOCATION is the last StringData mslnk writes, so the file ends
+        // with exactly the path — any suffix appended to it fails here.
+        assert!(
+            bytes.ends_with(&utf16(&ico.display().to_string())),
+            "the .lnk must end with the icon path verbatim"
+        );
+        assert!(ico.is_file(), "and that path must be a real file");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_shortcut_without_an_icon_leaves_the_field_unset() {
+        // Not merely "no icon of ours": the HAS_ICON_LOCATION flag must be
+        // clear, which is what makes the shell fall back to the target exe's
+        // own icon. Setting the field to anything unresolvable suppresses that.
+        let d = tempfile::tempdir().expect("tempdir");
+        let exe = std::env::current_exe().expect("current_exe");
+        let lnk = d.path().join("Pack.lnk");
+
+        write_shortcut(&exe, &["--launch".into(), "p".into()], "Pack", None, &lnk)
+            .expect("write shortcut");
+
+        let bytes = std::fs::read(&lnk).expect("read lnk");
+        // LinkFlags is a u32 at offset 0x14; HAS_ICON_LOCATION is bit 6.
+        let flags = u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+        assert_eq!(flags & (1 << 6), 0, "HAS_ICON_LOCATION must be clear");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_desktop_entry_uses_the_instance_picture_directly() {
+        // `Icon=` accepts an absolute path to an image file, so Linux needs no
+        // ICO conversion at all — and falls back to the installed theme icon.
+        let d = tempfile::tempdir().expect("tempdir");
+        let exe = std::path::PathBuf::from("/usr/bin/lucerna");
+        let png = d.path().join("icon.png");
+        std::fs::write(&png, b"png").expect("write png");
+        let args = vec!["--launch".to_string(), "p".to_string()];
+
+        let with = d.path().join("with.desktop");
+        write_shortcut(&exe, &args, "Pack", Some(&png), &with).expect("write with icon");
+        assert!(std::fs::read_to_string(&with)
+            .expect("read")
+            .contains(&format!("Icon={}\n", png.display())));
+
+        let without = d.path().join("without.desktop");
+        write_shortcut(&exe, &args, "Pack", None, &without).expect("write without icon");
+        assert!(std::fs::read_to_string(&without)
+            .expect("read")
+            .contains("Icon=lucerna\n"));
     }
 
     #[test]
