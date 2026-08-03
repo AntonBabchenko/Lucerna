@@ -7,8 +7,12 @@ import {
   displayValue,
   filterByOrigin,
   filterRows,
+  type KeyView,
+  stickyOutOfView,
+  viewCount,
   visibleOriginFilters,
   visibleStateFilters,
+  visibleViews,
 } from '$lib/l10n/key-rows';
 
 // key-rows.ts itself has no IPC — this mock exists only for the KeyEditRow
@@ -314,5 +318,119 @@ describe('KeyEditRow origin round-trip', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(onSaved.mock.calls[0][0]).toMatchObject({ state: 'orphan', overrideValue: 'Новое' });
+  });
+});
+
+describe('one filter axis', () => {
+  const rows: KeyRow[] = [
+    row({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+    row({ key: 'b', sourceEn: 'B', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+    row({
+      key: 'c',
+      sourceEn: 'C',
+      state: 'stale',
+      overrideValue: 'В',
+      modValue: 'C2',
+      origin: 'machine',
+    }),
+    row({ key: 'd', sourceEn: 'D', state: 'missing' }),
+    row({ key: 'e', sourceEn: 'E', state: 'from_mod', modValue: 'Е' }),
+  ];
+
+  // The whole point of the collapse: "AI" is a VIEW over every row the AI
+  // wrote, not a narrowing of whatever state chip happens to be active. As a
+  // second axis it could only ever intersect ok/stale/orphan, because origin
+  // is written alongside an override and nowhere else.
+  it('"machine" shows every AI-written row regardless of state', () => {
+    expect(filterRows(rows, '', 'machine').map((r) => r.key)).toEqual(['b', 'c']);
+  });
+
+  it('"manual" shows every hand-written row regardless of state', () => {
+    expect(filterRows(rows, '', 'manual').map((r) => r.key)).toEqual(['a']);
+  });
+
+  it('an origin view still obeys the search box', () => {
+    expect(filterRows(rows, 'c', 'machine').map((r) => r.key)).toEqual(['c']);
+  });
+
+  it('a sticky key survives a view it no longer matches', () => {
+    const sticky = new Set(['d']);
+    // 'd' is missing, so "translated" excludes it — but the user just changed
+    // it, so it keeps its place in the list.
+    expect(filterRows(rows, '', 'translated', sticky).map((r) => r.key)).toEqual([
+      'a',
+      'b',
+      'd',
+      'e',
+    ]);
+  });
+
+  it('a sticky key is exempt from the view but never from the search', () => {
+    const sticky = new Set(['d']);
+    expect(filterRows(rows, 'a', 'translated', sticky).map((r) => r.key)).toEqual(['a']);
+  });
+
+  it('preserves row order rather than moving a sticky row to the end', () => {
+    const sticky = new Set(['a']);
+    expect(filterRows(rows, '', 'missing', sticky).map((r) => r.key)).toEqual(['a', 'd']);
+  });
+
+  it('counts only the sticky rows that no longer match the view', () => {
+    expect(stickyOutOfView(rows, 'translated', new Set(['d']))).toBe(1);
+    // 'a' is translated, so it is in the view on its own merits — nothing to
+    // refresh away.
+    expect(stickyOutOfView(rows, 'translated', new Set(['a']))).toBe(0);
+    expect(stickyOutOfView(rows, 'all', new Set(['a', 'd']))).toBe(0);
+    expect(stickyOutOfView(rows, 'translated', new Set())).toBe(0);
+  });
+
+  it('reads each view’s count from the bucket that owns it', () => {
+    const counts = { all: 5, translated: 3, stale: 1, orphan: 0, missing: 1 };
+    const origins = { manual: 1, machine: 2 };
+    expect(viewCount('all', counts, origins)).toBe(5);
+    expect(viewCount('translated', counts, origins)).toBe(3);
+    expect(viewCount('missing', counts, origins)).toBe(1);
+    expect(viewCount('stale', counts, origins)).toBe(1);
+    expect(viewCount('orphan', counts, origins)).toBe(0);
+    expect(viewCount('manual', counts, origins)).toBe(1);
+    expect(viewCount('machine', counts, origins)).toBe(2);
+  });
+
+  it('always renders the anchor views and drops the empty ones', () => {
+    const visible = visibleViews(
+      { all: 0, translated: 0, stale: 0, orphan: 0, missing: 0 },
+      { manual: 0, machine: 0 },
+    );
+    expect(visible).toEqual(['all', 'translated', 'missing']);
+  });
+
+  it('adds a view once it has something to show, in canonical order', () => {
+    const visible = visibleViews(
+      { all: 6, translated: 3, stale: 2, orphan: 0, missing: 1 },
+      { manual: 1, machine: 2 },
+    );
+    expect(visible).toEqual(['all', 'translated', 'missing', 'stale', 'manual', 'machine']);
+  });
+
+  // Without this, saving the last "needs review" key drops its count to zero,
+  // the chip vanishes, and KeyTable's fallback effect forces the view back to
+  // "all" — flooding the table with the whole mod on the very action the
+  // sticky set exists to make undisruptive.
+  it('keeps the view you are standing in while it still holds sticky rows', () => {
+    const visible = visibleViews(
+      { all: 6, translated: 4, stale: 0, orphan: 0, missing: 2 },
+      { manual: 1, machine: 0 },
+      'stale',
+    );
+    expect(visible).toEqual(['all', 'translated', 'missing', 'stale', 'manual']);
+  });
+
+  it('does not duplicate a kept view that is already visible', () => {
+    const visible = visibleViews(
+      { all: 6, translated: 4, stale: 1, orphan: 0, missing: 2 },
+      { manual: 0, machine: 0 },
+      'stale' satisfies KeyView,
+    );
+    expect(visible).toEqual(['all', 'translated', 'missing', 'stale']);
   });
 });
