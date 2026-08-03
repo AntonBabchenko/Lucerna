@@ -528,7 +528,9 @@ pub async fn dependency_preflight_for_root(
 mod tests {
     use super::*;
     use crate::instances::schema::LoaderKind;
-    use crate::mods::local::{DeclaredDep, DependencyKind, ManifestDeps, ProvidedMod};
+    use crate::mods::local::{
+        DeclaredDep, DependencyKind, DescriptorSource, ManifestDeps, ProvidedMod,
+    };
     use crate::mods::version_range::RangeFamily;
 
     #[test]
@@ -713,12 +715,29 @@ mod tests {
         dep_of(id, range, family, DependencyKind::Required)
     }
     fn dep_of(id: &str, range: &str, family: RangeFamily, kind: DependencyKind) -> DeclaredDep {
+        // Every Maven case in this module stands for a modern Forge/NeoForge
+        // `mods.toml`; the legacy annotation has its own dedicated fixtures.
+        let source = match family {
+            RangeFamily::Maven => DescriptorSource::ModsToml,
+            RangeFamily::FabricPredicate => DescriptorSource::FabricJson,
+            RangeFamily::QuiltPredicate => DescriptorSource::QuiltJson,
+        };
+        dep_from(id, range, family, kind, source)
+    }
+    fn dep_from(
+        id: &str,
+        range: &str,
+        family: RangeFamily,
+        kind: DependencyKind,
+        source: DescriptorSource,
+    ) -> DeclaredDep {
         DeclaredDep {
             dep_id: id.into(),
             range: range.into(),
             kind,
             side: DepSide::Both,
             family,
+            source,
         }
     }
     fn modz(sha: &str, provided: Vec<ProvidedMod>, deps: Vec<DeclaredDep>) -> ParsedMod {

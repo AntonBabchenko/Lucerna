@@ -25,7 +25,7 @@
 //! than diverge from FML: honouring a `required = false` would silently drop a
 //! dependency the loader still enforces.
 
-use crate::mods::local::{DeclaredDep, DepSide, DependencyKind, ProvidedMod};
+use crate::mods::local::{DeclaredDep, DepSide, DependencyKind, DescriptorSource, ProvidedMod};
 use crate::mods::version_range::RangeFamily;
 
 /// Which descriptor file the text came from — decides key precedence.
@@ -35,6 +35,16 @@ pub enum Descriptor {
     LegacyForge,
     /// `META-INF/neoforge.mods.toml` — NeoForge ≥ 1.20.6.
     NeoForge,
+}
+
+impl Descriptor {
+    /// The provenance tag for dependencies parsed out of this file.
+    pub(crate) fn source(self) -> DescriptorSource {
+        match self {
+            Descriptor::LegacyForge => DescriptorSource::ModsToml,
+            Descriptor::NeoForge => DescriptorSource::NeoForgeToml,
+        }
+    }
 }
 
 /// What one descriptor declares. Versions are raw — `${file.jarVersion}` is
@@ -139,6 +149,7 @@ pub fn parse(text: &str, descriptor: Descriptor) -> Option<ForgeDescriptor> {
                     kind: kind_of(d, descriptor),
                     side: side_of(d),
                     family: RangeFamily::Maven,
+                    source: descriptor.source(),
                 });
             }
         }

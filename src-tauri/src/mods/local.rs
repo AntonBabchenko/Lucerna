@@ -62,6 +62,25 @@ impl DependencyKind {
     }
 }
 
+/// Which descriptor a declared dependency came out of.
+///
+/// [`RangeFamily`] cannot answer this — `Maven` covers `mods.toml`,
+/// `neoforge.mods.toml` and the legacy `@Mod` annotation alike — and the
+/// pre-flight needs it to drop declarations from a file the instance's loader
+/// never opens. Forge 1.12.2 does not read `mods.toml`; Forge 1.20 does not read
+/// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorSource {
+    /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
+    McmodAnnotation,
+    /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
+    ModsToml,
+    /// `META-INF/neoforge.mods.toml` — NeoForge ≥ 1.20.6.
+    NeoForgeToml,
+    FabricJson,
+    QuiltJson,
+}
+
 /// One declared dependency with everything the resolver needs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeclaredDep {
@@ -70,6 +89,9 @@ pub struct DeclaredDep {
     pub kind: DependencyKind,
     pub side: DepSide,
     pub family: RangeFamily,
+    /// The descriptor this declaration was read out of. Decides whether the
+    /// instance's loader enforces it at all — see `preflight::dep_applies_to_instance`.
+    pub source: DescriptorSource,
 }
 
 /// A mod id this jar provides, with its own declared version (post
@@ -584,6 +606,7 @@ fn parse_forge_manifest_regex(
                 kind: regex_dep_kind(&block, descriptor),
                 side,
                 family,
+                source: descriptor.source(),
             });
         }
         deps_from = end;
@@ -640,6 +663,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
                 kind: DependencyKind::Required,
                 side: DepSide::Both,
                 family: RangeFamily::FabricPredicate,
+                source: DescriptorSource::FabricJson,
             });
         }
     }
@@ -711,6 +735,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
                 },
                 side: DepSide::Both,
                 family: RangeFamily::QuiltPredicate,
+                source: DescriptorSource::QuiltJson,
             });
         }
     }
@@ -1230,6 +1255,49 @@ mod tests {
             w.finish().unwrap();
         }
         buf
+    }
+
+    /// Every declared dependency must carry the file it came out of. `RangeFamily`
+    /// cannot answer this — `Maven` covers `mods.toml`, `neoforge.mods.toml` and
+    /// the legacy annotation alike — and the pre-flight needs it to drop a
+    /// declaration from a descriptor the instance's loader never opens.
+    #[test]
+    fn declared_deps_carry_their_descriptor_source() {
+        let toml = "modLoader=\"javafml\"\n[[mods]]\nmodId=\"a\"\n\
+                    [[dependencies.a]]\nmodId=\"b\"\nmandatory=true\nversionRange=\"[1,)\"\n";
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", toml)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", toml)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::NeoForgeToml);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"a","depends":{"b":">=1.0.0"}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::FabricJson);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "quilt.mod.json",
+            r#"{"quilt_loader":{"id":"a","depends":[{"id":"b","versions":"*"}]}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::QuiltJson);
+    }
+
+    /// The regex fallback runs on descriptors that are not valid TOML, and must
+    /// stamp the same provenance the TOML path would.
+    #[test]
+    fn the_regex_fallback_stamps_the_descriptor_source_too() {
+        let broken = "[[mods]]\nlogoFile=\"assets\\icon.png\"\n\
+                      [[dependencies.a]]\nmodId=\"b\"\nmandatory=true\n";
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", broken)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", broken)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::NeoForgeToml);
     }
 
     // ── regex fallback (only reached when a descriptor is not valid TOML) ──
