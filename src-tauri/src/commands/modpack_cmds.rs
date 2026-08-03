@@ -781,6 +781,11 @@ pub async fn modpack_apply_update(
         // changes the loader family is precisely when the user needs to know
         // which bundled jars have stopped loading.
         inert_loader_jars,
+        // Per-file install-report rows for the version-update path are out of
+        // scope here — this task instruments the fresh-import path only
+        // (`install_resolved_pack`'s `install_selected_files`). Left empty
+        // rather than fabricated.
+        details: vec![],
     });
     Ok(updated_inst)
 }
@@ -856,6 +861,10 @@ pub async fn modpack_reimport_overrides(
         instance_id: instance_id.clone(),
         skipped_overrides: outcome.skipped,
         inert_loader_jars,
+        // Per-file install-report rows are out of scope for the
+        // reimport-overrides path — see the same note in
+        // `modpack_apply_update`.
+        details: vec![],
     });
     Ok(())
 }

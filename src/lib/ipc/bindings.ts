@@ -2380,6 +2380,19 @@ export type DependencyGraph = {
 };
 
 /**
+ *  What happened to one file.
+ * 
+ *  `fetched` and `placement` are ORTHOGONAL. `fetch_to_cache` always ensures the
+ *  sha-keyed file exists in `mod-cache/` (downloading only on a miss) and
+ *  `materialize` then hardlinks *from that cache path* either way — so a freshly
+ *  downloaded jar is ALSO `Linked`. Collapsing them into one union would make
+ *  "linked" read as "was not downloaded", which is false.
+ */
+export type DetailOutcome = { kind: "installed"; fetched: Fetched; placement: Placement } | 
+/**  Destination already held a byte-identical file; no store call was made. */
+{ kind: "unchanged" } | { kind: "skipped"; reason: string } | { kind: "failed"; reason: string };
+
+/**
  *  A single diagnoser hit. Returned by `diagnose` and consumed
  *  directly by the UI. Pattern_id is on the wire so per-pattern
  *  presentation tweaks (icons, etc.) can be added later without
@@ -2647,6 +2660,13 @@ export type ExportPreview = {
 	 */
 	saves_size_bytes: number | null,
 };
+
+/**
+ *  Whether a file's bytes were pulled over the network for this task, or were
+ *  already sitting in the content-addressed cache from a prior install.
+ *  Orthogonal to [`crate::mods::store::Placement`] — see [`DetailOutcome`].
+ */
+export type Fetched = "downloaded" | "cached";
 
 /**
  *  What the Connect tab shows. `NotApplicable` = non-Windows; `Unknown` = port
@@ -3876,7 +3896,15 @@ skipped_overrides: SkippedOverride[];
  *  `InertLoaderJar`). Empty in the common case; non-empty drives a
  *  non-fatal "N inert jar(s)" note on the import-complete toast.
  */
-inert_loader_jars: InertLoaderJar[] };
+inert_loader_jars: InertLoaderJar[]; 
+/**
+ *  One row per file this import touched — what it was, where it came
+ *  from, how big, and what happened to it. Rides this terminal
+ *  message rather than a dedicated event (correlation is free: the
+ *  channel belongs to one invocation); a later task persists it into
+ *  a per-file install report.
+ */
+details: TaskDetail[] };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -5093,6 +5121,40 @@ export type SourceCaps = {
 	/**  Modrinth/CF support export; FTB packs are curated (nowhere to upload). */
 	can_export: boolean,
 };
+
+/**  One file's provenance and outcome — a row in a per-file install report. */
+export type TaskDetail = {
+	name: string,
+	install_path: string,
+	origin: TaskOrigin,
+	host: string | null,
+	bytes: number | null,
+	sha1: string | null,
+	outcome: DetailOutcome,
+};
+
+/**
+ *  Where a file's bytes came from.
+ * 
+ *  NOT `ModSource`: that enum is Copy+Hash+Eq, is persisted in four on-disk
+ *  schemas and keys the exhaustive `platform_for` match, so widening it with
+ *  archive/local would force meaningless HTTP-client arms. This maps *from* it.
+ * 
+ *  Named `TaskOrigin`, never `Origin` — `l10n::store::Origin` already owns the
+ *  short name and the bindings exporter dedupes on the bare Rust type name
+ *  (the same trap that forced `ModInstallPhase`).
+ */
+export type TaskOrigin = "modrinth" | "curseforge" | "ftb" | "atlauncher" | 
+/**
+ *  A file extracted from a modpack/archive rather than fetched from a
+ *  named platform (e.g. a pack's `overrides/` entry).
+ */
+"archive" | 
+/**
+ *  A user-supplied local file, or a source with no report-worthy
+ *  platform identity (see the `Hangar` mapping below).
+ */
+"local";
 
 export type ThemePreference = "system" | "light" | "dark";
 

@@ -385,6 +385,19 @@ pub async fn install_one(
     })
 }
 
+/// Outcome of `install_asset`. Unlike `Installed::placement` this is never
+/// `Option`: `install_asset` has no idempotent-skip branch — every
+/// successful call runs `store::materialize` — so a real placement always
+/// exists. In practice always `Placement::Copied` (`install_asset` always
+/// passes `LinkPolicy::ForceCopy`), but captured from the actual
+/// `materialize` return rather than assumed by the caller, so this stays
+/// honest if that policy ever changes.
+#[derive(Debug)]
+pub struct AssetInstalled {
+    pub fetched: crate::tasks::Fetched,
+    pub placement: crate::mods::store::Placement,
+}
+
 /// Install a downloaded file to an arbitrary declared path under the
 /// instance's `.minecraft/`. Unlike `install_one` this does NOT record
 /// anything in `installed-mods.json` — assets (resourcepacks, shaders,
@@ -398,7 +411,7 @@ pub async fn install_asset(
     size: f64,
     install_path: &str,
     progress: &ProgressFn,
-) -> Result<(), Error> {
+) -> Result<AssetInstalled, Error> {
     // Empty/whitespace sha1 guard FIRST (no-TOFU, Principle B.6): refuse to
     // install a file whose integrity we cannot verify, before any I/O.
     if sha.trim().is_empty() {
@@ -412,9 +425,8 @@ pub async fn install_asset(
         });
     }
     let sha_lower = sha.to_ascii_lowercase();
-    let cached_path = fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress)
-        .await?
-        .path;
+    let fetch = fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress).await?;
+    let cached_path = fetch.path;
 
     progress(ModInstallPhase::Copying, 0, None);
     let mc_dir = instance_root.join(".minecraft");
@@ -451,7 +463,7 @@ pub async fn install_asset(
     // chokepoint anyway for the temp-then-rename guarantee: this copy is
     // unconditional over an existing destination, and that destination may be a
     // link.
-    crate::mods::store::materialize(
+    let placement = crate::mods::store::materialize(
         &cached_path,
         &dest,
         crate::mods::store::LinkPolicy::ForceCopy,
@@ -461,7 +473,10 @@ pub async fn install_asset(
         path: e.path.display().to_string(),
         details: e.details(),
     })?;
-    Ok(())
+    Ok(AssetInstalled {
+        fetched: fetch.fetched,
+        placement,
+    })
 }
 
 /// Directory under `.minecraft/` for a non-mod content kind.
@@ -1218,6 +1233,41 @@ mod tests {
         .unwrap();
         let dest = td_inst.path().join(".minecraft/resourcepacks/RP.zip");
         assert_eq!(tokio::fs::read(&dest).await.unwrap(), body);
+    }
+
+    /// `install_asset` used to discard `fetch_to_cache`'s provenance and
+    /// `store::materialize`'s placement, returning bare `()`. The install
+    /// report (a later consumer) needs both. `placement` must be the REAL
+    /// value `materialize` returned, not a caller-side assumption — even
+    /// though `install_asset` always passes `LinkPolicy::ForceCopy`, so it is
+    /// captured from the actual call, not hardcoded.
+    #[tokio::test]
+    async fn install_asset_reports_fetched_and_placement() {
+        let body = b"tracked-provenance-bytes";
+        let sha = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rp2.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let outcome = install_asset(
+            td_data.path(),
+            td_inst.path(),
+            &format!("{}/rp2.zip", s.uri()),
+            &sha,
+            body.len() as f64,
+            "resourcepacks/RP2.zip",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.fetched, crate::tasks::Fetched::Downloaded);
+        assert_eq!(outcome.placement, crate::mods::store::Placement::Copied);
     }
 
     #[tokio::test]
