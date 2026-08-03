@@ -508,7 +508,7 @@
         "stickyRefreshTitle": "Keys you changed stay where they are until you refresh, so the list doesn't move while you work.",
         "machineBadge": "AI",
         "machineBadgeTitle": "Translated by AI. Editing it makes it yours.",
-        "revertMachineButton": "Revert AI in this mod",
+        "revertMachineButton": "Revert AI translation in this mod",
         "revertConfirmTitle": "Revert AI translations?",
         "revertConfirmBody": "{count, plural, one {This removes # AI translation} other {This removes # AI translations}} from {namespace}. Anything you wrote or edited yourself stays.",
         "revertConfirmButton": "Revert",
