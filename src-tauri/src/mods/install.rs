@@ -60,6 +60,17 @@ pub struct ProgressTick {
     pub total: Option<f64>,
 }
 
+/// Where the cached bytes came from, plus the path they landed at.
+///
+/// The `fetched` flag is only correct AT THIS LAYER: `install_batch` warms the
+/// cache before `install_one` runs, so a caller that re-derives it later always
+/// sees a hit.
+#[derive(Debug)]
+pub(crate) struct Fetch {
+    pub path: std::path::PathBuf,
+    pub fetched: crate::tasks::Fetched,
+}
+
 /// Ensure the file with content-hash `sha` (lowercase hex) is present in
 /// the shared content-addressed cache. Cache hit: returns the cached
 /// path immediately. Cache miss: streams the file through the audited
@@ -72,7 +83,7 @@ pub(crate) async fn fetch_to_cache(
     size: f64,
     initiator: &str,
     progress: &ProgressFn,
-) -> Result<std::path::PathBuf, Error> {
+) -> Result<Fetch, Error> {
     // No-TOFU (Principle B.6): refuse to install a file whose integrity we cannot
     // verify, before any I/O. Mirrors install_asset's guard so the invariant holds
     // at the sink, not only on the summary-formation path. An empty expected hash
@@ -82,6 +93,11 @@ pub(crate) async fn fetch_to_cache(
     }
     let cached = cache::verify_or_evict(data_dir, sha).await?;
     let cached_path = cache::cache_path_for(data_dir, sha);
+    let fetched = if cached {
+        crate::tasks::Fetched::Cached
+    } else {
+        crate::tasks::Fetched::Downloaded
+    };
     if !cached {
         let tmp = cached_path.with_extension("tmp");
         // download_inner verifies SHA-1 internally, deletes the partial
@@ -115,7 +131,10 @@ pub(crate) async fn fetch_to_cache(
                 details: e.to_string(),
             })?;
     }
-    Ok(cached_path)
+    Ok(Fetch {
+        path: cached_path,
+        fetched,
+    })
 }
 
 /// Download an md5-only file (ATLauncher server/direct mods), verifying the
@@ -216,7 +235,8 @@ pub async fn install_one(
         "mods",
         progress,
     )
-    .await?;
+    .await?
+    .path;
 
     // 3. Copy into instance
     progress(ModInstallPhase::Copying, 0, None);
@@ -339,7 +359,9 @@ pub async fn install_asset(
         });
     }
     let sha_lower = sha.to_ascii_lowercase();
-    let cached_path = fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress).await?;
+    let cached_path = fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress)
+        .await?
+        .path;
 
     progress(ModInstallPhase::Copying, 0, None);
     let mc_dir = instance_root.join(".minecraft");
@@ -1033,6 +1055,48 @@ mod tests {
             matches!(r2, Err(Error::ModsSha1Unavailable)),
             "whitespace sha must be rejected with ModsSha1Unavailable, got {r2:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn fetch_to_cache_reports_downloaded_then_cached() {
+        let s = MockServer::start().await;
+        let payload = b"fetch-to-cache-provenance-bytes";
+        let sha = hex::encode(Sha1::digest(payload));
+        Mock::given(method("GET"))
+            .and(path("/f.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.to_vec()))
+            .expect(1) // second call must be a cache hit, not a second download
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let url = format!("{}/f.jar", s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let first = fetch_to_cache(
+            td_data.path(),
+            &url,
+            &sha,
+            payload.len() as f64,
+            "mods",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.fetched, crate::tasks::Fetched::Downloaded);
+
+        let second = fetch_to_cache(
+            td_data.path(),
+            &url,
+            &sha,
+            payload.len() as f64,
+            "mods",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.fetched, crate::tasks::Fetched::Cached);
+        assert_eq!(first.path, second.path);
     }
 
     #[tokio::test]

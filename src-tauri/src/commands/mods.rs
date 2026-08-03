@@ -382,7 +382,7 @@ pub async fn mods_install_with_deps(
             else {
                 continue;
             };
-            let Ok(bytes) = tokio::fs::read(&cached).await else {
+            let Ok(bytes) = tokio::fs::read(&cached.path).await else {
                 continue;
             };
             if !jar_provides(&bytes, &needed_id) {
@@ -586,7 +586,7 @@ async fn copy_version_into_dir(
             filename: v.primary_file.filename.clone(),
         });
     }
-    tokio::fs::copy(&cached, &out)
+    tokio::fs::copy(&cached.path, &out)
         .await
         .map_err(|e| crate::error::Error::io(out.display().to_string(), e))?;
     Ok(v.primary_file.filename.clone())
@@ -715,7 +715,7 @@ pub(crate) async fn install_version_into_dir(
                 else {
                     continue;
                 };
-                let Ok(bytes) = tokio::fs::read(&cached).await else {
+                let Ok(bytes) = tokio::fs::read(&cached.path).await else {
                     continue;
                 };
                 if !jar_provides(&bytes, &needed_id) {
@@ -1812,7 +1812,7 @@ async fn manifest_extra_root_versions(
     else {
         return Vec::new();
     };
-    let Ok(bytes) = tokio::fs::read(&cached).await else {
+    let Ok(bytes) = tokio::fs::read(&cached.path).await else {
         return Vec::new();
     };
 
@@ -1967,7 +1967,7 @@ pub async fn mods_install_missing_required(
         &nop,
     )
     .await?;
-    let bytes = tokio::fs::read(&cached)
+    let bytes = tokio::fs::read(&cached.path)
         .await
         .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
     if !jar_provides(&bytes, &needed_id) {
