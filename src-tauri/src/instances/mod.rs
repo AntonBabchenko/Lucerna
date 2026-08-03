@@ -122,7 +122,6 @@ pub(crate) fn unix_ms_f64() -> f64 {
 /// UI (Modpacks tab). They are best-effort — pass `None` if the import
 /// path could not look them up. `mrpack_source` is conceptually paired
 /// with `mrpack` (an import either populates both or neither).
-#[allow(clippy::too_many_arguments)]
 pub fn create_instance(
     app: &tauri::AppHandle,
     name: String,
@@ -130,11 +129,7 @@ pub fn create_instance(
     loader: LoaderKind,
     loader_version: Option<String>,
     max_heap_mb: Option<u32>,
-    mrpack: Option<(String, String)>,
-    mrpack_project_id: Option<String>,
-    mrpack_source: Option<crate::mods::platform::ModSource>,
-    mrpack_summary: Option<String>,
-    mrpack_version_id: Option<String>,
+    pack: crate::instances::schema::PackOrigin,
     imported_from: Option<crate::instances::schema::ImportProvenance>,
     created_from_server: Option<String>,
 ) -> Result<InstanceWithStatus> {
@@ -143,7 +138,12 @@ pub fn create_instance(
     // all path resolution downstream is unchanged).
     let instances_parent =
         paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
-    let (id, dir) = crate::naming::reserve_unique_dir(&instances_parent, &name, None, "instance")?;
+    let (id, dir) = crate::naming::reserve_unique_dir(
+        &instances_parent,
+        &name,
+        pack.slug.as_deref(),
+        "instance",
+    )?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // create never leaks the slug (which would force every future same-name
     // create to climb -2, -3, …). Disarmed on success via `keep()`.
@@ -151,12 +151,13 @@ pub fn create_instance(
 
     std::fs::create_dir_all(dir.join(".minecraft"))
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
-    let (mrpack_name, mrpack_version) = match mrpack {
+    let (mrpack_name, mrpack_version) = match pack.name_and_version {
         Some((n, v)) => (Some(n), Some(v)),
         None => (None, None),
     };
     let inst = InstanceFile {
         id: id.clone(),
+        uid: Some(crate::instances::ids::new_id()),
         name,
         mc_version,
         loader,
@@ -167,10 +168,10 @@ pub fn create_instance(
         created_unix_ms: unix_ms_f64(),
         mrpack_name,
         mrpack_version,
-        mrpack_project_id,
-        mrpack_source,
-        mrpack_summary,
-        mrpack_version_id,
+        mrpack_project_id: pack.project_id,
+        mrpack_source: pack.source,
+        mrpack_summary: pack.summary,
+        mrpack_version_id: pack.version_id,
         integrity: None,
         imported_from,
         created_from_server,
@@ -441,6 +442,7 @@ mod tests {
     fn pack_instance() -> schema::InstanceFile {
         schema::InstanceFile {
             id: "aaaa-bbbb-cccc-dddd-eeeeffffaaaa".into(),
+            uid: None,
             name: "Pack Instance".into(),
             mc_version: "1.20.1".into(),
             loader: schema::LoaderKind::Fabric,
@@ -465,6 +467,7 @@ mod tests {
     fn plain_instance() -> schema::InstanceFile {
         schema::InstanceFile {
             id: "1111-2222-3333-4444-555566667777".into(),
+            uid: None,
             name: "Plain".into(),
             mc_version: "1.20.4".into(),
             loader: schema::LoaderKind::Vanilla,

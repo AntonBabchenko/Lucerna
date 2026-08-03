@@ -256,11 +256,7 @@ pub fn create_instance(
         loader,
         loader_version,
         max_heap_mb,
-        None,
-        None,
-        None,
-        None,
-        None,
+        crate::instances::schema::PackOrigin::default(),
         None,
         None,
     )

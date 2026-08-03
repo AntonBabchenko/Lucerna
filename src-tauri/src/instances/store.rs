@@ -76,6 +76,7 @@ mod tests {
     fn sample_instance() -> InstanceFile {
         InstanceFile {
             id: "3f4a-bbbb".into(),
+            uid: None,
             name: "Default".into(),
             mc_version: "1.20.4".into(),
             loader: LoaderKind::Vanilla,

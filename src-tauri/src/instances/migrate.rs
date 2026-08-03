@@ -78,6 +78,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
 
     let inst = InstanceFile {
         id: id.clone(),
+        uid: Some(crate::instances::ids::new_id()),
         name: "Default".into(),
         mc_version,
         loader: LoaderKind::Vanilla,

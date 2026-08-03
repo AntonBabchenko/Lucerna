@@ -726,6 +726,7 @@ pub async fn install_resolved_pack(
                     PackMeta {
                         name: cf_name,
                         description: cf_summary,
+                        slug: None,
                     },
                     parser_source,
                 )
@@ -747,6 +748,7 @@ pub async fn install_resolved_pack(
     let PackMeta {
         name: platform_name,
         description: mrpack_summary,
+        slug: pack_slug,
     } = pack_meta;
     let pack_name = resolve_pack_name(platform_name.as_deref(), &summary.name);
 
@@ -769,11 +771,14 @@ pub async fn install_resolved_pack(
         summary.loader,
         summary.loader_version.clone(),
         None, // heap: adaptive default, editable afterwards in Manage
-        Some((pack_name.clone(), summary.version.clone())),
-        mrpack_project_id,
-        mrpack_source,
-        mrpack_summary,
-        hint_version_id,
+        crate::instances::schema::PackOrigin {
+            name_and_version: Some((pack_name.clone(), summary.version.clone())),
+            project_id: mrpack_project_id,
+            source: mrpack_source,
+            summary: mrpack_summary,
+            version_id: hint_version_id,
+            slug: pack_slug,
+        },
         None,
         None,
     )
@@ -1098,6 +1103,15 @@ pub async fn import(
 struct PackMeta {
     name: Option<String>,
     description: Option<String>,
+    /// The platform's URL slug (`redstone-survival-optimization`). ASCII by
+    /// construction, which is why `naming::derive_base` prefers it over
+    /// transliterating a CJK/Cyrillic pack title. Transient — used to pick the
+    /// directory name at create time and never persisted.
+    ///
+    /// Modrinth only: CurseForge's `cf_api::fetch_summary` returns just
+    /// `(name, summary)`, so CF packs fall through to transliteration. A
+    /// readability gap, never a correctness one.
+    slug: Option<String>,
 }
 
 /// Modrinth `version_id` → `(project_id, PackMeta)`. Two hops:
@@ -1144,6 +1158,8 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     struct P {
         title: Option<String>,
         description: Option<String>,
+        /// Already in this response — reading it costs no extra request.
+        slug: Option<String>,
     }
 
     let p_url = format!("https://api.modrinth.com/v2/project/{project_id}");
@@ -1164,6 +1180,7 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     Ok(PackMeta {
         name: p.title,
         description: p.description,
+        slug: p.slug,
     })
 }
 

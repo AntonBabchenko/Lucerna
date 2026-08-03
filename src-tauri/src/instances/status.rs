@@ -94,6 +94,7 @@ mod tests {
     fn make(mc: &str, loader: LoaderKind, lv: Option<&str>) -> InstanceFile {
         InstanceFile {
             id: "x".into(),
+            uid: None,
             name: "x".into(),
             mc_version: mc.into(),
             loader,
