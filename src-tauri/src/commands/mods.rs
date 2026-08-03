@@ -512,12 +512,19 @@ pub async fn mods_install_with_deps(
             installed_dependencies.push(inst.name.clone());
         }
     }
+    // Per-file provenance/outcome rows for this install, persisted below under
+    // a freshly minted task id so the journal row can deep-link back to them.
+    let details = mod_install_details(&install_seq, &installed_all);
     // ONE journal row per user action, not one per written jar: "installed
     // Create" is the history the user recognises, with the dependency count as
     // supporting detail. Written after the batch COMMITS (so a rolled-back
     // install leaves no trace) but BEFORE the fallible `set_requires` below —
     // the jars are already durably on disk at this point, so a `set_requires`
     // failure must not erase the record of a change that really happened.
+    // `mint_and_record` persists `details` under a fresh id BEFORE the journal
+    // write, so the row below always names a report that already exists on
+    // disk — never the reverse.
+    let task_id = crate::reports::mint_and_record(&inst_root, details.clone());
     crate::journal::record(
         &inst_root,
         crate::journal::JournalEvent::Content {
@@ -526,13 +533,12 @@ pub async fn mods_install_with_deps(
             from_version: None,
             to_version: Some(primary_v.version_number.clone()),
             affected: Some(installed_all.len() as f64),
-            report_id: None,
+            report_id: Some(task_id),
         },
     );
     if let Some(sha1) = primary_sha1 {
         crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
     }
-    let details = mod_install_details(&install_seq, &installed_all);
     Ok(crate::mods::platform::InstallSummary {
         primary_name: primary_v.name.clone(),
         installed_dependencies,

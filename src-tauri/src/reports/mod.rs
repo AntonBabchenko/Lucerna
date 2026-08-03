@@ -127,6 +127,25 @@ pub fn record(instance_root: &Path, task_id: impl Into<String>, details: Vec<Tas
     }
 }
 
+/// Mint a fresh, collision-free task id and persist `details` under it in one
+/// call — the join point every install path uses so the id backing the
+/// report file on disk is always the SAME id a journal row can be stamped
+/// with via `JournalEvent::with_report_id`. Returns the id for the caller to
+/// do that stamping.
+///
+/// Deliberately narrow: this mints + writes only. Building the `JournalEvent`
+/// itself varies per call site (different actions, subjects, versions), so
+/// that stays at the call site rather than being forced through here.
+///
+/// The id comes from [`crate::instances::ids::new_id`] (UUID v4), not a
+/// timestamp: two installs finishing within the same millisecond must not
+/// collide and silently overwrite each other's report.
+pub fn mint_and_record(instance_root: &Path, details: Vec<TaskDetail>) -> String {
+    let task_id = crate::instances::ids::new_id();
+    record(instance_root, task_id.clone(), details);
+    task_id
+}
+
 fn write_or_log(instance_root: &Path, report: &TaskReport) {
     if let Err(e) = write_report(instance_root, report) {
         crate::diag!(
@@ -345,5 +364,76 @@ mod tests {
         std::fs::write(td.path().join(".lucerna"), b"not a dir").unwrap();
         record(td.path(), "task-x", vec![detail("sodium")]);
         assert!(write_sync(td.path(), "task-x", vec![detail("sodium")]).is_err());
+    }
+
+    #[test]
+    fn mint_and_record_writes_a_report_reachable_by_the_returned_id() {
+        let td = tempfile::tempdir().unwrap();
+        let details = vec![detail("sodium")];
+
+        let task_id = mint_and_record(td.path(), details.clone());
+
+        let got = read(td.path(), &task_id).unwrap().expect("report exists");
+        assert_eq!(got.task_id, task_id);
+        assert_eq!(got.details, details);
+    }
+
+    #[test]
+    fn mint_and_record_ids_never_collide_across_calls() {
+        // Two operations completing within the same millisecond must not
+        // silently overwrite each other's report — this is exactly what a
+        // bare timestamp-as-id would risk.
+        let td = tempfile::tempdir().unwrap();
+
+        let id_a = mint_and_record(td.path(), vec![detail("sodium")]);
+        let id_b = mint_and_record(td.path(), vec![detail("lithium")]);
+
+        assert_ne!(id_a, id_b);
+        assert_eq!(
+            read(td.path(), &id_a)
+                .unwrap()
+                .expect("report a exists")
+                .details,
+            vec![detail("sodium")]
+        );
+        assert_eq!(
+            read(td.path(), &id_b)
+                .unwrap()
+                .expect("report b exists")
+                .details,
+            vec![detail("lithium")]
+        );
+    }
+
+    #[test]
+    fn mint_and_record_id_can_be_stamped_onto_a_journal_row() {
+        // Pins the round trip the History tab depends on: the id
+        // `mint_and_record` returns is the SAME id a `JournalEvent::Content`
+        // row can carry via `with_report_id`, and that row's id resolves back
+        // to the report `mint_and_record` just wrote. Uses `journal::record`
+        // (not the test-only `append`) — called outside a tokio runtime, it
+        // writes synchronously, so the read below is deterministic.
+        let td = tempfile::tempdir().unwrap();
+
+        let task_id = mint_and_record(td.path(), vec![detail("sodium")]);
+        crate::journal::record(
+            td.path(),
+            crate::journal::content(crate::journal::ContentAction::ModInstalled, "Sodium")
+                .with_report_id(task_id.as_str()),
+        );
+
+        let entries = crate::journal::read(td.path(), 10).unwrap();
+        assert_eq!(entries.len(), 1, "expected exactly one journal row");
+        let crate::journal::JournalEvent::Content { report_id, .. } = &entries[0].event else {
+            panic!("expected a Content event");
+        };
+        assert_eq!(
+            report_id.as_deref(),
+            Some(task_id.as_str()),
+            "journal row must carry the same id mint_and_record returned"
+        );
+
+        let report = read(td.path(), &task_id).unwrap().expect("report exists");
+        assert_eq!(report.task_id, task_id);
     }
 }

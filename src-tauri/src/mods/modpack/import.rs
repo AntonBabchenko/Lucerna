@@ -900,6 +900,12 @@ async fn install_selected_files(
 /// `archive_bytes` is `None` for FTB packs — they have no local archive
 /// and therefore no overrides to extract; the overrides block is guarded
 /// by this option. All other behaviour is identical for every format.
+///
+/// Returns the per-file `TaskDetail` rows alongside the created instance —
+/// NOT carried on `InstanceWithStatus` itself (that type is the general
+/// instance schema, reused far beyond one import) — so the caller
+/// (`commands::modpack_cmds::journal_pack_import`) can persist them into an
+/// install report and stamp the journal row that names it.
 #[allow(clippy::too_many_arguments)]
 pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
@@ -921,7 +927,13 @@ pub async fn install_resolved_pack(
     // wrapped channel closure already satisfies these bounds.
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+) -> Result<
+    (
+        crate::instances::schema::InstanceWithStatus,
+        Vec<TaskDetail>,
+    ),
+    Error,
+> {
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
     }
@@ -1216,11 +1228,14 @@ pub async fn install_resolved_pack(
         instance_id: inst.id.clone(),
         skipped_overrides,
         inert_loader_jars,
-        details,
+        // Cloned: the live-toast progress event and the returned details both
+        // need an owned copy — the caller persists the latter into a report
+        // right after this call returns.
+        details: details.clone(),
     });
 
     if failures.is_empty() {
-        Ok(inst)
+        Ok((inst, details))
     } else {
         Err(Error::ModpackPartialFailure {
             instance_id: inst.id,
@@ -1246,7 +1261,13 @@ pub async fn import(
     hint_version_id: Option<String>,
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+) -> Result<
+    (
+        crate::instances::schema::InstanceWithStatus,
+        Vec<TaskDetail>,
+    ),
+    Error,
+> {
     on_progress(ModpackProgress::Inspecting);
     let summary = inspect(bytes, cf_base).await?;
     install_resolved_pack(

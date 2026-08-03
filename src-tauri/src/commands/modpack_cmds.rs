@@ -73,7 +73,7 @@ pub async fn modpack_import(
     if is_staged_summary_sidecar(&path) {
         let summary = read_staged_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
-        let imported = modpack::import::install_resolved_pack(
+        let (imported, details) = modpack::import::install_resolved_pack(
             &app,
             summary,
             &selected_shas,
@@ -89,7 +89,7 @@ pub async fn modpack_import(
             install_progress,
         )
         .await?;
-        journal_pack_import(&app, &imported);
+        journal_pack_import(&app, &imported, details);
         return Ok(imported);
     }
 
@@ -100,7 +100,7 @@ pub async fn modpack_import(
             path: path.clone(),
             details: e.to_string(),
         })?;
-    let imported = modpack::import::import(
+    let (imported, details) = modpack::import::import(
         &app,
         &bytes,
         &selected_shas,
@@ -115,18 +115,24 @@ pub async fn modpack_import(
         install_progress,
     )
     .await?;
-    journal_pack_import(&app, &imported);
+    journal_pack_import(&app, &imported, details);
     Ok(imported)
 }
 
 /// Open the freshly-created instance's journal with the import that made it.
 /// Shared by the sidecar and archive paths so the two cannot record the pack
 /// differently. Silent on a path failure — the import itself succeeded.
+///
+/// `mint_and_record` persists `details` under a fresh task id BEFORE the
+/// journal write below (chained via `with_report_id`), so the row always
+/// names a report that already exists on disk.
 fn journal_pack_import(
     app: &tauri::AppHandle,
     imported: &crate::instances::schema::InstanceWithStatus,
+    details: Vec<crate::tasks::TaskDetail>,
 ) {
     if let Ok(inst_root) = instance_root(app, &imported.id) {
+        let task_id = crate::reports::mint_and_record(&inst_root, details);
         crate::journal::record(
             &inst_root,
             crate::journal::content_versioned(
@@ -137,7 +143,8 @@ fn journal_pack_import(
                     .unwrap_or_else(|| imported.name.clone()),
                 None,
                 imported.mrpack_version.clone(),
-            ),
+            )
+            .with_report_id(task_id),
         );
     }
 }
@@ -737,6 +744,10 @@ pub async fn modpack_apply_update(
     )?;
     // One row for the whole version bump, with the file churn as detail —
     // the per-mod installs above are the mechanism, not the user's action.
+    // `mint_and_record` persists `details` (phase 2's per-file rows) under a
+    // fresh id BEFORE the journal write below, so the row always names a
+    // report that already exists on disk.
+    let task_id = crate::reports::mint_and_record(&inst_root, details.clone());
     crate::journal::record(
         &inst_root,
         crate::journal::JournalEvent::Content {
@@ -745,7 +756,7 @@ pub async fn modpack_apply_update(
             from_version: Some(previous_version),
             to_version: Some(summary.version.clone()),
             affected: Some((diff.added.len() + diff.updated.len() + diff.removed.len()) as f64),
-            report_id: None,
+            report_id: Some(task_id),
         },
     );
     let _ = on_progress.send(ModpackProgress::Done {
