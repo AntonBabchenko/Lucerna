@@ -180,6 +180,8 @@ describe('countOrigins', () => {
       row({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' }),
       row({ key: 'b', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
       row({ key: 'c', state: 'ok', overrideValue: 'В', origin: 'machine' }),
+      // No override at all, so there is no origin to attribute and it lands in
+      // neither bucket — which is why manual + machine is 3, not 4.
       row({ key: 'd', state: 'missing', origin: null }),
     ];
     expect(countOrigins(rows)).toEqual({ manual: 1, machine: 2 });

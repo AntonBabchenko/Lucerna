@@ -105,9 +105,15 @@ export function stickyOutOfView(
   return out;
 }
 
-/** How many rows carry each override origin, in one pass. The machine count
- *  also drives bulk revert, which has to be able to say how many entries it
- *  is about to drop *before* the user confirms it. */
+export type OriginCounts = { manual: number; machine: number };
+
+/** How many rows carry each override origin, in one pass.
+ *
+ *  Always call this with the FULL namespace row set, never a filtered one. The
+ *  machine count does not just size a chip: it gates the bulk-revert button and
+ *  is the number interpolated into that destructive confirm, while the backend
+ *  revert takes no filter and drops every machine entry in the namespace. Fed a
+ *  filtered subset, the dialog would under-report what it is about to delete. */
 export function countOrigins(rows: KeyRow[]): OriginCounts {
   const counts = { manual: 0, machine: 0 };
   for (const row of rows) {
@@ -139,8 +145,6 @@ export function countKeyStates(rows: KeyRow[]): FilterCounts {
   return counts;
 }
 
-export type OriginCounts = { manual: number; machine: number };
-
 /** Canonical chip order: the five state views, then the two origin views. */
 const VIEW_ORDER: readonly KeyView[] = [
   'all',
@@ -162,8 +166,7 @@ const ANCHOR_VIEWS: ReadonlySet<KeyView> = new Set(['all', 'translated', 'missin
  *  records on purpose: the four state buckets partition `all`, whereas manual
  *  and machine OVERLAP translated (a machine-written 'ok' row is in both) and
  *  a from_mod row is in neither. Merging them into FilterCounts would break
- *  that partition, and `countOrigins` has to stay namespace-wide anyway — it
- *  is the number the destructive bulk-revert confirm quotes. */
+ *  that partition. */
 export function viewCount(view: KeyView, counts: FilterCounts, origins: OriginCounts): number {
   switch (view) {
     case 'all':
