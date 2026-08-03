@@ -48,6 +48,14 @@ describe('i18n locale parity (en vs ru)', () => {
     return [...value.matchAll(/\{\s*(\w+)\s*[,}]/g)].map((m) => m[1]).sort();
   }
 
+  // Deliberately NOT asserted here: that a key which is a plural message in one
+  // locale is one in both. Russian frequently sidesteps plural agreement with a
+  // colon form ("Удалено модов: {count}"), which is correct for every count and
+  // is a translator's choice, not a defect — a symmetry rule would ban it. The
+  // hazard that shape mismatch creates (a caller reads the plain `en` value and
+  // pre-formats the number, breaking the other locale's plural selector) is
+  // covered directly by tests/i18n-plural-args.test.ts, which derives its key
+  // set from BOTH locales.
   it('ICU argument placeholders match between en and ru', () => {
     const mismatches = Object.keys(flatEn)
       .filter((k) => k in flatRu)
