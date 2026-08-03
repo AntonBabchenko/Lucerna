@@ -102,7 +102,7 @@
   >
     {groupLabel($t, $locale ?? 'en', group.startMs, screenshotGranularity.value)}
   </h3>
-  <ScreenshotGrid shots={group.shots} {onChanged} onOpen={open} />
+  <ScreenshotGrid shots={group.shots} onOpen={open} />
 {/each}
 
 <div class="flex items-center justify-center gap-3 p-4 text-sm text-muted">
