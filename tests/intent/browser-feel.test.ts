@@ -1,6 +1,7 @@
 // Cluster H: browser-feel cleanup. Asserts that the three browser-native
 // behaviours we suppress in app.css + +layout.svelte stay suppressed:
-//   1. Global `contextmenu` is preventDefault'd at the window level.
+//   1. Global `contextmenu` is preventDefault'd at the window level —
+//      everywhere, text fields included (they get the app's own edit menu).
 //   2. CSS user-select base reset is present in src/app.css.
 //   3. The .selectable opt-in utility is defined.
 //
@@ -33,32 +34,39 @@ describe('Cluster H — contextmenu suppression', () => {
     expect(evt.defaultPrevented).toBe(true);
   });
 
-  it('preserves native right-click menu inside an <input> (M1 fix)', () => {
-    // Paste-heavy editable fields (CurseForge API key, name entry) keep
-    // their native Cut/Copy/Paste menu so right-click → Paste still works
-    // without a custom dropdown.
+  // Text fields used to be the exception: they kept the native Cut/Copy/Paste
+  // menu so that right-click → Paste worked in paste-heavy fields like the
+  // CurseForge API key entry. That exception is gone — the app now renders its
+  // own menu with those same three actions, so the native surface (which
+  // ignores the theme and carries Reload / Back / spell-check) is suppressed
+  // here too. What the replacement menu contains is pinned separately, in
+  // tests/layout-edit-menu.test.ts; this file only guards the suppression.
+  it('suppresses the native menu inside an <input>', () => {
     const emptySnippet = (() => null) as unknown as never;
     render(Layout, { props: { children: emptySnippet } });
     const input = document.createElement('input');
     document.body.appendChild(input);
     const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     input.dispatchEvent(evt);
-    expect(evt.defaultPrevented).toBe(false);
+    expect(evt.defaultPrevented).toBe(true);
     document.body.removeChild(input);
   });
 
-  it('preserves native right-click menu inside a <textarea> (M1 fix)', () => {
+  it('suppresses the native menu inside a <textarea>', () => {
     const emptySnippet = (() => null) as unknown as never;
     render(Layout, { props: { children: emptySnippet } });
     const textarea = document.createElement('textarea');
     document.body.appendChild(textarea);
     const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     textarea.dispatchEvent(evt);
-    expect(evt.defaultPrevented).toBe(false);
+    expect(evt.defaultPrevented).toBe(true);
     document.body.removeChild(textarea);
   });
 
-  it('preserves native right-click menu inside a contenteditable=true element (M1 fix)', () => {
+  // No contenteditable surface exists in src/ today (the app.css rule is
+  // defensive), so this one gets suppression without a replacement menu —
+  // the layout only offers the menu over <input> / <textarea>.
+  it('suppresses the native menu inside a contenteditable=true element', () => {
     const emptySnippet = (() => null) as unknown as never;
     render(Layout, { props: { children: emptySnippet } });
     const div = document.createElement('div');
@@ -66,7 +74,7 @@ describe('Cluster H — contextmenu suppression', () => {
     document.body.appendChild(div);
     const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     div.dispatchEvent(evt);
-    expect(evt.defaultPrevented).toBe(false);
+    expect(evt.defaultPrevented).toBe(true);
     document.body.removeChild(div);
   });
 });

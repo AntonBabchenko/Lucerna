@@ -89,16 +89,24 @@
       const res = await commands.l10nSetOverride(namespace, lang, row.key, draft, row.sourceEn);
       if (res.status === 'ok') {
         // The backend validated `draft` against the CURRENT sourceEn we just
-        // sent, so the resulting state is deterministic: an override that
-        // matches the current English is 'ok', full stop — no re-fetch
-        // needed to know that.
+        // sent, so the resulting state is deterministic — with one exception.
+        // `state_of` returns Orphan for a key that is gone from the mod's
+        // English map BEFORE it ever compares source_en, so an orphan stays an
+        // orphan no matter what the user writes into it. Claiming 'ok' here
+        // would show a green "Translated" pill until the next refetch quietly
+        // took it back.
         //
         // `origin: 'manual'` is not decoration: the patch spreads `...row`, so
         // a hand-edited machine string would otherwise keep its marker and
         // then be silently wiped by the next bulk revert. It also mirrors what
         // the backend just did — `NamespaceStore::set` hardcodes
         // `Origin::Manual`, so the row would be wrong until the next refetch.
-        onSaved({ ...row, overrideValue: draft, state: 'ok', origin: 'manual' });
+        onSaved({
+          ...row,
+          overrideValue: draft,
+          state: row.state === 'orphan' ? 'orphan' : 'ok',
+          origin: 'manual',
+        });
         announcement = $t('instance.l10n.keyTable.savedAnnouncement');
       } else {
         // Not mirrored into `announcement`: the error paragraph below is
