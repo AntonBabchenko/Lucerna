@@ -23,6 +23,20 @@ pub enum ModSource {
     Hangar,
 }
 
+impl ModSource {
+    /// Every variant. `tasks::TaskOrigin`'s `From<ModSource>` mapping is
+    /// exhaustively tested against this, the same shape as `AiProvider::ALL`
+    /// in `instances::schema` — adding a variant without adding it here is
+    /// caught by a test rather than by a silently-unmapped source later.
+    pub const ALL: [ModSource; 5] = [
+        ModSource::Modrinth,
+        ModSource::Curseforge,
+        ModSource::Ftb,
+        ModSource::Atlauncher,
+        ModSource::Hangar,
+    ];
+}
+
 /// What kind of content a search/install targets. `Mod` is the historical
 /// default so payloads that omit it keep working (serde `default`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Hash, Default)]

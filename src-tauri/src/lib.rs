@@ -25,6 +25,7 @@ pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
 pub mod shortcuts;
+pub mod tasks;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
 /// (see the module docs for the glibc `setenv`/`getenv` heap-corruption flake
 /// they avoid). Public so the `tests/` integration binaries can call `scope`.

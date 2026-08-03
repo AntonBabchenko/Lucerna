@@ -40,7 +40,12 @@ const FORCE_LINK_FAILURE: &str = "LUCERNA_TEST_FORCE_LINK_FAILURE";
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// How a store entry ended up in the instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+///
+/// Deserialize (not just Serialize): `tasks::DetailOutcome::Installed` embeds
+/// this and round-trips through a persisted per-file install report, so a
+/// write-only derive here would fail to compile the moment that type gained
+/// its own `Deserialize`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
     /// One physical file, shared with the store and any other instance.
