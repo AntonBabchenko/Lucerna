@@ -222,6 +222,23 @@ async fn resolve_one(
                             downloads: 0.0,
                             author: String::new(),
                             updated_at: None,
+                            // DELIBERATE EXCEPTION to the field's contract (see
+                            // `platform::ModSummary::loaders`, which says `None`
+                            // means only "this source cannot report"). Modrinth
+                            // and CurseForge both can, but this summary is
+                            // synthesized locally for crash-log citation
+                            // resolution and never fetched. Splicing in the
+                            // `ModVersion`'s per-version loaders would be wrong —
+                            // different granularity from the project-level union
+                            // this field carries.
+                            //
+                            // Safe because this value never reaches
+                            // `summary_cache`: it only builds a
+                            // `ResolveTier::Exact` candidate and is dropped. If
+                            // that ever changes, it MUST be revisited — a `None`
+                            // that gets persisted is marked stale on every graph
+                            // resolve, i.e. a permanent refetch.
+                            loaders: None,
                         };
                         return ResolveTier::Exact {
                             candidate: Box::new(make_candidate(&summary, v)),
@@ -356,6 +373,7 @@ mod tests {
             downloads: 1.0,
             author: "a".into(),
             updated_at: None,
+            loaders: None,
         }
     }
 

@@ -311,6 +311,11 @@ impl ModPlatform for ModrinthClient {
                     downloads: h.downloads as f64,
                     author: h.author,
                     updated_at: h.date_modified,
+                    // Search interleaves loader tags into `categories`, which
+                    // `SearchHit` does not parse. Search hits never enter the
+                    // dependency graph (it batches `summaries()` by project id),
+                    // so leaving this unknown costs nothing.
+                    loaders: None,
                 })
                 .collect(),
             total: body.total_hits,
@@ -618,6 +623,29 @@ impl ModPlatform for ModrinthClient {
     }
 }
 
+/// Map Modrinth loader slugs to `LoaderKind`, dropping every tag that is not a
+/// loader we model.
+///
+/// Modrinth's loader vocabulary is much wider than this list — it also carries
+/// `datapack`, `iris`, `optifine`, `canvas`, `rift`, `bukkit`, … Dropping them
+/// is deliberate and load-bearing for the dependency graph: a shader or datapack
+/// project maps to an EMPTY vec, and an empty loader set never suppresses a
+/// dependency row (`local::loaders_disjoint_from_instance`). `minecraft` maps to
+/// `Vanilla`, which is loader-agnostic and likewise never suppresses.
+fn loaders_from_slugs(slugs: &[String]) -> Vec<LoaderKind> {
+    slugs
+        .iter()
+        .filter_map(|s| match s.as_str() {
+            "fabric" => Some(LoaderKind::Fabric),
+            "quilt" => Some(LoaderKind::Quilt),
+            "forge" => Some(LoaderKind::Forge),
+            "neoforge" => Some(LoaderKind::NeoForge),
+            "minecraft" => Some(LoaderKind::Vanilla),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Map a Modrinth `Project` to the normalized summary. Shared by `project()`
 /// and the batched `summaries()` so both paths agree on the field mapping
 /// (author = team, no `updated_at` — the project endpoint omits it).
@@ -632,6 +660,10 @@ fn summary_from_project(p: &types::Project) -> ModSummary {
         downloads: p.downloads as f64,
         author: p.team.clone(),
         updated_at: None,
+        // Always `Some`, empty vec included — Modrinth CAN report project
+        // loaders, so `None` here would mean "unknown source" and would mark the
+        // cached entry permanently stale. See `platform::ModSummary::loaders`.
+        loaders: Some(loaders_from_slugs(&p.loaders)),
     }
 }
 
@@ -684,18 +716,7 @@ fn convert_version(v: types::Version) -> ModVersion {
         name: v.name,
         version_number: v.version_number,
         mc_versions: v.game_versions,
-        loaders: v
-            .loaders
-            .into_iter()
-            .filter_map(|s| match s.as_str() {
-                "fabric" => Some(LoaderKind::Fabric),
-                "quilt" => Some(LoaderKind::Quilt),
-                "forge" => Some(LoaderKind::Forge),
-                "neoforge" => Some(LoaderKind::NeoForge),
-                "minecraft" => Some(LoaderKind::Vanilla),
-                _ => None,
-            })
-            .collect(),
+        loaders: loaders_from_slugs(&v.loaders),
         primary_file: pf,
         deps: v
             .dependencies
@@ -881,7 +902,8 @@ mod tests {
                 r#"[
                   {"id":"jei","slug":"jei","title":"JEI","description":"Items",
                    "body":"","icon_url":"https://media.modrinth.com/i.png","downloads":10,
-                   "source_url":null,"wiki_url":null,"team":"t","gallery":[]},
+                   "source_url":null,"wiki_url":null,"team":"t","gallery":[],
+                   "loaders":["fabric","neoforge","iris"]},
                   {"id":"sodium","slug":"sodium","title":"Sodium","description":"Perf",
                    "body":"","icon_url":null,"downloads":99,
                    "source_url":null,"wiki_url":null,"team":"jelly","gallery":[]}
@@ -897,6 +919,19 @@ mod tests {
         assert_eq!(out[0].name, "JEI");
         assert_eq!(out[0].slug.as_deref(), Some("jei"));
         assert_eq!(out[1].author, "jelly");
+        // The batch endpoint carries project-level `loaders`; unknown tags
+        // ("iris") are dropped rather than failing the decode.
+        assert_eq!(
+            out[0].loaders,
+            Some(vec![LoaderKind::Fabric, LoaderKind::NeoForge])
+        );
+        // Absent key ⇒ empty vec, NOT None: Modrinth *can* report loaders, and
+        // `None` would mark the cached entry permanently stale.
+        assert_eq!(
+            out[1].loaders,
+            Some(Vec::new()),
+            "a project with no loaders key must be Some(empty), never None"
+        );
     }
 
     #[tokio::test]

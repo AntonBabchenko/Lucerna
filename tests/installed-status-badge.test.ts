@@ -82,6 +82,34 @@ describe('dependency relation chip', () => {
   const depChips = () =>
     screen.getAllByRole('button').filter((b) => /dep|required by/i.test(b.textContent ?? ''));
 
+  // Loader-scoping a merged multi-loader jar's foreign-family children can empty
+  // `required` entirely. The chip is the ONLY control that opens DepSection, so
+  // gating it on required-deps alone would hide the still-correct optional
+  // section as the price of hiding a phantom one.
+  it('renders the chip for an optional-only row, with a non-empty label', () => {
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        depTotal: 0,
+        requiredBy: [],
+        root: {
+          sha1: 'a',
+          source: 'modrinth',
+          project_id: 'p',
+          name: 'Alpha',
+          required: [],
+          optional: [{ source: 'modrinth', project_id: 'sod', name: 'Sodium' }],
+        } as never,
+      },
+    });
+    const chip = screen.getByTestId('dep-expand-chip');
+    // Assert WHICH label fills the slot, not merely that one exists: a widened
+    // gate with no label part renders a bare chevron, and a wrong/stale i18n key
+    // would still satisfy a non-empty check.
+    expect(chip.textContent).toMatch(/optional/i);
+  });
+
   it('renders a SINGLE toggle combining both counts when the mod has deps AND is required-by', async () => {
     const onToggleExpand = vi.fn();
     render(InstalledModRow, {

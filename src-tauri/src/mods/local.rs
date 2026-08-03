@@ -837,6 +837,34 @@ pub(crate) fn loaders_disjoint_from_instance(
         .any(|l| *l == LoaderKind::Vanilla || instance_family(*l) == Some(inf))
 }
 
+/// True when `node_loaders` names at least one loader of a DIFFERENT family
+/// than the instance — i.e. this release is a merged multi-loader build.
+///
+/// Such a release necessarily ships ONE platform dependency list covering every
+/// loader it targets, because neither Modrinth nor CurseForge can scope a
+/// dependency to a loader. That flat union is the whole cause of the phantom
+/// "requires Fabric API" row on a NeoForge instance, and this predicate is how
+/// the dependency graph recognises the situation.
+///
+/// It exists to BOUND a weaker signal. Judging a child by its project-level
+/// loader union is a proxy, and a proxy is only safe where the metadata is
+/// provably ambiguous. A single-family release declares unambiguous
+/// dependencies; adjudicating those with a coarse union could only invent false
+/// negatives. Measured on a 140-mod instance: gated, 2 of 115 dependency rows
+/// are adjudicated (both genuine phantoms); ungated, all 115 are — to remove
+/// the same 2.
+///
+/// A `Vanilla` tag is loader-agnostic and never counts as foreign, and a
+/// Vanilla *instance* has no family, so nothing is ever ambiguous there.
+pub(crate) fn spans_foreign_family(node_loaders: &[LoaderKind], instance: LoaderKind) -> bool {
+    let Some(inf) = instance_family(instance) else {
+        return false;
+    };
+    node_loaders
+        .iter()
+        .any(|l| instance_family(*l).is_some_and(|f| f != inf))
+}
+
 /// The mod-id Sinytra Connector declares.
 const CONNECTOR_MOD_ID: &str = "connector";
 
@@ -1115,6 +1143,43 @@ mod tests {
     fn loader_scope_matrix() {
         use LoaderKind::*;
         // Forge instance: a Fabric-family declaring node is inert → suppress.
+        // `spans_foreign_family` — the ambiguity gate. True only when the node
+        // targets a family this instance does not run, i.e. a merged build.
+        assert!(
+            !spans_foreign_family(&[NeoForge], NeoForge),
+            "single family"
+        );
+        assert!(
+            !spans_foreign_family(&[Forge, NeoForge], NeoForge),
+            "same family"
+        );
+        assert!(
+            spans_foreign_family(&[Fabric, NeoForge], NeoForge),
+            "merged"
+        );
+        assert!(spans_foreign_family(&[Fabric], NeoForge), "wholly foreign");
+        assert!(
+            !spans_foreign_family(&[], NeoForge),
+            "no tags, nothing ambiguous"
+        );
+        assert!(
+            !spans_foreign_family(&[Vanilla], NeoForge),
+            "Vanilla is agnostic"
+        );
+        assert!(
+            !spans_foreign_family(&[Vanilla, NeoForge], NeoForge),
+            "Vanilla never makes a same-family node ambiguous"
+        );
+        assert!(
+            !spans_foreign_family(&[Fabric, Forge], Vanilla),
+            "no instance family"
+        );
+        assert!(
+            !spans_foreign_family(&[Fabric], Quilt),
+            "Quilt and Fabric are one family"
+        );
+        assert!(spans_foreign_family(&[Forge], Quilt));
+
         assert!(loaders_disjoint_from_instance(&[Fabric], Forge));
         assert!(loaders_disjoint_from_instance(&[Quilt], Forge));
         // Forge instance: Forge / multi-loader incl. Forge / NeoForge (same family) → keep.

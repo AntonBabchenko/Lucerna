@@ -275,6 +275,10 @@ fn convert_summary(p: types::HangarProject) -> ModSummary {
         downloads: p.stats.downloads as f64,
         author: p.namespace.owner,
         updated_at: p.last_updated,
+        // Hangar serves Paper/Bukkit plugins and has no mod-loader concept;
+        // `LoaderKind` has no variant for it. Permanently unknown by design —
+        // `platform::supplies_project_loaders` encodes the same answer.
+        loaders: None,
     }
 }
 

@@ -748,6 +748,7 @@
       "bulkHint": "Выберите моды для массового включения, отключения, обновления или удаления",
       "resolvingShort": "загрузка…",
       "depCount": "{count, plural, one {# зависимость} few {# зависимости} many {# зависимостей} other {# зависимости}}",
+      "depOptionalCount": "{count, plural, one {# необязательная} few {# необязательные} many {# необязательных} other {# необязательных}}",
       "depMissing": "{count, plural, one {# отсутствует} few {# отсутствует} many {# отсутствует} other {# отсутствует}}",
       "requiredByCount": "требуется для {count}",
       "sectionRequires": "Требует",
