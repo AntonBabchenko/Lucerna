@@ -537,7 +537,8 @@ pub fn set_instance_icon(
 ) -> Result<(), crate::error::Error> {
     let path = crate::paths::instance_icon_png(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
-    crate::instances::icon::write_icon(&path, &png_base64)
+    crate::instances::icon::write_icon(&path, &png_base64)?;
+    refresh_shortcut_icon(&app, &instance_id, &path)
 }
 
 /// Remove an instance's custom picture (back to the letter avatar). Idempotent.
@@ -549,7 +550,21 @@ pub fn clear_instance_icon(
 ) -> Result<(), crate::error::Error> {
     let path = crate::paths::instance_icon_png(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
-    crate::instances::icon::clear_icon(&path)
+    crate::instances::icon::clear_icon(&path)?;
+    refresh_shortcut_icon(&app, &instance_id, &path)
+}
+
+/// Follow a picture change into `<instance>/icon.ico`, so desktop shortcuts made
+/// earlier keep showing the right image — and keep showing *something* when the
+/// picture is cleared. A no-op for instances that never had a shortcut.
+fn refresh_shortcut_icon(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    png: &std::path::Path,
+) -> Result<(), crate::error::Error> {
+    let ico = crate::paths::instance_icon_ico(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
+    crate::shortcuts::icon::refresh_if_present(png, &ico)
 }
 
 /// The instance's custom picture as a base64 PNG, or `None` when it has none.
