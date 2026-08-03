@@ -37,6 +37,16 @@ pub struct Project {
     pub team: String,
     #[serde(default)]
     pub gallery: Vec<GalleryEntry>,
+    /// Loader tags across every published version of this project (Modrinth
+    /// computes the union server-side). Present on both `GET /v2/project/{id}`
+    /// and the batched `GET /v2/projects?ids=[…]` — the bytes already arrive on
+    /// the wire, so reading them costs no extra request.
+    ///
+    /// `#[serde(default)]` is mandatory: existing test fixtures omit the key,
+    /// and an absent array must degrade to "no loaders known", not a decode
+    /// error that would blank the whole batch.
+    #[serde(default)]
+    pub loaders: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

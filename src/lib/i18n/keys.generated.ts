@@ -1151,6 +1151,7 @@ export type TranslationKey =
   | 'mods.installed.checkingCompat'
   | 'mods.installed.depCount'
   | 'mods.installed.depMissing'
+  | 'mods.installed.depOptionalCount'
   | 'mods.installed.detailsUnavailable'
   | 'mods.installed.disabledBusy'
   | 'mods.installed.disabledNoMods'

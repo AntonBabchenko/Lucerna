@@ -62,6 +62,7 @@ mod tests {
                 downloads: 0.0,
                 author: String::new(),
                 updated_at: None,
+                loaders: None,
             },
             body_html: String::new(),
             gallery: vec![],

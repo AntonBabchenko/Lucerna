@@ -746,6 +746,7 @@
       "bulkHint": "Select mods to enable, disable, update or uninstall in bulk",
       "resolvingShort": "loading…",
       "depCount": "{count, plural, one {# dep} other {# deps}}",
+      "depOptionalCount": "{count, plural, one {# optional} other {# optional}}",
       "depMissing": "{count, plural, one {# missing} other {# missing}}",
       "requiredByCount": "required by {count}",
       "sectionRequires": "Requires",

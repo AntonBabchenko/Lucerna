@@ -3620,6 +3620,21 @@ export type ModSummary = {
 	downloads: number | null,
 	author: string,
 	updated_at: string | null,
+	/**
+	 *  Loader families this *project* is known to support — a UNION across every
+	 *  published version and every game version, so it over-states support and
+	 *  never under-states it. That direction is what makes the dependency
+	 *  graph's child scoping safe: it can only under-suppress.
+	 * 
+	 *  `None` means ONLY "this source cannot report project loaders" (see
+	 *  [`supplies_project_loaders`]) or "this entry predates the field". It is
+	 *  never a claim that the project supports nothing. A source that CAN report
+	 *  always yields `Some`, **empty vec included** — a project whose tags map to
+	 *  no known loader (a shader, a datapack) is `Some(vec![])`, not `None`.
+	 *  Storing `None` there would mark the entry permanently stale in
+	 *  `summary_cache` and re-fetch it on every resolve.
+	 */
+	loaders?: LoaderKind[] | null,
 };
 
 export type ModToggle = {

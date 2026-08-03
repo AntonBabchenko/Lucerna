@@ -164,6 +164,41 @@ pub struct ModSummary {
     pub downloads: f64,
     pub author: String,
     pub updated_at: Option<String>,
+    /// Loader families this *project* is known to support — a UNION across every
+    /// published version and every game version, so it over-states support and
+    /// never under-states it. That direction is what makes the dependency
+    /// graph's child scoping safe: it can only under-suppress.
+    ///
+    /// `None` means ONLY "this source cannot report project loaders" (see
+    /// [`supplies_project_loaders`]) or "this entry predates the field". It is
+    /// never a claim that the project supports nothing. A source that CAN report
+    /// always yields `Some`, **empty vec included** — a project whose tags map to
+    /// no known loader (a shader, a datapack) is `Some(vec![])`, not `None`.
+    /// Storing `None` there would mark the entry permanently stale in
+    /// `summary_cache` and re-fetch it on every resolve.
+    #[serde(default)]
+    pub loaders: Option<Vec<LoaderKind>>,
+}
+
+/// Whether `source` can populate [`ModSummary::loaders`].
+///
+/// Exhaustive on purpose: a new [`ModSource`] must be classified here rather
+/// than silently defaulting, and the answer gates a cache-staleness rule — a
+/// source wrongly marked `true` would be re-fetched on every dependency-graph
+/// resolve, which is the 429 fan-out `summary_cache` exists to prevent.
+pub const fn supplies_project_loaders(source: ModSource) -> bool {
+    match source {
+        // Project-level `loaders`, a union over versions — can only be too wide.
+        ModSource::Modrinth => true,
+        // Derived from `latestFilesIndexes`, a full-history union verified by
+        // exhaustive pagination. Must go through `curseforge::project_loaders`,
+        // which returns `None` when the index carries untagged entries.
+        ModSource::Curseforge => true,
+        // Hangar has no loader concept (Paper/Bukkit plugins). FTB and
+        // ATLauncher resolve to `unsupported::UnsupportedModPlatform`, so they
+        // never populate a summary at all.
+        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher => false,
+    }
 }
 
 /// One screenshot/gallery image for a mod or modpack detail view.
