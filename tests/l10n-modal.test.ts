@@ -260,6 +260,18 @@ describe('LocalizationModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // DESIGN.md §3: a dialog titles itself through the shared DialogTitle, which
+  // owns both the heading level and the one agreed class recipe. A hand-rolled
+  // heading is free to drift from either.
+  it('titles the modal through the shared DialogTitle primitive', async () => {
+    mockCoverageOk(coverage());
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    await screen.findByRole('dialog');
+    const title = document.getElementById('l10n-modal-title') as HTMLElement;
+    expect(title.tagName).toBe('H3');
+    expect(title.className.split(/\s+/)).toContain('text-base');
+  });
+
   describe('namespace selection', () => {
     it('shows the placeholder until a namespace is picked, then the key table', async () => {
       mockCoverageOk(coverage({ namespaces: [ns({ namespace: 'create' })] }));

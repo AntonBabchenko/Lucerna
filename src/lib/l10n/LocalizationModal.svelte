@@ -15,6 +15,7 @@
   import PrefillDialog from './PrefillDialog.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import DialogTitle from '$lib/ui/DialogTitle.svelte';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -298,9 +299,7 @@
     dataTestid="l10n-modal"
   >
     <header class="flex items-center justify-between gap-3 border-b px-4 py-2">
-      <h2 id="l10n-modal-title" class="font-semibold text-primary">
-        {$t('instance.l10n.title')}
-      </h2>
+      <DialogTitle id="l10n-modal-title">{$t('instance.l10n.title')}</DialogTitle>
       <div class="flex items-center gap-2">
         {#if languageOptions.length > 0}
           <Select
