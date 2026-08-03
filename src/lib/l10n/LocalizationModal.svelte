@@ -453,7 +453,15 @@
                       namespace: row.namespace,
                     })}
                     data-testid="l10n-prefill-namespace"
-                    onclick={() => (prefillScope = { namespace: row.namespace })}
+                    onclick={() => {
+                      // Claim the tab stop, same rule as the row button beside
+                      // it: a click focuses this button whatever its tabindex
+                      // said, and PrefillDialog's focus trap restores focus
+                      // here on close — so leaving the index behind would send
+                      // the next arrow press to a row the user never left.
+                      focusIndex = i;
+                      prefillScope = { namespace: row.namespace };
+                    }}
                     use:tooltip={$t('instance.l10n.prefill.namespaceButtonAria', {
                       namespace: row.namespace,
                     })}
