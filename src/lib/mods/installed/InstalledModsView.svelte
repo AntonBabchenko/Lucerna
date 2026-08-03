@@ -75,6 +75,15 @@
     () => loader,
     () => data.rows,
   );
+  // Declared before `filters` because `hasIssue` reads it: the pre-flight is the
+  // ONLY source of "this mod is a problem". The graph reports what the platform
+  // was told; only the pre-flight reads the descriptor the loader enforces. A
+  // mod appears here iff it is the dependent in a violation.
+  const preflight = createPreflight(() => instanceId);
+  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
+  const preflightShas = $derived(
+    new Set((preflight.report?.violations ?? []).map((v) => v.dependent_sha1)),
+  );
   const filters = createInstalledFilters(
     () => data.rows,
     (r) => ({
@@ -86,7 +95,7 @@
     }),
     {
       isUpdatable: (id) => updates.updatableShas.has(id),
-      hasIssue: (id) => deps.missingShas.has(id),
+      hasIssue: (id) => preflightShas.has(id),
       isIncompatible: (id) => compat.incompatibleShas.has(id),
     },
     // The list renders before its rows arrive, so a status count of 0 during
@@ -107,8 +116,6 @@
       getPageSize: () => filters.pageSize,
     },
   );
-  const preflight = createPreflight(() => instanceId);
-  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
   const selection = createInstalledSelection(
     () => filters.filtered,
     () => instanceId,
@@ -517,7 +524,7 @@
           {root}
           requiredBy={reqBy}
           depTotal={counts.total}
-          depMissing={counts.missing}
+          hasPreflightIssue={preflightShas.has(row.installed.sha1)}
           expanded={deps.expanded.has(row.installed.sha1)}
           graphLoading={deps.graphLoading}
           hoveredKey={deps.hoveredKey}

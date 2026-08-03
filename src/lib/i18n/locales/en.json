@@ -732,7 +732,6 @@
       "filterUpdatesLabel": "Updates",
       "filterIssuesLabel": "Issues",
       "filterIncompatibleLabel": "Incompatible",
-      "badgeMissing": "{count} missing",
       "badgeIncompatible": "Incompatible",
       "checkCompat": "Check compatibility",
       "checkingCompat": "Checking…",
@@ -749,7 +748,6 @@
       "resolvingShort": "loading…",
       "depCount": "{count, plural, one {# dep} other {# deps}}",
       "depOptionalCount": "{count, plural, one {# optional} other {# optional}}",
-      "depMissing": "{count, plural, one {# missing} other {# missing}}",
       "requiredByCount": "required by {count}",
       "sectionRequires": "Requires",
       "sectionRecommended": "Recommended · optional",
@@ -770,13 +768,11 @@
       "toastUninstalledFailed": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}, {failed} failed",
       "installDepFailed": "No compatible version of {name}",
       "disabledNoMods": "Install some mods first.",
-      "disabledBusy": "Wait for the current check to finish.",
-      "missingDepsTooltip": "This mod is missing required dependencies and may not load."
+      "disabledBusy": "Wait for the current check to finish."
     },
     "deps": {
       "installedStatus": "installed",
-      "missingStatus": "missing",
-      "optionalStatus": "optional",
+      "notInstalledStatus": "not installed",
       "cycleStatus": "cycle",
       "jumpToTitle": "Show {name} in the list",
       "installAriaLabel": "Install {name}",

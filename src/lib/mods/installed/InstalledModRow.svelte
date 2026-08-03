@@ -24,7 +24,7 @@
     root,
     requiredBy,
     depTotal,
-    depMissing,
+    hasPreflightIssue,
     expanded,
     graphLoading,
     hoveredKey,
@@ -52,7 +52,10 @@
     root: DepRoot | undefined;
     requiredBy: RequiredByEntry[];
     depTotal: number;
-    depMissing: number;
+    // This mod is the dependent in a pre-flight violation — i.e. the LOADER
+    // will not get what it needs. The dependency graph cannot answer this; it
+    // only knows what the platform was told.
+    hasPreflightIssue: boolean;
     expanded: boolean;
     graphLoading: boolean;
     hoveredKey: string | null;
@@ -87,11 +90,9 @@
 
   const expandLabel = $derived.by(() => {
     const parts: string[] = [];
-    if (depTotal > 0) {
-      let s = $t('mods.installed.depCount', { count: depTotal });
-      if (depMissing > 0) s += ` · ${$t('mods.installed.depMissing', { count: depMissing })}`;
-      parts.push(s);
-    }
+    // Relationship count only. The "· N missing" suffix is gone with the graph's
+    // verdict: it counted absences the loader may never have asked for.
+    if (depTotal > 0) parts.push($t('mods.installed.depCount', { count: depTotal }));
     if (requiredBy.length > 0)
       parts.push($t('mods.installed.requiredByCount', { count: requiredBy.length }));
     // Last resort only, so every row that already renders a label keeps it
@@ -104,16 +105,13 @@
     return parts.join(' · ');
   });
 
-  // The only left-side row badge is the missing-dependency warning — it is
-  // row-specific and shown nowhere else. The "update available" and "disabled"
-  // states are intentionally NOT badged here: the ModCard on the right already
-  // shows the version transition (vOld → vNew) + Update button and the
-  // enable/disable control + "Installed" chip, so a left badge would duplicate
-  // them.
-  const badge = $derived.by(() => {
-    if (depMissing > 0) return { text: $t('mods.installed.badgeMissing', { count: depMissing }) };
-    return null;
-  });
+  // There is deliberately no left-side danger badge any more. The one that used
+  // to live here counted the graph's absent required children — i.e. the
+  // platform's claim — and a measured mod's claim was contradicted by its own
+  // jar. A real problem is a pre-flight violation: the ModCard's danger accent
+  // marks the row and PreflightPanel above the list carries the detail and the
+  // fix. "Update available" and "disabled" were already unbadged here because
+  // the ModCard on the right shows both.
 
   // "View changelog" is offered only when an update is actually pending and the
   // source implements a changelog API (Modrinth/CurseForge) — mirrors the Rust
@@ -153,7 +151,7 @@
       {onUpdate}
       {checking}
       {packChip}
-      attention={depMissing > 0 ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
+      attention={hasPreflightIssue ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
       selectable={true}
       {selected}
       {onSelectChange}
@@ -165,11 +163,6 @@
             <StatusBadge variant="warning" icon="warning">
               {$t('mods.installed.badgeIncompatible')}
             </StatusBadge>
-          </span>
-        {/if}
-        {#if badge}
-          <span data-testid="status-badge" use:tooltip={$t('mods.installed.missingDepsTooltip')}>
-            <StatusBadge variant="danger" icon="warning">{badge.text}</StatusBadge>
           </span>
         {/if}
         {#if showChangelog}

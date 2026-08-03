@@ -31,7 +31,7 @@ const base = () => ({
   root: undefined,
   requiredBy: [],
   depTotal: 0,
-  depMissing: 0,
+  hasPreflightIssue: false,
   expanded: false,
   graphLoading: false,
   hoveredKey: null,
@@ -54,9 +54,15 @@ const base = () => ({
 });
 
 describe('status badge priority', () => {
-  it('shows "missing" when depMissing > 0 even if disabled', () => {
-    render(InstalledModRow, { props: { ...base(), installed: installed(false), depMissing: 2 } });
-    expect(screen.getByTestId('status-badge').textContent).toMatch(/2 missing/);
+  // The danger badge that used to live here counted the GRAPH's absent required
+  // children — the platform's claim, which a measured mod's own jar contradicts.
+  // A real problem is a pre-flight violation, and it is marked by the ModCard's
+  // danger accent plus PreflightPanel above the list, not by a left-side badge.
+  it('shows NO left-side badge even when the pre-flight flags the row', () => {
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(false), hasPreflightIssue: true },
+    });
+    expect(screen.queryByTestId('status-badge')).toBeNull();
   });
   it('shows NO left-side badge for an update-available row (the ModCard shows vOld → vNew + Update on the right)', () => {
     render(InstalledModRow, {

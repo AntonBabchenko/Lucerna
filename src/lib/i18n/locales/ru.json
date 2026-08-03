@@ -732,7 +732,6 @@
       "filterUpdatesLabel": "Обновления",
       "filterIssuesLabel": "Проблемы",
       "filterIncompatibleLabel": "Несовместимые",
-      "badgeMissing": "{count} отсутствует",
       "badgeIncompatible": "Несовместим",
       "checkCompat": "Проверить совместимость",
       "checkingCompat": "Проверка…",
@@ -749,7 +748,6 @@
       "resolvingShort": "загрузка…",
       "depCount": "{count, plural, one {# зависимость} few {# зависимости} many {# зависимостей} other {# зависимости}}",
       "depOptionalCount": "{count, plural, one {# необязательная} few {# необязательные} many {# необязательных} other {# необязательных}}",
-      "depMissing": "{count, plural, one {# отсутствует} few {# отсутствует} many {# отсутствует} other {# отсутствует}}",
       "requiredByCount": "требуется для {count}",
       "sectionRequires": "Требует",
       "sectionRecommended": "Рекомендуется · необязательно",
@@ -770,13 +768,11 @@
       "toastUninstalledFailed": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}, не удалось: {failed}",
       "installDepFailed": "Нет совместимой версии {name}",
       "disabledNoMods": "Сначала установите моды.",
-      "disabledBusy": "Дождитесь окончания текущей проверки.",
-      "missingDepsTooltip": "У этого мода отсутствуют обязательные зависимости — он может не загрузиться."
+      "disabledBusy": "Дождитесь окончания текущей проверки."
     },
     "deps": {
       "installedStatus": "установлен",
-      "missingStatus": "отсутствует",
-      "optionalStatus": "необязательный",
+      "notInstalledStatus": "не установлен",
       "cycleStatus": "цикл",
       "jumpToTitle": "Показать {name} в списке",
       "installAriaLabel": "Установить {name}",
