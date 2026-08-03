@@ -12,7 +12,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import { t } from '$lib/i18n';
   import { commands } from '$lib/ipc/bindings';
-  import type { InstanceWithStatus, IpcError } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, Error as IpcError } from '$lib/ipc/bindings';
   import { debounceTrailing } from '$lib/ui/debounce';
   import { onDestroy } from 'svelte';
 

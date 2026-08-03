@@ -11,7 +11,7 @@
   // express cannot be launched — the JVM receives the path with `?` substituted.
   import { t } from '$lib/i18n';
   import { commands } from '$lib/ipc/bindings';
-  import type { InstanceWithStatus, IpcError, PathStatus } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, Error as IpcError, PathStatus } from '$lib/ipc/bindings';
   import RenameFolderDialog from './RenameFolderDialog.svelte';
 
   let {
