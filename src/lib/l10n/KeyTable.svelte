@@ -263,28 +263,37 @@
     {/if}
   </div>
 
-  <div class="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2">
+  <div class="flex flex-col gap-2 border-b border-border-subtle px-3 py-2">
     <input
       type="search"
-      class="h-8 min-w-[10rem] flex-1 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
+      class="filter-control w-full"
       placeholder={$t('instance.l10n.keyTable.searchPlaceholder')}
       aria-label={$t('instance.l10n.keyTable.searchAriaLabel')}
       data-testid="l10n-key-search"
       bind:value={search}
     />
-    <ToggleChipGroup
-      options={filterOptions}
-      value={filter}
-      onChange={(v) => (filter = v as KeyFilter)}
-      ariaLabel={$t('instance.l10n.keyTable.filterGroupAriaLabel')}
-    />
-    <!-- Its own group with its own ariaLabel — see `originFilter` above. -->
-    <ToggleChipGroup
-      options={originOptions}
-      value={originFilter}
-      onChange={(v) => (originFilter = v as OriginFilter)}
-      ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
-    />
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs uppercase tracking-wide text-muted">
+        {$t('instance.l10n.keyTable.filterGroupLabel')}
+      </span>
+      <ToggleChipGroup
+        options={filterOptions}
+        value={filter}
+        onChange={(v) => (filter = v as KeyFilter)}
+        ariaLabel={$t('instance.l10n.keyTable.filterGroupAriaLabel')}
+      />
+      <span class="mx-1 h-5 w-px shrink-0 bg-border-subtle"></span>
+      <!-- Its own group with its own ariaLabel — see `originFilter` above. -->
+      <span class="text-xs uppercase tracking-wide text-muted">
+        {$t('instance.l10n.keyTable.originGroupLabel')}
+      </span>
+      <ToggleChipGroup
+        options={originOptions}
+        value={originFilter}
+        onChange={(v) => (originFilter = v as OriginFilter)}
+        ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
+      />
+    </div>
   </div>
 
   <div class="flex-1 overflow-y-auto px-3">
