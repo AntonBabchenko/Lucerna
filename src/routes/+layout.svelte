@@ -34,7 +34,10 @@
   // key entry. They now get the app's own menu with those same three actions
   // instead: the native surface ignores the theme (it stays light in dark
   // mode) and carries Reload / Back / spell-check, which is the same reason
-  // DESIGN.md §6 bans the native <select>.
+  // DESIGN.md §6 bans the native select element. (Spelled out rather than as
+  // a tag: tests/no-native-select.test.ts greps every .svelte file for the
+  // literal element and exempts only Select.svelte by filename, so writing it
+  // as a tag here — even in a comment — turns this file into an offender.)
   const MENU_WIDTH = 180;
 
   let menuOpen = $state(false);
