@@ -19,7 +19,7 @@ use crate::mods::platform::{InstalledMod, LoaderKind};
 use crate::mods::version_range::RangeFamily;
 
 /// Which loader family a mod jar targets, detected from its descriptor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LoaderFamily {
     /// Fabric or Quilt.
     Fabric,
@@ -28,7 +28,7 @@ pub enum LoaderFamily {
 }
 
 /// Which side a declared dependency applies to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DepSide {
     Both,
     Client,
@@ -39,7 +39,7 @@ pub enum DepSide {
 /// `IModInfo.DependencyType` (FancyModLoader 1.21.1 `ModInfo.java:78-88`).
 /// Fabric/Quilt `depends` entries map onto `Required` / `Optional`; their
 /// `breaks` blocks are not read today.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DependencyKind {
     /// The loader aborts when the dependency is absent or out of range.
     Required,
@@ -69,7 +69,7 @@ impl DependencyKind {
 /// pre-flight needs it to drop declarations from a file the instance's loader
 /// never opens. Forge 1.12.2 does not read `mods.toml`; Forge 1.20 does not read
 /// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DescriptorSource {
     /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
     McmodAnnotation,
@@ -82,7 +82,7 @@ pub enum DescriptorSource {
 }
 
 /// One declared dependency with everything the resolver needs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeclaredDep {
     pub dep_id: String,
     pub range: String,
@@ -96,14 +96,14 @@ pub struct DeclaredDep {
 
 /// A mod id this jar provides, with its own declared version (post
 /// `${file.jarVersion}` resolution). Multi-mod jars yield several.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProvidedMod {
     pub mod_id: String,
     pub version: Option<String>,
 }
 
 /// Everything the pre-flight needs from one jar.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ManifestDeps {
     /// Own `[[mods]]` / fabric id / quilt id (+ JIJ as providers).
     pub provided: Vec<ProvidedMod>,
@@ -112,7 +112,7 @@ pub struct ManifestDeps {
 }
 
 /// Best-effort metadata read from a mod `.jar`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JarMeta {
     /// Loader families the jar's descriptor(s) declare. Empty when the jar
     /// has no recognised descriptor (coremod / library — undeterminable).

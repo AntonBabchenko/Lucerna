@@ -22,6 +22,7 @@ pub mod hangar;
 pub mod install;
 pub mod install_batch;
 pub mod installed;
+pub mod jar_scan_cache;
 pub mod local;
 pub mod modpack;
 pub mod modrinth;
