@@ -837,19 +837,84 @@ pub(crate) fn loaders_disjoint_from_instance(
         .any(|l| *l == LoaderKind::Vanilla || instance_family(*l) == Some(inf))
 }
 
+/// The mod-id Sinytra Connector declares.
+const CONNECTOR_MOD_ID: &str = "connector";
+
+/// Cheap pre-filter deciding WHICH jar is worth opening to look for Sinytra
+/// Connector. Only a candidate selector — [`jar_is_connector`] is the proof.
+/// Matches the filename and the registry display name, so it catches the
+/// platform installs ("Sinytra Connector") and the hand-dropped file
+/// (`connector-2.0.0-beta.14+1.21.1-full.jar`) alike. A jar renamed to contain
+/// neither word is missed, which fails CLOSED — we keep reporting exactly what
+/// we report today — rather than silently absolving everything.
+pub(crate) fn looks_like_connector(filename: &str, display_name: &str) -> bool {
+    let hit = |s: &str| {
+        let low = s.to_ascii_lowercase();
+        low.contains("connector") || low.contains("sinytra")
+    };
+    hit(filename) || hit(display_name)
+}
+
+/// True when these jar bytes ARE Sinytra Connector, proven by the `connector`
+/// mod-id rather than by a filename.
+///
+/// Both the jar's own descriptor and its Jar-in-Jar payload are consulted, and
+/// the JIJ half is not optional: Connector ships as `connector-<v>-full.jar`,
+/// a container with **no descriptor of its own** whose real mod sits at
+/// `META-INF/jarjar/org.sinytra.connector-<v>-mod.jar`. Checking only the top
+/// level finds nothing at all (verified against the shipping 2.0.0-beta.14 jar).
+pub(crate) fn jar_is_connector(jar_bytes: &[u8]) -> bool {
+    let is_connector = |p: &ProvidedMod| p.mod_id.eq_ignore_ascii_case(CONNECTOR_MOD_ID);
+    if read_jar_manifest_deps(jar_bytes)
+        .map(|d| d.provided)
+        .unwrap_or_default()
+        .iter()
+        .any(is_connector)
+    {
+        return true;
+    }
+    read_jar_embedded_providers(jar_bytes)
+        .iter()
+        .any(is_connector)
+}
+
 /// Judge a jar's loader/MC compatibility with an instance. Conservative:
 /// a mismatch is reported only when both sides are confidently known and
 /// they differ — absent or ambiguous metadata never produces a warning.
+///
+/// `connector_present` is that conservatism applied to one real exception.
+/// Sinytra Connector remaps Fabric mods and loads them on a Forge-family
+/// instance, so there a Fabric-family jar is NOT dead weight. Measured on a
+/// real NeoForge 1.21.1 profile: FML logs
+/// `Skipping jar. File mods\eg-inventory-blur-1.0.1.jar is a Fabric mod and
+/// cannot be loaded`, and eight seconds later `ConnectorLocator` picks the very
+/// same file up remapped, after which the mod appears in the loaded-mod list
+/// and contributes resources. Without this flag the launcher put an
+/// «Несовместим» badge on every Fabric jar of such a profile — the loudest
+/// false positive in the whole detection surface.
+///
+/// The exception is deliberately one-directional and narrow: only a
+/// Fabric-family jar, only on a Forge-family instance, only when Connector is
+/// actually installed. Connector cannot remap everything, so its presence means
+/// we are no longer confident the jar is inert — and this module's rule for
+/// "not confident" is to stay silent, not to assert the opposite.
 pub fn compat_verdict(
     jar: &JarMeta,
     instance_loader: LoaderKind,
     instance_mc: &str,
+    connector_present: bool,
 ) -> CompatVerdict {
     // Mismatch only when the jar declares loader families AND none of them is
     // the instance's family. A multi-loader jar that includes the instance's
     // family is compatible; a descriptor-less jar (empty families) never flags.
     let loader_mismatch = match instance_family(instance_loader) {
-        Some(inf) => !jar.families.is_empty() && !jar.families.contains(&inf),
+        Some(inf) => {
+            !jar.families.is_empty()
+                && !jar.families.contains(&inf)
+                && !(connector_present
+                    && inf == LoaderFamily::Forge
+                    && jar.families.contains(&LoaderFamily::Fabric))
+        }
         None => false,
     };
     let mc_mismatch = match (jar.mc_version.as_deref(), first_major_minor(instance_mc)) {
@@ -889,6 +954,9 @@ pub async fn scan_instance(
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
     let dir = installed::mods_dir(instance_root);
+    // Once for the whole scan, not per jar: on a Connector profile every Fabric
+    // jar's verdict depends on this one fact.
+    let connector = connector_installed(&dir, &mods).await;
     let mut out = Vec::with_capacity(mods.len());
     for m in &mods {
         // Judge loader-family for ALL mods, pack-bundled included — the
@@ -897,7 +965,7 @@ pub async fn scan_instance(
         let verdict = read_jar_for(&dir, &m.filename)
             .await
             .and_then(|bytes| read_jar_meta(&bytes).ok())
-            .map(|meta| compat_verdict(&meta, instance_loader, mc));
+            .map(|meta| compat_verdict(&meta, instance_loader, mc, connector));
         out.push(ModLocalCompat {
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
@@ -906,6 +974,34 @@ pub async fn scan_instance(
         });
     }
     Ok(out)
+}
+
+/// True when an ENABLED jar in `mods_dir` is Sinytra Connector.
+///
+/// Only candidate jars are opened (see [`looks_like_connector`]) — proving this
+/// by scanning all ~140 jars' Jar-in-Jar payloads would cost more than the
+/// entire compat scan. A DISABLED Connector does not count: it does not load,
+/// so it remaps nothing.
+pub(crate) async fn connector_installed(mods_dir: &Path, mods: &[InstalledMod]) -> bool {
+    for m in mods.iter().filter(|m| m.enabled) {
+        if !looks_like_connector(&m.filename, &m.name) {
+            continue;
+        }
+        if let Some(bytes) = read_jar_for(mods_dir, &m.filename).await {
+            if jar_is_connector(&bytes) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// [`connector_installed`] for a caller that holds only the instance root.
+pub async fn instance_has_connector(instance_root: &Path) -> bool {
+    let Ok(mods) = installed::list(instance_root).await else {
+        return false;
+    };
+    connector_installed(&installed::mods_dir(instance_root), &mods).await
 }
 
 /// Read a mod jar's bytes by base filename, trying the `.disabled` variant
@@ -1412,12 +1508,17 @@ modId=\"evilseagull\"
         }
     }
 
+    /// Named so a reader of the assertions below knows which world they are in:
+    /// every one of these cases is a plain profile with no Sinytra Connector.
+    const NO_CONNECTOR: bool = false;
+
     #[test]
     fn verdict_compatible_when_loader_and_mc_match() {
         let v = compat_verdict(
             &meta(vec![LoaderFamily::Forge], Some("1.12")),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
@@ -1429,6 +1530,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Fabric], None),
             LoaderKind::Forge,
             "1.20.1",
+            NO_CONNECTOR,
         );
         assert!(v.loader_mismatch);
     }
@@ -1440,6 +1542,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::NeoForge,
             "1.20.1",
+            NO_CONNECTOR,
         );
         assert!(!v.loader_mismatch);
     }
@@ -1450,6 +1553,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], Some("1.20")),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(v.mc_mismatch);
     }
@@ -1457,7 +1561,12 @@ modId=\"evilseagull\"
     #[test]
     fn verdict_silent_when_metadata_absent() {
         // No descriptor at all — never warn.
-        let v = compat_verdict(&meta(vec![], None), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(
+            &meta(vec![], None),
+            LoaderKind::Forge,
+            "1.12.2",
+            NO_CONNECTOR,
+        );
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
     }
@@ -1468,6 +1577,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(!v.mc_mismatch);
     }
@@ -1480,8 +1590,103 @@ modId=\"evilseagull\"
             mc_version: None,
             display_name: Some("Collective".into()),
         };
-        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.20.4").loader_mismatch);
-        assert!(!compat_verdict(&jar, LoaderKind::Fabric, "1.20.4").loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.20.4", NO_CONNECTOR).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Fabric, "1.20.4", NO_CONNECTOR).loader_mismatch);
+    }
+
+    // ── Sinytra Connector ──────────────────────────────────────────────────
+
+    #[test]
+    fn connector_absolves_a_fabric_jar_on_a_forge_family_instance() {
+        // The measured case: two Fabric-only jars in a NeoForge 1.21.1 profile
+        // that FML logs as "Skipping jar … cannot be loaded" and ConnectorLocator
+        // then loads anyway. Flagging them was the loudest false positive in the
+        // detection surface.
+        let jar = meta(vec![LoaderFamily::Fabric], None);
+        assert!(compat_verdict(&jar, LoaderKind::NeoForge, "1.21.1", NO_CONNECTOR).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::NeoForge, "1.21.1", true).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.21.1", true).loader_mismatch);
+    }
+
+    #[test]
+    fn connector_does_not_absolve_the_other_direction() {
+        // Connector runs Fabric mods on NeoForge, never the reverse. A Forge
+        // jar in a Fabric profile stays a mismatch even with Connector present
+        // (which cannot itself load there, but the flag must not be a blanket
+        // amnesty regardless).
+        let forge_jar = meta(vec![LoaderFamily::Forge], None);
+        assert!(compat_verdict(&forge_jar, LoaderKind::Fabric, "1.21.1", true).loader_mismatch);
+        assert!(compat_verdict(&forge_jar, LoaderKind::Quilt, "1.21.1", true).loader_mismatch);
+    }
+
+    #[test]
+    fn connector_changes_nothing_when_the_jar_already_matches() {
+        // Not a blanket "everything is fine" switch: the flag only ever removes
+        // the Fabric-on-Forge-family verdict, and MC mismatch is untouched.
+        let forge_jar = meta(vec![LoaderFamily::Forge], Some("1.20"));
+        let v = compat_verdict(&forge_jar, LoaderKind::NeoForge, "1.21.1", true);
+        assert!(!v.loader_mismatch);
+        assert!(v.mc_mismatch, "MC mismatch is a separate axis");
+    }
+
+    #[test]
+    fn looks_like_connector_selects_candidates_and_fails_closed() {
+        assert!(looks_like_connector(
+            "connector-2.0.0-beta.14+1.21.1-full.jar",
+            ""
+        ));
+        assert!(looks_like_connector("whatever.jar", "Sinytra Connector"));
+        // A near neighbour is a candidate too — cheap, and `jar_is_connector`
+        // rejects it on the mod-id.
+        assert!(looks_like_connector(
+            "ConnectorExtras-1.12.1+1.21.1.jar",
+            ""
+        ));
+        // Unrelated jars are never opened.
+        assert!(!looks_like_connector("sodium-0.6.0.jar", "Sodium"));
+        // Renamed beyond recognition → missed → we keep today's behaviour.
+        assert!(!looks_like_connector("aaa.jar", ""));
+    }
+
+    #[test]
+    fn jar_is_connector_finds_the_id_inside_the_jarjar_container() {
+        // THE shipping shape: `connector-<v>-full.jar` has NO descriptor of its
+        // own; the real mod is at META-INF/jarjar/…-mod.jar. A top-level check
+        // finds nothing, so this is the case that has to work.
+        let inner = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        let container = zip_with(&[(
+            "META-INF/jarjar/org.sinytra.connector-2.0.0-mod.jar",
+            inner.as_slice(),
+        )]);
+        assert!(jar_is_connector(&container));
+
+        // Declared directly, for a non-fat build.
+        let direct = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        assert!(jar_is_connector(&direct));
+    }
+
+    #[test]
+    fn jar_is_connector_rejects_a_lookalike() {
+        // ConnectorExtras ships alongside Connector and passes the filename
+        // filter; only the mod-id separates them.
+        let extras = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connectorextras\"\n"
+                as &[u8],
+        )]);
+        assert!(!jar_is_connector(&extras));
+        assert!(!jar_is_connector(&zip_with(&[(
+            "fabric.mod.json",
+            br#"{"id":"sodium"}"# as &[u8]
+        )])));
     }
 
     // ── scan_instance tests ────────────────────────────────────────────────
