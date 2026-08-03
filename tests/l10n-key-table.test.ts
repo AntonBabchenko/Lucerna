@@ -288,6 +288,13 @@ describe('KeyTable', () => {
     );
   });
 
+  it('hides the pagination footer when everything fits on one page', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+    expect(screen.queryByTestId('pg-first')).toBeNull();
+  });
+
   // Origin is a SECOND axis over the state filter, not more options on it.
   // ToggleChipGroup is a single-select radiogroup with one `value`, so folding
   // the two together would make "translated" and "machine-written" mutually

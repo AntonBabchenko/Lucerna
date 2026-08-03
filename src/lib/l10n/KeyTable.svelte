@@ -126,6 +126,12 @@
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
+  // Below the smallest page size there is exactly one page AND the per-page
+  // picker cannot change anything, so the whole footer is chrome. The shared
+  // Pagination deliberately never self-hides — the threshold is this
+  // surface's call, because a near-empty namespace is normal here.
+  const showPagination = $derived(filteredRows.length > PAGE_SIZES[0]);
+
   // The empty state has two causes and only ever named one of them.
   const emptyMessage = $derived(
     search.trim() === ''
@@ -364,7 +370,7 @@
     {/if}
   </div>
 
-  {#if !loading && !loadError && filteredRows.length > 0}
+  {#if !loading && !loadError && showPagination}
     <div class="border-t border-border-subtle px-3">
       <Pagination {page} {pageCount} onPage={(n) => (page = n)}>
         {#snippet end()}
