@@ -152,7 +152,9 @@ describe('KeyTable', () => {
     );
     // Exactly one call: saving a row must not trigger a full namespace refetch.
     expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByTestId('l10n-key-state').textContent).toBe('Saved'));
+    await waitFor(() =>
+      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Saved'),
+    );
   });
 
   it('disables Save while the draft is empty, so blanking the field can never silently clear an override', async () => {
@@ -185,7 +187,9 @@ describe('KeyTable', () => {
     const err = await screen.findByTestId('l10n-key-error');
     expect(err.textContent).toBeTruthy();
     // The row's state must not have silently flipped to ok on a rejection.
-    expect(screen.getByTestId('l10n-key-state').textContent).not.toBe('Saved');
+    // Trimmed on purpose: StatusBadge reserves a leading glyph slot, so an
+    // untrimmed compare would pass against 'Saved' too and prove nothing.
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).not.toBe('Saved');
   });
 
   it('clears an override via the explicit Clear action', async () => {
@@ -208,7 +212,7 @@ describe('KeyTable', () => {
     // No mod translation behind it, so clearing drops it to "missing" — and the
     // Clear button itself disappears since there is nothing left to clear.
     await waitFor(() =>
-      expect(screen.getByTestId('l10n-key-state').textContent).toBe('Untranslated'),
+      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Untranslated'),
     );
     expect(screen.queryByTestId('l10n-key-clear')).toBeNull();
   });
@@ -226,7 +230,7 @@ describe('KeyTable', () => {
     render(KeyTable, { props });
     await screen.findAllByTestId('l10n-key-row');
 
-    expect(screen.getByTestId('l10n-key-state').textContent).toBe('Orphaned');
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Orphaned');
     expect(screen.getByTestId('l10n-key-clear')).toBeTruthy();
   });
 
@@ -293,6 +297,26 @@ describe('KeyTable', () => {
     render(KeyTable, { props });
     await screen.findByTestId('l10n-key-row');
     expect(screen.queryByTestId('pg-first')).toBeNull();
+  });
+
+  it('renders the AI marker as an info StatusBadge with no native title attribute', async () => {
+    mockKeysOk([
+      keyRow({
+        key: 'gui.quark.rune',
+        sourceEn: 'Rune',
+        overrideValue: 'Руна',
+        state: 'ok',
+        origin: 'machine',
+      }),
+    ]);
+    render(KeyTable, { props: { ...props, namespace: 'quark' } });
+    const badge = await screen.findByTestId('l10n-key-origin-machine');
+    expect(badge.className).toContain('bg-accent-soft');
+    // DESIGN.md §5 bans native title=: it is invisible to keyboard users and
+    // unstyleable. Both the marker's explanation and the truncated key go
+    // through use:tooltip instead.
+    expect(badge.getAttribute('title')).toBeNull();
+    expect(screen.getByText('gui.quark.rune').getAttribute('title')).toBeNull();
   });
 
   // Origin is a SECOND axis over the state filter, not more options on it.

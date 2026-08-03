@@ -23,6 +23,9 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import type { BadgeVariant } from '$lib/ui/cards/card-status';
+  import { tooltip } from '$lib/ui/tooltip';
   import { displayValue } from './key-rows';
 
   let {
@@ -45,12 +48,16 @@
   const dirty = $derived(draft !== displayValue(row));
   const fieldId = `l10n-key-${namespace}-${row.key}`;
 
-  const STATE_TONE: Record<KeyState, string> = {
-    from_mod: 'bg-subtle text-secondary',
-    ok: 'bg-success/10 text-success',
-    stale: 'bg-warning-bg text-warning-text',
-    orphan: 'bg-danger/10 text-danger',
-    missing: 'bg-subtle text-muted',
+  // Semantic variant, not a class recipe: the hand-rolled tones this replaced
+  // had drifted off the design system (raw `bg-success/10` where the token is
+  // `bg-success-bg`, `rounded-full` and `text-[11px]` where every other status
+  // pill in the app is `rounded` / `text-xs`).
+  const STATE_VARIANT: Record<KeyState, BadgeVariant> = {
+    from_mod: 'neutral',
+    ok: 'success',
+    stale: 'warning',
+    orphan: 'danger',
+    missing: 'muted',
   };
   const stateLabel = $derived(
     {
@@ -127,22 +134,31 @@
   data-state={row.state}
 >
   <div class="flex items-start justify-between gap-2">
-    <code class="min-w-0 flex-1 truncate text-xs text-muted" title={row.key}>{row.key}</code>
+    <!--
+      Only the clipped case gets a tooltip: a key that fits already reads in
+      full, and a hover card repeating it would be noise on every row.
+    -->
+    <code
+      class="min-w-0 flex-1 truncate text-xs text-muted"
+      use:tooltip={{ text: row.key, whenOverflowing: true }}>{row.key}</code
+    >
     {#if row.origin === 'machine'}
       <!--
         Machine-written and untouched. The marker is what makes bulk revert
         honest — it is exactly the set that action would drop — and it clears
-        the moment the user saves an edit over it (see `save`).
+        the moment the user saves an edit over it (see `save`). Rendered as
+        an INFO badge with a leading glyph so the who-wrote-this axis is not
+        just a second identically-shaped pill next to the state.
       -->
-      <span
-        class="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-secondary"
+      <StatusBadge
+        variant="info"
+        icon="aiTranslate"
         title={$t('instance.l10n.keyTable.machineBadgeTitle')}
-        data-testid="l10n-key-origin-machine">{$t('instance.l10n.keyTable.machineBadge')}</span
+        testid="l10n-key-origin-machine">{$t('instance.l10n.keyTable.machineBadge')}</StatusBadge
       >
     {/if}
-    <span
-      class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium {STATE_TONE[row.state]}"
-      data-testid="l10n-key-state">{stateLabel}</span
+    <StatusBadge variant={STATE_VARIANT[row.state]} testid="l10n-key-state"
+      >{stateLabel}</StatusBadge
     >
   </div>
   <div class="flex flex-col gap-0.5">
