@@ -2474,10 +2474,11 @@
       "yearsAgo": "{n} г назад"
     },
     "size": {
-      "bytes": "{n} Б",
-      "kilobytes": "{n} КБ",
-      "megabytes": "{n} МБ",
-      "gigabytes": "{n} ГБ"
+      "bytes": "{n, number, ::group-off} Б",
+      "kilobytes": "{n, number, ::.0 group-off} КБ",
+      "megabytes": "{n, number, ::.0 group-off} МБ",
+      "gigabytes": "{n, number, ::.00 group-off} ГБ",
+      "perSecond": "{size}/с"
     },
     "duration": {
       "lessThanMinute": "< 1 мин",

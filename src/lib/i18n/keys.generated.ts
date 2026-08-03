@@ -261,6 +261,7 @@ export type TranslationKey =
   | 'format.size.gigabytes'
   | 'format.size.kilobytes'
   | 'format.size.megabytes'
+  | 'format.size.perSecond'
   | 'format.unit.megabyte'
   | 'install.clickToLaunch'
   | 'install.modPhase.copying'

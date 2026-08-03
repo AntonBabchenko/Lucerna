@@ -2474,10 +2474,11 @@
       "yearsAgo": "{n}y ago"
     },
     "size": {
-      "bytes": "{n} B",
-      "kilobytes": "{n} KB",
-      "megabytes": "{n} MB",
-      "gigabytes": "{n} GB"
+      "bytes": "{n, number, ::group-off} B",
+      "kilobytes": "{n, number, ::.0 group-off} KB",
+      "megabytes": "{n, number, ::.0 group-off} MB",
+      "gigabytes": "{n, number, ::.00 group-off} GB",
+      "perSecond": "{size}/s"
     },
     "duration": {
       "lessThanMinute": "< 1m",
