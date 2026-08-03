@@ -22,6 +22,8 @@ import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 // vi.mock is hoisted before imports — must appear before component imports.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+    previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
     // LoaderPicker calls these when loader !== 'vanilla'
     listFabricLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),

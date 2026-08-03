@@ -31,13 +31,18 @@
   // page, so it cannot be derived from the instance record alone.
   $effect(() => {
     const id = instance.id;
+    // Cancellation flag rather than re-reading `instance` after the await: the
+    // modal can close (or the selection clear) while the call is in flight, and
+    // by then `instance` is null — reading `.id` off it threw a TypeError.
+    let cancelled = false;
     void (async () => {
       const result = await commands.instancePathStatus(id);
-      // Ignore a response for an instance the user has already navigated away
-      // from.
-      if (id !== instance.id) return;
+      if (cancelled) return;
       pathStatus = result.status === 'ok' ? result.data : 'ok';
     })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   async function openFixDialog() {

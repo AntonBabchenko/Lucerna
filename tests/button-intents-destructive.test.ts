@@ -7,6 +7,8 @@ import type { InstanceWithStatus, ModSource, VersionEntry } from '$lib/ipc/bindi
 // IPC fires, but the module still needs to be mockable.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+    previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
     // ImportedDetailDrawer calls these at mount
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),

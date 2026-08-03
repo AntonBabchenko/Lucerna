@@ -16,6 +16,8 @@ import { locale } from '$lib/i18n';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
+  instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+  previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
   getDataLocation: vi.fn(),
   listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   listFabricLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
