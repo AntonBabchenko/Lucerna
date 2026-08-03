@@ -3038,5 +3038,29 @@
       "importing": "Importing…",
       "back": "Back"
     }
+  },
+  "tasks": {
+    "kind": {
+      "gameInstall": "Installing Minecraft",
+      "modInstall": "Installing mods",
+      "modUpdate": "Updating mods",
+      "packImport": "Importing modpack",
+      "launcherImport": "Importing from launcher",
+      "packUpdate": "Updating modpack",
+      "clone": "Cloning instance",
+      "verify": "Verifying instance",
+      "repair": "Repairing instance",
+      "serverUpload": "Uploading server",
+      "appUpdate": "Updating Lucerna",
+      "dataMigration": "Migrating data folder"
+    },
+    "origin": {
+      "modrinth": "Modrinth",
+      "curseforge": "CurseForge",
+      "ftb": "FTB",
+      "atlauncher": "ATLauncher",
+      "archive": "Modpack archive",
+      "local": "Local file"
+    }
   }
 }

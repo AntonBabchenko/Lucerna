@@ -3038,5 +3038,29 @@
       "importing": "Импортирую…",
       "back": "Назад"
     }
+  },
+  "tasks": {
+    "kind": {
+      "gameInstall": "Установка Minecraft",
+      "modInstall": "Установка модов",
+      "modUpdate": "Обновление модов",
+      "packImport": "Импорт сборки",
+      "launcherImport": "Импорт из лаунчера",
+      "packUpdate": "Обновление сборки",
+      "clone": "Клонирование инстанса",
+      "verify": "Проверка инстанса",
+      "repair": "Восстановление инстанса",
+      "serverUpload": "Заливка сервера",
+      "appUpdate": "Обновление Lucerna",
+      "dataMigration": "Перенос папки данных"
+    },
+    "origin": {
+      "modrinth": "Modrinth",
+      "curseforge": "CurseForge",
+      "ftb": "FTB",
+      "atlauncher": "ATLauncher",
+      "archive": "Архив сборки",
+      "local": "Локальный файл"
+    }
   }
 }
