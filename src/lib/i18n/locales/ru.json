@@ -384,7 +384,7 @@
       "toastVerifyOk": "{name}: целостность в порядке",
       "toastVerifyProblems": "{name}: {count, plural, one {# проблема целостности} few {# проблемы целостности} many {# проблем целостности} other {# проблемы целостности}}",
       "toastRepaired": "{name}: восстановлен",
-      "toastRepairPartial": "{name}: {count} файлов не удалось восстановить",
+      "toastRepairPartial": "{name}: {count, plural, one {# файл не удалось восстановить} few {# файла не удалось восстановить} many {# файлов не удалось восстановить} other {# файла не удалось восстановить}}",
       "toastError": "{name}: {error}",
       "statusQueued": "В очереди на проверку…"
     },
