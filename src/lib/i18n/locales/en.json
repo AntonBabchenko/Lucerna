@@ -474,6 +474,7 @@
         "doneButton": "Done"
       },
       "keyTable": {
+        "paneSummary": "{total} keys · {translated} translated",
         "searchPlaceholder": "Search keys or English text…",
         "searchAriaLabel": "Search translation keys",
         "filterGroupAriaLabel": "Filter by state",
@@ -504,7 +505,7 @@
         "originMachineLabel": "AI",
         "machineBadge": "AI",
         "machineBadgeTitle": "Translated by AI. Editing it makes it yours.",
-        "revertMachineButton": "Revert AI",
+        "revertMachineButton": "Revert AI in this mod",
         "revertConfirmTitle": "Revert AI translations?",
         "revertConfirmBody": "This removes {count} AI translations from {namespace}. Anything you wrote or edited yourself stays.",
         "revertConfirmButton": "Revert",

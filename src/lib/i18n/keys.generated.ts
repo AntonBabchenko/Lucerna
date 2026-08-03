@@ -369,6 +369,7 @@ export type TranslationKey =
   | 'instance.l10n.keyTable.originMachineLabel'
   | 'instance.l10n.keyTable.originManualLabel'
   | 'instance.l10n.keyTable.orphanHint'
+  | 'instance.l10n.keyTable.paneSummary'
   | 'instance.l10n.keyTable.perPage'
   | 'instance.l10n.keyTable.revertConfirmBody'
   | 'instance.l10n.keyTable.revertConfirmButton'

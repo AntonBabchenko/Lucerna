@@ -474,6 +474,7 @@
         "doneButton": "Готово"
       },
       "keyTable": {
+        "paneSummary": "{total} ключей · переведено {translated}",
         "searchPlaceholder": "Поиск по ключу или английскому тексту…",
         "searchAriaLabel": "Поиск ключей перевода",
         "filterGroupAriaLabel": "Фильтр по состоянию",
@@ -504,7 +505,7 @@
         "originMachineLabel": "ИИ",
         "machineBadge": "ИИ",
         "machineBadgeTitle": "Переведено ИИ. Если отредактировать — станет вашим.",
-        "revertMachineButton": "Откатить ИИ",
+        "revertMachineButton": "Откатить ИИ в этом моде",
         "revertConfirmTitle": "Откатить перевод ИИ?",
         "revertConfirmBody": "Будет удалено переводов ИИ: {count} — из {namespace}. Всё, что вы написали или отредактировали сами, останется.",
         "revertConfirmButton": "Откатить",

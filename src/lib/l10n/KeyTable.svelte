@@ -232,6 +232,37 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
+  <div
+    class="flex items-center gap-3 border-b border-border-subtle px-3 py-2"
+    data-testid="l10n-pane-header"
+  >
+    <span class="truncate font-mono text-xs text-primary">{namespace}</span>
+    <span class="shrink-0 text-xs text-muted">
+      {$t('instance.l10n.keyTable.paneSummary', {
+        total: counts.all,
+        translated: counts.translated,
+      })}
+    </span>
+    {#if origins.machine > 0}
+      <!--
+        Scoped to THIS namespace (revertMachine passes `namespace`), so it
+        lives in the namespace's own header rather than among the filters,
+        where it read as the undo of the header's instance-wide AI action.
+      -->
+      <button
+        type="button"
+        class="btn-ghost-danger ml-auto shrink-0"
+        data-testid="l10n-revert-machine"
+        onclick={() => {
+          revertError = null;
+          revertConfirmOpen = true;
+        }}
+      >
+        {$t('instance.l10n.keyTable.revertMachineButton')}
+      </button>
+    {/if}
+  </div>
+
   <div class="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2">
     <input
       type="search"
@@ -254,19 +285,6 @@
       onChange={(v) => (originFilter = v as OriginFilter)}
       ariaLabel={$t('instance.l10n.keyTable.originGroupAriaLabel')}
     />
-    {#if origins.machine > 0}
-      <button
-        type="button"
-        class="btn-ghost-danger"
-        data-testid="l10n-revert-machine"
-        onclick={() => {
-          revertError = null;
-          revertConfirmOpen = true;
-        }}
-      >
-        {$t('instance.l10n.keyTable.revertMachineButton')}
-      </button>
-    {/if}
   </div>
 
   <div class="flex-1 overflow-y-auto px-3">

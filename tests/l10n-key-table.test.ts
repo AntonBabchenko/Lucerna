@@ -264,6 +264,17 @@ describe('KeyTable', () => {
     );
   });
 
+  it('names the namespace and its counts in a pane header', async () => {
+    mockKeysOk([
+      keyRow({ key: 'a', sourceEn: 'A', overrideValue: 'Aa', state: 'ok', origin: 'manual' }),
+      keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+    ]);
+    render(KeyTable, { props: { ...props, namespace: 'quark' } });
+    const header = await screen.findByTestId('l10n-pane-header');
+    expect(header.textContent).toContain('quark');
+    expect(header.textContent).toContain('2');
+  });
+
   // Origin is a SECOND axis over the state filter, not more options on it.
   // ToggleChipGroup is a single-select radiogroup with one `value`, so folding
   // the two together would make "translated" and "machine-written" mutually
