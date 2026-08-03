@@ -160,6 +160,37 @@ fn first_major_minor(s: &str) -> Option<String> {
     None
 }
 
+/// Which mod-descriptor era an instance's Minecraft version belongs to.
+///
+/// Forge replaced `mcmod.info` with `META-INF/mods.toml` in the FML rewrite at
+/// MC 1.13. A jar may ship both — one measured 1.12.2 jar carries a `mods.toml`
+/// stamped `loaderVersion="[24,)"`, i.e. written for its 1.14+ build — so "which
+/// file is present" cannot decide; only the instance's version can.
+///
+/// `forge::installer::Era` is deliberately not reused: it is derived from
+/// `install_profile.json`, an installer artefact, not from the MC version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorEra {
+    Legacy,
+    Modern,
+}
+
+/// An unrecognised version reads as `Modern`: that is today's behaviour, and
+/// guessing `Legacy` would silence every dependency on a version we misparsed.
+pub fn descriptor_era(mc_version: &str) -> DescriptorEra {
+    let Some(mm) = first_major_minor(mc_version) else {
+        return DescriptorEra::Modern;
+    };
+    let mut parts = mm.split('.');
+    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    if major == 1 && minor < 13 {
+        DescriptorEra::Legacy
+    } else {
+        DescriptorEra::Modern
+    }
+}
+
 /// Read a zip entry's text contents, or `None` if absent / unreadable.
 ///
 /// Decoding is lossy on purpose: a single non-UTF8 byte — a cp1252 author name
@@ -1418,6 +1449,21 @@ mod tests {
             w.finish().unwrap();
         }
         buf
+    }
+
+    #[test]
+    fn descriptor_era_splits_at_the_fml_rewrite() {
+        use DescriptorEra::*;
+        assert_eq!(descriptor_era("1.12.2"), Legacy);
+        assert_eq!(descriptor_era("1.7.10"), Legacy);
+        assert_eq!(descriptor_era("1.13"), Modern);
+        assert_eq!(descriptor_era("1.20.1"), Modern);
+        assert_eq!(descriptor_era("1.21.1"), Modern);
+        // A future major is modern by construction, not by luck — MC 26.x is real.
+        assert_eq!(descriptor_era("26.1"), Modern);
+        // Unparseable → today's behaviour, never a silent downgrade to legacy.
+        assert_eq!(descriptor_era(""), Modern);
+        assert_eq!(descriptor_era("21w13a"), Modern);
     }
 
     #[test]

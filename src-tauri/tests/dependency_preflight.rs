@@ -105,7 +105,7 @@ version=\"1.3.50.2005\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.50.2005.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
 
@@ -165,7 +165,7 @@ version=\"1.3.55\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.55.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(
@@ -199,7 +199,7 @@ version=\"3.20\"
     let jar = make_jar(&[("META-INF/mods.toml", toml)]);
     register(root, "backpacks-3.20.jar", &jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -262,7 +262,7 @@ version=\"3.20\"
     .await
     .unwrap();
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(
@@ -276,7 +276,7 @@ version=\"3.20\"
 #[tokio::test]
 async fn empty_instance_produces_no_violations() {
     let td = TempDir::new().unwrap();
-    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge)
+    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(report.violations.is_empty());
