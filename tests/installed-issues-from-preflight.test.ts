@@ -102,6 +102,14 @@ describe('the issue count comes from the pre-flight', () => {
       expect(document.querySelector('[data-mod-row="modrinth:PA"]')).not.toBeNull();
     });
     expect(issuesChip()).toBeUndefined();
+
+    // Case A, measured: the claim is not hidden either — it is reported with
+    // attribution, in the neutral register, so the user can see what the author
+    // typed without the launcher adopting it as a finding.
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="author-claim-badge"]')).not.toBeNull(),
+    );
+    expect(document.querySelector('[data-testid="status-badge"]')).toBeNull();
   });
 
   it('a pre-flight violation on the same row does create one', async () => {

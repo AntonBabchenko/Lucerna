@@ -15,6 +15,7 @@
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
+  import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
   import { changelogSupported } from '$lib/mods/changelog-supported';
 
   let {
@@ -113,6 +114,28 @@
   // fix. "Update available" and "disabled" were already unbadged here because
   // the ModCard on the right shows both.
 
+  // Dependencies the AUTHOR marked required on the platform that are not
+  // installed and the user has not settled. Reported, not asserted: the loader
+  // enforces only what the jar descriptor declares, and a measured mod's
+  // platform entry is contradicted by its own `neoforge.mods.toml`. Counting
+  // only top-level `required` children keeps the badge about this mod's own
+  // claims rather than its dependencies' claims.
+  const claimRefs = $derived(
+    installed.source && installed.project_id
+      ? { source: installed.source, project_id: installed.project_id }
+      : null,
+  );
+  const authorClaims = $derived(
+    claimRefs === null
+      ? []
+      : (root?.required ?? []).filter(
+          (n) =>
+            !n.installed &&
+            n.declared === 'required' &&
+            !isClaimDismissed(claimRefs, { source: n.source, project_id: n.project_id }),
+        ),
+  );
+
   // "View changelog" is offered only when an update is actually pending and the
   // source implements a changelog API (Modrinth/CurseForge) — mirrors the Rust
   // `changelog_supported` gate. Guards on identity so the modal always has a
@@ -156,13 +179,26 @@
       {selected}
       {onSelectChange}
     />
-    {#if summary || incompatibleTitle || showChangelog}
+    {#if summary || incompatibleTitle || showChangelog || authorClaims.length > 0}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if incompatibleTitle}
           <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
             <StatusBadge variant="warning" icon="warning">
               {$t('mods.installed.badgeIncompatible')}
             </StatusBadge>
+          </span>
+        {/if}
+        {#if authorClaims.length > 0}
+          <!-- Neutral register on purpose: not `danger`, not `warning`. Nothing
+               is being demanded of the user — the launcher is reporting what the
+               author typed, and saying whose word it is. -->
+          <span
+            class="px-2 py-0.5 rounded inline-flex items-center gap-1 bg-subtle text-secondary"
+            use:tooltip={$t('mods.deps.authorClaimTooltip')}
+            data-testid="author-claim-badge"
+          >
+            <Icon name="info" size={12} />
+            {$t('mods.deps.authorClaimCount', { count: authorClaims.length })}
           </span>
         {/if}
         {#if showChangelog}

@@ -773,6 +773,8 @@
     "deps": {
       "installedStatus": "installed",
       "notInstalledStatus": "not installed",
+      "authorClaimCount": "{count, plural, one {# marked required} other {# marked required}}",
+      "authorClaimTooltip": "Declared on the platform. The loader does not require it.",
       "cycleStatus": "cycle",
       "jumpToTitle": "Show {name} in the list",
       "installAriaLabel": "Install {name}",

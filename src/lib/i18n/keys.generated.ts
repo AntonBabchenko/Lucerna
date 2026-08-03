@@ -1101,6 +1101,8 @@ export type TranslationKey =
   | 'mods.depDialog.unresolvableRowWrongLoader'
   | 'mods.deps.addAriaLabel'
   | 'mods.deps.addBtn'
+  | 'mods.deps.authorClaimCount'
+  | 'mods.deps.authorClaimTooltip'
   | 'mods.deps.cycleStatus'
   | 'mods.deps.installAriaLabel'
   | 'mods.deps.installedStatus'
