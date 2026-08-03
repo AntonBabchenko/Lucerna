@@ -136,6 +136,24 @@ describe('KeyTable', () => {
     await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(5));
   });
 
+  it('starts a new namespace on the first page', async () => {
+    mockKeysOk(Array.from({ length: 55 }, (_, i) => keyRow({ key: `k${i}`, sourceEn: `K${i}` })));
+    const { rerender } = render(KeyTable, { props });
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(50));
+    await fireEvent.click(screen.getByTestId('pg-next'));
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(5));
+
+    // Same size, so the clamp effect has nothing to clamp — only an explicit
+    // reset can bring the user back to the top of an unrelated key set.
+    mockKeysOk(Array.from({ length: 55 }, (_, i) => keyRow({ key: `t${i}`, sourceEn: `T${i}` })));
+    await rerender({ ...props, namespace: 'thermal' });
+    await waitFor(() =>
+      expect(commands.l10nNamespaceKeys).toHaveBeenCalledWith('inst-1', 'thermal', 'ru_ru'),
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(50));
+  });
+
   it('lets the user save a new override, and reflects the resulting state without a refetch', async () => {
     mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
     vi.mocked(commands.l10nSetOverride).mockResolvedValue({
@@ -296,6 +314,13 @@ describe('KeyTable', () => {
     );
   });
 
+  it('does not blame a filter when the namespace is simply empty', async () => {
+    mockKeysOk([]);
+    render(KeyTable, { props });
+    const empty = await screen.findByTestId('l10n-key-table-empty');
+    expect(empty.textContent).toBe('This mod has no translatable text.');
+  });
+
   it('hides the pagination footer when everything fits on one page', async () => {
     mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
     render(KeyTable, { props });
@@ -420,12 +445,12 @@ describe('KeyTable', () => {
     expect(row.getAttribute('aria-label')).toBe('gui.quark.rune');
   });
 
-  // Origin is a SECOND axis over the state filter, not more options on it.
-  // ToggleChipGroup is a single-select radiogroup with one `value`, so folding
-  // the two together would make "translated" and "machine-written" mutually
-  // exclusive — which is what these two tests would catch.
-  describe('origin filter', () => {
-    it('narrows within the state filter rather than replacing it', async () => {
+  describe('one filter axis', () => {
+    // The inversion of the old two-axis behaviour. Origin is not a narrowing
+    // of the state selection — it is a view of its own, because a key's origin
+    // exists only when the key has an override, so "untranslated AND
+    // AI-written" was empty by construction rather than by data.
+    it('the AI view shows every AI-written row regardless of state', async () => {
       mockKeysOk([
         keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' }),
         keyRow({ key: 'b', state: 'stale', overrideValue: 'Б', modValue: 'B2', origin: 'machine' }),
@@ -434,24 +459,37 @@ describe('KeyTable', () => {
       render(KeyTable, { props });
       await screen.findAllByTestId('l10n-key-row');
 
-      await fireEvent.click(screen.getByTestId('l10n-filter-translated'));
+      await fireEvent.click(screen.getByTestId('l10n-filter-machine'));
       await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(2));
-
-      // Both axes now apply: translated AND machine-written is exactly 'a'.
-      await fireEvent.click(screen.getByTestId('l10n-origin-machine'));
-      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
       expect(screen.getByText('a')).toBeTruthy();
+      expect(screen.getByText('b')).toBeTruthy();
     });
 
-    it('resets on a namespace switch, so a machine-only view cannot strand the user on an empty table', async () => {
+    it('shows an origin view only once it has something in it', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+        keyRow({ key: 'b', state: 'missing' }),
+      ]);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      // Positive half first, so this test cannot pass merely because a testid
+      // does not exist yet.
+      expect(within(screen.getByTestId('l10n-filter-manual')).getByText('1')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-filter-machine')).toBeNull();
+      // The anchors stay whatever the data says.
+      expect(within(screen.getByTestId('l10n-filter-missing')).getByText('1')).toBeTruthy();
+    });
+
+    it('resets on a namespace switch, so an AI-only view cannot strand the user on an empty table', async () => {
       mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
       const { rerender } = render(KeyTable, { props });
       await screen.findAllByTestId('l10n-key-row');
-      await fireEvent.click(screen.getByTestId('l10n-origin-machine'));
+      await fireEvent.click(screen.getByTestId('l10n-filter-machine'));
       await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
 
       // A namespace the pre-fill never touched: every row has origin null, so
-      // a carried-over "machine only" selection would hide all of them with no
+      // a carried-over "AI only" selection would hide all of them with no
       // visible reason why.
       mockKeysOk([keyRow({ key: 'z', state: 'missing', origin: null })]);
       await rerender({ ...props, namespace: 'thermal' });
@@ -461,6 +499,312 @@ describe('KeyTable', () => {
 
       await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
       expect(screen.queryByTestId('l10n-key-table-empty')).toBeNull();
+    });
+  });
+
+  describe('sticky rows', () => {
+    function mockSaveOk() {
+      vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+        status: 'ok',
+        data: null,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+    }
+
+    it('keeps a just-saved row in place instead of yanking it out of the view', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'missing' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(2));
+
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'А' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+
+      // The badge flip IS the confirmation — and it only survives because the
+      // row does.
+      await waitFor(() =>
+        expect(screen.getAllByTestId('l10n-key-state')[0].textContent?.trim()).toBe('Translated'),
+      );
+      expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(2);
+    });
+
+    it('offers a refresh that drops the changed rows and then goes away', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'missing' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'А' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+
+      const refresh = await screen.findByTestId('l10n-sticky-refresh');
+      expect(refresh.textContent).toContain('1');
+      await fireEvent.click(refresh);
+
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+    });
+
+    it('has nothing to refresh under All, where a saved row still belongs', async () => {
+      mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findByTestId('l10n-key-row');
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'А' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await waitFor(() =>
+        expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Translated'),
+      );
+
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+    });
+
+    it('exempts a stuck row from the view but not from the search', async () => {
+      mockKeysOk([
+        keyRow({ key: 'alpha', sourceEn: 'Alpha', state: 'missing' }),
+        keyRow({ key: 'beta', sourceEn: 'Beta', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'А' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(2));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-search'), { target: { value: 'beta' } });
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('beta')).toBeTruthy();
+    });
+
+    it('keeps the chip of the view you are standing in when its last row goes sticky', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'stale', overrideValue: 'А', modValue: 'A2' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-stale'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await waitFor(() =>
+        expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Translated'),
+      );
+
+      // The count is now 0, but the chip must not vanish: its disappearance
+      // would trip the fallback effect and flood the table with the whole mod.
+      expect(screen.getByTestId('l10n-filter-stale')).toBeTruthy();
+      expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1);
+    });
+
+    // The chip must survive a search that hides the sticky row. Deriving
+    // keepView from the search-aware count let one keystroke drop the chip,
+    // which fired the fallback effect and flooded the table with the whole
+    // mod — and irrecoverably, since keepView follows the active view.
+    it('keeps that chip even when a search hides the sticky row', async () => {
+      mockKeysOk([
+        keyRow({
+          key: 'alpha',
+          sourceEn: 'Alpha',
+          state: 'stale',
+          overrideValue: 'А',
+          modValue: 'A2',
+        }),
+        keyRow({ key: 'beta', sourceEn: 'Beta', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-stale'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await screen.findByTestId('l10n-sticky-refresh');
+
+      // A search that matches neither the sticky row's key nor its English.
+      await fireEvent.input(screen.getByTestId('l10n-key-search'), { target: { value: 'zzz' } });
+
+      const chip = await screen.findByTestId('l10n-filter-stale');
+      expect(chip.getAttribute('aria-checked')).toBe('true');
+      expect(screen.getByTestId('l10n-filter-all').getAttribute('aria-checked')).toBe('false');
+    });
+
+    // Refresh releases the hold; it must not also move the user. Before this,
+    // clearing the set dropped the zero-count chip and the fallback effect
+    // dumped the user into All with the whole mod in front of them.
+    it('refreshing a count-gated view leaves you standing in it', async () => {
+      mockKeysOk([
+        keyRow({
+          key: 'a',
+          sourceEn: 'A',
+          state: 'stale',
+          overrideValue: 'А',
+          modValue: 'A2',
+        }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-stale'));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await fireEvent.click(await screen.findByTestId('l10n-sticky-refresh'));
+
+      const chip = await screen.findByTestId('l10n-filter-stale');
+      expect(chip.getAttribute('aria-checked')).toBe('true');
+      expect(screen.queryAllByTestId('l10n-key-row')).toHaveLength(0);
+      expect(screen.getByTestId('l10n-key-table-empty')).toBeTruthy();
+    });
+
+    // The key exists only because the override does. Remove the override and
+    // the backend's row universe no longer contains it, so keeping a row —
+    // sticky or not — would badge a key the mod does not ship.
+    it('drops a Removed row entirely when its override is cleared', async () => {
+      mockKeysOk([
+        keyRow({ key: 'gone', sourceEn: 'Old', state: 'orphan', overrideValue: 'Старое' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+        status: 'ok',
+        data: null,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-orphan'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      await fireEvent.click(screen.getByTestId('l10n-key-clear'));
+
+      await waitFor(() => expect(screen.queryAllByTestId('l10n-key-row')).toHaveLength(0));
+      // Not held back as sticky either — there is no row to hold.
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+      // And it must not have moved into the Untranslated bucket.
+      expect(within(screen.getByTestId('l10n-filter-missing')).getByText('1')).toBeTruthy();
+    });
+
+    it('drops the sticky rows when the data is refetched', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'missing' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      const { rerender } = render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'А' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+      await screen.findByTestId('l10n-sticky-refresh');
+
+      // The AI pre-fill's door into this component. What is on screen after it
+      // is the backend's truth; a "you just did this" claim cannot outlive the
+      // data it was made about.
+      //
+      // A second, DIFFERENT response: `a` comes back translated while the view
+      // is still Untranslated. It no longer matches on its own merits, so the
+      // only thing that could keep it on screen is a sticky flag that survived
+      // the refetch — which is exactly what must not happen.
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      await rerender({ ...props, reloadToken: 1 });
+      await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('b')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+    });
+
+    // The bulk revert calls load() directly: instanceId, namespace, lang and
+    // reloadToken are all unchanged, so the fetch effect never re-runs. A clear
+    // wired to that effect instead of to load() would pass every other test in
+    // this block and still leave sticky keys pointing at rows the backend has
+    // just deleted.
+    it('drops the sticky rows when a bulk AI revert refetches', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'А', origin: 'machine' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+      ]);
+      mockSaveOk();
+      vi.mocked(commands.l10nRevertMachine).mockResolvedValue({
+        status: 'ok',
+        data: 2,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      // Editing an AI row reclaims it as manual, so it leaves the AI view and
+      // goes sticky. 'b' stays machine, which keeps the revert button offered.
+      await fireEvent.click(screen.getByTestId('l10n-filter-machine'));
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'Моё' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+      await screen.findByTestId('l10n-sticky-refresh');
+
+      // The post-revert truth: `a` is manual now (the user's edit reclaimed it)
+      // and so falls outside the AI view. If the sticky flag survived load(),
+      // it would still be on screen.
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'Моё', origin: 'manual' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+      ]);
+      await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
+      await fireEvent.click(await screen.findByTestId('l10n-revert-confirm'));
+
+      await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('b')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+    });
+
+    it('drops the sticky rows when a view change re-runs the filter', async () => {
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'missing' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+      await fireEvent.input(screen.getAllByTestId('l10n-key-input')[0], {
+        target: { value: 'А' },
+      });
+      await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
+      await screen.findByTestId('l10n-sticky-refresh');
+
+      await fireEvent.click(screen.getByTestId('l10n-filter-all'));
+      await fireEvent.click(screen.getByTestId('l10n-filter-missing'));
+
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
     });
   });
 
