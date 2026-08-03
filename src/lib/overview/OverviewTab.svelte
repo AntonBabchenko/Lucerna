@@ -51,6 +51,7 @@
     onOpenLocalization,
     l10nPercent = null,
     l10nLang,
+    preflightUnknown = false,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -86,6 +87,10 @@
      *  never be mistaken for "coverage into whatever the UI happens to be
      *  in right now". */
     l10nLang: string;
+    /** The dependency pre-flight could not be run for this instance. Owned by
+     *  the page, which is where the launch gate runs it. Never blocks a launch
+     *  — it only stops "could not check" from reading as "checked and clean". */
+    preflightUnknown?: boolean;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -108,6 +113,7 @@
           hasLogIssue: hasDiagnosisIndicator(),
           logFixAvailable: diagnosisStatus() === 'actionable',
           serverFixAvailable: serverState.anyDiagnosisActionable,
+          preflightUnknown,
         })
       : [],
   );
@@ -133,6 +139,9 @@
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled('incompatible');
+    // The dependency panel and «Перепроверить зависимости» both live on the
+    // Installed tab, and opening it re-attempts the pre-flight.
+    else if (kind === 'preflight_unknown') onNavInstalled();
     else if (kind === 'server_log_fix') onOpenServers();
     else if (kind === 'integrity') onManage('integrity');
     else onManage('mc'); // pick_version

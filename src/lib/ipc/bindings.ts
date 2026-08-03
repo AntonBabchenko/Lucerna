@@ -747,7 +747,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-	 *  compatibility against the target instance. No filesystem writes.
+	 *  compatibility against the target instance.
+	 * 
+	 *  Not write-free despite the name: the Connector probe below goes through
+	 *  `installed::list`, which reconciles the registry against the mods folder and
+	 *  persists when that changes. No *mod* file is touched.
 	 */
 	modsInspectLocal: (instanceId: string, jarPath: string) => typedError<CompatVerdict, Error>(__TAURI_INVOKE("mods_inspect_local", { instanceId, jarPath })),
 	/**
@@ -2307,9 +2311,21 @@ export type DatapackRejection =
 /**  No `pack.mcmeta`, or no `data/` tree. */
 "not_a_pack";
 
-export type DepKind = "required" | "optional" | "incompatible" | "embedded";
+/**
+ *  What the mod's author declared on the platform. NOT a launcher verdict: the
+ *  loader enforces only what the jar descriptor says, and the pre-flight reads
+ *  that. Kept so the UI can attribute the claim, never to decide whether it is a
+ *  problem — the graph has no field for that, on purpose.
+ * 
+ *  It replaced a four-value `DepNodeStatus` whose names (`MissingRequired`,
+ *  `Satisfied`) embedded the verdict in the type. A measured mod declared a
+ *  dependency on Modrinth that its own `neoforge.mods.toml` does not declare;
+ *  the loader never required it and the pack runs, so "missing required" was the
+ *  launcher repeating the platform's claim as its own finding.
+ */
+export type DepDeclaration = "required" | "optional";
 
-export type DepNodeStatus = "satisfied" | "missing_required" | "optional_present" | "optional_absent";
+export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
 export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
 
@@ -2326,7 +2342,9 @@ export type DepTreeNode = {
 	source: ModSource,
 	project_id: string,
 	name: string,
-	status: DepNodeStatus,
+	/**  A jar for this project is present in the instance. */
+	installed: boolean,
+	declared: DepDeclaration,
 	/**
 	 *  True when this project was already expanded higher on the path; its
 	 *  children are omitted to break cycles.

@@ -70,13 +70,21 @@ pub struct NodeDeps {
     pub optional: Vec<DepChild>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+/// What the mod's author declared on the platform. NOT a launcher verdict: the
+/// loader enforces only what the jar descriptor says, and the pre-flight reads
+/// that. Kept so the UI can attribute the claim, never to decide whether it is a
+/// problem — the graph has no field for that, on purpose.
+///
+/// It replaced a four-value `DepNodeStatus` whose names (`MissingRequired`,
+/// `Satisfied`) embedded the verdict in the type. A measured mod declared a
+/// dependency on Modrinth that its own `neoforge.mods.toml` does not declare;
+/// the loader never required it and the pack runs, so "missing required" was the
+/// launcher repeating the platform's claim as its own finding.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum DepNodeStatus {
-    Satisfied,
-    MissingRequired,
-    OptionalPresent,
-    OptionalAbsent,
+pub enum DepDeclaration {
+    Required,
+    Optional,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -84,7 +92,9 @@ pub struct DepTreeNode {
     pub source: ModSource,
     pub project_id: String,
     pub name: String,
-    pub status: DepNodeStatus,
+    /// A jar for this project is present in the instance.
+    pub installed: bool,
+    pub declared: DepDeclaration,
     /// True when this project was already expanded higher on the path; its
     /// children are omitted to break cycles.
     pub cycle: bool,
@@ -205,11 +215,13 @@ where
                 || c.filename
                     .as_deref()
                     .is_some_and(|f| installed_filenames.contains(f));
-            let status = match (required, installed) {
-                (true, true) => DepNodeStatus::Satisfied,
-                (true, false) => DepNodeStatus::MissingRequired,
-                (false, true) => DepNodeStatus::OptionalPresent,
-                (false, false) => DepNodeStatus::OptionalAbsent,
+            // Two facts, carried side by side. Collapsing them into one enum is
+            // what let the graph speak as if it knew a problem when it only
+            // knew what the platform was told.
+            let declared = if required {
+                DepDeclaration::Required
+            } else {
+                DepDeclaration::Optional
             };
             *budget -= 1;
             if path.contains(&k) {
@@ -217,7 +229,8 @@ where
                     source: c.source,
                     project_id: c.project_id.clone(),
                     name: c.name.clone(),
-                    status,
+                    installed,
+                    declared,
                     cycle: true,
                     children: vec![],
                 });
@@ -229,7 +242,8 @@ where
                     source: c.source,
                     project_id: c.project_id.clone(),
                     name: c.name.clone(),
-                    status,
+                    installed,
+                    declared,
                     cycle: false,
                     children: vec![],
                 });
@@ -265,7 +279,7 @@ where
             // A child node flattens its own required + optional grandchildren
             // into one `children` vec (unlike the root, which keeps them in
             // separate `required`/`optional` lists). The distinction is still
-            // recoverable per node from `status`; the UI renders nested levels
+            // recoverable per node from `declared`; the UI renders nested levels
             // uniformly, so a single list is all it needs.
             let mut kids = req;
             kids.extend(opt);
@@ -273,7 +287,8 @@ where
                 source: c.source,
                 project_id: c.project_id.clone(),
                 name: c.name.clone(),
-                status,
+                installed,
+                declared,
                 cycle: false,
                 children: kids,
             });
@@ -329,13 +344,18 @@ mod tests {
         move |_src, pid| std::future::ready(Ok(map.get(pid.as_str()).cloned().unwrap_or_default()))
     }
 
+    /// The graph carries two independent facts and never collapses them into a
+    /// verdict: whether the project is present, and what the author declared on
+    /// the platform. "Is this a problem?" is the pre-flight's question — it
+    /// reads the descriptor the loader enforces; the platform's word is only a
+    /// claim, and a measured one contradicted its own jar.
     #[tokio::test]
-    async fn classifies_missing_required_and_satisfied() {
+    async fn a_node_carries_presence_and_the_authors_word_separately() {
         let map = std::collections::HashMap::from([(
             "rei",
             NodeDeps {
                 required: vec![child("arch", "Architectury"), child("night", "Night")],
-                optional: vec![],
+                optional: vec![child("cloth", "Cloth")],
             },
         )]);
         let installed = vec![node("r", "rei"), node("n", "night")];
@@ -353,8 +373,18 @@ mod tests {
             .iter()
             .find(|n| n.project_id == "night")
             .unwrap();
-        assert_eq!(arch.status, DepNodeStatus::MissingRequired);
-        assert_eq!(night.status, DepNodeStatus::Satisfied);
+        let cloth = rei
+            .optional
+            .iter()
+            .find(|n| n.project_id == "cloth")
+            .unwrap();
+
+        assert!(!arch.installed);
+        assert_eq!(arch.declared, DepDeclaration::Required);
+        assert!(night.installed);
+        assert_eq!(night.declared, DepDeclaration::Required);
+        assert!(!cloth.installed);
+        assert_eq!(cloth.declared, DepDeclaration::Optional);
     }
 
     #[tokio::test]
@@ -362,7 +392,7 @@ mod tests {
         // Root "waystones" (CF) requires "balm" via a CurseForge ref, but the
         // user installed Balm from Modrinth — a different ProjectKey. The jar
         // filename ("balm.jar") is what proves it is present, so the dep must
-        // classify Satisfied, not MissingRequired.
+        // read as installed, not absent.
         let cf_balm = DepChild {
             source: ModSource::Curseforge,
             project_id: "531761".into(),
@@ -395,11 +425,11 @@ mod tests {
             .iter()
             .find(|n| n.project_id == "531761")
             .unwrap();
-        assert_eq!(
-            balm.status,
-            DepNodeStatus::Satisfied,
-            "cross-source dep present by filename must be Satisfied, not MissingRequired"
+        assert!(
+            balm.installed,
+            "cross-source dep present by filename must read as installed"
         );
+        assert_eq!(balm.declared, DepDeclaration::Required);
     }
 
     #[tokio::test]
@@ -429,10 +459,12 @@ mod tests {
             .iter()
             .find(|n| n.project_id == "cloth")
             .unwrap();
-        assert_eq!(cloth.status, DepNodeStatus::OptionalAbsent);
+        assert!(!cloth.installed);
+        assert_eq!(cloth.declared, DepDeclaration::Optional);
         assert_eq!(cloth.children.len(), 1);
         assert_eq!(cloth.children[0].project_id, "arch");
-        assert_eq!(cloth.children[0].status, DepNodeStatus::MissingRequired);
+        assert!(!cloth.children[0].installed);
+        assert_eq!(cloth.children[0].declared, DepDeclaration::Required);
     }
 
     #[tokio::test]

@@ -176,6 +176,10 @@ pub(crate) fn classify_inert_loader_jars(
     let Ok(entries) = std::fs::read_dir(mods_dir) else {
         return Vec::new();
     };
+    // Same exception the live compat scan makes: with Sinytra Connector present
+    // a Fabric jar on a Forge-family instance is loaded, not inert, so listing
+    // it under "files that won't load" would be wrong here too.
+    let connector = dir_has_connector(mods_dir);
     let mut out: Vec<InertLoaderJar> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -195,7 +199,8 @@ pub(crate) fn classify_inert_loader_jars(
         let Ok(meta) = crate::mods::local::read_jar_meta(&bytes) else {
             continue;
         };
-        let verdict = crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc);
+        let verdict =
+            crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc, connector);
         if verdict.loader_mismatch {
             out.push(InertLoaderJar {
                 filename,
@@ -207,6 +212,32 @@ pub(crate) fn classify_inert_loader_jars(
         }
     }
     dedupe_inert(out)
+}
+
+/// Sync twin of `local::connector_installed` for the raw-directory scan: this
+/// path runs before (or without) a mod registry, so it filters candidates by
+/// filename alone and proves them by descriptor.
+fn dir_has_connector(mods_dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(mods_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jar") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // No registry here, so there is no display name to match on.
+        if !crate::mods::local::looks_like_connector(name, "") {
+            continue;
+        }
+        if std::fs::read(&path).is_ok_and(|b| crate::mods::local::jar_is_connector(&b)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Collapse duplicate `InertLoaderJar` entries by filename, keeping first seen.

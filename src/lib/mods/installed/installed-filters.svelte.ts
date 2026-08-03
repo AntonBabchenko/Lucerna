@@ -35,10 +35,15 @@ export type StatusPredicates = {
 // rendered slice. `toFilterRow` projects each caller row `R` to the abstract
 // FilterRow; `status` feeds the updates / issues / incompatible quick-filters
 // and the toolbar counts.
+//
+// `isReady` tells the auto-reset below whether a count of 0 is a fact or merely
+// "not loaded yet". Callers that can render before their rows arrive MUST pass
+// it; the default is the safe one for callers whose rows are always present.
 export function createInstalledFilters<R>(
   getRows: () => R[],
   toFilterRow: (row: R) => FilterRow,
   status: StatusPredicates = {},
+  isReady: () => boolean = () => true,
 ) {
   let filter = $state('');
   let viewFilter = $state<ViewFilter>('all');
@@ -136,6 +141,13 @@ export function createInstalledFilters<R>(
       // disappears — so auto-reset to 'all' instead of stranding an empty list
       // with the now-gone filter still active.
       $effect(() => {
+        // A count of 0 over a list that has not loaded is not a fact. Without
+        // this guard the Overview's deep-link to «Несовместимые» was defeated on
+        // arrival: MainTabs mounts AddonsTab fresh on every switch, `counts`
+        // iterates rows that are still `[]` for the whole mount flush, and
+        // writing `viewFilter` re-runs this effect, which then reverts it to
+        // 'all' before a single row exists.
+        if (!isReady()) return;
         const c = counts;
         const resetUpdates = viewFilter === 'updates' && c.updates === 0;
         const resetIssues = viewFilter === 'issues' && c.issues === 0;

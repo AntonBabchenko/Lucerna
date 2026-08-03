@@ -24,6 +24,7 @@
     integrity: 'page.overview.attnIntegrity',
     modpack_update: 'page.overview.attnModpackUpdate',
     server_log_fix: 'page.overview.attnServerLogFix',
+    preflight_unknown: 'page.overview.attnPreflightUnknown',
   };
 
   const ICON_KEY: Record<AttentionKind, IconName> = {
@@ -35,6 +36,9 @@
     integrity: 'warning',
     modpack_update: 'update',
     server_log_fix: 'wrench',
+    // Deliberately not the warning triangle: this row is not a problem, it is
+    // the absence of an answer. `info` is the neutral glyph in the registry.
+    preflight_unknown: 'info',
   };
 </script>
 

@@ -19,7 +19,7 @@ use crate::mods::platform::{InstalledMod, LoaderKind};
 use crate::mods::version_range::RangeFamily;
 
 /// Which loader family a mod jar targets, detected from its descriptor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LoaderFamily {
     /// Fabric or Quilt.
     Fabric,
@@ -28,7 +28,7 @@ pub enum LoaderFamily {
 }
 
 /// Which side a declared dependency applies to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DepSide {
     Both,
     Client,
@@ -39,7 +39,7 @@ pub enum DepSide {
 /// `IModInfo.DependencyType` (FancyModLoader 1.21.1 `ModInfo.java:78-88`).
 /// Fabric/Quilt `depends` entries map onto `Required` / `Optional`; their
 /// `breaks` blocks are not read today.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DependencyKind {
     /// The loader aborts when the dependency is absent or out of range.
     Required,
@@ -62,26 +62,48 @@ impl DependencyKind {
     }
 }
 
+/// Which descriptor a declared dependency came out of.
+///
+/// [`RangeFamily`] cannot answer this — `Maven` covers `mods.toml`,
+/// `neoforge.mods.toml` and the legacy `@Mod` annotation alike — and the
+/// pre-flight needs it to drop declarations from a file the instance's loader
+/// never opens. Forge 1.12.2 does not read `mods.toml`; Forge 1.20 does not read
+/// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DescriptorSource {
+    /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
+    McmodAnnotation,
+    /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
+    ModsToml,
+    /// `META-INF/neoforge.mods.toml` — NeoForge ≥ 1.20.6.
+    NeoForgeToml,
+    FabricJson,
+    QuiltJson,
+}
+
 /// One declared dependency with everything the resolver needs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeclaredDep {
     pub dep_id: String,
     pub range: String,
     pub kind: DependencyKind,
     pub side: DepSide,
     pub family: RangeFamily,
+    /// The descriptor this declaration was read out of. Decides whether the
+    /// instance's loader enforces it at all — see `preflight::dep_applies_to_instance`.
+    pub source: DescriptorSource,
 }
 
 /// A mod id this jar provides, with its own declared version (post
 /// `${file.jarVersion}` resolution). Multi-mod jars yield several.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProvidedMod {
     pub mod_id: String,
     pub version: Option<String>,
 }
 
 /// Everything the pre-flight needs from one jar.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ManifestDeps {
     /// Own `[[mods]]` / fabric id / quilt id (+ JIJ as providers).
     pub provided: Vec<ProvidedMod>,
@@ -90,7 +112,7 @@ pub struct ManifestDeps {
 }
 
 /// Best-effort metadata read from a mod `.jar`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JarMeta {
     /// Loader families the jar's descriptor(s) declare. Empty when the jar
     /// has no recognised descriptor (coremod / library — undeterminable).
@@ -136,6 +158,37 @@ fn first_major_minor(s: &str) -> Option<String> {
         // not a major.minor pattern — continue from the current position
     }
     None
+}
+
+/// Which mod-descriptor era an instance's Minecraft version belongs to.
+///
+/// Forge replaced `mcmod.info` with `META-INF/mods.toml` in the FML rewrite at
+/// MC 1.13. A jar may ship both — one measured 1.12.2 jar carries a `mods.toml`
+/// stamped `loaderVersion="[24,)"`, i.e. written for its 1.14+ build — so "which
+/// file is present" cannot decide; only the instance's version can.
+///
+/// `forge::installer::Era` is deliberately not reused: it is derived from
+/// `install_profile.json`, an installer artefact, not from the MC version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorEra {
+    Legacy,
+    Modern,
+}
+
+/// An unrecognised version reads as `Modern`: that is today's behaviour, and
+/// guessing `Legacy` would silence every dependency on a version we misparsed.
+pub fn descriptor_era(mc_version: &str) -> DescriptorEra {
+    let Some(mm) = first_major_minor(mc_version) else {
+        return DescriptorEra::Modern;
+    };
+    let mut parts = mm.split('.');
+    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    if major == 1 && minor < 13 {
+        DescriptorEra::Legacy
+    } else {
+        DescriptorEra::Modern
+    }
 }
 
 /// Read a zip entry's text contents, or `None` if absent / unreadable.
@@ -359,6 +412,163 @@ fn is_loader_or_mc(id: &str) -> bool {
     LOADER_DEP_IDS.contains(&id.trim().to_ascii_lowercase().as_str())
 }
 
+/// Parse the value of `@Mod(dependencies = "…")` — the string FML ≤ 1.12.2
+/// enforces. Clauses are `;`-separated, each `<prefix>:<modid>[@<versionRange>]`.
+///
+/// Only `required-*` is a requirement; a bare `after` / `before` is load-order
+/// only and must not become one. `*` is the wildcard ordering target, not a mod.
+/// Loader and Minecraft ids are dropped for the same reason
+/// [`read_jar_manifest_deps`] drops them — nearly every 1.12.2 annotation opens
+/// with `required-after:forge` and `required-after:minecraft`, and reporting
+/// those as missing mods would put a phantom on every jar of every legacy pack.
+pub(crate) fn parse_legacy_dependency_string(raw: &str) -> Vec<DeclaredDep> {
+    let mut out = Vec::new();
+    for clause in raw.split(';') {
+        let Some((prefix, rest)) = clause.trim().split_once(':') else {
+            continue;
+        };
+        if !matches!(
+            prefix.trim().to_ascii_lowercase().as_str(),
+            "required-after" | "required-before"
+        ) {
+            continue;
+        }
+        let (id, range) = rest.split_once('@').unwrap_or((rest, ""));
+        let id = id.trim();
+        if id.is_empty() || id == "*" || is_loader_or_mc(id) {
+            continue;
+        }
+        out.push(DeclaredDep {
+            dep_id: id.to_string(),
+            range: range.trim().to_string(),
+            kind: DependencyKind::Required,
+            // The legacy string carries no side.
+            side: DepSide::Both,
+            family: RangeFamily::Maven,
+            source: DescriptorSource::McmodAnnotation,
+        });
+    }
+    out
+}
+
+/// Widest printable-ASCII run containing byte index `at`.
+///
+/// A `CONSTANT_Utf8` entry is length-prefixed rather than NUL-terminated, so a
+/// run can occasionally merge with an adjacent constant. That is harmless here:
+/// the clause parser skips anything without a `required-*:` prefix, and the
+/// worst case is a trailing character on the last clause's range.
+fn printable_run(bytes: &[u8], at: usize) -> &str {
+    let printable = |b: u8| (0x20..=0x7e).contains(&b);
+    let mut start = at;
+    while start > 0 && printable(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = at;
+    while end < bytes.len() && printable(bytes[end]) {
+        end += 1;
+    }
+    std::str::from_utf8(&bytes[start..end]).unwrap_or("")
+}
+
+fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Recover Forge ≤ 1.12.2 dependencies from the `@Mod(dependencies = …)`
+/// annotation, which is the only place that era declares them — `mcmod.info`'s
+/// own array is cosmetic.
+///
+/// `own_ids` are the jar's provided mod-ids (from `mcmod.info`). Clauses are
+/// accepted only from a class that also carries one of them as a constant: a
+/// library that merely mentions the syntax does not produce that pair, while the
+/// real `@Mod` class does — verified on `EnhancedVisuals.class`, where
+/// `enhancedvisuals` and `required-after:creativecore` sit side by side.
+///
+/// Stops at the first class in this jar that yields clauses under the guard,
+/// including when every clause names the loader or Minecraft and the filtered
+/// result is empty: that class IS the annotation, and continuing past it would
+/// only find false positives.
+///
+/// Cost: decompresses class entries until that class is found. Affordable once
+/// per jar, which is what the sha1-keyed scan cache exists for; it runs only for
+/// `DescriptorEra::Legacy` instances, so modern packs pay nothing.
+pub(crate) fn read_jar_legacy_deps(jar_bytes: &[u8], own_ids: &[String]) -> Vec<DeclaredDep> {
+    if own_ids.is_empty() {
+        return Vec::new();
+    }
+    let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(jar_bytes)) else {
+        return Vec::new();
+    };
+    // Collect entry names first to avoid borrow conflicts when reading bytes.
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter(|n| n.ends_with(".class"))
+        .collect();
+    for name in names {
+        let Some(bytes) = entry_bytes(&mut zip, &name) else {
+            continue;
+        };
+        let Some(at) = find_subslice(&bytes, b"required-after:")
+            .or_else(|| find_subslice(&bytes, b"required-before:"))
+        else {
+            continue;
+        };
+        if !own_ids
+            .iter()
+            .any(|id| find_subslice(&bytes, id.as_bytes()).is_some())
+        {
+            continue;
+        }
+        return parse_legacy_dependency_string(printable_run(&bytes, at));
+    }
+    Vec::new()
+}
+
+/// `mcmod.info` — the Forge ≤ 1.12.2 descriptor. PROVIDERS ONLY.
+///
+/// Its `dependencies` array is cosmetic on that era: FML enforces the
+/// `@Mod(dependencies = …)` annotation instead. Measured on a real 1.12.2 jar
+/// that ships `"dependencies": []` alongside a genuine
+/// `required-after:creativecore` annotation — reading this array as the
+/// requirement list would report the opposite of the truth.
+///
+/// Two shapes are in the wild: a bare array of mod objects, and
+/// `{ "modList": [...] }`.
+fn parse_mcmod_info_providers(json_text: &str, out: &mut ManifestDeps) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return;
+    };
+    let list = v
+        .as_array()
+        .or_else(|| v.get("modList").and_then(|m| m.as_array()));
+    let Some(list) = list else { return };
+    for m in list {
+        let Some(id) = m.get("modid").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        // `${version}` / `${mcversion}` are build placeholders Gradle was meant
+        // to substitute. An unsubstituted one is not a version — recording it
+        // would make every range comparison against this provider nonsense.
+        let version = m
+            .get("version")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.starts_with("${"))
+            .map(str::to_string);
+        out.provided.push(ProvidedMod {
+            mod_id: id.to_string(),
+            version,
+        });
+    }
+}
+
 /// Structured manifest read for the dependency pre-flight. Best-effort: a jar
 /// with no recognised descriptor yields an empty `ManifestDeps`. Only an
 /// unreadable zip is an error.
@@ -407,6 +617,12 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
     }
     if let Some(txt) = entry_text(&mut zip, "quilt.mod.json") {
         parse_quilt_manifest(&txt, &mut out);
+    }
+    // A provided mod-id is the same fact whichever descriptor it came from, so
+    // this is era-neutral and unconditional. Requirements are not — those come
+    // from the annotation, era-scoped, and are read separately.
+    if let Some(txt) = entry_text(&mut zip, "mcmod.info") {
+        parse_mcmod_info_providers(&txt, &mut out);
     }
     out.deps.retain(|d| !is_loader_or_mc(&d.dep_id));
     Ok(out)
@@ -584,6 +800,7 @@ fn parse_forge_manifest_regex(
                 kind: regex_dep_kind(&block, descriptor),
                 side,
                 family,
+                source: descriptor.source(),
             });
         }
         deps_from = end;
@@ -640,6 +857,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
                 kind: DependencyKind::Required,
                 side: DepSide::Both,
                 family: RangeFamily::FabricPredicate,
+                source: DescriptorSource::FabricJson,
             });
         }
     }
@@ -711,6 +929,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
                 },
                 side: DepSide::Both,
                 family: RangeFamily::QuiltPredicate,
+                source: DescriptorSource::QuiltJson,
             });
         }
     }
@@ -865,19 +1084,84 @@ pub(crate) fn spans_foreign_family(node_loaders: &[LoaderKind], instance: Loader
         .any(|l| instance_family(*l).is_some_and(|f| f != inf))
 }
 
+/// The mod-id Sinytra Connector declares.
+const CONNECTOR_MOD_ID: &str = "connector";
+
+/// Cheap pre-filter deciding WHICH jar is worth opening to look for Sinytra
+/// Connector. Only a candidate selector — [`jar_is_connector`] is the proof.
+/// Matches the filename and the registry display name, so it catches the
+/// platform installs ("Sinytra Connector") and the hand-dropped file
+/// (`connector-2.0.0-beta.14+1.21.1-full.jar`) alike. A jar renamed to contain
+/// neither word is missed, which fails CLOSED — we keep reporting exactly what
+/// we report today — rather than silently absolving everything.
+pub(crate) fn looks_like_connector(filename: &str, display_name: &str) -> bool {
+    let hit = |s: &str| {
+        let low = s.to_ascii_lowercase();
+        low.contains("connector") || low.contains("sinytra")
+    };
+    hit(filename) || hit(display_name)
+}
+
+/// True when these jar bytes ARE Sinytra Connector, proven by the `connector`
+/// mod-id rather than by a filename.
+///
+/// Both the jar's own descriptor and its Jar-in-Jar payload are consulted, and
+/// the JIJ half is not optional: Connector ships as `connector-<v>-full.jar`,
+/// a container with **no descriptor of its own** whose real mod sits at
+/// `META-INF/jarjar/org.sinytra.connector-<v>-mod.jar`. Checking only the top
+/// level finds nothing at all (verified against the shipping 2.0.0-beta.14 jar).
+pub(crate) fn jar_is_connector(jar_bytes: &[u8]) -> bool {
+    let is_connector = |p: &ProvidedMod| p.mod_id.eq_ignore_ascii_case(CONNECTOR_MOD_ID);
+    if read_jar_manifest_deps(jar_bytes)
+        .map(|d| d.provided)
+        .unwrap_or_default()
+        .iter()
+        .any(is_connector)
+    {
+        return true;
+    }
+    read_jar_embedded_providers(jar_bytes)
+        .iter()
+        .any(is_connector)
+}
+
 /// Judge a jar's loader/MC compatibility with an instance. Conservative:
 /// a mismatch is reported only when both sides are confidently known and
 /// they differ — absent or ambiguous metadata never produces a warning.
+///
+/// `connector_present` is that conservatism applied to one real exception.
+/// Sinytra Connector remaps Fabric mods and loads them on a Forge-family
+/// instance, so there a Fabric-family jar is NOT dead weight. Measured on a
+/// real NeoForge 1.21.1 profile: FML logs
+/// `Skipping jar. File mods\eg-inventory-blur-1.0.1.jar is a Fabric mod and
+/// cannot be loaded`, and eight seconds later `ConnectorLocator` picks the very
+/// same file up remapped, after which the mod appears in the loaded-mod list
+/// and contributes resources. Without this flag the launcher put an
+/// «Несовместим» badge on every Fabric jar of such a profile — the loudest
+/// false positive in the whole detection surface.
+///
+/// The exception is deliberately one-directional and narrow: only a
+/// Fabric-family jar, only on a Forge-family instance, only when Connector is
+/// actually installed. Connector cannot remap everything, so its presence means
+/// we are no longer confident the jar is inert — and this module's rule for
+/// "not confident" is to stay silent, not to assert the opposite.
 pub fn compat_verdict(
     jar: &JarMeta,
     instance_loader: LoaderKind,
     instance_mc: &str,
+    connector_present: bool,
 ) -> CompatVerdict {
     // Mismatch only when the jar declares loader families AND none of them is
     // the instance's family. A multi-loader jar that includes the instance's
     // family is compatible; a descriptor-less jar (empty families) never flags.
     let loader_mismatch = match instance_family(instance_loader) {
-        Some(inf) => !jar.families.is_empty() && !jar.families.contains(&inf),
+        Some(inf) => {
+            !jar.families.is_empty()
+                && !jar.families.contains(&inf)
+                && !(connector_present
+                    && inf == LoaderFamily::Forge
+                    && jar.families.contains(&LoaderFamily::Fabric))
+        }
         None => false,
     };
     let mc_mismatch = match (jar.mc_version.as_deref(), first_major_minor(instance_mc)) {
@@ -917,6 +1201,9 @@ pub async fn scan_instance(
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
     let dir = installed::mods_dir(instance_root);
+    // Once for the whole scan, not per jar: on a Connector profile every Fabric
+    // jar's verdict depends on this one fact.
+    let connector = connector_installed(&dir, &mods).await;
     let mut out = Vec::with_capacity(mods.len());
     for m in &mods {
         // Judge loader-family for ALL mods, pack-bundled included — the
@@ -925,7 +1212,7 @@ pub async fn scan_instance(
         let verdict = read_jar_for(&dir, &m.filename)
             .await
             .and_then(|bytes| read_jar_meta(&bytes).ok())
-            .map(|meta| compat_verdict(&meta, instance_loader, mc));
+            .map(|meta| compat_verdict(&meta, instance_loader, mc, connector));
         out.push(ModLocalCompat {
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
@@ -934,6 +1221,34 @@ pub async fn scan_instance(
         });
     }
     Ok(out)
+}
+
+/// True when an ENABLED jar in `mods_dir` is Sinytra Connector.
+///
+/// Only candidate jars are opened (see [`looks_like_connector`]) — proving this
+/// by scanning all ~140 jars' Jar-in-Jar payloads would cost more than the
+/// entire compat scan. A DISABLED Connector does not count: it does not load,
+/// so it remaps nothing.
+pub(crate) async fn connector_installed(mods_dir: &Path, mods: &[InstalledMod]) -> bool {
+    for m in mods.iter().filter(|m| m.enabled) {
+        if !looks_like_connector(&m.filename, &m.name) {
+            continue;
+        }
+        if let Some(bytes) = read_jar_for(mods_dir, &m.filename).await {
+            if jar_is_connector(&bytes) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// [`connector_installed`] for a caller that holds only the instance root.
+pub async fn instance_has_connector(instance_root: &Path) -> bool {
+    let Ok(mods) = installed::list(instance_root).await else {
+        return false;
+    };
+    connector_installed(&installed::mods_dir(instance_root), &mods).await
 }
 
 /// Read a mod jar's bytes by base filename, trying the `.disabled` variant
@@ -1134,6 +1449,188 @@ mod tests {
             w.finish().unwrap();
         }
         buf
+    }
+
+    #[test]
+    fn descriptor_era_splits_at_the_fml_rewrite() {
+        use DescriptorEra::*;
+        assert_eq!(descriptor_era("1.12.2"), Legacy);
+        assert_eq!(descriptor_era("1.7.10"), Legacy);
+        assert_eq!(descriptor_era("1.13"), Modern);
+        assert_eq!(descriptor_era("1.20.1"), Modern);
+        assert_eq!(descriptor_era("1.21.1"), Modern);
+        // A future major is modern by construction, not by luck — MC 26.x is real.
+        assert_eq!(descriptor_era("26.1"), Modern);
+        // Unparseable → today's behaviour, never a silent downgrade to legacy.
+        assert_eq!(descriptor_era(""), Modern);
+        assert_eq!(descriptor_era("21w13a"), Modern);
+    }
+
+    #[test]
+    fn legacy_dependency_string_parses_only_real_requirements() {
+        let out = parse_legacy_dependency_string(
+            "required-after:creativecore@[2.0,);after:jei;required-before:foo;before:*",
+        );
+        assert_eq!(out.len(), 2, "only the two required-* clauses: {out:?}");
+        assert_eq!(out[0].dep_id, "creativecore");
+        assert_eq!(out[0].range, "[2.0,)");
+        assert_eq!(out[0].kind, DependencyKind::Required);
+        assert_eq!(out[0].family, RangeFamily::Maven);
+        assert_eq!(out[0].source, DescriptorSource::McmodAnnotation);
+        assert_eq!(out[1].dep_id, "foo");
+        assert_eq!(out[1].range, "", "no @ means no range");
+    }
+
+    #[test]
+    fn legacy_dependency_string_ignores_junk() {
+        assert!(parse_legacy_dependency_string("").is_empty());
+        assert!(parse_legacy_dependency_string("garbage").is_empty());
+        assert!(parse_legacy_dependency_string("required-after:*").is_empty());
+        assert!(parse_legacy_dependency_string("required-after:").is_empty());
+    }
+
+    /// Nearly every 1.12.2 `@Mod` annotation opens with `required-after:forge` and
+    /// `required-after:minecraft`. Those are the loader and the game, not mods —
+    /// letting them through would put a "forge is not installed" violation on
+    /// every jar of every legacy pack, which is the inverse of the bug being fixed.
+    #[test]
+    fn legacy_dependency_string_drops_the_loader_and_minecraft() {
+        let out = parse_legacy_dependency_string(
+            "required-after:forge@[14.23.5.2768,);required-after:minecraft@[1.12.2];\
+             required-after:creativecore",
+        );
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].dep_id, "creativecore");
+        assert!(
+            parse_legacy_dependency_string("required-after:FML;required-after:forge").is_empty()
+        );
+    }
+
+    #[test]
+    fn legacy_jar_scan_finds_the_annotation_and_guards_against_mentions() {
+        // A class constant pool is just bytes; the annotation value survives as a
+        // contiguous printable run, which is how `required-after:creativecore` was
+        // extracted from a real EnhancedVisuals.class.
+        let own = b"\x00\x0fenhancedvisuals\x00\x1brequired-after:creativecore\x00";
+        let deps = read_jar_legacy_deps(
+            &jar_raw("team/creative/EV.class", own),
+            &["enhancedvisuals".to_string()],
+        );
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].dep_id, "creativecore");
+        assert_eq!(deps[0].source, DescriptorSource::McmodAnnotation);
+
+        // A class that merely MENTIONS the syntax without carrying the jar's own
+        // mod-id is not the @Mod class — e.g. a bundled copy of a loader utility.
+        let foreign = b"\x00\x1brequired-after:creativecore\x00";
+        assert!(read_jar_legacy_deps(
+            &jar_raw("some/lib/Parser.class", foreign),
+            &["enhancedvisuals".to_string()]
+        )
+        .is_empty());
+
+        // Non-class entries are never scanned.
+        assert!(read_jar_legacy_deps(
+            &jar_raw("assets/readme.txt", own),
+            &["enhancedvisuals".to_string()]
+        )
+        .is_empty());
+
+        // A jar that declares no mod-id of its own cannot be guarded, so it is
+        // never scanned at all.
+        assert!(read_jar_legacy_deps(&jar_raw("team/creative/EV.class", own), &[]).is_empty());
+
+        // The @Mod class whose only clauses are loader/MC ends the scan and
+        // contributes nothing — it must not fall through to another class.
+        let loader_only = b"\x00\x0fenhancedvisuals\x00\x14required-after:forge\x00";
+        assert!(read_jar_legacy_deps(
+            &jar_raw("team/creative/EV.class", loader_only),
+            &["enhancedvisuals".to_string()]
+        )
+        .is_empty());
+    }
+
+    /// Every declared dependency must carry the file it came out of. `RangeFamily`
+    /// cannot answer this — `Maven` covers `mods.toml`, `neoforge.mods.toml` and
+    /// the legacy annotation alike — and the pre-flight needs it to drop a
+    /// declaration from a descriptor the instance's loader never opens.
+    #[test]
+    fn declared_deps_carry_their_descriptor_source() {
+        let toml = "modLoader=\"javafml\"\n[[mods]]\nmodId=\"a\"\n\
+                    [[dependencies.a]]\nmodId=\"b\"\nmandatory=true\nversionRange=\"[1,)\"\n";
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", toml)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", toml)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::NeoForgeToml);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"a","depends":{"b":">=1.0.0"}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::FabricJson);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "quilt.mod.json",
+            r#"{"quilt_loader":{"id":"a","depends":[{"id":"b","versions":"*"}]}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::QuiltJson);
+    }
+
+    /// `mcmod.info` is the Forge ≤ 1.12.2 descriptor. 44 of the 50 jars in a
+    /// measured 1.12.2 pack ship it and nothing else, so without this the
+    /// pre-flight sees no provider for any of them.
+    #[test]
+    fn mcmod_info_registers_its_providers() {
+        // The shape CreativeCore_v1.10.71_mc1.12.2.jar actually ships.
+        let bare = r#"[{"modid":"creativecore","name":"CreativeCore","version":"1.10"}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", bare)])).unwrap();
+        assert_eq!(d.provided.len(), 1);
+        assert_eq!(d.provided[0].mod_id, "creativecore");
+        assert_eq!(d.provided[0].version.as_deref(), Some("1.10"));
+
+        // The other shape in the wild.
+        let wrapped = r#"{"modList":[{"modid":"x","version":"2.0"}]}"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", wrapped)])).unwrap();
+        assert_eq!(d.provided[0].mod_id, "x");
+
+        // An unresolved build placeholder is not a version — recording it would
+        // make every range comparison against this provider nonsense.
+        let ph = r#"[{"modid":"y","version":"${version}"}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", ph)])).unwrap();
+        assert_eq!(d.provided[0].version, None);
+
+        // mcmod.info's own `dependencies` array is cosmetic on this era: FML
+        // enforces the @Mod annotation instead, and a measured jar ships
+        // `"dependencies": []` alongside a genuine `required-after:` clause.
+        let deps = r#"[{"modid":"z","dependencies":["something"]}]"#;
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", deps)])).unwrap();
+        assert!(
+            d.deps.is_empty(),
+            "mcmod.info declares no enforced dependency"
+        );
+
+        // Junk must not panic or invent a provider.
+        let junk = read_jar_manifest_deps(&jar(&[("mcmod.info", "not json")])).unwrap();
+        assert!(junk.provided.is_empty());
+        let noid = read_jar_manifest_deps(&jar(&[("mcmod.info", r#"[{"name":"a"}]"#)])).unwrap();
+        assert!(noid.provided.is_empty());
+    }
+
+    /// The regex fallback runs on descriptors that are not valid TOML, and must
+    /// stamp the same provenance the TOML path would.
+    #[test]
+    fn the_regex_fallback_stamps_the_descriptor_source_too() {
+        let broken = "[[mods]]\nlogoFile=\"assets\\icon.png\"\n\
+                      [[dependencies.a]]\nmodId=\"b\"\nmandatory=true\n";
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", broken)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", broken)])).unwrap();
+        assert_eq!(d.deps[0].source, DescriptorSource::NeoForgeToml);
     }
 
     // ── regex fallback (only reached when a descriptor is not valid TOML) ──
@@ -1477,12 +1974,17 @@ modId=\"evilseagull\"
         }
     }
 
+    /// Named so a reader of the assertions below knows which world they are in:
+    /// every one of these cases is a plain profile with no Sinytra Connector.
+    const NO_CONNECTOR: bool = false;
+
     #[test]
     fn verdict_compatible_when_loader_and_mc_match() {
         let v = compat_verdict(
             &meta(vec![LoaderFamily::Forge], Some("1.12")),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
@@ -1494,6 +1996,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Fabric], None),
             LoaderKind::Forge,
             "1.20.1",
+            NO_CONNECTOR,
         );
         assert!(v.loader_mismatch);
     }
@@ -1505,6 +2008,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::NeoForge,
             "1.20.1",
+            NO_CONNECTOR,
         );
         assert!(!v.loader_mismatch);
     }
@@ -1515,6 +2019,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], Some("1.20")),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(v.mc_mismatch);
     }
@@ -1522,7 +2027,12 @@ modId=\"evilseagull\"
     #[test]
     fn verdict_silent_when_metadata_absent() {
         // No descriptor at all — never warn.
-        let v = compat_verdict(&meta(vec![], None), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(
+            &meta(vec![], None),
+            LoaderKind::Forge,
+            "1.12.2",
+            NO_CONNECTOR,
+        );
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
     }
@@ -1533,6 +2043,7 @@ modId=\"evilseagull\"
             &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::Forge,
             "1.12.2",
+            NO_CONNECTOR,
         );
         assert!(!v.mc_mismatch);
     }
@@ -1545,8 +2056,103 @@ modId=\"evilseagull\"
             mc_version: None,
             display_name: Some("Collective".into()),
         };
-        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.20.4").loader_mismatch);
-        assert!(!compat_verdict(&jar, LoaderKind::Fabric, "1.20.4").loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.20.4", NO_CONNECTOR).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Fabric, "1.20.4", NO_CONNECTOR).loader_mismatch);
+    }
+
+    // ── Sinytra Connector ──────────────────────────────────────────────────
+
+    #[test]
+    fn connector_absolves_a_fabric_jar_on_a_forge_family_instance() {
+        // The measured case: two Fabric-only jars in a NeoForge 1.21.1 profile
+        // that FML logs as "Skipping jar … cannot be loaded" and ConnectorLocator
+        // then loads anyway. Flagging them was the loudest false positive in the
+        // detection surface.
+        let jar = meta(vec![LoaderFamily::Fabric], None);
+        assert!(compat_verdict(&jar, LoaderKind::NeoForge, "1.21.1", NO_CONNECTOR).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::NeoForge, "1.21.1", true).loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.21.1", true).loader_mismatch);
+    }
+
+    #[test]
+    fn connector_does_not_absolve_the_other_direction() {
+        // Connector runs Fabric mods on NeoForge, never the reverse. A Forge
+        // jar in a Fabric profile stays a mismatch even with Connector present
+        // (which cannot itself load there, but the flag must not be a blanket
+        // amnesty regardless).
+        let forge_jar = meta(vec![LoaderFamily::Forge], None);
+        assert!(compat_verdict(&forge_jar, LoaderKind::Fabric, "1.21.1", true).loader_mismatch);
+        assert!(compat_verdict(&forge_jar, LoaderKind::Quilt, "1.21.1", true).loader_mismatch);
+    }
+
+    #[test]
+    fn connector_changes_nothing_when_the_jar_already_matches() {
+        // Not a blanket "everything is fine" switch: the flag only ever removes
+        // the Fabric-on-Forge-family verdict, and MC mismatch is untouched.
+        let forge_jar = meta(vec![LoaderFamily::Forge], Some("1.20"));
+        let v = compat_verdict(&forge_jar, LoaderKind::NeoForge, "1.21.1", true);
+        assert!(!v.loader_mismatch);
+        assert!(v.mc_mismatch, "MC mismatch is a separate axis");
+    }
+
+    #[test]
+    fn looks_like_connector_selects_candidates_and_fails_closed() {
+        assert!(looks_like_connector(
+            "connector-2.0.0-beta.14+1.21.1-full.jar",
+            ""
+        ));
+        assert!(looks_like_connector("whatever.jar", "Sinytra Connector"));
+        // A near neighbour is a candidate too — cheap, and `jar_is_connector`
+        // rejects it on the mod-id.
+        assert!(looks_like_connector(
+            "ConnectorExtras-1.12.1+1.21.1.jar",
+            ""
+        ));
+        // Unrelated jars are never opened.
+        assert!(!looks_like_connector("sodium-0.6.0.jar", "Sodium"));
+        // Renamed beyond recognition → missed → we keep today's behaviour.
+        assert!(!looks_like_connector("aaa.jar", ""));
+    }
+
+    #[test]
+    fn jar_is_connector_finds_the_id_inside_the_jarjar_container() {
+        // THE shipping shape: `connector-<v>-full.jar` has NO descriptor of its
+        // own; the real mod is at META-INF/jarjar/…-mod.jar. A top-level check
+        // finds nothing, so this is the case that has to work.
+        let inner = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        let container = zip_with(&[(
+            "META-INF/jarjar/org.sinytra.connector-2.0.0-mod.jar",
+            inner.as_slice(),
+        )]);
+        assert!(jar_is_connector(&container));
+
+        // Declared directly, for a non-fat build.
+        let direct = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        assert!(jar_is_connector(&direct));
+    }
+
+    #[test]
+    fn jar_is_connector_rejects_a_lookalike() {
+        // ConnectorExtras ships alongside Connector and passes the filename
+        // filter; only the mod-id separates them.
+        let extras = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connectorextras\"\n"
+                as &[u8],
+        )]);
+        assert!(!jar_is_connector(&extras));
+        assert!(!jar_is_connector(&zip_with(&[(
+            "fabric.mod.json",
+            br#"{"id":"sodium"}"# as &[u8]
+        )])));
     }
 
     // ── scan_instance tests ────────────────────────────────────────────────
@@ -1580,6 +2186,81 @@ modId=\"evilseagull\"
         assert_eq!(out.len(), 1);
         assert!(out[0].loader_mismatch);
         assert_eq!(out[0].detected_loader.as_deref(), Some("Fabric"));
+    }
+
+    /// The Connector jar as it actually ships: a JIJ container with no
+    /// descriptor of its own.
+    fn connector_container_bytes() -> Vec<u8> {
+        let inner = zip_with(&[(
+            "META-INF/neoforge.mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"*\"\n[[mods]]\nmodId=\"connector\"\n"
+                as &[u8],
+        )]);
+        zip_with(&[(
+            "META-INF/jarjar/org.sinytra.connector-2.0.0-mod.jar",
+            inner.as_slice(),
+        )])
+    }
+
+    /// End-to-end for the Connector exception: the flag has to travel from the
+    /// jars on disk, through `connector_installed`, into `compat_verdict`.
+    /// Without this the six pure-helper tests all pass while `scan_instance`
+    /// hard-codes `false` — the whole fix deleted, `cargo test` green.
+    #[tokio::test]
+    async fn scan_does_not_flag_a_fabric_jar_when_connector_is_installed() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let fabric = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &fabric).await.unwrap();
+
+        // Without Connector the same jar IS flagged — that is
+        // `scan_flags_fabric_jar_in_forge_instance` above, same fixture.
+        fs::write(
+            dir.join("connector-2.0.0-full.jar"),
+            &connector_container_bytes(),
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+            .await
+            .unwrap();
+        let x = out
+            .iter()
+            .find(|m| m.sha1 == hex::encode(<sha1::Sha1 as sha1::Digest>::digest(&fabric)))
+            .expect("the fabric jar is in the scan");
+        assert!(
+            !x.loader_mismatch,
+            "Connector remaps and loads it, so it is not dead weight"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_still_flags_when_connector_is_disabled() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let fabric = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &fabric).await.unwrap();
+        // A disabled Connector loads nothing, so it remaps nothing.
+        fs::write(
+            dir.join("connector-2.0.0-full.jar.disabled"),
+            &connector_container_bytes(),
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+            .await
+            .unwrap();
+        let x = out
+            .iter()
+            .find(|m| m.sha1 == hex::encode(<sha1::Sha1 as sha1::Digest>::digest(&fabric)))
+            .expect("the fabric jar is in the scan");
+        assert!(x.loader_mismatch);
     }
 
     #[tokio::test]

@@ -406,6 +406,24 @@
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
   let gateBusy = $state(false);
+  // The launch the gate interrupted, so its three buttons resume the RIGHT one.
+  // Play, Quick Play and Quick Join all reach the gate, so this can no longer be
+  // the single `doLaunch` constant it used to be. Plain state, not `$state`: it
+  // is never read from the template.
+  let gatePending: { run: () => Promise<void>; onAbort?: () => void } | null = null;
+  // True when the dependency pre-flight itself failed, as opposed to finding
+  // nothing. It never blocks the launch — the maintainer's decision is that
+  // "could not check" marks rather than gates — but it must be visible, because
+  // a check that did not run reading as a check that passed is the defect this
+  // whole pass exists to remove. Cleared by the next pre-flight that returns a
+  // verdict (including a blocking one) and on instance switch.
+  //
+  // NOT an offline signal: `instance_dependency_preflight` is network-free
+  // (pure local jar inspection), so this can only come from an unreadable
+  // instance.json or a filesystem error. It is rare by construction today —
+  // the value is that the state is representable at all, so the detectors that
+  // DO depend on the network can be routed through the same surface later.
+  let preflightUnknown = $state(false);
 
   // Soft pre-launch warning (RAM over-commit / same-account). When launching
   // ANOTHER instance would over-commit memory or reuse a running account,
@@ -471,12 +489,26 @@
         installError = null;
         modsError = null;
         crashReport = null;
+        // Per-instance: the previous instance's pre-flight tells us nothing
+        // about this one.
+        preflightUnknown = false;
         void stats.refreshInstalledStats(newId);
-        void stats.refreshIncompatible(newId, instances);
         void stats.refreshPackStatus(newId);
         void stats.refreshPlaytime(newId);
       }
     });
+  });
+
+  // The compatibility scan keys on (instance, mc, loader), so it must be
+  // refreshed on a Manage edit too — not only on an instance switch. Without
+  // this the Overview kept the count from before the loader change while the
+  // Installed tab, whose own effect does track mc/loader, showed the new one.
+  // Separate from the effect above precisely because its guard is id-only.
+  $effect(() => {
+    const inst = activeInstance;
+    void inst?.mc_version;
+    void inst?.loader;
+    untrack(() => void stats.refreshIncompatible(inst?.id ?? null, instances));
   });
 
   // Refresh quickPlaySupported whenever the active instance changes or becomes
@@ -691,14 +723,17 @@
 
   // Overview-stat refreshes for the mod events registered in onMount below.
   // Trailing-debounced so a multi-jar install burst collapses to one refresh.
+  // `force` is required: the compat scan keys on (instance, mc, loader), which
+  // a mod change does not alter, so an unforced refresh is deduplicated away
+  // and the count never moves.
   const debouncedModSetStats = debounceTrailing(() => {
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
-    void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+    void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
     void stats.refreshPackStatus(activeInstance?.id ?? null);
   }, 150);
   const debouncedModToggleStats = debounceTrailing(() => {
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
-    void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+    void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
   onDestroy(() => {
     debouncedModSetStats.cancel();
@@ -997,6 +1032,31 @@
     // clears it. No need to refresh state here.
   }
 
+  // THE launch chokepoint. Every path that starts the game goes through here,
+  // so the dependency pre-flight cannot be skipped by adding a new entry point
+  // — which is exactly how Quick Play and Quick Join came to launch with no
+  // dependency gate at all while the Play button had one.
+  //
+  // `run` is the caller's own launch thunk (it owns the QuickPlay target and
+  // any per-caller cleanup); `onAbort` runs if the user backs out of EITHER
+  // gate. Order: dependency pre-flight first (it can block), then `gateLaunch`
+  // for the advisory RAM / account warnings.
+  async function startLaunch(run: () => Promise<void>, onAbort?: () => void) {
+    if (!activeInstance) return;
+    const decision = decideLaunch(await commands.instanceDependencyPreflight(activeInstance.id));
+    // Recorded BEFORE the gate branch, not after: `gate` is the outcome that
+    // most conclusively proves the check ran, so returning early without
+    // clearing the flag would leave "couldn't check dependencies" on screen
+    // next to a dialog enumerating the dependency problems it just found.
+    preflightUnknown = decision.kind === 'unknown';
+    if (decision.kind === 'gate') {
+      gateReport = decision.report;
+      gatePending = { run, onAbort };
+      return;
+    }
+    await gateLaunch(run, onAbort);
+  }
+
   async function onPlay() {
     if (!activeInstance) return;
     // No account = the game can't launch. Instead of the backend's terse
@@ -1010,22 +1070,17 @@
     if (!activeInstance.ready) return;
     if (dataLocation.fellBack) return;
 
-    // Dependency pre-flight: check for blocking violations before launch.
-    // Fail-open: if the command errors, proceed normally (decideLaunch returns 'launch').
-    const pr = await commands.instanceDependencyPreflight(activeInstance.id);
-    if (decideLaunch(pr) === 'gate') {
-      // pr.status === 'ok' is guaranteed here (decideLaunch only returns 'gate' on ok+violations)
-      gateReport = (pr as { status: 'ok'; data: PreflightReport }).data;
-      return;
-    }
-
-    await gateLaunch(doLaunch);
+    await startLaunch(doLaunch);
   }
 
-  // Gate dialog handlers
+  // Gate dialog handlers. Each resumes the launch the gate interrupted — the
+  // gate is reachable from Play, Quick Play and Quick Join, so "which launch"
+  // is no longer a constant.
   async function onGateLaunchAnyway() {
+    const pending = gatePending;
     gateReport = null;
-    await gateLaunch(doLaunch);
+    gatePending = null;
+    if (pending) await gateLaunch(pending.run, pending.onAbort);
   }
 
   async function onGateUpdateLaunch() {
@@ -1041,12 +1096,20 @@
       pushWarning(get(t)('mods.preflight.updateFailed'));
       return;
     }
+    const pending = gatePending;
     gateReport = null;
-    await gateLaunch(doLaunch);
+    gatePending = null;
+    if (pending) await gateLaunch(pending.run, pending.onAbort);
   }
 
   function onGateCancel() {
+    const pending = gatePending;
     gateReport = null;
+    gatePending = null;
+    // Backing out of the dependency gate must run the caller's cleanup, exactly
+    // as backing out of the RAM/account gate does. Quick Join sets its busy flag
+    // synchronously before either gate; without this it would stay disabled.
+    pending?.onAbort?.();
   }
 
   // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
@@ -1106,7 +1169,7 @@
     if (dataLocation.fellBack) return;
     // activeInstance.id is read live inside the thunk; the modal backdrop blocks
     // instance switching while the warning dialog is open, so it can't drift.
-    await gateLaunch(async () => {
+    await startLaunch(async () => {
       if (!activeInstance) return;
       installError = null;
       const result = await commands.launchInstance(activeInstance.id, {
@@ -1134,7 +1197,7 @@
     quickJoinBusy = true;
     // activeInstance.id is read live inside the thunk; the modal backdrop blocks
     // instance switching while the warning dialog is open, so it can't drift.
-    await gateLaunch(
+    await startLaunch(
       async () => {
         if (!activeInstance) return;
         installError = null;
@@ -1450,6 +1513,7 @@
               onOpenLocalization={() => void openLocalization()}
               {l10nPercent}
               {l10nLang}
+              {preflightUnknown}
             />
           {/snippet}
         </MainTabs>
