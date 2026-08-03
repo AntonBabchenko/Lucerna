@@ -1,14 +1,6 @@
 // Pure view logic for the per-namespace key table. No DOM, no IPC — unit-tested
 // in isolation, same split as coverage.ts.
-import type { KeyRow, KeyState, Origin } from '$lib/ipc/bindings';
-
-/** The state filter chips in KeyTable. 'translated' folds together the two
- *  states that need no attention (`from_mod` and `ok`) — the user thinks in
- *  terms of "done" vs. the three ways a key still needs work, not in terms
- *  of the five raw backend states.
- *
- *  @deprecated Superseded by [`KeyView`]; kept only until KeyTable migrates. */
-export type KeyFilter = 'all' | 'missing' | 'stale' | 'orphan' | 'translated';
+import type { KeyRow, KeyState } from '$lib/ipc/bindings';
 
 /** One entry in the key table's single filter axis.
  *
@@ -113,34 +105,6 @@ export function stickyOutOfView(
   return out;
 }
 
-/* ---------------------------------------------------------------------------
- * The old two-axis API, superseded by KeyView / viewCount / visibleViews above:
- * `KeyFilter`, `OriginFilter`, `filterByOrigin`, `ANCHOR_STATE_FILTERS`,
- * `visibleStateFilters` and `visibleOriginFilters` — those six by name, not
- * "everything below this line". They are interleaved with `countOrigins`,
- * `FilterCounts`, `countKeyStates` and `OriginCounts`, all of which SURVIVE the
- * migration; `viewCount` and `visibleViews` depend on the last two, so deleting
- * by span rather than by name would break the new API.
- *
- * KeyTable still imports the six, so they stay until it migrates and are then
- * removed together. Do not add callers.
- * ------------------------------------------------------------------------- */
-
-/** The origin filter chips in KeyTable — a SECOND axis over [`KeyFilter`],
- *  not more options on it. A key has a state *and*, once it is overridden, an
- *  origin; folding the two into one single-select group would make
- *  "untranslated" and "machine-written" mutually exclusive, which they are
- *  not. 'all' means "don't filter on this axis at all". */
-export type OriginFilter = 'all' | Origin;
-
-/** Narrow rows to one override origin. A key with no override has no origin
- *  to attribute, so it appears under 'all' and under neither of the other
- *  two — the same reason `null` is a distinct value on the row itself. */
-export function filterByOrigin(rows: KeyRow[], origin: OriginFilter): KeyRow[] {
-  if (origin === 'all') return rows;
-  return rows.filter((row) => row.origin === origin);
-}
-
 /** How many rows carry each override origin, in one pass. The machine count
  *  also drives bulk revert, which has to be able to say how many entries it
  *  is about to drop *before* the user confirms it. */
@@ -173,27 +137,6 @@ export function countKeyStates(rows: KeyRow[]): FilterCounts {
     else if (row.state === 'missing') counts.missing++;
   }
   return counts;
-}
-
-/** State chips that always render: they define the surface, so hiding one at
- *  zero would make the toolbar's shape depend on the data. The three
- *  attention buckets appear only when they have something to show — the same
- *  rule InstalledToolbar applies to Updates / Issues / Incompatible. */
-const ANCHOR_STATE_FILTERS: readonly KeyFilter[] = ['all', 'translated', 'missing'];
-
-export function visibleStateFilters(counts: FilterCounts): KeyFilter[] {
-  const extra: KeyFilter[] = [];
-  if (counts.stale > 0) extra.push('stale');
-  if (counts.orphan > 0) extra.push('orphan');
-  return [...ANCHOR_STATE_FILTERS, ...extra];
-}
-
-/** 'all' is the origin axis's anchor; a bucket with no rows is dropped. */
-export function visibleOriginFilters(origins: { manual: number; machine: number }): OriginFilter[] {
-  const out: OriginFilter[] = ['all'];
-  if (origins.manual > 0) out.push('manual');
-  if (origins.machine > 0) out.push('machine');
-  return out;
 }
 
 export type OriginCounts = { manual: number; machine: number };

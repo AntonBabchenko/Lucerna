@@ -5,18 +5,16 @@ import {
   countKeyStates,
   countOrigins,
   displayValue,
-  filterByOrigin,
   filterRows,
   stickyOutOfView,
   viewCount,
-  visibleOriginFilters,
-  visibleStateFilters,
   visibleViews,
 } from '$lib/l10n/key-rows';
 
 // key-rows.ts itself has no IPC — this mock exists only for the KeyEditRow
-// round-trip at the bottom of the file, which defends the other half of the
-// same invariant `filterByOrigin` reads (see its own comment).
+// round-trips at the bottom of the file, which defend the other half of the
+// invariant KeyView rests on: an override always carries an origin, and no
+// override never claims one.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: { l10nSetOverride: vi.fn() },
 }));
@@ -173,56 +171,27 @@ describe('countKeyStates', () => {
   });
 });
 
-describe('filterByOrigin', () => {
-  const rows: KeyRow[] = [
-    row({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' }),
-    row({ key: 'b', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
-    row({ key: 'c', state: 'ok', overrideValue: 'В', origin: 'machine' }),
-    // No override at all: nothing to attribute, so it belongs to neither
-    // bucket. Origin is a SECOND axis over the state filter, not a
-    // partition of every row.
-    row({ key: 'd', state: 'missing', origin: null }),
-  ];
-
-  it('filters rows by origin', () => {
-    expect(filterByOrigin(rows, 'machine').map((r) => r.key)).toEqual(['b', 'c']);
-    expect(filterByOrigin(rows, 'manual').map((r) => r.key)).toEqual(['a']);
-  });
-
-  it('"all" is identity — it does not silently drop unoverridden keys', () => {
-    expect(filterByOrigin(rows, 'all')).toHaveLength(4);
-  });
-
+describe('countOrigins', () => {
+  // Namespace-wide on purpose: this number is what the destructive bulk-revert
+  // confirm quotes, and the backend revert takes no filter. Derived from a
+  // filtered subset it would under-report what it is about to delete.
   it('counts each origin, so bulk revert can say how many it would drop', () => {
+    const rows: KeyRow[] = [
+      row({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+      row({ key: 'b', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+      row({ key: 'c', state: 'ok', overrideValue: 'В', origin: 'machine' }),
+      row({ key: 'd', state: 'missing', origin: null }),
+    ];
     expect(countOrigins(rows)).toEqual({ manual: 1, machine: 2 });
     expect(countOrigins([])).toEqual({ manual: 0, machine: 0 });
   });
 });
 
-describe('chip visibility', () => {
-  const anchors = ['all', 'translated', 'missing'];
-
-  it('always keeps the anchor state chips, even at zero', () => {
-    const visible = visibleStateFilters({ all: 0, translated: 0, stale: 0, orphan: 0, missing: 0 });
-    expect(visible).toEqual(anchors);
-  });
-
-  it('adds an attention chip only when it has something to show', () => {
-    const visible = visibleStateFilters({ all: 3, translated: 1, stale: 2, orphan: 0, missing: 0 });
-    expect(visible).toEqual([...anchors, 'stale']);
-  });
-
-  it('keeps the origin anchor and drops empty origin buckets', () => {
-    expect(visibleOriginFilters({ manual: 0, machine: 4 })).toEqual(['all', 'machine']);
-    expect(visibleOriginFilters({ manual: 0, machine: 0 })).toEqual(['all']);
-  });
-});
-
-// The other half of the origin invariant. `filterByOrigin` and the bulk-revert
-// action are only safe because a hand-edited machine string stops being a
-// machine string: KeyEditRow's optimistic patch spreads `...row`, so without an
-// explicit `origin` the marker would survive the edit and the user's own words
-// would be wiped by the next bulk revert.
+// The other half of the invariant the 'manual' and 'machine' views rest on.
+// Those views and the bulk-revert action are only safe because a hand-edited
+// machine string stops being a machine string: KeyEditRow's optimistic patch
+// spreads `...row`, so without an explicit `origin` the marker would survive
+// the edit and the user's own words would be wiped by the next bulk revert.
 describe('KeyEditRow origin round-trip', () => {
   afterEach(() => {
     vi.clearAllMocks();
