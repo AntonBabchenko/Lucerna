@@ -63,12 +63,7 @@
     {:else if filtered.length === 0}
       <p class="p-8 text-center text-sm text-muted">{$t('screenshots.emptyGallery')}</p>
     {:else}
-      <ScreenshotBrowser
-        shots={filtered}
-        onChanged={reload}
-        resetKey={instanceFilter}
-        {controls}
-      />
+      <ScreenshotBrowser shots={filtered} onChanged={reload} resetKey={instanceFilter} {controls} />
     {/if}
   </div>
 </Modal>

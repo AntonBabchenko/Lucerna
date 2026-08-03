@@ -7,7 +7,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     screenshotThumbnail: vi
       .fn()
       .mockResolvedValue({ status: 'ok', data: 'data:image/jpeg;base64,x' }),
-    screenshotPreview: vi.fn().mockResolvedValue({ status: 'ok', data: 'data:image/jpeg;base64,x' }),
+    screenshotPreview: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: 'data:image/jpeg;base64,x' }),
   },
 }));
 

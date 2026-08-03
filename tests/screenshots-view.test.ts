@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Screenshot } from '$lib/ipc/bindings';
 import type { Translate } from '$lib/i18n';
+import type { Screenshot } from '$lib/ipc/bindings';
 import { groupLabel, groupShots, shotTime, sortShots } from '$lib/screenshots/screenshots-view';
 
 function makeShot(over: Partial<Screenshot> = {}): Screenshot {
