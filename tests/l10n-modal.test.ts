@@ -516,4 +516,82 @@ describe('LocalizationModal', () => {
     expect(rows[0].textContent).toContain('alpha');
     expect(rows[1].textContent).toContain('beta');
   });
+
+  it('exposes the namespace list as a single tab stop with arrow-key navigation', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha' }),
+          ns({ namespace: 'beta' }),
+          ns({ namespace: 'gamma' }),
+        ],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+
+    // Exactly one row is tabbable at rest.
+    expect(rows.filter((r) => r.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(rows[0].getAttribute('tabindex')).toBe('0');
+
+    await fireEvent.keyDown(rows[0], { key: 'ArrowDown' });
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+    expect(rows[0].getAttribute('tabindex')).toBe('-1');
+
+    await fireEvent.keyDown(rows[1], { key: 'End' });
+    expect(rows[2].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('moves the roving tab stop to the row the user clicks', async () => {
+    mockCoverageOk(
+      coverage({
+        namespaces: [
+          ns({ namespace: 'alpha' }),
+          ns({ namespace: 'beta' }),
+          ns({ namespace: 'gamma' }),
+        ],
+      }),
+    );
+    mockKeysOk();
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+
+    await fireEvent.click(rows[1]);
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+    expect(rows[0].getAttribute('tabindex')).toBe('-1');
+
+    // The arrow keys have to continue from the clicked row: the browser
+    // focuses it on click regardless of its tabindex, so a stale roving index
+    // would jump focus somewhere the user never was.
+    await fireEvent.keyDown(rows[1], { key: 'ArrowDown' });
+    expect(rows[2].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('returns the roving tab stop to the top when the instance changes', async () => {
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'alpha' }), ns({ namespace: 'beta' })] }),
+    );
+    mockKeysOk();
+    const { rerender } = render(LocalizationModal, {
+      props: { open: true, instanceId: 'a', lang: 'en_us' },
+    });
+    const rows = await screen.findAllByTestId('l10n-namespace-row');
+    await fireEvent.click(rows[1]);
+    expect(rows[1].getAttribute('tabindex')).toBe('0');
+
+    // A different instance is a different list. The clamp effect can't catch
+    // this one — the new list is just as long, so the index stays in range
+    // while pointing at an unrelated namespace.
+    mockCoverageOk(
+      coverage({ namespaces: [ns({ namespace: 'delta' }), ns({ namespace: 'epsilon' })] }),
+    );
+    await rerender({ open: true, instanceId: 'b', lang: 'en_us' });
+    await waitFor(() =>
+      expect(screen.getAllByTestId('l10n-namespace-row')[0].textContent).toContain('delta'),
+    );
+
+    const fresh = screen.getAllByTestId('l10n-namespace-row');
+    expect(fresh[0].getAttribute('tabindex')).toBe('0');
+    expect(fresh[1].getAttribute('tabindex')).toBe('-1');
+  });
 });

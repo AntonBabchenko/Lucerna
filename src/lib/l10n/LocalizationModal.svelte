@@ -18,6 +18,7 @@
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
+  import { nextRovingIndex } from '$lib/ui/roving';
   import Select from '$lib/ui/Select.svelte';
   import { clampPanelWidth } from '$lib/ui/splitter';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
@@ -106,6 +107,10 @@
   $effect(() => {
     void instanceId;
     selectedNamespace = null;
+    // The roving index is an offset into a list that has just been replaced
+    // wholesale, so it now points at an unrelated namespace. The clamp effect
+    // below can't catch this — it only fires when the new list is SHORTER.
+    focusIndex = 0;
   });
 
   async function load(id: string, requestedLang: string) {
@@ -235,6 +240,40 @@
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
   );
 
+  // Roving focus over the namespace list: one tab stop for a list that can
+  // hold 300 rows. Arrow keys move FOCUS only — activation stays on
+  // Enter/Space/click (the rows are real <button>s, so that is free). Moving
+  // the selection on focus would fire a key-table fetch per arrow press.
+  let focusIndex = $state(0);
+  let rowEls = $state<(HTMLButtonElement | null)[]>([]);
+
+  function onListKeydown(e: KeyboardEvent) {
+    const next = nextRovingIndex(e.key, focusIndex, sortedNamespaces.length, 'vertical');
+    if (next === null) return;
+    e.preventDefault();
+    focusIndex = next;
+    rowEls[next]?.focus();
+  }
+
+  // A shorter list (filtered instance, language switch) must not leave the
+  // roving index pointing past the end.
+  $effect(() => {
+    if (focusIndex > sortedNamespaces.length - 1)
+      focusIndex = Math.max(0, sortedNamespaces.length - 1);
+  });
+
+  // The selection cue is a background tint on one row; if that row is out of
+  // the scroll viewport the modal shows nothing about what the right pane is
+  // displaying. Scroll it back into view whenever the selection changes.
+  $effect(() => {
+    const name = selectedNamespace;
+    if (!name) return;
+    const idx = sortedNamespaces.findIndex((r) => r.namespace === name);
+    // Optional call, not just optional chain: happy-dom has no layout, so the
+    // method is absent there entirely (same guard as Select.svelte).
+    rowEls[idx]?.scrollIntoView?.({ block: 'nearest' });
+  });
+
   // 'none' is muted, not danger: coverage.ts documents zero as "nothing is
   // wrong, it is just untranslated", the detail pane already tones the same
   // concept muted (KeyTable's `missing` chip, KeyEditRow's `missing` pill),
@@ -341,8 +380,9 @@
             {$t('instance.l10n.empty')}
           </p>
         {:else}
-          <ul class="flex flex-col gap-1">
-            {#each sortedNamespaces as row (row.namespace)}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>
+            {#each sortedNamespaces as row, i (row.namespace)}
               {@const percent = namespacePercent(row)}
               {@const selected = selectedNamespace === row.namespace}
               <!--
@@ -361,12 +401,23 @@
                   OverviewTab.svelte's body-zone rule.
                 -->
                 <button
+                  bind:this={rowEls[i]}
                   type="button"
                   class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-subtle"
                   class:bg-accent-soft={selected}
+                  tabindex={i === focusIndex ? 0 : -1}
                   aria-current={selected ? 'true' : undefined}
                   data-testid="l10n-namespace-row"
-                  onclick={() => (selectedNamespace = row.namespace)}
+                  onclick={() => {
+                    // The tab stop follows activation, as in TabBar /
+                    // SegmentedControl / ToggleChipGroup: a click focuses the
+                    // row whatever its tabindex says, so leaving the index
+                    // behind would make the next arrow press jump away from
+                    // the row the user is on, and would drop the list's single
+                    // tab stop back on row 1 when focus re-enters the list.
+                    focusIndex = i;
+                    selectedNamespace = row.namespace;
+                  }}
                 >
                   <span class="truncate">{row.namespace}</span>
                   <span class="flex shrink-0 items-center gap-2">
