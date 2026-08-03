@@ -391,6 +391,8 @@ export type TranslationKey =
   | 'instance.l10n.keyTable.stateOk'
   | 'instance.l10n.keyTable.stateOrphan'
   | 'instance.l10n.keyTable.stateStale'
+  | 'instance.l10n.keyTable.stickyRefreshButton'
+  | 'instance.l10n.keyTable.stickyRefreshTitle'
   | 'instance.l10n.keyTable.yourTranslationLabel'
   | 'instance.l10n.languageLabel'
   | 'instance.l10n.listRegionLabel'
