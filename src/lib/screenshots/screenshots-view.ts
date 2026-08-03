@@ -25,3 +25,41 @@ export function sortShots(shots: Screenshot[], dir: SortDir): Screenshot[] {
   const sign = dir === 'newest' ? -1 : 1;
   return [...shots].sort((a, b) => sign * (shotTime(a) - shotTime(b)));
 }
+
+export type Granularity = 'day' | 'month';
+
+export interface ShotGroup {
+  /** Stable, unique per group — used as the `{#each}` key. */
+  key: string;
+  /** Local midnight of the day, or the first of the month. */
+  startMs: number;
+  shots: Screenshot[];
+}
+
+/** Local calendar bucket a timestamp falls into. */
+function bucketStart(ms: number, granularity: Granularity): number {
+  const d = new Date(ms);
+  return granularity === 'day'
+    ? new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    : new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+/**
+ * Bucket shots into local calendar days or months, preserving the caller's
+ * order both between and within groups. A single pass that accumulates the
+ * current group — not a Map keyed by the rendered caption, which would fuse
+ * groups whose captions happen to match.
+ */
+export function groupShots(shots: Screenshot[], granularity: Granularity): ShotGroup[] {
+  const groups: ShotGroup[] = [];
+  let current: ShotGroup | null = null;
+  for (const shot of shots) {
+    const startMs = bucketStart(shotTime(shot), granularity);
+    if (!current || current.startMs !== startMs) {
+      current = { key: `${granularity}:${startMs}`, startMs, shots: [] };
+      groups.push(current);
+    }
+    current.shots.push(shot);
+  }
+  return groups;
+}

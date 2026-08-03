@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Screenshot } from '$lib/ipc/bindings';
-import { shotTime, sortShots } from '$lib/screenshots/screenshots-view';
+import { groupShots, shotTime, sortShots } from '$lib/screenshots/screenshots-view';
 
 function makeShot(over: Partial<Screenshot> = {}): Screenshot {
   return {
@@ -47,5 +47,55 @@ describe('sortShots', () => {
     const undated = makeShot({ file_name: 'undated.png', modified_unix_ms: null });
     const got = sortShots([undated, older, newer], 'newest');
     expect(got[got.length - 1].file_name).toBe('undated.png');
+  });
+});
+
+describe('groupShots', () => {
+  it('returns no groups for an empty list', () => {
+    expect(groupShots([], 'day')).toEqual([]);
+  });
+
+  it('splits two shots either side of local midnight into two day groups', () => {
+    const before = makeShot({
+      file_name: 'before.png',
+      modified_unix_ms: new Date(2026, 0, 15, 23, 59).getTime(),
+    });
+    const after = makeShot({
+      file_name: 'after.png',
+      modified_unix_ms: new Date(2026, 0, 16, 0, 1).getTime(),
+    });
+    const got = groupShots(sortShots([before, after], 'oldest'), 'day');
+    expect(got).toHaveLength(2);
+    expect(got[0].shots.map((s) => s.file_name)).toEqual(['before.png']);
+    expect(got[1].shots.map((s) => s.file_name)).toEqual(['after.png']);
+  });
+
+  it('keeps the same two shots in one group at month granularity', () => {
+    const before = makeShot({ modified_unix_ms: new Date(2026, 0, 15, 23, 59).getTime() });
+    const after = makeShot({ modified_unix_ms: new Date(2026, 0, 16, 0, 1).getTime() });
+    const got = groupShots(sortShots([before, after], 'oldest'), 'month');
+    expect(got).toHaveLength(1);
+    expect(got[0].shots).toHaveLength(2);
+  });
+
+  it('splits across a month boundary at month granularity', () => {
+    const jan = makeShot({ modified_unix_ms: new Date(2026, 0, 31, 12, 0).getTime() });
+    const feb = makeShot({ modified_unix_ms: new Date(2026, 1, 1, 12, 0).getTime() });
+    const got = groupShots(sortShots([jan, feb], 'oldest'), 'month');
+    expect(got).toHaveLength(2);
+  });
+
+  it('follows the order of the list it is given', () => {
+    const jan = makeShot({ modified_unix_ms: new Date(2026, 0, 31, 12, 0).getTime() });
+    const feb = makeShot({ modified_unix_ms: new Date(2026, 1, 1, 12, 0).getTime() });
+    const newestFirst = groupShots(sortShots([jan, feb], 'newest'), 'day');
+    expect(newestFirst[0].startMs).toBeGreaterThan(newestFirst[1].startMs);
+  });
+
+  it('gives each group a key that is unique per granularity', () => {
+    const shot = makeShot({ modified_unix_ms: new Date(2026, 0, 15, 12, 0).getTime() });
+    const [dayGroup] = groupShots([shot], 'day');
+    const [monthGroup] = groupShots([shot], 'month');
+    expect(dayGroup.key).not.toBe(monthGroup.key);
   });
 });
