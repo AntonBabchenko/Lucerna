@@ -1,13 +1,13 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import { commands, type Screenshot } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
-  import { t } from '$lib/i18n';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
-  import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
-  import ScreenshotGrid from './ScreenshotGrid.svelte';
+  import ScreenshotBrowser from './ScreenshotBrowser.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -39,29 +39,6 @@
   const filtered = $derived(
     instanceFilter ? all.filter((s) => s.instance_id === instanceFilter) : all,
   );
-
-  // Day bucket label: Today / Yesterday / locale date.
-  function dayLabel(ms: number): string {
-    const d = new Date(ms);
-    const now = new Date();
-    const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const diffDays = Math.round((startOf(now) - startOf(d)) / 86_400_000);
-    if (diffDays === 0) return $t('screenshots.groupToday');
-    if (diffDays === 1) return $t('screenshots.groupYesterday');
-    return d.toLocaleDateString();
-  }
-
-  // Group the filtered shots (already newest-first from the backend) by day.
-  const groups = $derived.by(() => {
-    const map = new Map<string, Screenshot[]>();
-    for (const s of filtered) {
-      const key = dayLabel(s.modified_unix_ms ?? 0);
-      const arr = map.get(key);
-      if (arr) arr.push(s);
-      else map.set(key, [s]);
-    }
-    return [...map.entries()];
-  });
 </script>
 
 <Modal
@@ -75,15 +52,6 @@
       {$t('screenshots.galleryTitle')}
     </h2>
     <span class="flex-1"></span>
-    {#if all.length > 0}
-      <Select
-        class="w-56 text-sm"
-        value={instanceFilter}
-        options={instanceOptions}
-        onChange={(v) => (instanceFilter = String(v))}
-        ariaLabel={$t('screenshots.filterInstance')}
-      />
-    {/if}
     <CloseButton ariaLabel={$t('screenshots.galleryClose')} onClick={onClose} />
   </header>
 
@@ -95,10 +63,24 @@
     {:else if filtered.length === 0}
       <p class="p-8 text-center text-sm text-muted">{$t('screenshots.emptyGallery')}</p>
     {:else}
-      {#each groups as [label, shots] (label)}
-        <h3 class="px-4 pt-4 text-sm font-medium text-secondary">{label}</h3>
-        <ScreenshotGrid {shots} onChanged={reload} />
-      {/each}
+      <ScreenshotBrowser
+        shots={filtered}
+        onChanged={reload}
+        resetKey={instanceFilter}
+        {controls}
+      />
     {/if}
   </div>
 </Modal>
+
+{#snippet controls()}
+  {#if all.length > 0}
+    <Select
+      class="w-56 text-sm"
+      value={instanceFilter}
+      options={instanceOptions}
+      onChange={(v) => (instanceFilter = String(v))}
+      ariaLabel={$t('screenshots.filterInstance')}
+    />
+  {/if}
+{/snippet}
