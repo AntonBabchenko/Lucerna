@@ -531,12 +531,69 @@ pub async fn mods_install_with_deps(
     if let Some(sha1) = primary_sha1 {
         crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
     }
+    let details = mod_install_details(&install_seq, &installed_all);
     Ok(crate::mods::platform::InstallSummary {
         primary_name: primary_v.name.clone(),
         installed_dependencies,
+        details,
     })
     })
     .await
+}
+
+/// Build one `TaskDetail` row per installed jar for the plain (non-modpack)
+/// `mods_install_with_deps` path. Pure — no I/O — so it is unit-testable
+/// without an `AppHandle`.
+///
+/// `install_seq` and `installed_all` are the SAME order and length: the
+/// caller already zips them this way for the `ModInstalled` events above.
+/// Provenance (name/origin/host/bytes) comes from `install_seq[i]`
+/// (`ModVersion`); outcome (placement/fetched/sha1) comes from
+/// `installed_all[i]` (`Installed`, the verified on-disk result).
+///
+/// Mirrors `mods::modpack::import::modpack_file_detail`'s outcome-mapping
+/// conventions byte-for-byte — `placement: None` (install_one's idempotent
+/// "already byte-identical, no store call made" branch) maps to
+/// `DetailOutcome::Unchanged` rather than a false `Installed`; an
+/// empty/whitespace sha1 maps to `None` — but cannot reuse that helper
+/// directly: its input is a `ModpackFile`, which carries its own
+/// `install_path` from the pack manifest. Here the input is a `ModVersion`,
+/// and `install_one` always writes into `{instance}/.minecraft/mods/`
+/// (there is no per-file install_path to read), so the path is synthesised
+/// as `mods/{filename}` from the verified installed filename instead.
+fn mod_install_details(
+    install_seq: &[ModVersion],
+    installed_all: &[crate::mods::install::Installed],
+) -> Vec<crate::tasks::TaskDetail> {
+    install_seq
+        .iter()
+        .zip(installed_all.iter())
+        .map(|(v, inst)| {
+            let outcome = match inst.placement {
+                Some(placement) => crate::tasks::DetailOutcome::Installed {
+                    fetched: inst.fetched,
+                    placement,
+                },
+                None => crate::tasks::DetailOutcome::Unchanged,
+            };
+            crate::tasks::TaskDetail {
+                name: v.name.clone(),
+                install_path: format!("mods/{}", inst.filename),
+                origin: v.source.into(),
+                host: crate::network::request::host_of(&v.primary_file.url),
+                bytes: Some(v.primary_file.size),
+                sha1: {
+                    let s = inst.sha1.trim();
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s.to_string())
+                    }
+                },
+                outcome,
+            }
+        })
+        .collect()
 }
 
 // =========================================================================
@@ -2622,6 +2679,64 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
+    }
+
+    /// Pins the behaviour that matters for the per-file install report on the
+    /// plain (non-modpack) install path: `mod_install_details` zips
+    /// `install_seq` (provenance: source/url/name) against `installed_all`
+    /// (outcome: placement/fetched/sha1) and must emit exactly one row per
+    /// installed jar, with `origin` derived from the `ModVersion`'s source
+    /// and an outcome that distinguishes a freshly-downloaded-and-linked jar
+    /// from install_one's idempotent "already byte-identical" skip.
+    #[test]
+    fn mod_install_details_reports_one_row_per_jar_with_distinct_outcomes() {
+        let primary = mv("primary");
+        let dep = mv("dep");
+        let install_seq = vec![primary.clone(), dep.clone()];
+        let installed_all = vec![
+            crate::mods::install::Installed {
+                sha1: "aa".into(),
+                filename: "primary.jar".into(),
+                name: "primary".into(),
+                placement: Some(crate::mods::store::Placement::Linked),
+                fetched: crate::tasks::Fetched::Downloaded,
+                source: ModSource::Modrinth,
+            },
+            crate::mods::install::Installed {
+                sha1: "aa".into(),
+                filename: "dep.jar".into(),
+                name: "dep".into(),
+                // `None` = install_one's idempotent-skip branch — the
+                // destination already held a byte-identical jar and no
+                // store call was made.
+                placement: None,
+                fetched: crate::tasks::Fetched::Cached,
+                source: ModSource::Modrinth,
+            },
+        ];
+
+        let details = mod_install_details(&install_seq, &installed_all);
+
+        assert_eq!(details.len(), 2, "{details:?}");
+
+        assert_eq!(details[0].name, "primary");
+        assert_eq!(details[0].origin, crate::tasks::TaskOrigin::Modrinth);
+        assert_eq!(details[0].host.as_deref(), Some("cdn"));
+        assert_eq!(details[0].sha1.as_deref(), Some("aa"));
+        assert_eq!(
+            details[0].outcome,
+            crate::tasks::DetailOutcome::Installed {
+                fetched: crate::tasks::Fetched::Downloaded,
+                placement: crate::mods::store::Placement::Linked,
+            }
+        );
+
+        assert_eq!(details[1].name, "dep");
+        assert_eq!(
+            details[1].outcome,
+            crate::tasks::DetailOutcome::Unchanged,
+            "placement: None must map to Unchanged, not a false Installed"
+        );
     }
 
     #[test]

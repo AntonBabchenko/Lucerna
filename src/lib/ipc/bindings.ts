@@ -3026,6 +3026,18 @@ export type InstallSummary = {
 	 *  excluded). Empty when the primary had no missing deps.
 	 */
 	installed_dependencies: string[],
+	/**
+	 *  One row per installed jar (primary + dependencies), in `install_seq`
+	 *  order. Unlike the modpack import/update paths — which carry their
+	 *  per-file report on the terminal `Channel` message because they already
+	 *  take one — this command has no channel, so the report rides the
+	 *  return value instead. `InstallSummary` has exactly one producer
+	 *  (`mods_install_with_deps`) and one consumer (the UI toast), which is
+	 *  what makes widening the return value cheap here; the same design was
+	 *  rejected for the modpack paths, where it would have meant inventing an
+	 *  envelope across three unrelated command signatures.
+	 */
+	details: TaskDetail[],
 };
 
 /**
