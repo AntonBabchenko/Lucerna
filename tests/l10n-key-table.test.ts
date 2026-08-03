@@ -156,7 +156,7 @@ describe('KeyTable', () => {
     // Exactly one call: saving a row must not trigger a full namespace refetch.
     expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(1);
     await waitFor(() =>
-      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Saved'),
+      expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Translated'),
     );
   });
 
@@ -191,8 +191,8 @@ describe('KeyTable', () => {
     expect(err.textContent).toBeTruthy();
     // The row's state must not have silently flipped to ok on a rejection.
     // Trimmed on purpose: StatusBadge reserves a leading glyph slot, so an
-    // untrimmed compare would pass against 'Saved' too and prove nothing.
-    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).not.toBe('Saved');
+    // untrimmed compare would pass against 'Translated' too and prove nothing.
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).not.toBe('Translated');
   });
 
   it('clears an override via the explicit Clear action', async () => {
@@ -233,7 +233,7 @@ describe('KeyTable', () => {
     render(KeyTable, { props });
     await screen.findAllByTestId('l10n-key-row');
 
-    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Orphaned');
+    expect(screen.getByTestId('l10n-key-state').textContent?.trim()).toBe('Removed from mod');
     expect(screen.getByTestId('l10n-key-clear')).toBeTruthy();
   });
 
@@ -500,6 +500,17 @@ describe('KeyTable', () => {
       // The resulting state of each key depends on what the mod itself ships,
       // so the rows come back from the backend rather than being patched here.
       await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
+    });
+
+    it('counts the doomed translations in the singular when there is exactly one', async () => {
+      mockKeysOk([keyRow({ key: 'a', state: 'ok', overrideValue: 'А', origin: 'machine' })]);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+
+      await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
+
+      const body = await screen.findByText(/This removes/);
+      expect(body.textContent).toContain('This removes 1 AI translation from create.');
     });
 
     it('reports a failed revert inside the confirm, not behind it', async () => {
