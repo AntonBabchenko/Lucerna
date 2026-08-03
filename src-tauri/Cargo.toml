@@ -127,8 +127,14 @@ trash = "5"
 # created its window before we hide the launcher to the tray. Used from
 # `platform::wait_for_window_ready` (cfg(windows)); the crate is absent on
 # the Linux/macOS builds so the lib compiles there too.
+#
+# `Win32_Globalization` (GetACP + WideCharToMultiByte) backs
+# `platform::path_launchable`: the Windows JVM launcher decodes argv through the
+# system ANSI code page, so we ask Windows itself whether an instance path
+# survives that conversion instead of guessing. Feature flag on a crate already
+# in the tree — no new dependency and no new license class.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_Globalization"] }
 # Windows `.lnk` writing for desktop launch shortcuts (`shortcuts::create`).
 # Pure Rust, in-process. The alternatives were hand-written IShellLink COM
 # vtable calls through windows-sys (raw bindings make COM painful, and the
