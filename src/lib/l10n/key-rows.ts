@@ -114,9 +114,16 @@ export function stickyOutOfView(
 }
 
 /* ---------------------------------------------------------------------------
- * The old two-axis API, superseded by KeyView / viewCount / visibleViews above.
- * KeyTable still imports these, so they stay until it migrates; they are then
- * removed as one unit. Do not add callers.
+ * The old two-axis API, superseded by KeyView / viewCount / visibleViews above:
+ * `KeyFilter`, `OriginFilter`, `filterByOrigin`, `ANCHOR_STATE_FILTERS`,
+ * `visibleStateFilters` and `visibleOriginFilters` — those six by name, not
+ * "everything below this line". They are interleaved with `countOrigins`,
+ * `FilterCounts`, `countKeyStates` and `OriginCounts`, all of which SURVIVE the
+ * migration; `viewCount` and `visibleViews` depend on the last two, so deleting
+ * by span rather than by name would break the new API.
+ *
+ * KeyTable still imports the six, so they stay until it migrates and are then
+ * removed together. Do not add callers.
  * ------------------------------------------------------------------------- */
 
 /** The origin filter chips in KeyTable — a SECOND axis over [`KeyFilter`],
