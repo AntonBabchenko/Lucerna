@@ -19,6 +19,7 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import { clampPanelWidth } from '$lib/ui/splitter';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -45,9 +46,39 @@
     aiConsent?: boolean;
   } = $props();
 
+  // Draggable list/detail split. Not persisted — reopening starts from the
+  // default, same as ManageInstancesModal and the skin editor.
+  //
+  // The floor is a constant (a namespace name has to stay readable); the
+  // ceiling is DERIVED, so the list may grow on a wide window until the
+  // detail pane hits its own minimum. Mirrors ManageInstancesModal.
   const LIST_MIN_WIDTH = 220;
-  const LIST_MAX_WIDTH = 420;
+  const LIST_FALLBACK_MAX = 420;
+  // Enough for the search row plus one wrapped chip row.
+  const DETAIL_MIN_WIDTH = 520;
   let listWidth = $state(280);
+  let rowWidth = $state(0);
+  const listMax = $derived(
+    rowWidth > 0 ? Math.max(LIST_MIN_WIDTH, rowWidth - DETAIL_MIN_WIDTH) : LIST_FALLBACK_MAX,
+  );
+
+  // Owned here rather than by SplitterHandle: the shared handle takes bounds
+  // as props and stays observer-free, which keeps it safe to render in
+  // component tests. Mirrors ManageInstancesModal's observeRow.
+  function observeRow(node: HTMLElement) {
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      rowWidth = node.clientWidth;
+      // Re-clamp when the window shrinks the ceiling below the current width.
+      listWidth = clampPanelWidth(listWidth, LIST_MIN_WIDTH, listMax);
+    });
+    ro.observe(node);
+    return {
+      destroy() {
+        ro.disconnect();
+      },
+    };
+  }
 
   let coverage = $state<InstanceCoverage | null>(null);
   let loading = $state(false);
@@ -295,7 +326,7 @@
         </BusyButton>
       </div>
     {/if}
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden" use:observeRow>
       <aside
         class="shrink-0 overflow-y-auto p-2"
         style="width:{listWidth}px"
@@ -371,7 +402,7 @@
       <SplitterHandle
         bind:width={listWidth}
         min={LIST_MIN_WIDTH}
-        max={LIST_MAX_WIDTH}
+        max={listMax}
         label={$t('instance.l10n.resizeList')}
         testId="l10n-list-splitter"
       />
