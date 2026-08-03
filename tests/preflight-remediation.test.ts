@@ -385,25 +385,31 @@ describe('remediateAll', () => {
 // ---------------------------------------------------------------------------
 
 describe('decideLaunch', () => {
-  it('returns "launch" when preflight command errors (fail-open)', () => {
+  it('reports "unknown" — NOT "launch" — when the preflight command errors', () => {
+    // The whole point of the three-state result: a check that could not run and
+    // a check that passed are different facts. Collapsing them is how the
+    // launcher came to claim "no dependency problems" while offline. It still
+    // launches (the caller must not block on this) — but it has to say so.
     const result = decideLaunch({ status: 'error', error: 'network error' });
-    expect(result).toBe('launch');
+    expect(result).toEqual({ kind: 'unknown', error: 'network error' });
   });
 
   it('returns "launch" when the report has no violations', () => {
     const result = decideLaunch({ status: 'ok', data: { violations: [] } });
-    expect(result).toBe('launch');
+    expect(result).toEqual({ kind: 'launch' });
   });
 
-  it('returns "gate" when the report has at least one violation', () => {
+  it('returns "gate" with the report when there is at least one violation', () => {
     const report: PreflightReport = { violations: [modrinthViolation] };
     const result = decideLaunch({ status: 'ok', data: report });
-    expect(result).toBe('gate');
+    // The report rides on the decision, so the caller no longer has to cast the
+    // raw IPC result back to `{ status: 'ok' }` to reach it.
+    expect(result).toEqual({ kind: 'gate', report });
   });
 
   it('returns "gate" for a missing_required violation', () => {
     const report: PreflightReport = { violations: [missingViolation] };
     const result = decideLaunch({ status: 'ok', data: report });
-    expect(result).toBe('gate');
+    expect(result).toEqual({ kind: 'gate', report });
   });
 });

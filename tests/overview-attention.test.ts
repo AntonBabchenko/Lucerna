@@ -10,6 +10,7 @@ const none = {
   hasLogIssue: false,
   logFixAvailable: false,
   serverFixAvailable: false,
+  preflightUnknown: false,
 };
 
 describe('buildAttentionItems', () => {
@@ -27,6 +28,7 @@ describe('buildAttentionItems', () => {
       hasLogIssue: false,
       logFixAvailable: false,
       serverFixAvailable: false,
+      preflightUnknown: false,
     });
     expect(items.map((i) => i.kind)).toEqual([
       'pick_version',

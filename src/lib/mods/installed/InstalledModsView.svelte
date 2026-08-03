@@ -89,6 +89,11 @@
       hasIssue: (id) => deps.missingShas.has(id),
       isIncompatible: (id) => compat.incompatibleShas.has(id),
     },
+    // The list renders before its rows arrive, so a status count of 0 during
+    // the initial load is "not known yet", not "none". `refresh()` sets
+    // `loading` synchronously before its first await, so this is already true
+    // when the filters' auto-reset effect first runs on mount.
+    () => !data.loading,
   );
   const deps = createDepGraph(
     () => instanceId,
@@ -398,10 +403,14 @@
   // Event listeners (belt-and-suspenders; also call refresh directly). The
   // compat composable's effect only re-runs on instance/mc/loader change, so we
   // also re-scan on mod add/remove/toggle here — otherwise a freshly installed
-  // mod's incompatibility chip would not appear until the next instance switch
-  // (and the Installed view would disagree with the Overview indicator, which
-  // already reacts to these events). The re-scan is cheap (offline) and the
-  // auto-confirm step skips shas already decided this session.
+  // mod's incompatibility chip would not appear until the next instance switch.
+  //
+  // `force` is load-bearing, not defensive: the shared store keys on
+  // (instance, mc, loader), and none of these events changes that key, so an
+  // unforced call is deduplicated away and the re-scan silently does nothing.
+  // That is what happened between #332 and this fix — the PR that gave the two
+  // surfaces one store also disabled the trigger that kept it fresh.
+  //
   // Registration/teardown is race-safe via listenUntilDestroyed (the pattern
   // was born here and is now the shared helper). Handlers are debounced: a
   // with-deps install emits one event per jar, and each un-coalesced event
@@ -410,12 +419,12 @@
     void data.refresh();
     deps.reloadGraph();
     preflight.invalidate();
-    void compat.runOfflineScan();
+    void compat.runOfflineScan({ force: true });
   }, 150);
   const debouncedToggle = debounceTrailing(() => {
     void data.refresh();
     preflight.invalidate();
-    void compat.runOfflineScan();
+    void compat.runOfflineScan({ force: true });
   }, 150);
   listenUntilDestroyed([
     events.modInstalled.listen(debouncedSetChanged.call),

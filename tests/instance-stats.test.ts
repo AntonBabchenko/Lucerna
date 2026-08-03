@@ -13,6 +13,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
+import { ensureCompatScan, invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
 
 // Minimal typed stubs — the composable only touches the named fields.
 const mod = (enabled: boolean): InstalledMod => ({ enabled }) as unknown as InstalledMod;
@@ -31,6 +32,10 @@ describe('createInstanceStats', () => {
     scanInstanceModCompat.mockReset();
     getPlaytime.mockReset();
     modpackStatus.mockReset();
+    // The compat scan is an app-wide singleton shared with the Installed tab —
+    // without this, a test reusing an earlier test's (instance, mc, loader) key
+    // is deduplicated away and asserts against the previous test's entries.
+    invalidateCompatScan();
   });
 
   describe('refreshInstalledStats', () => {
@@ -52,22 +57,21 @@ describe('createInstanceStats', () => {
       expect(s.installedStats).toEqual({ total: 0, enabled: 0, disabled: 0 });
     });
 
-    it('leaves stats untouched when the backend errors', async () => {
-      modsListInstalled.mockResolvedValue({ status: 'error', error: { kind: 'x' } });
+    it('resets to zeros when the backend errors, rather than keeping the previous instance', async () => {
+      modsListInstalled.mockResolvedValueOnce({ status: 'ok', data: [mod(true), mod(true)] });
       const s = createInstanceStats();
       await s.refreshInstalledStats('i1');
+      expect(s.installedStats).toEqual({ total: 2, enabled: 2, disabled: 0 });
+
+      // The labels are per-instance, so a retained value silently attributes the
+      // previous instance's mods to this one.
+      modsListInstalled.mockResolvedValueOnce({ status: 'error', error: { kind: 'x' } });
+      await s.refreshInstalledStats('i2');
       expect(s.installedStats).toEqual({ total: 0, enabled: 0, disabled: 0 });
     });
   });
 
   describe('refreshIncompatible', () => {
-    it('is zero (and skips the scan) for a vanilla instance', async () => {
-      const s = createInstanceStats();
-      await s.refreshIncompatible('i1', [vanillaInstance('i1')]);
-      expect(scanInstanceModCompat).not.toHaveBeenCalled();
-      expect(s.incompatibleCount).toBe(0);
-    });
-
     it('counts only loader-mismatched, non-live-checkable jars', async () => {
       scanInstanceModCompat.mockResolvedValue({
         status: 'ok',
@@ -81,11 +85,51 @@ describe('createInstanceStats', () => {
       expect(s.incompatibleCount).toBe(2);
     });
 
-    it('is zero when the requested id is not in the instances list', async () => {
+    it('scans a vanilla instance too, and gets 0 by computation', async () => {
+      // The old short-circuit returned 0 without scanning, which left the
+      // PREVIOUS instance's entries in the shared store — the Installed tab then
+      // read them and the two surfaces disagreed. A vanilla instance has no
+      // loader family, so `compat_verdict` yields no mismatch for any jar and
+      // the honest answer falls out of the scan.
+      scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [compat(false, false)] });
+      const s = createInstanceStats();
+      await s.refreshIncompatible('i1', [vanillaInstance('i1')]);
+      expect(scanInstanceModCompat).toHaveBeenCalledWith('i1', '1.20.1', 'vanilla');
+      expect(s.incompatibleCount).toBe(0);
+    });
+
+    it('clears the shared scan when the requested id is not in the instances list', async () => {
       const s = createInstanceStats();
       await s.refreshIncompatible('ghost', [forgeInstance('i1')]);
       expect(scanInstanceModCompat).not.toHaveBeenCalled();
       expect(s.incompatibleCount).toBe(0);
+    });
+
+    it('follows the shared store without a refresh of its own', async () => {
+      // The count used to be a `$state` copied out of the store, so a scan run
+      // by the Installed tab (or the manual "Check compatibility" button) moved
+      // the chip and left the Overview showing the old number. Reading through
+      // makes that drift unrepresentable.
+      scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [compat(true, false)] });
+      const s = createInstanceStats();
+      expect(s.incompatibleCount).toBe(0);
+
+      await ensureCompatScan('i1', '1.20.1', 'forge');
+      expect(s.incompatibleCount).toBe(1);
+    });
+
+    it('forces a rescan when asked, so a mod change is not deduplicated away', async () => {
+      // (instance, mc, loader) is unchanged by installing a mod, so without
+      // `force` the store legitimately skips the call and no surface ever
+      // notices the new jar.
+      scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
+      const s = createInstanceStats();
+      await s.refreshIncompatible('i1', [forgeInstance('i1')]);
+      await s.refreshIncompatible('i1', [forgeInstance('i1')]);
+      expect(scanInstanceModCompat).toHaveBeenCalledTimes(1);
+
+      await s.refreshIncompatible('i1', [forgeInstance('i1')], { force: true });
+      expect(scanInstanceModCompat).toHaveBeenCalledTimes(2);
     });
   });
 

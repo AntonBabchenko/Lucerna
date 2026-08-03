@@ -28,6 +28,15 @@ let entries = $state<ModLocalCompat[]>([]);
 // instance's verdicts into the new instance's state.
 let generation = 0;
 
+// The scan currently running, if any. Both surfaces refresh on an instance
+// switch, and the first caller clears `key` synchronously — which makes the
+// second caller's `sameKey` check false, so it issues its own command. On a
+// 140-mod instance that is every jar read and unzipped twice per switch. A
+// later caller for the same key joins this promise instead. Only reusable
+// while `gen` is still current: once a newer run supersedes it, its write is
+// dropped by the generation guard, so joining it would return nothing.
+let inFlight: { key: ScanKey; gen: number; promise: Promise<void> } | null = null;
+
 function sameKey(a: ScanKey | null, b: ScanKey): boolean {
   return (
     a !== null &&
@@ -55,8 +64,12 @@ export function offlineMismatchCount(): number {
 
 /**
  * Scan unless the current state already answers for this exact
- * (instance, mc, loader). `force` re-runs it regardless — used by the manual
- * "Check compatibility" button, which must not report a stale verdict.
+ * (instance, mc, loader). `force` re-runs it regardless.
+ *
+ * `force` is REQUIRED whenever the mod set changed — an install, uninstall or
+ * enable/disable does not alter the key, so an unforced call is deduplicated
+ * away and no surface would ever notice the new jar. The manual "Check
+ * compatibility" button needs it for the same reason.
  *
  * A failed REFRESH of the instance already on screen leaves the previous result
  * in place rather than blanking it: an empty list reads as "nothing is wrong",
@@ -72,6 +85,7 @@ export async function ensureCompatScan(
 ): Promise<void> {
   if (!instanceId || !loader || mcVersion == null) {
     generation++;
+    inFlight = null;
     key = null;
     entries = [];
     return;
@@ -79,6 +93,10 @@ export async function ensureCompatScan(
   const next: ScanKey = { instanceId, mcVersion, loader };
   const isRefresh = sameKey(key, next);
   if (!opts.force && isRefresh) return;
+  if (!opts.force && inFlight && inFlight.gen === generation && sameKey(inFlight.key, next)) {
+    await inFlight.promise;
+    return;
+  }
 
   const gen = ++generation;
   if (!isRefresh) {
@@ -87,16 +105,27 @@ export async function ensureCompatScan(
     key = null;
     entries = [];
   }
-  const r = await commands.scanInstanceModCompat(instanceId, mcVersion, loader);
-  if (gen !== generation) return; // superseded by a newer scan
-  if (r.status !== 'ok') return; // keep whatever we had
-  key = next;
-  entries = r.data;
+  const run = (async () => {
+    const r = await commands.scanInstanceModCompat(instanceId, mcVersion, loader);
+    if (gen !== generation) return; // superseded by a newer scan
+    if (r.status !== 'ok') return; // keep whatever we had
+    key = next;
+    entries = r.data;
+  })();
+  inFlight = { key: next, gen, promise: run };
+  try {
+    await run;
+  } finally {
+    // Only clear our own entry — a newer run may have replaced it while we were
+    // awaiting, and dropping that one would let the next caller start a third.
+    if (inFlight?.promise === run) inFlight = null;
+  }
 }
 
 /** Drop the cached scan so the next `ensureCompatScan` refetches. */
 export function invalidateCompatScan(): void {
   generation++;
+  inFlight = null;
   key = null;
   entries = [];
 }

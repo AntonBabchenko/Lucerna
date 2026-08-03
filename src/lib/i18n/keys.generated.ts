@@ -1493,6 +1493,7 @@ export type TranslationKey =
   | 'page.overview.attnMissingMods'
   | 'page.overview.attnModpackUpdate'
   | 'page.overview.attnPickVersion'
+  | 'page.overview.attnPreflightUnknown'
   | 'page.overview.attnServerLogFix'
   | 'page.overview.dismissError'
   | 'page.overview.editFieldAria'

@@ -6,7 +6,8 @@ export type AttentionKind =
   | 'incompatible'
   | 'integrity'
   | 'modpack_update'
-  | 'server_log_fix';
+  | 'server_log_fix'
+  | 'preflight_unknown';
 
 export interface AttentionItem {
   kind: AttentionKind;
@@ -30,6 +31,10 @@ export interface AttentionInputs {
   /** Whether any owned server has a one-click repair available (C1
    *  diagnosis_status === 'actionable'). Global, not tied to this instance. */
   serverFixAvailable: boolean;
+  /** Whether the dependency pre-flight could not be run (offline, IPC error).
+   *  Distinct from "found nothing": a check that did not run must never be
+   *  rendered the same way as a check that passed. Never blocks the launch. */
+  preflightUnknown: boolean;
 }
 
 /** Build the ordered "needs attention" list from instance signals. */
@@ -49,6 +54,9 @@ export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
     items.push({ kind: 'integrity', count: input.integrityProblemCount });
   }
   if (input.hasModpackUpdate) items.push({ kind: 'modpack_update', count: 0 });
+  // Listed after the confirmed problems: "we could not check" is weaker news
+  // than "here is what is wrong", and must never push a real problem down.
+  if (input.preflightUnknown) items.push({ kind: 'preflight_unknown', count: 0 });
   // Global server signal, listed last (not specific to this instance).
   if (input.serverFixAvailable) items.push({ kind: 'server_log_fix', count: 0 });
   return items;
