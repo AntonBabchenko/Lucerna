@@ -1071,8 +1071,8 @@
     "card": {
       "byAuthor": "by {author}",
       "quickInstall": "Install latest version as a new instance",
-      "downloads": "{count} downloads",
-      "downloadsShort": "{count} dl",
+      "downloads": "{count, plural, one {# download} other {# downloads}}",
+      "downloadsShort": "{count, number} dl",
       "distributionDisabled": "CurseForge download disabled",
       "distributionDisabledShort": "CF disabled"
     },
