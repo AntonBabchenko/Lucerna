@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Screenshot } from '$lib/ipc/bindings';
-import { groupShots, shotTime, sortShots } from '$lib/screenshots/screenshots-view';
+import type { Translate } from '$lib/i18n';
+import { groupLabel, groupShots, shotTime, sortShots } from '$lib/screenshots/screenshots-view';
 
 function makeShot(over: Partial<Screenshot> = {}): Screenshot {
   return {
@@ -97,5 +98,40 @@ describe('groupShots', () => {
     const [dayGroup] = groupShots([shot], 'day');
     const [monthGroup] = groupShots([shot], 'month');
     expect(dayGroup.key).not.toBe(monthGroup.key);
+  });
+});
+
+// Stand-in translator: returns the key, so assertions do not depend on copy.
+const tk = ((key: string) => key) as unknown as Translate;
+
+function dayStart(offsetDays: number): number {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - offsetDays).getTime();
+}
+
+describe('groupLabel', () => {
+  it("labels today's calendar day", () => {
+    expect(groupLabel(tk, 'en', dayStart(0), 'day')).toBe('screenshots.groupToday');
+  });
+
+  it('labels yesterday', () => {
+    expect(groupLabel(tk, 'en', dayStart(1), 'day')).toBe('screenshots.groupYesterday');
+  });
+
+  it('falls back to a formatted date for older days', () => {
+    const label = groupLabel(tk, 'en', dayStart(10), 'day');
+    expect(label).not.toContain('screenshots.');
+    expect(label.length).toBeGreaterThan(0);
+  });
+
+  it('formats a month with its name and year in the given locale', () => {
+    const label = groupLabel(tk, 'en', new Date(2026, 0, 1).getTime(), 'month');
+    expect(label).toMatch(/january/i);
+    expect(label).toContain('2026');
+  });
+
+  it('honours the locale it is passed rather than the OS locale', () => {
+    const label = groupLabel(tk, 'ru', new Date(2026, 0, 1).getTime(), 'month');
+    expect(label).toMatch(/январ/i);
   });
 });

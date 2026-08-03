@@ -4,6 +4,7 @@
 // grouping and group captions. No DOM, no IPC — unit-tested in isolation;
 // ScreenshotBrowser renders its output. Mirrors journal-view.ts.
 
+import type { Translate } from '$lib/i18n';
 import type { Screenshot } from '$lib/ipc/bindings';
 
 export type SortDir = 'newest' | 'oldest';
@@ -62,4 +63,34 @@ export function groupShots(shots: Screenshot[], granularity: Granularity): ShotG
     current.shots.push(shot);
   }
   return groups;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Caption for a group header. `locale` is passed explicitly so month names
+ * follow the APP language rather than the OS — `toLocaleDateString()` with no
+ * locale silently follows the host.
+ *
+ * Day captions are calendar-based: "Today" is today's date, not "within the
+ * last 24 hours". `relativeDate` in $lib/format/relative-time uses a sliding
+ * window instead, which is why it is not reused here.
+ */
+export function groupLabel(
+  t: Translate,
+  locale: string,
+  startMs: number,
+  granularity: Granularity,
+): string {
+  const d = new Date(startMs);
+  if (granularity === 'month') {
+    return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  }
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  // Both operands are local midnights; rounding absorbs DST's 23/25-hour days.
+  const diffDays = Math.round((todayStart - startMs) / DAY_MS);
+  if (diffDays === 0) return t('screenshots.groupToday');
+  if (diffDays === 1) return t('screenshots.groupYesterday');
+  return d.toLocaleDateString(locale);
 }
