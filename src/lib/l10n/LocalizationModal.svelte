@@ -88,10 +88,11 @@
   let applying = $state(false);
 
   // The sidebar order is decided once per load, not re-derived on every
-  // silent refresh: sortNamespaces puts the least-translated first, so the
-  // user's first save would otherwise lift their namespace above every
-  // remaining 0% row and out of the viewport. Percentages still update live;
-  // only the ORDER is pinned.
+  // silent refresh: sortNamespaces puts the least-translated first, so saving
+  // the first key of a 0% namespace lifts it off the floor and sinks it past
+  // every namespace still at 0% — in a 300-mod pack, clean out of the
+  // viewport, mid-edit. Percentages still update live; only the ORDER is
+  // pinned.
   let nsOrder = $state<string[]>([]);
 
   // Monotonic request id: a response only applies if it's still the most
