@@ -6,6 +6,7 @@ pub mod ids;
 pub mod import;
 pub mod memory;
 pub mod migrate;
+pub mod rename;
 pub mod scan;
 pub mod schema;
 pub mod status;
@@ -217,6 +218,73 @@ pub fn resolve_launch_target(app: &tauri::AppHandle, token: &str) -> Option<Stri
         .map(|i| i.id.clone())
 }
 
+/// Whether this instance can be handed to the JVM at all, and if not, which
+/// part of the path is at fault — the two cases have different remedies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PathStatus {
+    /// The path survives conversion to the system code page.
+    Ok,
+    /// The instance's own directory name is at fault — renaming it fixes this.
+    InstanceDir,
+    /// A data-root segment is at fault (e.g. the Windows user name under
+    /// `%APPDATA%`). Renaming the instance cannot help; the data root has to
+    /// move.
+    DataRoot,
+}
+
+/// Classify an instance's game directory for JVM-readability.
+///
+/// Shared by the launch gate and the Manage banner so the two can never
+/// disagree about whether an instance is launchable.
+pub fn path_status(app: &tauri::AppHandle, id: &str) -> Result<PathStatus> {
+    let game_dir = paths::minecraft_dir(app, id).map_err(|e| Error::io("<minecraft_dir>", e))?;
+    if crate::platform::path_launchable(&game_dir) {
+        return Ok(PathStatus::Ok);
+    }
+    let root = paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
+    Ok(if crate::platform::path_launchable(&root) {
+        PathStatus::InstanceDir
+    } else {
+        PathStatus::DataRoot
+    })
+}
+
+/// Read one instance plus its derived status, writing nothing.
+///
+/// Renaming needs this: it must not rewrite `instance.json`, so it cannot go
+/// through [`mutate`].
+pub fn read_with_status(app: &tauri::AppHandle, id: &str) -> Result<InstanceWithStatus> {
+    let inst = read_one(app, id)?;
+    let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
+    let ready = status::ready_status(&versions_dir, &inst);
+    // Re-stat icon.png so a settings edit doesn't clobber has_icon back to
+    // false for an instance that already has a custom picture.
+    let icon_path = paths::instance_icon_png(app, id).map_err(|e| Error::io("<icon_path>", e))?;
+    let has_icon = icon::has_icon(&icon_path);
+    Ok(InstanceWithStatus::from_file(&inst, ready, has_icon))
+}
+
+/// Point `app.json.active_instance` at `new_id`, but only if it currently names
+/// `old_id` — renaming a non-active instance must not rewrite `app.json`.
+///
+/// Runs AFTER the directory rename. If it fails, the only damage is a dangling
+/// `active_instance`, which the startup repair in [`migrate`] and the lazy
+/// repair in [`get_active_instance`] both already heal.
+pub fn repoint_active_instance(
+    app: &tauri::AppHandle,
+    old_id: &str,
+    new_id: &str,
+) -> Result<()> {
+    let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let mut state = store::read_app_json(&app_file_path)?;
+    if state.active_instance.as_deref() != Some(old_id) {
+        return Ok(());
+    }
+    state.active_instance = Some(new_id.to_string());
+    store::write_app_json(&app_file_path, &state)
+}
+
 fn mutate<F>(app: &tauri::AppHandle, id: &str, mutator: F) -> Result<InstanceWithStatus>
 where
     F: FnOnce(&mut InstanceFile),
@@ -225,13 +293,7 @@ where
     mutator(&mut inst);
     let path = paths::instance_json(app, id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&path, &inst)?;
-    let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    let ready = status::ready_status(&versions_dir, &inst);
-    // Re-stat icon.png so a settings edit doesn't clobber has_icon back to
-    // false for an instance that already has a custom picture.
-    let icon_path = paths::instance_icon_png(app, id).map_err(|e| Error::io("<icon_path>", e))?;
-    let has_icon = icon::has_icon(&icon_path);
-    Ok(InstanceWithStatus::from_file(&inst, ready, has_icon))
+    read_with_status(app, id)
 }
 
 pub fn set_instance_name(
