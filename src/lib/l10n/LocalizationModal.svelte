@@ -321,6 +321,18 @@
             {$t('instance.l10n.prefill.allButton')}
           </button>
         {/if}
+        {#if applyReason}
+          <!--
+            Inline, not only in the tooltip: the wrapper-span pattern below is
+            hover-only by construction (the span never matches :focus-visible)
+            and `describe: false` suppresses aria-describedby, so a keyboard or
+            screen-reader user would never reach the one copy of the
+            remediation text.
+          -->
+          <span class="text-xs text-warning-text" data-testid="l10n-apply-reason">
+            {applyReason}
+          </span>
+        {/if}
         {#if coverage}
           <span
             class="inline-flex"

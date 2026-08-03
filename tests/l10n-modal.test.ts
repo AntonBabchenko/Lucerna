@@ -306,6 +306,13 @@ describe('LocalizationModal', () => {
       expect(btn.disabled).toBe(true);
     });
 
+    it('renders the apply-gate reason as visible text, not only as a hover tooltip', async () => {
+      mockCoverageOk(coverage({ applyGate: 'too_old' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      const reason = await screen.findByTestId('l10n-apply-reason');
+      expect(reason.textContent?.trim().length).toBeGreaterThan(0);
+    });
+
     it('enables Apply when the gate is ready and shows success when it applies', async () => {
       mockCoverageOk(coverage({ applyGate: 'ready' }));
       vi.mocked(commands.l10nApply).mockResolvedValue({
