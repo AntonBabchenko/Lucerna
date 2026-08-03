@@ -190,8 +190,9 @@ describe('KeyTable', () => {
     const err = await screen.findByTestId('l10n-key-error');
     expect(err.textContent).toBeTruthy();
     // The row's state must not have silently flipped to ok on a rejection.
-    // Trimmed on purpose: StatusBadge reserves a leading glyph slot, so an
-    // untrimmed compare would pass against 'Translated' too and prove nothing.
+    // Trimmed on purpose: StatusBadge's template puts whitespace around the
+    // label, so an untrimmed compare would pass against 'Translated' too and
+    // prove nothing.
     expect(screen.getByTestId('l10n-key-state').textContent?.trim()).not.toBe('Translated');
   });
 
