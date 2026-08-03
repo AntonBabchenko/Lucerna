@@ -1073,7 +1073,7 @@
       "byAuthor": "{author}",
       "quickInstall": "Установить последнюю версию как новый инстанс",
       "downloads": "{count, plural, one {# скачивание} few {# скачивания} many {# скачиваний} other {# скачивания}}",
-      "downloadsShort": "{count} скач.",
+      "downloadsShort": "{count, number} скач.",
       "distributionDisabled": "Загрузка через CurseForge отключена",
       "distributionDisabledShort": "CF отключён"
     },
