@@ -44,9 +44,13 @@
   let saving = $state(false);
   let clearing = $state(false);
   let error = $state<string | null>(null);
+  // Save/clear outcome is otherwise purely visual (the state pill flips), so
+  // a screen-reader user cannot tell a success from a backend rejection.
+  let announcement = $state('');
 
   const dirty = $derived(draft !== displayValue(row));
   const fieldId = `l10n-key-${namespace}-${row.key}`;
+  const errorId = `${fieldId}-error`;
 
   // Semantic variant, not a class recipe: the hand-rolled tones this replaced
   // had drifted off the design system (raw `bg-success/10` where the token is
@@ -87,8 +91,10 @@
         // the backend just did — `NamespaceStore::set` hardcodes
         // `Origin::Manual`, so the row would be wrong until the next refetch.
         onSaved({ ...row, overrideValue: draft, state: 'ok', origin: 'manual' });
+        announcement = $t('instance.l10n.keyTable.savedAnnouncement');
       } else {
         error = formatError(res.error);
+        announcement = error;
       }
     } finally {
       saving = false;
@@ -113,8 +119,10 @@
         };
         draft = displayValue(updated);
         onSaved(updated);
+        announcement = $t('instance.l10n.keyTable.clearedAnnouncement');
       } else {
         error = formatError(res.error);
+        announcement = error;
       }
     } finally {
       clearing = false;
@@ -128,8 +136,15 @@
   }
 </script>
 
+<!--
+  Named group, not a bare div: the rows are a long uniform list, so a screen
+  reader entering one has to hear which key it is on before the field labels,
+  which are identical on every row.
+-->
 <div
   class="flex flex-col gap-1.5 border-b border-border-subtle px-1 py-2.5 last:border-b-0"
+  role="group"
+  aria-label={row.key}
   data-testid="l10n-key-row"
   data-state={row.state}
 >
@@ -184,6 +199,8 @@
         id={fieldId}
         type="text"
         class="h-8 w-full rounded border border-border-emphasis bg-surface px-2 text-sm text-primary"
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={error ? errorId : undefined}
         bind:value={draft}
         onkeydown={onKeydown}
         data-testid="l10n-key-input"
@@ -211,6 +228,14 @@
     {/if}
   </div>
   {#if error}
-    <p class="text-xs text-danger" data-testid="l10n-key-error">{error}</p>
+    <p id={errorId} role="alert" class="text-xs text-danger" data-testid="l10n-key-error">
+      {error}
+    </p>
   {/if}
+  <!--
+    Rendered unconditionally, empty: a live region only announces changes made
+    while it is already in the accessibility tree, so one that appears together
+    with its first message is silent.
+  -->
+  <span class="sr-only" aria-live="polite" data-testid="l10n-key-live">{announcement}</span>
 </div>

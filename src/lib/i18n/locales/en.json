@@ -512,7 +512,9 @@
         "revertConfirmTitle": "Revert AI translations?",
         "revertConfirmBody": "This removes {count} AI translations from {namespace}. Anything you wrote or edited yourself stays.",
         "revertConfirmButton": "Revert",
-        "revertFailed": "Couldn't revert the AI translations: {error}"
+        "revertFailed": "Couldn't revert the AI translations: {error}",
+        "savedAnnouncement": "Saved",
+        "clearedAnnouncement": "Translation removed"
       }
     }
   },

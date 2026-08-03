@@ -343,7 +343,9 @@
     {#if loading}
       <LoadingPanel label={$t('instance.l10n.keyTable.loading')} />
     {:else if loadError}
-      <p class="p-3 text-sm text-danger" data-testid="l10n-key-table-error">{loadError}</p>
+      <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-key-table-error">
+        {loadError}
+      </p>
     {:else if paged.length === 0}
       <p class="p-3 text-sm text-muted" data-testid="l10n-key-table-empty">
         {emptyMessage}

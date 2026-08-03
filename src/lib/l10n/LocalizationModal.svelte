@@ -350,7 +350,13 @@
         call — the same action the header's Apply button already performs —
         so this reuses it rather than a distinct command.
       -->
+      <!--
+        `status`, not `alert`: it appears after the coverage load lands and
+        describes a condition the user did not just cause, so it should be read
+        at the next opportunity rather than interrupt.
+      -->
       <div
+        role="status"
         class="flex items-center justify-between gap-3 border-b bg-warning-bg px-4 py-2 text-sm text-warning-text"
         data-testid="l10n-pack-disabled-banner"
       >
@@ -375,7 +381,7 @@
         {#if loading}
           <LoadingPanel label={$t('instance.l10n.loading')} />
         {:else if loadError}
-          <p class="p-3 text-sm text-danger" data-testid="l10n-error">{loadError}</p>
+          <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-error">{loadError}</p>
         {:else if sortedNamespaces.length === 0}
           <p class="p-3 text-sm text-muted" data-testid="l10n-empty">
             {$t('instance.l10n.empty')}

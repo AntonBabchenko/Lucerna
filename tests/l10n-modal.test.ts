@@ -158,7 +158,10 @@ describe('LocalizationModal', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
     render(LocalizationModal, { props: { open: true, instanceId: 'inst-1', lang: 'en_us' } });
-    expect(await screen.findByTestId('l10n-error')).toBeTruthy();
+    const err = await screen.findByTestId('l10n-error');
+    // Arrives after mount in place of the namespace list, so it has to
+    // interrupt rather than wait to be tabbed into.
+    expect(err.getAttribute('role')).toBe('alert');
     expect(screen.queryByTestId('l10n-empty')).toBeNull();
   });
 
@@ -368,7 +371,9 @@ describe('LocalizationModal', () => {
     it('shows the re-enable banner when a modpack update wiped options.txt but the pack file survives', async () => {
       mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
       render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
-      expect(await screen.findByTestId('l10n-pack-disabled-banner')).toBeTruthy();
+      const banner = await screen.findByTestId('l10n-pack-disabled-banner');
+      // Advisory, not an error the user caused — status, not alert.
+      expect(banner.getAttribute('role')).toBe('status');
       expect(screen.getByTestId('l10n-pack-reenable')).toBeTruthy();
     });
 

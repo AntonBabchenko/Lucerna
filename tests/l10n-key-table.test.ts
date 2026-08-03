@@ -74,7 +74,10 @@ describe('KeyTable', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
     } as any);
     render(KeyTable, { props });
-    expect(await screen.findByTestId('l10n-key-table-error')).toBeTruthy();
+    const err = await screen.findByTestId('l10n-key-table-error');
+    // Appears after mount, replacing content the user was looking at, so it
+    // has to interrupt rather than wait to be tabbed into.
+    expect(err.getAttribute('role')).toBe('alert');
     expect(screen.queryByTestId('l10n-key-table-empty')).toBeNull();
   });
 
@@ -317,6 +320,61 @@ describe('KeyTable', () => {
     // through use:tooltip instead.
     expect(badge.getAttribute('title')).toBeNull();
     expect(screen.getByText('gui.quark.rune').getAttribute('title')).toBeNull();
+  });
+
+  it('announces a successful save and links the error to the input', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const live = await screen.findByTestId('l10n-key-live');
+    await waitFor(() => expect(live.textContent).toBe('Saved'));
+    expect(live.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('marks the input invalid and points it at the rejection text', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'l10n_translation_invalid',
+        key: 'a',
+        reason: { kind: 'unsupported_specifier', specifier: 'd' },
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    const input = screen.getByTestId('l10n-key-input');
+    // A field that is merely empty is not invalid — the flag has to arrive
+    // with the rejection, not sit on the input from the start.
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+
+    await fireEvent.input(input, { target: { value: '%d bad' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const err = await screen.findByTestId('l10n-key-error');
+    expect(err.getAttribute('role')).toBe('alert');
+    expect(err.id).toBeTruthy();
+    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
+    expect(input.getAttribute('aria-describedby')).toBe(err.id);
+  });
+
+  it('names the row after the key it edits', async () => {
+    mockKeysOk([keyRow({ key: 'gui.quark.rune', sourceEn: 'Rune' })]);
+    render(KeyTable, { props });
+    const row = await screen.findByTestId('l10n-key-row');
+    expect(row.getAttribute('role')).toBe('group');
+    expect(row.getAttribute('aria-label')).toBe('gui.quark.rune');
   });
 
   // Origin is a SECOND axis over the state filter, not more options on it.

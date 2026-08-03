@@ -512,7 +512,9 @@
         "revertConfirmTitle": "Откатить перевод ИИ?",
         "revertConfirmBody": "Будет удалено переводов ИИ: {count} — из {namespace}. Всё, что вы написали или отредактировали сами, останется.",
         "revertConfirmButton": "Откатить",
-        "revertFailed": "Не удалось откатить перевод ИИ: {error}"
+        "revertFailed": "Не удалось откатить перевод ИИ: {error}",
+        "savedAnnouncement": "Сохранено",
+        "clearedAnnouncement": "Перевод удалён"
       }
     }
   },
