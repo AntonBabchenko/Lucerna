@@ -87,13 +87,19 @@
     const myRequest = ++requestId;
     loading = true;
     loadError = null;
-    // Every full row replacement passes through here — the fetch effect
-    // (namespace / language / reloadToken) and the bulk revert, which calls
-    // load() directly and never re-runs that effect. Clearing before the await
-    // is safe: `loading` is already true, so the list is torn down anyway.
-    sticky.clear();
     const res = await commands.l10nNamespaceKeys(id, ns, targetLang);
     if (myRequest !== requestId) return;
+    // Every full row replacement passes through here — the fetch effect
+    // (namespace / language / reloadToken) and the bulk revert, which calls
+    // load() directly and never re-runs that effect.
+    //
+    // Cleared here rather than before the await: the row list is hidden while
+    // `loading` is true, but the toolbar is not, and clearing early would drop
+    // `keepView` while `counts` still described the OLD rows — resetting the
+    // user's view to All mid-fetch, permanently. Placing it after the race
+    // guard also means a superseded response leaves the set alone; the request
+    // that wins will clear it.
+    sticky.clear();
     loading = false;
     if (res.status === 'ok') {
       rows = res.data;
@@ -114,8 +120,23 @@
   // A new namespace is an unrelated key set — carrying over a search term or
   // filter from the last one would just hide everything. A language switch
   // on the SAME namespace keeps them: same keys, same reason to be searching.
+  //
+  // Guarded on the VALUE, not merely on the effect re-running. This effect
+  // writes user-visible toolbar state, so it must fire on a namespace change
+  // and on nothing else — but an effect that only reads a prop also re-runs
+  // whenever that prop's signal is invalidated with an unchanged value. A
+  // `reloadToken` bump is exactly such an occasion under any parent that hands
+  // props over as one object rather than per-key getters; it is what
+  // @testing-library/svelte's rerender() does (it reassigns a single
+  // `$state.raw` props object — see svelte-core/src/props.svelte.js), so
+  // without this guard an external refetch silently threw the user back to
+  // "All" with their search box emptied. `lastNamespace` is a plain `let`, not
+  // `$state`: the effect writes it, and tracking it would only make the effect
+  // invalidate itself.
+  let lastNamespace: string | null = null;
   $effect(() => {
-    void namespace;
+    if (namespace === lastNamespace) return;
+    lastNamespace = namespace;
     search = '';
     view = 'all';
     // Defence in depth. ConfirmDialog's backdrop covers the namespace list, so
@@ -183,9 +204,11 @@
     onOverrideSaved?.();
   }
 
-  // Colour encodes attention, not decoration (DESIGN.md §9): only the three
-  // buckets that need work carry a tone. The two origin views are ways of
-  // slicing finished work, so they stay de-emphasised next to them.
+  // Colour encodes attention, not decoration (DESIGN.md §9): each state view
+  // carries the tone of what it means — success for done, muted for not
+  // started, warning and danger for the two that need looking at. 'all' and
+  // the two origin views are not states of their own; they slice across the
+  // others, so they stay neutral rather than competing with them.
   const VIEW_TONE: Record<KeyView, ToggleChipTone> = {
     all: 'neutral',
     translated: 'success',

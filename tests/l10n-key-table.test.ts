@@ -629,9 +629,20 @@ describe('KeyTable', () => {
       // The AI pre-fill's door into this component. What is on screen after it
       // is the backend's truth; a "you just did this" claim cannot outlive the
       // data it was made about.
+      //
+      // A second, DIFFERENT response: `a` comes back translated while the view
+      // is still Untranslated. It no longer matches on its own merits, so the
+      // only thing that could keep it on screen is a sticky flag that survived
+      // the refetch — which is exactly what must not happen.
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'А', origin: 'manual' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
       await rerender({ ...props, reloadToken: 1 });
       await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
-      await waitFor(() => expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull());
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('b')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
     });
 
     // The bulk revert calls load() directly: instanceId, namespace, lang and
@@ -662,11 +673,20 @@ describe('KeyTable', () => {
       await fireEvent.click(screen.getAllByTestId('l10n-key-save')[0]);
       await screen.findByTestId('l10n-sticky-refresh');
 
+      // The post-revert truth: `a` is manual now (the user's edit reclaimed it)
+      // and so falls outside the AI view. If the sticky flag survived load(),
+      // it would still be on screen.
+      mockKeysOk([
+        keyRow({ key: 'a', sourceEn: 'A', state: 'ok', overrideValue: 'Моё', origin: 'manual' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'ok', overrideValue: 'Б', origin: 'machine' }),
+      ]);
       await fireEvent.click(screen.getByTestId('l10n-revert-machine'));
       await fireEvent.click(await screen.findByTestId('l10n-revert-confirm'));
 
       await waitFor(() => expect(commands.l10nNamespaceKeys).toHaveBeenCalledTimes(2));
-      await waitFor(() => expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull());
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+      expect(screen.getByText('b')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
     });
 
     it('drops the sticky rows when a view change re-runs the filter', async () => {
