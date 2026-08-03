@@ -123,8 +123,11 @@ mod tests {
     }
 
     fn solid_png(edge: u32, rgb: [u8; 3]) -> Vec<u8> {
-        let img =
-            image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(edge, edge, image::Rgb(rgb)));
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            edge,
+            edge,
+            image::Rgb(rgb),
+        ));
         let mut out = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
             .expect("encode png");
@@ -149,7 +152,11 @@ mod tests {
         let sizes: Vec<u32> = (0..4)
             .map(|i| {
                 let w = ico[6 + i * 16];
-                if w == 0 { 256 } else { u32::from(w) }
+                if w == 0 {
+                    256
+                } else {
+                    u32::from(w)
+                }
             })
             .collect();
         assert_eq!(sizes, vec![16, 32, 48, 256]);
@@ -194,7 +201,10 @@ mod tests {
 
         refresh_if_present(&png, &ico).expect("refresh");
 
-        assert!(!ico.exists(), "only instances with an .ico get one refreshed");
+        assert!(
+            !ico.exists(),
+            "only instances with an .ico get one refreshed"
+        );
     }
 
     #[test]
