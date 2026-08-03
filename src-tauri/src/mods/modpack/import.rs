@@ -653,7 +653,11 @@ fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
 /// never surfaces as a fake identity. `bytes` is the manifest's DECLARED
 /// size (`ModpackFile::size`) — never verified against what actually
 /// landed on disk.
-fn modpack_file_detail(
+///
+/// `pub(crate)`: also reused by `commands::modpack_cmds::apply_update_diff`
+/// (the modpack-update phase-2 loop) so the two per-file install reports
+/// stay byte-for-byte consistent instead of drifting apart.
+pub(crate) fn modpack_file_detail(
     file: &ModpackFile,
     sha1: Option<&str>,
     outcome: DetailOutcome,
