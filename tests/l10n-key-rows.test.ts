@@ -281,4 +281,38 @@ describe('KeyEditRow origin round-trip', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(onSaved.mock.calls[0][0]).toMatchObject({ overrideValue: null, origin: null });
   });
+
+  // `state_of` returns Orphan for a key that has vanished from the mod's
+  // English map BEFORE it ever compares source_en — see
+  // `state_is_orphan_when_the_key_vanished_from_english` in
+  // src-tauri/src/l10n/store.rs. So a save cannot turn an orphan into 'ok';
+  // claiming it does flips the row into a state the next refetch contradicts,
+  // and under the "Removed" view it would leave the view on a false premise.
+  it('saving an orphan keeps it orphan — the mod still does not ship the key', async () => {
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    const onSaved = vi.fn();
+    render(KeyEditRow, {
+      props: {
+        row: row({
+          key: 'gone',
+          sourceEn: 'Old English',
+          state: 'orphan',
+          overrideValue: 'Старое',
+        }),
+        namespace: 'create',
+        lang: 'ru_ru',
+        onSaved,
+      },
+    });
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved.mock.calls[0][0]).toMatchObject({ state: 'orphan', overrideValue: 'Новое' });
+  });
 });
