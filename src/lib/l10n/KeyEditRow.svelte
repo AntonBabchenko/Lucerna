@@ -46,6 +46,14 @@
   let error = $state<string | null>(null);
   // Save/clear outcome is otherwise purely visual (the state pill flips), so
   // a screen-reader user cannot tell a success from a backend rejection.
+  //
+  // Cleared on every keystroke, and that is what makes a REPEATED outcome
+  // audible at all: a live region announces text CHANGES, so writing the same
+  // "Saved" string a second time is a no-op and the region stays silent —
+  // exactly the save-fix-save-again flow this exists for. Resetting in the
+  // input event puts the blank in its own event turn, where it commits;
+  // resetting at the top of save() would not, since the IPC await and Svelte's
+  // flush are both microtasks and the empty state could never paint.
   let announcement = $state('');
 
   const dirty = $derived(draft !== displayValue(row));
@@ -93,8 +101,11 @@
         onSaved({ ...row, overrideValue: draft, state: 'ok', origin: 'manual' });
         announcement = $t('instance.l10n.keyTable.savedAnnouncement');
       } else {
+        // Not mirrored into `announcement`: the error paragraph below is
+        // role="alert", so assistive tech already announces this string
+        // assertively. Feeding the polite region the same text would say it
+        // twice — the redundancy DESIGN.md's Known gaps already warns about.
         error = formatError(res.error);
-        announcement = error;
       }
     } finally {
       saving = false;
@@ -121,8 +132,11 @@
         onSaved(updated);
         announcement = $t('instance.l10n.keyTable.clearedAnnouncement');
       } else {
+        // Not mirrored into `announcement`: the error paragraph below is
+        // role="alert", so assistive tech already announces this string
+        // assertively. Feeding the polite region the same text would say it
+        // twice — the redundancy DESIGN.md's Known gaps already warns about.
         error = formatError(res.error);
-        announcement = error;
       }
     } finally {
       clearing = false;
@@ -202,6 +216,7 @@
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={error ? errorId : undefined}
         bind:value={draft}
+        oninput={() => (announcement = '')}
         onkeydown={onKeydown}
         data-testid="l10n-key-input"
       />

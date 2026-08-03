@@ -340,6 +340,48 @@ describe('KeyTable', () => {
     expect(live.getAttribute('aria-live')).toBe('polite');
   });
 
+  // A live region announces text CHANGES, so re-writing the same "Saved"
+  // string would be silent — the save-fix-save-again flow would be announced
+  // exactly once per row. Clearing on input restores the transition.
+  it('clears the announcement on the next keystroke so a second save is audible', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'ok',
+      data: null,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+    const live = await screen.findByTestId('l10n-key-live');
+    await waitFor(() => expect(live.textContent).toBe('Saved'));
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Ян' } });
+    expect(live.textContent).toBe('');
+  });
+
+  it('does not double-announce a rejection that the alert paragraph already carries', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: 'p', details: 'nope' },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Я' } });
+    await fireEvent.click(screen.getByTestId('l10n-key-save'));
+
+    const alert = await screen.findByTestId('l10n-key-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    // The assertive alert owns the error; the polite region must stay empty or
+    // assistive tech reads the same sentence twice.
+    expect(screen.getByTestId('l10n-key-live').textContent).toBe('');
+  });
+
   it('marks the input invalid and points it at the rejection text', async () => {
     mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
     vi.mocked(commands.l10nSetOverride).mockResolvedValue({
