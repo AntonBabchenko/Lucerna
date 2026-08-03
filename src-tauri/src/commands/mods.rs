@@ -299,25 +299,41 @@ pub async fn mods_install_with_deps(
     // primary's project_id (used to tag every progress event so the UI
     // can route the bar to the right card). Dep installs reuse the same
     // project_id tag — the UI shows them as part of the same operation.
+    //
+    // `count` is the shared "N of M" item counter (see `ProgressCount`).
+    // It's 0/0 by default and stays that way for every tick emitted while
+    // manifest extras / optional deps are still being resolved below — the
+    // total genuinely isn't known yet at that point. `install_batch` (called
+    // once `install_seq` is assembled) is what sets `count.total` and drives
+    // `count.current`; this closure only reads a snapshot on every tick.
     let app_for_progress = app.clone();
     let instance_id_for_progress = instance_id.clone();
     let project_id_for_progress = primary_v.project_id.clone();
+    let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+    let count_for_progress = count.clone();
     let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let (current, item_total) = count_for_progress.snapshot();
         let payload = match phase {
             crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
                 bytes_total: total.map(|t| t as f64),
+                current,
+                total: item_total,
             },
             crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
+                current,
+                total: item_total,
             },
             crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
+                current,
+                total: item_total,
             },
         };
         let _ = payload.emit(&app_for_progress);
@@ -457,20 +473,26 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
-    let installed_all =
-        match crate::mods::install_batch::install_batch(&dd, &inst_root, &install_seq, &prog).await
-        {
-            Ok(v) => v,
-            Err(f) => {
-                let _ = ModInstallFailed {
-                    instance_id: instance_id.clone(),
-                    project_id: f.project_id,
-                    error: f.error.clone(),
-                }
-                .emit(&app);
-                return Err(f.error);
+    let installed_all = match crate::mods::install_batch::install_batch(
+        &dd,
+        &inst_root,
+        &install_seq,
+        &prog,
+        &count,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(f) => {
+            let _ = ModInstallFailed {
+                instance_id: instance_id.clone(),
+                project_id: f.project_id,
+                error: f.error.clone(),
             }
-        };
+            .emit(&app);
+            return Err(f.error);
+        }
+    };
     // The batch is atomic — emit the per-mod events only now that every item
     // has committed, so a rollback can never contradict an already-sent
     // success event.
@@ -1522,10 +1544,19 @@ pub async fn mods_update_one(
 
         // Progress events tagged with the target's project_id so the UI can
         // route the bar to the right card (same pattern as install).
+        //
+        // Unlike `mods_install_with_deps`, there is no manifest-extras
+        // discovery step here — `update_one` sets `count.total` to
+        // `1 + required_deps.len()` before its cache-warm loop starts, so
+        // `count` never observes a `0` total the way the install path's does
+        // during dependency resolution.
         let app_for_progress = app.clone();
         let instance_id_for_progress = instance_id.clone();
         let project_id_for_progress = target.project_id.clone();
+        let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+        let count_for_progress = count.clone();
         let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+            let (current, item_total) = count_for_progress.snapshot();
             let payload = match phase {
                 crate::mods::install::ModInstallPhase::Downloading => {
                     ModInstallProgress::Downloading {
@@ -1533,16 +1564,22 @@ pub async fn mods_update_one(
                         project_id: project_id_for_progress.clone(),
                         bytes_done: done as f64,
                         bytes_total: total.map(|t| t as f64),
+                        current,
+                        total: item_total,
                     }
                 }
                 crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                     instance_id: instance_id_for_progress.clone(),
                     project_id: project_id_for_progress.clone(),
                     bytes_done: done as f64,
+                    current,
+                    total: item_total,
                 },
                 crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                     instance_id: instance_id_for_progress.clone(),
                     project_id: project_id_for_progress.clone(),
+                    current,
+                    total: item_total,
                 },
             };
             let _ = payload.emit(&app_for_progress);
@@ -1560,6 +1597,7 @@ pub async fn mods_update_one(
             target,
             required_deps,
             &prog,
+            &count,
         )
         .await
         {

@@ -101,6 +101,8 @@ describe('PhaseStatusRow', () => {
         project_id: 'p',
         bytes_done: 50,
         bytes_total: 100,
+        current: 2,
+        total: 5,
       },
     });
     await flush();
@@ -117,6 +119,8 @@ describe('PhaseStatusRow', () => {
         instance_id: 'i',
         project_id: 'p',
         bytes_done: 100,
+        current: 2,
+        total: 5,
       },
     });
     await flush();
@@ -128,7 +132,15 @@ describe('PhaseStatusRow', () => {
     const { container } = render(PhaseStatusRow);
     await flush();
     listeners.modInstallProgress?.({
-      payload: { phase: 'copying', instance_id: 'i', project_id: 'p' },
+      // Phase 2 (Copying) never advances the counter past phase 1's final
+      // value — current == total by the time Copying ticks fire.
+      payload: {
+        phase: 'copying',
+        instance_id: 'i',
+        project_id: 'p',
+        current: 5,
+        total: 5,
+      },
     });
     await flush();
     expect(container.textContent).toContain('Copying mod');
@@ -149,6 +161,8 @@ describe('PhaseStatusRow', () => {
         project_id: 'p',
         bytes_done: 25,
         bytes_total: 100,
+        current: 1,
+        total: 4,
       },
     });
     await flush();
@@ -166,6 +180,8 @@ describe('PhaseStatusRow', () => {
         project_id: 'p',
         bytes_done: 50,
         bytes_total: 100,
+        current: 1,
+        total: 1,
       },
     });
     await flush();
@@ -187,6 +203,8 @@ describe('PhaseStatusRow', () => {
         project_id: 'p',
         bytes_done: 50,
         bytes_total: 100,
+        current: 1,
+        total: 1,
       },
     });
     await flush();
@@ -212,6 +230,8 @@ describe('PhaseStatusRow', () => {
         project_id: 'p',
         bytes_done: 50,
         bytes_total: 100,
+        current: 1,
+        total: 1,
       },
     });
     await flush();

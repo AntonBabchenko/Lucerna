@@ -325,15 +325,36 @@ pub enum ModInstallProgress {
         /// f64 not u64 — specta forbids BigInt-style exports.
         bytes_done: f64,
         bytes_total: Option<f64>,
+        /// 1-based index of the jar being installed within this operation.
+        current: u32,
+        /// Total jars this operation will install. `0` while the set is still
+        /// being resolved — manifest extras download before `install_seq`
+        /// exists, so their ticks genuinely have no total yet.
+        total: u32,
     },
     Verifying {
         instance_id: String,
         project_id: String,
         bytes_done: f64,
+        /// 1-based index of the jar being installed within this operation.
+        current: u32,
+        /// Total jars this operation will install. `0` while the set is still
+        /// being resolved — manifest extras download before `install_seq`
+        /// exists, so their ticks genuinely have no total yet.
+        total: u32,
     },
     Copying {
         instance_id: String,
         project_id: String,
+        /// 1-based index of the jar being installed within this operation.
+        /// Copying is phase 2 (commit); by the time it runs, phase 1 has
+        /// already advanced `current` through every item, so this always
+        /// equals `total` — see `install_batch` / `update_one`.
+        current: u32,
+        /// Total jars this operation will install. `0` while the set is still
+        /// being resolved — manifest extras download before `install_seq`
+        /// exists, so their ticks genuinely have no total yet.
+        total: u32,
     },
 }
 

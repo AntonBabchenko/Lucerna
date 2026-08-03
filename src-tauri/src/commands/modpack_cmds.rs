@@ -354,6 +354,9 @@ pub async fn modpack_restore_file(
     }
     // Re-use the same per-mod progress wiring as `mods_install_with_deps`
     // so the UI surfaces the same Downloading/Verifying/Copying states.
+    // This restores exactly one file, so the "N of M" counter is a
+    // constant 1 of 1 — no shared `ProgressCount` needed, unlike the
+    // multi-item install/update paths.
     let app_for_progress = app.clone();
     let instance_id_for_progress = instance_id.clone();
     let project_id_for_progress = file.project_id.clone();
@@ -364,15 +367,21 @@ pub async fn modpack_restore_file(
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
                 bytes_total: total.map(|t| t as f64),
+                current: 1,
+                total: 1,
             },
             crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
+                current: 1,
+                total: 1,
             },
             crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
+                current: 1,
+                total: 1,
             },
         };
         let _ = payload.emit(&app_for_progress);

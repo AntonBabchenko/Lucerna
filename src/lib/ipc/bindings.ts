@@ -3512,7 +3512,36 @@ export type ModInstallPhase = "downloading" | "verifying" | "copying";
  */
 export type ModInstallProgress = { phase: "downloading"; instance_id: string; project_id: string; 
 /**  f64 not u64 — specta forbids BigInt-style exports. */
-bytes_done: number | null; bytes_total: number | null } | { phase: "verifying"; instance_id: string; project_id: string; bytes_done: number | null } | { phase: "copying"; instance_id: string; project_id: string };
+bytes_done: number | null; bytes_total: number | null; 
+/**  1-based index of the jar being installed within this operation. */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number } | { phase: "verifying"; instance_id: string; project_id: string; bytes_done: number | null; 
+/**  1-based index of the jar being installed within this operation. */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number } | { phase: "copying"; instance_id: string; project_id: string; 
+/**
+ *  1-based index of the jar being installed within this operation.
+ *  Copying is phase 2 (commit); by the time it runs, phase 1 has
+ *  already advanced `current` through every item, so this always
+ *  equals `total` — see `install_batch` / `update_one`.
+ */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number };
 
 export type ModInstalled = {
 	instance_id: string,
@@ -4239,7 +4268,14 @@ export type PackState =
  */
 "present_not_enabled" | "enabled";
 
-/**  How a store entry ended up in the instance. */
+/**
+ *  How a store entry ended up in the instance.
+ * 
+ *  Deserialize (not just Serialize): `tasks::DetailOutcome::Installed` embeds
+ *  this and round-trips through a persisted per-file install report, so a
+ *  write-only derive here would fail to compile the moment that type gained
+ *  its own `Deserialize`.
+ */
 export type Placement = 
 /**  One physical file, shared with the store and any other instance. */
 "linked" | 

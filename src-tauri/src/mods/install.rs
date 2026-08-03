@@ -67,6 +67,41 @@ pub struct ProgressTick {
     pub total: Option<f64>,
 }
 
+/// Shared "N of M items" counter for a multi-item install operation
+/// (`install_batch`, `update_one`). Exists because `ProgressFn` cannot carry
+/// an item index without widening its signature — and `ProgressFn` has ~15
+/// construction sites across the mods pipeline, so that widening is a large
+/// blast radius for one feature. Instead, the loop that owns the item list
+/// (and therefore knows the total and which item is current) writes here;
+/// the command-layer `ProgressFn` closure only reads a snapshot on every
+/// tick and stamps it onto the emitted event.
+///
+/// `total` stays `0` until the owning loop knows the full item count — e.g.
+/// manifest-extra candidates in `mods_install_with_deps` are downloaded
+/// before `install_seq` is assembled, so their ticks read `0/0` honestly
+/// rather than a fabricated count.
+///
+/// Only the cache-warm pass (Downloading/Verifying) advances `current` — see
+/// `install_batch` and `update_one` for why. `AtomicU32` (not `Cell`) because
+/// the containing `ProgressFn` closure is `Send + Sync + 'static`, so the
+/// count must tolerate being read from that bound; `Relaxed` ordering is
+/// enough because every write happens-before its corresponding `progress()`
+/// call in the same sequential async task — there is no cross-thread race to
+/// guard against, only a display value to snapshot.
+#[derive(Debug, Default)]
+pub struct ProgressCount {
+    pub current: std::sync::atomic::AtomicU32,
+    pub total: std::sync::atomic::AtomicU32,
+}
+
+impl ProgressCount {
+    /// Snapshot `(current, total)` for one progress tick.
+    pub fn snapshot(&self) -> (u32, u32) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (self.current.load(Relaxed), self.total.load(Relaxed))
+    }
+}
+
 /// Where the cached bytes came from, plus the path they landed at.
 ///
 /// The `fetched` flag is only correct AT THIS LAYER: `install_batch` warms the
@@ -654,6 +689,14 @@ pub async fn uninstall(instance_root: &Path, sha1: &str) -> Result<(), Error> {
 /// before the instance is touched. Only then is the old jar removed and
 /// the new files installed from the warm cache. Mirrors the two-phase
 /// shape of `modpack_apply_update`.
+///
+/// `count` drives the "N of M" counter the caller stamps onto its progress
+/// events. The total (`1 + required_deps.len()`) is known up front — unlike
+/// `install_batch`, there is no manifest-extras discovery step here — so it
+/// is set before phase 1 starts. Phase 1 (the cache warm, below) is what
+/// advances `current`: it is where the network time is actually spent.
+/// Phase 2 (the swap) intentionally does NOT advance `current` again — see
+/// its comment.
 pub async fn update_one(
     data_dir: &Path,
     instance_root: &Path,
@@ -661,6 +704,7 @@ pub async fn update_one(
     target: ModVersion,
     required_deps: Vec<ModVersion>,
     progress: &ProgressFn,
+    count: &ProgressCount,
 ) -> Result<UpdateOutcome, Error> {
     // Remember the old mod's enabled state before anything is removed.
     let was_enabled = installed::list(instance_root)
@@ -674,8 +718,20 @@ pub async fn update_one(
     // each file; nothing on the instance is touched, so any failure aborts
     // cleanly. The filename guard runs before `fetch_to_cache` so a hostile
     // API filename is rejected before any network I/O — mirroring the
-    // guard-first ordering in `install_one`.
-    for v in std::iter::once(&target).chain(required_deps.iter()) {
+    // guard-first ordering in `install_one`. `current` is stamped BEFORE the
+    // fetch call for each item — a cache-hit item can complete with zero
+    // progress ticks of its own, so the counter can't be inferred from tick
+    // counts; it must be set at the item boundary the loop already owns.
+    let items: Vec<&ModVersion> = std::iter::once(&target)
+        .chain(required_deps.iter())
+        .collect();
+    count
+        .total
+        .store(items.len() as u32, std::sync::atomic::Ordering::Relaxed);
+    for (i, v) in items.iter().enumerate() {
+        count
+            .current
+            .store(i as u32 + 1, std::sync::atomic::Ordering::Relaxed);
         let sha = guard_version(v)?;
         fetch_to_cache(
             data_dir,
@@ -690,6 +746,10 @@ pub async fn update_one(
 
     // Phase 2 — swap. Remove the old jar, then install from the warm
     // cache (install_one's internal fetch_to_cache is now a cache hit).
+    // Deliberately does NOT touch `count.current` again: every item already
+    // advanced it during phase 1 above, so every Copying tick from here on
+    // reads `current == total` — a second 1..N pass here would make the
+    // counter run backwards from the UI's point of view.
     uninstall(instance_root, old_sha1).await?;
     let primary = install_one(data_dir, instance_root, target, progress).await?;
     let mut deps = Vec::new();
@@ -1247,6 +1307,7 @@ mod tests {
             v2,
             vec![],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await
         .unwrap();
@@ -1307,6 +1368,7 @@ mod tests {
             v2,
             vec![],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await
         .unwrap();
@@ -1360,6 +1422,7 @@ mod tests {
             bad,
             vec![],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await;
         assert!(r.is_err());
@@ -1426,6 +1489,7 @@ mod tests {
             target,
             vec![dep],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await
         .unwrap();
@@ -1433,6 +1497,90 @@ mod tests {
         assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
         let list = installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list.len(), 2);
+    }
+
+    /// Unlike `install_batch`, `mods_update_one` has no manifest-extras
+    /// discovery step — the target + its required deps are the whole set
+    /// before phase 1 starts, so `count.total` is `1 + required_deps.len()`
+    /// from the very first tick (never `0`, unlike the install-with-deps
+    /// path's manifest-extra window).
+    #[tokio::test]
+    async fn update_one_progress_total_is_target_plus_required_deps() {
+        let s = MockServer::start().await;
+        let oldb = b"total-v1";
+        let pb = b"total-v2";
+        let d1b = b"total-dep1";
+        let d2b = b"total-dep2";
+        let olds = hex::encode(Sha1::digest(oldb));
+        let ps = hex::encode(Sha1::digest(pb));
+        let d1s = hex::encode(Sha1::digest(d1b));
+        let d2s = hex::encode(Sha1::digest(d2b));
+        for (p, body) in [
+            ("/t-old.jar", oldb.to_vec()),
+            ("/t-p2.jar", pb.to_vec()),
+            ("/t-d1.jar", d1b.to_vec()),
+            ("/t-d2.jar", d2b.to_vec()),
+        ] {
+            Mock::given(method("GET"))
+                .and(path(p))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+                .mount(&s)
+                .await;
+        }
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        install_one(
+            td_data.path(),
+            td_inst.path(),
+            fake_version(
+                format!("{}/t-old.jar", s.uri()),
+                olds.clone(),
+                oldb.len() as u64,
+                "t-old.jar",
+            ),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        let target = fake_version(
+            format!("{}/t-p2.jar", s.uri()),
+            ps.clone(),
+            pb.len() as u64,
+            "t-p2.jar",
+        );
+        let dep1 = fake_version(
+            format!("{}/t-d1.jar", s.uri()),
+            d1s.clone(),
+            d1b.len() as u64,
+            "t-d1.jar",
+        );
+        let dep2 = fake_version(
+            format!("{}/t-d2.jar", s.uri()),
+            d2s.clone(),
+            d2b.len() as u64,
+            "t-d2.jar",
+        );
+
+        let count = ProgressCount::default();
+        let outcome = update_one(
+            td_data.path(),
+            td_inst.path(),
+            &olds,
+            target,
+            vec![dep1, dep2],
+            &nop_progress(),
+            &count,
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.deps.len(), 2);
+        // 1 (target) + 2 (required deps) = 3, and by the time update_one
+        // returns current has advanced through every item in phase 1.
+        let (current, total) = count.snapshot();
+        assert_eq!(total, 3);
+        assert_eq!(current, 3);
     }
 
     #[tokio::test]
@@ -1448,6 +1596,7 @@ mod tests {
             v,
             vec![],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await;
         assert!(matches!(r, Err(Error::ModsDistributionDisabled { .. })));
@@ -1473,6 +1622,7 @@ mod tests {
             v,
             vec![],
             &nop_progress(),
+            &ProgressCount::default(),
         )
         .await;
         assert!(
