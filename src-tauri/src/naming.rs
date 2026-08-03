@@ -4,11 +4,23 @@
 //! derive their on-disk directory names here, so neither depends on the other
 //! for naming policy.
 //!
-//! The design deliberately uses a character **allowlist** (keep Unicode
+//! The design deliberately uses a character **allowlist** (keep ASCII
 //! letters/digits + `-`/`_`, replace everything else with `-`) rather than a
 //! per-OS denylist. Keeping only the universally-safe intersection means the
 //! result is a valid directory component on Windows, macOS, and Linux without
-//! enumerating each platform's forbidden set. Consequences:
+//! enumerating each platform's forbidden set.
+//!
+//! **ASCII specifically, not "safe Unicode".** The Windows JVM launcher decodes
+//! its command line through the system ANSI code page, and we pass instance
+//! paths as `--gameDir` and `-Djava.library.path`. A directory name holding
+//! characters that code page cannot express therefore reaches `java.exe` with
+//! `?` substituted — an illegal Windows path character — and the game dies with
+//! `InvalidPathException` before Minecraft starts. Which characters are affected
+//! depends on the user's locale, so this cannot be narrowed to "non-Latin".
+//! Readability for non-Latin names is restored one level up by [`derive_base`],
+//! never by widening this allowlist.
+//!
+//! Further consequences:
 //!
 //! - No dots survive → Windows "reserved-name-with-extension" (`nul.txt`) and
 //!   `.`/`..` traversal are structurally impossible; the reserved-name check is
@@ -40,11 +52,15 @@ const MAX_SUFFIX: u32 = 10_000;
 
 /// Turn a display name into a filesystem-safe directory slug.
 ///
-/// Keeps Unicode alphanumerics (Cyrillic/CJK letters included, so non-English
-/// names stay readable) plus ASCII `-`/`_`; every other character becomes `-`.
-/// Consecutive `-` collapse, leading/trailing separators are stripped, the
-/// result is capped at [`MAX_SLUG_LEN`] characters, and an empty result falls
-/// back to `fallback_base` (e.g. `"instance"` / `"server"`).
+/// Keeps ASCII alphanumerics plus `-`/`_`; every other character — including
+/// Cyrillic and CJK letters — becomes `-`. Consecutive `-` collapse,
+/// leading/trailing separators are stripped, the result is capped at
+/// [`MAX_SLUG_LEN`] characters, and an empty result falls back to
+/// `fallback_base` (e.g. `"instance"` / `"server"`).
+///
+/// Callers wanting a readable name for a non-Latin display name should use
+/// [`derive_base`], which falls back to transliteration instead of to a bare
+/// `"instance"`.
 ///
 /// Original case is preserved (`All The Mods 10` → `All-The-Mods-10`).
 pub fn slugify(name: &str, fallback_base: &str) -> String {
@@ -57,7 +73,7 @@ pub fn slugify(name: &str, fallback_base: &str) -> String {
         if kept >= MAX_SLUG_LEN {
             break;
         }
-        let mapped = if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+        let mapped = if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
             ch
         } else {
             '-'
@@ -215,8 +231,27 @@ mod tests {
     }
 
     #[test]
-    fn keeps_cyrillic_letters_readable() {
-        assert_eq!(slugify("Мой сервер", "server"), "Мой-сервер");
+    fn drops_cyrillic_letters() {
+        // PRODUCT DECISION, not an incidental edit: this test previously asserted
+        // `Мой-сервер` survived. Directory names must be ASCII because the Windows
+        // JVM launcher decodes argv through the system ANSI code page, so a name
+        // the code page cannot express reaches java.exe as `?` and kills the
+        // launch. The readability job moves one level up, to `derive_base`.
+        assert_eq!(slugify("Мой сервер", "server"), "server");
+    }
+
+    #[test]
+    fn drops_cjk_and_keeps_the_latin_part() {
+        assert_eq!(
+            slugify("红石生电优化【Redstone Survival Optimization】", "instance"),
+            "Redstone-Survival-Optimization"
+        );
+    }
+
+    #[test]
+    fn drops_precomposed_diacritics() {
+        // Precomposed `é` has no ASCII form here; `derive_base` transliterates.
+        assert_eq!(slugify("café", "instance"), "caf");
     }
 
     #[test]
