@@ -58,6 +58,7 @@ import {
   Shrink,
   SlidersHorizontal,
   Sparkles,
+  SprayCan,
   Square,
   Sun,
   Trash2,
@@ -140,6 +141,7 @@ export const ICONS = {
   wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
+  aiTranslate: Sparkles, // AI pre-fill of missing translations (l10n)
   edit: Pencil, // edit-in-place affordance (instance avatar hover overlay)
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)
@@ -155,7 +157,7 @@ export const ICONS = {
   fill: PaintBucket, // flood fill within a face (skin editor)
   dodge: Sun, // lighten texels (skin editor)
   burn: Moon, // darken texels (skin editor)
-  noise: Sparkles, // brightness jitter (skin editor)
+  noise: SprayCan, // brightness jitter (skin editor)
   mirror: FlipHorizontal2, // mirror-X symmetry toggle (skin editor)
 } satisfies Record<string, Component>;
 

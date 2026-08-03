@@ -59,6 +59,14 @@ describe('icon registry', () => {
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });
+
+  it('gives the AI-translate action a glyph of its own', () => {
+    expect(ICON_NAMES).toContain('aiTranslate');
+    // Intent-based naming exists so one glyph never carries two unrelated
+    // meanings. Sparkles was the skin editor's brightness-jitter tool before
+    // the l10n AI action needed it, so `noise` moved rather than doubling up.
+    expect(ICONS.aiTranslate).not.toBe(ICONS.noise);
+  });
 });
 
 describe('Icon component', () => {
