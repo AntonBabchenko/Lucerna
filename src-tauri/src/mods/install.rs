@@ -20,6 +20,13 @@ pub struct Installed {
     pub sha1: String,
     pub filename: String,
     pub name: String,
+    /// `None` when the destination already held a byte-identical jar and no
+    /// store call was made — distinct from `Copied`, which means a real
+    /// hardlink attempt fell back to a copy.
+    pub placement: Option<crate::mods::store::Placement>,
+    /// Whether the bytes were fetched fresh; comes from `fetch_to_cache`.
+    pub fetched: crate::tasks::Fetched,
+    pub source: crate::mods::platform::ModSource,
 }
 
 /// Outcome of `update_one`: the new primary install, the required-
@@ -227,7 +234,7 @@ pub async fn install_one(
     // Guards FIRST — before any network or filesystem I/O.
     let sha_lower = guard_version(&version)?;
 
-    let cached_path = fetch_to_cache(
+    let fetch = fetch_to_cache(
         data_dir,
         &version.primary_file.url,
         &sha_lower,
@@ -235,8 +242,8 @@ pub async fn install_one(
         "mods",
         progress,
     )
-    .await?
-    .path;
+    .await?;
+    let cached_path = fetch.path;
 
     // 3. Copy into instance
     progress(ModInstallPhase::Copying, 0, None);
@@ -249,6 +256,10 @@ pub async fn install_one(
         })?;
     let dest = dest_dir.join(&version.primary_file.filename);
     let mut newly_copied = false;
+    // `None` unless a real `store::materialize` call runs below — the
+    // idempotent branch (destination already byte-identical) makes no store
+    // call, so it must never claim a placement it didn't produce.
+    let mut placement: Option<crate::mods::store::Placement> = None;
     if fs::try_exists(&dest)
         .await
         .map_err(|e| Error::ModsInstancePath {
@@ -275,7 +286,7 @@ pub async fn install_one(
         // any link failure). `install_one` always carries full provenance —
         // source + project_id + version_id — so the linked bytes are always
         // re-downloadable, which is the precondition for sharing them.
-        crate::mods::store::materialize(
+        let placed = crate::mods::store::materialize(
             &cached_path,
             &dest,
             crate::mods::store::LinkPolicy::LinkIfPossible,
@@ -285,6 +296,7 @@ pub async fn install_one(
             path: e.path.display().to_string(),
             details: e.details(),
         })?;
+        placement = Some(placed);
         newly_copied = true;
     }
 
@@ -329,6 +341,12 @@ pub async fn install_one(
         sha1: sha_lower,
         filename: version.primary_file.filename,
         name: version.name,
+        placement,
+        // Only locally honest: `install_batch` warms the cache in its own
+        // phase 1 before `install_one` runs in phase 2, so within a batch
+        // this always reads `Cached`. Fixing that is a later, batch-layer task.
+        fetched: fetch.fetched,
+        source: version.source,
     })
 }
 
@@ -878,12 +896,26 @@ mod tests {
         let v = || fake_version(format!("{}/y.jar", s.uri()), sha.clone(), 3, "y.jar");
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+        // First install: a real store call was made — the destination did not
+        // exist, so `materialize` ran and hardlinked the cached bytes in.
+        let first = install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
-        install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+        assert_eq!(
+            first.placement,
+            Some(crate::mods::store::Placement::Linked),
+            "first install must report a real store placement"
+        );
+        // Second install: the destination already holds byte-identical content,
+        // so install_one falls through the idempotent branch and calls no store
+        // function at all. Reporting `Linked` here would be a lie.
+        let second = install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
+        assert_eq!(
+            second.placement, None,
+            "idempotent re-install must not claim a store operation that never happened"
+        );
     }
 
     #[tokio::test]
