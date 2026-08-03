@@ -144,6 +144,7 @@ mod tests {
             jij_provided: vec![ProvidedMod {
                 mod_id: "forgified_fabric_api".into(),
                 version: Some("0.92.2".into()),
+                source: DescriptorSource::NeoForgeToml,
             }],
         };
         ScanCache::update(&path, |c| c.put("ab", entry.clone()));

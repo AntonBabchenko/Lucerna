@@ -831,9 +831,13 @@ mod tests {
         }
     }
     fn prov(id: &str, ver: &str) -> ProvidedMod {
+        // Pinned to `ModsToml` so it agrees with `dep_of`'s `RangeFamily::Maven`
+        // default: a fixture must not become accidentally dual-descriptor once
+        // `sources_present` starts driving shadowing.
         ProvidedMod {
             mod_id: id.into(),
             version: Some(ver.into()),
+            source: DescriptorSource::ModsToml,
         }
     }
 

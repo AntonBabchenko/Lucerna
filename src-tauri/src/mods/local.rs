@@ -71,6 +71,10 @@ impl DependencyKind {
 /// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DescriptorSource {
+    /// `mcmod.info` — the Forge ≤ 1.12.2 JSON descriptor. PROVIDERS ONLY; its
+    /// own `dependencies` array is cosmetic on that era, which is why the
+    /// annotation below is a separate source rather than the same one.
+    McmodInfo,
     /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
     McmodAnnotation,
     /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
@@ -100,6 +104,9 @@ pub struct DeclaredDep {
 pub struct ProvidedMod {
     pub mod_id: String,
     pub version: Option<String>,
+    /// The descriptor this id was declared in. Decides whether its `version` is
+    /// the one the loader reads — see `preflight::effective_rank`.
+    pub source: DescriptorSource,
 }
 
 /// Everything the pre-flight needs from one jar.
@@ -565,6 +572,7 @@ fn parse_mcmod_info_providers(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version,
+            source: DescriptorSource::McmodInfo,
         });
     }
 }
@@ -598,6 +606,7 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
                         version: p
                             .version
                             .and_then(|v| resolve_jar_version(&v, manifest.as_deref())),
+                        source: p.source,
                     });
                 }
                 out.deps.extend(d.deps);
@@ -771,6 +780,7 @@ fn parse_forge_manifest_regex(
             out.provided.push(ProvidedMod {
                 mod_id: id[1].to_string(),
                 version,
+                source: descriptor.source(),
             });
         }
         mods_from = end;
@@ -837,6 +847,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version: version.clone(),
+            source: DescriptorSource::FabricJson,
         });
     }
     // `provides`: alias mod-ids this jar satisfies (Fabric: array of strings).
@@ -846,6 +857,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
             out.provided.push(ProvidedMod {
                 mod_id: id.to_string(),
                 version: version.clone(),
+                source: DescriptorSource::FabricJson,
             });
         }
     }
@@ -876,6 +888,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version: own_version.clone(),
+            source: DescriptorSource::QuiltJson,
         });
     }
     // `provides`: strings (own version) or { id, version? } objects.
@@ -899,6 +912,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
                 out.provided.push(ProvidedMod {
                     mod_id: id,
                     version: ver,
+                    source: DescriptorSource::QuiltJson,
                 });
             }
         }
@@ -1548,6 +1562,54 @@ mod tests {
             &["enhancedvisuals".to_string()]
         )
         .is_empty());
+    }
+
+    /// A provided mod-id is only half a fact: which file declared it decides
+    /// whether its VERSION is the one the loader will see. `mcmod.info` needs a
+    /// source of its own — `McmodAnnotation` is the class constant pool, a
+    /// different file entirely.
+    #[test]
+    fn providers_carry_their_descriptor_source() {
+        let toml = "[[mods]]\nmodId=\"a\"\nversion=\"1.0\"\n";
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", toml)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", toml)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::NeoForgeToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", r#"[{"modid":"a"}]"#)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::McmodInfo);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"a","provides":["b"]}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::FabricJson);
+        assert_eq!(
+            d.provided[1].source,
+            DescriptorSource::FabricJson,
+            "aliases too"
+        );
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "quilt.mod.json",
+            r#"{"quilt_loader":{"id":"a","provides":["b"]}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::QuiltJson);
+        assert_eq!(
+            d.provided[1].source,
+            DescriptorSource::QuiltJson,
+            "aliases too"
+        );
+
+        // The regex fallback runs on descriptors that are not valid TOML and
+        // must stamp what the TOML path would.
+        let broken = "[[mods]]\nmodId=\"a\"\nlogoFile=\"assets\\icon.png\"\n";
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", broken)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::ModsToml);
     }
 
     /// Every declared dependency must carry the file it came out of. `RangeFamily`
