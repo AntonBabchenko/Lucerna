@@ -32,6 +32,8 @@
     filterRows,
     type KeyFilter,
     type OriginFilter,
+    visibleOriginFilters,
+    visibleStateFilters,
   } from './key-rows';
   import KeyEditRow from './KeyEditRow.svelte';
 
@@ -142,7 +144,7 @@
     onOverrideSaved?.();
   }
 
-  const filterOptions = $derived([
+  const allFilterOptions = $derived([
     {
       value: 'all',
       label: $t('instance.l10n.keyTable.filterAllLabel'),
@@ -179,8 +181,12 @@
       testId: 'l10n-filter-orphan',
     },
   ]);
+  const filterOptions = $derived.by(() => {
+    const visible = new Set<string>(visibleStateFilters(counts));
+    return allFilterOptions.filter((o) => visible.has(o.value));
+  });
 
-  const originOptions = $derived([
+  const allOriginOptions = $derived([
     {
       value: 'all',
       label: $t('instance.l10n.keyTable.originAllLabel'),
@@ -202,6 +208,20 @@
       testId: 'l10n-origin-machine',
     },
   ]);
+  const originOptions = $derived.by(() => {
+    const visible = new Set<string>(visibleOriginFilters(origins));
+    return allOriginOptions.filter((o) => visible.has(o.value));
+  });
+
+  // A chip can vanish under an active selection (the last stale key was
+  // fixed, a revert removed every machine string). Falling back to 'all'
+  // keeps the table from showing an empty list under an invisible filter.
+  $effect(() => {
+    if (!filterOptions.some((o) => o.value === filter)) filter = 'all';
+  });
+  $effect(() => {
+    if (!originOptions.some((o) => o.value === originFilter)) originFilter = 'all';
+  });
 
   // One command, not one call per key: the backend loads the namespace file
   // once, drops every Origin::Machine entry, saves once and rebuilds the pack.
