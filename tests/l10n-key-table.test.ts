@@ -611,6 +611,39 @@ describe('KeyTable', () => {
       expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1);
     });
 
+    // The chip must survive a search that hides the sticky row. Deriving
+    // keepView from the search-aware count let one keystroke drop the chip,
+    // which fired the fallback effect and flooded the table with the whole
+    // mod — and irrecoverably, since keepView follows the active view.
+    it('keeps that chip even when a search hides the sticky row', async () => {
+      mockKeysOk([
+        keyRow({
+          key: 'alpha',
+          sourceEn: 'Alpha',
+          state: 'stale',
+          overrideValue: 'А',
+          modValue: 'A2',
+        }),
+        keyRow({ key: 'beta', sourceEn: 'Beta', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-stale'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await screen.findByTestId('l10n-sticky-refresh');
+
+      // A search that matches neither the sticky row's key nor its English.
+      await fireEvent.input(screen.getByTestId('l10n-key-search'), { target: { value: 'zzz' } });
+
+      const chip = await screen.findByTestId('l10n-filter-stale');
+      expect(chip.getAttribute('aria-checked')).toBe('true');
+      expect(screen.getByTestId('l10n-filter-all').getAttribute('aria-checked')).toBe('false');
+    });
+
     it('drops the sticky rows when the data is refetched', async () => {
       mockKeysOk([
         keyRow({ key: 'a', sourceEn: 'A', state: 'missing' }),

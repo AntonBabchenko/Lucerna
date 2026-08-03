@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The per-namespace key editor: search, a state filter with per-bucket
+  // The per-namespace key editor: search, a single view filter with per-bucket
   // counts, pagination, and one KeyEditRow per visible key.
   //
   // A namespace can have thousands of keys, so this fetches lazily per
@@ -34,6 +34,7 @@
     filterRows,
     type KeyView,
     stickyOutOfView,
+    viewHoldsSticky,
     viewCount,
     visibleViews,
   } from './key-rows';
@@ -158,6 +159,10 @@
   // user cannot see. This is exactly the count of rendered rows that would
   // disappear if the set were cleared.
   const stickyShown = $derived(stickyOutOfView(rows, search, view, sticky));
+  // Search-blind on purpose — see viewHoldsSticky. `stickyShown` drives the
+  // refresh button and must track what is on screen; this drives whether the
+  // chip survives, which must not depend on the search box.
+  const stickyHeld = $derived(viewHoldsSticky(rows, view, sticky));
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
@@ -232,7 +237,7 @@
   });
 
   const viewOptions = $derived(
-    visibleViews(counts, origins, stickyShown > 0 ? view : null).map((v) => ({
+    visibleViews(counts, origins, stickyHeld ? view : null).map((v) => ({
       value: v,
       label: viewLabels[v],
       tone: VIEW_TONE[v],

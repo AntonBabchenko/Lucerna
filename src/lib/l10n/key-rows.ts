@@ -105,6 +105,25 @@ export function stickyOutOfView(
   return out;
 }
 
+/** Is the active view being held open only by rows the user just changed?
+ *
+ *  Deliberately BLIND to the search term, unlike [`stickyOutOfView`]. The two
+ *  answer different questions. The refresh affordance must not offer to reveal
+ *  a row the search is hiding, so its count is search-aware. Whether the view's
+ *  chip stays on screen is not about what is rendered right now: the row is
+ *  still sticky, merely filtered out of sight like any other row, and dropping
+ *  the chip would let the fallback effect reset the view to 'all' — the exact
+ *  flood this mechanism exists to prevent, and irreversibly, since the kept
+ *  view is derived from the active one. */
+export function viewHoldsSticky(
+  rows: KeyRow[],
+  view: KeyView,
+  sticky: ReadonlySet<string>,
+): boolean {
+  if (sticky.size === 0) return false;
+  return rows.some((row) => sticky.has(row.key) && !matchesView(row, view));
+}
+
 export type OriginCounts = { manual: number; machine: number };
 
 /** How many rows carry each override origin, in one pass.
