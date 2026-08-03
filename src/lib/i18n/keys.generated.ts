@@ -443,6 +443,7 @@ export type TranslationKey =
   | 'instance.l10n.prefill.tokensNote'
   | 'instance.l10n.prefill.writtenLabel'
   | 'instance.l10n.resizeList'
+  | 'instance.l10n.summary'
   | 'instance.l10n.title'
   | 'instance.loader.errorForgePromotions'
   | 'instance.loader.errorNetwork'

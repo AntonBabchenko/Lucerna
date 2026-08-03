@@ -260,6 +260,22 @@ describe('LocalizationModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('totals the instance next to the title', async () => {
+    mockCoverageOk(
+      coverage({
+        percent: 10,
+        namespaces: [
+          ns({ namespace: 'a', totalKeys: 100, fromMod: 10, overridden: 0 }),
+          ns({ namespace: 'b', totalKeys: 100, fromMod: 0, overridden: 10 }),
+        ],
+      }),
+    );
+    render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+    const summary = await screen.findByTestId('l10n-summary');
+    expect(summary.textContent).toContain('200');
+    expect(summary.textContent).toContain('20');
+  });
+
   // DESIGN.md §3: a dialog titles itself through the shared DialogTitle, which
   // owns both the heading level and the one agreed class recipe. A hand-rolled
   // heading is free to drift from either.

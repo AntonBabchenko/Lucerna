@@ -416,6 +416,7 @@
       "percentValue": "{percent}%",
       "namespaceCount": "{covered}/{total}",
       "detailPlaceholder": "Выберите мод, чтобы увидеть его строки.",
+      "summary": "{total} ключей · переведено {covered} · {percent}%",
       "apply": {
         "button": "Применить",
         "reasonUnknownFormat": "Запустите этот профиль хотя бы раз, затем примените перевод.",

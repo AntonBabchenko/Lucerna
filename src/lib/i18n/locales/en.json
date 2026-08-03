@@ -416,6 +416,7 @@
       "percentValue": "{percent}%",
       "namespaceCount": "{covered}/{total}",
       "detailPlaceholder": "Select a mod to see its strings.",
+      "summary": "{total} keys · {covered} translated · {percent}%",
       "apply": {
         "button": "Apply",
         "reasonUnknownFormat": "Launch this instance once, then apply translations.",

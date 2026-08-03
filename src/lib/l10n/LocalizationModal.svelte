@@ -238,6 +238,20 @@
     const fresh = sortNamespaces(coverage.namespaces.filter((r) => !seen.has(r.namespace)));
     return [...pinned, ...fresh];
   });
+  // Totals come from the same rows the sidebar renders, so the header can
+  // never disagree with the list under it. `percent` stays the backend's own
+  // key-weighted figure rather than a second, differently-rounded derivation.
+  const totals = $derived.by(() => {
+    const rows = coverage?.namespaces ?? [];
+    return rows.reduce(
+      (acc, r) => ({
+        total: acc.total + r.totalKeys,
+        covered: acc.covered + r.fromMod + r.overridden,
+      }),
+      { total: 0, covered: 0 },
+    );
+  });
+
   const languageOptions = $derived(
     (coverage?.availableCodes ?? []).map((code) => ({ value: code, label: code })),
   );
@@ -299,7 +313,23 @@
     dataTestid="l10n-modal"
   >
     <header class="flex items-center justify-between gap-3 border-b px-4 py-2">
-      <DialogTitle id="l10n-modal-title">{$t('instance.l10n.title')}</DialogTitle>
+      <!--
+        Title and summary share one flex child so the action group stays the
+        header's second item and keeps its right edge — a bare third sibling
+        would push the actions off `justify-between`'s far end.
+      -->
+      <div class="flex min-w-0 items-baseline gap-3">
+        <DialogTitle id="l10n-modal-title">{$t('instance.l10n.title')}</DialogTitle>
+        {#if coverage}
+          <span class="shrink-0 text-xs text-muted" data-testid="l10n-summary">
+            {$t('instance.l10n.summary', {
+              total: totals.total,
+              covered: totals.covered,
+              percent: coverage.percent,
+            })}
+          </span>
+        {/if}
+      </div>
       <div class="flex items-center gap-2">
         {#if languageOptions.length > 0}
           <Select
