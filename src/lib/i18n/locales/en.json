@@ -487,6 +487,7 @@
         "loading": "Loading keys…",
         "loadFailed": "Couldn't load keys: {error}",
         "noResults": "No keys match your search.",
+        "noResultsFilter": "No keys match the current filter. Clear the filter to see the rest.",
         "sourceLabel": "English",
         "modValueLabel": "Mod's translation",
         "yourTranslationLabel": "Your translation",

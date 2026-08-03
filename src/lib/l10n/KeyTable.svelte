@@ -126,6 +126,13 @@
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
+  // The empty state has two causes and only ever named one of them.
+  const emptyMessage = $derived(
+    search.trim() === ''
+      ? $t('instance.l10n.keyTable.noResultsFilter')
+      : $t('instance.l10n.keyTable.noResults'),
+  );
+
   // Reset to page 0 whenever the visible set's shape changes; clamp down if
   // it shrinks (e.g. switching to a near-empty filter while on a later page).
   $effect(() => {
@@ -323,7 +330,7 @@
       <p class="p-3 text-sm text-danger" data-testid="l10n-key-table-error">{loadError}</p>
     {:else if paged.length === 0}
       <p class="p-3 text-sm text-muted" data-testid="l10n-key-table-empty">
-        {$t('instance.l10n.keyTable.noResults')}
+        {emptyMessage}
       </p>
     {:else}
       <!--

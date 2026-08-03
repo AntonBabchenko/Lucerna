@@ -365,6 +365,7 @@ export type TranslationKey =
   | 'instance.l10n.keyTable.machineBadgeTitle'
   | 'instance.l10n.keyTable.modValueLabel'
   | 'instance.l10n.keyTable.noResults'
+  | 'instance.l10n.keyTable.noResultsFilter'
   | 'instance.l10n.keyTable.originAllLabel'
   | 'instance.l10n.keyTable.originGroupAriaLabel'
   | 'instance.l10n.keyTable.originGroupLabel'

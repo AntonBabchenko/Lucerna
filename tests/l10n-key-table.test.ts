@@ -275,6 +275,19 @@ describe('KeyTable', () => {
     expect(header.textContent).toContain('2');
   });
 
+  it('blames the filter, not a search term, when the search box is empty', async () => {
+    mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
+    render(KeyTable, { props });
+    await screen.findByTestId('l10n-key-row');
+
+    await fireEvent.click(screen.getByTestId('l10n-filter-translated'));
+
+    const empty = await screen.findByTestId('l10n-key-table-empty');
+    expect(empty.textContent).toBe(
+      'No keys match the current filter. Clear the filter to see the rest.',
+    );
+  });
+
   // Origin is a SECOND axis over the state filter, not more options on it.
   // ToggleChipGroup is a single-select radiogroup with one `value`, so folding
   // the two together would make "translated" and "machine-written" mutually
