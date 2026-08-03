@@ -468,7 +468,6 @@ export type TranslationKey =
   | 'instance.manage.createBtn'
   | 'instance.manage.createHeading'
   | 'instance.manage.createdActiveToast'
-  | 'instance.manage.dataRootBrokenAction'
   | 'instance.manage.dataRootBrokenBody'
   | 'instance.manage.dataRootBrokenTitle'
   | 'instance.manage.deleteBtn'

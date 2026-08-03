@@ -290,7 +290,6 @@
       "folderBrokenFix": "Fix folder name",
       "dataRootBrokenTitle": "This instance will not launch",
       "dataRootBrokenBody": "The data folder path contains characters Java cannot read on this system. Renaming the instance will not help — the data folder has to move.",
-      "dataRootBrokenAction": "Open data folder settings",
       "mcVersionLabel": "Minecraft version",
       "chooseMcOption": "-- Choose Minecraft version --",
       "noVersions": "Version list unavailable — check your connection and reopen.",

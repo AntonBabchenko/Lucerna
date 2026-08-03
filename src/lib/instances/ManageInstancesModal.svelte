@@ -11,6 +11,7 @@
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
+  import InstanceFolderRow from '$lib/instances/InstanceFolderRow.svelte';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
@@ -352,6 +353,14 @@
     if (e.kind === 'instance_name_empty') return get(t)('instance.error.nameEmpty');
     if (e.kind === 'instance_name_too_long')
       return get(t)('instance.error.nameTooLong', { actual: e.actual, max: e.max });
+    // Folder-rename cases. Same reasoning as above: inside this modal the
+    // "Instance" prefix the shared formatter adds is redundant.
+    if (e.kind === 'instance_dir_name_empty') return get(t)('instance.error.dirNameEmpty');
+    if (e.kind === 'instance_dir_name_taken')
+      return get(t)('instance.error.dirNameTaken', { name: e.name });
+    if (e.kind === 'instance_dir_name_reserved')
+      return get(t)('instance.error.dirNameReserved', { name: e.name });
+    if (e.kind === 'path_not_launchable') return get(t)('instance.error.pathNotLaunchable');
     return formatError(e);
   }
 
@@ -901,6 +910,12 @@
                     bind:value={nameDraft}
                     oninput={() => clearSaved('name')}
                     onblur={commitName}
+                  />
+
+                  <InstanceFolderRow
+                    instance={selected}
+                    formatIpcError={ipcErrorMessage}
+                    onRenamed={() => onChanged()}
                   />
 
                   <!-- The flash zone spans label + control + the snapshots toggle
