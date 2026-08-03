@@ -34,7 +34,6 @@
     filterRows,
     type KeyView,
     stickyOutOfView,
-    viewHoldsSticky,
     viewCount,
     visibleViews,
   } from './key-rows';
@@ -54,9 +53,10 @@
     /**
      * Bump to force a refetch of the SAME (instance, namespace, lang). The
      * fetch effect is keyed on those three, so a change made outside this
-     * component — an AI pre-fill run rewriting these very rows, a bulk revert
-     * — is invisible to it: the rows on screen would stay pre-run until the
-     * modal was reopened. Per-row edits do not need this; they patch in place.
+     * component — an AI pre-fill run rewriting these very rows — is invisible
+     * to it: the rows on screen would stay pre-run until the modal was
+     * reopened. Per-row edits do not need this; they patch in place, and the
+     * bulk revert calls load() directly.
      */
     reloadToken?: number;
   } = $props();
@@ -68,10 +68,12 @@
   let view = $state<KeyView>('all');
   // Keys the user has changed in this sitting. A changed row keeps its place
   // in the list instead of being yanked out from under the cursor — see
-  // filterRows. Keys, never KeyRow objects: the bulk revert can delete a row
-  // outright (a machine-written orphan disappears from the backend's key
-  // universe entirely), and a snapshot would resurrect it under an unchanged
-  // each-key, feeding a stale row to a KeyEditRow that never re-syncs.
+  // filterRows. Keys, never KeyRow objects: `rows` is patched in place on
+  // every save, so a snapshot taken here would go stale against the row it
+  // names and feed old text to a KeyEditRow that never re-syncs. The sharper
+  // version of that hazard — the bulk revert deleting a row outright, a
+  // snapshot resurrecting it under an unchanged each-key — is what motivated
+  // the `sticky.clear()` in load(), which now forecloses it.
   const sticky = new SvelteSet<string>();
   let page = $state(0);
   let pageSize = $state<PageSize>(50);
@@ -156,13 +158,10 @@
   // never bounce the user back a page or make the footer disappear.
   // Takes `search` as well as `view`: a sticky row the search excludes is not
   // on screen either, so counting it would offer to refresh away a row the
-  // user cannot see. This is exactly the count of rendered rows that would
-  // disappear if the set were cleared.
+  // user cannot see. This is exactly the count of rendered rows that
+  // `filterRows` would stop returning, under an unchanged view, if the set
+  // were cleared.
   const stickyShown = $derived(stickyOutOfView(rows, search, view, sticky));
-  // Search-blind on purpose — see viewHoldsSticky. `stickyShown` drives the
-  // refresh button and must track what is on screen; this drives whether the
-  // chip survives, which must not depend on the search box.
-  const stickyHeld = $derived(viewHoldsSticky(rows, view, sticky));
   const pageCount = $derived(Math.max(1, Math.ceil(filteredRows.length / pageSize)));
   const paged = $derived(filteredRows.slice(page * pageSize, page * pageSize + pageSize));
 
@@ -172,11 +171,16 @@
   // surface's call, because a near-empty namespace is normal here.
   const showPagination = $derived(filteredRows.length > PAGE_SIZES[0]);
 
-  // The empty state has two causes and only ever named one of them.
+  // Three causes, not two: a search term, a view that excludes everything, or
+  // a namespace with no keys at all. Blaming "the filter" when the user is
+  // standing in All and the mod simply ships nothing sends them looking for a
+  // control to clear that is already cleared.
   const emptyMessage = $derived(
-    search.trim() === ''
-      ? $t('instance.l10n.keyTable.noResultsFilter')
-      : $t('instance.l10n.keyTable.noResults'),
+    search.trim() !== ''
+      ? $t('instance.l10n.keyTable.noResults')
+      : view !== 'all'
+        ? $t('instance.l10n.keyTable.noResultsFilter')
+        : $t('instance.l10n.keyTable.noResultsEmpty'),
   );
 
   // Reset to page 0 whenever the visible set's shape changes; clamp down if
@@ -199,6 +203,20 @@
   });
 
   function patchRow(updated: KeyRow) {
+    const previous = rows.find((r) => r.key === updated.key);
+    // Clearing an orphan's override does not change the row, it deletes it.
+    // An orphan exists only because it has an override: `state_of` reaches
+    // Orphan inside `if let Some(entry)`, and the backend's key universe is
+    // `en.keys() ∪ store.entries.keys()` — with the entry gone the key is in
+    // neither, so the next fetch returns no such row. Any patched state would
+    // be a lie, and 'orphan' specifically would break the invariant that an
+    // override and an origin arrive together.
+    if (previous?.state === 'orphan' && updated.overrideValue === null) {
+      rows = rows.filter((r) => r.key !== updated.key);
+      sticky.delete(updated.key);
+      onOverrideSaved?.();
+      return;
+    }
     rows = rows.map((r) => (r.key === updated.key ? updated : r));
     // Both a save and a clear land here, and both make the row sticky. A
     // cleared row usually re-enters the active view on its own, in which case
@@ -236,8 +254,12 @@
     machine: $t('instance.l10n.keyTable.originMachineLabel'),
   });
 
+  // `view` unconditionally, not "only while it holds sticky rows": the chip you
+  // are standing on must never vanish under you. Gated on stickiness, clicking
+  // Refresh — the button whose entire job is to RELEASE the hold — dropped a
+  // zero-count chip and let the fallback below dump the user into All.
   const viewOptions = $derived(
-    visibleViews(counts, origins, stickyHeld ? view : null).map((v) => ({
+    visibleViews(counts, origins, view).map((v) => ({
       value: v,
       label: viewLabels[v],
       tone: VIEW_TONE[v],
@@ -246,14 +268,12 @@
     })),
   );
 
-  // A chip can vanish under an active selection (the last stale key was
-  // fixed, a revert removed every machine string). Falling back to 'all'
-  // keeps the table from showing an empty list under an invisible view — and
-  // it is not cosmetic: ToggleChipGroup gives the tab stop to the active
-  // option and nextRovingIndex refuses to move from an unresolved index, so a
-  // `view` matching no rendered chip makes the whole group unreachable by
-  // keyboard. `visibleViews`' keepView argument stops this firing while the
-  // user still has sticky rows in front of them.
+  // Unreachable by construction: `viewOptions` passes `view` as keepView, so
+  // the active view is always among the rendered chips. Retained as defence in
+  // depth because the failure it guards is not cosmetic — an unresolvable
+  // `view` makes the whole chip group unreachable by keyboard, since
+  // ToggleChipGroup gives the tab stop only to the active option and
+  // nextRovingIndex refuses to move from an unresolved index.
   $effect(() => {
     if (!viewOptions.some((o) => o.value === view)) view = 'all';
   });

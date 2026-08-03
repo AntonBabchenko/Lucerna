@@ -11,8 +11,8 @@ import {
   visibleViews,
 } from '$lib/l10n/key-rows';
 
-// key-rows.ts itself has no IPC — this mock exists only for the KeyEditRow
-// round-trips at the bottom of the file, which defend the other half of the
+// key-rows.ts itself has no IPC — this mock exists only for the
+// `KeyEditRow origin round-trip` group, which defends the other half of the
 // invariant KeyView rests on: an override always carries an origin, and no
 // override never claims one.
 vi.mock('$lib/ipc/bindings', () => ({
@@ -394,11 +394,13 @@ describe('one filter axis', () => {
     expect(visible).toEqual(['all', 'translated', 'missing', 'stale', 'manual', 'machine']);
   });
 
-  // Without this, saving the last "needs review" key drops its count to zero,
-  // the chip vanishes, and KeyTable's fallback effect forces the view back to
-  // "all" — flooding the table with the whole mod on the very action the
-  // sticky set exists to make undisruptive.
-  it('keeps the view you are standing in while it still holds sticky rows', () => {
+  // Without this, anything that drops the selected view's count to zero —
+  // saving the last "needs review" key, then refreshing to release the hold —
+  // makes its chip vanish, and KeyTable's fallback effect forces the view back
+  // to "all", flooding the table with the whole mod. The selected view is kept
+  // unconditionally, so it behaves like an anchor for as long as it is
+  // selected.
+  it('keeps the view you are standing in even at a count of zero', () => {
     const visible = visibleViews(
       { all: 6, translated: 4, stale: 0, orphan: 0, missing: 2 },
       { manual: 1, machine: 0 },

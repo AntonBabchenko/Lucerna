@@ -314,6 +314,13 @@ describe('KeyTable', () => {
     );
   });
 
+  it('does not blame a filter when the namespace is simply empty', async () => {
+    mockKeysOk([]);
+    render(KeyTable, { props });
+    const empty = await screen.findByTestId('l10n-key-table-empty');
+    expect(empty.textContent).toBe('This mod has no translatable text.');
+  });
+
   it('hides the pagination footer when everything fits on one page', async () => {
     mockKeysOk([keyRow({ key: 'a', sourceEn: 'A', state: 'missing' })]);
     render(KeyTable, { props });
@@ -642,6 +649,62 @@ describe('KeyTable', () => {
       const chip = await screen.findByTestId('l10n-filter-stale');
       expect(chip.getAttribute('aria-checked')).toBe('true');
       expect(screen.getByTestId('l10n-filter-all').getAttribute('aria-checked')).toBe('false');
+    });
+
+    // Refresh releases the hold; it must not also move the user. Before this,
+    // clearing the set dropped the zero-count chip and the fallback effect
+    // dumped the user into All with the whole mod in front of them.
+    it('refreshing a count-gated view leaves you standing in it', async () => {
+      mockKeysOk([
+        keyRow({
+          key: 'a',
+          sourceEn: 'A',
+          state: 'stale',
+          overrideValue: 'А',
+          modValue: 'A2',
+        }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      mockSaveOk();
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-stale'));
+
+      await fireEvent.input(screen.getByTestId('l10n-key-input'), { target: { value: 'Новое' } });
+      await fireEvent.click(screen.getByTestId('l10n-key-save'));
+      await fireEvent.click(await screen.findByTestId('l10n-sticky-refresh'));
+
+      const chip = await screen.findByTestId('l10n-filter-stale');
+      expect(chip.getAttribute('aria-checked')).toBe('true');
+      expect(screen.queryAllByTestId('l10n-key-row')).toHaveLength(0);
+      expect(screen.getByTestId('l10n-key-table-empty')).toBeTruthy();
+    });
+
+    // The key exists only because the override does. Remove the override and
+    // the backend's row universe no longer contains it, so keeping a row —
+    // sticky or not — would badge a key the mod does not ship.
+    it('drops a Removed row entirely when its override is cleared', async () => {
+      mockKeysOk([
+        keyRow({ key: 'gone', sourceEn: 'Old', state: 'orphan', overrideValue: 'Старое' }),
+        keyRow({ key: 'b', sourceEn: 'B', state: 'missing' }),
+      ]);
+      vi.mocked(commands.l10nSetOverride).mockResolvedValue({
+        status: 'ok',
+        data: null,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(KeyTable, { props });
+      await screen.findAllByTestId('l10n-key-row');
+      await fireEvent.click(screen.getByTestId('l10n-filter-orphan'));
+      await waitFor(() => expect(screen.getAllByTestId('l10n-key-row')).toHaveLength(1));
+
+      await fireEvent.click(screen.getByTestId('l10n-key-clear'));
+
+      await waitFor(() => expect(screen.queryAllByTestId('l10n-key-row')).toHaveLength(0));
+      // Not held back as sticky either — there is no row to hold.
+      expect(screen.queryByTestId('l10n-sticky-refresh')).toBeNull();
+      // And it must not have moved into the Untranslated bucket.
+      expect(within(screen.getByTestId('l10n-filter-missing')).getByText('1')).toBeTruthy();
     });
 
     it('drops the sticky rows when the data is refetched', async () => {

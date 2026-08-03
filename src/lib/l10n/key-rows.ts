@@ -105,25 +105,6 @@ export function stickyOutOfView(
   return out;
 }
 
-/** Is the active view being held open only by rows the user just changed?
- *
- *  Deliberately BLIND to the search term, unlike [`stickyOutOfView`]. The two
- *  answer different questions. The refresh affordance must not offer to reveal
- *  a row the search is hiding, so its count is search-aware. Whether the view's
- *  chip stays on screen is not about what is rendered right now: the row is
- *  still sticky, merely filtered out of sight like any other row, and dropping
- *  the chip would let the fallback effect reset the view to 'all' — the exact
- *  flood this mechanism exists to prevent, and irreversibly, since the kept
- *  view is derived from the active one. */
-export function viewHoldsSticky(
-  rows: KeyRow[],
-  view: KeyView,
-  sticky: ReadonlySet<string>,
-): boolean {
-  if (sticky.size === 0) return false;
-  return rows.some((row) => sticky.has(row.key) && !matchesView(row, view));
-}
-
 export type OriginCounts = { manual: number; machine: number };
 
 /** How many rows carry each override origin, in one pass.
@@ -164,7 +145,8 @@ export function countKeyStates(rows: KeyRow[]): FilterCounts {
   return counts;
 }
 
-/** Canonical chip order: the five state views, then the two origin views. */
+/** Canonical chip order: the All anchor, the four state views, then the two
+ *  origin views. */
 const VIEW_ORDER: readonly KeyView[] = [
   'all',
   'translated',
@@ -207,13 +189,16 @@ export function viewCount(view: KeyView, counts: FilterCounts, origins: OriginCo
 
 /** Which views render, in canonical order.
  *
- *  `keepView` is the active view when it currently holds sticky rows. Without
- *  it, saving the last "needs review" key would drop that count to zero, the
- *  chip would disappear, and KeyTable's fallback effect would force the view
- *  back to 'all' — flooding the table with the whole mod on exactly the action
- *  stickiness exists to make undisruptive. It also makes the count-gated views
- *  behave like the anchors, which otherwise stay put at zero: one user action,
- *  one outcome. */
+ *  A view renders when it is an anchor, when it has a count, or when it is the
+ *  one currently selected — so the selected chip behaves like an anchor for as
+ *  long as it is selected, whether it is holding sticky rows in front of the
+ *  user, sitting empty after a refresh, or emptied by a refetch. One rule, no
+ *  timing: the chip you are standing on never vanishes under you.
+ *
+ *  That matters because a chip that disappears takes the selection with it —
+ *  KeyTable's fallback effect forces the view back to 'all' and floods the
+ *  table with the whole mod, on exactly the actions (a save, a refresh) that
+ *  are supposed to leave the user where they were. */
 export function visibleViews(
   counts: FilterCounts,
   origins: OriginCounts,
