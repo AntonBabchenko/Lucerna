@@ -129,6 +129,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::apply_log_retention,
             commands::instance_journal_read,
             commands::instance_journal_clear,
+            commands::instance_report_read,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,

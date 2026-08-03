@@ -526,6 +526,7 @@ pub async fn mods_install_with_deps(
             from_version: None,
             to_version: Some(primary_v.version_number.clone()),
             affected: Some(installed_all.len() as f64),
+            report_id: None,
         },
     );
     if let Some(sha1) = primary_sha1 {

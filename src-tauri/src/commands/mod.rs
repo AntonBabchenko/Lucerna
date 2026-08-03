@@ -28,6 +28,8 @@ mod logs;
 pub use logs::*;
 mod journal;
 pub use journal::*;
+mod reports;
+pub use reports::*;
 mod worlds;
 pub use worlds::*;
 mod servers;

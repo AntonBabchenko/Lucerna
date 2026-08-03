@@ -745,6 +745,7 @@ pub async fn modpack_apply_update(
             from_version: Some(previous_version),
             to_version: Some(summary.version.clone()),
             affected: Some((diff.added.len() + diff.updated.len() + diff.removed.len()) as f64),
+            report_id: None,
         },
     );
     let _ = on_progress.send(ModpackProgress::Done {

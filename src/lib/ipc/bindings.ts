@@ -347,13 +347,37 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the default page size. An instance with no recorded activity returns an
 	 *  empty list, not an error.
 	 */
-	instanceJournalRead: (instanceId: string, limit: number) => typedError<JournalEntry[], Error>(__TAURI_INVOKE("instance_journal_read", { instanceId, limit })),
+	instanceJournalRead: (instanceId: string, limit: number) => typedError<JournalEntry_Serialize[], Error>(__TAURI_INVOKE("instance_journal_read", { instanceId, limit })),
 	/**
 	 *  Delete the instance's journal. The history is the user's own local data,
 	 *  so they get an explicit way to drop it (mirrors "clear old logs"). Absent
 	 *  journal is a no-op.
 	 */
 	instanceJournalClear: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("instance_journal_clear", { instanceId })),
+	/**
+	 *  Read a previously persisted install/import report for `task_id`, in full.
+	 * 
+	 *  No paging contract here, unlike `instance_journal_read`: the journal is a
+	 *  single growing jsonl file that a page size makes sense against, but a
+	 *  report is one small, already-bounded JSON file (rotation caps the total
+	 *  on disk, not any one file's row count), and the History UI wants every
+	 *  row at once so it can filter and virtualize rendering client-side.
+	 * 
+	 *  `Ok(None)` when the task never produced a report, or its report already
+	 *  rotated out — not an error, since both are ordinary states for an
+	 *  instance with a long history.
+	 */
+	instanceReportRead: (instanceId: string, taskId: string) => typedError<{
+	version?: number,
+	task_id: string,
+	/**
+	 *  Wall-clock time the report was written. `f64` — specta-typescript
+	 *  forbids 64-bit integer exports (same convention as
+	 *  `journal::JournalEntry::at_unix_ms`).
+	 */
+	at_unix_ms: number | null,
+	details: TaskDetail[],
+} | null, Error>(__TAURI_INVOKE("instance_report_read", { instanceId, taskId })),
 	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
@@ -3197,22 +3221,41 @@ export type IntegrityStatus = {
 };
 
 /**  One recorded moment in an instance's life. */
-export type JournalEntry = {
+export type JournalEntry = JournalEntry_Serialize | JournalEntry_Deserialize;
+
+/**  One recorded moment in an instance's life. */
+export type JournalEntry_Deserialize = {
 	/**
 	 *  Wall-clock time of the recorded action. `f64` because
 	 *  specta-typescript forbids 64-bit integer exports.
 	 */
 	at_unix_ms: number | null,
-	event: JournalEvent,
+	event: JournalEvent_Deserialize,
+};
+
+/**  One recorded moment in an instance's life. */
+export type JournalEntry_Serialize = {
+	/**
+	 *  Wall-clock time of the recorded action. `f64` because
+	 *  specta-typescript forbids 64-bit integer exports.
+	 */
+	at_unix_ms: number | null,
+	event: JournalEvent_Serialize,
 };
 
 /**
  *  What happened. Two variants, each internally uniform, so the UI renders
  *  from a fixed field set per branch instead of a wide grab-bag struct.
  */
-export type JournalEvent = 
+export type JournalEvent = JournalEvent_Serialize | JournalEvent_Deserialize;
+
+/**
+ *  What happened. Two variants, each internally uniform, so the UI renders
+ *  from a fixed field set per branch instead of a wide grab-bag struct.
+ */
+export type JournalEvent_Deserialize = 
 /**  A change to the instance's installed content. */
-{ kind: "content"; action: ContentAction; 
+({ kind: "content"; action: ContentAction; 
 /**
  *  Display name of the affected content (mod title, pack name, asset
  *  filename). Empty for instance-wide actions like integrity repair
@@ -3224,13 +3267,24 @@ subject: string; from_version: string | null; to_version: string | null;
  *  dependencies, modpack update, integrity repair). `None` for
  *  single-subject actions.
  */
-affected: number | null } | 
+affected: number | null; 
+/**
+ *  Id of the `.lucerna/reports/<taskId>.json` this row can deep-link
+ *  to, so History can reopen the task's per-file detail. `None` for
+ *  actions that never produced a report (most single-file changes)
+ *  and for every row recorded before install reports existed.
+ * 
+ *  Additive — rows written before install reports existed deserialise
+ *  to None. `skip_serializing_if` keeps old rows byte-identical on
+ *  rewrite.
+ */
+report_id?: string | null }) & { duration_seconds?: never; exit_code?: never; log_path?: never; outcome?: never } | 
 /**
  *  A launch attempt that has finished. In-flight launches are never
  *  recorded — the running-instances popover already shows those, and a
  *  half-written row would be a second source of truth.
  */
-{ kind: "launch"; outcome: LaunchOutcome; 
+({ kind: "launch"; outcome: LaunchOutcome; 
 /**
  *  `None` when the code is genuinely unknown — the app-exit teardown
  *  kills the game and removes the registry entry before the
@@ -3242,7 +3296,56 @@ exit_code: number | null; duration_seconds: number | null;
  *  The captured game-console log for this run, so a journal row can
  *  deep-link into the log viewer.
  */
-log_path: string | null };
+log_path: string | null }) & { action?: never; affected?: never; from_version?: never; report_id?: never; subject?: never; to_version?: never };
+
+/**
+ *  What happened. Two variants, each internally uniform, so the UI renders
+ *  from a fixed field set per branch instead of a wide grab-bag struct.
+ */
+export type JournalEvent_Serialize = 
+/**  A change to the instance's installed content. */
+({ kind: "content"; action: ContentAction; 
+/**
+ *  Display name of the affected content (mod title, pack name, asset
+ *  filename). Empty for instance-wide actions like integrity repair
+ *  or a bulk dependency install.
+ */
+subject: string; from_version: string | null; to_version: string | null; 
+/**
+ *  Item count for actions that touch more than one file (install with
+ *  dependencies, modpack update, integrity repair). `None` for
+ *  single-subject actions.
+ */
+affected: number | null; 
+/**
+ *  Id of the `.lucerna/reports/<taskId>.json` this row can deep-link
+ *  to, so History can reopen the task's per-file detail. `None` for
+ *  actions that never produced a report (most single-file changes)
+ *  and for every row recorded before install reports existed.
+ * 
+ *  Additive — rows written before install reports existed deserialise
+ *  to None. `skip_serializing_if` keeps old rows byte-identical on
+ *  rewrite.
+ */
+report_id?: string | null }) & { duration_seconds?: never; exit_code?: never; log_path?: never; outcome?: never } | 
+/**
+ *  A launch attempt that has finished. In-flight launches are never
+ *  recorded — the running-instances popover already shows those, and a
+ *  half-written row would be a second source of truth.
+ */
+({ kind: "launch"; outcome: LaunchOutcome; 
+/**
+ *  `None` when the code is genuinely unknown — the app-exit teardown
+ *  kills the game and removes the registry entry before the
+ *  exit-watcher can read a status. Recording a fake `0` there would
+ *  claim a clean exit that was never observed.
+ */
+exit_code: number | null; duration_seconds: number | null; 
+/**
+ *  The captured game-console log for this run, so a journal row can
+ *  deep-link into the log viewer.
+ */
+log_path: string | null }) & { action?: never; affected?: never; from_version?: never; report_id?: never; subject?: never; to_version?: never };
 
 /**
  *  One key's editor row: what the mod ships (English + its own target-language
@@ -5167,6 +5270,28 @@ export type TaskOrigin = "modrinth" | "curseforge" | "ftb" | "atlauncher" |
  *  platform identity (see the `Hangar` mapping below).
  */
 "local";
+
+/**
+ *  A persisted report: one task's [`TaskDetail`] rows plus the metadata
+ *  needed to find and order them again later.
+ * 
+ *  Deliberately NOT `#[derive(Default)]` — a default `version: 0` would look
+ *  like a pre-`FILE_VERSION` file to a future migration and silently take the
+ *  migration branch on a value nothing ever wrote (see
+ *  `datapacks::registry::OnDisk`'s doc comment for the bug this avoids).
+ *  Every construction site below sets `version: FILE_VERSION` explicitly.
+ */
+export type TaskReport = {
+	version?: number,
+	task_id: string,
+	/**
+	 *  Wall-clock time the report was written. `f64` — specta-typescript
+	 *  forbids 64-bit integer exports (same convention as
+	 *  `journal::JournalEntry::at_unix_ms`).
+	 */
+	at_unix_ms: number | null,
+	details: TaskDetail[],
+};
 
 export type ThemePreference = "system" | "light" | "dark";
 
