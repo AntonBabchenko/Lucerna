@@ -53,6 +53,22 @@ impl ShortcutTarget {
         }
     }
 
+    /// Same target, different instance token. Used by [`create`] to swap the
+    /// directory name the UI passed for the instance's rename-proof `uid`.
+    fn with_instance_id(&self, id: String) -> Self {
+        match self {
+            Self::Instance { .. } => Self::Instance { instance_id: id },
+            Self::World { folder, .. } => Self::World {
+                instance_id: id,
+                folder: folder.clone(),
+            },
+            Self::Server { address, .. } => Self::Server {
+                instance_id: id,
+                address: address.clone(),
+            },
+        }
+    }
+
     /// Reject at creation time anything the launcher would refuse at launch
     /// time, so a shortcut can never encode an argument that fails on
     /// double-click. Reuses the launch path's own validators rather than a
@@ -228,6 +244,13 @@ pub fn quote_args(args: &[String]) -> String {
 /// `label`. Returns the created file's absolute path.
 pub fn create(app: &tauri::AppHandle, target: &ShortcutTarget, label: &str) -> Result<String> {
     target.validate()?;
+    // The UI passes the instance's directory name; the shortcut must carry the
+    // rename-proof `uid` instead. A `.lnk` lives on the user's desktop, outside
+    // our data root, and we never record creating it — so if the directory is
+    // renamed later there is no way to go back and repair the file. Swapping the
+    // token here, at the single creation chokepoint, is what makes rename safe.
+    let uid = crate::instances::ensure_uid(app, target.instance_id())?;
+    let target = &target.with_instance_id(uid);
     let Some(ext) = shortcut_extension() else {
         return Err(unsupported_platform());
     };

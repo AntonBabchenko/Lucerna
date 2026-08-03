@@ -206,11 +206,7 @@ pub async fn run_import(
         plan.loader,
         plan.loader_version.clone(),
         Some(plan.max_heap_mb),
-        None,
-        None,
-        None,
-        None,
-        None,
+        instances::schema::PackOrigin::default(),
         Some(provenance),
         None,
     )?;

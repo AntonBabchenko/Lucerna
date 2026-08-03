@@ -7,8 +7,11 @@
 //! window detection) plus the dispatch entry points the launcher calls.
 //! Enforced by `tests/structural_platform_chokepoint.rs`.
 
+pub mod encoding;
 pub mod gpu;
 pub mod protocol;
+
+pub use encoding::path_launchable;
 
 use std::path::{Path, PathBuf};
 

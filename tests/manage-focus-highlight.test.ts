@@ -7,6 +7,8 @@ import type { InstanceWithStatus } from '$lib/ipc/bindings';
 // unhandled rejection can never be mistaken for a flash that did not happen.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+    previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     instanceIntegrityStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     instanceMemoryBounds: vi

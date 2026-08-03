@@ -152,6 +152,7 @@ mod tests {
     fn instance_file(imported_from: Option<ImportProvenance>) -> InstanceFile {
         InstanceFile {
             id: "abc-123".into(),
+            uid: None,
             name: "Test".into(),
             mc_version: "1.20.1".into(),
             loader: LoaderKind::Vanilla,

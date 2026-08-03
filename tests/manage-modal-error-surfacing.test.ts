@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
+  instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+  previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
   listForgeLoaders: vi
     .fn()
     .mockResolvedValue({ status: 'ok', data: [{ version: '47.2.0', stable: true }] }),
