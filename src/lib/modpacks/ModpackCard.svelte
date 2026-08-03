@@ -71,8 +71,12 @@
           {/if}
           <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
           <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <!-- Raw count, never pre-formatted: the message is an ICU plural, so
+                 the formatter needs a number to pick the category, and it groups
+                 the digits itself using the UI locale (toLocaleString() would use
+                 the OS one). -->
             <StatusBadge variant="neutral" icon="download">
-              {$t('modpacks.card.downloads', { count: (hit.downloads ?? 0).toLocaleString() })}
+              {$t('modpacks.card.downloads', { count: hit.downloads ?? 0 })}
             </StatusBadge>
             {#if hit.distribution_allowed === false}
               <StatusBadge variant="warning" icon="warning"
@@ -109,7 +113,7 @@
       {/if}
       <span class="text-xs text-placeholder flex-shrink-0 inline-flex items-center gap-1">
         <Icon name="download" size={12} />
-        {$t('modpacks.card.downloadsShort', { count: (hit.downloads ?? 0).toLocaleString() })}
+        {$t('modpacks.card.downloadsShort', { count: hit.downloads ?? 0 })}
       </span>
       {#if hit.distribution_allowed === false}
         <StatusBadge variant="warning">{$t('modpacks.card.distributionDisabledShort')}</StatusBadge>
