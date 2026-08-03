@@ -96,7 +96,11 @@ fn cjk_name_with_a_latin_part_keeps_the_latin_part() {
     // characters as `?`, which is an illegal Windows path character.
     let dir = tempdir().unwrap();
     let instances = dir.path().join("instances");
-    let id = seed(&instances, "红石生电优化【Redstone Survival Optimization】", 1000.0);
+    let id = seed(
+        &instances,
+        "红石生电优化【Redstone Survival Optimization】",
+        1000.0,
+    );
     assert_eq!(id, "Redstone-Survival-Optimization");
     assert!(id.is_ascii());
     assert!(instances.join(&id).join("instance.json").is_file());

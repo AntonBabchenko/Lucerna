@@ -271,11 +271,7 @@ pub fn read_with_status(app: &tauri::AppHandle, id: &str) -> Result<InstanceWith
 /// Runs AFTER the directory rename. If it fails, the only damage is a dangling
 /// `active_instance`, which the startup repair in [`migrate`] and the lazy
 /// repair in [`get_active_instance`] both already heal.
-pub fn repoint_active_instance(
-    app: &tauri::AppHandle,
-    old_id: &str,
-    new_id: &str,
-) -> Result<()> {
+pub fn repoint_active_instance(app: &tauri::AppHandle, old_id: &str, new_id: &str) -> Result<()> {
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
     let mut state = store::read_app_json(&app_file_path)?;
     if state.active_instance.as_deref() != Some(old_id) {

@@ -404,7 +404,11 @@ mod tests {
     #[test]
     fn pack_slug_beats_transliteration() {
         assert_eq!(
-            derive_base("红石生电优化", Some("redstone-survival-optimization"), "instance"),
+            derive_base(
+                "红石生电优化",
+                Some("redstone-survival-optimization"),
+                "instance"
+            ),
             "redstone-survival-optimization"
         );
     }

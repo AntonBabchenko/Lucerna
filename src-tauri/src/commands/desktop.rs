@@ -28,8 +28,7 @@ pub fn take_pending_intent(app: tauri::AppHandle) -> Option<crate::cli::LaunchIn
             instance,
             quick_play,
         } => crate::cli::LaunchIntent::Launch {
-            instance: crate::instances::resolve_launch_target(&app, &instance)
-                .unwrap_or(instance),
+            instance: crate::instances::resolve_launch_target(&app, &instance).unwrap_or(instance),
             quick_play,
         },
         other => other,

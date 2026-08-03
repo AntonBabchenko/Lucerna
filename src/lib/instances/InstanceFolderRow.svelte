@@ -74,7 +74,11 @@
   <span class="text-xs text-secondary">{$t('instance.manage.folderLabel')}</span>
   <div class="flex items-center gap-2 min-w-0">
     <code class="text-xs text-primary truncate flex-1 min-w-0">{instance.id}</code>
-    <button type="button" class="btn-secondary btn-sm shrink-0" onclick={() => (dialogSeed = instance.id)}>
+    <button
+      type="button"
+      class="btn-secondary btn-sm shrink-0"
+      onclick={() => (dialogSeed = instance.id)}
+    >
       {$t('instance.manage.folderChange')}
     </button>
   </div>

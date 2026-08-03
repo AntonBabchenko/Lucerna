@@ -340,7 +340,8 @@ pub async fn server_create(
     // concurrent creates race into one directory. The reserved name is the id.
     let servers_parent =
         crate::paths::servers_dir(&app).map_err(|e| Error::io("<servers_dir>", e))?;
-    let (id, reserved_dir) = crate::naming::reserve_unique_dir(&servers_parent, &name, None, "server")?;
+    let (id, reserved_dir) =
+        crate::naming::reserve_unique_dir(&servers_parent, &name, None, "server")?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // create never leaks the slug (forcing every future same-name create to -2).
     // Disarmed on success via `keep()`.
