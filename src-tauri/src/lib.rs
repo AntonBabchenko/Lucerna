@@ -364,6 +364,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Client-side datapacks (slice 2: catalog + library screen backend):
             commands::instance_supports_datapacks,
             commands::mods_datapack_versions,
+            commands::datapacks_install_from_version,
+            commands::datapacks_check_updates,
             // In-game mod localization (translation coverage + override editor):
             commands::l10n_coverage,
             commands::l10n_namespace_keys,

@@ -153,6 +153,119 @@ pub async fn datapacks_remove_from_world(
     .await
 }
 
+/// Resolve a catalog version to verified bytes: a SHA-1-checked download
+/// through the shared content cache, with the size cap enforced BEFORE
+/// anything is buffered (F19). The catalog is an automated path — before it,
+/// every pack came from a file the user picked themselves, which is why the
+/// cap sits here at the entry rather than only inside `install_named_at`.
+async fn fetch_datapack_bytes(
+    data_dir: &std::path::Path,
+    version: &crate::mods::platform::ModVersion,
+) -> Result<Vec<u8>, crate::error::Error> {
+    let f = &version.primary_file;
+    if f.size > crate::datapacks::MAX_DATAPACK_BYTES as f64 {
+        return Err(crate::error::Error::DatapackTooLarge {
+            filename: f.filename.clone(),
+            size_bytes: f.size,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+    // Safe filename, distribution allowed, SHA-1 present (no-TOFU) — the same
+    // pre-I/O gate every mod install path shares.
+    let sha = crate::mods::install::guard_version(version)?;
+    let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let cached =
+        crate::mods::install::fetch_to_cache(data_dir, &f.url, &sha, f.size, "mods", &progress)
+            .await?;
+    tokio::fs::read(&cached)
+        .await
+        .map_err(|e| crate::error::Error::ModsCacheIo {
+            details: format!("{}: {e}", cached.display()),
+        })
+}
+
+/// Extract the provenance a catalog version carries. Recording it is what
+/// makes update checking live: `classify_asset_update` answers `UpToDate`
+/// forever when `version_id` is `None`.
+fn provenance_of(version: &crate::mods::platform::ModVersion) -> crate::datapacks::DatapackProvenance {
+    crate::datapacks::DatapackProvenance {
+        source: version.source,
+        project_id: version.project_id.clone(),
+        version_id: version.version_id.clone(),
+        version_number: Some(version.version_number.clone()),
+    }
+}
+
+/// Download a datapack version from the catalog into the instance's library,
+/// recording provenance. Placement into worlds is the world picker's separate
+/// step (`datapacks_add_to_world`) — a fresh install touches no world; the
+/// returned fan-out is non-empty only when a same-named pack was already
+/// linked somewhere (the reinstall path).
+#[tauri::command]
+#[specta::specta]
+pub async fn datapacks_install_from_version(
+    app: tauri::AppHandle,
+    instance_id: String,
+    version: crate::mods::platform::ModVersion,
+) -> Result<crate::datapacks::LibraryInstall, crate::error::Error> {
+    guard(&instance_id)?;
+    let root = crate::datapacks::instance_root(&app, &instance_id)?;
+    let dd = super::data_dir(&app)?;
+    let bytes = fetch_datapack_bytes(&dd, &version).await?;
+    crate::datapacks::library::install_named_at(
+        &root,
+        &version.primary_file.filename,
+        &bytes,
+        Some(&provenance_of(&version)),
+    )
+    .await
+}
+
+/// Check every library pack that carries platform identity for a newer
+/// version on the instance's MC version. Hand-dropped packs (no
+/// `source`/`project_id`) are silently omitted — there is nothing to query.
+/// A single pack's query failure becomes that pack's `CheckFailed` state.
+///
+/// Deliberately NOT a mirror of `assets_check_updates`: that fetches with
+/// `loader: None`, the unfiltered call that returns a MOD JAR as the latest
+/// version of a hybrid project like Terralith. This uses the
+/// datapack-filtered listing.
+#[tauri::command]
+#[specta::specta]
+pub async fn datapacks_check_updates(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<Vec<crate::mods::platform::AssetUpdateCheck>, crate::error::Error> {
+    use crate::mods::platform::{AssetUpdateCheck, AssetUpdateState};
+    let root = crate::datapacks::instance_root(&app, &instance_id)?;
+    let (mc_version, _loader) = super::read_active_mc_and_loader(&app, &instance_id)?;
+    let installed = crate::datapacks::library::list_at(&root).await?;
+    let mut out = Vec::with_capacity(installed.len());
+    for pack in installed {
+        let (Some(source), Some(pid)) = (pack.source, pack.project_id.clone()) else {
+            continue;
+        };
+        let state = match super::platform_for(source)
+            .datapack_versions(&pid, Some(&mc_version))
+            .await
+        {
+            Ok(versions) => crate::mods::updates::classify_asset_update(
+                pack.version_id.as_deref(),
+                &versions,
+            ),
+            Err(e) => AssetUpdateState::CheckFailed {
+                reason: e.to_string(),
+            },
+        };
+        out.push(AssetUpdateCheck {
+            filename: pack.filename,
+            name: pack.name,
+            state,
+        });
+    }
+    Ok(out)
+}
+
 /// Toggle a datapack's enabled/disabled state for one world. level.dat only —
 /// the file itself is never touched.
 #[tauri::command]
