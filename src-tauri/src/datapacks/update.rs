@@ -53,8 +53,7 @@ pub async fn update_at(
     // directory entry consistent on every platform.
     if new_filename.eq_ignore_ascii_case(old_filename) {
         let install =
-            library::install_named_at(instance_root, old_filename, bytes, Some(provenance))
-                .await?;
+            library::install_named_at(instance_root, old_filename, bytes, Some(provenance)).await?;
         return Ok(DatapackUpdateOutcome {
             pack: install.pack,
             migrations: install.refreshed,
@@ -263,7 +262,10 @@ mod tests {
             let (root, _) = level_dat::read_at(&world_dir(td.path(), world)).unwrap();
             let (enabled, disabled) = level_dat::lists(&root);
             assert!(
-                !enabled.iter().chain(disabled.iter()).any(|s| s.contains("vm-1")),
+                !enabled
+                    .iter()
+                    .chain(disabled.iter())
+                    .any(|s| s.contains("vm-1")),
                 "{world}: level.dat must not name the old file: {enabled:?} {disabled:?}"
             );
             let entry_list = if want_enabled { &enabled } else { &disabled };
@@ -342,6 +344,9 @@ mod tests {
         let err = update_at(td.path(), "../escape.zip", "vm.zip", &v2_zip(), &prov("v2"))
             .await
             .unwrap_err();
-        assert!(matches!(err, Error::ModsUnsafeFilename { .. }), "got {err:?}");
+        assert!(
+            matches!(err, Error::ModsUnsafeFilename { .. }),
+            "got {err:?}"
+        );
     }
 }

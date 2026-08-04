@@ -1644,17 +1644,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	shortcutDefaultName: (instanceName: string, target: ShortcutTarget) => __TAURI_INVOKE<string>("shortcut_default_name", { instanceName, target }),
 	/**
-	 *  List the instance's datapack library (`<instance>/datapacks/`), reconciled
-	 *  against disk. Unguarded — read-only.
+	 *  The instance-level library view: every datapack Lucerna knows about —
+	 *  the registry UNION the packs still linked in worlds — each with its state
+	 *  in every world and one per-instance compat verdict. Unguarded — read-only.
 	 */
-	datapacksListLibrary: (instanceId: string) => typedError<InstalledDatapack[], Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
+	datapacksListLibrary: (instanceId: string) => typedError<DatapackLibraryView, Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
 	/**
 	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
 	 *  result) into the instance's library.
 	 */
 	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<InstalledDatapack, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
-	/**  Remove a datapack from the instance's library and its registry entry. */
-	datapacksRemoveFromLibrary: (instanceId: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename })),
+	/**
+	 *  Remove a datapack from the instance's library. With `cascade`, first unlink
+	 *  it and drop its level.dat entries in every world holding it; without,
+	 *  world links survive — and keep loading in game — which the library listing
+	 *  then reports as `in_library: false`. Either way the result names each
+	 *  affected world (F3).
+	 */
+	datapacksRemoveFromLibrary: (instanceId: string, filename: string, cascade: boolean) => typedError<LibraryRemoval, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename, cascade })),
 	/**
 	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
 	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
@@ -1677,6 +1684,57 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the file itself is never touched.
 	 */
 	datapacksSetEnabledInWorld: (instanceId: string, world: string, filename: string, enabled: boolean) => typedError<null, Error>(__TAURI_INVOKE("datapacks_set_enabled_in_world", { instanceId, world, filename, enabled })),
+	/**
+	 *  Whether this instance's Minecraft can load data packs at all (the system
+	 *  arrived in 1.13). `true` when `mc_version` is empty or unparseable —
+	 *  uncertainty must not hide the feature. Derived from `instance.json` alone,
+	 *  deliberately NOT from the client jar (`l10n::pack_format` reads the jar and
+	 *  answers unknown for a never-installed instance, which would hide the kind
+	 *  for a perfectly legitimate 1.21 instance).
+	 */
+	instanceSupportsDatapacks: (instanceId: string) => typedError<boolean, Error>(__TAURI_INVOKE("instance_supports_datapacks", { instanceId })),
+	/**
+	 *  Every datapack build of `project_id`, newest-first — the datapack twin of
+	 *  [`mods_plugin_versions`]. A separate command for the same reason that one
+	 *  exists: [`mods_versions`] types its loader as `Option<LoaderKind>`, which
+	 *  cannot carry the raw `datapack` slug — and the unfiltered listing is
+	 *  exactly the call that returns a mod jar for a hybrid project.
+	 */
+	modsDatapackVersions: (source: ModSource, projectId: string, mcVersion: string | null) => typedError<ModVersion_Serialize[], Error>(__TAURI_INVOKE("mods_datapack_versions", { source, projectId, mcVersion })),
+	/**
+	 *  Download a datapack version from the catalog into the instance's library,
+	 *  recording provenance. Placement into worlds is the world picker's separate
+	 *  step (`datapacks_add_to_world`) — a fresh install touches no world; the
+	 *  returned fan-out is non-empty only when a same-named pack was already
+	 *  linked somewhere (the reinstall path).
+	 */
+	datapacksInstallFromVersion: (instanceId: string, version: ModVersion_Deserialize) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_version", { instanceId, version })),
+	/**
+	 *  Check every library pack that carries platform identity for a newer
+	 *  version on the instance's MC version. Hand-dropped packs (no
+	 *  `source`/`project_id`) are silently omitted — there is nothing to query.
+	 *  A single pack's query failure becomes that pack's `CheckFailed` state.
+	 * 
+	 *  Deliberately NOT a mirror of `assets_check_updates`: that fetches with
+	 *  `loader: None`, the unfiltered call that returns a MOD JAR as the latest
+	 *  version of a hybrid project like Terralith. This uses the
+	 *  datapack-filtered listing.
+	 */
+	datapacksCheckUpdates: (instanceId: string) => typedError<AssetUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("datapacks_check_updates", { instanceId })),
+	/**
+	 *  Apply one datapack update: install the target version into the library and
+	 *  propagate it into every world holding the pack, preserving each world's
+	 *  own enabled/disabled choice (`datapacks::update::update_at`, the §8.5
+	 *  corrected algorithm).
+	 * 
+	 *  Holds [`crate::datapacks::guard::DatapackUpdateGuard`] for the duration so
+	 *  `launch_instance` refuses to start mid-update: the forward [`guard`] below
+	 *  is a one-shot `is_running` snapshot calibrated for sub-second commands,
+	 *  and this one inserts a network download plus N level.dat writes into its
+	 *  window. Wrapped in `with_interactive` like `asset_update_one` — the user
+	 *  is watching this download.
+	 */
+	datapacksUpdateOne: (instanceId: string, oldFilename: string, target: ModVersion_Deserialize) => typedError<DatapackUpdateOutcome, Error>(__TAURI_INVOKE("datapacks_update_one", { instanceId, oldFilename, target })),
 	/**
 	 *  Scan the instance's enabled mods for language coverage in `lang`.
 	 * 
@@ -2285,7 +2343,21 @@ export type ContentKind = "mod" | "resource_pack" | "shader" |
  *  A Bukkit-family server plugin (Paper/Purpur). Searched via Modrinth's
  *  `project_type:plugin` facet and via Hangar (`mods::hangar`).
  */
-"plugin";
+"plugin" | 
+/**
+ *  A Minecraft data pack. Present for DISCOVERY ONLY — Modrinth's
+ *  `project_type:datapack` facet (undocumented but real: verified
+ *  2026-08-04, 13 804 hits, while an unknown project_type returns 0) and
+ *  CurseForge class 6945.
+ * 
+ *  A datapack has no directory under `.minecraft/`: its library lives at
+ *  `<instance>/datapacks/` and its real home is
+ *  `saves/<world>/datapacks/`, one hardlink per world with its own
+ *  enabled state in that world's `level.dat`. So `assets::require_asset_kind`
+ *  rejects this variant, and every install/list/update/remove path goes
+ *  through `crate::datapacks::*` instead of the asset commands.
+ */
+"datapack";
 
 /**  Cosmetics snapshot the modal loads on open. */
 export type Cosmetics = {
@@ -2344,6 +2416,50 @@ export type DataMigrationProgress = {
 	phase: string,
 };
 
+/**  One row of the instance-level library screen. */
+export type DatapackLibraryEntry = {
+	pack: InstalledDatapack,
+	/**
+	 *  `false` ⟹ the pack is gone from the library but still linked in worlds.
+	 *  Reachable through a non-cascading removal: deleting one hardlink name
+	 *  provably cannot affect the others, so the pack keeps loading in game
+	 *  while `registry::list` drops its row on the next read. The listing is
+	 *  therefore the UNION of the registry and the on-disk world entries, never
+	 *  the registry alone.
+	 */
+	in_library: boolean,
+	/**
+	 *  Per-INSTANCE, not per-world: the verdict compares the pack's own
+	 *  `pack_format` against the instance's Minecraft, and no world is an
+	 *  input, so rendering it per world would print N identical copies.
+	 */
+	compat: PackCompat,
+	/**  Empty ⟺ "in no world" — the state the library screen exists to surface. */
+	placements: DatapackPlacementView[],
+};
+
+/**  Everything the library screen renders, in one read. */
+export type DatapackLibraryView = {
+	/**
+	 *  The instance's expected `pack_format`. Exposed here because nothing else
+	 *  does, and the frontend cannot compute it.
+	 */
+	expected_pack_format: number | null,
+	entries: DatapackLibraryEntry[],
+};
+
+/**  One world's view of one library pack. */
+export type DatapackPlacementView = {
+	world: string,
+	/**
+	 *  `None` when this world's `level.dat` could not be read, so the
+	 *  enabled/disabled answer is genuinely unknown rather than guessed. A
+	 *  missing level.dat is NOT this case — an unplayed world reads as two
+	 *  empty lists, which is a real answer.
+	 */
+	state: WorldPackState | null,
+};
+
 /**
  *  Why a file the user picked is not a usable datapack. A typed reason rather
  *  than a message, so the UI can localise it — the launcher ships in English
@@ -2357,6 +2473,21 @@ export type DatapackRejection =
 "is_a_resource_pack" | 
 /**  No `pack.mcmeta`, or no `data/` tree. */
 "not_a_pack";
+
+/**  The result of `datapacks_update_one`. */
+export type DatapackUpdateOutcome = {
+	/**  The new registry row, carrying the target version's provenance. */
+	pack: InstalledDatapack,
+	/**  Per-world outcomes: same-name refreshes plus cross-name migrations. */
+	migrations: WorldMigration[],
+	/**
+	 *  `false` ⟹ at least one world failed to migrate. The OLD library file
+	 *  and its registry row were kept — both versions sit in the library until
+	 *  a re-run converges, which it does because a migrated world no longer
+	 *  holds the old filename (§8.5: no rollback by design).
+	 */
+	completed: boolean,
+};
 
 /**
  *  What the mod's author declared on the platform. NOT a launcher verdict: the
@@ -2631,6 +2762,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  `DatapackRejection`'s doc comment for why.
  */
 { kind: "datapack_invalid"; filename: string; reason: DatapackRejection } | 
+/**
+ *  A datapack exceeded the buffering cap. Classification and hashing both
+ *  hold the whole pack in memory, so an unbounded pack on the catalog's
+ *  automated download path is a stall, not a slow click. Sizes are `f64`
+ *  to match the rest of the datapack surface (specta has no u64).
+ */
+{ kind: "datapack_too_large"; filename: string; size_bytes: number | null; limit_bytes: number | null } | 
 /**
  *  A translation the user typed failed Minecraft's `%s`/`%N$s` format
  *  grammar and was refused before it ever reached the override store.
@@ -3169,10 +3307,22 @@ export type InstalledDatapack = {
 	 *  filename without its extension.
 	 */
 	name: string,
-	/**  Always `None` in slice 1 (local files only). Reserved for the catalog. */
+	/**  `None` for a local install; `Some` once the catalog supplies it. */
 	source: ModSource | null,
 	project_id: string | null,
+	/**
+	 *  Load-bearing for update checking: `classify_asset_update` answers
+	 *  `UpToDate` whenever this is `None`, so a pack installed without it can
+	 *  never report an available update.
+	 */
 	version_id: string | null,
+	/**
+	 *  Human-readable version from the catalog (e.g. `1.20.4-2.1.0`), for the
+	 *  library row. Added in registry `FILE_VERSION` 2 with
+	 *  `#[serde(default)]`, so a v1 file reads back as `None` — `migrate`
+	 *  cannot backfill a field and does not try.
+	 */
+	version_number?: string | null,
 	/**  RFC 3339. */
 	installed_at: string,
 };
@@ -3521,6 +3671,31 @@ export type LaunchOutcome =
 "crashed" | 
 /**  The user pressed Stop. */
 "stopped";
+
+/**
+ *  The result of a library install: the registry row, plus what the same-name
+ *  fan-out did to each world already holding that filename.
+ */
+export type LibraryInstall = {
+	pack: InstalledDatapack,
+	refreshed: WorldMigration[],
+};
+
+/**
+ *  The result of removing a pack from the library. Closes F3: the removal
+ *  names exactly which worlds were cleaned and which still hold the pack,
+ *  instead of leaving the user to discover live-but-invisible content.
+ */
+export type LibraryRemoval = {
+	worlds: WorldRemoval[],
+	/**
+	 *  `false` ⟹ a world failed to clean up, so the library copy and its
+	 *  registry row were kept: `placements_of`'s identity check needs the
+	 *  library bytes, and deleting them would make every remaining world look
+	 *  foreign to a retry, which could then never finish the job.
+	 */
+	removed_from_library: boolean,
+};
 
 /**  One annotated line: 0-based index into the text split by '\n'. */
 export type LineAnnotation = {
@@ -5623,6 +5798,24 @@ export type WorldDatapack = {
 	compat: PackCompat,
 };
 
+/**
+ *  What happened to one world when a library pack was replaced under it —
+ *  either by an update to a new filename (`world_link::migrate_placements`) or
+ *  by a same-name reinstall (`library::install_named_at`'s fan-out).
+ * 
+ *  Returned rather than logged: a datapack update touches N worlds, and the
+ *  user needs to know exactly which ones moved when one of them fails. The
+ *  previous behaviour swallowed per-world failures into a `diag!` line.
+ */
+export type WorldMigration = 
+/**  Relinked, and level.dat rewritten preserving the pack's enabled state. */
+{ kind: "migrated"; world: string; was_enabled: boolean } | 
+/**
+ *  A same-named entry whose content is not the library's — left untouched.
+ *  Replacing it would destroy a pack the user put there themselves.
+ */
+{ kind: "skipped_not_ours"; world: string } | { kind: "failed"; world: string; details: string };
+
 export type WorldPackState = "enabled" | "disabled" | "not_added" | 
 /**
  *  Named in `level.dat`'s Enabled list but the file is gone — this is what
@@ -5639,6 +5832,23 @@ export type WorldQuickEntry = {
 	folder_name: string,
 	modified_unix_ms: number | null,
 };
+
+/**  One world's outcome of a library removal. */
+export type WorldRemoval = 
+/**  The world's link and its level.dat entries are gone. */
+{ kind: "removed"; world: string } | 
+/**
+ *  A same-named entry whose content is not the library's — never touched,
+ *  cascading or not. Removing it would destroy a pack the user (or a world
+ *  import) put there themselves.
+ */
+{ kind: "kept_not_ours"; world: string } | 
+/**
+ *  Cascade was off; the link survives and keeps loading in game. This is
+ *  exactly the state `DatapackLibraryEntry.in_library: false` renders
+ *  afterwards.
+ */
+{ kind: "kept_no_cascade"; world: string } | { kind: "failed"; world: string; details: string };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

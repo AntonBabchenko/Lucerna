@@ -187,7 +187,9 @@ async fn fetch_datapack_bytes(
 /// Extract the provenance a catalog version carries. Recording it is what
 /// makes update checking live: `classify_asset_update` answers `UpToDate`
 /// forever when `version_id` is `None`.
-fn provenance_of(version: &crate::mods::platform::ModVersion) -> crate::datapacks::DatapackProvenance {
+fn provenance_of(
+    version: &crate::mods::platform::ModVersion,
+) -> crate::datapacks::DatapackProvenance {
     crate::datapacks::DatapackProvenance {
         source: version.source,
         project_id: version.project_id.clone(),
@@ -249,10 +251,9 @@ pub async fn datapacks_check_updates(
             .datapack_versions(&pid, Some(&mc_version))
             .await
         {
-            Ok(versions) => crate::mods::updates::classify_asset_update(
-                pack.version_id.as_deref(),
-                &versions,
-            ),
+            Ok(versions) => {
+                crate::mods::updates::classify_asset_update(pack.version_id.as_deref(), &versions)
+            }
             Err(e) => AssetUpdateState::CheckFailed {
                 reason: e.to_string(),
             },

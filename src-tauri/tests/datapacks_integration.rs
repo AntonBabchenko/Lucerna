@@ -82,7 +82,7 @@ async fn install_add_to_two_worlds_and_the_bytes_are_shared() {
     let (_td, inst) = make_fixture("inst-share", &["Alpha", "Beta"]);
     let bytes = datapack_zip(48, "Vein Miner");
 
-    library::install_named_at(&inst, "vm.zip", &bytes)
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
         .await
         .unwrap();
     world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
@@ -116,7 +116,7 @@ async fn removing_from_one_world_leaves_the_other_intact() {
     let (_td, inst) = make_fixture("inst-remove-world", &["Alpha", "Beta"]);
     let bytes = datapack_zip(48, "Vein Miner");
 
-    library::install_named_at(&inst, "vm.zip", &bytes)
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
         .await
         .unwrap();
     world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
@@ -194,7 +194,7 @@ async fn writing_through_one_worlds_path_pins_the_shared_inode_invariant() {
     let (_td, inst) = make_fixture("inst-shared-inode", &["Alpha", "Beta"]);
     let original = datapack_zip(48, "Vein Miner");
 
-    library::install_named_at(&inst, "vm.zip", &original)
+    library::install_named_at(&inst, "vm.zip", &original, None)
         .await
         .unwrap();
     let alpha_placement = world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
@@ -243,7 +243,7 @@ async fn removing_from_the_library_does_not_break_a_world_using_it() {
     let (_td, inst) = make_fixture("inst-remove-library", &["Alpha"]);
     let bytes = datapack_zip(48, "Vein Miner");
 
-    library::install_named_at(&inst, "vm.zip", &bytes)
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
         .await
         .unwrap();
     world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
@@ -295,7 +295,7 @@ async fn a_disable_survives_a_level_dat_round_trip_alongside_unmodelled_tags() {
     fs::write(world_dir.join("level.dat"), &seed_bytes).unwrap();
 
     let bytes = datapack_zip(48, "Vein Miner");
-    library::install_named_at(&inst, "vm.zip", &bytes)
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
         .await
         .unwrap();
     world_link::add_to_world_at(&inst, "Alpha", "vm.zip")
@@ -335,7 +335,7 @@ async fn an_orphan_is_repairable_end_to_end() {
     let (_td, inst) = make_fixture("inst-orphan-repair", &["Alpha"]);
     let bytes = datapack_zip(48, "Vein Miner");
 
-    library::install_named_at(&inst, "vm.zip", &bytes)
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
         .await
         .unwrap();
     world_link::add_to_world_at(&inst, "Alpha", "vm.zip")

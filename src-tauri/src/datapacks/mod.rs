@@ -206,16 +206,25 @@ pub struct DatapackUpdateOutcome {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldRemoval {
     /// The world's link and its level.dat entries are gone.
-    Removed { world: String },
+    Removed {
+        world: String,
+    },
     /// A same-named entry whose content is not the library's — never touched,
     /// cascading or not. Removing it would destroy a pack the user (or a world
     /// import) put there themselves.
-    KeptNotOurs { world: String },
+    KeptNotOurs {
+        world: String,
+    },
     /// Cascade was off; the link survives and keeps loading in game. This is
     /// exactly the state `DatapackLibraryEntry.in_library: false` renders
     /// afterwards.
-    KeptNoCascade { world: String },
-    Failed { world: String, details: String },
+    KeptNoCascade {
+        world: String,
+    },
+    Failed {
+        world: String,
+        details: String,
+    },
 }
 
 /// The result of removing a pack from the library. Closes F3: the removal

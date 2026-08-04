@@ -874,6 +874,7 @@
     "kindMods": "Mods",
     "kindResourcePacks": "Resource packs",
     "kindShaders": "Shaders",
+    "kindDatapacks": "Data packs",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
     "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
@@ -2077,6 +2078,7 @@
       "isAResourcePack": "This looks like a resource pack — it has an assets folder instead of a data folder.",
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
+    "datapackTooLarge": "\"{filename}\" is {sizeMb} MB — over the {limitMb} MB limit for a datapack.",
     "l10nTranslationInvalid": "\"{key}\" isn't a valid translation: {reason}",
     "l10nTranslationInvalidReason": {
       "unsupportedSpecifier": "Minecraft only supports %s and %% (not %{specifier}).",
