@@ -256,7 +256,7 @@ describe('AddonsTab', () => {
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
   });
 
-  it('shows the Data packs tab with its dropzone, and hides CurseForge in the source picker', async () => {
+  it('shows the Data packs tab with its dropzone and the full source picker', async () => {
     render(AddonsTab, { props });
     const tab = await screen.findByRole('tab', { name: 'Data packs' });
     await fireEvent.click(tab);
@@ -266,13 +266,10 @@ describe('AddonsTab', () => {
       );
     });
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
-    // §13.1: until the CurseForge datapack PR lands, the source picker offers
-    // Modrinth only — a CF selection would query the empty trait default and
-    // render visible-but-broken cards. The custom listbox renders its active
-    // value on the trigger; Modrinth being both active and sole option is
-    // asserted via the trigger text here (option enumeration needs the
-    // popover open, which other Select tests cover).
-    expect(screen.getByTestId('browse-source-select').textContent).toContain('Modrinth');
+    // The CurseForge datapack version path is implemented (spec §13.1's
+    // interim hiding was removed with it), so the datapack kind keeps the
+    // ordinary Modrinth + CurseForge source picker.
+    expect(screen.getByTestId('browse-source-select')).toBeTruthy();
   });
 
   it('hides the Data packs tab on a pre-1.13 instance and evicts the active kind', async () => {
