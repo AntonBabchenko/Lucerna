@@ -68,6 +68,10 @@ export async function installGame(
   });
 
   let unlisten: (() => void) | null = null;
+  // Best-effort, for the same reason `mod-install.ts` documents: a progress
+  // subscription that cannot attach must not cost the user the install.
+  // Deliberately its OWN try/catch, outside the one below — a failure here is
+  // not an install failure and must not reach `finish(state:'failed')`.
   try {
     unlisten = await events.installProgress.listen((event) => {
       const p = event.payload;
@@ -80,7 +84,11 @@ export async function installGame(
         progress: { current: p.files_done, total: p.files_total, unit: 'files' },
       });
     });
+  } catch {
+    // Task still runs, just without a live counter.
+  }
 
+  try {
     const r = await commands.installInstance(instanceId);
     finish(id, { state: r.status === 'ok' ? 'ok' : 'failed' });
     return r;

@@ -77,15 +77,25 @@ async function withModInstallProgress<T>(
   instanceId: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  const unlisten = await events.modInstallProgress.listen((e) => {
-    const p = e.payload;
-    if (p.instance_id !== instanceId) return;
-    upsertProgress(id, { phase: p.phase, progress: progressFor(p.current, p.total) });
-  });
+  // Best-effort: a progress subscription that cannot attach must never cost
+  // the user the install itself. Progress is decoration; the call is the
+  // point. Same discipline `op-queue.svelte.ts` has always applied to its own
+  // listener — without it, any context with no Tauri event bridge (vitest, a
+  // transient bridge failure) turns a working install into a failed one.
+  let unlisten: (() => void) | null = null;
+  try {
+    unlisten = await events.modInstallProgress.listen((e) => {
+      const p = e.payload;
+      if (p.instance_id !== instanceId) return;
+      upsertProgress(id, { phase: p.phase, progress: progressFor(p.current, p.total) });
+    });
+  } catch {
+    // Task still runs, just without a live counter.
+  }
   try {
     return await run();
   } finally {
-    unlisten();
+    unlisten?.();
   }
 }
 
@@ -123,7 +133,11 @@ export async function installModWithDeps(
       // (see pack-import.ts's identical `finish(id, { state: 'ok', details:
       // ... })`) — one row per installed jar, so the finished task carries
       // the same per-mod breakdown the old UI toast showed.
-      finish(id, { state: 'ok', details: r.data.details });
+      // `?.` deliberately: the report rows are decoration, and a summary
+      // without them must still land the task as `ok` rather than throwing
+      // out of the install. Reading `r.data.details` unguarded turned a
+      // successful install into an unhandled rejection on #352's CI.
+      finish(id, { state: 'ok', details: r.data?.details ?? null });
     } else {
       finish(id, { state: 'failed' });
     }

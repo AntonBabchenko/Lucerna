@@ -25,7 +25,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import { commands } from '$lib/ipc/bindings';
+import { commands, events } from '$lib/ipc/bindings';
 import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
@@ -222,5 +222,37 @@ describe('mod-install adapter', () => {
       .map((t) => t.kind)
       .sort();
     expect(kinds).toEqual(['mod-install', 'mod-update']);
+  });
+});
+
+// A failed progress subscription must not cost the user the install. This
+// bit CI on #352: four unrelated suites mock `$lib/ipc/bindings` with only
+// `commands`, so `events` was undefined, the subscribe threw, and the
+// command was never invoked at all — 19 tests failed for a reason that had
+// nothing to do with what they were testing. Progress is decoration; the
+// install is the point. Mirrors `op-queue.svelte.ts`'s long-standing
+// try/catch around its own listener.
+describe('progress subscription is best-effort', () => {
+  // This block sits outside the file's main describe, so the outer
+  // beforeEach does not reach it — clear the mocks here too or a sibling
+  // test's call count leaks in.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetTasksForTest();
+  });
+
+  it('still installs when the event bridge is unavailable', async () => {
+    const listen = events.modInstallProgress.listen as ReturnType<typeof vi.fn>;
+    listen.mockRejectedValueOnce(new Error('no tauri runtime'));
+    (commands.modsInstallWithDeps as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    });
+
+    const r = await installModWithDeps('i1', 'X', primary, []);
+
+    expect(commands.modsInstallWithDeps).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('ok');
+    expect(taskList()[0].state).toBe('ok');
   });
 });
