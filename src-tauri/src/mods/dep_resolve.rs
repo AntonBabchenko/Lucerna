@@ -373,7 +373,10 @@ where
     let mut seen: HashSet<String> = HashSet::new();
     let mut resolved = Vec::new();
     let mut unresolved = Vec::new();
-    for dep in manifest.deps {
+    // No instance here: this runs while installing a jar, and a multi-loader
+    // jar must not drag in the other loader's requirements.
+    let deps: Vec<_> = manifest.deps_without_instance().cloned().collect();
+    for dep in deps {
         // Only a genuine requirement is auto-installed. Before dependency kinds
         // were modelled, an `incompatible` declaration parsed as required here,
         // so installing such a jar pulled in the very mod it declares itself

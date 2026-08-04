@@ -125,6 +125,33 @@ pub struct ManifestDeps {
     pub sources_present: Vec<DescriptorSource>,
 }
 
+impl ManifestDeps {
+    /// Declared dependencies as a reader WITHOUT an instance must see them.
+    ///
+    /// `deps` is a union of every descriptor the jar ships, and that union is
+    /// only resolvable against a loader — `preflight::effective_rank` does it.
+    /// A caller with no instance (crash diagnosis, server quarantine,
+    /// install-time closure) would otherwise treat a multi-loader jar as
+    /// needing BOTH loaders' dependencies at once, and the install-time one
+    /// would go and fetch them.
+    ///
+    /// So this collapses the Forge pair the way the reader itself used to:
+    /// `neoforge.mods.toml` shadows `mods.toml` when the jar ships both, which
+    /// is what NeoForge does and what these callers have assumed for as long as
+    /// they have existed. Their behaviour is unchanged by the union.
+    ///
+    /// Prefer threading the real loader in. This exists for the callers that
+    /// genuinely cannot.
+    pub fn deps_without_instance(&self) -> impl Iterator<Item = &DeclaredDep> {
+        let shadow_mods_toml = self
+            .sources_present
+            .contains(&DescriptorSource::NeoForgeToml);
+        self.deps
+            .iter()
+            .filter(move |d| !(shadow_mods_toml && d.source == DescriptorSource::ModsToml))
+    }
+}
+
 /// Best-effort metadata read from a mod `.jar`.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JarMeta {
@@ -382,9 +409,10 @@ pub fn read_jar_dependency_ids(jar_bytes: &[u8]) -> Result<Vec<String>, Error> {
     // `versionRange="[1.0,)"`, hiding every key declared after it), which made
     // the two parsers disagree about the same jar.
     let mut out: Vec<String> = Vec::new();
-    for dep in read_jar_manifest_deps(jar_bytes)?.deps {
+    let manifest = read_jar_manifest_deps(jar_bytes)?;
+    for dep in manifest.deps_without_instance() {
         if dep.kind.is_required() {
-            push_dep(&mut out, dep.dep_id);
+            push_dep(&mut out, dep.dep_id.clone());
         }
     }
     Ok(out)
@@ -1581,6 +1609,54 @@ mod tests {
             &["enhancedvisuals".to_string()]
         )
         .is_empty());
+    }
+
+    /// `read_jar_dependency_ids` has no instance, so it cannot know which Forge
+    /// descriptor applies. It therefore keeps the choice the reader itself used
+    /// to make — `neoforge.mods.toml` when present — rather than reporting the
+    /// union and inventing requirements for a loader that is not running.
+    #[test]
+    fn loader_unaware_readers_see_one_forge_descriptor() {
+        let j = jar(&[
+            (
+                "META-INF/neoforge.mods.toml",
+                "[[mods]]
+modId=\"m\"
+                 [[dependencies.m]]
+modId=\"nf_lib\"
+type=\"required\"
+",
+            ),
+            (
+                "META-INF/mods.toml",
+                "[[mods]]
+modId=\"m\"
+                 [[dependencies.m]]
+modId=\"mf_lib\"
+mandatory=true
+",
+            ),
+        ]);
+        assert_eq!(
+            read_jar_dependency_ids(&j).unwrap(),
+            vec!["nf_lib".to_string()],
+            "mods.toml is not this jar's descriptor when neoforge.mods.toml exists"
+        );
+
+        // With only mods.toml present it is the one that counts.
+        let j = jar(&[(
+            "META-INF/mods.toml",
+            "[[mods]]
+modId=\"m\"
+             [[dependencies.m]]
+modId=\"mf_lib\"
+mandatory=true
+",
+        )]);
+        assert_eq!(
+            read_jar_dependency_ids(&j).unwrap(),
+            vec!["mf_lib".to_string()]
+        );
     }
 
     /// The `chosen` one-of-two selection existed only because dependencies had
