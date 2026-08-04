@@ -1,6 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { enqueueImport } from '$lib/ops/op-queue.svelte';
-import { pushActionToast } from '$lib/toasts/toasts.svelte';
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
@@ -44,17 +42,22 @@ vi.mock('$lib/i18n', () => ({
 import { commands } from '$lib/ipc/bindings';
 import {
   __resetOpQueueForTest,
-  cancelQueued,
   enqueueClone,
+  enqueueImport,
   enqueueIntegrity,
   enqueueLauncherImport,
-  moveQueued,
   opCompletionTick,
-  opQueue,
-  opRunning,
-  opStatusFor,
+  opImportCompletionTick,
 } from '$lib/ops/op-queue.svelte';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+import { __resetTasksForTest, taskFor } from '$lib/tasks/registry.svelte';
+import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+
+// This suite covers what `op-queue.svelte.ts` still owns after the tasks/
+// registry migration: per-request dedupe, the completion toast (incl. the
+// "Open" action), and the two page-level completion ticks. It deliberately
+// does NOT re-test the registry's own queued/running/finished bookkeeping
+// (see tests/tasks/registry.test.ts) or per-kind progress translation (see
+// tests/tasks/adapters/*.test.ts) — those moved out of this module.
 
 const healthyReport = {
   instance_id: 'a',
@@ -86,6 +89,7 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks();
   __resetOpQueueForTest();
+  __resetTasksForTest();
   // Safe defaults so any drained-but-unconfigured op resolves cleanly
   // (individual tests override per case).
   (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -99,23 +103,30 @@ beforeEach(() => {
 });
 
 describe('op-queue store', () => {
-  it('dedupes a second enqueue for the same instance while it is running', async () => {
+  it('dedupes a second enqueue for the same instance while it is active', async () => {
     const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
     (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
 
     enqueueIntegrity('a', 'Alpha', 'verify');
-    // Second click while running — must be ignored.
+    // Second click while active — must be ignored. The registry's own
+    // `start()` runs synchronously as part of the first call (no await
+    // happens before it — see `$lib/tasks/adapters/integrity.ts`), so
+    // `taskFor` already sees it by the time this second call's dedupe check
+    // runs in the same synchronous script. The actual `commands.verifyInstance`
+    // call is one microtask further behind that (the adapter awaits the
+    // progress listener first), so it is asserted after a flush, not
+    // synchronously.
     enqueueIntegrity('a', 'Alpha', 'verify');
 
-    expect(commands.verifyInstance).toHaveBeenCalledTimes(1);
-    expect(opQueue().length).toBe(0);
+    expect(taskFor({ instanceId: 'a' })).not.toBeNull();
+    await vi.waitFor(() => expect(commands.verifyInstance).toHaveBeenCalledTimes(1));
 
     d.resolve({ status: 'ok', data: healthyReport });
     await d.promise;
-    await Promise.resolve();
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
-  it('drains the queue one at a time — the 2nd command waits for the 1st', async () => {
+  it('does not serialize different instances — both fire immediately (documented deferral)', async () => {
     const d1 = deferred<{ status: 'ok'; data: typeof healthyReport }>();
     const d2 = deferred<{ status: 'ok'; data: typeof healthyReport }>();
     (commands.verifyInstance as ReturnType<typeof vi.fn>)
@@ -125,24 +136,17 @@ describe('op-queue store', () => {
     enqueueIntegrity('a', 'Alpha', 'verify');
     enqueueIntegrity('b', 'Bravo', 'verify');
 
-    // 'a' is running; 'b' is queued — its command has NOT been called yet.
-    expect(commands.verifyInstance).toHaveBeenCalledTimes(1);
-    expect(commands.verifyInstance).toHaveBeenLastCalledWith('a');
-    expect(opStatusFor('b')?.phase).toBe('queued');
+    // Unlike the old strictly-serial queue, a DIFFERENT instance's op is not
+    // held back — both backend calls are in flight at once.
+    await vi.waitFor(() => expect(commands.verifyInstance).toHaveBeenCalledTimes(2));
+    expect(commands.verifyInstance).toHaveBeenCalledWith('a');
+    expect(commands.verifyInstance).toHaveBeenCalledWith('b');
 
-    // Resolve the first → the drain loop should start the second.
     d1.resolve({ status: 'ok', data: healthyReport });
-    await d1.promise;
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(commands.verifyInstance).toHaveBeenCalledTimes(2);
-    expect(commands.verifyInstance).toHaveBeenLastCalledWith('b');
-
     d2.resolve({ status: 'ok', data: healthyReport });
+    await d1.promise;
     await d2.promise;
-    await Promise.resolve();
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(2));
   });
 
   it('healthy verify → pushSuccess', async () => {
@@ -152,7 +156,7 @@ describe('op-queue store', () => {
     });
 
     enqueueIntegrity('a', 'Alpha', 'verify');
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
 
     expect(pushSuccess).toHaveBeenCalledTimes(1);
     expect(pushWarning).not.toHaveBeenCalled();
@@ -165,7 +169,7 @@ describe('op-queue store', () => {
     });
 
     enqueueIntegrity('a', 'Alpha', 'verify');
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
 
     expect(pushWarning).toHaveBeenCalledTimes(1);
     // tr is identity → title is the key; the count is threaded as a placeholder
@@ -180,12 +184,12 @@ describe('op-queue store', () => {
     });
 
     enqueueIntegrity('a', 'Alpha', 'verify');
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
 
     expect(pushWarning).toHaveBeenCalledTimes(1);
   });
 
-  it('completion bumps the tick', async () => {
+  it('completion bumps the tick exactly once per op', async () => {
     (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
       data: healthyReport,
@@ -196,79 +200,16 @@ describe('op-queue store', () => {
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
-  it('opStatusFor reports running for the active id and queued for a waiting id', async () => {
-    const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
-    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+  it('leaves no active task registered once the op finishes', async () => {
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: healthyReport,
+    });
 
     enqueueIntegrity('a', 'Alpha', 'verify');
-    enqueueIntegrity('b', 'Bravo', 'repair');
-
-    expect(opStatusFor('a')).toEqual({
-      phase: 'running',
-      kind: 'verify',
-      filesDone: 0,
-      filesTotal: 0,
-    });
-    expect(opStatusFor('b')).toEqual({
-      phase: 'queued',
-      kind: 'repair',
-      filesDone: 0,
-      filesTotal: 0,
-    });
-    expect(opStatusFor('c')).toBeNull();
-
-    d.resolve({ status: 'ok', data: healthyReport });
-    await d.promise;
-    await Promise.resolve();
-  });
-
-  it('cancelQueued removes a pending op but never the running one', async () => {
-    const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
-    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
-
-    enqueueIntegrity('a', 'Alpha', 'verify'); // runs
-    enqueueIntegrity('b', 'Bravo', 'verify'); // queued
-    enqueueIntegrity('c', 'Charlie', 'verify'); // queued
-
-    const bOp = opQueue().find(
-      (q) => (q.kind === 'verify' || q.kind === 'repair') && q.instanceId === 'b',
-    );
-    if (!bOp) throw new Error('b not queued');
-    cancelQueued(bOp.id);
-    expect(
-      opQueue().map((q) => (q.kind === 'verify' || q.kind === 'repair' ? q.instanceId : '')),
-    ).toEqual(['c']);
-
-    // Cancelling the running op's id is a no-op (it isn't in the queue array).
-    const running = opRunning();
-    if (!running) throw new Error('expected a running op');
-    cancelQueued(running.op.id);
-    expect(opRunning()).not.toBeNull();
-
-    d.resolve({ status: 'ok', data: healthyReport });
-    await d.promise;
-    await Promise.resolve();
-  });
-
-  it('moveQueued swaps neighbours and is a no-op at the ends', async () => {
-    const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
-    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
-
-    enqueueIntegrity('a', 'Alpha', 'verify'); // runs
-    enqueueIntegrity('b', 'Bravo', 'verify'); // queue[0]
-    enqueueIntegrity('c', 'Charlie', 'verify'); // queue[1]
-
-    const ids = () =>
-      opQueue().map((q) => (q.kind === 'verify' || q.kind === 'repair' ? q.instanceId : ''));
-    const cId = opQueue()[1].id;
-    moveQueued(cId, 'up');
-    expect(ids()).toEqual(['c', 'b']);
-    moveQueued(cId, 'up'); // already at top — no-op
-    expect(ids()).toEqual(['c', 'b']);
-
-    d.resolve({ status: 'ok', data: healthyReport });
-    await d.promise;
-    await Promise.resolve();
+    expect(taskFor({ instanceId: 'a' })).not.toBeNull();
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
+    expect(taskFor({ instanceId: 'a' })).toBeNull();
   });
 
   const importReq = (path: string) => ({
@@ -279,37 +220,14 @@ describe('op-queue store', () => {
     versionId: null,
   });
 
-  it('runs an import after a verify finishes — strict serial across kinds', async () => {
-    const dv = deferred<{ status: 'ok'; data: typeof healthyReport }>();
-    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(dv.promise);
-    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
-      async (...args: unknown[]) => {
-        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
-          phase: 'done',
-          skipped_overrides: [],
-          inert_loader_jars: [],
-        });
-        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
-      },
-    );
-
-    enqueueIntegrity('a', 'Alpha', 'verify'); // running
-    enqueueImport('Pack', importReq('/tmp/p.mrpack')); // queued
-
-    expect(commands.modpackImport).not.toHaveBeenCalled();
-    dv.resolve({ status: 'ok', data: healthyReport });
-    await vi.waitFor(() => expect(commands.modpackImport).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
-  });
-
   it('dedupes a second import of the same path', async () => {
     const d = deferred<{ status: 'ok'; data: { name: string } }>();
     (commands.modpackImport as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
     enqueueImport('Pack', importReq('/tmp/p.mrpack'));
     enqueueImport('Pack', importReq('/tmp/p.mrpack')); // same path → ignored
-    expect(opQueue().length).toBe(0); // first is running, second dropped
+    expect(commands.modpackImport).toHaveBeenCalledTimes(1);
     d.resolve({ status: 'ok', data: { name: 'Pack' } });
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
   it('import success pushes an action toast whose Open runs setActiveInstance', async () => {
@@ -319,6 +237,7 @@ describe('op-queue store', () => {
           phase: 'done',
           skipped_overrides: [],
           inert_loader_jars: [],
+          details: [],
         });
         return { status: 'ok', data: { name: 'Pack', id: 'i9' } };
       },
@@ -349,6 +268,7 @@ describe('op-queue store', () => {
             { filename: 'a-Fabric.jar', detected_loader: 'Fabric' },
             { filename: 'b-Fabric.jar', detected_loader: 'Fabric' },
           ],
+          details: [],
         });
         return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
       },
@@ -375,6 +295,7 @@ describe('op-queue store', () => {
           phase: 'done',
           skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
           inert_loader_jars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
+          details: [],
         });
         return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
       },
@@ -392,6 +313,18 @@ describe('op-queue store', () => {
       'page.modpackImport.skippedOverrideLine',
       'page.modpackImport.inertLoaderLine',
     ]);
+  });
+
+  it('import partial failure → pushWarning and still bumps importCompletionTick', async () => {
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'modpack_partial_failure', failed: [['mods/a.jar', 'boom']] },
+    });
+
+    expect(opImportCompletionTick()).toBe(0);
+    enqueueImport('Pack', importReq('/tmp/p.mrpack'));
+    await vi.waitFor(() => expect(opImportCompletionTick()).toBe(1));
+    expect(pushWarning).toHaveBeenCalledTimes(1);
   });
 
   const mockForeign = {
@@ -451,7 +384,7 @@ describe('op-queue store', () => {
     });
 
     await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opImportCompletionTick()).toBe(1));
   });
 
   it('enqueueLauncherImport: dedupes same root', async () => {
@@ -469,9 +402,9 @@ describe('op-queue store', () => {
       targetName: 'Prism Pack',
     }); // same root → ignored
 
-    expect(opQueue().length).toBe(0); // first is running, second dropped
+    expect(commands.launcherImportRun).toHaveBeenCalledTimes(1);
     d.resolve({ status: 'ok', data: mockInstanceData });
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
   it('enqueueLauncherImport: error pushes warning', async () => {
@@ -487,7 +420,7 @@ describe('op-queue store', () => {
     });
 
     await vi.waitFor(() => expect(pushWarning).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
   const cloneReq = (sourceId: string) => ({
@@ -523,7 +456,7 @@ describe('op-queue store', () => {
     enqueueClone('Default (copy)', cloneReq('inst-1'));
 
     await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
 
     const call = (pushActionToast as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(call[1]).toBe('instance.clone.done'); // tr echoes the key
@@ -538,13 +471,24 @@ describe('op-queue store', () => {
 
     enqueueClone('Default (copy)', cloneReq('inst-1'));
     enqueueClone('Default (copy)', cloneReq('inst-1')); // same source → ignored
-    enqueueClone('Other (copy)', cloneReq('inst-2')); // different source → queued
+    enqueueClone('Other (copy)', cloneReq('inst-2')); // different source → runs too
 
-    expect(commands.cloneInstance).toHaveBeenCalledTimes(1);
-    expect(opQueue().length).toBe(1);
+    expect(commands.cloneInstance).toHaveBeenCalledTimes(2);
+    expect(commands.cloneInstance).toHaveBeenCalledWith(
+      'inst-1',
+      'Default (copy)',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(commands.cloneInstance).toHaveBeenCalledWith(
+      'inst-2',
+      'Default (copy)',
+      expect.anything(),
+      expect.anything(),
+    );
 
     d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(2));
   });
 
   it('enqueueClone: error pushes a warning with the failure detail', async () => {
@@ -559,21 +503,23 @@ describe('op-queue store', () => {
     const call = (pushWarning as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(call[0]).toBe('instance.clone.failed');
     expect(call[1]).toEqual(['formatted:instance_busy']);
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
-  it('enqueueClone: integrity dedupe ignores clone ops for the same instance id', async () => {
-    // Regression for the isIntegrityOp refactor: a running CLONE of inst-1 must
-    // not block enqueueing a VERIFY of inst-1 (different op families).
+  it('enqueueClone: an active clone blocks a verify for the same instance', async () => {
+    // Widened from the old op-queue.svelte.ts's integrity-only dedupe: the
+    // registry's `taskFor` matches by SCOPE alone, not kind, so a running
+    // clone of inst-1 now also blocks enqueueing a verify of inst-1 — see
+    // IntegritySection.svelte's doc comment for the same widening.
     const d = deferred<{ status: 'ok'; data: { id: string; name: string } }>();
     (commands.cloneInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
 
     enqueueClone('Default (copy)', cloneReq('inst-1'));
     enqueueIntegrity('inst-1', 'Default', 'verify');
 
-    expect(opQueue().length).toBe(1); // the verify queued, not dropped
+    expect(commands.verifyInstance).not.toHaveBeenCalled();
 
     d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
-    await vi.waitFor(() => expect(opRunning()).toBeNull());
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 });

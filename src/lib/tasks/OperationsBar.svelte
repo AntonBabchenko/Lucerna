@@ -2,10 +2,11 @@
   // The collapsed bottom strip — the single visible anchor for every
   // long-running task the registry tracks (game install, mod install/
   // update, pack import/update, launcher import, clone, verify/repair,
-  // server upload, app update, data migration). Replaces both today's
+  // server upload, app update, data migration). Replaces both the former
   // corner card (`$lib/ops/OperationsView.svelte`) and the event-driven
-  // `$lib/install/PhaseStatusRow.svelte`; wiring +page.svelte to mount
-  // this instead, and removing those two, is a later task's job.
+  // `$lib/install/PhaseStatusRow.svelte` — both retired; `+page.svelte`
+  // mounts this in their place (see the comment at that mount for the grid
+  // placement + DOM-order/stacking contract it has to keep).
   //
   // Scope is the session's active (`queued`/`running`) OR finished tasks —
   // NOT active-only. A task's finished report (the expanded panel this

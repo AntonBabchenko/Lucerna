@@ -8,7 +8,6 @@
     type InstanceWithStatus,
     type OptimisePlan,
   } from '$lib/ipc/bindings';
-  import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
   import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
@@ -43,7 +42,7 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import ScreenshotsGallery from '$lib/screenshots/ScreenshotsGallery.svelte';
-  import OperationsView from '$lib/ops/OperationsView.svelte';
+  import OperationsBar from '$lib/tasks/OperationsBar.svelte';
   import {
     enqueueImport,
     opCompletionTick,
@@ -1472,20 +1471,6 @@
     </div>
   {/if}
 
-  <!--
-    Expanded: the footer lives only under the content column (`grid-column: 2`),
-    not beneath the full-height sidebar. Compact: single column, so it spans it
-    (`1 / -1`). See the sidebar wrapper above; the floor measurement in
-    `compact.svelte.ts` mirrors this (status row counted only when compact).
-  -->
-  <div
-    class="row-start-2"
-    style="grid-column: {compactState.value ? '1 / -1' : '2'};"
-    data-phase-row
-  >
-    <PhaseStatusRow />
-  </div>
-
   <LogsPopover
     bind:open={logsOpen}
     initialPath={logsInitialPath}
@@ -1564,9 +1549,29 @@
        the modpacks modal (the CurseForge-key banner), so it must paint on top
        — keeping it last here guarantees that. -->
   <SettingsModal />
-  <!-- Page-level operations widget — shows running op + queued ops. Lives outside
-       all modals so it survives modal close mid-operation. Renders nothing when idle. -->
-  <OperationsView />
+  <!--
+    The operations strip — collapsed bottom strip + its expandable panel/report
+    modal (`$lib/tasks/OperationsBar.svelte`). Grid placement matches the old
+    `PhaseStatusRow` mount it replaces (row 2; expanded: content column only —
+    `grid-column: 2` — so it never steals height from the full-height sidebar;
+    compact: single column, so it spans `1 / -1`. See `compact.svelte.ts`,
+    which measures `[data-phase-row]`'s height for the compact window floor).
+    CSS Grid placement does not depend on DOM order, so mounting it here (AFTER
+    SettingsModal) is safe for layout — and required for stacking: the panel's
+    disclosure popover and the report modal both paint at the same z-index
+    tier as a Modal backdrop (`--z-popover` == Modal's `z-50`), so whichever
+    paints LATER in the DOM wins ties. Mounted before SettingsModal, the panel
+    would paint underneath any modal that happens to be open; mounted here, it
+    always paints on top — matching the retired `OperationsView` corner
+    widget's "outside all modals" placement. Renders nothing when idle.
+  -->
+  <div
+    class="row-start-2"
+    style="grid-column: {compactState.value ? '1 / -1' : '2'};"
+    data-phase-row
+  >
+    <OperationsBar />
+  </div>
   <TourOverlay />
   <QuickJoinDialog
     open={quickJoinOpen}

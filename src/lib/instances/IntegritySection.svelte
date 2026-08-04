@@ -5,15 +5,23 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
-  import { enqueueIntegrity, opStatusFor } from '$lib/ops/op-queue.svelte';
+  import { enqueueIntegrity } from '$lib/ops/op-queue.svelte';
+  import { taskFor } from '$lib/tasks/registry.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
 
-  // Observer view: the verify/repair op is owned by the page-level
-  // op-queue store, not this section. The section reads the live op phase
-  // (running/queued) for this instance, and otherwise renders the persisted
+  // Observer view: the verify/repair op is owned by the task registry
+  // (`$lib/tasks/registry.svelte`), not this section — `op-queue.svelte.ts`
+  // only wraps the enqueue call + its toast/report side effects now (see that
+  // module's doc comment). The section reads the live task (running/queued)
+  // for this instance via `taskFor`, and otherwise renders the persisted
   // `status` passed reactively from `selected.integrity` — which the page
   // refreshes when an op completes (completionTick effect). No local state
   // machine, no remount-reset, no stale-response guard.
+  //
+  // `taskFor` matches by SCOPE alone, not kind, so a running clone of this
+  // same instance also blocks Verify/Repair here — a deliberate widening from
+  // the old `op-queue.svelte.ts`'s integrity-only dedupe (see that module's
+  // doc comment for why the old kind-scoped guard isn't reproduced).
 
   let {
     instanceId,
@@ -27,7 +35,7 @@
     status?: IntegrityStatus | null;
   } = $props();
 
-  const op = $derived(opStatusFor(instanceId));
+  const op = $derived(taskFor({ instanceId }));
   // A persisted "healthy" result from a previous launcher session is treated as
   // not-checked (session-scoped confidence); problem results persist. See
   // integrity-freshness.ts. The live op branches below take precedence over this.
@@ -74,24 +82,28 @@
     </span>
   </div>
 
-  {#if op?.phase === 'running'}
+  {#if op?.kind === 'verify' || op?.kind === 'repair'}
+    {@const done = op.progress?.current ?? 0}
+    {@const total = op.progress?.total ?? 0}
     <div class="mt-2" aria-live="polite">
       <div class="flex items-center gap-2">
         <Spinner size="sm" />
         <p class="text-xs text-muted">
           {op.kind === 'repair'
-            ? $t('instance.integrity.repairing', { done: op.filesDone, total: op.filesTotal })
-            : $t('instance.integrity.verifying', { done: op.filesDone, total: op.filesTotal })}
+            ? $t('instance.integrity.repairing', { done, total })
+            : $t('instance.integrity.verifying', { done, total })}
         </p>
       </div>
       <div class="h-2 bg-subtle rounded overflow-hidden mt-1">
-        <div
-          class="h-full bg-accent transition-all"
-          style="width: {percent(op.filesDone, op.filesTotal)}%"
-        ></div>
+        <div class="h-full bg-accent transition-all" style="width: {percent(done, total)}%"></div>
       </div>
     </div>
-  {:else if op?.phase === 'queued'}
+  {:else if op !== null}
+    <!-- Blocked by an active task of a DIFFERENT kind for this same instance
+         (e.g. a clone in flight) — `taskFor` matches by scope alone, see the
+         module doc comment above. No per-kind progress to show, so this falls
+         back to the same "pending" wording the old queued-integrity branch
+         used. -->
     <p class="mt-2 text-xs text-muted" aria-live="polite">
       {$t('instance.integrity.statusQueued')}
     </p>
