@@ -262,6 +262,137 @@ pub fn parse_bundle_bytes(bytes: &[u8]) -> Result<ParsedBundle, BundleError> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictPolicy {
+    KeepMine,
+    TakeFile,
+}
+
+/// What an import WOULD do, for the confirmation dialog.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleSummary {
+    pub lang: String,
+    /// Truncated and stripped of control characters — this string is rendered
+    /// verbatim in a dialog, and it came out of a file a stranger wrote.
+    pub note: String,
+    pub new_entries: u32,
+    pub conflicts: u32,
+    pub invalid: u32,
+    pub namespaces: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub added: u32,
+    pub replaced: u32,
+    pub kept: u32,
+    pub invalid: u32,
+    pub lang: String,
+}
+
+/// Classify the bundle against the current store WITHOUT writing anything.
+///
+/// An entry whose value already equals the local one is counted as neither new
+/// nor a conflict, because [`merge`] will leave it entirely alone — see the
+/// rationale there.
+pub fn inspect(store_dir: &std::path::Path, bundle: &ParsedBundle) -> BundleSummary {
+    let mut new_entries = 0u32;
+    let mut conflicts = 0u32;
+    for (ns, entries) in &bundle.namespaces {
+        let store = crate::l10n::store::load(store_dir, &bundle.lang, ns);
+        for (key, e) in entries {
+            match store.entries.get(key) {
+                None => new_entries += 1,
+                Some(mine) if mine.value == e.value => {}
+                Some(_) => conflicts += 1,
+            }
+        }
+    }
+    let note: String = truncate_chars(&bundle.note, NOTE_DISPLAY_CHARS)
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    BundleSummary {
+        lang: bundle.lang.clone(),
+        note,
+        new_entries,
+        conflicts,
+        invalid: bundle.invalid,
+        namespaces: bundle.namespaces.keys().cloned().collect(),
+    }
+}
+
+/// Merge the bundle into the global override store.
+///
+/// Per namespace: load → merge → save, tightly. Never a bundle-wide snapshot
+/// written at the end — `store::save` rewrites a whole file, an AI pre-fill run
+/// can be writing the same files concurrently, and a stale snapshot's save
+/// deletes every entry the other writer put there in between (the same hazard
+/// `store::save`'s own doc comment warns about, and the reason the pre-fill
+/// flush re-reads each namespace before writing).
+///
+/// An entry whose value already matches is left ENTIRELY untouched, including
+/// its `source_en`: that field records the English the RECIPIENT translated
+/// against, and adopting the sender's — possibly from a newer mod version —
+/// would silently flip the key from stale to ok without changing one visible
+/// character.
+///
+/// A per-namespace save failure is logged and skipped rather than propagated:
+/// earlier namespaces have already been written, and the user needs the summary
+/// of what landed, not an error that hides it.
+pub fn merge(
+    store_dir: &std::path::Path,
+    bundle: &ParsedBundle,
+    policy: ConflictPolicy,
+    now_ms: f64,
+) -> ImportResult {
+    let mut r = ImportResult {
+        added: 0,
+        replaced: 0,
+        kept: 0,
+        invalid: bundle.invalid,
+        lang: bundle.lang.clone(),
+    };
+    for (ns, entries) in &bundle.namespaces {
+        let mut store = crate::l10n::store::load(store_dir, &bundle.lang, ns);
+        for (key, e) in entries {
+            match store.entries.get(key) {
+                None => {
+                    store.set_with_origin(
+                        key.clone(),
+                        e.value.clone(),
+                        e.source_en.clone(),
+                        now_ms,
+                        e.origin,
+                    );
+                    r.added += 1;
+                }
+                Some(mine) if mine.value == e.value => {}
+                Some(_) => match policy {
+                    ConflictPolicy::KeepMine => r.kept += 1,
+                    ConflictPolicy::TakeFile => {
+                        store.set_with_origin(
+                            key.clone(),
+                            e.value.clone(),
+                            e.source_en.clone(),
+                            now_ms,
+                            e.origin,
+                        );
+                        r.replaced += 1;
+                    }
+                },
+            }
+        }
+        if let Err(e) = crate::l10n::store::save(store_dir, &store) {
+            crate::diag!("[l10n] share import: could not save {ns}: {e}");
+        }
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,6 +549,145 @@ mod tests {
         assert_eq!(
             parse_bundle_bytes(&zip_with_metadata(&huge)).unwrap_err(),
             BundleError::MetadataTooLarge
+        );
+    }
+
+    fn seeded_store(dir: &std::path::Path) {
+        let mut s = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        s.set("kept.key", "моё", "mine-en", 111.0);
+        s.set("same.key", "одинаково", "old-en", 111.0);
+        crate::l10n::store::save(dir, &s).unwrap();
+    }
+
+    fn parsed(entries: &[(&str, &str, &str)]) -> ParsedBundle {
+        let mut ns = std::collections::BTreeMap::new();
+        let mut m = std::collections::BTreeMap::new();
+        for (k, v, src) in entries {
+            m.insert(
+                k.to_string(),
+                ParsedEntry {
+                    value: v.to_string(),
+                    source_en: src.to_string(),
+                    origin: Origin::Machine,
+                },
+            );
+        }
+        ns.insert("create".to_string(), m);
+        ParsedBundle {
+            lang: "ru_ru".into(),
+            note: String::new(),
+            namespaces: ns,
+            invalid: 0,
+        }
+    }
+
+    #[test]
+    fn inspect_counts_new_and_conflicts_and_ignores_equal_values() {
+        let dir = tempfile::tempdir().unwrap();
+        seeded_store(dir.path());
+        let b = parsed(&[
+            ("fresh.key", "новое", "new-en"),      // new
+            ("kept.key", "чужое", "their-en"),     // conflict (value differs)
+            ("same.key", "одинаково", "newer-en"), // equal value ⇒ neither
+        ]);
+        let s = inspect(dir.path(), &b);
+        assert_eq!((s.new_entries, s.conflicts, s.invalid), (1, 1, 0));
+        assert_eq!(s.lang, "ru_ru");
+        assert_eq!(s.namespaces, vec!["create".to_string()]);
+    }
+
+    #[test]
+    fn merge_keep_mine_only_fills_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        seeded_store(dir.path());
+        let b = parsed(&[
+            ("fresh.key", "новое", "new-en"),
+            ("kept.key", "чужое", "their-en"),
+        ]);
+        let r = merge(dir.path(), &b, ConflictPolicy::KeepMine, 999.0);
+        assert_eq!((r.added, r.replaced, r.kept), (1, 0, 1));
+
+        let store = crate::l10n::store::load(dir.path(), "ru_ru", "create");
+        assert_eq!(store.entries["kept.key"].value, "моё");
+        assert_eq!(
+            store.entries["kept.key"].updated_at, 111.0,
+            "a kept entry must be untouched, timestamp included"
+        );
+        let fresh = &store.entries["fresh.key"];
+        assert_eq!(fresh.value, "новое");
+        assert_eq!(fresh.source_en, "new-en");
+        assert_eq!(
+            fresh.origin,
+            Origin::Machine,
+            "origin travels with the entry"
+        );
+        assert_eq!(fresh.updated_at, 999.0, "import stamps its own time");
+    }
+
+    #[test]
+    fn merge_take_file_replaces_value_source_and_origin_together() {
+        let dir = tempfile::tempdir().unwrap();
+        seeded_store(dir.path());
+        let b = parsed(&[("kept.key", "чужое", "their-en")]);
+        let r = merge(dir.path(), &b, ConflictPolicy::TakeFile, 999.0);
+        assert_eq!((r.added, r.replaced, r.kept), (0, 1, 0));
+
+        let e = &crate::l10n::store::load(dir.path(), "ru_ru", "create").entries["kept.key"];
+        assert_eq!(
+            (e.value.as_str(), e.source_en.as_str()),
+            ("чужое", "their-en")
+        );
+        assert_eq!(e.origin, Origin::Machine);
+        assert_eq!(e.updated_at, 999.0);
+    }
+
+    #[test]
+    fn an_equal_value_is_untouched_even_when_the_file_has_a_newer_source_en() {
+        // The deliberate rule: staleness keeps describing what the RECIPIENT
+        // translated against. Adopting the sender's newer `source_en` would
+        // flip this key from stale to ok without changing a visible character.
+        let dir = tempfile::tempdir().unwrap();
+        seeded_store(dir.path());
+        let b = parsed(&[("same.key", "одинаково", "newer-en")]);
+        let r = merge(dir.path(), &b, ConflictPolicy::TakeFile, 999.0);
+        assert_eq!((r.added, r.replaced, r.kept), (0, 0, 0));
+
+        let e = &crate::l10n::store::load(dir.path(), "ru_ru", "create").entries["same.key"];
+        assert_eq!(e.source_en, "old-en");
+        assert_eq!(e.updated_at, 111.0);
+    }
+
+    #[test]
+    fn merge_creates_a_namespace_the_recipient_never_had() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ns = std::collections::BTreeMap::new();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(
+            "a.b".to_string(),
+            ParsedEntry {
+                value: "v".into(),
+                source_en: "V".into(),
+                origin: Origin::Manual,
+            },
+        );
+        ns.insert("brandnew".to_string(), m);
+        let b = ParsedBundle {
+            lang: "uk_ua".into(),
+            note: String::new(),
+            namespaces: ns,
+            invalid: 2,
+        };
+
+        let r = merge(dir.path(), &b, ConflictPolicy::KeepMine, 5.0);
+        assert_eq!((r.added, r.replaced, r.kept), (1, 0, 0));
+        assert_eq!(
+            r.invalid, 2,
+            "the parse-time invalid count is carried through"
+        );
+        assert_eq!(r.lang, "uk_ua");
+        assert_eq!(
+            crate::l10n::store::load(dir.path(), "uk_ua", "brandnew").entries["a.b"].value,
+            "v"
         );
     }
 }
