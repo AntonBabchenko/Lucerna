@@ -34,6 +34,7 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { installFailureToast } from '$lib/mods/install-failure';
+  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
   import { dismiss, pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
@@ -1000,8 +1001,9 @@
     // Keep the originating card busy while the confirmed install runs.
     installingProjectIds.add(prompt.primary.project_id);
     try {
-      const installed = await commands.modsInstallWithDeps(
+      const installed = await installModWithDeps(
         instanceId,
+        prompt.primaryProjectName,
         {
           source: prompt.primary.source,
           project_id: prompt.primary.project_id,
@@ -1127,8 +1129,9 @@
       });
       if (decision.kind === 'install') {
         const { primaryProjectName } = decision;
-        const installed = await commands.modsInstallWithDeps(
+        const installed = await installModWithDeps(
           instanceId,
+          primaryProjectName,
           {
             source: primary.source,
             project_id: primary.project_id,

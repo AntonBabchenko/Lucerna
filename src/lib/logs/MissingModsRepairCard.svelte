@@ -16,6 +16,7 @@
   import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import DependencyDialog from '$lib/mods/DependencyDialog.svelte';
   import { mcVersions } from '$lib/settings/state.svelte';
+  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -156,7 +157,12 @@
       });
 
       if (decision.kind === 'install') {
-        const installed = await commands.modsInstallWithDeps(instanceId, candidate.target, []);
+        const installed = await installModWithDeps(
+          instanceId,
+          decision.primaryProjectName,
+          candidate.target,
+          [],
+        );
         if (installed.status === 'ok') {
           installedProjectIds.add(projectId);
           pushSuccess(
@@ -296,8 +302,9 @@
       // Keep the originating candidate busy while the confirmed install runs.
       installingProjectIds.add(prompt.primary.project_id);
       try {
-        const installed = await commands.modsInstallWithDeps(
+        const installed = await installModWithDeps(
           instanceId,
+          prompt.primaryProjectName,
           {
             source: prompt.primary.source,
             project_id: prompt.primary.project_id,

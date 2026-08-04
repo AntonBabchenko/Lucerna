@@ -221,6 +221,11 @@ pub async fn scan_instance(
 
     let namespaces: Vec<NamespaceCoverage> = per_ns.into_values().collect();
     available.insert(lang.to_string());
+    // Languages that exist only in the override store — e.g. just imported
+    // from a share bundle, shipped by no installed jar — must still be
+    // selectable, or their translations are unreachable the moment the import
+    // dialog closes.
+    available.extend(crate::l10n::store::langs_with_overrides(store_dir));
 
     let client_jar = crate::datapacks::compat::client_jar_path(versions_dir, mc_version);
     let fmt = crate::l10n::pack_format::from_client_jar_path(&client_jar);

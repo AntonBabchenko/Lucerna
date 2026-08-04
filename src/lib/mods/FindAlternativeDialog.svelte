@@ -7,6 +7,7 @@
   import { t } from '$lib/i18n';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
+  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
@@ -87,8 +88,9 @@
         return;
       }
       const v = versions.data[0]!;
-      const res = await commands.modsInstallWithDeps(
+      const res = await installModWithDeps(
         instanceId,
+        card.name,
         { source: 'modrinth', project_id: card.project_id, version_id: v.version_id },
         [],
       );

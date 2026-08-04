@@ -18,7 +18,7 @@
 // wedging it as permanently running.
 
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
-import type { UpdateOutcome } from '$lib/modpacks/update-runner';
+import type { UpdateOutcome, UpdateProgressCb } from '$lib/modpacks/update-runner';
 import { runUpdate } from '$lib/modpacks/update-runner';
 import { advanceProgressDisplay, canShowRate, emptyProgressDisplay, toTaskRate } from '../rate';
 import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
@@ -71,6 +71,11 @@ export async function applyModpackUpdate(
   instanceId: string,
   tempPath: string,
   newVersionId: string,
+  /** Forwarded verbatim so a caller that already renders its own in-screen
+   *  progress keeps it. `createModpackUpdateFlow` drives the inline bar on
+   *  three surfaces off this; registering a task must not take that away
+   *  from them (spec D4: in-screen indicators keep their numbers). */
+  onProgress?: UpdateProgressCb,
 ): Promise<PackUpdateTaskOutcome> {
   const id = `pack-update-${crypto.randomUUID()}`;
   let display = emptyProgressDisplay();
@@ -90,6 +95,7 @@ export async function applyModpackUpdate(
     });
 
     const outcome = await runUpdate(instanceId, tempPath, newVersionId, (phase, bytes) => {
+      onProgress?.(phase, bytes);
       const { phase: taskPhase, progress } = translateProgress(phase, bytes);
       let rate = null;
       if (progress !== null && canShowRate(progress)) {

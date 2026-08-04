@@ -838,3 +838,30 @@ describe('ManageInstancesModal — folder rename keeps the selection', () => {
     expect(screen.getByDisplayValue('My Pack')).toBeTruthy();
   });
 });
+
+describe('ManageInstancesModal — translations entry point', () => {
+  it('requests translations for the SELECTED instance, not the active one', async () => {
+    // The modal's selection is independent of the active instance, so a handler
+    // that reads the active instance would open a different profile's
+    // translations than the row the user is looking at.
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    const onTranslationsRequest = vi.fn();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [a, b],
+        activeInstance: a,
+        versions: [version],
+        onChanged: () => {},
+        onTranslationsRequest,
+      },
+    });
+    await screen.findByDisplayValue('Alpha');
+
+    await fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    await fireEvent.click(screen.getByTestId('manage-translations-btn'));
+
+    expect(onTranslationsRequest).toHaveBeenCalledWith('b');
+  });
+});

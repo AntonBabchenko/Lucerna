@@ -1899,6 +1899,57 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  there would make that state unrecoverable by retrying.
 	 */
 	l10nRevertMachine: (instanceId: string, lang: string, namespace: string) => typedError<number, Error>(__TAURI_INVOKE("l10n_revert_machine", { instanceId, lang, namespace })),
+	/**
+	 *  Every instance's translation-pack state for `lang` — the single data source
+	 *  behind the "apply in other instances" offer and the Overview badge.
+	 * 
+	 *  Runs the same scan-and-cache path `l10n_coverage` uses, per instance. The
+	 *  jar-scan cache is keyed by (language, jar SHA-1) and filled lazily, so an
+	 *  instance whose translations were never opened for this language is a cache
+	 *  MISS and its jars are read once here — which is exactly the flagship case
+	 *  (the same mod at a different version in another instance). Callers treat
+	 *  this as async work with a spinner; repeat calls are cache hits.
+	 */
+	l10nApplyTargets: (lang: string) => typedError<ApplyTarget[], Error>(__TAURI_INVOKE("l10n_apply_targets", { lang })),
+	/**
+	 *  Write a share bundle to `dest_path`.
+	 * 
+	 *  The save dialog lives in the FRONTEND (the established pattern — see the
+	 *  modpack export command, which likewise takes a destination the UI chose);
+	 *  taking a path rather than opening a dialog here is also what keeps this
+	 *  write testable against a temp directory.
+	 * 
+	 *  Keyed on `mc_version` rather than an instance id so the eventual global
+	 *  translations manager, which has no instance context, can call it unchanged
+	 *  with a version the user picks.
+	 */
+	l10nExport: (mcVersion: string, lang: string, namespaces: string[], note: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("l10n_export", { mcVersion, lang, namespaces, note, destPath })),
+	/**
+	 *  Parse and validate a bundle WITHOUT writing anything — feeds the import
+	 *  summary dialog. Advisory only: [`l10n_import_bundle`] re-reads and
+	 *  re-validates from scratch, because the file can change between the two
+	 *  calls.
+	 */
+	l10nInspectBundle: (path: string) => typedError<BundleSummary, Error>(__TAURI_INVOKE("l10n_inspect_bundle", { path })),
+	/**
+	 *  Merge a bundle into the global override store under `policy`.
+	 * 
+	 *  Gated on the data root and on any active AI pre-fill run — that run writes
+	 *  the same per-(language, namespace) files and `store::save` rewrites whole
+	 *  files, so the two would be last-writer-wins. There is deliberately NO
+	 *  running-game gate: an import touches only the store, never an instance.
+	 */
+	l10nImportBundle: (path: string, policy: ConflictPolicy) => typedError<ImportResult, Error>(__TAURI_INVOKE("l10n_import_bundle", { path, policy })),
+	/**
+	 *  Namespaces holding at least one override for `lang`.
+	 * 
+	 *  Feeds the export dialog's checkbox list. Deliberately NOT scoped to an
+	 *  instance: the override store is global, so a user must be able to export a
+	 *  mod that is not installed in whichever instance they happen to have open.
+	 *  The caller uses its own instance's mods only to decide which boxes start
+	 *  ticked.
+	 */
+	l10nOverriddenNamespaces: (lang: string) => typedError<string[], Error>(__TAURI_INVOKE("l10n_overridden_namespaces", { lang })),
 };
 
 /** Events */
@@ -2057,6 +2108,35 @@ export type ApplyGate =
  */
 "too_old";
 
+/**
+ *  One instance's row in the offer dialog, and the source of the Overview
+ *  badge for the active instance.
+ */
+export type ApplyTarget = {
+	instanceId: string,
+	name: string,
+	/**
+	 *  This instance has at least one mod whose namespace we hold overrides
+	 *  for. Without it, applying would install a pack this instance's mods
+	 *  never read.
+	 */
+	covered: boolean,
+	state: ApplyTargetState,
+	/**
+	 *  A DIFFERENT language's Lucerna pack is applied here. Exactly one
+	 *  Lucerna pack exists per instance, so applying would REPLACE it — the
+	 *  dialog has to say so, or a bulk action silently overwrites a
+	 *  deliberate per-instance language choice.
+	 */
+	appliedOtherLang: string | null,
+	isRunning: boolean,
+	prefillActive: boolean,
+	candidate: boolean,
+	actionable: boolean,
+};
+
+export type ApplyTargetState = "current" | "outdated" | "not_applied" | "not_applicable";
+
 /**  Outcome of checking a single planned artefact against disk. */
 export type ArtifactStatus = "ok" | "missing" | 
 /**
@@ -2181,6 +2261,34 @@ export type BlockingMod = {
 	 */
 	source: ModSource | null,
 	project_id: string | null,
+};
+
+/**
+ *  Why a bundle was rejected as a whole. Typed rather than a message — the UI
+ *  localises it, the same argument `l10n::validate::FormatError` makes.
+ */
+export type BundleError = { kind: "not_a_zip" } | 
+/**
+ *  No `lucerna-l10n.json`. `looks_like_resource_pack` (a `pack.mcmeta` was
+ *  present) lets the UI add "this looks like a regular resource pack —
+ *  install it as one instead" rather than a flat refusal.
+ */
+{ kind: "no_metadata"; looks_like_resource_pack: boolean } | { kind: "metadata_too_large" } | 
+/**  `schema` missing or not a positive integer. */
+{ kind: "schema_invalid" } | { kind: "schema_too_new"; found: number } | { kind: "lang_invalid"; lang: string } | { kind: "too_many_namespaces" } | { kind: "too_many_entries" };
+
+/**  What an import WOULD do, for the confirmation dialog. */
+export type BundleSummary = {
+	lang: string,
+	/**
+	 *  Truncated and stripped of control characters — this string is rendered
+	 *  verbatim in a dialog, and it came out of a file a stranger wrote.
+	 */
+	note: string,
+	newEntries: number,
+	conflicts: number,
+	invalid: number,
+	namespaces: string[],
 };
 
 /**  One cape a user owns, prepared for the picker grid. */
@@ -2320,6 +2428,8 @@ export type ConflictCandidate = {
 	 */
 	swap_version_label: string | null,
 };
+
+export type ConflictPolicy = "keep_mine" | "take_file";
 
 /**
  *  The content-change vocabulary. Adding a variant costs one entry here, one
@@ -2850,7 +2960,37 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "l10n_prefill_provider"; provider: string; status: number; details: string } | 
 /**  A pre-fill run is already in flight for this instance. */
-{ kind: "l10n_prefill_busy" };
+{ kind: "l10n_prefill_busy" } | 
+/**
+ *  A share bundle failed whole-file validation — not a zip, no
+ *  `lucerna-l10n.json`, a schema from a newer Lucerna, a filesystem-hostile
+ *  language code, or over the size caps. `error` is typed rather than a
+ *  message for the same reason `L10nTranslationInvalid`'s is: the UI
+ *  localises it, and it drives different copy per case (a plain resource
+ *  pack gets "install it as one instead", a future schema gets "update the
+ *  launcher").
+ */
+{ kind: "l10n_share_bundle_invalid"; error: BundleError } | 
+/**
+ *  Share import (and, later, deleting stored translations) refused because
+ *  an AI pre-fill run is writing the same global store files right now.
+ *  `store::save` rewrites a whole file, so the two would be
+ *  last-writer-wins and could silently destroy entries the user already
+ *  paid a model for.
+ */
+{ kind: "l10n_share_prefill_active" } | 
+/**
+ *  The export destination's filename would be deleted by a later Apply:
+ *  every apply sweeps `resourcepacks/` of files starting with
+ *  `options_txt::PACK_PREFIX`. Refused outright rather than writing a
+ *  bundle that destroys itself the next time the recipient applies.
+ */
+{ kind: "l10n_share_dest_reserved" } | 
+/**
+ *  Nothing to export: no selected namespace holds an override for this
+ *  language.
+ */
+{ kind: "l10n_share_nothing_to_export" };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -3183,6 +3323,14 @@ export type ImportProvenance = {
 	source_path: string,
 	/**  f64 to satisfy specta-typescript (no u64); within JS safe-int range. */
 	imported_unix_ms: number | null,
+};
+
+export type ImportResult = {
+	added: number,
+	replaced: number,
+	kept: number,
+	invalid: number,
+	lang: string,
 };
 
 /**

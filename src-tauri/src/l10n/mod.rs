@@ -19,5 +19,7 @@ pub mod pack;
 pub mod pack_format;
 pub mod prefill;
 pub mod scan;
+pub mod share;
 pub mod store;
+pub mod targets;
 pub mod validate;

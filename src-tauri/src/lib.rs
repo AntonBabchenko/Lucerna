@@ -383,6 +383,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::l10n_prefill_key_status,
             commands::l10n_prefill_test_key,
             commands::l10n_revert_machine,
+            commands::l10n_apply_targets,
+            commands::l10n_export,
+            commands::l10n_inspect_bundle,
+            commands::l10n_import_bundle,
+            commands::l10n_overridden_namespaces,
         ])
         .events(collect_events![
             network::DownloadProgress,

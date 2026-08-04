@@ -380,6 +380,43 @@ pub fn namespaces_with_overrides(store_dir: &Path, lang: &str) -> Vec<String> {
     out
 }
 
+/// Every language that currently holds at least one override, sorted — the
+/// union the language picker needs so a language imported from a share bundle,
+/// which no installed jar ships, is still selectable.
+///
+/// Reads the language out of each store FILE's body, exactly as
+/// [`namespaces_with_overrides`] reads the namespace out of its own. The
+/// directory name is NOT the language: `store_path` percent-encodes both
+/// components (`sanitise`), so a directory name is a lossy encoding that would
+/// be re-encoded a second time if it were fed back into any function taking a
+/// `lang`. Same tolerance as its sibling throughout: an unreadable directory,
+/// an unparseable file, or a file whose `entries` map is empty is skipped
+/// rather than reported.
+pub fn langs_with_overrides(store_dir: &Path) -> Vec<String> {
+    let Ok(read_dir) = std::fs::read_dir(store_dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = read_dir
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .flat_map(|e| {
+            std::fs::read_dir(e.path())
+                .into_iter()
+                .flatten()
+                .filter_map(|f| f.ok())
+                .filter(|f| f.path().extension().and_then(|s| s.to_str()) == Some("json"))
+                .filter_map(|f| std::fs::read_to_string(f.path()).ok())
+                .filter_map(|raw| serde_json::from_str::<NamespaceStore>(&raw).ok())
+                .filter(|store| !store.entries.is_empty())
+                .map(|store| store.lang)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,5 +854,31 @@ mod tests {
             "a temp suffix must be unique per call, not per process"
         );
         assert!(a.starts_with(&format!("tmp.{}.", std::process::id())));
+    }
+
+    #[test]
+    fn langs_with_overrides_reads_the_language_from_the_file_not_the_directory_name() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut has_entries = NamespaceStore::new("create", "uk_ua");
+        has_entries.set("k", "v", "V", 1.0);
+        save(dir.path(), &has_entries).unwrap();
+
+        // An emptied store file must not resurrect its language: a file on disk
+        // is not by itself evidence of a live override.
+        let emptied = NamespaceStore::new("ae2", "de_de");
+        save(dir.path(), &emptied).unwrap();
+
+        // A language whose directory name is percent-encoded by `sanitise`
+        // must still come back in its LOGICAL form. Reading directory names
+        // instead of file bodies would return "zz%5FZZ"-style garbage here.
+        let mut encoded = NamespaceStore::new("create", "zz_ZZ");
+        encoded.set("k", "v", "V", 1.0);
+        save(dir.path(), &encoded).unwrap();
+
+        assert_eq!(
+            langs_with_overrides(dir.path()),
+            vec!["uk_ua".to_string(), "zz_ZZ".to_string()]
+        );
     }
 }

@@ -33,6 +33,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nPrefillStart: vi.fn(),
     l10nPrefillCancel: vi.fn(),
     l10nRevertMachine: vi.fn(),
+    // A finished run now opens the apply-elsewhere offer, which awaits this
+    // command inside its own onMount and reads `.status` off the result. A
+    // bare vi.fn() resolves undefined, and that read becomes an unhandled
+    // rejection which fails the run while every assertion still passes — the
+    // worst kind of red. An empty list is what production does with nothing
+    // to offer: the dialog finds nothing actionable and closes itself.
+    l10nApplyTargets: vi.fn(async () => ({ status: 'ok', data: [] })),
   },
 }));
 

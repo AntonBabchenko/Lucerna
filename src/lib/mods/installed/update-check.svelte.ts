@@ -7,6 +7,7 @@ import {
   type ModVersion,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { updateMod } from '$lib/tasks/adapters/mod-install';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { updateCheckCache } from '../update-check-cache';
 
@@ -97,7 +98,7 @@ export function createUpdateCheck(
   async function applyUpdate(sha1: string, target: ModVersion): Promise<boolean> {
     const id = getInstanceId();
     if (!id) return false;
-    const r = await commands.modsUpdateOne(id, sha1, target);
+    const r = await updateMod(id, target.name, sha1, target);
     if (r.status === 'error') {
       error = formatError(r.error);
       return false;

@@ -12,6 +12,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import InstanceHeader from './InstanceHeader.svelte';
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
@@ -51,6 +52,7 @@
     onOpenLocalization,
     l10nPercent = null,
     l10nLang,
+    l10nBadge = null,
     preflightUnknown = false,
   }: {
     activeInstance: InstanceWithStatus | null;
@@ -87,6 +89,11 @@
      *  never be mistaken for "coverage into whatever the UI happens to be
      *  in right now". */
     l10nLang: string;
+    /** `'not_applied'` / `'outdated'` when this instance's translation pack
+     *  needs attention, `null` when there is nothing to say. Fed from the same
+     *  apply-targets data the "apply in other instances" offer uses, so the two
+     *  surfaces can never disagree about an instance's state. */
+    l10nBadge?: 'not_applied' | 'outdated' | null;
     /** The dependency pre-flight could not be run for this instance. Owned by
      *  the page, which is where the launch gate runs it. Never blocks a launch
      *  — it only stops "could not check" from reading as "checked and clean". */
@@ -322,11 +329,25 @@
             onclick={onOpenLocalization}
           >
             <span>{$t('page.overview.localization', { lang: l10nLang })}</span>
-            <span class="font-medium text-secondary"
-              >{l10nPercent === null || l10nPercent === undefined
-                ? '—'
-                : $t('page.overview.localizationValue', { percent: l10nPercent })}</span
-            >
+            <span class="flex items-center gap-2">
+              <span class="font-medium text-secondary"
+                >{l10nPercent === null || l10nPercent === undefined
+                  ? '—'
+                  : $t('page.overview.localizationValue', { percent: l10nPercent })}</span
+              >
+              <!-- The percent says how much is translated; this says whether any
+                   of it is actually live in this instance. Amber because it is a
+                   standing "you are missing something", not an error. -->
+              {#if l10nBadge}
+                <StatusBadge variant="warning" testid="l10n-badge"
+                  >{$t(
+                    l10nBadge === 'outdated'
+                      ? 'instance.l10n.targets.stateOutdated'
+                      : 'instance.l10n.targets.stateNotApplied',
+                  )}</StatusBadge
+                >
+              {/if}
+            </span>
           </button>
         {/if}
         <div class="px-3.5 pt-1 pb-3.5 flex flex-wrap gap-2">
