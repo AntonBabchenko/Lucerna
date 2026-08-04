@@ -20,7 +20,7 @@
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
 import type { UpdateOutcome } from '$lib/modpacks/update-runner';
 import { runUpdate } from '$lib/modpacks/update-runner';
-import { finish, start, upsertProgress } from '../registry.svelte';
+import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
 import {
   advanceProgressDisplay,
   canShowRate,
@@ -28,6 +28,13 @@ import {
   toTaskRate,
 } from '../rate';
 import type { TaskProgress } from '../types';
+
+/** Widens the runner's own outcome with the one status `runUpdate` can
+ *  never produce itself: cancellation happens at the gate, before it is
+ *  ever invoked (see the `catch` below) — so it belongs on the adapter's
+ *  return type, not on `UpdateOutcome` (which `modpack-update-flow.svelte.ts`
+ *  also consumes directly, with no gate in front of it at all). */
+export type PackUpdateTaskOutcome = UpdateOutcome | { status: 'cancelled' };
 
 /** Throttle window for the byte-rate EWMA — matches ServerHostingTab's
  *  DISPLAY_REFRESH_MS so every progress readout in the app updates at the
@@ -69,7 +76,7 @@ export async function applyModpackUpdate(
   instanceId: string,
   tempPath: string,
   newVersionId: string,
-): Promise<UpdateOutcome> {
+): Promise<PackUpdateTaskOutcome> {
   const id = `pack-update-${crypto.randomUUID()}`;
   let display = emptyProgressDisplay();
 
@@ -106,6 +113,13 @@ export async function applyModpackUpdate(
     finish(id, { state: outcome.status === 'ok' ? 'ok' : 'failed' });
     return outcome;
   } catch (e) {
+    // A queued task dropped via `cancelQueued` before it ever ran — not a
+    // failure, so it gets its own terminal state instead of falling into
+    // the generic error branch (which used to surface as a failure toast).
+    if (e instanceof TaskCancelledError) {
+      finish(id, { state: 'cancelled' });
+      return { status: 'cancelled' };
+    }
     finish(id, { state: 'failed' });
     return { status: 'error', message: e instanceof Error ? e.message : String(e) };
   }

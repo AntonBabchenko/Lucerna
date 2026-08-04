@@ -60,11 +60,15 @@
 import type { VerifyReport } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { finish, start, upsertProgress } from '../registry.svelte';
+import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
 
 export type IntegrityOutcome =
   | { status: 'ok'; data: VerifyReport }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string }
+  // Cancellation happens at the gate, before `call` is ever invoked (see the
+  // `catch` in `runIntegrityCall`) — a queued task dropped via
+  // `cancelQueued`, not a real failure.
+  | { status: 'cancelled' };
 
 /** Attach the progress listener for exactly the span of one call, filtered
  *  to `instanceId`. Every tick just updates the counter — no tick is ever
@@ -121,6 +125,13 @@ async function runIntegrityCall(
     finish(id, { state: 'failed' });
     return { status: 'error', message: formatError(r.error) };
   } catch (e) {
+    // A queued task dropped via `cancelQueued` before it ever ran — not a
+    // failure, so it gets its own terminal state instead of falling into
+    // the generic error branch (which used to surface as a failure toast).
+    if (e instanceof TaskCancelledError) {
+      finish(id, { state: 'cancelled' });
+      return { status: 'cancelled' };
+    }
     finish(id, { state: 'failed' });
     return { status: 'error', message: e instanceof Error ? e.message : String(e) };
   }

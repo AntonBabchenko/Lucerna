@@ -116,7 +116,10 @@ describe('serial lane gate', () => {
     const secondOutcome = await second;
 
     expect(runClone).toHaveBeenCalledTimes(1);
-    expect(secondOutcome.status).not.toBe('ok');
+    // A cancelled queued task is neither a success nor a failure — it must
+    // resolve with its own typed outcome, not fall into the generic error
+    // branch (that's what used to produce a spurious failure toast).
+    expect(secondOutcome.status).toBe('cancelled');
     expect(taskList().find((t) => t.title === 'Second')).toBeUndefined();
   });
 

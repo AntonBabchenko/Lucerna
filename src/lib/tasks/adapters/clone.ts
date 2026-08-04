@@ -11,14 +11,24 @@
 import type { CloneOutcome } from '$lib/instances/clone-runner';
 import { runClone } from '$lib/instances/clone-runner';
 import type { CloneRequest } from '$lib/instances/clone-request';
-import { finish, start, upsertProgress } from '../registry.svelte';
+import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
+
+/** Widens the runner's own outcome with the one status `runClone` can never
+ *  produce itself: cancellation happens at the gate, before `runClone` is
+ *  ever invoked (see the `catch` below) — so it belongs on the adapter's
+ *  return type, not on `CloneOutcome`, which stays an honest description of
+ *  what `runClone` can actually return. */
+export type CloneTaskOutcome = CloneOutcome | { status: 'cancelled' };
 
 /** Clone an instance as a `clone` task. Scoped to the SOURCE instance (not
  *  the not-yet-created clone) — `request.sourceId` is the same key
  *  `op-queue.svelte.ts` dedupes on today, and keeping the task scoped to it
  *  lets a source-instance-scoped UI (à la IntegritySection's `taskFor`
  *  lookup) reflect "a clone of this instance is already running". */
-export async function cloneInstance(name: string, request: CloneRequest): Promise<CloneOutcome> {
+export async function cloneInstance(
+  name: string,
+  request: CloneRequest,
+): Promise<CloneTaskOutcome> {
   const id = `clone-${crypto.randomUUID()}`;
 
   try {
@@ -49,6 +59,13 @@ export async function cloneInstance(name: string, request: CloneRequest): Promis
     finish(id, { state: outcome.status === 'ok' ? 'ok' : 'failed' });
     return outcome;
   } catch (e) {
+    // A queued task dropped via `cancelQueued` before it ever ran — not a
+    // failure, so it gets its own terminal state instead of falling into
+    // the generic error branch (which used to surface as a failure toast).
+    if (e instanceof TaskCancelledError) {
+      finish(id, { state: 'cancelled' });
+      return { status: 'cancelled' };
+    }
     finish(id, { state: 'failed' });
     return { status: 'error', message: e instanceof Error ? e.message : String(e) };
   }

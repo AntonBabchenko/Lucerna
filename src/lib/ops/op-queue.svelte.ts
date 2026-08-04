@@ -106,6 +106,9 @@ async function runIntegrityOp(
           tr('instance.integrity.toastRepairPartial', { name, count: report.problems.length }),
         );
       }
+    } else if (outcome.status === 'cancelled') {
+      // The user cancelled the queued op themselves — not a failure, so no
+      // toast (see registry.svelte.ts's `cancelQueued`/`TaskCancelledError`).
     } else {
       pushWarning(tr('instance.integrity.toastError', { name, error: outcome.message }));
     }
@@ -179,6 +182,9 @@ async function runImportOp(
         outcome.failed,
       );
       importCompletionTick += 1;
+    } else if (outcome.status === 'cancelled') {
+      // The user cancelled the queued op themselves — not a failure, so no
+      // toast (see registry.svelte.ts's `cancelQueued`/`TaskCancelledError`).
     } else {
       pushWarning(tr('page.modpackImport.failed'), [outcome.message]);
     }
@@ -218,6 +224,9 @@ async function runLauncherImportOp(
         [],
       );
       importCompletionTick += 1;
+    } else if (outcome.status === 'cancelled') {
+      // The user cancelled the queued op themselves — not a failure, so no
+      // toast (see registry.svelte.ts's `cancelQueued`/`TaskCancelledError`).
     } else {
       pushWarning(tr('instances.import.failed'), [outcome.message]);
     }
@@ -248,6 +257,9 @@ async function runCloneOp(name: string, request: CloneRequest): Promise<void> {
         { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
         [],
       );
+    } else if (outcome.status === 'cancelled') {
+      // The user cancelled the queued op themselves — not a failure, so no
+      // toast (see registry.svelte.ts's `cancelQueued`/`TaskCancelledError`).
     } else {
       pushWarning(tr('instance.clone.failed', { name }), [outcome.message]);
     }

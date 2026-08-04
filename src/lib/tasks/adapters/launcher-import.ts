@@ -13,7 +13,13 @@ import type {
   LauncherImportRequest,
 } from '$lib/instances/import/launcher-import-runner';
 import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
-import { finish, start, upsertProgress } from '../registry.svelte';
+import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
+
+/** Widens the runner's own outcome with the one status `runLauncherImport`
+ *  can never produce itself: cancellation happens at the gate, before it is
+ *  ever invoked (see the `catch` below) — so it belongs on the adapter's
+ *  return type, not on `LauncherImportOutcome`. */
+export type LauncherImportTaskOutcome = LauncherImportOutcome | { status: 'cancelled' };
 
 /** Import a foreign launcher instance as a `launcher-import` task. No
  *  Lucerna instance exists yet when the task starts (it is created
@@ -22,7 +28,7 @@ import { finish, start, upsertProgress } from '../registry.svelte';
 export async function importLauncherInstance(
   name: string,
   request: LauncherImportRequest,
-): Promise<LauncherImportOutcome> {
+): Promise<LauncherImportTaskOutcome> {
   const id = `launcher-import-${crypto.randomUUID()}`;
 
   try {
@@ -54,6 +60,13 @@ export async function importLauncherInstance(
     finish(id, { state: outcome.status === 'ok' ? 'ok' : 'failed' });
     return outcome;
   } catch (e) {
+    // A queued task dropped via `cancelQueued` before it ever ran — not a
+    // failure, so it gets its own terminal state instead of falling into
+    // the generic error branch (which used to surface as a failure toast).
+    if (e instanceof TaskCancelledError) {
+      finish(id, { state: 'cancelled' });
+      return { status: 'cancelled' };
+    }
     finish(id, { state: 'failed' });
     return { status: 'error', message: e instanceof Error ? e.message : String(e) };
   }
