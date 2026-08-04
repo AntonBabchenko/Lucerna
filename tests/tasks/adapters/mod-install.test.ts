@@ -25,7 +25,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import { commands } from '$lib/ipc/bindings';
+import { commands, events } from '$lib/ipc/bindings';
 import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
@@ -136,31 +136,63 @@ describe('mod-install adapter', () => {
     expect(taskList()[0].progress).toBeNull();
   });
 
-  it('marks the task failed on an error result (install)', async () => {
-    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
-      status: 'error',
-      error: { kind: 'instance_not_found', id: 'i' },
-    } as never);
+  // Pins the drop-in-replacement contract: the wrapper must resolve with
+  // EXACTLY the `Result` shape `commands.modsInstallWithDeps` /
+  // `commands.modsUpdateOne` themselves return — the raw `IpcError`, not a
+  // pre-formatted `{message}` — so every call site's existing
+  // `res.status === 'error'` / `formatError(res.error)` handling keeps
+  // compiling and behaving identically after the one-line swap.
+  it('resolves with the same Result shape as commands.modsInstallWithDeps (ok)', async () => {
+    const data = { primary_name: 'X', installed_dependencies: [], details: [] };
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({ status: 'ok', data } as never);
 
-    const outcome = await installModWithDeps('i', 'X', primary, []);
-    expect(taskList()[0].state).toBe('failed');
-    expect(outcome.status).toBe('error');
+    const result = await installModWithDeps('i', 'X', primary, []);
+    expect(result).toEqual({ status: 'ok', data });
   });
 
-  it('marks the task failed on an error result (update)', async () => {
-    vi.mocked(commands.modsUpdateOne).mockResolvedValue({
-      status: 'error',
-      error: { kind: 'instance_not_found', id: 'i' },
-    } as never);
+  it('resolves with the same Result shape as commands.modsInstallWithDeps (error, raw IpcError untouched)', async () => {
+    const error = { kind: 'instance_not_found', id: 'i' } as const;
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({ status: 'error', error } as never);
 
-    const outcome = await updateMod('i', 'X', 'sha1', target);
+    const result = await installModWithDeps('i', 'X', primary, []);
+    expect(result).toEqual({ status: 'error', error });
     expect(taskList()[0].state).toBe('failed');
-    expect(outcome.status).toBe('error');
   });
 
-  it('marks the task failed when the command throws (bridge failure)', async () => {
+  it('resolves with the same Result shape as commands.modsUpdateOne (ok)', async () => {
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as never);
+
+    const result = await updateMod('i', 'X', 'sha1', target);
+    expect(result).toEqual({ status: 'ok', data: null });
+  });
+
+  it('resolves with the same Result shape as commands.modsUpdateOne (error, raw IpcError untouched)', async () => {
+    const error = { kind: 'instance_not_found', id: 'i' } as const;
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'error', error } as never);
+
+    const result = await updateMod('i', 'X', 'sha1', target);
+    expect(result).toEqual({ status: 'error', error });
+    expect(taskList()[0].state).toBe('failed');
+  });
+
+  // A bridge failure (a real thrown Error, not a typed IpcError) propagates
+  // out of `commands.modsInstallWithDeps` / `commands.modsUpdateOne`
+  // themselves per `typedError`'s doc comment at the bottom of bindings.ts —
+  // the wrapper must not swallow it into a resolved `{status:'error'}`, or
+  // its behavior would diverge from the command it replaces. The task still
+  // lands in a terminal `failed` state first (via the catch's `finish()`) so
+  // a thrown error never wedges the operations strip.
+  it('marks the task failed AND rethrows when modsInstallWithDeps throws (matches the command)', async () => {
     vi.mocked(commands.modsInstallWithDeps).mockRejectedValue(new Error('bridge died'));
-    await installModWithDeps('i', 'X', primary, []);
+
+    await expect(installModWithDeps('i', 'X', primary, [])).rejects.toThrow('bridge died');
+    expect(taskList()[0].state).toBe('failed');
+  });
+
+  it('marks the task failed AND rethrows when modsUpdateOne throws (matches the command)', async () => {
+    vi.mocked(commands.modsUpdateOne).mockRejectedValue(new Error('bridge died'));
+
+    await expect(updateMod('i', 'X', 'sha1', target)).rejects.toThrow('bridge died');
     expect(taskList()[0].state).toBe('failed');
   });
 
@@ -190,5 +222,37 @@ describe('mod-install adapter', () => {
       .map((t) => t.kind)
       .sort();
     expect(kinds).toEqual(['mod-install', 'mod-update']);
+  });
+});
+
+// A failed progress subscription must not cost the user the install. This
+// bit CI on #352: four unrelated suites mock `$lib/ipc/bindings` with only
+// `commands`, so `events` was undefined, the subscribe threw, and the
+// command was never invoked at all — 19 tests failed for a reason that had
+// nothing to do with what they were testing. Progress is decoration; the
+// install is the point. Mirrors `op-queue.svelte.ts`'s long-standing
+// try/catch around its own listener.
+describe('progress subscription is best-effort', () => {
+  // This block sits outside the file's main describe, so the outer
+  // beforeEach does not reach it — clear the mocks here too or a sibling
+  // test's call count leaks in.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetTasksForTest();
+  });
+
+  it('still installs when the event bridge is unavailable', async () => {
+    const listen = events.modInstallProgress.listen as ReturnType<typeof vi.fn>;
+    listen.mockRejectedValueOnce(new Error('no tauri runtime'));
+    (commands.modsInstallWithDeps as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    });
+
+    const r = await installModWithDeps('i1', 'X', primary, []);
+
+    expect(commands.modsInstallWithDeps).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('ok');
+    expect(taskList()[0].state).toBe('ok');
   });
 });

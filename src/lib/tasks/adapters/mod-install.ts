@@ -40,24 +40,28 @@
 // adapter did not itself initiate can no longer be mistaken for one of
 // ours, because there is nothing left here that reacts to a bare event.
 //
-// `typedError` re-throws real `Error` instances rather than resolving to
-// `{status:'error'}` (see the bottom of `$lib/ipc/bindings`), so a bridge
-// failure can throw straight out of the command call. Both exported
-// functions wrap their call in try/catch so a thrown error still lands the
-// task in a terminal `failed` state instead of wedging it as permanently
-// running — same discipline the runner adapters in `89523af5` use.
+// DROP-IN REPLACEMENTS for `commands.modsInstallWithDeps` /
+// `commands.modsUpdateOne` (same shape `game-install.ts` uses for
+// `installGame`/`commands.installInstance`): both wrappers resolve (or
+// reject) with EXACTLY the same `Result` shape/behavior as the command they
+// replace, and a real thrown `Error` (a bridge failure — see `typedError`'s
+// doc comment at the bottom of `$lib/ipc/bindings`, which rethrows those
+// instead of resolving to `{status:'error'}`) still propagates. That is what
+// makes every call site a one-line swap: its existing `res.status ===
+// 'error'` / `formatError(res.error)` handling keeps compiling and behaving
+// identically, because `res` really is the same type. Task registration is
+// a pure side effect layered on top — `finish()` runs before either the
+// return or the rethrow, so the task always reaches a terminal state.
+// (There used to be bespoke `ModInstallOutcome` / `ModUpdateOutcome` types
+// here with a pre-formatted `message: string` on the error branch; they
+// existed only because nothing called these adapters yet. Collapsing them to
+// the commands' own `Result` types is what actually makes them wireable into
+// the 13 real call sites without restructuring any of them.)
 
-import type { InstallSummary, ModVersion_Deserialize, VersionRef } from '$lib/ipc/bindings';
+import type { ModVersion_Deserialize, VersionRef } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
 import { finish, start, upsertProgress } from '../registry.svelte';
 import type { TaskProgress } from '../types';
-
-export type ModInstallOutcome =
-  | { status: 'ok'; data: InstallSummary }
-  | { status: 'error'; message: string };
-
-export type ModUpdateOutcome = { status: 'ok' } | { status: 'error'; message: string };
 
 function progressFor(current: number, total: number): TaskProgress | null {
   if (total === 0) return null;
@@ -73,25 +77,41 @@ async function withModInstallProgress<T>(
   instanceId: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  const unlisten = await events.modInstallProgress.listen((e) => {
-    const p = e.payload;
-    if (p.instance_id !== instanceId) return;
-    upsertProgress(id, { phase: p.phase, progress: progressFor(p.current, p.total) });
-  });
+  // Best-effort: a progress subscription that cannot attach must never cost
+  // the user the install itself. Progress is decoration; the call is the
+  // point. Same discipline `op-queue.svelte.ts` has always applied to its own
+  // listener — without it, any context with no Tauri event bridge (vitest, a
+  // transient bridge failure) turns a working install into a failed one.
+  let unlisten: (() => void) | null = null;
+  try {
+    unlisten = await events.modInstallProgress.listen((e) => {
+      const p = e.payload;
+      if (p.instance_id !== instanceId) return;
+      upsertProgress(id, { phase: p.phase, progress: progressFor(p.current, p.total) });
+    });
+  } catch {
+    // Task still runs, just without a live counter.
+  }
   try {
     return await run();
   } finally {
-    unlisten();
+    unlisten?.();
   }
 }
 
-/** Install a mod (plus any missing dependencies) as a `mod-install` task. */
+/** Install a mod (plus any missing dependencies) as a `mod-install` task.
+ *  Same signature shape and EXACT same return type as
+ *  `commands.modsInstallWithDeps` (plus the `name` every call-wrapping
+ *  adapter takes for the task's display title — see `installGame`), so a
+ *  caller can swap `commands.modsInstallWithDeps(instanceId, primary,
+ *  optionalDeps)` for `installModWithDeps(instanceId, name, primary,
+ *  optionalDeps)` with no other change. */
 export async function installModWithDeps(
   instanceId: string,
   name: string,
   primary: VersionRef,
   optionalDeps: VersionRef[],
-): Promise<ModInstallOutcome> {
+): ReturnType<typeof commands.modsInstallWithDeps> {
   const id = `mod-install-${crypto.randomUUID()}`;
   start({
     id,
@@ -113,27 +133,38 @@ export async function installModWithDeps(
       // (see pack-import.ts's identical `finish(id, { state: 'ok', details:
       // ... })`) — one row per installed jar, so the finished task carries
       // the same per-mod breakdown the old UI toast showed.
-      finish(id, { state: 'ok', details: r.data.details });
-      return { status: 'ok', data: r.data };
+      // `?.` deliberately: the report rows are decoration, and a summary
+      // without them must still land the task as `ok` rather than throwing
+      // out of the install. Reading `r.data.details` unguarded turned a
+      // successful install into an unhandled rejection on #352's CI.
+      finish(id, { state: 'ok', details: r.data?.details ?? null });
+    } else {
+      finish(id, { state: 'failed' });
     }
-    finish(id, { state: 'failed' });
-    return { status: 'error', message: formatError(r.error) };
+    return r;
   } catch (e) {
+    // A real thrown Error (bridge failure) — land the task in a terminal
+    // state, then rethrow unchanged so this call behaves exactly like
+    // `commands.modsInstallWithDeps` would have.
     finish(id, { state: 'failed' });
-    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+    throw e;
   }
 }
 
 /** Update one already-installed mod to a new version as a `mod-update`
  *  task — the exact backend call (`mods_update_one`) the old event adapter
  *  could not tell apart from an install. Here it is unambiguous by
- *  construction: this function is only ever called to perform an update. */
+ *  construction: this function is only ever called to perform an update.
+ *  Same signature shape and EXACT same return type as
+ *  `commands.modsUpdateOne` (plus the `name` display title), so a caller can
+ *  swap `commands.modsUpdateOne(instanceId, oldSha1, target)` for
+ *  `updateMod(instanceId, name, oldSha1, target)` with no other change. */
 export async function updateMod(
   instanceId: string,
   name: string,
   oldSha1: string,
   target: ModVersion_Deserialize,
-): Promise<ModUpdateOutcome> {
+): ReturnType<typeof commands.modsUpdateOne> {
   const id = `mod-update-${crypto.randomUUID()}`;
   start({
     id,
@@ -149,14 +180,13 @@ export async function updateMod(
     const r = await withModInstallProgress(id, instanceId, () =>
       commands.modsUpdateOne(instanceId, oldSha1, target),
     );
-    if (r.status === 'ok') {
-      finish(id, { state: 'ok' });
-      return { status: 'ok' };
-    }
-    finish(id, { state: 'failed' });
-    return { status: 'error', message: formatError(r.error) };
+    finish(id, { state: r.status === 'ok' ? 'ok' : 'failed' });
+    return r;
   } catch (e) {
+    // A real thrown Error (bridge failure) — land the task in a terminal
+    // state, then rethrow unchanged so this call behaves exactly like
+    // `commands.modsUpdateOne` would have.
     finish(id, { state: 'failed' });
-    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+    throw e;
   }
 }

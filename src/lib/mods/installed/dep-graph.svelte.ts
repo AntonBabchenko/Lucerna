@@ -10,6 +10,7 @@ import {
   type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
@@ -206,8 +207,9 @@ export function createDepGraph(
       return;
     }
     const primary = vr.data[0];
-    const res = await commands.modsInstallWithDeps(
+    const res = await installModWithDeps(
       id,
+      node.name,
       { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
       [],
     );

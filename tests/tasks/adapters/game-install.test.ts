@@ -63,9 +63,39 @@ describe('game-install adapter', () => {
     expect(taskList()[0].state).toBe('failed');
   });
 
-  it('marks the task failed when the command throws', async () => {
+  // Pins the drop-in-replacement contract: the wrapper must resolve with
+  // EXACTLY the `Result` shape `commands.installInstance` itself returns —
+  // `{status:'error', error: IpcError}`, not a pre-formatted `{message}` —
+  // so +page.svelte's existing `result.status === 'error'` /
+  // `formatError(result.error)` call site keeps compiling and behaving
+  // identically after the one-line swap from `commands.installInstance` to
+  // `installGame`.
+  it('resolves with the same Result shape as commands.installInstance (ok)', async () => {
+    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: null });
+
+    const result = await installGame('inst-1', 'My Instance');
+    expect(result).toEqual({ status: 'ok', data: null });
+  });
+
+  it('resolves with the same Result shape as commands.installInstance (error, raw IpcError untouched)', async () => {
+    const error = { kind: 'instance_not_found', id: 'inst-1' } as const;
+    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'error', error } as never);
+
+    const result = await installGame('inst-1', 'My Instance');
+    expect(result).toEqual({ status: 'error', error });
+  });
+
+  // A bridge failure (a real thrown Error, not a typed IpcError) propagates
+  // out of `commands.installInstance` itself per `typedError`'s doc comment
+  // at the bottom of bindings.ts — the wrapper must not swallow it into a
+  // resolved `{status:'error'}`, or its behavior would diverge from the
+  // command it replaces. The task still lands in a terminal `failed` state
+  // first (via the catch's `finish()`) so a thrown error never wedges the
+  // operations strip.
+  it('marks the task failed AND rethrows when the command throws (matches commands.installInstance)', async () => {
     vi.mocked(commands.installInstance).mockRejectedValue(new Error('bridge died'));
-    await installGame('inst-1', 'My Instance');
+
+    await expect(installGame('inst-1', 'My Instance')).rejects.toThrow('bridge died');
     expect(taskList()[0].state).toBe('failed');
   });
 

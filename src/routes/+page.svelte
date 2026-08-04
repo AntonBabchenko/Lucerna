@@ -43,6 +43,8 @@
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import ScreenshotsGallery from '$lib/screenshots/ScreenshotsGallery.svelte';
   import OperationsBar from '$lib/tasks/OperationsBar.svelte';
+  import { installGame } from '$lib/tasks/adapters/game-install';
+  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
   import {
     enqueueImport,
     opCompletionTick,
@@ -276,7 +278,7 @@
     let failed = 0;
     for (const e of toInstall) {
       if (!e.version) continue;
-      const res = await commands.modsInstallWithDeps(instanceId, e.version, []);
+      const res = await installModWithDeps(instanceId, e.title, e.version, []);
       if (res.status === 'ok') installed += 1;
       else failed += 1;
     }
@@ -1006,7 +1008,7 @@
     if (dataLocation.fellBack) return;
     installing = true;
     installError = null;
-    const result = await commands.installInstance(activeInstance.id);
+    const result = await installGame(activeInstance.id, activeInstance.name);
     installing = false;
     if (result.status === 'error') {
       installError = formatError(result.error);

@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
@@ -357,8 +358,9 @@
         return;
       }
     }
-    const res = await commands.modsInstallWithDeps(
+    const res = await installModWithDeps(
       instanceId,
+      existing?.summary?.name ?? existing?.installed.name ?? v.name,
       { source: v.source, project_id: v.project_id, version_id: v.version_id },
       [],
     );
