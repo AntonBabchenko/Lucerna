@@ -93,19 +93,19 @@ mod tests {
 
     #[test]
     fn the_update_set_is_per_server_and_releases_on_drop() {
-        let a = UpdateGuard::acquire("srv-a").expect("first claim on A succeeds");
-        assert!(update_in_progress("srv-a"));
+        let a = UpdateGuard::acquire("guard-test-srv-a").expect("first claim on A succeeds");
+        assert!(update_in_progress("guard-test-srv-a"));
         // Per-server, not global: updating A must not block starting B.
-        assert!(!update_in_progress("srv-b"));
+        assert!(!update_in_progress("guard-test-srv-b"));
         assert!(
-            UpdateGuard::acquire("srv-a").is_none(),
+            UpdateGuard::acquire("guard-test-srv-a").is_none(),
             "a second concurrent update of the same server must be refused"
         );
         assert!(
-            UpdateGuard::acquire("srv-b").is_some(),
+            UpdateGuard::acquire("guard-test-srv-b").is_some(),
             "a different server must still be claimable"
         );
         drop(a);
-        assert!(!update_in_progress("srv-a"));
+        assert!(!update_in_progress("guard-test-srv-a"));
     }
 }
