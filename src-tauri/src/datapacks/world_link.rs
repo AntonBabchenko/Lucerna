@@ -91,6 +91,71 @@ pub(crate) fn worlds_linking(instance_root: &Path, filename: &str) -> Vec<PathBu
     out
 }
 
+/// `Some(err)` when `dest` already holds something that is NOT the library
+/// file at `src`, so placing over it would destroy a pack Lucerna did not put
+/// there. `None` when the destination is free, or already holds exactly these
+/// bytes.
+///
+/// A DIRECTORY is always a conflict: Minecraft loads folder datapacks, and a
+/// folder has no file sha1 to compare, so it can never be proven ours. Doing
+/// otherwise would let `materialize` rename a zip over a whole pack folder.
+///
+/// Sizes are compared before hashing so a large pack costs one `metadata` call
+/// in the common "different pack" case rather than two full reads.
+async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error>> {
+    let Ok(dest_meta) = tokio::fs::metadata(dest).await else {
+        return Ok(None); // nothing there — free to place
+    };
+    let filename = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if dest_meta.is_dir() {
+        return Ok(Some(Error::ModsFilenameConflict {
+            filename,
+            existing_sha: String::new(),
+            incoming_sha: String::new(),
+        }));
+    }
+    let src_meta = tokio::fs::metadata(src)
+        .await
+        .map_err(|e| Error::io(src.display().to_string(), e))?;
+    if src_meta.len() == dest_meta.len() {
+        let (Ok(a), Ok(b)) = (
+            tokio::fs::read(src).await,
+            tokio::fs::read(dest).await,
+        ) else {
+            return Ok(None);
+        };
+        let (sa, sb) = (
+            crate::datapacks::library::sha1_hex(&a),
+            crate::datapacks::library::sha1_hex(&b),
+        );
+        if sa == sb {
+            return Ok(None); // already ours — fall through so a disabled pack re-enables
+        }
+        return Ok(Some(Error::ModsFilenameConflict {
+            filename,
+            existing_sha: sb,
+            incoming_sha: sa,
+        }));
+    }
+    // Different sizes ⇒ different content; no need to hash either side.
+    let existing_sha = match tokio::fs::read(dest).await {
+        Ok(b) => crate::datapacks::library::sha1_hex(&b),
+        Err(_) => String::new(),
+    };
+    let incoming_sha = match tokio::fs::read(src).await {
+        Ok(b) => crate::datapacks::library::sha1_hex(&b),
+        Err(_) => String::new(),
+    };
+    Ok(Some(Error::ModsFilenameConflict {
+        filename,
+        existing_sha,
+        incoming_sha,
+    }))
+}
+
 /// One world holding an entry by a given name, and whether that entry is
 /// provably the library's own content.
 pub(crate) struct WorldPlacement {
@@ -258,6 +323,22 @@ pub async fn add_to_world_at(
         })?;
 
     let dest = dp_dir.join(filename);
+
+    // Refuse to replace a DIFFERENT entry that already holds this name.
+    // `materialize` commits by unconditional rename over the destination, so
+    // without this a pack the user dropped into the world folder themselves —
+    // or one that arrived with an imported world — is destroyed silently.
+    //
+    // Matching content deliberately falls THROUGH rather than returning early:
+    // re-adding a pack that is present but sits in the world's `Disabled` list
+    // must re-enable it, which the `set_enabled(.., true)` below does. That is
+    // exactly what the library screen's world picker relies on when a user
+    // ticks a world where the pack is currently off, so turning this into a
+    // no-op would delete a behaviour the UI depends on.
+    if let Some(conflict) = conflicting_world_entry(&src, &dest).await? {
+        return Err(conflict);
+    }
+
     // `LinkIfPossible`, not `ForceCopy`: deduplicating one physical pack
     // across every world that installs it is worth keeping. But `store.rs`'s
     // stated justification for `LinkIfPossible` — "corruption is a
@@ -726,6 +807,82 @@ mod tests {
     /// `test_seam::scope()` in the same test — the mutex is not reentrant.
     fn hardlink_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    #[tokio::test]
+    async fn add_to_world_refuses_a_different_same_named_file() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        let dp = saves.join("Alpha").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        let theirs = datapack_zip(57);
+        std::fs::write(dp.join("vm.zip"), &theirs).unwrap();
+
+        let err = add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(dp.join("vm.zip")).unwrap(),
+            theirs,
+            "the user's own pack must survive"
+        );
+    }
+
+    #[tokio::test]
+    async fn re_adding_a_disabled_pack_re_enables_it() {
+        // NOT a no-op. `add_to_world_at` ends with `set_enabled(.., true)`, and
+        // the library screen's world picker is exactly where a user ticks a
+        // world in which the pack is currently off. A literal
+        // file-and-level.dat no-op would silently delete that behaviour.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        add_to_world_at(td.path(), "Alpha", "vm.zip").await.unwrap();
+        set_enabled_in_world_at(td.path(), "Alpha", "vm.zip", false)
+            .await
+            .unwrap();
+
+        add_to_world_at(td.path(), "Alpha", "vm.zip").await.unwrap();
+
+        let (root, _) = level_dat::read_at(&world_dir(td.path(), "Alpha")).unwrap();
+        let (enabled, disabled) = level_dat::lists(&root);
+        assert!(
+            enabled.iter().any(|s| s == "file/vm.zip"),
+            "re-adding must re-enable: {enabled:?}"
+        );
+        assert!(!disabled.iter().any(|s| s == "file/vm.zip"));
+    }
+
+    #[tokio::test]
+    async fn a_colliding_directory_is_a_conflict() {
+        // Minecraft loads folder datapacks, and this module already models them
+        // elsewhere. A folder has no file sha1, so it can never be proven ours
+        // — letting it through would rename a zip over a whole pack folder.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        let dp = saves.join("Alpha").join("datapacks");
+        std::fs::create_dir_all(dp.join("vm.zip").join("data")).unwrap();
+
+        let err = add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+        assert!(dp.join("vm.zip").join("data").is_dir(), "the folder pack must survive");
     }
 
     #[tokio::test]
