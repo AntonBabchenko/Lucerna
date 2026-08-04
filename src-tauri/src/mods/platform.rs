@@ -540,6 +540,29 @@ pub trait ModPlatform: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Every datapack release of `project_id`, newest-first, filtered by the
+    /// raw `datapack` loader slug — the datapack twin of [`plugin_versions`].
+    /// A hybrid project (e.g. Terralith) publishes both a datapack and a mod,
+    /// and its unfiltered "latest version" is a mod jar, so the unfiltered
+    /// [`versions`] listing must never be used for this kind.
+    ///
+    /// Default: the platform hosts no datapacks. CurseForge deliberately
+    /// inherits this default until its own PR lands — its `versions` filters
+    /// solely via `modLoaderType`, which cannot express a datapack — and the
+    /// UI hides the CurseForge source for the datapack kind over that
+    /// interval, so the default is never a visible-but-broken card
+    /// (slice-2 design §13.1).
+    ///
+    /// [`plugin_versions`]: ModPlatform::plugin_versions
+    /// [`versions`]: ModPlatform::versions
+    async fn datapack_versions(
+        &self,
+        _project_id: &str,
+        _mc_version: Option<&str>,
+    ) -> Result<Vec<ModVersion>, Error> {
+        Ok(Vec::new())
+    }
+
     /// The cumulative changelog for `(base_version_id, target_version_id]` of
     /// `project_id`, newest→oldest, each section's `body_html` sanitized.
     /// Default: the source has no changelog API — a defensive backstop, since
