@@ -2162,7 +2162,21 @@
     "l10nLangInvalid": "\"{lang}\" isn't a valid target language.",
     "l10nPrefillKeyMissing": "No API key saved for {provider}. Add one in Settings → Integrations.",
     "l10nPrefillProvider": "{provider} refused the translation request (HTTP {status}). Check the API key and the model name — the full response is in Logs.",
-    "l10nPrefillBusy": "A translation run is already in progress for this instance."
+    "l10nPrefillBusy": "A translation run is already in progress for this instance.",
+    "l10nShareBundleInvalid": "Couldn't read the translations file: {reason}",
+    "l10nShareBundleReason": {
+      "notAZip": "it is not a zip archive",
+      "noMetadata": "it carries no Lucerna translation data",
+      "metadataTooLarge": "its translation data is too large",
+      "schemaInvalid": "its translation data is damaged",
+      "schemaTooNew": "it was made by a newer Lucerna (format {found})",
+      "langInvalid": "it names an invalid language ({lang})",
+      "tooManyNamespaces": "it contains too many mods",
+      "tooManyEntries": "it contains too many entries"
+    },
+    "l10nSharePrefillActive": "A translation pre-fill is running. Try again when it finishes.",
+    "l10nShareDestReserved": "Choose another file name — names beginning with \"lucerna-translation-\" are removed automatically when translations are applied.",
+    "l10nShareNothingToExport": "Nothing to export for this selection."
   },
   "settings": {
     "title": "Settings",

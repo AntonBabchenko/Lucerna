@@ -4,6 +4,7 @@ import { t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
 import type {
+  BundleError,
   DatapackRejection,
   FormatError,
   Error as IpcError,
@@ -205,6 +206,13 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   l10n_lang_invalid: 'clean',
   l10n_prefill_key_missing: 'clean',
   l10n_prefill_busy: 'clean',
+  // Translation sharing — export/import of a bundle. All four are built
+  // entirely from structured fields (a typed `BundleError` for the rejection,
+  // nothing at all for the other three); nothing to truncate or hide.
+  l10n_share_bundle_invalid: 'clean',
+  l10n_share_prefill_active: 'clean',
+  l10n_share_dest_reserved: 'clean',
+  l10n_share_nothing_to_export: 'clean',
   // Transport, not opaque: `details` is a provider's raw error body, which can
   // echo the API key we just sent. The transport policy keeps it out of the UI
   // entirely (and the vitest sweep enforces that), while provider + status are
@@ -286,6 +294,47 @@ function formatErrorReason(reason: FormatError): string {
         index: reason.index,
         available: reason.available,
       });
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Render a backend `BundleError` (why a share bundle was rejected as a whole —
+ * see the variant's doc comment in `l10n/share.rs`) as a translated clause.
+ * Returns the rendered string rather than a `TranslationKey` for the same
+ * reason `formatErrorReason` does: the variants carry different fields to
+ * interpolate, so there is no single flat `values` shape a caller could pass
+ * uniformly. The switch has no `default` fallthrough, so a new `BundleError`
+ * variant that isn't handled here fails to compile rather than silently
+ * rendering nothing.
+ *
+ * `no_metadata` deliberately ignores `looks_like_resource_pack`: the import
+ * dialog renders a richer, context-aware hint for that case ("this looks like
+ * a regular resource pack — install it as one instead"), and this is the
+ * generic fallback used everywhere else, where that advice would not fit.
+ */
+function bundleErrorReason(reason: BundleError): string {
+  const translate = get(t);
+  switch (reason.kind) {
+    case 'not_a_zip':
+      return translate('errors.l10nShareBundleReason.notAZip');
+    case 'no_metadata':
+      return translate('errors.l10nShareBundleReason.noMetadata');
+    case 'metadata_too_large':
+      return translate('errors.l10nShareBundleReason.metadataTooLarge');
+    case 'schema_invalid':
+      return translate('errors.l10nShareBundleReason.schemaInvalid');
+    case 'schema_too_new':
+      return translate('errors.l10nShareBundleReason.schemaTooNew', { found: reason.found });
+    case 'lang_invalid':
+      return translate('errors.l10nShareBundleReason.langInvalid', { lang: reason.lang });
+    case 'too_many_namespaces':
+      return translate('errors.l10nShareBundleReason.tooManyNamespaces');
+    case 'too_many_entries':
+      return translate('errors.l10nShareBundleReason.tooManyEntries');
     default: {
       const _exhaustive: never = reason;
       return _exhaustive;
@@ -665,6 +714,16 @@ export function formatError(e: IpcError): string {
       });
     case 'l10n_prefill_busy':
       return translate('errors.l10nPrefillBusy');
+    case 'l10n_share_bundle_invalid':
+      return translate('errors.l10nShareBundleInvalid', {
+        reason: bundleErrorReason(e.error),
+      });
+    case 'l10n_share_prefill_active':
+      return translate('errors.l10nSharePrefillActive');
+    case 'l10n_share_dest_reserved':
+      return translate('errors.l10nShareDestReserved');
+    case 'l10n_share_nothing_to_export':
+      return translate('errors.l10nShareNothingToExport');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

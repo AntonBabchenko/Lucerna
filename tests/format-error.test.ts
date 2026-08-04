@@ -500,6 +500,21 @@ describe('formatError', () => {
         details: 'invalid x-api-key: sk-ant-LEAKED-SECRET',
       },
       l10n_prefill_busy: { kind: 'l10n_prefill_busy' },
+      // The share bundle is hostile input — a file a stranger sent. Its
+      // rejection reason is a nested tagged enum (`BundleError`), so this
+      // sample only proves the outer sentence renders; the nested clause is
+      // pinned by the focused `schema_too_new` case below, because the
+      // `startsWith('errors.')` assertion here only inspects the START of the
+      // string and would miss an unresolved key interpolated mid-sentence.
+      // `looks_like_resource_pack` is deliberately unused by this generic
+      // formatter — the import dialog renders the richer hint for that case.
+      l10n_share_bundle_invalid: {
+        kind: 'l10n_share_bundle_invalid',
+        error: { kind: 'no_metadata', looks_like_resource_pack: true },
+      },
+      l10n_share_prefill_active: { kind: 'l10n_share_prefill_active' },
+      l10n_share_dest_reserved: { kind: 'l10n_share_dest_reserved' },
+      l10n_share_nothing_to_export: { kind: 'l10n_share_nothing_to_export' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
@@ -563,6 +578,27 @@ describe('formatError', () => {
     const msg = formatError({ kind: 'java_spawn', details: 'x'.repeat(200) });
     expect(msg).toContain('… (open Logs for full text)');
     expect(msg).not.toContain('x'.repeat(200));
+  });
+
+  // The nested `BundleError` is the only part of a share rejection the sample
+  // sweep cannot vouch for: it lands mid-sentence, past the `startsWith`
+  // check. Pinning the interpolated case proves two things at once — the
+  // reason resolved to real copy rather than a raw `errors.…` key, and its
+  // numeric arg was passed as a number (ICU rejects a string here, which would
+  // surface as the argument dropping out of the rendered sentence).
+  it('renders a share bundle rejection with its interpolated schema version', () => {
+    const sample: IpcError = {
+      kind: 'l10n_share_bundle_invalid',
+      error: { kind: 'schema_too_new', found: 9 },
+    };
+    const msg = formatError(sample);
+    expect(msg).toBe(
+      "Couldn't read the translations file: it was made by a newer Lucerna (format 9)",
+    );
+    // Not raw JSON, and no unresolved key leaked into the middle of the text.
+    expect(msg).not.toBe(JSON.stringify(sample));
+    expect(msg).not.toContain('errors.');
+    expect(msg).not.toContain('schema_too_new');
   });
 
   it('maps the adopt-validation reasons to human clauses', () => {

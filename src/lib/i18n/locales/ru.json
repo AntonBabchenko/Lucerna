@@ -2162,7 +2162,21 @@
     "l10nLangInvalid": "«{lang}» — недопустимый целевой язык.",
     "l10nPrefillKeyMissing": "Для {provider} не сохранён API-ключ. Добавьте его в «Настройки → Интеграции».",
     "l10nPrefillProvider": "{provider} отклонил запрос на перевод (HTTP {status}). Проверьте API-ключ и название модели — полный ответ есть в логах.",
-    "l10nPrefillBusy": "Для этого инстанса перевод уже выполняется."
+    "l10nPrefillBusy": "Для этого инстанса перевод уже выполняется.",
+    "l10nShareBundleInvalid": "Не удалось прочитать файл переводов: {reason}",
+    "l10nShareBundleReason": {
+      "notAZip": "это не zip-архив",
+      "noMetadata": "в нём нет данных переводов Lucerna",
+      "metadataTooLarge": "данные переводов в нём слишком велики",
+      "schemaInvalid": "данные переводов в нём повреждены",
+      "schemaTooNew": "он создан более новой версией Lucerna (формат {found})",
+      "langInvalid": "в нём указан недопустимый язык ({lang})",
+      "tooManyNamespaces": "в нём слишком много модов",
+      "tooManyEntries": "в нём слишком много записей"
+    },
+    "l10nSharePrefillActive": "Идёт ИИ-перевод. Повторите, когда он закончится.",
+    "l10nShareDestReserved": "Выберите другое имя файла — имена, начинающиеся с «lucerna-translation-», удаляются автоматически при применении переводов.",
+    "l10nShareNothingToExport": "Для этого выбора нечего экспортировать."
   },
   "settings": {
     "title": "Настройки",
