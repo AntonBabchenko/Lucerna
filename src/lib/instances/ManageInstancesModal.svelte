@@ -51,6 +51,7 @@
     focusField = null,
     onCloneRequest = () => {},
     onShortcutRequest,
+    onTranslationsRequest,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
@@ -64,6 +65,10 @@
     /** Undefined on platforms without desktop-shortcut support — the button is
      *  then omitted rather than shown disabled. */
     onShortcutRequest?: (instanceId: string) => void;
+    /** Open the per-instance translation editor for this instance (hosted by
+     *  the page, which owns the single LocalizationModal mount). Undefined on
+     *  bare mounts — the button is then omitted. */
+    onTranslationsRequest?: (id: string) => void;
     // When set (opened via a per-row "manage this profile" action), seed the
     // detail selection from THIS id rather than the active instance. Switching
     // the active instance is async (an IPC round-trip), so at open time
@@ -1242,6 +1247,17 @@
                 >
                   <Icon name="monitor" size={14} />
                   {$t('shortcut.create')}
+                </button>
+              {/if}
+              {#if onTranslationsRequest}
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                  onclick={() => selected && onTranslationsRequest?.(selected.id)}
+                  data-testid="manage-translations-btn"
+                >
+                  <Icon name="languages" size={14} />
+                  {$t('instance.manage.translationsBtn')}
                 </button>
               {/if}
               <button

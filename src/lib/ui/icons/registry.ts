@@ -33,6 +33,7 @@ import {
   Image,
   Images,
   Info,
+  Languages,
   LayoutGrid,
   List,
   Lock,
@@ -142,6 +143,7 @@ export const ICONS = {
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
   aiTranslate: Sparkles, // AI pre-fill of missing translations (l10n)
+  languages: Languages, // translations entry point (Manage instances → Translations)
   edit: Pencil, // edit-in-place affordance (instance avatar hover overlay)
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)

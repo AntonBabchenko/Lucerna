@@ -173,6 +173,15 @@
   // restart. The modal itself must NOT read this (its suite pins exact
   // l10nCoverage call counts), and this page already reads settings.
   let l10nAiConsent = $state(false);
+  // Which instance LocalizationModal shows. Null = follow the active instance,
+  // which is what the Overview row's entry point wants. The Manage modal's
+  // entry point sets it, because its selection is independent of the active
+  // instance and would otherwise open a different instance's translations
+  // than the one whose row the user just clicked.
+  let l10nTargetId = $state<string | null>(null);
+  $effect(() => {
+    if (!l10nOpen) l10nTargetId = null;
+  });
 
   async function openLocalization() {
     l10nOpen = true;
@@ -1556,12 +1565,16 @@
     focusField={manageFocus}
     onCloneRequest={(id) => (cloneTargetId = id)}
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
+    onTranslationsRequest={(id) => {
+      l10nTargetId = id;
+      void openLocalization();
+    }}
   />
 
   <LocalizationModal
     bind:open={l10nOpen}
     bind:lang={l10nLang}
-    instanceId={activeInstance?.id ?? null}
+    instanceId={l10nTargetId ?? activeInstance?.id ?? null}
     aiConsent={l10nAiConsent}
   />
 
