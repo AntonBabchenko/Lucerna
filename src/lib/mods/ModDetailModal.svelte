@@ -105,7 +105,20 @@
       error = formatError(p.error);
       return;
     }
-    if (kind !== 'mod') {
+    if (kind === 'datapack') {
+      // Datapacks use their OWN listing, never modsVersions(..., null): a
+      // hybrid project (e.g. Terralith) publishes both a datapack and a mod,
+      // and the unfiltered latest version is the MOD JAR — this modal's
+      // recommended CTA and per-row installs would push it into the datapack
+      // pipeline, which rejects it with a confusing "not a datapack".
+      if (mcVersion) {
+        const v = await commands.modsDatapackVersions(source, projectId, mcVersion);
+        compatibleVersions = v.status === 'ok' ? v.data : [];
+        if (v.status === 'error') error = formatError(v.error);
+      } else {
+        compatibleVersions = [];
+      }
+    } else if (kind !== 'mod') {
       // Asset kinds (resource packs, shaders) are loader-agnostic.
       // Fetch all MC-compatible versions when mcVersion is set; pass null
       // for loader so modsVersions returns every matching file regardless
@@ -129,11 +142,17 @@
     }
   }
 
-  // Lazy-load the unfiltered list the first time show-all flips on.
+  // Lazy-load the unfiltered list the first time show-all flips on. "All
+  // versions" for a datapack still means "all DATAPACK versions" — dropping
+  // the kind filter here would list a hybrid project's mod jars as
+  // installable rows.
   $effect(() => {
     if (showAll && allVersions === null) {
       void (async () => {
-        const v = await commands.modsVersions(source, projectId, null, null);
+        const v =
+          kind === 'datapack'
+            ? await commands.modsDatapackVersions(source, projectId, null)
+            : await commands.modsVersions(source, projectId, null, null);
         if (v.status === 'ok') allVersions = v.data;
         else error = formatError(v.error);
       })();

@@ -36,6 +36,7 @@
     canToggle = true,
     installing = false,
     placeholderIcon = 'puzzle',
+    installedLabel = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -58,6 +59,12 @@
     canToggle?: boolean;
     installing?: boolean;
     placeholderIcon?: IconName;
+    // When set, REPLACES the whole installed meta line. Exists for kinds whose
+    // installed state is not "live in the game": a datapack in the library is
+    // inert until placed into a world, so its card must read «В библиотеке ·
+    // vX», never the bare `vX` this card renders for installed mods/assets
+    // (the #4083 wrong-belief hazard — slice-2 design §6).
+    installedLabel?: string | null;
   } = $props();
 
   const crossPlatform = $derived(
@@ -88,8 +95,10 @@
 
   // The single muted secondary line for an installed mod (version is the norm;
   // cross-platform explains the version mismatch; otherwise the install state).
+  // An explicit `installedLabel` wins outright — see its prop doc.
   const installedMeta = $derived.by(() => {
     if (!installed) return '';
+    if (installedLabel) return installedLabel;
     const stateWord = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
     if (crossPlatform && otherPlatformLabel) return `${stateWord} (${otherPlatformLabel})`;
     if (installed.version_number) return `v${installed.version_number}`;

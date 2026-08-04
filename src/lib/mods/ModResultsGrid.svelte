@@ -19,6 +19,7 @@
     onOpenDetail,
     onToggle,
     onUninstall,
+    installedLabelFor = () => null,
   }: {
     hits: ModSummary[];
     layout: 'grid' | 'list';
@@ -30,6 +31,9 @@
     onOpenDetail: (h: ModSummary) => void;
     onToggle: (h: ModSummary) => void;
     onUninstall: (h: ModSummary) => void;
+    // Per-hit override for the card's installed meta line — see ModCard's
+    // `installedLabel`. Default: no override (mods/assets keep `vX`).
+    installedLabelFor?: (h: ModSummary) => string | null;
   } = $props();
 </script>
 
@@ -46,6 +50,7 @@
         onUninstall={() => onUninstall(hit)}
         canToggle={isMod}
         {placeholderIcon}
+        installedLabel={installedLabelFor(hit)}
         layout="grid"
       />
     {/each}
@@ -63,6 +68,7 @@
         onUninstall={() => onUninstall(hit)}
         canToggle={isMod}
         {placeholderIcon}
+        installedLabel={installedLabelFor(hit)}
         layout="list"
       />
     {/each}
