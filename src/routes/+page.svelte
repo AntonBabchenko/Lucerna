@@ -59,6 +59,7 @@
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
+  import { preflightCache } from '$lib/mods/preflight-cache';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -310,6 +311,7 @@
   let modInstalledUnlisten: (() => void) | null = null;
   let modUninstalledUnlisten: (() => void) | null = null;
   let modToggleUnlisten: (() => void) | null = null;
+  let modsReconciledUnlisten: (() => void) | null = null;
   let intentUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
@@ -734,9 +736,22 @@
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
+  // Something OTHER than the launcher wrote into an instance's mods/. This page
+  // is mounted for the whole session, so it catches the event even when the
+  // Installed tab (which has its own, differently-scoped handler) is closed —
+  // the common case, since that tab's own mount is what triggers the listing.
+  //
+  // Deliberately never calls `commands.modsListInstalled`, directly or through a
+  // composable: that command is what emits this event, so re-requesting the list
+  // here would feed the handler its own trigger.
+  const debouncedExternalChangeStats = debounceTrailing(() => {
+    void stats.refreshInstalledStats(activeInstance?.id ?? null);
+    void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
+  }, 150);
   onDestroy(() => {
     debouncedModSetStats.cancel();
     debouncedModToggleStats.cancel();
+    debouncedExternalChangeStats.cancel();
   });
 
   onMount(async () => {
@@ -773,6 +788,20 @@
     events.modToggle.listen(debouncedModToggleStats.call).then((u) => {
       modToggleUnlisten = u;
     });
+    events.modsReconciled
+      .listen(({ payload }) => {
+        // The pre-flight cache is per-instance, so evicting the key that changed
+        // is always right — even for an instance that is not on screen.
+        preflightCache.delete(payload.instance_id);
+        // The compat scan, in contrast, is ONE shared store holding ONE
+        // instance's verdicts. Scanning a background instance into it would
+        // replace what the Overview is currently displaying with another
+        // instance's data, so the stats only move for the active instance.
+        if (payload.instance_id === activeInstance?.id) debouncedExternalChangeStats.call();
+      })
+      .then((u) => {
+        modsReconciledUnlisten = u;
+      });
 
     events.processExited
       .listen(async (event) => {
@@ -891,6 +920,7 @@
     modInstalledUnlisten?.();
     modUninstalledUnlisten?.();
     modToggleUnlisten?.();
+    modsReconciledUnlisten?.();
     intentUnlisten?.();
   });
 

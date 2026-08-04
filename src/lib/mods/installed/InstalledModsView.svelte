@@ -433,14 +433,26 @@
     preflight.invalidate();
     void compat.runOfflineScan({ force: true });
   }, 150);
+  // Something OTHER than us wrote into mods/. Refresh everything derived from
+  // the mod list — and deliberately NOT the list. `mods_list_installed` is what
+  // emits this event, so refreshing it here would feed the handler its own
+  // trigger. Whatever call produced the event already returned the reconciled
+  // list to its caller, so the rows are current without our help.
+  const debouncedExternalChange = debounceTrailing(() => {
+    deps.reloadGraph();
+    preflight.invalidate();
+    void compat.runOfflineScan({ force: true });
+  }, 150);
   listenUntilDestroyed([
     events.modInstalled.listen(debouncedSetChanged.call),
     events.modUninstalled.listen(debouncedSetChanged.call),
     events.modToggle.listen(debouncedToggle.call),
+    events.modsReconciled.listen(debouncedExternalChange.call),
   ]);
   onDestroy(() => {
     debouncedSetChanged.cancel();
     debouncedToggle.cancel();
+    debouncedExternalChange.cancel();
     data.dispose();
     filters.dispose();
     updates.dispose();
