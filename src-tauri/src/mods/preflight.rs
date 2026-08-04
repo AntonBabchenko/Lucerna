@@ -675,6 +675,44 @@ mod tests {
         }
     }
 
+    /// NeoForge reads `neoforge.mods.toml` and ignores that jar's `mods.toml`.
+    /// Admitting both by rank alone would enforce dependencies the loader never
+    /// reads — inventing exactly the kind of phantom this whole line of work
+    /// exists to remove.
+    #[test]
+    fn a_better_descriptor_in_the_same_jar_shadows_the_worse_one() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        use LoaderKind as L;
+
+        let both = [S::NeoForgeToml, S::ModsToml];
+        assert!(effective_rank(S::NeoForgeToml, &both, L::NeoForge, E::Modern).is_some());
+        assert!(
+            effective_rank(S::ModsToml, &both, L::NeoForge, E::Modern).is_none(),
+            "neoforge.mods.toml shadows mods.toml inside one jar"
+        );
+        // Alone, it is read.
+        assert!(effective_rank(S::ModsToml, &[S::ModsToml], L::NeoForge, E::Modern).is_some());
+
+        // Same rule on Quilt: a jar shipping quilt.mod.json never reaches Quilt
+        // Loader's Fabric plugin.
+        let qf = [S::QuiltJson, S::FabricJson];
+        assert!(effective_rank(S::QuiltJson, &qf, L::Quilt, E::Modern).is_some());
+        assert!(effective_rank(S::FabricJson, &qf, L::Quilt, E::Modern).is_none());
+        assert!(effective_rank(S::FabricJson, &[S::FabricJson], L::Quilt, E::Modern).is_some());
+
+        // MinecraftForge does not read neoforge.mods.toml at all, so it cannot
+        // shadow anything there — this is the coverage gap being fixed.
+        assert!(
+            effective_rank(S::ModsToml, &both, L::Forge, E::Modern).is_some(),
+            "on MinecraftForge the mods.toml of a dual-descriptor jar IS read"
+        );
+
+        // Equal ranks never shadow each other.
+        let legacy = [S::McmodInfo];
+        assert!(effective_rank(S::McmodInfo, &legacy, L::Forge, E::Legacy).is_some());
+        assert!(effective_rank(S::McmodAnnotation, &legacy, L::Forge, E::Legacy).is_some());
+    }
+
     /// Ordering, not just membership: a loader that reads two files still reads
     /// one of them FIRST, and that is what decides a provider's version.
     #[test]
