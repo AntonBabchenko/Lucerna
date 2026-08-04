@@ -121,6 +121,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   instance_dir_name_empty: 'clean',
   instance_dir_name_taken: 'clean',
   instance_dir_name_reserved: 'clean',
+  instance_dir_locked: 'clean',
   path_not_launchable: 'clean',
   mods_platform_auth: 'clean',
   mods_distribution_disabled: 'clean',
@@ -389,6 +390,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.instanceDirNameTaken', { name: e.name });
     case 'instance_dir_name_reserved':
       return translate('errors.instanceDirNameReserved', { name: e.name });
+    case 'instance_dir_locked':
+      return translate('errors.instanceDirLocked', { name: e.name });
     case 'path_not_launchable':
       // Two remedies, two messages: rename the instance folder, or move the
       // data root. Same distinction the Manage banner draws.

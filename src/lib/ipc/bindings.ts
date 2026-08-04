@@ -2544,6 +2544,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  A Windows reserved device name (CON, PRN, LPT1, …). */
 { kind: "instance_dir_name_reserved"; name: string } | 
 /**
+ *  The directory could not be renamed because something holds it open.
+ * 
+ *  On Windows this arrives as `ERROR_ACCESS_DENIED`, and the everyday cause
+ *  is an Explorer window sitting in the folder or one of its descendants —
+ *  a handle on any descendant blocks renaming the ancestor. Carries the
+ *  SOURCE directory name: the lock is on the folder being moved, not on the
+ *  destination, and reporting the destination sent the first user who hit
+ *  this looking at a path that did not exist yet.
+ */
+{ kind: "instance_dir_locked"; name: string } | 
+/**
  *  The path cannot be expressed in the system ANSI code page, so the JVM
  *  would receive it with `?` substituted and die on `InvalidPathException`
  *  before Minecraft starts.
