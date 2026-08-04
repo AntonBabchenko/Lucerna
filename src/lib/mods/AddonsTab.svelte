@@ -101,15 +101,22 @@
   // Add-ons never surface the "plugin" ContentKind (plugins install to
   // servers, not client instances — see servers/mods/ServerModBrowser +
   // Task 16's plugin browser), so these maps exclude it explicitly.
+  // The datapack entries are INERT in this slice: CONTENT_KINDS still lists
+  // three kinds, so nothing renders them yet. They exist because these two
+  // Records are exhaustive over InstanceContentKind by design — the compile
+  // error on a missing key is the omission guard — and the datapack kind
+  // switch lands in the next slice-2 PR.
   const kindLabels: Record<InstanceContentKind, TranslationKey> = {
     mod: 'addons.kindMods',
     resource_pack: 'addons.kindResourcePacks',
     shader: 'addons.kindShaders',
+    datapack: 'addons.kindDatapacks',
   };
   const kindIcons: Record<InstanceContentKind, IconName> = {
     mod: 'blocks',
     resource_pack: 'resourcePack',
     shader: 'shader',
+    datapack: 'world',
   };
   const kindOptions = $derived(
     CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]), icon: kindIcons[k] })),

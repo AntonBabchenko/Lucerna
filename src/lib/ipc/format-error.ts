@@ -194,6 +194,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // `datapackRejectionKey` below for why the reason is a typed lookup rather
   // than a raw string.
   datapack_invalid: 'clean',
+  // Structured fields only (filename + two sizes) — nothing to truncate.
+  datapack_too_large: 'clean',
   // In-game mod localization — the override editor. All three are built
   // entirely from structured fields; nothing to truncate or hide.
   l10n_translation_invalid: 'clean',
@@ -630,6 +632,15 @@ export function formatError(e: IpcError): string {
       return translate('errors.datapackInvalid', {
         filename: e.filename,
         reason: translate(datapackRejectionKey(e.reason)),
+      });
+    case 'datapack_too_large':
+      // Whole megabytes: the cap is 256 MB, so sub-MB precision is noise. ICU
+      // number args must be actual numbers, and the bindings type the sizes as
+      // nullable — 0 is an honest "unknown" the sentence still survives.
+      return translate('errors.datapackTooLarge', {
+        filename: e.filename,
+        sizeMb: Math.ceil((e.size_bytes ?? 0) / (1024 * 1024)),
+        limitMb: Math.floor((e.limit_bytes ?? 0) / (1024 * 1024)),
       });
     case 'l10n_translation_invalid':
       return translate('errors.l10nTranslationInvalid', {

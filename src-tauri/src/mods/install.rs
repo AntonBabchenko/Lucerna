@@ -492,6 +492,17 @@ fn asset_dir(kind: crate::mods::platform::ContentKind) -> &'static str {
         // runtime/plugins/ (servers_runtime plugin fs module), never under
         // a client instance's .minecraft/.
         Plugin => "plugins",
+        // Unreachable for the same reason, and more strongly: a datapack has
+        // NO directory under `.minecraft/` at all. Its library is
+        // `<instance>/datapacks/` and its real home is
+        // `saves/<world>/datapacks/`. Note this is unreachable by CONVENTION,
+        // not by construction — `asset_subpath` and `safe_asset_remove_path`
+        // are both `pub` over an unconstrained ContentKind, and the l10n
+        // callers bypass `require_asset_kind` entirely with a hardcoded
+        // ResourcePack. The convention is held by
+        // `assets::tests::require_asset_kind_rejects_datapack`; do not drop
+        // that test on the strength of this comment.
+        Datapack => "datapacks",
     }
 }
 

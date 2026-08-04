@@ -875,6 +875,7 @@
     "kindMods": "Моды",
     "kindResourcePacks": "Ресурс-паки",
     "kindShaders": "Шейдеры",
+    "kindDatapacks": "Датапаки",
     "kindSwitchAria": "Тип контента",
     "subTabsLabel": "Разделы дополнений",
     "dropzoneResourcePack": "Перетащите .zip ресурспака сюда для установки — или нажмите для выбора",
@@ -2079,6 +2080,7 @@
       "isAResourcePack": "Похоже, это ресурспак — вместо папки data в нём есть папка assets.",
       "notAPack": "В архиве нет pack.mcmeta или папки data."
     },
+    "datapackTooLarge": "«{filename}» весит {sizeMb} МБ — больше лимита {limitMb} МБ для датапака.",
     "l10nTranslationInvalid": "«{key}» — недопустимый перевод: {reason}",
     "l10nTranslationInvalidReason": {
       "unsupportedSpecifier": "Minecraft поддерживает только %s и %% (не %{specifier}).",

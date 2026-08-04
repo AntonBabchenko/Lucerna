@@ -1,6 +1,7 @@
 //! Per-instance installed-datapacks registry.
 //!
-//! File: `{instance}/lucerna/installed-datapacks.json`. Schema v1.
+//! File: `{instance}/lucerna/installed-datapacks.json`. Schema v2 —
+//! v1 → v2 added `version_number`; see [`migrate`].
 //!
 //! On every read the registry is reconciled against the real contents of
 //! `{instance}/datapacks/`, so hand-dropped and hand-deleted files settle
@@ -24,7 +25,7 @@ use tokio::fs;
 use crate::datapacks::{library_dir_at, registry_path_at, InstalledDatapack};
 use crate::error::{Error, Result};
 
-const FILE_VERSION: u32 = 1;
+const FILE_VERSION: u32 = 2;
 
 /// Serializes every read-modify-write of the registry file: `list`'s
 /// reconcile-then-persist and `add`/`remove`'s own read-modify-write can
@@ -183,6 +184,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
             source: None,
             project_id: None,
             version_id: None,
+            version_number: None,
             installed_at: chrono::Utc::now().to_rfc3339(),
         });
         changed = true;
@@ -234,8 +236,14 @@ pub async fn remove(instance_root: &Path, filename: &str) -> Result<()> {
     write(instance_root, &state).await
 }
 
-/// No migrations exist yet; the ladder is here so the first schema change is a
-/// three-line edit rather than a redesign.
+/// v1 → v2: `version_number` was added to `InstalledDatapack` with
+/// `#[serde(default)]`. No field backfill happens — or could: by the time this
+/// runs, `read_or_empty` has already deserialized into the new shape and serde
+/// has supplied the `None`. Bumping the version only STAMPS the upgrade, the
+/// same shape `mods::installed`'s v3 → v4 uses.
+///
+/// Anything that genuinely needs to rewrite rows goes here as a `match` on the
+/// old version before the bump.
 fn migrate(state: &mut OnDisk) -> bool {
     if state.version >= FILE_VERSION {
         return false;
@@ -258,6 +266,7 @@ mod tests {
             source: None,
             project_id: None,
             version_id: None,
+            version_number: None,
             installed_at: "2026-07-31T00:00:00Z".into(),
         }
     }
@@ -332,8 +341,48 @@ mod tests {
         add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
         let raw = std::fs::read_to_string(crate::datapacks::registry_path_at(td.path())).unwrap();
         // A missing `version` key would default to CURRENT on read, so a file
-        // written without it could never be migrated later.
-        assert!(raw.contains("\"version\": 1"));
+        // written without it could never be migrated later. Pinned to the
+        // literal current version on purpose: this test is what makes a
+        // FILE_VERSION bump visible rather than silent.
+        assert!(raw.contains("\"version\": 2"), "raw was: {raw}");
+    }
+
+    #[tokio::test]
+    async fn a_v1_file_upgrades_to_v2_and_keeps_its_row() {
+        // Asserting only on the version number would pass straight THROUGH the
+        // wipe path: `read_or_empty` is `from_slice(..).unwrap_or(<empty>)`, so
+        // a shape it cannot satisfy silently discards every row and reconcile
+        // re-adopts the files with `source`/`project_id`/`version_id` all
+        // `None` — the loss this module's own doc calls "gone for good", and
+        // which now includes the catalog provenance slice 2 adds. The surviving
+        // ROW is the assertion that matters.
+        let td = tempfile::tempdir().unwrap();
+        let lucerna = td.path().join("lucerna");
+        std::fs::create_dir_all(&lucerna).unwrap();
+        std::fs::write(
+            lucerna.join("installed-datapacks.json"),
+            r#"{"version":1,"datapacks":[{"filename":"vm.zip","sha1":"abc","size_bytes":10.0,
+                "pack_format":48,"name":"Vein Miner","source":"modrinth","project_id":"p1",
+                "version_id":"v1","installed_at":"2026-01-01T00:00:00Z"}]}"#,
+        )
+        .unwrap();
+        // The library file must exist or `reconcile` drops the row before the
+        // migration is even observable.
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), b"x").unwrap();
+
+        let listed = list(td.path()).await.unwrap();
+
+        assert_eq!(listed.len(), 1, "the v1 row must survive the upgrade");
+        assert_eq!(listed[0].project_id.as_deref(), Some("p1"));
+        assert_eq!(listed[0].version_id.as_deref(), Some("v1"));
+        assert_eq!(
+            listed[0].version_number, None,
+            "absent in v1; serde supplies the None, migrate cannot backfill"
+        );
+        let raw = std::fs::read_to_string(lucerna.join("installed-datapacks.json")).unwrap();
+        assert!(raw.contains("\"version\": 2"), "raw was: {raw}");
     }
 
     #[tokio::test]

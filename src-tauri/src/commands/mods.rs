@@ -168,6 +168,23 @@ pub async fn mods_plugin_versions(
         .await
 }
 
+/// Every datapack build of `project_id`, newest-first — the datapack twin of
+/// [`mods_plugin_versions`]. A separate command for the same reason that one
+/// exists: [`mods_versions`] types its loader as `Option<LoaderKind>`, which
+/// cannot carry the raw `datapack` slug — and the unfiltered listing is
+/// exactly the call that returns a mod jar for a hybrid project.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_datapack_versions(
+    source: ModSource,
+    project_id: String,
+    mc_version: Option<String>,
+) -> crate::error::Result<Vec<ModVersion>> {
+    platform_for(source)
+        .datapack_versions(&project_id, mc_version.as_deref())
+        .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_resolve_deps(

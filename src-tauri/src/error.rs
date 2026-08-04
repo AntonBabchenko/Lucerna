@@ -552,6 +552,17 @@ pub enum Error {
         reason: DatapackRejection,
     },
 
+    /// A datapack exceeded the buffering cap. Classification and hashing both
+    /// hold the whole pack in memory, so an unbounded pack on the catalog's
+    /// automated download path is a stall, not a slow click. Sizes are `f64`
+    /// to match the rest of the datapack surface (specta has no u64).
+    #[error("{filename} is {size_bytes} bytes, over the {limit_bytes} byte limit")]
+    DatapackTooLarge {
+        filename: String,
+        size_bytes: f64,
+        limit_bytes: f64,
+    },
+
     /// A translation the user typed failed Minecraft's `%s`/`%N$s` format
     /// grammar and was refused before it ever reached the override store.
     /// `reason` is typed, not a message — mirrors `DatapackInvalid`'s reason

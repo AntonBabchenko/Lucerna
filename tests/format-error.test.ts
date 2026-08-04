@@ -465,6 +465,12 @@ describe('formatError', () => {
         filename: 'MyPack.rar',
         reason: 'not_a_zip',
       },
+      datapack_too_large: {
+        kind: 'datapack_too_large',
+        filename: 'huge.zip',
+        size_bytes: 300 * 1024 * 1024,
+        limit_bytes: 256 * 1024 * 1024,
+      },
       // `reason` is a nested tagged enum (`FormatError`), the first exported
       // type in this crate to carry another exported tagged enum as a field.
       // The sample uses the specifier the validator exists to catch: `%d` is
