@@ -153,12 +153,14 @@ describe('MainTabs are not .btn-*', () => {
 // ── ModBrowserTab ─────────────────────────────────────────────────────────────
 
 describe('Mod browser tabs are not .btn-*', () => {
-  it('the content-kind switch (3) and sub-tabs (2) all use underlined-tab style, not .btn-*', () => {
+  it('the content-kind switch (4) and sub-tabs (2) all use underlined-tab style, not .btn-*', () => {
     render(ModBrowserTab, { props: { instanceId: null, mcVersion: null, loader: null } });
 
-    // 3 content-kind tabs (Mods/Resource packs/Shaders) + 2 sub-tabs (Browse/Installed).
+    // 4 content-kind tabs (Mods/Resource packs/Shaders/Data packs — no
+    // instance selected ⟹ the 1.13 gate stays open) + 2 sub-tabs
+    // (Browse/Installed).
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
     for (const tab of tabs) {
       assertNotBtnVariant(tab);
     }
