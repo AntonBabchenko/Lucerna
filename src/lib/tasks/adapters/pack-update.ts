@@ -71,19 +71,22 @@ export async function applyModpackUpdate(
   newVersionId: string,
 ): Promise<UpdateOutcome> {
   const id = `pack-update-${crypto.randomUUID()}`;
-  start({
-    id,
-    kind: 'pack-update',
-    scope: { instanceId },
-    title: name,
-    phase: null,
-    progress: null,
-    lane: 'serial',
-  });
-
   let display = emptyProgressDisplay();
 
   try {
+    // Gate: a second serial task queues here and this call does not
+    // proceed to `runUpdate` until the registry promotes it — see
+    // `registry.svelte.ts`'s `start()` doc comment.
+    await start({
+      id,
+      kind: 'pack-update',
+      scope: { instanceId },
+      title: name,
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+
     const outcome = await runUpdate(instanceId, tempPath, newVersionId, (phase, bytes) => {
       const { phase: taskPhase, progress } = translateProgress(phase, bytes);
       let rate = null;

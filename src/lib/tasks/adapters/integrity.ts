@@ -97,17 +97,22 @@ async function runIntegrityCall(
   call: () => ReturnType<typeof commands.verifyInstance>,
 ): Promise<IntegrityOutcome> {
   const id = `${kind}-${crypto.randomUUID()}`;
-  start({
-    id,
-    kind,
-    scope: { instanceId },
-    title: name,
-    phase: null,
-    progress: null,
-    lane: 'serial',
-  });
 
   try {
+    // Gate: a second serial task queues here and this call does not
+    // proceed to attach the progress listener or invoke `call` until the
+    // registry promotes it — see `registry.svelte.ts`'s `start()` doc
+    // comment.
+    await start({
+      id,
+      kind,
+      scope: { instanceId },
+      title: name,
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+
     const r = await withVerifyProgress(id, instanceId, call);
     if (r.status === 'ok') {
       finish(id, { state: 'ok' });

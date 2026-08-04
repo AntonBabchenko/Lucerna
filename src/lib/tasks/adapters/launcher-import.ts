@@ -24,17 +24,21 @@ export async function importLauncherInstance(
   request: LauncherImportRequest,
 ): Promise<LauncherImportOutcome> {
   const id = `launcher-import-${crypto.randomUUID()}`;
-  start({
-    id,
-    kind: 'launcher-import',
-    scope: {},
-    title: name,
-    phase: null,
-    progress: null,
-    lane: 'serial',
-  });
 
   try {
+    // Gate: a second serial task queues here and this call does not
+    // proceed to `runLauncherImport` until the registry promotes it — see
+    // `registry.svelte.ts`'s `start()` doc comment.
+    await start({
+      id,
+      kind: 'launcher-import',
+      scope: {},
+      title: name,
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+
     const outcome = await runLauncherImport(request, (phase) => {
       if (phase === null) {
         upsertProgress(id, { phase: null, progress: null });

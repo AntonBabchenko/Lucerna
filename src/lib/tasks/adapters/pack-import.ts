@@ -63,19 +63,22 @@ export async function importModpack(
   request: ModpackImportRequest,
 ): Promise<ImportOutcome> {
   const id = `pack-import-${crypto.randomUUID()}`;
-  start({
-    id,
-    kind: 'pack-import',
-    scope: {},
-    title: name,
-    phase: null,
-    progress: null,
-    lane: 'serial',
-  });
-
   let display = emptyProgressDisplay();
 
   try {
+    // Gate: a second serial task queues here and this call does not
+    // proceed to `runImport` until the registry promotes it — see
+    // `registry.svelte.ts`'s `start()` doc comment.
+    await start({
+      id,
+      kind: 'pack-import',
+      scope: {},
+      title: name,
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+
     const outcome = await runImport(request, (phase, bytes) => {
       const { phase: taskPhase, progress } = translateProgress(phase, bytes);
       let rate = null;

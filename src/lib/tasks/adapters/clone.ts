@@ -20,17 +20,21 @@ import { finish, start, upsertProgress } from '../registry.svelte';
  *  lookup) reflect "a clone of this instance is already running". */
 export async function cloneInstance(name: string, request: CloneRequest): Promise<CloneOutcome> {
   const id = `clone-${crypto.randomUUID()}`;
-  start({
-    id,
-    kind: 'clone',
-    scope: { instanceId: request.sourceId },
-    title: name,
-    phase: null,
-    progress: null,
-    lane: 'serial',
-  });
 
   try {
+    // Gate: a second serial task queues here and this call does not
+    // proceed to `runClone` until the registry promotes it — see
+    // `registry.svelte.ts`'s `start()` doc comment.
+    await start({
+      id,
+      kind: 'clone',
+      scope: { instanceId: request.sourceId },
+      title: name,
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+
     const outcome = await runClone(request, (phase) => {
       if (phase === null) {
         upsertProgress(id, { phase: null, progress: null });

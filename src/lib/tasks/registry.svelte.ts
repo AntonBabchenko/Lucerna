@@ -49,6 +49,32 @@ let tasks = $state<Task[]>([]);
 // plain `nextId` counter.
 let finishedOrder: string[] = [];
 
+/** Pending gate resolvers for `queued` `serial` tasks, keyed by id. This is
+ *  what makes `queued` actually hold execution back rather than merely
+ *  describing it: `start()` hands a caller a promise for a `queued` task
+ *  that only settles once the registry itself decides the task may run —
+ *  `finish()` resolves it on promotion, `cancelQueued()` rejects it if the
+ *  task is dropped before that ever happens. A `running` task's gate never
+ *  enters this map at all (`start()` returns an already-resolved promise
+ *  for it directly), so `concurrent`/`modal` tasks — which are never
+ *  `queued` — never touch this bookkeeping. Plain, non-reactive — same
+ *  idiom as `finishedOrder`. */
+const gates = new Map<string, { resolve: () => void; reject: (reason: unknown) => void }>();
+
+/** Rejection reason handed to a serial task's gate promise when
+ *  `cancelQueued` drops it before it is ever promoted to running. Adapters
+ *  that `await start(...)` before invoking their backend command see this
+ *  instead of ever making that call; it lands in their existing
+ *  catch-all, which is a safe no-op on `finish()` (the task is already gone
+ *  from `tasks` by the time the catch runs, so `finish`'s `idx === -1`
+ *  guard makes it inert). */
+export class TaskCancelledError extends Error {
+  constructor(id: string) {
+    super(`task ${id} was cancelled before it started`);
+    this.name = 'TaskCancelledError';
+  }
+}
+
 /** `caps` is derived from `state`/`lane`, never stored independently — so it
  *  can never drift out of sync with the state it describes. Cancelling a
  *  RUNNING operation is out of scope for the whole feature (no backend
@@ -73,16 +99,24 @@ export function isActiveTask(t: Task): boolean {
   return t.state === 'queued' || t.state === 'running';
 }
 
-/** Register a new task.
+/** Register a new task. Returns a gate promise the CALLER must await before
+ *  actually invoking its backend command — that is what makes `queued`
+ *  real: without gating on it, a caller that fires its command regardless
+ *  of the returned state turns the queue into cosmetics (the bug this gate
+ *  exists to close).
  *
  * - `serial` — at most one running at a time; queues behind an
- *   already-running serial task and is promoted in `finish`.
+ *   already-running serial task and is promoted in `finish`. The returned
+ *   promise resolves only on that promotion (or rejects with
+ *   `TaskCancelledError` if `cancelQueued` drops the task first).
  * - `concurrent` — starts running immediately, never queues behind
- *   anything (a game install must never wait behind a modpack import).
+ *   anything (a game install must never wait behind a modpack import). The
+ *   returned promise is already resolved — awaiting it costs a microtask,
+ *   never a wait on another task.
  * - `modal` — starts running immediately; never queues, never cancellable,
- *   never reorderable.
+ *   never reorderable. Same already-resolved gate as `concurrent`.
  */
-export function start(input: StartInput): void {
+export function start(input: StartInput): Promise<void> {
   const blockedBySerial =
     input.lane === 'serial' && tasks.some((t) => t.lane === 'serial' && t.state === 'running');
   const state: TaskState = blockedBySerial ? 'queued' : 'running';
@@ -103,6 +137,22 @@ export function start(input: StartInput): void {
     finishedAt: null,
   };
   tasks = [...tasks, task];
+
+  if (state === 'running') return Promise.resolve();
+
+  const gate = new Promise<void>((resolve, reject) => {
+    gates.set(input.id, { resolve, reject });
+  });
+  // A raw caller of `start()` (a registry-level test, or a future caller
+  // that only cares about the resulting `queued`/`running` state) is under
+  // no obligation to await this promise. Without a handler attached, a
+  // later `cancelQueued` rejecting it would surface as an unhandled
+  // rejection purely because nobody happened to be listening — attaching a
+  // silent no-op catch here does not consume the rejection for anyone else:
+  // an adapter that DOES `await start(...)` still gets its own independent
+  // subscription and sees the real rejection normally.
+  gate.catch(() => {});
+  return gate;
 }
 
 /** Apply a progress tick. Silent no-op for an unknown id — late channel
@@ -142,6 +192,14 @@ export function finish(id: string, patch: FinishPatch): void {
         caps: capsFor('running', promoted.lane),
       };
       next = next.map((t, i) => (i === promoteIdx ? running : t));
+      // Release the promoted task's gate — this is the actual "let it run"
+      // signal its adapter has been awaiting since its own `start()` call.
+      // Runs even when `patch.state` is a failure (this function has no
+      // branch on that): a thrown/failed running task must not wedge the
+      // queue behind it forever, same discipline every adapter's own
+      // catch-all already gives `finish()` itself.
+      gates.get(promoted.id)?.resolve();
+      gates.delete(promoted.id);
     }
   }
   tasks = next;
@@ -156,9 +214,17 @@ export function finish(id: string, patch: FinishPatch): void {
 
 /** Cancel a queued task by id. No-op if `id` is unknown, already running
  *  (cancelling a running operation is out of scope — no backend
- *  cancellation tokens exist), or `modal` (never cancellable). */
+ *  cancellation tokens exist), or `modal` (never cancellable). Also rejects
+ *  the task's pending gate (if any) with `TaskCancelledError`, so a caller
+ *  blocked in `await start(...)` never fires its command and never hangs
+ *  waiting on a promise this registry would otherwise leave dangling. */
 export function cancelQueued(id: string): void {
+  const before = tasks.length;
   tasks = tasks.filter((t) => !(t.id === id && t.caps.cancellable));
+  if (tasks.length === before) return;
+
+  gates.get(id)?.reject(new TaskCancelledError(id));
+  gates.delete(id);
 }
 
 /** Drop every finished (terminal-state) task from the session — the
@@ -208,4 +274,5 @@ export function taskFor(scope: Task['scope']): Task | null {
 export function __resetTasksForTest(): void {
   tasks = [];
   finishedOrder = [];
+  gates.clear();
 }

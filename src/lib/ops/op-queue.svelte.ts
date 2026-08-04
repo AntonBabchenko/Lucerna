@@ -18,12 +18,18 @@
 //  - the two page-level completion ticks +page.svelte's effects latch onto
 //    to refresh the instance list / force a modpack-update sweep.
 //
-// DEFERRED (documented, not silent): the old queue additionally serialized
-// ALL FOUR kinds behind a single cross-kind FIFO — "exactly one op running
-// at a time across all kinds". That is NOT reproduced here. Each call now
-// invokes its adapter immediately, so e.g. a clone of instance A and a
-// verify of instance B can now genuinely run concurrently, where before the
-// second would sit in an explicit queue behind the first. What IS preserved:
+// Cross-kind FIFO serialization — "exactly one SERIAL-lane op running at a
+// time across all kinds" — IS reproduced, but not by this module: the
+// registry's `start()` (`registry.svelte.ts`) hands each serial adapter a
+// gate promise that only settles once the registry itself promotes the
+// task, and every serial adapter (`integrity`, `clone`, `pack-import`,
+// `pack-update`, `launcher-import`) awaits that gate BEFORE invoking its
+// backend command. So a clone of instance A and a verify of instance B
+// genuinely queue behind each other — assets/+libraries/ caches and the
+// network chokepoint they share are serial by design, exactly like the old
+// strictly-serial queue enforced, even though each call here still
+// "invokes its adapter immediately" from this module's own point of view.
+// This module still owns:
 //  - per-instance dedupe for verify/repair/clone, via the registry's
 //    `taskFor(scope)` (an active op — of ANY kind — for that instance blocks
 //    a new one; see IntegritySection.svelte's doc comment for why this is a
@@ -32,9 +38,6 @@
 //    yet at enqueue time, so there is no scope to key on), via a small local
 //    in-flight set keyed the same way the old queue did (foreign root /
 //    import path+source+version).
-// A real fix would have call sites pre-register a placeholder task in the
-// registry and defer invoking the adapter until the registry promotes it —
-// a legitimate follow-up, out of scope for this wiring pass.
 
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';

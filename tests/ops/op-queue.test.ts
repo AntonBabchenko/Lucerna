@@ -109,12 +109,14 @@ describe('op-queue store', () => {
 
     enqueueIntegrity('a', 'Alpha', 'verify');
     // Second click while active — must be ignored. The registry's own
-    // `start()` runs synchronously as part of the first call (no await
-    // happens before it — see `$lib/tasks/adapters/integrity.ts`), so
-    // `taskFor` already sees it by the time this second call's dedupe check
-    // runs in the same synchronous script. The actual `commands.verifyInstance`
-    // call is one microtask further behind that (the adapter awaits the
-    // progress listener first), so it is asserted after a flush, not
+    // `start()` mutates its task list SYNCHRONOUSLY before returning its
+    // gate promise (see `registry.svelte.ts`), so `taskFor` already sees
+    // the first call's task by the time this second call's dedupe check
+    // runs in the same synchronous script — even though the adapter itself
+    // now `await`s that gate (see `$lib/tasks/adapters/integrity.ts`). The
+    // actual `commands.verifyInstance` call is further behind that (one
+    // microtask for the gate to settle, then the adapter awaits the
+    // progress listener), so it is asserted after a flush, not
     // synchronously.
     enqueueIntegrity('a', 'Alpha', 'verify');
 
@@ -126,7 +128,7 @@ describe('op-queue store', () => {
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
-  it('does not serialize different instances — both fire immediately (documented deferral)', async () => {
+  it('serializes different instances behind the shared serial lane', async () => {
     const d1 = deferred<{ status: 'ok'; data: typeof healthyReport }>();
     const d2 = deferred<{ status: 'ok'; data: typeof healthyReport }>();
     (commands.verifyInstance as ReturnType<typeof vi.fn>)
@@ -136,15 +138,19 @@ describe('op-queue store', () => {
     enqueueIntegrity('a', 'Alpha', 'verify');
     enqueueIntegrity('b', 'Bravo', 'verify');
 
-    // Unlike the old strictly-serial queue, a DIFFERENT instance's op is not
-    // held back — both backend calls are in flight at once.
-    await vi.waitFor(() => expect(commands.verifyInstance).toHaveBeenCalledTimes(2));
+    // verify/repair/clone/pack-import/launcher-import/pack-update all share
+    // ONE serial lane by design (assets/+libraries/ caches, one network
+    // chokepoint) — a different instance's op is held back exactly like the
+    // old strictly-serial op-queue.svelte.ts used to hold it back.
+    await vi.waitFor(() => expect(commands.verifyInstance).toHaveBeenCalledTimes(1));
     expect(commands.verifyInstance).toHaveBeenCalledWith('a');
-    expect(commands.verifyInstance).toHaveBeenCalledWith('b');
 
     d1.resolve({ status: 'ok', data: healthyReport });
-    d2.resolve({ status: 'ok', data: healthyReport });
     await d1.promise;
+    await vi.waitFor(() => expect(commands.verifyInstance).toHaveBeenCalledTimes(2));
+    expect(commands.verifyInstance).toHaveBeenCalledWith('b');
+
+    d2.resolve({ status: 'ok', data: healthyReport });
     await d2.promise;
     await vi.waitFor(() => expect(opCompletionTick()).toBe(2));
   });
@@ -225,7 +231,12 @@ describe('op-queue store', () => {
     (commands.modpackImport as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
     enqueueImport('Pack', importReq('/tmp/p.mrpack'));
     enqueueImport('Pack', importReq('/tmp/p.mrpack')); // same path → ignored
-    expect(commands.modpackImport).toHaveBeenCalledTimes(1);
+    // The dedupe check itself (`inFlightImportKeys`) runs synchronously in
+    // `enqueueImport`, so the second call is dropped immediately — but the
+    // first call's actual command now fires one microtask after `start()`
+    // resolves its gate (see registry.svelte.ts's `start()`), so the
+    // resulting call count is asserted after a flush, not synchronously.
+    await vi.waitFor(() => expect(commands.modpackImport).toHaveBeenCalledTimes(1));
     d.resolve({ status: 'ok', data: { name: 'Pack' } });
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
@@ -402,7 +413,10 @@ describe('op-queue store', () => {
       targetName: 'Prism Pack',
     }); // same root → ignored
 
-    expect(commands.launcherImportRun).toHaveBeenCalledTimes(1);
+    // Same reasoning as the import-dedupe test above: the dedupe check is
+    // synchronous, but the surviving call's command now fires one microtask
+    // after `start()`'s gate resolves.
+    await vi.waitFor(() => expect(commands.launcherImportRun).toHaveBeenCalledTimes(1));
     d.resolve({ status: 'ok', data: mockInstanceData });
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
@@ -470,16 +484,25 @@ describe('op-queue store', () => {
     (commands.cloneInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
 
     enqueueClone('Default (copy)', cloneReq('inst-1'));
-    enqueueClone('Default (copy)', cloneReq('inst-1')); // same source → ignored
-    enqueueClone('Other (copy)', cloneReq('inst-2')); // different source → runs too
+    enqueueClone('Default (copy)', cloneReq('inst-1')); // same source → ignored (dedupe)
+    enqueueClone('Other (copy)', cloneReq('inst-2')); // different source → queues (shared serial lane, not a dedupe)
 
-    expect(commands.cloneInstance).toHaveBeenCalledTimes(2);
+    // Only the first (inst-1) clone's command has fired; inst-2's clone is
+    // queued behind it in the serial lane clone shares with verify/repair/
+    // import — see the module doc comment above. Asserted after a flush,
+    // not synchronously: the surviving call's command now fires one
+    // microtask after `start()`'s gate resolves (see registry.svelte.ts).
+    await vi.waitFor(() => expect(commands.cloneInstance).toHaveBeenCalledTimes(1));
     expect(commands.cloneInstance).toHaveBeenCalledWith(
       'inst-1',
       'Default (copy)',
       expect.anything(),
       expect.anything(),
     );
+
+    d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
+    await d.promise;
+    await vi.waitFor(() => expect(commands.cloneInstance).toHaveBeenCalledTimes(2));
     expect(commands.cloneInstance).toHaveBeenCalledWith(
       'inst-2',
       'Default (copy)',
@@ -487,7 +510,6 @@ describe('op-queue store', () => {
       expect.anything(),
     );
 
-    d.resolve({ status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } });
     await vi.waitFor(() => expect(opCompletionTick()).toBe(2));
   });
 
