@@ -230,7 +230,12 @@
 
   <div class="mt-2 flex justify-end gap-2">
     {#if phase === 'done' || phase === 'failed'}
-      <button type="button" class="btn-primary btn-sm" data-testid="share-import-close" onclick={onClose}>
+      <button
+        type="button"
+        class="btn-primary btn-sm"
+        data-testid="share-import-close"
+        onclick={onClose}
+      >
         {$t('common.close')}
       </button>
     {:else}

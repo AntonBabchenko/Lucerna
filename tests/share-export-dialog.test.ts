@@ -11,7 +11,11 @@ vi.mock('$lib/ipc/bindings', () => ({ commands: mocks }));
 const saveMock = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: saveMock }));
 
-const toasts = vi.hoisted(() => ({ pushSuccess: vi.fn(), pushWarning: vi.fn(), pushInfo: vi.fn() }));
+const toasts = vi.hoisted(() => ({
+  pushSuccess: vi.fn(),
+  pushWarning: vi.fn(),
+  pushInfo: vi.fn(),
+}));
 vi.mock('$lib/toasts/toasts.svelte', () => toasts);
 
 beforeEach(() => {
