@@ -1706,7 +1706,11 @@ pub async fn mods_update_one(
 }
 
 /// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-/// compatibility against the target instance. No filesystem writes.
+/// compatibility against the target instance.
+///
+/// Not write-free despite the name: the Connector probe below goes through
+/// `installed::list`, which reconciles the registry against the mods folder and
+/// persists when that changes. No *mod* file is touched.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_inspect_local(
@@ -1715,6 +1719,7 @@ pub async fn mods_inspect_local(
     jar_path: String,
 ) -> crate::error::Result<crate::mods::local::CompatVerdict> {
     let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let root = instance_root(&app, &instance_id)?;
     let bytes =
         tokio::fs::read(&jar_path)
             .await
@@ -1723,10 +1728,15 @@ pub async fn mods_inspect_local(
                 details: format!("{} ({})", e, e.kind()),
             })?;
     let meta = crate::mods::local::read_jar_meta(&bytes)?;
+    // The drop dialog must make the same judgement the Installed tab does: on a
+    // Sinytra Connector profile, warning "this Fabric jar won't load" about a
+    // jar Connector will happily remap is the same false alarm, one step earlier.
+    let connector = crate::mods::local::instance_has_connector(&root).await;
     Ok(crate::mods::local::compat_verdict(
         &meta,
         inst.loader,
         &inst.mc_version,
+        connector,
     ))
 }
 
@@ -2402,8 +2412,11 @@ pub async fn instance_dependency_preflight(
     instance_id: String,
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
-    let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
-    crate::mods::preflight::dependency_preflight_for_root(&root, loader).await
+    // The MC version decides which descriptor the loader opens — Forge 1.12.2
+    // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    crate::mods::preflight::dependency_preflight_for_root(&root, inst.loader, &inst.mc_version)
+        .await
 }
 
 #[cfg(test)]

@@ -15,7 +15,24 @@
 #[specta::specta]
 pub fn take_pending_intent(app: tauri::AppHandle) -> Option<crate::cli::LaunchIntent> {
     use tauri::Manager;
-    app.state::<crate::cli::PendingIntent>().take()
+    let intent = app.state::<crate::cli::PendingIntent>().take()?;
+    // A shortcut's `--launch` token is a `uid` (rename-proof); older shortcuts
+    // and the frontend's own calls use the directory name. Resolve either to the
+    // CURRENT directory name here, so everything downstream keeps speaking one
+    // language. An unresolvable token is passed through untouched: the launch
+    // command then reports `InstanceNotFound` for it, which is the honest
+    // outcome — far better than the old behaviour of silently creating and
+    // launching an empty instance directory.
+    Some(match intent {
+        crate::cli::LaunchIntent::Launch {
+            instance,
+            quick_play,
+        } => crate::cli::LaunchIntent::Launch {
+            instance: crate::instances::resolve_launch_target(&app, &instance).unwrap_or(instance),
+            quick_play,
+        },
+        other => other,
+    })
 }
 
 /// Registry key the scheme registration writes, so the Settings row can show the

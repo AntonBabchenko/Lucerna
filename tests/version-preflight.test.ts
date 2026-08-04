@@ -196,7 +196,8 @@ const satisfiedNode: DepTreeNode = {
   source: 'modrinth',
   project_id: 'core-id',
   name: 'Sophisticated Core',
-  status: 'satisfied',
+  installed: true,
+  declared: 'required',
   cycle: false,
   children: [],
 };

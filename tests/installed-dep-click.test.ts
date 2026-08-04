@@ -12,7 +12,8 @@ const installedNode: DepTreeNode = {
   source: 'modrinth',
   project_id: 'PB',
   name: 'Bravo',
-  status: 'satisfied',
+  installed: true,
+  declared: 'required',
   cycle: false,
   children: [],
 };

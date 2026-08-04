@@ -177,6 +177,10 @@ pub(crate) fn classify_inert_loader_jars(
     let Ok(entries) = std::fs::read_dir(mods_dir) else {
         return Vec::new();
     };
+    // Same exception the live compat scan makes: with Sinytra Connector present
+    // a Fabric jar on a Forge-family instance is loaded, not inert, so listing
+    // it under "files that won't load" would be wrong here too.
+    let connector = dir_has_connector(mods_dir);
     let mut out: Vec<InertLoaderJar> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -196,7 +200,8 @@ pub(crate) fn classify_inert_loader_jars(
         let Ok(meta) = crate::mods::local::read_jar_meta(&bytes) else {
             continue;
         };
-        let verdict = crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc);
+        let verdict =
+            crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc, connector);
         if verdict.loader_mismatch {
             out.push(InertLoaderJar {
                 filename,
@@ -208,6 +213,32 @@ pub(crate) fn classify_inert_loader_jars(
         }
     }
     dedupe_inert(out)
+}
+
+/// Sync twin of `local::connector_installed` for the raw-directory scan: this
+/// path runs before (or without) a mod registry, so it filters candidates by
+/// filename alone and proves them by descriptor.
+fn dir_has_connector(mods_dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(mods_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jar") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // No registry here, so there is no display name to match on.
+        if !crate::mods::local::looks_like_connector(name, "") {
+            continue;
+        }
+        if std::fs::read(&path).is_ok_and(|b| crate::mods::local::jar_is_connector(&b)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Collapse duplicate `InertLoaderJar` entries by filename, keeping first seen.
@@ -987,6 +1018,7 @@ pub async fn install_resolved_pack(
                     PackMeta {
                         name: cf_name,
                         description: cf_summary,
+                        slug: None,
                     },
                     parser_source,
                 )
@@ -1008,6 +1040,7 @@ pub async fn install_resolved_pack(
     let PackMeta {
         name: platform_name,
         description: mrpack_summary,
+        slug: pack_slug,
     } = pack_meta;
     let pack_name = resolve_pack_name(platform_name.as_deref(), &summary.name);
 
@@ -1030,11 +1063,14 @@ pub async fn install_resolved_pack(
         summary.loader,
         summary.loader_version.clone(),
         None, // heap: adaptive default, editable afterwards in Manage
-        Some((pack_name.clone(), summary.version.clone())),
-        mrpack_project_id,
-        mrpack_source,
-        mrpack_summary,
-        hint_version_id,
+        crate::instances::schema::PackOrigin {
+            name_and_version: Some((pack_name.clone(), summary.version.clone())),
+            project_id: mrpack_project_id,
+            source: mrpack_source,
+            summary: mrpack_summary,
+            version_id: hint_version_id,
+            slug: pack_slug,
+        },
         None,
         None,
     )
@@ -1296,6 +1332,15 @@ pub async fn import(
 struct PackMeta {
     name: Option<String>,
     description: Option<String>,
+    /// The platform's URL slug (`redstone-survival-optimization`). ASCII by
+    /// construction, which is why `naming::derive_base` prefers it over
+    /// transliterating a CJK/Cyrillic pack title. Transient — used to pick the
+    /// directory name at create time and never persisted.
+    ///
+    /// Modrinth only: CurseForge's `cf_api::fetch_summary` returns just
+    /// `(name, summary)`, so CF packs fall through to transliteration. A
+    /// readability gap, never a correctness one.
+    slug: Option<String>,
 }
 
 /// Modrinth `version_id` → `(project_id, PackMeta)`. Two hops:
@@ -1342,6 +1387,8 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     struct P {
         title: Option<String>,
         description: Option<String>,
+        /// Already in this response — reading it costs no extra request.
+        slug: Option<String>,
     }
 
     let p_url = format!("https://api.modrinth.com/v2/project/{project_id}");
@@ -1362,6 +1409,7 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     Ok(PackMeta {
         name: p.title,
         description: p.description,
+        slug: p.slug,
     })
 }
 

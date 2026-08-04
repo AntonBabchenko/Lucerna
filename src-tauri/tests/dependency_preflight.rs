@@ -29,6 +29,21 @@ fn make_jar(entries: &[(&str, &str)]) -> Vec<u8> {
     buf
 }
 
+/// Build an in-memory `.jar` whose entries are raw bytes — a `.class` file's
+/// constant pool is not UTF-8.
+fn make_jar_raw(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    {
+        let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+        for (name, body) in entries {
+            w.start_file(*name, SimpleFileOptions::default()).unwrap();
+            w.write_all(body).unwrap();
+        }
+        w.finish().unwrap();
+    }
+    buf
+}
+
 /// Register a jar bytes slice in the instance's installed-mods registry and
 /// write the jar to the `mods/` directory. Returns the hex SHA-1.
 async fn register(instance_root: &std::path::Path, filename: &str, bytes: &[u8]) -> String {
@@ -105,7 +120,7 @@ version=\"1.3.50.2005\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.50.2005.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
 
@@ -165,7 +180,7 @@ version=\"1.3.55\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.55.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(
@@ -199,7 +214,7 @@ version=\"3.20\"
     let jar = make_jar(&[("META-INF/mods.toml", toml)]);
     register(root, "backpacks-3.20.jar", &jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -262,7 +277,7 @@ version=\"3.20\"
     .await
     .unwrap();
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge)
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(
@@ -276,8 +291,72 @@ version=\"3.20\"
 #[tokio::test]
 async fn empty_instance_produces_no_violations() {
     let td = TempDir::new().unwrap();
-    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge)
+    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge, "1.20.1")
         .await
         .unwrap();
     assert!(report.violations.is_empty());
+}
+
+/// The measured Parasites: Reloaded shape, byte-for-byte in structure.
+///
+/// `EnhancedVisuals_v1.4.4_mc1.12.2.jar` ships BOTH `mcmod.info` (which declares
+/// no dependency) and a `META-INF/mods.toml` stamped `loaderVersion="[24,)"` —
+/// a descriptor written for its 1.14+ build that Forge 1.12.2 never opens. The
+/// requirement FML actually enforces lives in the `@Mod(dependencies = …)`
+/// annotation and carries no range. `CreativeCore_v1.10.71_mc1.12.2.jar` ships
+/// only `mcmod.info`, at version `1.10`.
+///
+/// Before this change the pre-flight read the wrong file and reported
+/// `EnhancedVisuals … needs creativecore`, which gated Play on a pack that runs.
+#[tokio::test]
+async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+
+    let ev = make_jar_raw(&[
+        (
+            "mcmod.info",
+            br#"[{"modid":"enhancedvisuals","version":"1.3","dependencies":[]}]"# as &[u8],
+        ),
+        (
+            "META-INF/mods.toml",
+            b"modLoader=\"javafml\"\nloaderVersion=\"[24,)\"\n[[mods]]\nmodId=\"enhancedvisuals\"\n\
+              [[dependencies.enhancedvisuals]]\nmodId=\"creativecore\"\nmandatory=true\n\
+              versionRange=\"[2.0.0,)\"\n" as &[u8],
+        ),
+        (
+            "team/creative/EV.class",
+            b"\x00\x0fenhancedvisuals\x00\x1brequired-after:creativecore\x00" as &[u8],
+        ),
+    ]);
+    register(root, "EnhancedVisuals_v1.4.4_mc1.12.2.jar", &ev).await;
+
+    let cc = make_jar_raw(&[(
+        "mcmod.info",
+        br#"[{"modid":"creativecore","name":"CreativeCore","version":"1.10"}]"# as &[u8],
+    )]);
+    register(root, "CreativeCore_v1.10.71_mc1.12.2.jar", &cc).await;
+
+    let legacy = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2")
+        .await
+        .unwrap();
+    assert!(
+        legacy.violations.is_empty(),
+        "1.12.2 must read the annotation (no range) and see CreativeCore via mcmod.info, \
+         not the 1.14+ mods.toml range: {:?}",
+        legacy.violations
+    );
+
+    // The very same jars on a modern instance take the mods.toml path, where
+    // 1.10 really is outside [2.0.0,). Pinned so the era predicate cannot be
+    // satisfied by simply dropping mods.toml everywhere.
+    let modern = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
+        .await
+        .unwrap();
+    assert_eq!(modern.violations.len(), 1, "{:?}", modern.violations);
+    assert!(
+        matches!(modern.violations[0].kind, ViolationKind::VersionOutOfRange),
+        "expected VersionOutOfRange, got {:?}",
+        modern.violations[0].kind
+    );
 }

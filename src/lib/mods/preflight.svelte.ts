@@ -199,16 +199,35 @@ export async function installMissing(
 // ---------------------------------------------------------------------------
 
 /**
- * Decide what the launch flow should do given the raw result of
- * `instanceDependencyPreflight`. Returns:
- * - `'gate'`   — block launch and show the gate dialog (blocking violations found)
- * - `'launch'` — proceed with launch immediately (no violations, or check failed)
+ * What the launch flow should do given the raw result of
+ * `instanceDependencyPreflight`.
+ *
+ * Three states, not two. A check that could not run and a check that passed
+ * are different facts, and collapsing them is how a detector comes to claim
+ * "no problems" when it never ran. `unknown` still launches — a failed
+ * check must never block the game (maintainer decision, 2026-08-03) — but the
+ * caller now has to handle it explicitly, which is what makes it surfaceable.
+ */
+export type LaunchDecision =
+  | { kind: 'launch' }
+  | { kind: 'gate'; report: PreflightReport }
+  | { kind: 'unknown'; error: unknown };
+
+/**
+ * Decide what the launch flow should do:
+ * - `gate`    — blocking violations found; show the gate dialog.
+ * - `launch`  — checked, nothing blocking.
+ * - `unknown` — the check itself failed. Proceed, but say so.
  */
 export function decideLaunch(
   preflightResult: { status: 'ok'; data: PreflightReport } | { status: 'error'; error: unknown },
-): 'gate' | 'launch' {
-  if (preflightResult.status !== 'ok') return 'launch'; // fail-open
-  return hasBlocking(preflightResult.data) ? 'gate' : 'launch';
+): LaunchDecision {
+  if (preflightResult.status !== 'ok') {
+    return { kind: 'unknown', error: preflightResult.error };
+  }
+  return hasBlocking(preflightResult.data)
+    ? { kind: 'gate', report: preflightResult.data }
+    : { kind: 'launch' };
 }
 
 // ---------------------------------------------------------------------------

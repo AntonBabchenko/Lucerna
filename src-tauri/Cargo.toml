@@ -63,6 +63,12 @@ tokio = { version = "1.52.3", features = ["fs", "io-util", "net", "process", "rt
 # url 2.5: RFC 3986 URL parsing for the host-allowlist check on mrpack downloads[]
 url = "2.5"
 uuid = { version = "1.23.1", features = ["v4"] }
+# Offline ASCII transliteration for instance/server directory names (Rust port
+# of Text::Unidecode). Pure lookup tables, no transitive deps, no network. The
+# alternative was a translation API call on the instance-create path, which both
+# offline-first play and the no-hidden-network-calls rule forbid. See
+# `naming::derive_base`. cargo-deny justification recorded in the PR description.
+deunicode = "1"
 # md5 verification of ATLauncher-supplied mod digests (RustCrypto `Digest`,
 # same trait family as `sha1`). Integrity-matching only — never a security decision.
 md-5 = "0.11.0"
@@ -114,10 +120,12 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 russh = { version = "0.61.2", default-features = false, features = ["aws-lc-rs", "flate2"] }
 russh-sftp = "2.3.0"
 # Screenshot viewer: decode PNG + downscale to cached JPEG thumbnails/previews
-# (thumb::render_data_url). default-features=false keeps only PNG decode + JPEG
-# encode — the only formats we touch — to minimise the transitive dep surface.
+# (thumb::render_data_url). Desktop shortcuts: encode an instance's picture as a
+# multi-size ICO (shortcuts::icon). default-features=false keeps only PNG decode,
+# JPEG encode and ICO — the only formats we touch — to minimise the transitive
+# dep surface. `ico = ["bmp", "png"]`, both internal, so it adds no new crate.
 # cargo-deny justification: MIT/Apache-2.0; pure-Rust codecs, no system libs.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 # Screenshot viewer: move deleted screenshots to the OS recycle bin (reversible)
 # instead of unlink. cargo-deny justification: `trash` is MIT/Apache-2.0; on
 # Windows it uses the already-present windows-sys shell APIs — no new license class.
@@ -127,8 +135,14 @@ trash = "5"
 # created its window before we hide the launcher to the tray. Used from
 # `platform::wait_for_window_ready` (cfg(windows)); the crate is absent on
 # the Linux/macOS builds so the lib compiles there too.
+#
+# `Win32_Globalization` (GetACP + WideCharToMultiByte) backs
+# `platform::path_launchable`: the Windows JVM launcher decodes argv through the
+# system ANSI code page, so we ask Windows itself whether an instance path
+# survives that conversion instead of guessing. Feature flag on a crate already
+# in the tree — no new dependency and no new license class.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_Globalization"] }
 # Windows `.lnk` writing for desktop launch shortcuts (`shortcuts::create`).
 # Pure Rust, in-process. The alternatives were hand-written IShellLink COM
 # vtable calls through windows-sys (raw bindings make COM painful, and the

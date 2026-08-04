@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
+    previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
     setInstanceIcon: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     clearInstanceIcon: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },

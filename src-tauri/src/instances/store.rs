@@ -14,8 +14,25 @@ use std::path::Path;
 pub fn read_instance_json(path: &Path) -> Result<InstanceFile> {
     let raw =
         std::fs::read_to_string(path).map_err(|e| Error::io(path.display().to_string(), e))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
+    let mut file: InstanceFile = serde_json::from_str(&raw)
+        .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))?;
+    // The DIRECTORY NAME is the id; the `id` field on disk is vestigial and
+    // ignored on read. Deriving it here — the single read chokepoint — makes
+    // divergence structurally impossible for `scan::list_all` and every direct
+    // reader alike, so a folder renamed outside the launcher keeps working
+    // instead of becoming a zombie that relaunches empty and refuses to delete.
+    //
+    // Every caller passes `<instances>/<id>/instance.json`. If the parent name is
+    // ever unreadable as UTF-8 we keep the deserialised value, degrading to the
+    // previous behaviour rather than producing an empty id.
+    if let Some(dir_name) = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+    {
+        file.id = dir_name.to_string();
+    }
+    Ok(file)
 }
 
 pub fn write_instance_json(path: &Path, value: &InstanceFile) -> Result<()> {
@@ -59,6 +76,7 @@ mod tests {
     fn sample_instance() -> InstanceFile {
         InstanceFile {
             id: "3f4a-bbbb".into(),
+            uid: None,
             name: "Default".into(),
             mc_version: "1.20.4".into(),
             loader: LoaderKind::Vanilla,
@@ -88,6 +106,25 @@ mod tests {
         write_instance_json(&path, &value).unwrap();
         let back = read_instance_json(&path).unwrap();
         assert_eq!(value, back);
+    }
+
+    #[test]
+    fn read_derives_id_from_the_directory_not_the_json() {
+        // Regression test for the zombie-instance class. Before this, renaming an
+        // instance folder in Explorer left an instance that still listed, launched
+        // into an EMPTY recreated directory (losing the user's mods and worlds as
+        // far as they could tell), and silently refused to delete.
+        let dir = tempdir().unwrap();
+        let renamed = dir.path().join("Renamed-By-Hand");
+        std::fs::create_dir_all(&renamed).unwrap();
+        let path = renamed.join("instance.json");
+
+        let mut value = sample_instance();
+        value.id = "the-old-name".into();
+        write_instance_json(&path, &value).unwrap();
+
+        let back = read_instance_json(&path).unwrap();
+        assert_eq!(back.id, "Renamed-By-Hand");
     }
 
     #[test]

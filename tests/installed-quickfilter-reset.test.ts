@@ -12,10 +12,11 @@ const listeners = vi.hoisted(() => ({
 }));
 
 // Two installed platform mods: A (sha1 'a', project PA) has a missing required
-// dependency; B (sha1 'b', project PB) stands clean. The graph mock starts with
-// A reporting a `missing_required` child, then is reassigned to report A clean
-// after the (simulated) install. Helpers live in vi.hoisted so they exist
-// before the (also hoisted) vi.mock factory runs.
+// dependency; B (sha1 'b', project PB) stands clean. The PRE-FLIGHT mock starts
+// with a violation on A, then is reassigned to report clean after the
+// (simulated) install — the graph is deliberately not the driver here, because
+// it only knows what the platform was told. Helpers live in vi.hoisted so they
+// exist before the (also hoisted) vi.mock factory runs.
 const { mod, proj } = vi.hoisted(() => ({
   mod: (sha1: string, projectId: string, name: string, requires: string[] = []) => ({
     filename: `${sha1}.jar`,
@@ -50,9 +51,10 @@ const { mod, proj } = vi.hoisted(() => ({
   }),
 }));
 
-// Graph WITH A's missing dep: A is a root whose required child is missing →
-// missingShas = {'a'}, counts.issues = 1. B is a clean root.
-const graphWithMissing = vi.hoisted(() => () => ({
+// The graph carries the relationship (so the row still has its expand chip) but
+// no verdict: the required child is absent, and that on its own must NOT put the
+// row in the Issues filter.
+const graph = vi.hoisted(() => () => ({
   status: 'ok',
   data: {
     roots: [
@@ -64,7 +66,8 @@ const graphWithMissing = vi.hoisted(() => () => ({
             source: 'modrinth',
             project_id: 'PMISSING',
             name: 'Some Lib',
-            status: 'missing_required',
+            installed: false,
+            declared: 'required',
             cycle: false,
             children: [],
           },
@@ -76,19 +79,39 @@ const graphWithMissing = vi.hoisted(() => () => ({
   },
 }));
 
-// Graph WITHOUT the missing dep: both roots clean → missingShas empties.
-const graphResolved = vi.hoisted(() => () => ({
+// The pre-flight reads the descriptor the loader opens — this is what puts A in
+// the Issues filter, and what clearing it takes back out.
+const preflightWithViolation = vi.hoisted(() => () => ({
   status: 'ok',
   data: {
-    roots: [
-      { sha1: 'a', name: 'Alpha', required: [], optional: [] },
-      { sha1: 'b', name: 'Bravo', required: [], optional: [] },
+    violations: [
+      {
+        dependent_sha1: 'a',
+        dependent_name: 'Alpha',
+        dep_id: 'somelib',
+        dep_display_name: null,
+        kind: 'missing_required',
+        installed_version: null,
+        needed: '',
+        needed_desc: {
+          raw: '',
+          family: 'maven',
+          alternatives: [],
+          unparseable: false,
+          soft: false,
+        },
+        provider_project: null,
+        provider_sha1: null,
+        family: null,
+      },
     ],
   },
 }));
+const preflightClean = vi.hoisted(() => () => ({ status: 'ok', data: { violations: [] } }));
 
 const mocks = vi.hoisted(() => ({
   modsDependencyGraph: vi.fn(),
+  instanceDependencyPreflight: vi.fn(),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -123,9 +146,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       }),
     ),
     modsDependencyGraph: mocks.modsDependencyGraph,
-    instanceDependencyPreflight: vi
-      .fn()
-      .mockResolvedValue({ status: 'ok', data: { violations: [] } }),
+    instanceDependencyPreflight: mocks.instanceDependencyPreflight,
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -160,14 +181,15 @@ import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('quick-filter auto-resets to "all" when its set empties', () => {
   it("clearing the last missing dependency reveals the full list again (doesn't strand an empty filter)", async () => {
-    // Start with A having a missing required dependency.
-    mocks.modsDependencyGraph.mockResolvedValue(graphWithMissing());
+    // Start with A having a missing required dependency the LOADER enforces.
+    mocks.modsDependencyGraph.mockResolvedValue(graph());
+    mocks.instanceDependencyPreflight.mockResolvedValue(preflightWithViolation());
 
     render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
 
-    // Wait for the rows + the async dep-graph load. Once the graph resolves,
+    // Wait for the rows + the async pre-flight load. Once it resolves,
     // counts.issues = 1 and the toolbar's "⚠ Issues (1)" chip renders.
     const issuesChip = await waitFor(() => {
       const btn = [...document.querySelectorAll('button')].find((b) =>
@@ -186,13 +208,15 @@ describe('quick-filter auto-resets to "all" when its set empties', () => {
       expect(document.querySelector('[data-mod-row="modrinth:PB"]')).toBeNull();
     });
 
-    // Simulate the dependency getting fixed: the next graph resolve reports A as
-    // clean, then fire modInstalled (the shell listens → data.refresh() +
-    // debounced deps.reloadGraph() which re-resolves after ~150ms).
-    mocks.modsDependencyGraph.mockResolvedValue(graphResolved());
+    // Simulate the dependency getting fixed: the next pre-flight reports clean,
+    // then fire modInstalled (the shell listens → data.refresh() + debounced
+    // preflight.invalidate() which re-resolves after ~150ms). The GRAPH is left
+    // unchanged on purpose — still claiming an absent required child — so the
+    // reset can only come from the pre-flight.
+    mocks.instanceDependencyPreflight.mockResolvedValue(preflightClean());
     listeners.modInstalled?.();
 
-    // missingShas empties → counts.issues → 0 → the new reactive effect resets
+    // preflightShas empties → counts.issues → 0 → the reactive effect resets
     // quickFilter to 'all'. Both rows reappear (no empty-list dead-end).
     await waitFor(
       () => {

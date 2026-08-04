@@ -37,6 +37,21 @@ pub async fn launch_instance(
     if crate::verify::repair_in_progress() {
         return Err(crate::error::Error::InstanceBusy);
     }
+    // Stop here rather than letting the JVM die on an InvalidPathException. We
+    // pass the game dir and the natives dir as argv, and the Windows JVM
+    // launcher decodes argv through the system ANSI code page — so a path that
+    // code page cannot express reaches java.exe with `?` substituted and the
+    // game never starts. `pre_launch_check` is advisory by design and cannot
+    // block; this is the gate.
+    match crate::instances::path_status(&app, &instance_id)? {
+        crate::instances::PathStatus::Ok => {}
+        crate::instances::PathStatus::InstanceDir => {
+            return Err(crate::error::Error::PathNotLaunchable { data_root: false })
+        }
+        crate::instances::PathStatus::DataRoot => {
+            return Err(crate::error::Error::PathNotLaunchable { data_root: true })
+        }
+    }
     // Boundary-validate the quick-play target (path segment / address) before
     // doing any launch work.
     if let Some(qp) = &quick_play {
@@ -256,11 +271,7 @@ pub fn create_instance(
         loader,
         loader_version,
         max_heap_mb,
-        None,
-        None,
-        None,
-        None,
-        None,
+        crate::instances::schema::PackOrigin::default(),
         None,
         None,
     )
@@ -278,6 +289,61 @@ pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::e
         return Err(crate::error::Error::InstanceBusy);
     }
     crate::instances::delete_instance(&app, &id)
+}
+
+/// Rename an instance's directory. Also the "repair unlaunchable folder name"
+/// action — one operation, the dialog just pre-fills it differently.
+///
+/// Renaming changes the instance's identity, because the directory name IS the
+/// id. Shortcuts survive it: they carry the instance's `uid`, which this
+/// generates first for instances that predate the field.
+#[tauri::command]
+#[specta::specta]
+pub fn rename_instance_dir(
+    app: tauri::AppHandle,
+    id: String,
+    new_name: String,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    // The same two guards `launch_instance` and `delete_instance` use. The op
+    // queue is frontend state and cannot be consulted from here; a mod install
+    // racing this is a known limitation whose worst case is a failed
+    // `fs::rename` with a typed error, not corruption.
+    if crate::launch::spawn::is_running(&id) || crate::verify::repair_in_progress() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    // Before the rename, so shortcuts created afterwards survive the NEXT one.
+    crate::instances::ensure_uid(&app, &id)?;
+
+    let parent = crate::paths::instances_dir(&app)
+        .map_err(|e| crate::error::Error::io("<instances_dir>", e))?;
+    let new_id = crate::instances::rename::rename_dir(&parent, &id, &new_name)?;
+
+    crate::instances::repoint_active_instance(&app, &id, &new_id)?;
+    crate::instances::read_with_status(&app, &new_id)
+}
+
+/// Whether this instance's path can be handed to the JVM, and if not, which
+/// part is at fault. Drives the Manage warning banner, so the user learns
+/// before pressing Play rather than from a Fabric crash window.
+#[tauri::command]
+#[specta::specta]
+pub fn instance_path_status(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<crate::instances::PathStatus, crate::error::Error> {
+    crate::instances::path_status(&app, &id)
+}
+
+/// What directory name a display name would produce.
+///
+/// Exists so the rename dialog can preview the slug without duplicating the
+/// rules in TypeScript, where they would drift. Returns an empty string when
+/// nothing usable survives, which the dialog renders as "cannot use this name".
+#[tauri::command]
+#[specta::specta]
+pub fn preview_instance_dir_name(name: String) -> String {
+    crate::naming::derive_base(&name, None, "")
 }
 
 #[tauri::command]
@@ -537,7 +603,8 @@ pub fn set_instance_icon(
 ) -> Result<(), crate::error::Error> {
     let path = crate::paths::instance_icon_png(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
-    crate::instances::icon::write_icon(&path, &png_base64)
+    crate::instances::icon::write_icon(&path, &png_base64)?;
+    refresh_shortcut_icon(&app, &instance_id, &path)
 }
 
 /// Remove an instance's custom picture (back to the letter avatar). Idempotent.
@@ -549,7 +616,21 @@ pub fn clear_instance_icon(
 ) -> Result<(), crate::error::Error> {
     let path = crate::paths::instance_icon_png(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
-    crate::instances::icon::clear_icon(&path)
+    crate::instances::icon::clear_icon(&path)?;
+    refresh_shortcut_icon(&app, &instance_id, &path)
+}
+
+/// Follow a picture change into `<instance>/icon.ico`, so desktop shortcuts made
+/// earlier keep showing the right image — and keep showing *something* when the
+/// picture is cleared. A no-op for instances that never had a shortcut.
+fn refresh_shortcut_icon(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    png: &std::path::Path,
+) -> Result<(), crate::error::Error> {
+    let ico = crate::paths::instance_icon_ico(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance icon path>", e))?;
+    crate::shortcuts::icon::refresh_if_present(png, &ico)
 }
 
 /// The instance's custom picture as a base64 PNG, or `None` when it has none.

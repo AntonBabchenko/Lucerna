@@ -58,6 +58,8 @@ mod data_location;
 pub use data_location::*;
 mod screenshots;
 pub use screenshots::*;
+mod clipboard;
+pub use clipboard::*;
 mod cosmetics;
 pub use cosmetics::*;
 mod skin_library;

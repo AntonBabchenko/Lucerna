@@ -136,7 +136,7 @@ pub fn commit_preserve(
     // Reserve a readable, unique directory; the reserved name is the id. Any
     // failure below removes it so a partial import never leaks the slug.
     let (id, reserved_dir) =
-        crate::naming::reserve_unique_dir(&crate::paths::servers_root(base), name, "server")?;
+        crate::naming::reserve_unique_dir(&crate::paths::servers_root(base), name, None, "server")?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // import never leaks the slug. Disarmed on success via `keep()`.
     let cleanup = crate::naming::DirCleanup::new(&reserved_dir);

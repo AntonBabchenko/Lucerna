@@ -6,6 +6,7 @@ pub mod ids;
 pub mod import;
 pub mod memory;
 pub mod migrate;
+pub mod rename;
 pub mod scan;
 pub mod schema;
 pub mod status;
@@ -122,7 +123,6 @@ pub(crate) fn unix_ms_f64() -> f64 {
 /// UI (Modpacks tab). They are best-effort — pass `None` if the import
 /// path could not look them up. `mrpack_source` is conceptually paired
 /// with `mrpack` (an import either populates both or neither).
-#[allow(clippy::too_many_arguments)]
 pub fn create_instance(
     app: &tauri::AppHandle,
     name: String,
@@ -130,11 +130,7 @@ pub fn create_instance(
     loader: LoaderKind,
     loader_version: Option<String>,
     max_heap_mb: Option<u32>,
-    mrpack: Option<(String, String)>,
-    mrpack_project_id: Option<String>,
-    mrpack_source: Option<crate::mods::platform::ModSource>,
-    mrpack_summary: Option<String>,
-    mrpack_version_id: Option<String>,
+    pack: crate::instances::schema::PackOrigin,
     imported_from: Option<crate::instances::schema::ImportProvenance>,
     created_from_server: Option<String>,
 ) -> Result<InstanceWithStatus> {
@@ -143,7 +139,12 @@ pub fn create_instance(
     // all path resolution downstream is unchanged).
     let instances_parent =
         paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
-    let (id, dir) = crate::naming::reserve_unique_dir(&instances_parent, &name, "instance")?;
+    let (id, dir) = crate::naming::reserve_unique_dir(
+        &instances_parent,
+        &name,
+        pack.slug.as_deref(),
+        "instance",
+    )?;
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // create never leaks the slug (which would force every future same-name
     // create to climb -2, -3, …). Disarmed on success via `keep()`.
@@ -151,12 +152,13 @@ pub fn create_instance(
 
     std::fs::create_dir_all(dir.join(".minecraft"))
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
-    let (mrpack_name, mrpack_version) = match mrpack {
+    let (mrpack_name, mrpack_version) = match pack.name_and_version {
         Some((n, v)) => (Some(n), Some(v)),
         None => (None, None),
     };
     let inst = InstanceFile {
         id: id.clone(),
+        uid: Some(crate::instances::ids::new_id()),
         name,
         mc_version,
         loader,
@@ -167,10 +169,10 @@ pub fn create_instance(
         created_unix_ms: unix_ms_f64(),
         mrpack_name,
         mrpack_version,
-        mrpack_project_id,
-        mrpack_source,
-        mrpack_summary,
-        mrpack_version_id,
+        mrpack_project_id: pack.project_id,
+        mrpack_source: pack.source,
+        mrpack_summary: pack.summary,
+        mrpack_version_id: pack.version_id,
         integrity: None,
         imported_from,
         created_from_server,
@@ -185,6 +187,100 @@ pub fn create_instance(
     Ok(InstanceWithStatus::from_file(&inst, ready, false))
 }
 
+/// This instance's rename-proof identity, creating and persisting one if the
+/// instance predates the field.
+///
+/// Lazy on purpose: a startup migration would rewrite every `instance.json` on
+/// disk to add a field that only desktop shortcuts ever read.
+pub fn ensure_uid(app: &tauri::AppHandle, id: &str) -> Result<String> {
+    let mut inst = read_one(app, id)?;
+    if let Some(uid) = inst.uid.clone() {
+        return Ok(uid);
+    }
+    let uid = crate::instances::ids::new_id();
+    inst.uid = Some(uid.clone());
+    let path = paths::instance_json(app, id).map_err(|e| Error::io("<instance_json>", e))?;
+    store::write_instance_json(&path, &inst)?;
+    Ok(uid)
+}
+
+/// Resolve a `--launch` token — a `uid` written by a shortcut, or a plain
+/// directory name — to the instance's CURRENT directory name.
+///
+/// `uid` is checked first so a renamed instance still answers to the shortcut
+/// that predates the rename. `None` when neither matches, which callers must
+/// surface as "instance not found" rather than launching something else.
+pub fn resolve_launch_target(app: &tauri::AppHandle, token: &str) -> Option<String> {
+    let all = scan::list_all(&paths::instances_dir(app).ok()?);
+    all.iter()
+        .find(|i| i.uid.as_deref() == Some(token))
+        .or_else(|| all.iter().find(|i| i.id == token))
+        .map(|i| i.id.clone())
+}
+
+/// Whether this instance can be handed to the JVM at all, and if not, which
+/// part of the path is at fault — the two cases have different remedies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PathStatus {
+    /// The path survives conversion to the system code page.
+    Ok,
+    /// The instance's own directory name is at fault — renaming it fixes this.
+    InstanceDir,
+    /// A data-root segment is at fault (e.g. the Windows user name under
+    /// `%APPDATA%`). Renaming the instance cannot help; the data root has to
+    /// move.
+    DataRoot,
+}
+
+/// Classify an instance's game directory for JVM-readability.
+///
+/// Shared by the launch gate and the Manage banner so the two can never
+/// disagree about whether an instance is launchable.
+pub fn path_status(app: &tauri::AppHandle, id: &str) -> Result<PathStatus> {
+    let game_dir = paths::minecraft_dir(app, id).map_err(|e| Error::io("<minecraft_dir>", e))?;
+    if crate::platform::path_launchable(&game_dir) {
+        return Ok(PathStatus::Ok);
+    }
+    let root = paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
+    Ok(if crate::platform::path_launchable(&root) {
+        PathStatus::InstanceDir
+    } else {
+        PathStatus::DataRoot
+    })
+}
+
+/// Read one instance plus its derived status, writing nothing.
+///
+/// Renaming needs this: it must not rewrite `instance.json`, so it cannot go
+/// through [`mutate`].
+pub fn read_with_status(app: &tauri::AppHandle, id: &str) -> Result<InstanceWithStatus> {
+    let inst = read_one(app, id)?;
+    let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
+    let ready = status::ready_status(&versions_dir, &inst);
+    // Re-stat icon.png so a settings edit doesn't clobber has_icon back to
+    // false for an instance that already has a custom picture.
+    let icon_path = paths::instance_icon_png(app, id).map_err(|e| Error::io("<icon_path>", e))?;
+    let has_icon = icon::has_icon(&icon_path);
+    Ok(InstanceWithStatus::from_file(&inst, ready, has_icon))
+}
+
+/// Point `app.json.active_instance` at `new_id`, but only if it currently names
+/// `old_id` — renaming a non-active instance must not rewrite `app.json`.
+///
+/// Runs AFTER the directory rename. If it fails, the only damage is a dangling
+/// `active_instance`, which the startup repair in [`migrate`] and the lazy
+/// repair in [`get_active_instance`] both already heal.
+pub fn repoint_active_instance(app: &tauri::AppHandle, old_id: &str, new_id: &str) -> Result<()> {
+    let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let mut state = store::read_app_json(&app_file_path)?;
+    if state.active_instance.as_deref() != Some(old_id) {
+        return Ok(());
+    }
+    state.active_instance = Some(new_id.to_string());
+    store::write_app_json(&app_file_path, &state)
+}
+
 fn mutate<F>(app: &tauri::AppHandle, id: &str, mutator: F) -> Result<InstanceWithStatus>
 where
     F: FnOnce(&mut InstanceFile),
@@ -193,13 +289,7 @@ where
     mutator(&mut inst);
     let path = paths::instance_json(app, id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&path, &inst)?;
-    let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    let ready = status::ready_status(&versions_dir, &inst);
-    // Re-stat icon.png so a settings edit doesn't clobber has_icon back to
-    // false for an instance that already has a custom picture.
-    let icon_path = paths::instance_icon_png(app, id).map_err(|e| Error::io("<icon_path>", e))?;
-    let has_icon = icon::has_icon(&icon_path);
-    Ok(InstanceWithStatus::from_file(&inst, ready, has_icon))
+    read_with_status(app, id)
 }
 
 pub fn set_instance_name(
@@ -441,6 +531,7 @@ mod tests {
     fn pack_instance() -> schema::InstanceFile {
         schema::InstanceFile {
             id: "aaaa-bbbb-cccc-dddd-eeeeffffaaaa".into(),
+            uid: None,
             name: "Pack Instance".into(),
             mc_version: "1.20.1".into(),
             loader: schema::LoaderKind::Fabric,
@@ -465,6 +556,7 @@ mod tests {
     fn plain_instance() -> schema::InstanceFile {
         schema::InstanceFile {
             id: "1111-2222-3333-4444-555566667777".into(),
+            uid: None,
             name: "Plain".into(),
             mc_version: "1.20.4".into(),
             loader: schema::LoaderKind::Vanilla,

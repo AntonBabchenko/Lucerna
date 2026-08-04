@@ -57,6 +57,44 @@ describe('compat-scan store', () => {
     expect(mocks.scanInstanceModCompat).toHaveBeenCalledTimes(2);
   });
 
+  it('joins a scan already in flight instead of issuing a second command', async () => {
+    // Both surfaces refresh on an instance switch, and the first caller clears
+    // `key` synchronously — which made the second caller's same-key check false,
+    // so it issued its own command. On a 140-mod instance that is every jar read
+    // and unzipped twice per switch.
+    let release: (v: unknown) => void = () => {};
+    mocks.scanInstanceModCompat.mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve)),
+    );
+
+    const first = ensureCompatScan('i1', '1.21.1', 'neoforge');
+    const second = ensureCompatScan('i1', '1.21.1', 'neoforge');
+    release(ok([entry('a', true, false)]));
+    await Promise.all([first, second]);
+
+    expect(mocks.scanInstanceModCompat).toHaveBeenCalledTimes(1);
+    // The joiner must see the result, not an empty list.
+    expect(offlineMismatchCount()).toBe(1);
+  });
+
+  it('still issues a forced scan while one is in flight', async () => {
+    // "Check compatibility" and the mod-change handlers must never be collapsed
+    // into an older run's answer.
+    let release: (v: unknown) => void = () => {};
+    mocks.scanInstanceModCompat.mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve)),
+    );
+    mocks.scanInstanceModCompat.mockResolvedValueOnce(ok([entry('fresh', true, false)]));
+
+    const first = ensureCompatScan('i1', '1.21.1', 'neoforge');
+    const forced = ensureCompatScan('i1', '1.21.1', 'neoforge', { force: true });
+    release(ok([entry('stale', true, false)]));
+    await Promise.all([first, forced]);
+
+    expect(mocks.scanInstanceModCompat).toHaveBeenCalledTimes(2);
+    expect(compatScanEntries().map((e) => e.sha1)).toEqual(['fresh']);
+  });
+
   it('keeps the last good result when a scan fails', async () => {
     mocks.scanInstanceModCompat.mockResolvedValueOnce(ok([entry('a', true, false)]));
     await ensureCompatScan('i1', '1.21.1', 'neoforge');

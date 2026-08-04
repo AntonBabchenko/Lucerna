@@ -75,6 +75,13 @@ pub fn mods_cache_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("mods-cache").join("summaries.json"))
 }
 
+/// Per-jar parsed-descriptor cache keyed by the jar's SHA-1. Derived data —
+/// safe to delete; repopulated on demand. Lives beside `summaries.json` because
+/// both are cross-instance mod caches with the same disposability.
+pub fn jar_scan_cache_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("mods-cache").join("jar-scans.json"))
+}
+
 /// Global override store + scan cache for in-game mod localization. The store
 /// is USER DATA (hand-written translations) and travels with the relocatable
 /// data root; only `scan-cache.json` inside it is disposable.
@@ -96,6 +103,14 @@ pub fn instance_json(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf>
 /// picture. Presence of this file is the "has custom icon" state.
 pub fn instance_icon_png(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
     Ok(instance_dir(app, id)?.join("icon.png"))
+}
+
+/// `<app_data>/instances/<id>/icon.ico` — the Windows shortcut icon rendered
+/// from `icon.png`. A derived cache rather than user data: `instances::clone`
+/// deliberately does not copy it, and deleting the instance takes it along with
+/// the directory. See `shortcuts::icon` for the rules that keep it valid.
+pub fn instance_icon_ico(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
+    Ok(instance_dir(app, id)?.join("icon.ico"))
 }
 
 pub fn minecraft_dir(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {

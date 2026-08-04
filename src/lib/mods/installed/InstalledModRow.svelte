@@ -15,6 +15,7 @@
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
+  import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
   import { changelogSupported } from '$lib/mods/changelog-supported';
 
   let {
@@ -24,7 +25,7 @@
     root,
     requiredBy,
     depTotal,
-    depMissing,
+    hasPreflightIssue,
     expanded,
     graphLoading,
     hoveredKey,
@@ -52,7 +53,10 @@
     root: DepRoot | undefined;
     requiredBy: RequiredByEntry[];
     depTotal: number;
-    depMissing: number;
+    // This mod is the dependent in a pre-flight violation — i.e. the LOADER
+    // will not get what it needs. The dependency graph cannot answer this; it
+    // only knows what the platform was told.
+    hasPreflightIssue: boolean;
     expanded: boolean;
     graphLoading: boolean;
     hoveredKey: string | null;
@@ -87,11 +91,9 @@
 
   const expandLabel = $derived.by(() => {
     const parts: string[] = [];
-    if (depTotal > 0) {
-      let s = $t('mods.installed.depCount', { count: depTotal });
-      if (depMissing > 0) s += ` · ${$t('mods.installed.depMissing', { count: depMissing })}`;
-      parts.push(s);
-    }
+    // Relationship count only. The "· N missing" suffix is gone with the graph's
+    // verdict: it counted absences the loader may never have asked for.
+    if (depTotal > 0) parts.push($t('mods.installed.depCount', { count: depTotal }));
     if (requiredBy.length > 0)
       parts.push($t('mods.installed.requiredByCount', { count: requiredBy.length }));
     // Last resort only, so every row that already renders a label keeps it
@@ -104,16 +106,35 @@
     return parts.join(' · ');
   });
 
-  // The only left-side row badge is the missing-dependency warning — it is
-  // row-specific and shown nowhere else. The "update available" and "disabled"
-  // states are intentionally NOT badged here: the ModCard on the right already
-  // shows the version transition (vOld → vNew) + Update button and the
-  // enable/disable control + "Installed" chip, so a left badge would duplicate
-  // them.
-  const badge = $derived.by(() => {
-    if (depMissing > 0) return { text: $t('mods.installed.badgeMissing', { count: depMissing }) };
-    return null;
-  });
+  // There is deliberately no left-side danger badge any more. The one that used
+  // to live here counted the graph's absent required children — i.e. the
+  // platform's claim — and a measured mod's claim was contradicted by its own
+  // jar. A real problem is a pre-flight violation: the ModCard's danger accent
+  // marks the row and PreflightPanel above the list carries the detail and the
+  // fix. "Update available" and "disabled" were already unbadged here because
+  // the ModCard on the right shows both.
+
+  // Dependencies the AUTHOR marked required on the platform that are not
+  // installed and the user has not settled. Reported, not asserted: the loader
+  // enforces only what the jar descriptor declares, and a measured mod's
+  // platform entry is contradicted by its own `neoforge.mods.toml`. Counting
+  // only top-level `required` children keeps the badge about this mod's own
+  // claims rather than its dependencies' claims.
+  const claimRefs = $derived(
+    installed.source && installed.project_id
+      ? { source: installed.source, project_id: installed.project_id }
+      : null,
+  );
+  const authorClaims = $derived(
+    claimRefs === null
+      ? []
+      : (root?.required ?? []).filter(
+          (n) =>
+            !n.installed &&
+            n.declared === 'required' &&
+            !isClaimDismissed(claimRefs, { source: n.source, project_id: n.project_id }),
+        ),
+  );
 
   // "View changelog" is offered only when an update is actually pending and the
   // source implements a changelog API (Modrinth/CurseForge) — mirrors the Rust
@@ -153,12 +174,12 @@
       {onUpdate}
       {checking}
       {packChip}
-      attention={depMissing > 0 ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
+      attention={hasPreflightIssue ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
       selectable={true}
       {selected}
       {onSelectChange}
     />
-    {#if summary || incompatibleTitle || showChangelog}
+    {#if summary || incompatibleTitle || showChangelog || authorClaims.length > 0}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if incompatibleTitle}
           <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
@@ -167,9 +188,17 @@
             </StatusBadge>
           </span>
         {/if}
-        {#if badge}
-          <span data-testid="status-badge" use:tooltip={$t('mods.installed.missingDepsTooltip')}>
-            <StatusBadge variant="danger" icon="warning">{badge.text}</StatusBadge>
+        {#if authorClaims.length > 0}
+          <!-- Neutral register on purpose: not `danger`, not `warning`. Nothing
+               is being demanded of the user — the launcher is reporting what the
+               author typed, and saying whose word it is. -->
+          <span
+            class="px-2 py-0.5 rounded inline-flex items-center gap-1 bg-subtle text-secondary"
+            use:tooltip={$t('mods.deps.authorClaimTooltip')}
+            data-testid="author-claim-badge"
+          >
+            <Icon name="info" size={12} />
+            {$t('mods.deps.authorClaimCount', { count: authorClaims.length })}
           </span>
         {/if}
         {#if showChangelog}

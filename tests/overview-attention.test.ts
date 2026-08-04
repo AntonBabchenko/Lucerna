@@ -10,6 +10,7 @@ const none = {
   hasLogIssue: false,
   logFixAvailable: false,
   serverFixAvailable: false,
+  preflightUnknown: false,
 };
 
 describe('buildAttentionItems', () => {
@@ -27,6 +28,7 @@ describe('buildAttentionItems', () => {
       hasLogIssue: false,
       logFixAvailable: false,
       serverFixAvailable: false,
+      preflightUnknown: false,
     });
     expect(items.map((i) => i.kind)).toEqual([
       'pick_version',
@@ -57,6 +59,29 @@ describe('buildAttentionItems', () => {
     expect(items).toEqual([
       { kind: 'pick_version', count: 0 },
       { kind: 'missing_mods', count: 5 },
+    ]);
+  });
+
+  it('emits preflight_unknown (count 0) when the dependency check could not run', () => {
+    expect(buildAttentionItems({ ...none, preflightUnknown: true })).toEqual([
+      { kind: 'preflight_unknown', count: 0 },
+    ]);
+  });
+
+  it('orders "could not check" after the confirmed problems and before the server signal', () => {
+    // "We could not check" is weaker news than "here is what is wrong", so it
+    // must never push a real problem down the list; the global server signal
+    // stays last because it is not about this instance at all.
+    const items = buildAttentionItems({
+      ...none,
+      incompatibleCount: 2,
+      preflightUnknown: true,
+      serverFixAvailable: true,
+    });
+    expect(items.map((i) => i.kind)).toEqual([
+      'incompatible',
+      'preflight_unknown',
+      'server_log_fix',
     ]);
   });
 

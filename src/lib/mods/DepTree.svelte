@@ -16,6 +16,7 @@
     onAdd,
     onJump = () => {},
     onOpenDetail,
+    onDismissClaim = null,
   }: {
     nodes: DepTreeNode[];
     outOfRangeKeys?: Set<string>;
@@ -30,11 +31,15 @@
     onJump?: (node: DepTreeNode) => void;
     // Open the mod's info modal for any node (installed or not).
     onOpenDetail: (source: ModSource, projectId: string) => void;
+    // Settle "the author marked this required" for an absent required node.
+    // `null` (the default) renders no dismiss control at all — which is what
+    // every nested level gets, deliberately: the claim belongs to the mod that
+    // declared it, and the dismissal key names the OWNING mod, so offering it on
+    // a grandchild would file the acknowledgement under the wrong pair.
+    onDismissClaim?: ((node: DepTreeNode) => void) | null;
   } = $props();
 
   const keyOf = (n: DepTreeNode) => `${n.source}:${n.project_id}`;
-  const isInstalled = (n: DepTreeNode) =>
-    n.status === 'satisfied' || n.status === 'optional_present';
 </script>
 
 <ul class="text-xs">
@@ -60,7 +65,7 @@
           class="btn-tertiary text-left"
           onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
         >
-        {#if isInstalled(n)}
+        {#if n.installed}
           <button
             type="button"
             class="text-accent inline-flex items-center justify-center"
@@ -73,37 +78,41 @@
           <span class="inline-flex items-center gap-1 text-danger"
             ><Icon name="circleX" size={12} />{$t('mods.preflight.treeOutOfRange')}</span
           >
-        {:else if n.status === 'satisfied' || n.status === 'optional_present'}
+        {:else if n.installed}
           <span class="inline-flex items-center gap-1 text-success"
             ><Icon name="success" size={12} />{$t('mods.deps.installedStatus')}</span
           >
-        {:else if n.status === 'missing_required'}
-          <span class="inline-flex items-center gap-1 text-danger"
-            ><Icon name="circleX" size={12} />{$t('mods.deps.missingStatus')}</span
-          >
-          <span
-            class="inline-flex"
-            use:tooltip={$t('mods.deps.installAriaLabel', { name: n.name })}
-          >
+        {:else}
+          <!-- Absent, in the neutral register whatever the author declared. An
+               absence the LOADER enforces is a pre-flight violation and is shown
+               as such; the platform's word alone demands no attention here, so
+               it gets no danger colour. The action is unchanged either way. -->
+          {@const label =
+            n.declared === 'required'
+              ? $t('mods.deps.installAriaLabel', { name: n.name })
+              : $t('mods.deps.addAriaLabel', { name: n.name })}
+          <span class="text-secondary">{$t('mods.deps.notInstalledStatus')}</span>
+          <span class="inline-flex" use:tooltip={label}>
             <BusyButton
               busy={installingKeys.has(keyOf(n))}
-              class="btn-icon btn-icon-sm !text-accent"
-              aria-label={$t('mods.deps.installAriaLabel', { name: n.name })}
-              onclick={() => onInstall(n)}
+              class="btn-icon btn-icon-sm"
+              aria-label={label}
+              onclick={() => (n.declared === 'required' ? onInstall(n) : onAdd(n))}
             >
               <Icon name="download" size={12} />
             </BusyButton>
           </span>
-        {:else}
-          <span class="text-muted italic">{$t('mods.deps.optionalStatus')}</span>
-          <span class="inline-flex" use:tooltip={$t('mods.deps.addAriaLabel', { name: n.name })}>
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              aria-label={$t('mods.deps.addAriaLabel', { name: n.name })}
-              onclick={() => onAdd(n)}><Icon name="plus" size={12} /></button
-            >
-          </span>
+          {#if onDismissClaim && n.declared === 'required'}
+            <span class="inline-flex" use:tooltip={$t('mods.deps.dismissClaimAriaLabel')}>
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm"
+                data-testid="claim-dismiss"
+                aria-label={$t('mods.deps.dismissClaimAriaLabel')}
+                onclick={() => onDismissClaim(n)}><Icon name="close" size={12} /></button
+              >
+            </span>
+          {/if}
         {/if}
         {#if n.cycle}<span class="inline-flex items-center gap-1 text-placeholder"
             ><Icon name="refresh" size={12} />{$t('mods.deps.cycleStatus')}</span
@@ -111,6 +120,7 @@
       </div>
       {#if n.children.length > 0 && !n.cycle}
         <div class="ml-4 border-l border-border-subtle pl-3">
+          <!-- `onDismissClaim` is deliberately NOT forwarded: see its prop doc. -->
           <Self
             nodes={n.children}
             {outOfRangeKeys}

@@ -34,7 +34,6 @@ const EMPTY_PLAYTIME: PlaytimeStats = {
 
 export function createInstanceStats() {
   let installedStats = $state<InstalledStats>({ ...EMPTY_INSTALLED });
-  let incompatibleCount = $state(0);
   let playtime = $state<PlaytimeStats>({ ...EMPTY_PLAYTIME });
   let packMissingMods = $state<MissingModStatus[]>([]);
 
@@ -42,8 +41,13 @@ export function createInstanceStats() {
   // rapid instance switch can land mid-flight, so a stale run must not commit
   // the previous instance's data over the newer one. Each refresher bumps its
   // own counter and drops the commit if a newer call has started.
+  //
+  // The incompatible count has no counter because it commits nothing: it is
+  // read straight off the shared scan store, which owns its own generation
+  // guard. A number copied out of a shared store is a second source of truth by
+  // another name — #332 removed the duplicated *scan* and left the duplicated
+  // *count*, so the Overview kept showing a value the store no longer held.
   let statsSeq = 0;
-  let incompatSeq = 0;
   let playtimeSeq = 0;
   let packSeq = 0;
 
@@ -58,31 +62,39 @@ export function createInstanceStats() {
     const seq = ++statsSeq;
     const r = await commands.modsListInstalled(id);
     if (seq !== statsSeq) return;
-    if (r.status !== 'ok') return;
+    // Reset on error rather than retaining — the labels are per-instance, so a
+    // kept value silently attributes the previous instance's mods to this one.
+    // Mirrors `refreshPlaytime`, which has always done this.
+    if (r.status !== 'ok') {
+      installedStats = { ...EMPTY_INSTALLED };
+      return;
+    }
     const total = r.data.length;
     const enabled = r.data.filter((m) => m.enabled).length;
     installedStats = { total, enabled, disabled: total - enabled };
   }
 
-  // Offline incompatible-mod count for the Overview indicator (network-free).
-  // Counts ONLY manual jars whose loader family mismatches (`!live_checkable`)
-  // — those are the definitive offline verdicts. Platform suspects need the
-  // live auto-confirm the Installed tab performs (the Overview makes no network
-  // call), so counting their raw offline suspicion here would re-introduce
-  // false positives. Empty for vanilla / version-less instances.
-  async function refreshIncompatible(id: string | null, instances: InstanceWithStatus[]) {
+  // Make sure the app-wide compatibility scan is current for `id`. Commits
+  // nothing of its own — the Overview's count is read from the store (see the
+  // `incompatibleCount` getter below), so this is purely "go and refresh it".
+  //
+  // `force` is required after a mod install / uninstall / toggle: the store
+  // keys on (instance, mc, loader), which such a change does not alter, so an
+  // unforced call is deduplicated away and neither surface would ever notice a
+  // newly-added wrong-loader jar.
+  //
+  // No vanilla short-circuit. Skipping the call left the PREVIOUS instance's
+  // entries in the store, which is exactly the drift being fixed; and on a
+  // Vanilla instance `compat_verdict` yields `loader_mismatch: false` for every
+  // jar anyway, so 0 comes out by computation rather than by special case.
+  async function refreshIncompatible(
+    id: string | null,
+    instances: InstanceWithStatus[],
+    opts: { force?: boolean } = {},
+  ) {
     const inst = id ? instances.find((i) => i.id === id) : null;
-    if (!inst?.mc_version || inst.loader === 'vanilla') {
-      incompatibleCount = 0;
-      return;
-    }
-    const seq = ++incompatSeq;
-    // One shared scan for the whole app — the Installed tab reads the same
-    // entries and folds its live platform verdicts on top. Keeping a second
-    // private copy here is what let the two surfaces disagree.
-    await ensureCompatScan(inst.id, inst.mc_version, inst.loader);
-    if (seq !== incompatSeq) return;
-    incompatibleCount = offlineMismatchCount();
+    // An empty `mc_version` is "not configured yet", not a version to scan for.
+    await ensureCompatScan(inst?.id ?? null, inst?.mc_version || null, inst?.loader ?? null, opts);
   }
 
   // Per-instance playtime stats — refreshed on instance switch and after every
@@ -111,6 +123,11 @@ export function createInstanceStats() {
     const seq = ++packSeq;
     const r = await commands.modpackStatus(id);
     if (seq !== packSeq) return;
+    // NOTE: an errored call and a genuinely non-pack instance both collapse to
+    // `[]` here, i.e. "the pack is complete". That is a `Confidence` problem
+    // (spec finding 43) and is deliberately left for the PR that introduces the
+    // type — it cannot be fixed by clearing, only by being able to say
+    // "couldn't check".
     packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
   }
 
@@ -118,8 +135,16 @@ export function createInstanceStats() {
     get installedStats() {
       return installedStats;
     },
+    // Read straight off the shared scan store at call time, so it can never be
+    // a STALE copy of a scan the Installed tab has already replaced. The two
+    // numbers can still legitimately differ — the chip folds in live platform
+    // verdicts that the Overview deliberately never requests — what became
+    // unrepresentable is the two surfaces disagreeing about the SAME scan.
+    // Counts ONLY offline-decidable mismatches (`!live_checkable`): confirming
+    // a platform suspect needs a network call the Overview must not make, and
+    // counting the raw suspicion would flag multi-loader jars that are fine.
     get incompatibleCount() {
-      return incompatibleCount;
+      return offlineMismatchCount();
     },
     get playtime() {
       return playtime;

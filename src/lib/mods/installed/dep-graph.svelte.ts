@@ -56,7 +56,10 @@ export function createDepGraph(
       const seen = new Set<string>();
       const walk = (ns: DepTreeNode[]) => {
         for (const n of ns) {
-          if (n.status === 'satisfied' && !seen.has(n.project_id)) {
+          // Present AND declared required — the same pair the old `satisfied`
+          // value stood for. An optional child nested under a required one must
+          // not make its parent read as "required by".
+          if (n.installed && n.declared === 'required' && !seen.has(n.project_id)) {
             seen.add(n.project_id);
             map.set(n.project_id, [...(map.get(n.project_id) ?? []), r.sha1]);
           }
@@ -93,30 +96,22 @@ export function createDepGraph(
     return out;
   });
 
+  // Relationship count only. There is deliberately no "missing" tally here: the
+  // graph knows what the platform was told, not what the loader enforces, and a
+  // measured mod declares on Modrinth a dependency its own jar descriptor does
+  // not. The pre-flight owns "this is a problem".
   function depCounts(root: DepRoot | undefined) {
-    if (!root) return { total: 0, missing: 0 };
+    if (!root) return { total: 0 };
     let total = 0;
-    let missing = 0;
     const walk = (ns: DepTreeNode[]) => {
       for (const n of ns) {
         total++;
-        if (n.status === 'missing_required') missing++;
         if (!n.cycle) walk(n.children);
       }
     };
     walk(root.required);
-    return { total, missing };
+    return { total };
   }
-
-  // Set of root sha1s with >=1 missing required dep — feeds the "issues"
-  // quick-filter and the attention bar.
-  const missingShas = $derived.by(() => {
-    const out = new Set<string>();
-    for (const r of graph?.roots ?? []) {
-      if (depCounts(r).missing > 0) out.add(r.sha1);
-    }
-    return out;
-  });
 
   async function reloadGraphNow() {
     const id = getInstanceId();
@@ -287,9 +282,6 @@ export function createDepGraph(
     },
     get requiredBy() {
       return requiredBy;
-    },
-    get missingShas() {
-      return missingShas;
     },
     get busy() {
       return busy;

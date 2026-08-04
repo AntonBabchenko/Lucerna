@@ -1,12 +1,22 @@
 // Pure view logic for the per-namespace key table. No DOM, no IPC — unit-tested
 // in isolation, same split as coverage.ts.
-import type { KeyRow, KeyState, Origin } from '$lib/ipc/bindings';
+import type { KeyRow, KeyState } from '$lib/ipc/bindings';
 
-/** The state filter chips in KeyTable. 'translated' folds together the two
- *  states that need no attention (`from_mod` and `ok`) — the user thinks in
- *  terms of "done" vs. the three ways a key still needs work, not in terms
- *  of the five raw backend states. */
-export type KeyFilter = 'all' | 'missing' | 'stale' | 'orphan' | 'translated';
+/** One entry in the key table's single filter axis.
+ *
+ *  There is deliberately ONE axis here, not two. A key's origin is written
+ *  only alongside an override, so `origin != null` holds exactly when the
+ *  state is ok / stale / orphan (`NamespaceStore::state_of` returns those
+ *  three inside `if let Some(entry)` and can reach from_mod / missing only
+ *  after that block). "Untranslated" and "AI" therefore cannot intersect at
+ *  all, and offering them as two crossing axes offered a combination that is
+ *  empty by construction rather than by data.
+ *
+ *  So each member is a VIEW: picking 'machine' means "show everything the AI
+ *  wrote", not "narrow the current state selection down to the AI ones". Same
+ *  model as `ViewFilter` in mods/installed/installed-filters.svelte.ts, where
+ *  status views and state views likewise share one mutually-exclusive axis. */
+export type KeyView = 'all' | 'translated' | 'missing' | 'stale' | 'orphan' | 'manual' | 'machine';
 
 /** What the user currently sees in game for one key: their override if they
  *  have one, else the mod's own translation, else nothing — matches the
@@ -18,8 +28,10 @@ export function displayValue(row: KeyRow): string {
 // States that fold into "translated" — nothing for the user to do.
 const TRANSLATED_STATES: ReadonlySet<KeyState> = new Set(['from_mod', 'ok']);
 
-function matchesFilter(row: KeyRow, filter: KeyFilter): boolean {
-  switch (filter) {
+// Exhaustive on purpose, with no `default`: adding a member to KeyView must be
+// a compile error here rather than a view that silently matches nothing.
+function matchesView(row: KeyRow, view: KeyView): boolean {
+  switch (view) {
     case 'all':
       return true;
     case 'translated':
@@ -30,41 +42,79 @@ function matchesFilter(row: KeyRow, filter: KeyFilter): boolean {
       return row.state === 'stale';
     case 'orphan':
       return row.state === 'orphan';
+    case 'manual':
+      return row.origin === 'manual';
+    case 'machine':
+      return row.origin === 'machine';
   }
 }
 
-/** Apply the state filter, then the search term. Search matches the key or
- *  the English source — the two things a user knows going in — never the
- *  translated value itself: that may be in a script the user can't even
- *  read, which is the entire reason they're translating it. */
-export function filterRows(rows: KeyRow[], search: string, filter: KeyFilter): KeyRow[] {
+const NO_STICKY: ReadonlySet<string> = new Set();
+
+function matchesSearch(row: KeyRow, q: string): boolean {
+  if (!q) return true;
+  return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
+}
+
+/** Apply the view, then the search term. Search matches the key or the English
+ *  source — the two things a user knows going in — never the translated value
+ *  itself: that may be in a script the user can't even read, which is the
+ *  entire reason they're translating it.
+ *
+ *  `sticky` holds the keys the user has changed in this sitting. They are
+ *  exempt from the VIEW — a row you just translated keeps its place instead of
+ *  being yanked out from under you — but never from the SEARCH: a save touches
+ *  only overrideValue / state / origin, so it cannot change whether a row
+ *  matches what was typed, and exempting it from the search would make a
+ *  searched-away row reappear. */
+export function filterRows(
+  rows: KeyRow[],
+  search: string,
+  view: KeyView,
+  sticky: ReadonlySet<string> = NO_STICKY,
+): KeyRow[] {
   const q = search.trim().toLowerCase();
-  return rows.filter((row) => {
-    if (!matchesFilter(row, filter)) return false;
-    if (!q) return true;
-    return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
-  });
+  return rows.filter(
+    (row) => (matchesView(row, view) || sticky.has(row.key)) && matchesSearch(row, q),
+  );
 }
 
-/** The origin filter chips in KeyTable — a SECOND axis over [`KeyFilter`],
- *  not more options on it. A key has a state *and*, once it is overridden, an
- *  origin; folding the two into one single-select group would make
- *  "untranslated" and "machine-written" mutually exclusive, which they are
- *  not. 'all' means "don't filter on this axis at all". */
-export type OriginFilter = 'all' | Origin;
-
-/** Narrow rows to one override origin. A key with no override has no origin
- *  to attribute, so it appears under 'all' and under neither of the other
- *  two — the same reason `null` is a distinct value on the row itself. */
-export function filterByOrigin(rows: KeyRow[], origin: OriginFilter): KeyRow[] {
-  if (origin === 'all') return rows;
-  return rows.filter((row) => row.origin === origin);
+/** How many of the rows `filterRows` is currently rendering are there ONLY
+ *  because they are sticky — i.e. exactly the number that would disappear if
+ *  the set were cleared. That is the number the refresh affordance reports and
+ *  the test for whether it should exist at all.
+ *
+ *  It takes `search` for the same reason it takes `view`: a sticky row that the
+ *  search excludes is not on screen either, so counting it would promise the
+ *  user a row they cannot see. Both functions share `matchesSearch` so the two
+ *  answers cannot drift apart. Under 'all', and for a row that re-entered its
+ *  view (an override cleared back to 'missing' under the Untranslated view),
+ *  this is zero and there is nothing to offer. */
+export function stickyOutOfView(
+  rows: KeyRow[],
+  search: string,
+  view: KeyView,
+  sticky: ReadonlySet<string>,
+): number {
+  if (sticky.size === 0) return 0;
+  const q = search.trim().toLowerCase();
+  let out = 0;
+  for (const row of rows) {
+    if (sticky.has(row.key) && !matchesView(row, view) && matchesSearch(row, q)) out++;
+  }
+  return out;
 }
 
-/** How many rows carry each override origin, in one pass. The machine count
- *  also drives bulk revert, which has to be able to say how many entries it
- *  is about to drop *before* the user confirms it. */
-export function countOrigins(rows: KeyRow[]): { manual: number; machine: number } {
+export type OriginCounts = { manual: number; machine: number };
+
+/** How many rows carry each override origin, in one pass.
+ *
+ *  Always call this with the FULL namespace row set, never a filtered one. The
+ *  machine count does not just size a chip: it gates the bulk-revert button and
+ *  is the number interpolated into that destructive confirm, while the backend
+ *  revert takes no filter and drops every machine entry in the namespace. Fed a
+ *  filtered subset, the dialog would under-report what it is about to delete. */
+export function countOrigins(rows: KeyRow[]): OriginCounts {
   const counts = { manual: 0, machine: 0 };
   for (const row of rows) {
     if (row.origin === 'manual') counts.manual++;
@@ -95,23 +145,66 @@ export function countKeyStates(rows: KeyRow[]): FilterCounts {
   return counts;
 }
 
-/** State chips that always render: they define the surface, so hiding one at
- *  zero would make the toolbar's shape depend on the data. The three
- *  attention buckets appear only when they have something to show — the same
- *  rule InstalledToolbar applies to Updates / Issues / Incompatible. */
-const ANCHOR_STATE_FILTERS: readonly KeyFilter[] = ['all', 'translated', 'missing'];
+/** Canonical chip order: the All anchor, the four state views, then the two
+ *  origin views. */
+const VIEW_ORDER: readonly KeyView[] = [
+  'all',
+  'translated',
+  'missing',
+  'stale',
+  'orphan',
+  'manual',
+  'machine',
+];
 
-export function visibleStateFilters(counts: FilterCounts): KeyFilter[] {
-  const extra: KeyFilter[] = [];
-  if (counts.stale > 0) extra.push('stale');
-  if (counts.orphan > 0) extra.push('orphan');
-  return [...ANCHOR_STATE_FILTERS, ...extra];
+/** Views that always render: they define the surface, so hiding one at zero
+ *  would make the toolbar's shape depend on the data. Everything else appears
+ *  only when it has something to show — the same rule InstalledToolbar applies
+ *  to Updates / Issues / Incompatible. */
+const ANCHOR_VIEWS: ReadonlySet<KeyView> = new Set(['all', 'translated', 'missing']);
+
+/** The number one chip shows. State counts and origin counts stay in separate
+ *  records on purpose: the four state buckets partition `all`, whereas manual
+ *  and machine OVERLAP translated (a machine-written 'ok' row is in both) and
+ *  a from_mod row is in neither. Merging them into FilterCounts would break
+ *  that partition. */
+export function viewCount(view: KeyView, counts: FilterCounts, origins: OriginCounts): number {
+  switch (view) {
+    case 'all':
+      return counts.all;
+    case 'translated':
+      return counts.translated;
+    case 'missing':
+      return counts.missing;
+    case 'stale':
+      return counts.stale;
+    case 'orphan':
+      return counts.orphan;
+    case 'manual':
+      return origins.manual;
+    case 'machine':
+      return origins.machine;
+  }
 }
 
-/** 'all' is the origin axis's anchor; a bucket with no rows is dropped. */
-export function visibleOriginFilters(origins: { manual: number; machine: number }): OriginFilter[] {
-  const out: OriginFilter[] = ['all'];
-  if (origins.manual > 0) out.push('manual');
-  if (origins.machine > 0) out.push('machine');
-  return out;
+/** Which views render, in canonical order.
+ *
+ *  A view renders when it is an anchor, when it has a count, or when it is the
+ *  one currently selected — so the selected chip behaves like an anchor for as
+ *  long as it is selected, whether it is holding sticky rows in front of the
+ *  user, sitting empty after a refresh, or emptied by a refetch. One rule, no
+ *  timing: the chip you are standing on never vanishes under you.
+ *
+ *  That matters because a chip that disappears takes the selection with it —
+ *  KeyTable's fallback effect forces the view back to 'all' and floods the
+ *  table with the whole mod, on exactly the actions (a save, a refresh) that
+ *  are supposed to leave the user where they were. */
+export function visibleViews(
+  counts: FilterCounts,
+  origins: OriginCounts,
+  keepView: KeyView | null = null,
+): KeyView[] {
+  return VIEW_ORDER.filter(
+    (view) => ANCHOR_VIEWS.has(view) || viewCount(view, counts, origins) > 0 || view === keepView,
+  );
 }

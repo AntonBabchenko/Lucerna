@@ -153,6 +153,28 @@ pub enum Error {
     #[error("Instance name is too long: {actual} characters (max {max})")]
     InstanceNameTooLong { max: u32, actual: u32 },
 
+    /// The proposed folder name reduced to nothing once normalised to ASCII.
+    #[error("That name leaves no usable folder name")]
+    InstanceDirNameEmpty,
+
+    /// Another directory already occupies that name.
+    #[error("A folder named '{name}' already exists")]
+    InstanceDirNameTaken { name: String },
+
+    /// A Windows reserved device name (CON, PRN, LPT1, …).
+    #[error("'{name}' is a name Windows reserves for devices")]
+    InstanceDirNameReserved { name: String },
+
+    /// The path cannot be expressed in the system ANSI code page, so the JVM
+    /// would receive it with `?` substituted and die on `InvalidPathException`
+    /// before Minecraft starts.
+    ///
+    /// `data_root` separates the two remedies: renaming the instance folder
+    /// fixes one, and only relocating the data root fixes the other. The UI
+    /// shows a different message and a different action for each.
+    #[error("This path cannot be read by Java on this system")]
+    PathNotLaunchable { data_root: bool },
+
     #[error("Offline account name '{name}' is not valid for Minecraft (reason: {reason:?})")]
     OfflineNameInvalid {
         name: String,
@@ -884,6 +906,29 @@ mod tests {
             json.contains(r#""kind":"instance_name_empty""#),
             "got: {json}"
         );
+    }
+
+    #[test]
+    fn dir_name_taken_serializes_with_tag_and_name() {
+        let e = Error::InstanceDirNameTaken {
+            name: "Pack".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"instance_dir_name_taken""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""name":"Pack""#), "got: {json}");
+    }
+
+    #[test]
+    fn path_not_launchable_carries_the_data_root_flag() {
+        let json = serde_json::to_string(&Error::PathNotLaunchable { data_root: true }).unwrap();
+        assert!(
+            json.contains(r#""kind":"path_not_launchable""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""data_root":true"#), "got: {json}");
     }
 
     #[test]

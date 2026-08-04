@@ -53,7 +53,7 @@ describe('createDepGraph', () => {
     mocks.modsDependencyGraph.mockClear();
   });
 
-  it('depCounts walks the required subtree and counts missing', () => {
+  it('depCounts walks the required subtree and counts relationships only', () => {
     const d = createDepGraph(
       () => 'i',
       () => [],
@@ -71,14 +71,16 @@ describe('createDepGraph', () => {
           source: 'modrinth',
           project_id: 'X',
           name: 'X',
-          status: 'satisfied',
+          installed: true,
+          declared: 'required',
           cycle: false,
           children: [
             {
               source: 'modrinth',
               project_id: 'Y',
               name: 'Y',
-              status: 'missing_required',
+              installed: false,
+              declared: 'required',
               cycle: false,
               children: [],
             },
@@ -87,40 +89,22 @@ describe('createDepGraph', () => {
       ],
       optional: [],
     };
-    expect(d.depCounts(root)).toEqual({ total: 2, missing: 1 });
+    // No `missing` tally: the graph knows what the platform was told, not what
+    // the loader enforces. The pre-flight owns "this is a problem".
+    expect(d.depCounts(root)).toEqual({ total: 2 });
   });
 
-  it('missingShas reports roots with >=1 missing required dep', async () => {
-    mocks.modsDependencyGraph.mockResolvedValue({
-      status: 'ok',
-      data: {
-        roots: [
-          {
-            sha1: 'a',
-            name: 'A',
-            required: [
-              {
-                source: 'modrinth',
-                project_id: 'Y',
-                name: 'Y',
-                status: 'missing_required',
-                cycle: false,
-                children: [],
-              },
-            ],
-            optional: [],
-          },
-          { sha1: 'b', name: 'B', required: [], optional: [] },
-        ],
-      },
-    });
+  // `missingShas` is gone on purpose: it made the graph the source of the issue
+  // count, and the graph only repeats the platform's claim. The replacement is
+  // `preflightShas` in InstalledModsView, pinned by
+  // tests/installed-issues-from-preflight.test.ts.
+  it('exposes no verdict of its own', () => {
     const d = createDepGraph(
       () => 'i',
-      () => [row('a', 'A'), row('b', 'B')],
+      () => [],
       ctx,
     );
-    await d.reloadGraphNow();
-    expect([...d.missingShas]).toEqual(['a']);
+    expect('missingShas' in d).toBe(false);
   });
 
   it('toggleExpand reassigns the expanded set immutably', () => {
@@ -148,7 +132,8 @@ describe('createDepGraph', () => {
                 source: 'modrinth',
                 project_id: 'Pb',
                 name: 'B',
-                status: 'satisfied',
+                installed: true,
+                declared: 'required',
                 cycle: false,
                 children: [],
               },
