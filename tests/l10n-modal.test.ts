@@ -8,8 +8,20 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nNamespaceKeys: vi.fn(),
     l10nSetOverride: vi.fn(),
     l10nApply: vi.fn(),
+    // The share/offer dialogs the modal mounts fetch on mount. These two get
+    // a default rather than a bare vi.fn() so every case that is NOT about
+    // them sees what the real backend would report for a launcher with
+    // nothing to offer — the offer dialog then closes itself, exactly as it
+    // does in production, instead of throwing on an undefined envelope.
+    l10nOverriddenNamespaces: vi.fn(async () => ({ status: 'ok', data: [] })),
+    l10nApplyTargets: vi.fn(async () => ({ status: 'ok', data: [] })),
   },
 }));
+
+// ShareExportDialog / ShareImportDialog reach for the OS file pickers at
+// module scope, and the modal now imports both — so the module has to resolve
+// even in the cases that never open either dialog.
+vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn(), open: vi.fn() }));
 
 import { commands } from '$lib/ipc/bindings';
 import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
@@ -653,5 +665,75 @@ describe('LocalizationModal', () => {
     // row's button and then leaves the list.
     expect(btns.filter((b) => b.getAttribute('tabindex') === '0')).toHaveLength(1);
     expect(btns[0].getAttribute('tabindex')).toBe('0');
+  });
+
+  // The modal is the only entry point the three share/offer dialogs have, so
+  // what is worth pinning here is reachability and which instances the offer
+  // is asked about. Each dialog's own behaviour has its own suite.
+  describe('share and apply-elsewhere dialogs', () => {
+    const applyTarget = (over: Record<string, unknown> = {}) => ({
+      instanceId: 'other',
+      name: 'Other',
+      covered: true,
+      state: 'not_applied',
+      appliedOtherLang: null,
+      isRunning: false,
+      prefillActive: false,
+      candidate: true,
+      actionable: true,
+      ...over,
+    });
+
+    // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    const ok = (data: unknown) => ({ status: 'ok', data }) as any;
+
+    it('offers Export and Import in the header, and Export opens its dialog', async () => {
+      mockCoverageOk(coverage({ namespaces: [ns()] }));
+      vi.mocked(commands.l10nOverriddenNamespaces).mockResolvedValue(ok([]));
+      render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us', mcVersion: '1.21.1' },
+      });
+
+      expect(await screen.findByTestId('l10n-share-export')).toBeTruthy();
+      expect(screen.getByTestId('l10n-share-import')).toBeTruthy();
+
+      await fireEvent.click(screen.getByTestId('l10n-share-export'));
+
+      expect(await screen.findByTestId('l10n-share-export-dialog')).toBeTruthy();
+    });
+
+    // The overrides are global but the pack is per-instance, so an Apply here
+    // leaves every other instance holding a stale pack. The offer is what
+    // stops that from being the user's problem to remember.
+    it('offers the other instances after a successful Apply', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue(ok(true));
+      vi.mocked(commands.l10nApplyTargets).mockResolvedValue(ok([applyTarget()]));
+      render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us', mcVersion: '1.21.1' },
+      });
+
+      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+
+      expect(await screen.findByTestId('apply-targets-row-other')).toBeTruthy();
+    });
+
+    it('leaves the instance that just applied out of the offer', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue(ok(true));
+      vi.mocked(commands.l10nApplyTargets).mockResolvedValue(
+        ok([applyTarget(), applyTarget({ instanceId: 'a', name: 'This one' })]),
+      );
+      render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us', mcVersion: '1.21.1' },
+      });
+
+      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+
+      await screen.findByTestId('apply-targets-row-other');
+      // Offering the instance whose pack was just rebuilt would be asking the
+      // user to redo the thing they have this second finished doing.
+      expect(screen.queryByTestId('apply-targets-row-a')).toBeNull();
+    });
   });
 });

@@ -182,6 +182,16 @@
   $effect(() => {
     if (!l10nOpen) l10nTargetId = null;
   });
+  // The instance the modal is actually reporting on, resolved once so the
+  // `instanceId` it receives and the Minecraft version handed to its share
+  // export can never come from two different instances — the Manage entry
+  // point routinely points somewhere other than the active instance, and a
+  // shared file's resource-pack half is built for ONE version.
+  const l10nInstanceId = $derived(l10nTargetId ?? activeInstance?.id ?? null);
+  const l10nInstance = $derived(
+    instances.find((i) => i.id === l10nInstanceId) ??
+      (activeInstance?.id === l10nInstanceId ? activeInstance : null),
+  );
 
   async function openLocalization() {
     l10nOpen = true;
@@ -1606,7 +1616,8 @@
   <LocalizationModal
     bind:open={l10nOpen}
     bind:lang={l10nLang}
-    instanceId={l10nTargetId ?? activeInstance?.id ?? null}
+    instanceId={l10nInstanceId}
+    mcVersion={l10nInstance?.mc_version ?? ''}
     aiConsent={l10nAiConsent}
   />
 
