@@ -42,15 +42,65 @@ pub struct ProviderIndex {
 
 impl ProviderIndex {
     /// Build from all enabled mods' provided ids (own + JIJ).
-    pub fn build(mods: &[ParsedMod], jij: &[(String, Option<String>)]) -> Self {
-        let mut by_id = HashMap::new();
+    ///
+    /// Presence is a UNION over every descriptor: a jar declaring an id in a
+    /// file this loader does not read is still that mod, physically installed,
+    /// and dropping it would turn a real mod into a phantom "not installed".
+    /// Only the VERSION has an author — see [`effective_rank`] — because the
+    /// version is what every declared range is measured against.
+    pub fn build(
+        mods: &[ParsedMod],
+        jij: &[(String, Option<String>)],
+        loader: crate::instances::schema::LoaderKind,
+        era: crate::mods::local::DescriptorEra,
+    ) -> Self {
+        // canon id -> the best-ranked version the loader actually reads.
+        let mut best: HashMap<String, (u8, String)> = HashMap::new();
+        // canon id -> a version from a file the loader does NOT read: `Some` while
+        // every such declaration agrees, `None` once two of them differ.
+        let mut fallback: HashMap<String, Option<String>> = HashMap::new();
+        let mut present: HashMap<String, ()> = HashMap::new();
+
         for m in mods {
             for p in &m.manifest.provided {
-                by_id
-                    .entry(canon_id(&p.mod_id))
-                    .or_insert(p.version.clone());
+                let key = canon_id(&p.mod_id);
+                present.insert(key.clone(), ());
+                let Some(version) = p.version.clone() else {
+                    continue;
+                };
+                match effective_rank(p.source, &m.manifest.sources_present, loader, era) {
+                    Some(rank) => {
+                        if best.get(&key).is_none_or(|(r, _)| rank < *r) {
+                            best.insert(key, (rank, version));
+                        }
+                    }
+                    None => match fallback.get(&key) {
+                        // Two files the loader does not read, disagreeing: there
+                        // is no ground to prefer either, so the honest answer is
+                        // "unknown" — which `resolve` reads as "skip the range
+                        // check", never as a violation.
+                        Some(Some(seen)) if *seen != version => {
+                            fallback.insert(key, None);
+                        }
+                        Some(_) => {}
+                        None => {
+                            fallback.insert(key, Some(version));
+                        }
+                    },
+                }
             }
         }
+
+        let mut by_id: HashMap<String, Option<String>> = HashMap::new();
+        for key in present.into_keys() {
+            let version = match best.get(&key) {
+                Some((_, v)) => Some(v.clone()),
+                None => fallback.get(&key).cloned().flatten(),
+            };
+            by_id.insert(key, version);
+        }
+        // JIJ providers are the last resort and carry no descriptor: an embedded
+        // library only answers for an id nothing top-level claims.
         for (id, ver) in jij {
             by_id.entry(canon_id(id)).or_insert(ver.clone());
         }
@@ -112,40 +162,98 @@ pub enum Violation {
     },
 }
 
-/// True when a dependency declared in `source` is enforced on this instance.
+/// Where a descriptor sits in the order this instance's loader reads files.
 ///
-/// Supersedes the old loader-family test: `RangeFamily::Maven` covers
+/// `None` — the loader never opens this file on this instance.
+/// `Some(n)` — it does; lower is read first and is therefore authoritative.
+///
+/// Supersedes the old boolean loader-family test: `RangeFamily::Maven` covers
 /// `mods.toml`, `neoforge.mods.toml` and the legacy annotation alike, so family
 /// alone cannot tell a 1.12.2 instance that its jars' `mods.toml` is inert — and
-/// a measured 1.12.2 jar ships exactly that, demanding a version of a mod its
-/// annotation asks for unversioned.
+/// a measured 1.12.2 jar ships exactly that.
+///
+/// Instance-level only. Whether a file the loader *would* open is actually read
+/// for a PARTICULAR jar additionally depends on what else that jar ships — see
+/// [`effective_rank`], which layers shadowing on top of this.
 ///
 /// Wildcard-free on purpose: a new `DescriptorSource` cannot be added without
 /// answering for every loader.
-fn dep_applies_to_instance(
+fn descriptor_rank(
     source: crate::mods::local::DescriptorSource,
     loader: crate::instances::schema::LoaderKind,
     era: crate::mods::local::DescriptorEra,
-) -> bool {
+) -> Option<u8> {
     use crate::instances::schema::LoaderKind as L;
     use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
     match loader {
         L::Forge => match era {
-            E::Legacy => matches!(source, S::McmodAnnotation),
-            E::Modern => matches!(source, S::ModsToml),
+            // Complementary, not competing: `mcmod.info` is the provider list,
+            // the annotation is the requirement list. Equal rank, both read.
+            E::Legacy => match source {
+                S::McmodInfo | S::McmodAnnotation => Some(0),
+                S::ModsToml | S::NeoForgeToml | S::FabricJson | S::QuiltJson => None,
+            },
+            E::Modern => match source {
+                S::ModsToml => Some(0),
+                S::McmodInfo
+                | S::McmodAnnotation
+                | S::NeoForgeToml
+                | S::FabricJson
+                | S::QuiltJson => None,
+            },
         },
-        // NeoForge has no legacy era (it starts at MC 1.20.1) and reads
-        // `mods.toml` when a jar ships no `neoforge.mods.toml`. The reverse is
-        // NOT true — MinecraftForge has no knowledge of the NeoForge filename.
-        L::NeoForge => matches!(source, S::NeoForgeToml | S::ModsToml),
+        // NeoForge has no legacy era (it starts at MC 1.20.1) and falls back to
+        // `mods.toml` only for a jar that ships no `neoforge.mods.toml` — the
+        // per-jar half of that rule lives in `effective_rank`. The reverse is
+        // NOT true: MinecraftForge has no knowledge of the NeoForge filename.
+        L::NeoForge => match source {
+            S::NeoForgeToml => Some(0),
+            S::ModsToml => Some(1),
+            S::McmodInfo | S::McmodAnnotation | S::FabricJson | S::QuiltJson => None,
+        },
         // Fabric reads only fabric.mod.json — a Quilt mod on a Fabric instance is
         // a loader-compat issue (handled elsewhere), not a missing-dependency one.
-        L::Fabric => matches!(source, S::FabricJson),
-        // Quilt runs Fabric mods too, so it reads both descriptors.
-        L::Quilt => matches!(source, S::QuiltJson | S::FabricJson),
-        // Vanilla loads no mods → no declared mod dependency applies.
-        L::Vanilla => false,
+        L::Fabric => match source {
+            S::FabricJson => Some(0),
+            S::QuiltJson | S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => {
+                None
+            }
+        },
+        // Quilt runs Fabric mods, but a jar shipping `quilt.mod.json` never
+        // reaches Quilt Loader's Fabric plugin at all: `QuiltPluginManagerImpl`
+        // registers the quilt plugin first and `scanZip` breaks as soon as it
+        // claims the file. Again the per-jar half is `effective_rank`'s.
+        L::Quilt => match source {
+            S::QuiltJson => Some(0),
+            S::FabricJson => Some(1),
+            S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => None,
+        },
+        // Vanilla loads no mods → no declared descriptor applies.
+        L::Vanilla => None,
     }
+}
+
+/// [`descriptor_rank`] narrowed to one jar: a descriptor is inert when that same
+/// jar also ships one of a **strictly better** rank, because the loader reads
+/// only the better one and ignores this file for this jar.
+///
+/// "Strictly better", not "the single best": equal ranks are complementary
+/// rather than alternative (see the Forge-legacy arm above), and a
+/// keep-only-the-top rule would drop half of what a 1.12.2 jar declares.
+fn effective_rank(
+    source: crate::mods::local::DescriptorSource,
+    present: &[crate::mods::local::DescriptorSource],
+    loader: crate::instances::schema::LoaderKind,
+    era: crate::mods::local::DescriptorEra,
+) -> Option<u8> {
+    let rank = descriptor_rank(source, loader, era)?;
+    let shadowed = present
+        .iter()
+        .any(|other| descriptor_rank(*other, loader, era).is_some_and(|r| r < rank));
+    if shadowed {
+        return None;
+    }
+    Some(rank)
 }
 
 /// The launcher launches a client; a SERVER-only dep is not enforced.
@@ -167,7 +275,7 @@ pub fn resolve(
             // a Forge instance never loads fabric.mod.json, and a 1.12.2 one
             // never loads mods.toml. Anything else is a declaration the loader
             // cannot enforce, so it is not a launch-readiness problem.
-            if !dep_applies_to_instance(dep.source, loader, era) {
+            if effective_rank(dep.source, &m.manifest.sources_present, loader, era).is_none() {
                 continue;
             }
             // The loader only logs a warning for `discouraged` and carries on.
@@ -548,7 +656,7 @@ pub async fn dependency_preflight_for_root(
         });
     }
 
-    let index = ProviderIndex::build(&parsed, &jij);
+    let index = ProviderIndex::build(&parsed, &jij, loader, era);
     let raw = resolve(&parsed, &index, loader, era);
     let violations = raw
         .into_iter()
@@ -570,67 +678,216 @@ mod tests {
     /// measured 1.12.2 jar ships BOTH `mcmod.info` and a `mods.toml` stamped
     /// `loaderVersion="[24,)"` — written for its 1.14+ build — so "which file is
     /// present" cannot answer this.
+    ///
+    /// The old boolean `dep_applies_to_instance` is now a projection of the
+    /// ranking: `is_some()`. Every assertion it made is kept verbatim, so a
+    /// refactor that changes admissibility fails here rather than in production.
     #[test]
     fn only_the_descriptor_the_loader_opens_is_admitted() {
         use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
         use LoaderKind as L;
+        let ok = |s, l, e| descriptor_rank(s, l, e).is_some();
 
         // Forge 1.12.2 reads the annotation; its mods.toml is written for 1.14+.
-        assert!(dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::Forge,
-            E::Legacy
-        ));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Forge, E::Legacy));
+        assert!(ok(S::McmodAnnotation, L::Forge, E::Legacy));
+        assert!(ok(S::McmodInfo, L::Forge, E::Legacy));
+        assert!(!ok(S::ModsToml, L::Forge, E::Legacy));
         // Forge 1.13+ reads mods.toml, never neoforge.mods.toml — the asymmetry
         // is deliberate: NeoForge falls back to mods.toml, Forge has no
         // knowledge of the NeoForge filename at all.
-        assert!(dep_applies_to_instance(S::ModsToml, L::Forge, E::Modern));
-        assert!(!dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::Forge,
-            E::Modern
-        ));
-        assert!(!dep_applies_to_instance(
-            S::NeoForgeToml,
-            L::Forge,
-            E::Modern
-        ));
+        assert!(ok(S::ModsToml, L::Forge, E::Modern));
+        assert!(!ok(S::McmodAnnotation, L::Forge, E::Modern));
+        assert!(!ok(S::McmodInfo, L::Forge, E::Modern));
+        assert!(!ok(S::NeoForgeToml, L::Forge, E::Modern));
         // NeoForge prefers its own file and falls back to mods.toml.
-        assert!(dep_applies_to_instance(
-            S::NeoForgeToml,
-            L::NeoForge,
-            E::Modern
-        ));
-        assert!(dep_applies_to_instance(S::ModsToml, L::NeoForge, E::Modern));
-        assert!(!dep_applies_to_instance(
-            S::FabricJson,
-            L::NeoForge,
-            E::Modern
-        ));
-        assert!(!dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::NeoForge,
-            E::Modern
-        ));
+        assert!(ok(S::NeoForgeToml, L::NeoForge, E::Modern));
+        assert!(ok(S::ModsToml, L::NeoForge, E::Modern));
+        assert!(!ok(S::FabricJson, L::NeoForge, E::Modern));
+        assert!(!ok(S::McmodAnnotation, L::NeoForge, E::Modern));
         // Fabric reads only its own; Quilt reads both.
-        assert!(dep_applies_to_instance(S::FabricJson, L::Fabric, E::Modern));
-        assert!(!dep_applies_to_instance(S::QuiltJson, L::Fabric, E::Modern));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Fabric, E::Modern));
-        assert!(dep_applies_to_instance(S::QuiltJson, L::Quilt, E::Modern));
-        assert!(dep_applies_to_instance(S::FabricJson, L::Quilt, E::Modern));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Quilt, E::Modern));
+        assert!(ok(S::FabricJson, L::Fabric, E::Modern));
+        assert!(!ok(S::QuiltJson, L::Fabric, E::Modern));
+        assert!(!ok(S::ModsToml, L::Fabric, E::Modern));
+        assert!(ok(S::QuiltJson, L::Quilt, E::Modern));
+        assert!(ok(S::FabricJson, L::Quilt, E::Modern));
+        assert!(!ok(S::ModsToml, L::Quilt, E::Modern));
         // Vanilla loads no mods.
         for s in [
             S::McmodAnnotation,
+            S::McmodInfo,
             S::ModsToml,
             S::NeoForgeToml,
             S::FabricJson,
             S::QuiltJson,
         ] {
-            assert!(!dep_applies_to_instance(s, L::Vanilla, E::Modern));
-            assert!(!dep_applies_to_instance(s, L::Vanilla, E::Legacy));
+            assert!(!ok(s, L::Vanilla, E::Modern));
+            assert!(!ok(s, L::Vanilla, E::Legacy));
         }
+    }
+
+    /// NeoForge reads `neoforge.mods.toml` and ignores that jar's `mods.toml`.
+    /// Admitting both by rank alone would enforce dependencies the loader never
+    /// reads — inventing exactly the kind of phantom this whole line of work
+    /// exists to remove.
+    #[test]
+    fn a_better_descriptor_in_the_same_jar_shadows_the_worse_one() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        use LoaderKind as L;
+
+        let both = [S::NeoForgeToml, S::ModsToml];
+        assert!(effective_rank(S::NeoForgeToml, &both, L::NeoForge, E::Modern).is_some());
+        assert!(
+            effective_rank(S::ModsToml, &both, L::NeoForge, E::Modern).is_none(),
+            "neoforge.mods.toml shadows mods.toml inside one jar"
+        );
+        // Alone, it is read.
+        assert!(effective_rank(S::ModsToml, &[S::ModsToml], L::NeoForge, E::Modern).is_some());
+
+        // Same rule on Quilt: a jar shipping quilt.mod.json never reaches Quilt
+        // Loader's Fabric plugin.
+        let qf = [S::QuiltJson, S::FabricJson];
+        assert!(effective_rank(S::QuiltJson, &qf, L::Quilt, E::Modern).is_some());
+        assert!(effective_rank(S::FabricJson, &qf, L::Quilt, E::Modern).is_none());
+        assert!(effective_rank(S::FabricJson, &[S::FabricJson], L::Quilt, E::Modern).is_some());
+
+        // MinecraftForge does not read neoforge.mods.toml at all, so it cannot
+        // shadow anything there — this is the coverage gap being fixed.
+        assert!(
+            effective_rank(S::ModsToml, &both, L::Forge, E::Modern).is_some(),
+            "on MinecraftForge the mods.toml of a dual-descriptor jar IS read"
+        );
+
+        // Equal ranks never shadow each other.
+        let legacy = [S::McmodInfo];
+        assert!(effective_rank(S::McmodInfo, &legacy, L::Forge, E::Legacy).is_some());
+        assert!(effective_rank(S::McmodAnnotation, &legacy, L::Forge, E::Legacy).is_some());
+    }
+
+    /// Which descriptor names a provider's VERSION decides what every range is
+    /// measured against. A 1.12.2 jar can ship a `mods.toml` written for its
+    /// 1.14+ build; believing that version is the same mistake as believing its
+    /// dependencies.
+    #[test]
+    fn the_provider_version_comes_from_the_descriptor_the_loader_reads() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+
+        let pv = |id: &str, ver: Option<&str>, source| ProvidedMod {
+            mod_id: id.into(),
+            version: ver.map(str::to_string),
+            source,
+        };
+
+        // Authoritative wins over a disagreeing non-authoritative one.
+        let mods = vec![modz_from(
+            "aa",
+            vec![
+                pv("core", Some("1.10"), S::McmodInfo),
+                pv("core", Some("2.0"), S::ModsToml),
+            ],
+            vec![],
+            vec![S::McmodInfo, S::ModsToml],
+        )];
+        let legacy = ProviderIndex::build(&mods, &[], LoaderKind::Forge, E::Legacy);
+        assert_eq!(legacy.get("core"), Some(&Some("1.10".to_string())));
+        let modern = ProviderIndex::build(&mods, &[], LoaderKind::Forge, E::Modern);
+        assert_eq!(modern.get("core"), Some(&Some("2.0".to_string())));
+
+        // Authoritative is silent, the rest agree -> use it rather than lose it.
+        let agree = vec![modz_from(
+            "bb",
+            vec![
+                pv("core", None, S::ModsToml),
+                pv("core", Some("3.0"), S::McmodInfo),
+            ],
+            vec![],
+            vec![S::ModsToml, S::McmodInfo],
+        )];
+        let idx = ProviderIndex::build(&agree, &[], LoaderKind::Forge, E::Modern);
+        assert_eq!(idx.get("core"), Some(&Some("3.0".to_string())));
+
+        // Authoritative is silent and the rest disagree -> unknown, never a guess.
+        let disagree = vec![modz_from(
+            "cc",
+            vec![
+                pv("core", Some("3.0"), S::McmodInfo),
+                pv("core", Some("4.0"), S::FabricJson),
+            ],
+            vec![],
+            vec![S::McmodInfo, S::FabricJson],
+        )];
+        let idx = ProviderIndex::build(&disagree, &[], LoaderKind::Forge, E::Modern);
+        assert_eq!(
+            idx.get("core"),
+            Some(&None),
+            "present, version unknown - not one of the two guessed"
+        );
+
+        // Presence is a UNION: a provider declared only in a file this loader
+        // never opens is still installed.
+        let unread = vec![modz_from(
+            "dd",
+            vec![pv("somelib", Some("1.0"), S::ModsToml)],
+            vec![],
+            vec![S::ModsToml],
+        )];
+        let idx = ProviderIndex::build(&unread, &[], LoaderKind::Forge, E::Legacy);
+        assert!(
+            idx.is_provided("somelib"),
+            "the jar is installed; only its version is unreadable here"
+        );
+    }
+
+    /// End of the chain: a shadowed dependency produces no violation even though
+    /// its source is admitted at instance level.
+    #[test]
+    fn resolve_ignores_a_dependency_from_a_shadowed_descriptor() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        let mods = vec![modz_from(
+            "aa",
+            vec![],
+            vec![dep_from(
+                "ghost",
+                "",
+                RangeFamily::Maven,
+                DependencyKind::Required,
+                S::ModsToml,
+            )],
+            vec![S::NeoForgeToml, S::ModsToml],
+        )];
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, E::Modern);
+        assert!(
+            resolve(&mods, &index, LoaderKind::NeoForge, E::Modern).is_empty(),
+            "mods.toml is shadowed by neoforge.mods.toml in this jar"
+        );
+
+        // The very same jar on MinecraftForge: mods.toml is what the loader
+        // reads, so the dependency IS enforced.
+        let forge = resolve(&mods, &index, LoaderKind::Forge, E::Modern);
+        assert_eq!(forge.len(), 1, "{forge:?}");
+    }
+
+    /// Ordering, not just membership: a loader that reads two files still reads
+    /// one of them FIRST, and that is what decides a provider's version.
+    #[test]
+    fn descriptor_rank_orders_the_files_a_loader_reads() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        use LoaderKind as L;
+
+        assert!(
+            descriptor_rank(S::NeoForgeToml, L::NeoForge, E::Modern)
+                < descriptor_rank(S::ModsToml, L::NeoForge, E::Modern)
+        );
+        assert!(
+            descriptor_rank(S::QuiltJson, L::Quilt, E::Modern)
+                < descriptor_rank(S::FabricJson, L::Quilt, E::Modern)
+        );
+        // The one tie in the table, and it is deliberate: on the legacy era
+        // these two are complementary, not competing — `mcmod.info` contributes
+        // providers and never dependencies, the annotation the reverse.
+        assert_eq!(
+            descriptor_rank(S::McmodInfo, L::Forge, E::Legacy),
+            descriptor_rank(S::McmodAnnotation, L::Forge, E::Legacy)
+        );
     }
 
     // `dep_family_matches_instance_loader` was superseded by
@@ -654,7 +911,7 @@ mod tests {
         );
         let create_new = modz("b", vec![prov("create", "6.0.10")], vec![]);
         let mods = vec![ap.clone(), create_new];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
             resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty(),
             "6.0.10 is outside (,6.0.9] — the incompatibility does not apply"
@@ -662,7 +919,8 @@ mod tests {
 
         let create_old = modz("c", vec![prov("create", "6.0.5")], vec![]);
         let clashing = vec![ap, create_old];
-        let index = ProviderIndex::build(&clashing, &[]);
+        let index =
+            ProviderIndex::build(&clashing, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
             resolve(&clashing, &index, LoaderKind::NeoForge, DescriptorEra::Modern).as_slice(),
             [Violation::IncompatibleInstalled { dep_id, .. }] if dep_id == "create"
@@ -681,7 +939,7 @@ mod tests {
                 DependencyKind::Incompatible,
             )],
         )];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
     }
 
@@ -700,14 +958,15 @@ mod tests {
             )],
         );
         let absent = vec![declaring.clone()];
-        let index = ProviderIndex::build(&absent, &[]);
+        let index = ProviderIndex::build(&absent, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
             resolve(&absent, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty(),
             "an absent optional dependency is not a problem"
         );
 
         let present = vec![declaring, modz("b", vec![prov("curios", "5.4.0")], vec![])];
-        let index = ProviderIndex::build(&present, &[]);
+        let index =
+            ProviderIndex::build(&present, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
             resolve(&present, &index, LoaderKind::NeoForge, DescriptorEra::Modern).as_slice(),
             [Violation::OptionalOutOfRange { dep_id, .. }] if dep_id == "curios"
@@ -730,7 +989,7 @@ mod tests {
             ),
             modz("b", vec![prov("create", "6.0.5")], vec![]),
         ];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
     }
 
@@ -746,7 +1005,7 @@ mod tests {
             ),
             modz("b", vec![prov("farmersdelight", "1.3.2")], vec![]),
         ];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
     }
 
@@ -762,7 +1021,7 @@ mod tests {
                 dep("fabric-api", "*", RangeFamily::FabricPredicate),
             ],
         )];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         // Forge instance: only the Maven dep is a real violation.
         let forge = resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern);
         assert_eq!(forge.len(), 1);
@@ -786,7 +1045,7 @@ mod tests {
             vec![],
             vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
         )];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         let quilt = resolve(&mods, &index, LoaderKind::Quilt, DescriptorEra::Modern);
         assert_eq!(quilt.len(), 1);
         assert!(
@@ -824,16 +1083,38 @@ mod tests {
         }
     }
     fn modz(sha: &str, provided: Vec<ProvidedMod>, deps: Vec<DeclaredDep>) -> ParsedMod {
+        // Derived from DEPS ONLY. Providers must not contribute: these fixtures
+        // pair a `ModsToml` provider with a `ModsToml` dep, and folding both in
+        // would make a single-descriptor fixture look dual-descriptor and start
+        // shadowing itself once `effective_rank` lands.
+        let mut sources: Vec<DescriptorSource> = deps.iter().map(|d| d.source).collect();
+        sources.dedup();
+        modz_from(sha, provided, deps, sources)
+    }
+    fn modz_from(
+        sha: &str,
+        provided: Vec<ProvidedMod>,
+        deps: Vec<DeclaredDep>,
+        sources_present: Vec<DescriptorSource>,
+    ) -> ParsedMod {
         ParsedMod {
             sha1: sha.into(),
             name: sha.to_uppercase(),
-            manifest: ManifestDeps { provided, deps },
+            manifest: ManifestDeps {
+                provided,
+                deps,
+                sources_present,
+            },
         }
     }
     fn prov(id: &str, ver: &str) -> ProvidedMod {
+        // Pinned to `ModsToml` so it agrees with `dep_of`'s `RangeFamily::Maven`
+        // default: a fixture must not become accidentally dual-descriptor once
+        // `sources_present` starts driving shadowing.
         ProvidedMod {
             mod_id: id.into(),
             version: Some(ver.into()),
+            source: DescriptorSource::ModsToml,
         }
     }
 
@@ -846,7 +1127,7 @@ mod tests {
         );
         let core = modz("b", vec![prov("sophisticatedcore", "1.3.50.2005")], vec![]);
         let mods = vec![backpacks, core];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         let v = resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern);
         assert_eq!(v.len(), 1);
         assert!(
@@ -862,7 +1143,7 @@ mod tests {
             vec![prov("backpacks", "3.20")],
             vec![dep("sophisticatedcore", "[1.3.51,)", RangeFamily::Maven)],
         )];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
             resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern)[0],
             Violation::MissingRequired { .. }
@@ -876,7 +1157,12 @@ mod tests {
             vec![prov("backpacks", "3.20")],
             vec![dep("sophisticatedcore", "*", RangeFamily::Maven)],
         )];
-        let index = ProviderIndex::build(&mods, &[("sophisticatedcore".into(), None)]);
+        let index = ProviderIndex::build(
+            &mods,
+            &[("sophisticatedcore".into(), None)],
+            LoaderKind::NeoForge,
+            DescriptorEra::Modern,
+        );
         assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
         // present via JIJ, version unknown => silent
     }
@@ -886,7 +1172,7 @@ mod tests {
         let mut d = dep("servercore", "[2,)", RangeFamily::Maven);
         d.side = DepSide::Server;
         let mods = vec![modz("a", vec![prov("x", "1")], vec![d])];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
     }
 
@@ -900,7 +1186,7 @@ mod tests {
             ),
             modz("b", vec![prov("sophisticatedcore", "1.3.55")], vec![]),
         ];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
     }
 
@@ -1051,7 +1337,7 @@ mod tests {
                 vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
             ),
         ];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
             resolve(&mods, &index, LoaderKind::Fabric, DescriptorEra::Modern).is_empty(),
             "fabric-api must match fabric_api"
@@ -1070,7 +1356,7 @@ mod tests {
                 vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
             ),
         ];
-        let index = ProviderIndex::build(&mods, &[]);
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
             resolve(&mods, &index, LoaderKind::Fabric, DescriptorEra::Modern).is_empty(),
             "fabric-api satisfied by forgified_fabric_api via alias"

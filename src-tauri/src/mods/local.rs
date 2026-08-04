@@ -71,6 +71,10 @@ impl DependencyKind {
 /// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DescriptorSource {
+    /// `mcmod.info` — the Forge ≤ 1.12.2 JSON descriptor. PROVIDERS ONLY; its
+    /// own `dependencies` array is cosmetic on that era, which is why the
+    /// annotation below is a separate source rather than the same one.
+    McmodInfo,
     /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
     McmodAnnotation,
     /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
@@ -100,6 +104,9 @@ pub struct DeclaredDep {
 pub struct ProvidedMod {
     pub mod_id: String,
     pub version: Option<String>,
+    /// The descriptor this id was declared in. Decides whether its `version` is
+    /// the one the loader reads — see `preflight::effective_rank`.
+    pub source: DescriptorSource,
 }
 
 /// Everything the pre-flight needs from one jar.
@@ -109,6 +116,40 @@ pub struct ManifestDeps {
     pub provided: Vec<ProvidedMod>,
     /// Declared dependencies.
     pub deps: Vec<DeclaredDep>,
+    /// Descriptor files this jar ships, whether or not they declared anything.
+    ///
+    /// Cannot be inferred from `provided` / `deps`: a `mods.toml` with only
+    /// `[[dependencies]]` blocks contributes to neither yet still shadows a
+    /// lower-ranked descriptor. `McmodAnnotation` never appears — it is a class
+    /// constant pool, not a file, and it is read by a separate pass.
+    pub sources_present: Vec<DescriptorSource>,
+}
+
+impl ManifestDeps {
+    /// Declared dependencies as a reader WITHOUT an instance must see them.
+    ///
+    /// `deps` is a union of every descriptor the jar ships, and that union is
+    /// only resolvable against a loader — `preflight::effective_rank` does it.
+    /// A caller with no instance (crash diagnosis, server quarantine,
+    /// install-time closure) would otherwise treat a multi-loader jar as
+    /// needing BOTH loaders' dependencies at once, and the install-time one
+    /// would go and fetch them.
+    ///
+    /// So this collapses the Forge pair the way the reader itself used to:
+    /// `neoforge.mods.toml` shadows `mods.toml` when the jar ships both, which
+    /// is what NeoForge does and what these callers have assumed for as long as
+    /// they have existed. Their behaviour is unchanged by the union.
+    ///
+    /// Prefer threading the real loader in. This exists for the callers that
+    /// genuinely cannot.
+    pub fn deps_without_instance(&self) -> impl Iterator<Item = &DeclaredDep> {
+        let shadow_mods_toml = self
+            .sources_present
+            .contains(&DescriptorSource::NeoForgeToml);
+        self.deps
+            .iter()
+            .filter(move |d| !(shadow_mods_toml && d.source == DescriptorSource::ModsToml))
+    }
 }
 
 /// Best-effort metadata read from a mod `.jar`.
@@ -368,9 +409,10 @@ pub fn read_jar_dependency_ids(jar_bytes: &[u8]) -> Result<Vec<String>, Error> {
     // `versionRange="[1.0,)"`, hiding every key declared after it), which made
     // the two parsers disagree about the same jar.
     let mut out: Vec<String> = Vec::new();
-    for dep in read_jar_manifest_deps(jar_bytes)?.deps {
+    let manifest = read_jar_manifest_deps(jar_bytes)?;
+    for dep in manifest.deps_without_instance() {
         if dep.kind.is_required() {
-            push_dep(&mut out, dep.dep_id);
+            push_dep(&mut out, dep.dep_id.clone());
         }
     }
     Ok(out)
@@ -565,6 +607,7 @@ fn parse_mcmod_info_providers(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version,
+            source: DescriptorSource::McmodInfo,
         });
     }
 }
@@ -580,16 +623,25 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
     let manifest = entry_text(&mut zip, "META-INF/MANIFEST.MF");
     let mut out = ManifestDeps::default();
 
-    // NeoForge reads `neoforge.mods.toml` when it is present and ignores
-    // `mods.toml`; match that instead of merging both, which duplicated every
-    // provider and dependency of the ~4% of jars that ship the two files.
-    let chosen = entry_text(&mut zip, "META-INF/neoforge.mods.toml")
-        .map(|t| (t, forge_descriptor::Descriptor::NeoForge))
-        .or_else(|| {
-            entry_text(&mut zip, "META-INF/mods.toml")
-                .map(|t| (t, forge_descriptor::Descriptor::LegacyForge))
-        });
-    if let Some((txt, descriptor)) = chosen {
+    // BOTH Forge descriptors are read when both are present. Picking one here
+    // was right only while dependencies carried no provenance: the choice a
+    // loader makes is per instance AND per jar, and neither is knowable at this
+    // layer. `preflight::effective_rank` makes it, from the tags stamped below.
+    // A reader with no instance at all uses `deps_without_instance`.
+    for (name, descriptor) in [
+        (
+            "META-INF/neoforge.mods.toml",
+            forge_descriptor::Descriptor::NeoForge,
+        ),
+        (
+            "META-INF/mods.toml",
+            forge_descriptor::Descriptor::LegacyForge,
+        ),
+    ] {
+        let Some(txt) = entry_text(&mut zip, name) else {
+            continue;
+        };
+        out.sources_present.push(descriptor.source());
         match forge_descriptor::parse(&txt, descriptor) {
             Some(d) => {
                 for p in d.provided {
@@ -598,6 +650,7 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
                         version: p
                             .version
                             .and_then(|v| resolve_jar_version(&v, manifest.as_deref())),
+                        source: p.source,
                     });
                 }
                 out.deps.extend(d.deps);
@@ -613,15 +666,18 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
         }
     }
     if let Some(txt) = entry_text(&mut zip, "fabric.mod.json") {
+        out.sources_present.push(DescriptorSource::FabricJson);
         parse_fabric_manifest(&txt, &mut out);
     }
     if let Some(txt) = entry_text(&mut zip, "quilt.mod.json") {
+        out.sources_present.push(DescriptorSource::QuiltJson);
         parse_quilt_manifest(&txt, &mut out);
     }
     // A provided mod-id is the same fact whichever descriptor it came from, so
     // this is era-neutral and unconditional. Requirements are not — those come
     // from the annotation, era-scoped, and are read separately.
     if let Some(txt) = entry_text(&mut zip, "mcmod.info") {
+        out.sources_present.push(DescriptorSource::McmodInfo);
         parse_mcmod_info_providers(&txt, &mut out);
     }
     out.deps.retain(|d| !is_loader_or_mc(&d.dep_id));
@@ -771,6 +827,7 @@ fn parse_forge_manifest_regex(
             out.provided.push(ProvidedMod {
                 mod_id: id[1].to_string(),
                 version,
+                source: descriptor.source(),
             });
         }
         mods_from = end;
@@ -837,6 +894,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version: version.clone(),
+            source: DescriptorSource::FabricJson,
         });
     }
     // `provides`: alias mod-ids this jar satisfies (Fabric: array of strings).
@@ -846,6 +904,7 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
             out.provided.push(ProvidedMod {
                 mod_id: id.to_string(),
                 version: version.clone(),
+                source: DescriptorSource::FabricJson,
             });
         }
     }
@@ -876,6 +935,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
             version: own_version.clone(),
+            source: DescriptorSource::QuiltJson,
         });
     }
     // `provides`: strings (own version) or { id, version? } objects.
@@ -899,6 +959,7 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
                 out.provided.push(ProvidedMod {
                     mod_id: id,
                     version: ver,
+                    source: DescriptorSource::QuiltJson,
                 });
             }
         }
@@ -1550,6 +1611,191 @@ mod tests {
         .is_empty());
     }
 
+    /// `read_jar_dependency_ids` has no instance, so it cannot know which Forge
+    /// descriptor applies. It therefore keeps the choice the reader itself used
+    /// to make — `neoforge.mods.toml` when present — rather than reporting the
+    /// union and inventing requirements for a loader that is not running.
+    #[test]
+    fn loader_unaware_readers_see_one_forge_descriptor() {
+        let j = jar(&[
+            (
+                "META-INF/neoforge.mods.toml",
+                "[[mods]]
+modId=\"m\"
+                 [[dependencies.m]]
+modId=\"nf_lib\"
+type=\"required\"
+",
+            ),
+            (
+                "META-INF/mods.toml",
+                "[[mods]]
+modId=\"m\"
+                 [[dependencies.m]]
+modId=\"mf_lib\"
+mandatory=true
+",
+            ),
+        ]);
+        assert_eq!(
+            read_jar_dependency_ids(&j).unwrap(),
+            vec!["nf_lib".to_string()],
+            "mods.toml is not this jar's descriptor when neoforge.mods.toml exists"
+        );
+
+        // With only mods.toml present it is the one that counts.
+        let j = jar(&[(
+            "META-INF/mods.toml",
+            "[[mods]]
+modId=\"m\"
+             [[dependencies.m]]
+modId=\"mf_lib\"
+mandatory=true
+",
+        )]);
+        assert_eq!(
+            read_jar_dependency_ids(&j).unwrap(),
+            vec!["mf_lib".to_string()]
+        );
+    }
+
+    /// The `chosen` one-of-two selection existed only because dependencies had
+    /// no provenance. They have it now, so both files are read and the instance
+    /// decides which one counts — which is what lets a MinecraftForge instance
+    /// reach the `mods.toml` a NeoForge instance shadows.
+    #[test]
+    fn a_jar_shipping_both_forge_descriptors_yields_both() {
+        let j = jar(&[
+            (
+                "META-INF/neoforge.mods.toml",
+                "[[mods]]
+modId=\"a\"
+version=\"2.0\"
+                 [[dependencies.a]]
+modId=\"nf_only\"
+",
+            ),
+            (
+                "META-INF/mods.toml",
+                "[[mods]]
+modId=\"a\"
+version=\"1.0\"
+                 [[dependencies.a]]
+modId=\"mt_only\"
+",
+            ),
+        ]);
+        let d = read_jar_manifest_deps(&j).unwrap();
+
+        let dep_src = |id: &str| d.deps.iter().find(|x| x.dep_id == id).map(|x| x.source);
+        assert_eq!(dep_src("nf_only"), Some(DescriptorSource::NeoForgeToml));
+        assert_eq!(dep_src("mt_only"), Some(DescriptorSource::ModsToml));
+
+        let versions: Vec<_> = d
+            .provided
+            .iter()
+            .filter(|p| p.mod_id == "a")
+            .map(|p| (p.source, p.version.as_deref()))
+            .collect();
+        assert!(versions.contains(&(DescriptorSource::NeoForgeToml, Some("2.0"))));
+        assert!(versions.contains(&(DescriptorSource::ModsToml, Some("1.0"))));
+
+        assert!(d.sources_present.contains(&DescriptorSource::NeoForgeToml));
+        assert!(d.sources_present.contains(&DescriptorSource::ModsToml));
+    }
+
+    /// Which descriptors a jar SHIPS cannot be inferred from which ones
+    /// declared something: a `mods.toml` carrying only `[[dependencies]]` and no
+    /// `[[mods]]` block appears in neither `provided` nor — once its deps are
+    /// loader-scoped away — in `deps`, yet it is present and it shadows.
+    #[test]
+    fn manifest_records_the_descriptors_the_jar_actually_ships() {
+        let d = read_jar_manifest_deps(&jar(&[
+            (
+                "META-INF/mods.toml",
+                "[[mods]]
+modId=\"a\"
+",
+            ),
+            ("mcmod.info", r#"[{"modid":"a"}]"#),
+        ]))
+        .unwrap();
+        assert!(d.sources_present.contains(&DescriptorSource::ModsToml));
+        assert!(d.sources_present.contains(&DescriptorSource::McmodInfo));
+        assert!(!d.sources_present.contains(&DescriptorSource::NeoForgeToml));
+
+        // Declares nothing, but is present.
+        let d = read_jar_manifest_deps(&jar(&[(
+            "META-INF/neoforge.mods.toml",
+            "[[dependencies.a]]
+modId=\"b\"
+",
+        )]))
+        .unwrap();
+        assert!(d.provided.is_empty());
+        assert!(d.sources_present.contains(&DescriptorSource::NeoForgeToml));
+
+        let d = read_jar_manifest_deps(&jar(&[("fabric.mod.json", r#"{"id":"a"}"#)])).unwrap();
+        assert_eq!(d.sources_present, vec![DescriptorSource::FabricJson]);
+
+        // The annotation is not a file and is read separately, so it never
+        // appears here.
+        let d = read_jar_manifest_deps(&jar(&[(
+            "quilt.mod.json",
+            r#"{"quilt_loader":{"id":"a"}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.sources_present, vec![DescriptorSource::QuiltJson]);
+    }
+
+    /// A provided mod-id is only half a fact: which file declared it decides
+    /// whether its VERSION is the one the loader will see. `mcmod.info` needs a
+    /// source of its own — `McmodAnnotation` is the class constant pool, a
+    /// different file entirely.
+    #[test]
+    fn providers_carry_their_descriptor_source() {
+        let toml = "[[mods]]\nmodId=\"a\"\nversion=\"1.0\"\n";
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", toml)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::ModsToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", toml)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::NeoForgeToml);
+
+        let d = read_jar_manifest_deps(&jar(&[("mcmod.info", r#"[{"modid":"a"}]"#)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::McmodInfo);
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"a","provides":["b"]}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::FabricJson);
+        assert_eq!(
+            d.provided[1].source,
+            DescriptorSource::FabricJson,
+            "aliases too"
+        );
+
+        let d = read_jar_manifest_deps(&jar(&[(
+            "quilt.mod.json",
+            r#"{"quilt_loader":{"id":"a","provides":["b"]}}"#,
+        )]))
+        .unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::QuiltJson);
+        assert_eq!(
+            d.provided[1].source,
+            DescriptorSource::QuiltJson,
+            "aliases too"
+        );
+
+        // The regex fallback runs on descriptors that are not valid TOML and
+        // must stamp what the TOML path would.
+        let broken = "[[mods]]\nmodId=\"a\"\nlogoFile=\"assets\\icon.png\"\n";
+        let d = read_jar_manifest_deps(&jar(&[("META-INF/mods.toml", broken)])).unwrap();
+        assert_eq!(d.provided[0].source, DescriptorSource::ModsToml);
+    }
+
     /// Every declared dependency must carry the file it came out of. `RangeFamily`
     /// cannot answer this — `Maven` covers `mods.toml`, `neoforge.mods.toml` and
     /// the legacy annotation alike — and the pre-flight needs it to drop a
@@ -1713,10 +1959,16 @@ mod tests {
         assert_eq!(neo.deps[0].kind, DependencyKind::Optional);
     }
 
+    /// ~4% of real jars ship both files. This used to assert that
+    /// `neoforge.mods.toml` won here, in the reader. It no longer does, and the
+    /// invariant did not disappear — it moved to `preflight::effective_rank`,
+    /// the only layer that knows which loader is running, where it is pinned by
+    /// `a_better_descriptor_in_the_same_jar_shadows_the_worse_one`. Deciding it
+    /// here was wrong in one direction the old test could not see: it also hid
+    /// the `mods.toml` from a MinecraftForge instance, which reads exactly that
+    /// file and nothing else.
     #[test]
-    fn jar_with_both_descriptors_yields_each_dep_once() {
-        // ~4% of real jars ship both files. NeoForge reads only its own, so we
-        // must not merge them and report everything twice.
+    fn a_dual_descriptor_jar_keeps_both_declarations_tagged() {
         let bytes = jar(&[
             (
                 "META-INF/mods.toml",
@@ -1730,13 +1982,23 @@ mod tests {
             ),
         ]);
         let out = read_jar_manifest_deps(&bytes).unwrap();
-        assert_eq!(out.deps.len(), 1, "deps: {:?}", out.deps);
+
+        assert_eq!(out.deps.len(), 2, "deps: {:?}", out.deps);
+        // neoforge.mods.toml is read first, so it stays first in every list.
+        assert_eq!(out.deps[0].source, DescriptorSource::NeoForgeToml);
+        assert_eq!(out.deps[0].kind, DependencyKind::Optional, "from `type`");
+        assert_eq!(out.deps[1].source, DescriptorSource::ModsToml);
         assert_eq!(
-            out.deps[0].kind,
-            DependencyKind::Optional,
-            "neoforge.mods.toml must win"
+            out.deps[1].kind,
+            DependencyKind::Required,
+            "from `mandatory`"
         );
-        assert_eq!(out.provided.len(), 1);
+
+        assert_eq!(out.provided.len(), 2);
+        assert_eq!(
+            out.sources_present,
+            vec![DescriptorSource::NeoForgeToml, DescriptorSource::ModsToml]
+        );
     }
 
     #[test]

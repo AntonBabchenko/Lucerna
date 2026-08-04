@@ -360,3 +360,134 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
         modern.violations[0].kind
     );
 }
+
+/// Defect A: a jar shipping BOTH Forge descriptors stopped being checked at all
+/// on a MinecraftForge instance, because it was parsed as `neoforge.mods.toml`
+/// only and that source is (correctly) not admitted there.
+#[tokio::test]
+async fn a_dual_descriptor_jar_is_still_checked_on_minecraftforge() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+
+    let both = make_jar(&[
+        (
+            "META-INF/neoforge.mods.toml",
+            "[[mods]]\nmodId=\"multi\"\n\
+             [[dependencies.multi]]\nmodId=\"nf_lib\"\ntype=\"required\"\n",
+        ),
+        (
+            "META-INF/mods.toml",
+            "[[mods]]\nmodId=\"multi\"\n\
+             [[dependencies.multi]]\nmodId=\"mf_lib\"\nmandatory=true\n",
+        ),
+    ]);
+    register(root, "multi-1.0.jar", &both).await;
+
+    let forge = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
+        .await
+        .unwrap();
+    assert_eq!(forge.violations.len(), 1, "{:?}", forge.violations);
+    assert_eq!(
+        forge.violations[0].dep_id, "mf_lib",
+        "MinecraftForge reads mods.toml and nothing else"
+    );
+
+    // On NeoForge the same jar reports through neoforge.mods.toml, and its
+    // mods.toml is shadowed — exactly one violation, the other id.
+    let neo = dependency_preflight_for_root(root, LoaderKind::NeoForge, "1.20.1")
+        .await
+        .unwrap();
+    assert_eq!(neo.violations.len(), 1, "{:?}", neo.violations);
+    assert_eq!(
+        neo.violations[0].dep_id, "nf_lib",
+        "mods.toml must be shadowed on NeoForge, not merged"
+    );
+}
+
+/// Defect B: the version a range is measured against must come from the file
+/// FML opens. A 1.12.2 jar's `mods.toml` is written for its 1.14+ build.
+#[tokio::test]
+async fn a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+
+    // CreativeCore: mcmod.info says 1.10 (what FML 1.12.2 sees), mods.toml says
+    // 2.0 (written for the 1.14+ build, never opened on this instance).
+    let core = make_jar(&[
+        (
+            "mcmod.info",
+            r#"[{"modid":"creativecore","version":"1.10"}]"#,
+        ),
+        (
+            "META-INF/mods.toml",
+            "[[mods]]\nmodId=\"creativecore\"\nversion=\"2.0\"\n",
+        ),
+    ]);
+    register(root, "CreativeCore.jar", &core).await;
+
+    // A dependent whose annotation requires creativecore >= 2.0.
+    let ev = make_jar_raw(&[
+        (
+            "mcmod.info",
+            br#"[{"modid":"ev","version":"1.0"}]"# as &[u8],
+        ),
+        (
+            "team/EV.class",
+            b"\x00\x02ev\x00\x1brequired-after:creativecore@[2.0,)\x00" as &[u8],
+        ),
+    ]);
+    register(root, "EnhancedVisuals.jar", &ev).await;
+
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2")
+        .await
+        .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert!(
+        matches!(report.violations[0].kind, ViolationKind::VersionOutOfRange),
+        "1.10 is what FML sees and it is out of [2.0,); the inert mods.toml 2.0 \
+         must not satisfy the range: {:?}",
+        report.violations[0]
+    );
+    assert_eq!(
+        report.violations[0].installed_version.as_deref(),
+        Some("1.10")
+    );
+}
+
+/// A provider declared only in a file this loader does not read is STILL
+/// installed. Presence is a union — filtering it the way dependencies are
+/// filtered would turn a real mod into a phantom "not installed".
+#[tokio::test]
+async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+
+    // Declares itself ONLY in mods.toml, on a 1.12.2 instance where that file
+    // is never opened.
+    let lib = make_jar(&[(
+        "META-INF/mods.toml",
+        "[[mods]]\nmodId=\"somelib\"\nversion=\"1.0\"\n",
+    )]);
+    register(root, "somelib.jar", &lib).await;
+
+    let dependent = make_jar_raw(&[
+        (
+            "mcmod.info",
+            br#"[{"modid":"dep","version":"1.0"}]"# as &[u8],
+        ),
+        (
+            "team/D.class",
+            b"\x00\x03dep\x00\x18required-after:somelib\x00" as &[u8],
+        ),
+    ]);
+    register(root, "dependent.jar", &dependent).await;
+
+    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2")
+        .await
+        .unwrap();
+    assert!(
+        report.violations.is_empty(),
+        "the jar is installed; only its VERSION is unreadable here: {:?}",
+        report.violations
+    );
+}

@@ -126,6 +126,7 @@ pub fn parse(text: &str, descriptor: Descriptor) -> Option<ForgeDescriptor> {
                     .get("version")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
+                source: descriptor.source(),
             });
         }
     }
