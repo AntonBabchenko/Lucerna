@@ -200,9 +200,13 @@ pub async fn post_with_timeout(
     send(req, "POST", url, initiator, Some(timeout)).await
 }
 
-/// Parse the host out of a URL for gate lookup. Returns None for an unparseable
-/// URL (the request still proceeds, just unthrottled).
-fn host_of(url: &str) -> Option<String> {
+/// Parse the host out of a URL. Originally for throttle-gate lookup (`None`
+/// = unparseable, the request still proceeds, just unthrottled); `pub(crate)`
+/// because the modpack import report also needs a URL's host for
+/// provenance/display (`TaskDetail.host`), and `reqwest` — even just
+/// `reqwest::Url` — is banned outside `network::` by
+/// `structural_no_raw_http.rs`, so that caller cannot parse it inline.
+pub(crate) fn host_of(url: &str) -> Option<String> {
     reqwest::Url::parse(url)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.to_string()))

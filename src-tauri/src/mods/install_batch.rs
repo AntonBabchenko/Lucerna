@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::error::Error;
-use crate::mods::install::{self, Installed, ProgressFn};
+use crate::mods::install::{self, Installed, ProgressCount, ProgressFn};
 use crate::mods::installed;
 use crate::mods::platform::ModVersion;
 
@@ -37,12 +37,25 @@ pub struct BatchFailure {
 /// outcomes in `items` order — the caller emits its per-mod events from them
 /// AFTER the whole batch has committed, so a rollback can never contradict an
 /// already-sent success event.
+///
+/// `count` drives the "N of M" counter the caller stamps onto its progress
+/// events (see `ProgressCount`). `items.len()` is the exact total — this is
+/// the earliest point in the whole `mods_install_with_deps` flow a total
+/// exists, since manifest-extra candidates are downloaded before `items`
+/// (`install_seq`) is assembled by the caller. Phase 1 below (cache warm) is
+/// what advances `current`, one item at a time; phase 2 (commit) does not —
+/// see its comment for why.
 pub async fn install_batch(
     data_dir: &Path,
     instance_root: &Path,
     items: &[ModVersion],
     progress: &ProgressFn,
+    count: &ProgressCount,
 ) -> Result<Vec<Installed>, BatchFailure> {
+    count
+        .total
+        .store(items.len() as u32, std::sync::atomic::Ordering::Relaxed);
+
     // Phase 0 — guards over the whole sequence before any I/O.
     let mut shas: Vec<String> = Vec::with_capacity(items.len());
     for v in items {
@@ -57,8 +70,15 @@ pub async fn install_batch(
         }
     }
 
-    // Phase 1 — warm the cache; the instance is untouched on failure.
-    for (v, sha) in items.iter().zip(shas.iter()) {
+    // Phase 1 — warm the cache; the instance is untouched on failure. This is
+    // the pass that drives `count.current`: it's where network time is spent,
+    // and — unlike phase 2 — a cache-hit item can complete with zero progress
+    // ticks of its own, so `current` must be set at the item boundary this
+    // loop already owns rather than inferred from tick counts.
+    for (i, (v, sha)) in items.iter().zip(shas.iter()).enumerate() {
+        count
+            .current
+            .store(i as u32 + 1, std::sync::atomic::Ordering::Relaxed);
         if let Err(error) = install::fetch_to_cache(
             data_dir,
             &v.primary_file.url,
@@ -87,6 +107,12 @@ pub async fn install_batch(
     if pre_shas.is_none() {
         crate::diag!("install_batch: registry unreadable — a rollback would skip record removals");
     }
+    // Deliberately does NOT touch `count.current`: every item already
+    // advanced it during phase 1 above, so every Copying tick from here on
+    // reads `current == total`. Phase 2 is a hardlink swap (fast, not where
+    // the user perceives wait time) — running a second 1..N pass here would
+    // make the "N of M" counter appear to restart from the UI's point of
+    // view, which is the exact bug this design avoids.
     let mut done: Vec<Installed> = Vec::new();
     for (i, v) in items.iter().enumerate() {
         match install::install_one(data_dir, instance_root, v.clone(), progress).await {
@@ -259,9 +285,15 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap_err();
+        let f = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(f.project_id, "p-missing");
         // The instance was never touched: ok.jar was fetched to the cache
         // only, never copied, never recorded.
@@ -295,9 +327,15 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap_err();
+        let f = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(f.project_id, "p-b");
         assert!(matches!(f.error, Error::ModsFilenameConflict { .. }));
         // Item a was rolled back: file gone, no registry record.
@@ -333,9 +371,15 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap_err();
+        let f = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(f.project_id, "p-x2");
         assert!(matches!(f.error, Error::ModsFilenameConflict { .. }));
         assert!(!installed::mods_dir(td_inst.path()).join("x.jar").exists());
@@ -420,9 +464,15 @@ mod tests {
             pre, // idempotent re-install
             fake_version(format!("{}/con.jar", s.uri()), sha_b, 7, "con.jar", "p-con"),
         ];
-        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap_err();
+        let f = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(f.project_id, "p-con");
         // The pre-existing install survives the rollback: file AND record.
         assert!(dir.join("pre.jar").exists());
@@ -455,9 +505,15 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let done = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap();
+        let done = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(done.len(), 2);
         assert_eq!(done[0].sha1, sha_a);
         assert_eq!(done[1].sha1, sha_b);
@@ -501,11 +557,85 @@ mod tests {
         ];
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let f = install_batch(td_data.path(), td_inst.path(), &items, &nop_progress())
-            .await
-            .unwrap_err();
+        let f = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(f.project_id, "p-g2");
         assert!(matches!(f.error, Error::ModsDistributionDisabled { .. }));
         assert!(!cache::cache_path_for(td_data.path(), &sha1).exists());
+    }
+
+    /// Pins the fact that makes the per-item counter feature worth doing:
+    /// `install_batch` knows the exact item count (`items.len()`) up front,
+    /// and the cache-warm pass (phase 1 — Downloading/Verifying) is what
+    /// advances `current` from 1..N. The commit pass (phase 2 — Copying) is
+    /// a hardlink swap, not where wall-clock time is spent, so it must NOT
+    /// run its own 1..N pass — every Copying tick should already read
+    /// `current == total`, because phase 1 finished advancing it before
+    /// phase 2 starts.
+    #[tokio::test]
+    async fn phase_one_drives_current_phase_two_reports_frozen_total() {
+        let s = MockServer::start().await;
+        let sha_a = mock_jar(&s, "/c1.jar", b"c1-bytes").await;
+        let sha_b = mock_jar(&s, "/c2.jar", b"c2-bytes").await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let items = vec![
+            fake_version(format!("{}/c1.jar", s.uri()), sha_a, 8, "c1.jar", "p-c1"),
+            fake_version(format!("{}/c2.jar", s.uri()), sha_b, 8, "c2.jar", "p-c2"),
+        ];
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        // Record (phase, current, total) for every tick, the same way the
+        // command-layer closure reads the shared counter on each call.
+        let ticks: std::sync::Arc<
+            std::sync::Mutex<Vec<(crate::mods::install::ModInstallPhase, u32, u32)>>,
+        > = Default::default();
+        let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+        let count_for_closure = count.clone();
+        let ticks_for_closure = ticks.clone();
+        let progress: ProgressFn = Box::new(move |phase, _done, _total| {
+            let (current, total) = count_for_closure.snapshot();
+            ticks_for_closure
+                .lock()
+                .unwrap()
+                .push((phase, current, total));
+        });
+
+        let done = install_batch(td_data.path(), td_inst.path(), &items, &progress, &count)
+            .await
+            .unwrap();
+        assert_eq!(done.len(), 2);
+
+        let ticks = ticks.lock().unwrap();
+        assert!(!ticks.is_empty(), "expected at least one progress tick");
+        // total is 2 (== items.len()) for every tick, from the very first one.
+        assert!(ticks.iter().all(|(_, _, total)| *total == 2));
+
+        // Verifying fires exactly once per item (unlike Downloading, which can
+        // tick multiple times per item) — a reliable per-item marker. current
+        // must be 1 for item 1's Verifying tick and 2 for item 2's, in order.
+        let verifying_currents: Vec<u32> = ticks
+            .iter()
+            .filter(|(p, _, _)| matches!(p, crate::mods::install::ModInstallPhase::Verifying))
+            .map(|(_, c, _)| *c)
+            .collect();
+        assert_eq!(verifying_currents, vec![1, 2]);
+
+        // Copying (phase 2) fires once per item too, but must NOT run its own
+        // 1..N pass — both ticks already read current == total == 2.
+        let copying_currents: Vec<u32> = ticks
+            .iter()
+            .filter(|(p, _, _)| matches!(p, crate::mods::install::ModInstallPhase::Copying))
+            .map(|(_, c, _)| *c)
+            .collect();
+        assert_eq!(copying_currents, vec![2, 2]);
     }
 }

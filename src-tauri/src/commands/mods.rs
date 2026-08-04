@@ -299,25 +299,41 @@ pub async fn mods_install_with_deps(
     // primary's project_id (used to tag every progress event so the UI
     // can route the bar to the right card). Dep installs reuse the same
     // project_id tag — the UI shows them as part of the same operation.
+    //
+    // `count` is the shared "N of M" item counter (see `ProgressCount`).
+    // It's 0/0 by default and stays that way for every tick emitted while
+    // manifest extras / optional deps are still being resolved below — the
+    // total genuinely isn't known yet at that point. `install_batch` (called
+    // once `install_seq` is assembled) is what sets `count.total` and drives
+    // `count.current`; this closure only reads a snapshot on every tick.
     let app_for_progress = app.clone();
     let instance_id_for_progress = instance_id.clone();
     let project_id_for_progress = primary_v.project_id.clone();
+    let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+    let count_for_progress = count.clone();
     let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let (current, item_total) = count_for_progress.snapshot();
         let payload = match phase {
             crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
                 bytes_total: total.map(|t| t as f64),
+                current,
+                total: item_total,
             },
             crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
+                current,
+                total: item_total,
             },
             crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
+                current,
+                total: item_total,
             },
         };
         let _ = payload.emit(&app_for_progress);
@@ -382,7 +398,7 @@ pub async fn mods_install_with_deps(
             else {
                 continue;
             };
-            let Ok(bytes) = tokio::fs::read(&cached).await else {
+            let Ok(bytes) = tokio::fs::read(&cached.path).await else {
                 continue;
             };
             if !jar_provides(&bytes, &needed_id) {
@@ -457,20 +473,26 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
-    let installed_all =
-        match crate::mods::install_batch::install_batch(&dd, &inst_root, &install_seq, &prog).await
-        {
-            Ok(v) => v,
-            Err(f) => {
-                let _ = ModInstallFailed {
-                    instance_id: instance_id.clone(),
-                    project_id: f.project_id,
-                    error: f.error.clone(),
-                }
-                .emit(&app);
-                return Err(f.error);
+    let installed_all = match crate::mods::install_batch::install_batch(
+        &dd,
+        &inst_root,
+        &install_seq,
+        &prog,
+        &count,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(f) => {
+            let _ = ModInstallFailed {
+                instance_id: instance_id.clone(),
+                project_id: f.project_id,
+                error: f.error.clone(),
             }
-        };
+            .emit(&app);
+            return Err(f.error);
+        }
+    };
     // The batch is atomic — emit the per-mod events only now that every item
     // has committed, so a rollback can never contradict an already-sent
     // success event.
@@ -490,12 +512,19 @@ pub async fn mods_install_with_deps(
             installed_dependencies.push(inst.name.clone());
         }
     }
+    // Per-file provenance/outcome rows for this install, persisted below under
+    // a freshly minted task id so the journal row can deep-link back to them.
+    let details = mod_install_details(&install_seq, &installed_all);
     // ONE journal row per user action, not one per written jar: "installed
     // Create" is the history the user recognises, with the dependency count as
     // supporting detail. Written after the batch COMMITS (so a rolled-back
     // install leaves no trace) but BEFORE the fallible `set_requires` below —
     // the jars are already durably on disk at this point, so a `set_requires`
     // failure must not erase the record of a change that really happened.
+    // `mint_and_record` persists `details` under a fresh id BEFORE the journal
+    // write, so the row below always names a report that already exists on
+    // disk — never the reverse.
+    let task_id = crate::reports::mint_and_record(&inst_root, details.clone());
     crate::journal::record(
         &inst_root,
         crate::journal::JournalEvent::Content {
@@ -504,6 +533,7 @@ pub async fn mods_install_with_deps(
             from_version: None,
             to_version: Some(primary_v.version_number.clone()),
             affected: Some(installed_all.len() as f64),
+            report_id: Some(task_id),
         },
     );
     if let Some(sha1) = primary_sha1 {
@@ -512,9 +542,65 @@ pub async fn mods_install_with_deps(
     Ok(crate::mods::platform::InstallSummary {
         primary_name: primary_v.name.clone(),
         installed_dependencies,
+        details,
     })
     })
     .await
+}
+
+/// Build one `TaskDetail` row per installed jar for the plain (non-modpack)
+/// `mods_install_with_deps` path. Pure — no I/O — so it is unit-testable
+/// without an `AppHandle`.
+///
+/// `install_seq` and `installed_all` are the SAME order and length: the
+/// caller already zips them this way for the `ModInstalled` events above.
+/// Provenance (name/origin/host/bytes) comes from `install_seq[i]`
+/// (`ModVersion`); outcome (placement/fetched/sha1) comes from
+/// `installed_all[i]` (`Installed`, the verified on-disk result).
+///
+/// Mirrors `mods::modpack::import::modpack_file_detail`'s outcome-mapping
+/// conventions byte-for-byte — `placement: None` (install_one's idempotent
+/// "already byte-identical, no store call made" branch) maps to
+/// `DetailOutcome::Unchanged` rather than a false `Installed`; an
+/// empty/whitespace sha1 maps to `None` — but cannot reuse that helper
+/// directly: its input is a `ModpackFile`, which carries its own
+/// `install_path` from the pack manifest. Here the input is a `ModVersion`,
+/// and `install_one` always writes into `{instance}/.minecraft/mods/`
+/// (there is no per-file install_path to read), so the path is synthesised
+/// as `mods/{filename}` from the verified installed filename instead.
+fn mod_install_details(
+    install_seq: &[ModVersion],
+    installed_all: &[crate::mods::install::Installed],
+) -> Vec<crate::tasks::TaskDetail> {
+    install_seq
+        .iter()
+        .zip(installed_all.iter())
+        .map(|(v, inst)| {
+            let outcome = match inst.placement {
+                Some(placement) => crate::tasks::DetailOutcome::Installed {
+                    fetched: inst.fetched,
+                    placement,
+                },
+                None => crate::tasks::DetailOutcome::Unchanged,
+            };
+            crate::tasks::TaskDetail {
+                name: v.name.clone(),
+                install_path: format!("mods/{}", inst.filename),
+                origin: v.source.into(),
+                host: crate::network::request::host_of(&v.primary_file.url),
+                bytes: Some(v.primary_file.size),
+                sha1: {
+                    let s = inst.sha1.trim();
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s.to_string())
+                    }
+                },
+                outcome,
+            }
+        })
+        .collect()
 }
 
 // =========================================================================
@@ -586,7 +672,7 @@ async fn copy_version_into_dir(
             filename: v.primary_file.filename.clone(),
         });
     }
-    tokio::fs::copy(&cached, &out)
+    tokio::fs::copy(&cached.path, &out)
         .await
         .map_err(|e| crate::error::Error::io(out.display().to_string(), e))?;
     Ok(v.primary_file.filename.clone())
@@ -715,7 +801,7 @@ pub(crate) async fn install_version_into_dir(
                 else {
                     continue;
                 };
-                let Ok(bytes) = tokio::fs::read(&cached).await else {
+                let Ok(bytes) = tokio::fs::read(&cached.path).await else {
                     continue;
                 };
                 if !jar_provides(&bytes, &needed_id) {
@@ -1522,10 +1608,19 @@ pub async fn mods_update_one(
 
         // Progress events tagged with the target's project_id so the UI can
         // route the bar to the right card (same pattern as install).
+        //
+        // Unlike `mods_install_with_deps`, there is no manifest-extras
+        // discovery step here — `update_one` sets `count.total` to
+        // `1 + required_deps.len()` before its cache-warm loop starts, so
+        // `count` never observes a `0` total the way the install path's does
+        // during dependency resolution.
         let app_for_progress = app.clone();
         let instance_id_for_progress = instance_id.clone();
         let project_id_for_progress = target.project_id.clone();
+        let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+        let count_for_progress = count.clone();
         let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+            let (current, item_total) = count_for_progress.snapshot();
             let payload = match phase {
                 crate::mods::install::ModInstallPhase::Downloading => {
                     ModInstallProgress::Downloading {
@@ -1533,16 +1628,22 @@ pub async fn mods_update_one(
                         project_id: project_id_for_progress.clone(),
                         bytes_done: done as f64,
                         bytes_total: total.map(|t| t as f64),
+                        current,
+                        total: item_total,
                     }
                 }
                 crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                     instance_id: instance_id_for_progress.clone(),
                     project_id: project_id_for_progress.clone(),
                     bytes_done: done as f64,
+                    current,
+                    total: item_total,
                 },
                 crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                     instance_id: instance_id_for_progress.clone(),
                     project_id: project_id_for_progress.clone(),
+                    current,
+                    total: item_total,
                 },
             };
             let _ = payload.emit(&app_for_progress);
@@ -1560,6 +1661,7 @@ pub async fn mods_update_one(
             target,
             required_deps,
             &prog,
+            &count,
         )
         .await
         {
@@ -1822,7 +1924,7 @@ async fn manifest_extra_root_versions(
     else {
         return Vec::new();
     };
-    let Ok(bytes) = tokio::fs::read(&cached).await else {
+    let Ok(bytes) = tokio::fs::read(&cached.path).await else {
         return Vec::new();
     };
 
@@ -1977,7 +2079,7 @@ pub async fn mods_install_missing_required(
         &nop,
     )
     .await?;
-    let bytes = tokio::fs::read(&cached)
+    let bytes = tokio::fs::read(&cached.path)
         .await
         .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
     if !jar_provides(&bytes, &needed_id) {
@@ -2597,6 +2699,64 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
+    }
+
+    /// Pins the behaviour that matters for the per-file install report on the
+    /// plain (non-modpack) install path: `mod_install_details` zips
+    /// `install_seq` (provenance: source/url/name) against `installed_all`
+    /// (outcome: placement/fetched/sha1) and must emit exactly one row per
+    /// installed jar, with `origin` derived from the `ModVersion`'s source
+    /// and an outcome that distinguishes a freshly-downloaded-and-linked jar
+    /// from install_one's idempotent "already byte-identical" skip.
+    #[test]
+    fn mod_install_details_reports_one_row_per_jar_with_distinct_outcomes() {
+        let primary = mv("primary");
+        let dep = mv("dep");
+        let install_seq = vec![primary.clone(), dep.clone()];
+        let installed_all = vec![
+            crate::mods::install::Installed {
+                sha1: "aa".into(),
+                filename: "primary.jar".into(),
+                name: "primary".into(),
+                placement: Some(crate::mods::store::Placement::Linked),
+                fetched: crate::tasks::Fetched::Downloaded,
+                source: ModSource::Modrinth,
+            },
+            crate::mods::install::Installed {
+                sha1: "aa".into(),
+                filename: "dep.jar".into(),
+                name: "dep".into(),
+                // `None` = install_one's idempotent-skip branch — the
+                // destination already held a byte-identical jar and no
+                // store call was made.
+                placement: None,
+                fetched: crate::tasks::Fetched::Cached,
+                source: ModSource::Modrinth,
+            },
+        ];
+
+        let details = mod_install_details(&install_seq, &installed_all);
+
+        assert_eq!(details.len(), 2, "{details:?}");
+
+        assert_eq!(details[0].name, "primary");
+        assert_eq!(details[0].origin, crate::tasks::TaskOrigin::Modrinth);
+        assert_eq!(details[0].host.as_deref(), Some("cdn"));
+        assert_eq!(details[0].sha1.as_deref(), Some("aa"));
+        assert_eq!(
+            details[0].outcome,
+            crate::tasks::DetailOutcome::Installed {
+                fetched: crate::tasks::Fetched::Downloaded,
+                placement: crate::mods::store::Placement::Linked,
+            }
+        );
+
+        assert_eq!(details[1].name, "dep");
+        assert_eq!(
+            details[1].outcome,
+            crate::tasks::DetailOutcome::Unchanged,
+            "placement: None must map to Unchanged, not a false Installed"
+        );
     }
 
     #[test]

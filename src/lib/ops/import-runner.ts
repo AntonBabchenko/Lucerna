@@ -9,6 +9,7 @@ import type {
   ModpackProgress,
   ProgressTick,
   SkippedOverride,
+  TaskDetail,
 } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
@@ -23,6 +24,7 @@ export type ImportOutcome =
       instanceId: string;
       skipped: SkippedOverride[];
       inertLoaderJars: InertLoaderJar[];
+      details: TaskDetail[];
     }
   | { status: 'partial'; failed: string[] }
   | { status: 'error'; message: string };
@@ -35,6 +37,7 @@ export async function runImport(
   let latestBytes: ProgressTick | null = null;
   let skipped: SkippedOverride[] = [];
   let inertLoaderJars: InertLoaderJar[] = [];
+  let details: TaskDetail[] = [];
   onProgress(null, null);
 
   const phaseChannel = new Channel<ModpackProgress>();
@@ -43,6 +46,7 @@ export async function runImport(
     if (m.phase === 'done') {
       skipped = m.skipped_overrides;
       inertLoaderJars = m.inert_loader_jars;
+      details = m.details;
     }
     onProgress(latestPhase, latestBytes);
   };
@@ -64,7 +68,14 @@ export async function runImport(
   );
 
   if (r.status === 'ok') {
-    return { status: 'ok', name: r.data.name, instanceId: r.data.id, skipped, inertLoaderJars };
+    return {
+      status: 'ok',
+      name: r.data.name,
+      instanceId: r.data.id,
+      skipped,
+      inertLoaderJars,
+      details,
+    };
   }
   if (r.error.kind === 'modpack_partial_failure') {
     return { status: 'partial', failed: r.error.failed.map(([p]) => p.split('/').pop() ?? p) };

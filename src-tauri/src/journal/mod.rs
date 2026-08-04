@@ -67,6 +67,16 @@ pub enum JournalEvent {
         /// dependencies, modpack update, integrity repair). `None` for
         /// single-subject actions.
         affected: Option<f64>,
+        /// Id of the `.lucerna/reports/<taskId>.json` this row can deep-link
+        /// to, so History can reopen the task's per-file detail. `None` for
+        /// actions that never produced a report (most single-file changes)
+        /// and for every row recorded before install reports existed.
+        ///
+        /// Additive — rows written before install reports existed deserialise
+        /// to None. `skip_serializing_if` keeps old rows byte-identical on
+        /// rewrite.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        report_id: Option<String>,
     },
     /// A launch attempt that has finished. In-flight launches are never
     /// recorded — the running-instances popover already shows those, and a
@@ -137,6 +147,7 @@ pub fn content(action: ContentAction, subject: impl Into<String>) -> JournalEven
         from_version: None,
         to_version: None,
         affected: None,
+        report_id: None,
     }
 }
 
@@ -154,6 +165,7 @@ pub fn content_versioned(
         from_version,
         to_version,
         affected: None,
+        report_id: None,
     }
 }
 
@@ -169,6 +181,24 @@ pub fn content_bulk(
         from_version: None,
         to_version: None,
         affected: Some(affected as f64),
+        report_id: None,
+    }
+}
+
+impl JournalEvent {
+    /// Attach a persisted report id to a content-change event, so its journal
+    /// row can deep-link to `.lucerna/reports/<taskId>.json`. Chains onto the
+    /// three constructors above (`content(..).with_report_id(id)`) rather than
+    /// widening their signatures, since most call sites never have a report to
+    /// attach. No-op on `Launch` — only content-changing tasks produce reports.
+    pub fn with_report_id(mut self, report_id: impl Into<String>) -> Self {
+        if let JournalEvent::Content {
+            report_id: slot, ..
+        } = &mut self
+        {
+            *slot = Some(report_id.into());
+        }
+        self
     }
 }
 
@@ -644,5 +674,69 @@ mod tests {
             }
             other => panic!("expected Content, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_content_row_without_report_id_still_parses() {
+        // parse_lines silently DROPS any line that fails to deserialize, so a
+        // regression here wipes the user's whole visible history with no
+        // error surface. Rows written before install reports existed have no
+        // `report_id` key at all — they must keep parsing as `None`, not get
+        // silently dropped.
+        let old = r#"{"at_unix_ms":1000.0,"event":{"kind":"content","action":"mod_installed","subject":"x","from_version":null,"to_version":null,"affected":null}}"#;
+        let parsed: JournalEntry = serde_json::from_str(old).unwrap();
+        assert!(matches!(
+            parsed.event,
+            JournalEvent::Content {
+                report_id: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn content_row_with_report_id_round_trips() {
+        let td = tempfile::tempdir().unwrap();
+        append_entry(
+            td.path(),
+            &JournalEntry {
+                at_unix_ms: 1_000.0,
+                event: content(ContentAction::ModInstalled, "Sodium").with_report_id("task-abc"),
+            },
+        )
+        .unwrap();
+
+        let got = read(td.path(), 10).unwrap();
+        match &got[0].event {
+            JournalEvent::Content { report_id, .. } => {
+                assert_eq!(report_id.as_deref(), Some("task-abc"));
+            }
+            other => panic!("expected Content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_row_without_report_id_omits_the_key_when_serialized() {
+        // `skip_serializing_if` must keep old rows byte-identical on rewrite
+        // (the journal trims by re-serializing kept entries) — a `None` must
+        // vanish from the JSON, not round-trip as an explicit `null`.
+        let event = content(ContentAction::ModInstalled, "Sodium");
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(
+            !json.contains("report_id"),
+            "a None report_id must be omitted entirely, got: {json}"
+        );
+    }
+
+    #[test]
+    fn with_report_id_is_a_noop_on_launch_events() {
+        let event = JournalEvent::Launch {
+            outcome: LaunchOutcome::Ok,
+            exit_code: Some(0),
+            duration_seconds: 1.0,
+            log_path: None,
+        }
+        .with_report_id("task-abc");
+        assert!(matches!(event, JournalEvent::Launch { .. }));
     }
 }

@@ -2514,10 +2514,11 @@
       "yearsAgo": "{n}y ago"
     },
     "size": {
-      "bytes": "{n} B",
-      "kilobytes": "{n} KB",
-      "megabytes": "{n} MB",
-      "gigabytes": "{n} GB"
+      "bytes": "{n, number, ::group-off} B",
+      "kilobytes": "{n, number, ::.0 group-off} KB",
+      "megabytes": "{n, number, ::.0 group-off} MB",
+      "gigabytes": "{n, number, ::.00 group-off} GB",
+      "perSecond": "{size}/s"
     },
     "duration": {
       "lessThanMinute": "< 1m",
@@ -3244,6 +3245,78 @@
       "import": "Import",
       "importing": "Importing…",
       "back": "Back"
+    }
+  },
+  "tasks": {
+    "kind": {
+      "gameInstall": "Installing Minecraft",
+      "modInstall": "Installing mods",
+      "modUpdate": "Updating mods",
+      "packImport": "Importing modpack",
+      "launcherImport": "Importing from launcher",
+      "packUpdate": "Updating modpack",
+      "clone": "Cloning instance",
+      "verify": "Verifying instance",
+      "repair": "Repairing instance",
+      "serverUpload": "Uploading server",
+      "appUpdate": "Updating Lucerna",
+      "dataMigration": "Migrating data folder"
+    },
+    "origin": {
+      "modrinth": "Modrinth",
+      "curseforge": "CurseForge",
+      "ftb": "FTB",
+      "atlauncher": "ATLauncher",
+      "archive": "Modpack archive",
+      "local": "Local file"
+    },
+    "strip": {
+      "count": "{count, plural, one {# operation} other {# operations}}",
+      "eta": "~{clock}",
+      "toggle": "Show operation details",
+      "finishedSummary": "{count, plural, one {# operation finished} other {# operations finished}}"
+    },
+    "panel": {
+      "ariaLabel": "Operation details",
+      "runningHeading": "Running",
+      "queuedHeading": "Queued",
+      "finishedHeading": "Finished",
+      "clearFinished": "Clear",
+      "details": "Details",
+      "modalLock": "Cannot be cancelled"
+    },
+    "report": {
+      "title": "Install report",
+      "filesCount": "{count, plural, one {# file} other {# files}}",
+      "filterAriaLabel": "Filter by outcome",
+      "filter": {
+        "installed": "{count} installed",
+        "unchanged": "{count} unchanged",
+        "skipped": "{count} skipped",
+        "failed": "{count} failed"
+      },
+      "badge": {
+        "installed": "Installed",
+        "unchanged": "Unchanged",
+        "skipped": "Skipped",
+        "failed": "Failed"
+      },
+      "outcome": {
+        "downloadedLinked": "Downloaded · linked to the shared file",
+        "cachedLinked": "Already cached · linked to the shared file",
+        "downloadedCopied": "Downloaded · copied as an independent file",
+        "cachedCopied": "Already cached · copied as an independent file",
+        "unchanged": "Already up to date — nothing was downloaded"
+      },
+      "reason": "Reason: {reason}",
+      "detail": {
+        "host": "Host",
+        "sha1": "SHA-1",
+        "path": "Install path"
+      },
+      "empty": "This task recorded no files.",
+      "emptyFiltered": "No files match this filter.",
+      "copyReport": "Copy report"
     }
   }
 }

@@ -221,6 +221,12 @@ pub enum ModpackProgress {
         /// `InertLoaderJar`). Empty in the common case; non-empty drives a
         /// non-fatal "N inert jar(s)" note on the import-complete toast.
         inert_loader_jars: Vec<InertLoaderJar>,
+        /// One row per file this import touched — what it was, where it came
+        /// from, how big, and what happened to it. Rides this terminal
+        /// message rather than a dedicated event (correlation is free: the
+        /// channel belongs to one invocation); a later task persists it into
+        /// a per-file install report.
+        details: Vec<crate::tasks::TaskDetail>,
     },
 }
 
@@ -364,5 +370,30 @@ mod tests {
         let back: ModpackSummary = serde_json::from_slice(&j).unwrap();
         assert_eq!(back.format, ModpackFormat::Ftb);
         assert_eq!(back.name, "P");
+    }
+
+    #[test]
+    fn modpack_progress_done_serialises_details() {
+        let done = ModpackProgress::Done {
+            instance_id: "inst-1".into(),
+            skipped_overrides: vec![],
+            inert_loader_jars: vec![],
+            details: vec![crate::tasks::TaskDetail {
+                name: "Sodium".into(),
+                install_path: "mods/sodium.jar".into(),
+                origin: crate::tasks::TaskOrigin::Modrinth,
+                host: Some("cdn.modrinth.com".into()),
+                bytes: Some(123.0),
+                sha1: Some("abc".into()),
+                outcome: crate::tasks::DetailOutcome::Installed {
+                    fetched: crate::tasks::Fetched::Downloaded,
+                    placement: crate::mods::store::Placement::Linked,
+                },
+            }],
+        };
+        let j = serde_json::to_value(&done).unwrap();
+        assert_eq!(j["phase"], "done");
+        assert_eq!(j["details"][0]["name"], "Sodium");
+        assert_eq!(j["details"][0]["origin"], "modrinth");
     }
 }

@@ -23,6 +23,20 @@ pub enum ModSource {
     Hangar,
 }
 
+impl ModSource {
+    /// Every variant. `tasks::TaskOrigin`'s `From<ModSource>` mapping is
+    /// exhaustively tested against this, the same shape as `AiProvider::ALL`
+    /// in `instances::schema` — adding a variant without adding it here is
+    /// caught by a test rather than by a silently-unmapped source later.
+    pub const ALL: [ModSource; 5] = [
+        ModSource::Modrinth,
+        ModSource::Curseforge,
+        ModSource::Ftb,
+        ModSource::Atlauncher,
+        ModSource::Hangar,
+    ];
+}
+
 /// What kind of content a search/install targets. `Mod` is the historical
 /// default so payloads that omit it keep working (serde `default`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Hash, Default)]
@@ -367,6 +381,16 @@ pub struct InstallSummary {
     /// Display names of dependencies that were newly installed (primary
     /// excluded). Empty when the primary had no missing deps.
     pub installed_dependencies: Vec<String>,
+    /// One row per installed jar (primary + dependencies), in `install_seq`
+    /// order. Unlike the modpack import/update paths — which carry their
+    /// per-file report on the terminal `Channel` message because they already
+    /// take one — this command has no channel, so the report rides the
+    /// return value instead. `InstallSummary` has exactly one producer
+    /// (`mods_install_with_deps`) and one consumer (the UI toast), which is
+    /// what makes widening the return value cheap here; the same design was
+    /// rejected for the modpack paths, where it would have meant inventing an
+    /// envelope across three unrelated command signatures.
+    pub details: Vec<crate::tasks::TaskDetail>,
 }
 
 /// Result of a one-click "install the missing required dependency" action.

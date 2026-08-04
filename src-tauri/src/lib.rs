@@ -21,10 +21,12 @@ pub mod pathsafe;
 pub mod platform;
 pub mod playtime;
 pub mod process;
+pub mod reports;
 pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
 pub mod shortcuts;
+pub mod tasks;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
 /// (see the module docs for the glibc `setenv`/`getenv` heap-corruption flake
 /// they avoid). Public so the `tests/` integration binaries can call `scope`.
@@ -128,6 +130,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::apply_log_retention,
             commands::instance_journal_read,
             commands::instance_journal_clear,
+            commands::instance_report_read,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,
