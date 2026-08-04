@@ -393,6 +393,89 @@ pub fn merge(
     r
 }
 
+/// The default filename offered in the export save dialog.
+///
+/// PLURAL "translations" — one letter away from `options_txt::PACK_PREFIX`
+/// ("lucerna-translation-"), and that letter is load-bearing. Every Apply
+/// deletes each file in an instance's `resourcepacks/` whose name starts with
+/// that prefix, and the no-Lucerna workflow tells the recipient to drop this
+/// bundle into exactly that directory. Harmonising the two names would turn a
+/// friend's shared file into something the next Apply silently destroys.
+/// Pinned by `export_filename_never_matches_the_sweep_prefix`.
+pub fn default_filename(lang: &str, date_ymd: &str) -> String {
+    format!("lucerna-translations-{lang}-{date_ymd}.zip")
+}
+
+/// True when a user-chosen destination filename would be swept away by a
+/// later Apply. The export command refuses such a destination outright rather
+/// than writing a file that deletes itself.
+pub fn dest_filename_reserved(file_name: &str) -> bool {
+    file_name.starts_with(crate::l10n::options_txt::PACK_PREFIX)
+}
+
+/// Assemble the dual-use bundle: exactly the archive `pack::build` produces
+/// for these stores, with `lucerna-l10n.json` appended.
+///
+/// The pack half is delegated rather than reimplemented, so the sparse-overlay
+/// invariant (only overridden keys are ever written, or the pack would freeze
+/// the mod author's own future fixes) and the `pack.mcmeta` format rules stay
+/// in the one place that owns and tests them.
+///
+/// `None` for the same reasons `pack::build` returns `None`: nothing to ship,
+/// or no `pack.mcmeta` exists for this format.
+pub fn build_bundle(
+    stores: &[crate::l10n::store::NamespaceStore],
+    lang: &str,
+    fmt: crate::l10n::pack_format::PackFormat,
+    note: &str,
+) -> Option<Vec<u8>> {
+    use std::io::Write;
+
+    let pack =
+        crate::l10n::pack::build(stores, lang, fmt, &format!("Lucerna translations ({lang})"))?;
+
+    let mut namespaces = serde_json::Map::new();
+    for s in stores {
+        if s.entries.is_empty() {
+            continue;
+        }
+        let mut m = serde_json::Map::new();
+        for (k, e) in &s.entries {
+            m.insert(
+                k.clone(),
+                serde_json::json!({
+                    "value": e.value,
+                    "source_en": e.source_en,
+                    "origin": match e.origin {
+                        Origin::Manual => "manual",
+                        Origin::Machine => "machine",
+                    },
+                }),
+            );
+        }
+        namespaces.insert(s.namespace.clone(), serde_json::Value::Object(m));
+    }
+    let metadata = serde_json::json!({
+        "schema": SCHEMA_VERSION,
+        "lang": lang,
+        "note": truncate_chars(note, NOTE_DISPLAY_CHARS),
+        "namespaces": namespaces,
+    });
+
+    // Append to the finished pack rather than rebuilding the archive: the
+    // entries `pack::build` wrote — and their fixed 1980 timestamps, which the
+    // outdated-pack byte comparison elsewhere depends on — are preserved
+    // exactly as that module produced them.
+    let mut writer = zip::ZipWriter::new_append(std::io::Cursor::new(pack)).ok()?;
+    let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer.start_file(METADATA_NAME, opts).ok()?;
+    writer
+        .write_all(serde_json::to_string_pretty(&metadata).ok()?.as_bytes())
+        .ok()?;
+    Some(writer.finish().ok()?.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,5 +772,72 @@ mod tests {
             crate::l10n::store::load(dir.path(), "uk_ua", "brandnew").entries["a.b"].value,
             "v"
         );
+    }
+
+    #[test]
+    fn export_filename_never_matches_the_sweep_prefix() {
+        // The Apply sweep deletes every resourcepacks/ file starting with
+        // PACK_PREFIX, and the no-Lucerna flow tells the recipient to drop this
+        // bundle into exactly that directory. One letter — the plural 's' —
+        // keeps them disjoint. Pin it: harmonising the two names would make the
+        // recipient's next Apply silently delete the file a friend sent them.
+        let name = default_filename("ru_ru", "2026-08-04");
+        assert_eq!(name, "lucerna-translations-ru_ru-2026-08-04.zip");
+        assert!(!name.starts_with(crate::l10n::options_txt::PACK_PREFIX));
+        assert!(dest_filename_reserved("lucerna-translation-ru_ru.zip"));
+        assert!(!dest_filename_reserved(&name));
+    }
+
+    #[test]
+    fn build_bundle_is_a_real_pack_that_round_trips_through_our_own_parser() {
+        let mut s = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        s.set("item.create.wrench", "Ключ", "Wrench", 1.0);
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+        let bytes = build_bundle(&[s], "ru_ru", fmt, "от меня").expect("has overrides");
+
+        // Still a resource pack the game can load …
+        let mut ar = zip::ZipArchive::new(std::io::Cursor::new(&bytes[..])).unwrap();
+        assert!(ar.by_name("pack.mcmeta").is_ok());
+        assert!(ar.by_name("assets/create/lang/ru_ru.json").is_ok());
+        assert!(ar.by_name(METADATA_NAME).is_ok());
+
+        // … and a bundle our own importer reads back with full fidelity.
+        let parsed = parse_bundle_bytes(&bytes).unwrap();
+        assert_eq!(parsed.lang, "ru_ru");
+        assert_eq!(parsed.note, "от меня");
+        assert_eq!(parsed.invalid, 0);
+        let e = &parsed.namespaces["create"]["item.create.wrench"];
+        assert_eq!((e.value.as_str(), e.source_en.as_str()), ("Ключ", "Wrench"));
+        assert_eq!(e.origin, Origin::Manual);
+    }
+
+    #[test]
+    fn build_bundle_preserves_machine_origin_across_the_round_trip() {
+        // `origin` travels so the recipient's editor can still tell which
+        // strings a model wrote — the AI pre-fill feature's whole audit trail.
+        let mut s = crate::l10n::store::NamespaceStore::new("ae2", "ru_ru");
+        s.set_with_origin("k", "v", "V", 1.0, Origin::Machine);
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+        let bytes = build_bundle(&[s], "ru_ru", fmt, "").expect("has overrides");
+        let parsed = parse_bundle_bytes(&bytes).unwrap();
+        assert_eq!(parsed.namespaces["ae2"]["k"].origin, Origin::Machine);
+    }
+
+    #[test]
+    fn build_bundle_is_none_when_there_is_nothing_to_ship() {
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+        assert!(build_bundle(&[], "ru_ru", fmt, "").is_none());
+        // A store with no entries is equally nothing to ship.
+        let empty = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        assert!(build_bundle(&[empty], "ru_ru", fmt, "").is_none());
     }
 }
