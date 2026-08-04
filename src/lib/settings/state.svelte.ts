@@ -132,6 +132,12 @@ export const dragActive = $state<{ value: boolean }>({ value: false });
 // or the refetch would re-bump and loop.
 export const assetsChanged = $state<{ value: number }>({ value: 0 });
 
+// The datapack sibling of `assetsChanged`, deliberately SEPARATE: sharing one
+// signal would make every datapack install re-fetch the resource-pack and
+// shader lists (and vice versa). Same contract — bump only in action handlers,
+// read only inside fetch effects.
+export const datapacksChanged = $state<{ value: number }>({ value: 0 });
+
 // Mojang's Minecraft version list — fetched once at app startup
 // (+page.svelte onMount) and consumed by both the McVersionCombobox in
 // the mod / modpack browsers and the Manage modal's version picker.

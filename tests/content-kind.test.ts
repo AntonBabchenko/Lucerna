@@ -14,7 +14,16 @@ describe('canInstallContent', () => {
     expect(canInstallContent('shader', null, 'vanilla')).toBe(false);
   });
 
-  it('exposes the three kinds in display order', () => {
-    expect(CONTENT_KINDS).toEqual(['mod', 'resource_pack', 'shader']);
+  it('datapacks only require a selected instance — no loader gate', () => {
+    // Datapacks work on vanilla (Prism's initial vanilla block was removed
+    // after review); the 1.13+ gate is a separate, instance-version concern
+    // handled by instance_supports_datapacks, not by this function.
+    expect(canInstallContent('datapack', 'inst', 'vanilla')).toBe(true);
+    expect(canInstallContent('datapack', 'inst', 'fabric')).toBe(true);
+    expect(canInstallContent('datapack', null, 'vanilla')).toBe(false);
+  });
+
+  it('exposes the four kinds in display order', () => {
+    expect(CONTENT_KINDS).toEqual(['mod', 'resource_pack', 'shader', 'datapack']);
   });
 });

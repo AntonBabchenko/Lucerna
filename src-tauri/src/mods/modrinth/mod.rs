@@ -416,6 +416,32 @@ impl ModPlatform for ModrinthClient {
         Ok(versions)
     }
 
+    async fn datapack_versions(
+        &self,
+        project_id: &str,
+        mc_version: Option<&str>,
+    ) -> Result<Vec<ModVersion>, Error> {
+        // The raw `datapack` loader slug is the only correct filter here: a
+        // hybrid project (Terralith) publishes both a datapack and a mod
+        // under one project id, and its unfiltered latest version is the MOD
+        // JAR — which `library::install_named_at` then rejects with a
+        // confusing "not a datapack". Verified against the live API
+        // 2026-08-04 (slice-2 design §4); same raw-slug lineage as
+        // `plugin_versions` above.
+        let mut versions = self
+            .fetch_versions(project_id, mc_version, Some(&["datapack"]))
+            .await?;
+        // Same shape as `plugin_versions`: a hybrid version can carry Java
+        // loader tags alongside `datapack`, and surfacing those on a datapack
+        // build would be misleading. The filename-loader-mismatch defence is
+        // Java-loader specific (forge vs neoforge tokens) and is intentionally
+        // skipped, as `plugin_versions` also skips it.
+        for v in &mut versions {
+            v.loaders.clear();
+        }
+        Ok(versions)
+    }
+
     async fn resolve_deps(
         &self,
         version: &ModVersion,
@@ -746,6 +772,18 @@ fn project_type_facet(kind: ContentKind) -> &'static str {
         ContentKind::ResourcePack => "project_type:resourcepack",
         ContentKind::Shader => "project_type:shader",
         ContentKind::Plugin => "project_type:plugin",
+        // Undocumented but real: Modrinth's documented facet values are
+        // mod/modpack/resourcepack/shader, yet `project_type:datapack`
+        // genuinely filters — measured 2026-08-04 against /v2/search, 13 804
+        // hits versus 148 896 unfaceted and 0 for a nonsense value, so unknown
+        // values filter to nothing rather than being ignored.
+        //
+        // Note the hits report `project_type: "mod"` in their own payload:
+        // Modrinth's project_type is version-specific while the facet spans
+        // every type a project publishes. A hybrid such as Terralith ships
+        // both a datapack and a mod, which is why VERSION listing must filter
+        // by the `datapack` loader slug — see `datapack_versions`.
+        ContentKind::Datapack => "project_type:datapack",
     }
 }
 
@@ -790,7 +828,13 @@ fn build_facets(
                 }
             }
         }
-        ContentKind::ResourcePack | ContentKind::Shader => {}
+        // Datapacks join resource packs and shaders here: they have no Java
+        // loader, so no `categories:` facet applies. Modrinth does tag them
+        // with a `datapack` loader, but that belongs on the VERSION query
+        // (`datapack_versions`), not on search — the search facet is already
+        // `project_type:datapack`, and adding a second constraint here would
+        // only narrow it redundantly.
+        ContentKind::ResourcePack | ContentKind::Shader | ContentKind::Datapack => {}
     }
     facets
 }
@@ -838,6 +882,31 @@ mod tests {
         assert!(!f
             .iter()
             .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
+    }
+
+    #[test]
+    fn datapack_facets_use_the_datapack_project_type_and_no_categories() {
+        // `project_type:datapack` is absent from Modrinth's documented facet
+        // values (mod/modpack/resourcepack/shader) but genuinely filters —
+        // measured against /v2/search on 2026-08-04: 13 804 hits, versus
+        // 148 896 with no facet and 0 for `project_type:nonsense_xyz`. An
+        // unknown value filters to nothing rather than being ignored, which is
+        // what proves the facet is live rather than silently dropped.
+        let f = build_facets(
+            ContentKind::Datapack,
+            Some("1.21.4"),
+            Some(LoaderKind::Fabric),
+            None,
+        );
+        assert!(f.contains(&vec!["project_type:datapack".to_string()]));
+        assert!(f.contains(&vec!["versions:1.21.4".to_string()]));
+        // A datapack has no Java loader. The `datapack` loader tag belongs on
+        // the version query, not on search.
+        assert!(
+            !f.iter()
+                .any(|g| g.iter().any(|s| s.starts_with("categories:"))),
+            "datapack search must carry no categories facet: {f:?}"
+        );
     }
 
     #[test]
@@ -1454,6 +1523,50 @@ mod tests {
         assert_eq!(hit.version_id, "v1");
         assert_eq!(hit.version_number, "1.0.0");
         assert_eq!(hit.name, "v1");
+    }
+
+    #[tokio::test]
+    async fn datapack_versions_filter_by_the_datapack_loader_slug() {
+        // The `loaders=["datapack"]` query param below is the load-bearing
+        // match: a hybrid project like Terralith publishes both a datapack and
+        // a mod, and an unfiltered listing returns the MOD JAR as its latest
+        // version. If the implementation omits the filter, the mock does not
+        // match and this test fails.
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/terralith/version"))
+            .and(query_param("loaders", r#"["datapack"]"#))
+            .and(query_param("game_versions", r#"["1.21.4"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "id":"dp1","project_id":"terralith","name":"Terralith 2.5.5",
+                    "version_number":"2.5.5","game_versions":["1.21.4"],
+                    "loaders":["datapack","fabric","forge"],
+                    "date_published":"2026-06-01T00:00:00Z",
+                    "dependencies":[],
+                    "files":[{"filename":"Terralith_1.21_v2.5.5.zip",
+                              "url":"https://cdn.modrinth.com/t.zip",
+                              "primary":true,"size":1000,
+                              "hashes":{"sha1":"aa","sha512":"bb"}}]
+                }]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let vs = c
+            .datapack_versions("terralith", Some("1.21.4"))
+            .await
+            .unwrap();
+        assert_eq!(vs.len(), 1);
+        assert_eq!(vs[0].version_id, "dp1");
+        assert!(
+            vs[0].loaders.is_empty(),
+            "a hybrid version's Java-loader tags must not leak onto a datapack build: {:?}",
+            vs[0].loaders
+        );
+        assert_eq!(vs[0].primary_file.filename, "Terralith_1.21_v2.5.5.zip");
     }
 
     #[tokio::test]

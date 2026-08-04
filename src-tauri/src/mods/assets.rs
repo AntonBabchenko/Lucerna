@@ -36,6 +36,9 @@ pub fn require_asset_kind(kind: ContentKind) -> Result<(), Error> {
         ContentKind::Plugin => Err(Error::ModpackOverridesPathEscape {
             entry: "plugins (asset commands accept resource packs and shaders only)".to_string(),
         }),
+        ContentKind::Datapack => Err(Error::ModpackOverridesPathEscape {
+            entry: "datapacks (asset commands accept resource packs and shaders only)".to_string(),
+        }),
         ContentKind::ResourcePack | ContentKind::Shader => Ok(()),
     }
 }
@@ -239,6 +242,23 @@ mod tests {
         // .minecraft/plugins/.
         assert!(matches!(
             require_asset_kind(ContentKind::Plugin),
+            Err(Error::ModpackOverridesPathEscape { .. })
+        ));
+    }
+
+    #[test]
+    fn require_asset_kind_rejects_datapack() {
+        // This guard is the ONLY thing keeping Datapack away from `asset_dir`.
+        // Both entry points into it — `asset_subpath` and
+        // `safe_asset_remove_path` — are `pub` over an unconstrained
+        // ContentKind, and the three l10n callers bypass this guard entirely
+        // (they pass a hardcoded ResourcePack). So the `asset_dir` arm for
+        // Datapack is unreachable by CONVENTION, not by construction, and this
+        // test is the convention's only enforcement. A datapack's library lives
+        // at the instance root and its real home is `saves/<world>/datapacks/`;
+        // nothing about it belongs under `.minecraft/`.
+        assert!(matches!(
+            require_asset_kind(ContentKind::Datapack),
             Err(Error::ModpackOverridesPathEscape { .. })
         ));
     }

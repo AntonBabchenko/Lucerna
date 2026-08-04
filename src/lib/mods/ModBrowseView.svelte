@@ -2,6 +2,7 @@
   import {
     commands,
     events,
+    type DatapackLibraryEntry,
     type Error as IpcError,
     type InstalledAsset,
     type InstalledMod,
@@ -34,10 +35,11 @@
   import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { installFailureToast } from '$lib/mods/install-failure';
   import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
-  import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { dismiss, pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
     cfKeyVersion,
+    datapacksChanged,
     mcVersions,
     modBrowseOpenProject,
     settingsOpen,
@@ -48,6 +50,8 @@
   import PageSizePicker from './PageSizePicker.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import ModResultsGrid from './ModResultsGrid.svelte';
+  import DatapackWorldPicker from './DatapackWorldPicker.svelte';
+  import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
@@ -106,10 +110,20 @@
   // the shader-specific facets (iris/optifine/canvas). For both non-mod
   // kinds we omit the loader filter entirely and never send a loader facet.
   const isMod = $derived(kind === 'mod');
+  // Datapacks are neither mods (no loader facet, no dependency resolution)
+  // nor assets (their storage is the per-instance library + per-world
+  // placements, not a `.minecraft/` directory) — a third routing branch.
+  const isDatapack = $derived(kind === 'datapack');
   // Placeholder avatar icon for hits with no icon_url — kind-specific so a
-  // resource pack / shader doesn't render the mod (puzzle) glyph.
+  // resource pack / shader / datapack doesn't render the mod (puzzle) glyph.
   const placeholderIcon = $derived<IconName>(
-    kind === 'resource_pack' ? 'resourcePack' : kind === 'shader' ? 'shader' : 'puzzle',
+    kind === 'resource_pack'
+      ? 'resourcePack'
+      : kind === 'shader'
+        ? 'shader'
+        : kind === 'datapack'
+          ? 'world'
+          : 'puzzle',
   );
 
   let query = $state('');
@@ -214,10 +228,12 @@
   let installedAssets = $state<InstalledAsset[]>([]);
 
   async function refreshInstalledAssets() {
-    // Assets only exist for non-mod kinds with a selected instance. Capture the
-    // instance so a stale result can't overwrite the current instance's badges
-    // (mirrors refreshInstalled's reqId guard).
-    if (isMod) {
+    // Assets only exist for the two asset kinds with a selected instance —
+    // never for datapacks, whose `assets_list` would be rejected by
+    // `require_asset_kind` anyway. Capture the instance so a stale result
+    // can't overwrite the current instance's badges (mirrors
+    // refreshInstalled's reqId guard).
+    if (isMod || isDatapack) {
       installedAssets = [];
       return;
     }
@@ -229,6 +245,25 @@
     const r = await commands.assetsList(reqId, kind);
     if (instanceId !== reqId || r.status !== 'ok') return;
     installedAssets = r.data;
+  }
+
+  // The datapack twin of `installedAssets`: library entries (registry ∪
+  // worlds-only packs), matched to cards by source + project_id below.
+  let installedDatapacks = $state<DatapackLibraryEntry[]>([]);
+
+  async function refreshInstalledDatapacks() {
+    if (!isDatapack) {
+      installedDatapacks = [];
+      return;
+    }
+    const reqId = instanceId;
+    if (!reqId) {
+      installedDatapacks = [];
+      return;
+    }
+    const r = await commands.datapacksListLibrary(reqId);
+    if (instanceId !== reqId || r.status !== 'ok') return;
+    installedDatapacks = r.data.entries;
   }
 
   async function refreshInstalled() {
@@ -282,16 +317,19 @@
     const _id = instanceId;
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _kind = kind;
-    // Also re-run when an asset is installed/uninstalled from the Installed
-    // tab so the Browse "Installed · vX" badges stay in sync. This effect only
-    // reads the signal — it must never bump it (the bump lives in the action
-    // handlers below), or refreshInstalledAssets would loop.
+    // Also re-run when an asset / datapack is installed or uninstalled from
+    // the Installed tab so the Browse badges stay in sync. This effect only
+    // reads the signals — it must never bump them (the bumps live in the
+    // action handlers below), or the refreshes would loop.
     void assetsChanged.value;
+    void datapacksChanged.value;
     void refreshInstalled();
     // For mods this clears the asset list (isMod → []); for resource packs /
     // shaders it loads the per-instance asset registry so result cards flip to
     // the installed state. Re-runs when instance or kind changes.
     void refreshInstalledAssets();
+    // The datapack sibling — the library listing that drives «В библиотеке».
+    void refreshInstalledDatapacks();
   });
 
   // Deep-link: the Add-ons → Shaders loader hint opens Iris by flipping the
@@ -353,8 +391,44 @@
     }
     return map;
   });
+  const datapackById = $derived.by(() => {
+    const map = new Map<string, DatapackLibraryEntry>();
+    for (const e of installedDatapacks) {
+      if (e.pack.source !== null && e.pack.project_id !== null) {
+        map.set(`${e.pack.source}:${e.pack.project_id}`, e);
+      }
+    }
+    return map;
+  });
 
   function installedFor(card: ModSummary): InstalledMod | null {
+    // Datapacks: match by source + project_id over the library's provenance
+    // rows and synthesise the card shape, like assets below — but the card's
+    // meta line is REPLACED by «В библиотеке» via installedLabelFor: a library
+    // entry is inert until placed into a world, so the bare `vX` every other
+    // kind renders would claim a liveness datapacks don't have (§6).
+    if (isDatapack) {
+      const e = datapackById.get(`${card.source}:${card.project_id}`);
+      if (!e) return null;
+      return {
+        filename: e.pack.filename,
+        sha1: e.pack.sha1,
+        source: e.pack.source,
+        project_id: e.pack.project_id,
+        version_id: e.pack.version_id,
+        name: e.pack.name,
+        // `#[serde(default)]` exports as optional — collapse absent to null.
+        version_number: e.pack.version_number ?? null,
+        installed_at: e.pack.installed_at,
+        enabled: true,
+        requires: [],
+        enrich_attempted: false,
+      };
+    }
+    return installedForNonDatapack(card);
+  }
+
+  function installedForNonDatapack(card: ModSummary): InstalledMod | null {
     // Resource packs / shaders: match purely by source + project_id against the
     // asset registry, then synthesise an InstalledMod-shaped record so ModCard
     // renders the green "Installed · vX" badge + Uninstall unchanged. Assets
@@ -405,6 +479,16 @@
 
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
+    // A datapack's trash action NEVER removes directly: the approved product
+    // decision is that removal cascades into every world holding the pack, so
+    // a one-click silent delete here would be the #4083 hazard from the other
+    // side (§7.2 seam 4). Route through the same confirmation dialog the
+    // library screen uses.
+    if (isDatapack) {
+      const e = datapackById.get(`${card.source}:${card.project_id}`);
+      if (e) removeDialogFor = e;
+      return;
+    }
     // Resource packs / shaders uninstall via assetUninstall keyed on filename
     // (their registry has no sha1-based mod command). Match the installed asset
     // by source + project_id, then refresh the asset list so the card flips
@@ -732,6 +816,116 @@
     }
   }
 
+  // The post-install world picker target and the shared removal dialog,
+  // owned here so both the card seams and the detail modal route through
+  // them.
+  let pickerTarget = $state<{
+    filename: string;
+    packName: string;
+    placements: DatapackLibraryEntry['placements'];
+  } | null>(null);
+  let removeDialogFor = $state<DatapackLibraryEntry | null>(null);
+
+  // Datapacks install into the instance's LIBRARY and are inert until placed
+  // into a world, so a successful install opens the world picker immediately
+  // — the point where the "installed means live" wrong belief would otherwise
+  // form (§6). Versions come from the datapack-filtered listing, never
+  // modsVersions(..., null): a hybrid project's unfiltered latest is a MOD
+  // JAR.
+  async function startDatapackInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+    installingProjectIds.add(card.project_id);
+    try {
+      if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+        error = get(t)('mods.browse.errorNoInstance');
+        return;
+      }
+      let version: ModVersion;
+      if (pinnedVersion) {
+        version = pinnedVersion;
+      } else {
+        const versions = await commands.modsDatapackVersions(
+          card.source,
+          card.project_id,
+          mcVersion,
+        );
+        if (versions.status === 'error') {
+          error = formatError(versions.error);
+          return;
+        }
+        if (versions.data.length === 0) {
+          error = get(t)('mods.browse.errorNoCompatibleVersion');
+          return;
+        }
+        version = versions.data[0]!;
+      }
+      // A version picked for a project whose pack is ALREADY in the library is
+      // a version SWITCH, and datapacks_update_one owns switch semantics: it
+      // replaces the library file, migrates every world holding the old
+      // filename (preserving each world's enabled choice) and removes the old
+      // file. A bare install here would land the new filename ALONGSIDE the
+      // old one — two versions in the library, every world still on the old.
+      const existing = datapackById.get(`${card.source}:${card.project_id}`);
+      if (existing && existing.in_library) {
+        const updated = await commands.datapacksUpdateOne(
+          instanceId,
+          existing.pack.filename,
+          version,
+        );
+        if (updated.status === 'error') {
+          showInstallFailure(card.name, updated.error, () => {
+            void startDatapackInstall(card, pinnedVersion);
+          });
+          return;
+        }
+        const failedWorlds = updated.data.migrations.filter((m) => m.kind === 'failed');
+        if (!updated.data.completed && failedWorlds.length > 0) {
+          pushWarning(
+            get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
+            failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
+          );
+        } else {
+          pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+        }
+        // No world picker: the worlds moved with the update. Placement changes
+        // remain a library-screen affair.
+        await refreshInstalledDatapacks();
+        datapacksChanged.value++;
+        return;
+      }
+
+      const installed = await commands.datapacksInstallFromVersion(instanceId, version);
+      if (installed.status === 'error') {
+        showInstallFailure(card.name, installed.error, () => {
+          void startDatapackInstall(card, pinnedVersion);
+        });
+        return;
+      }
+      // A same-name reinstall fans out to worlds already holding the pack;
+      // per-world failures come back in `refreshed` and must not be silent —
+      // that world stays on stale bytes.
+      const failedWorlds = installed.data.refreshed.filter((m) => m.kind === 'failed');
+      if (failedWorlds.length > 0) {
+        pushWarning(
+          get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
+          failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
+        );
+      }
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+      await refreshInstalledDatapacks();
+      datapacksChanged.value++;
+      const entry = installedDatapacks.find(
+        (e) => e.pack.filename === installed.data.pack.filename,
+      );
+      pickerTarget = {
+        filename: installed.data.pack.filename,
+        packName: installed.data.pack.name,
+        placements: entry?.placements ?? [],
+      };
+    } finally {
+      installingProjectIds.delete(card.project_id);
+    }
+  }
+
   // Resource packs / shaders install via the asset command — no loader,
   // no dependency resolution. We still pin to a concrete ModVersion: the
   // detail modal passes one explicitly; a card "Install" picks the latest
@@ -856,9 +1050,14 @@
   }
 
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
-    // Resource packs and shaders take the asset path; mods keep the
-    // dependency-aware flow below untouched. startAssetInstall sets its own
-    // busy flag, so we return before flagging here.
+    // Datapacks take the library path (+ world picker); resource packs and
+    // shaders take the asset path; mods keep the dependency-aware flow below
+    // untouched. Both branches set their own busy flag, so we return before
+    // flagging here.
+    if (kind === 'datapack') {
+      await startDatapackInstall(card, pinnedVersion);
+      return;
+    }
     if (kind !== 'mod') {
       await startAssetInstall(card, pinnedVersion);
       return;
@@ -1034,6 +1233,17 @@
           onOpenDetail={(hit) => (drawerProject = hit.project_id)}
           onToggle={(hit) => toggleCard(hit)}
           onUninstall={(hit) => uninstallCard(hit)}
+          installedLabelFor={(hit) => {
+            // §6: a datapack in the library is inert until placed into a
+            // world, so its card reads «В библиотеке · vX» — never the bare
+            // `vX` that claims liveness for every other kind.
+            if (!isDatapack) return null;
+            const inst = installedFor(hit);
+            if (!inst) return null;
+            return inst.version_number
+              ? $t('mods.card.inLibraryVersion', { version: inst.version_number })
+              : $t('mods.card.inLibrary');
+          }}
         />
       {:else}
         <!-- Hide-installed removed every card on this page. The page still
@@ -1063,9 +1273,11 @@
       {mcVersion}
       loader={isMod ? loader : null}
       {kind}
-      installedVersionId={installedMods.find(
-        (r) => r.installed.source === source && r.installed.project_id === drawerProject,
-      )?.installed.version_id ?? null}
+      installedVersionId={isDatapack
+        ? (datapackById.get(`${source}:${drawerProject}`)?.pack.version_id ?? null)
+        : (installedMods.find(
+            (r) => r.installed.source === source && r.installed.project_id === drawerProject,
+          )?.installed.version_id ?? null)}
       {installingVersionId}
       onClose={() => (drawerProject = null)}
       onInstall={(v) => {
@@ -1125,6 +1337,33 @@
       instanceId={findAlt.instanceId}
       curseForgeUrl={findAlt.curseForgeUrl}
       onClose={() => (findAlt = null)}
+    />
+  {/if}
+  {#if pickerTarget && instanceId}
+    <DatapackWorldPicker
+      {instanceId}
+      filename={pickerTarget.filename}
+      packName={pickerTarget.packName}
+      placements={pickerTarget.placements}
+      onClose={() => (pickerTarget = null)}
+      onApplied={() => {
+        void refreshInstalledDatapacks();
+        datapacksChanged.value++;
+      }}
+    />
+  {/if}
+  {#if removeDialogFor && instanceId}
+    <DatapackRemoveDialog
+      {instanceId}
+      filename={removeDialogFor.pack.filename}
+      packName={removeDialogFor.pack.name}
+      placements={removeDialogFor.placements}
+      inLibrary={removeDialogFor.in_library}
+      onClose={() => (removeDialogFor = null)}
+      onRemoved={() => {
+        void refreshInstalledDatapacks();
+        datapacksChanged.value++;
+      }}
     />
   {/if}
 {/if}

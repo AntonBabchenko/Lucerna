@@ -34,7 +34,12 @@ pub async fn launch_instance(
     crate::data_root::reject_if_fallen_back(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
     // library/client jars — the JVM could read a half-written file and crash.
-    if crate::verify::repair_in_progress() {
+    // Same reasoning for a datapack update mid-flight: it is a download plus
+    // one level.dat rewrite per world, the game rewrites level.dat on save
+    // and exit, and whichever side loses the race silently reverts the
+    // user's enable/disable choices. The forward direction (no datapack
+    // write while the game runs) is `datapacks::guard`.
+    if crate::verify::repair_in_progress() || crate::datapacks::guard::update_in_progress() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Stop here rather than letting the JVM die on an InvalidPathException. We
@@ -219,6 +224,24 @@ pub async fn repair_instance(
 #[specta::specta]
 pub fn stop_instance(instance_id: String) -> Result<(), crate::error::Error> {
     crate::launch::spawn::stop(&instance_id)
+}
+
+/// Whether this instance's Minecraft can load data packs at all (the system
+/// arrived in 1.13). `true` when `mc_version` is empty or unparseable —
+/// uncertainty must not hide the feature. Derived from `instance.json` alone,
+/// deliberately NOT from the client jar (`l10n::pack_format` reads the jar and
+/// answers unknown for a never-installed instance, which would hide the kind
+/// for a perfectly legitimate 1.21 instance).
+#[tauri::command]
+#[specta::specta]
+pub fn instance_supports_datapacks(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<bool, crate::error::Error> {
+    let instance = crate::instances::read_instance(&app, &instance_id)?;
+    Ok(crate::datapacks::compat::supports_datapacks(
+        &instance.mc_version,
+    ))
 }
 
 /// All instances on disk with precomputed `ready` status. Sorted

@@ -28,6 +28,20 @@ describe('routeDrop', () => {
     });
   });
 
+  it('routes .zip drops on the datapack kind through the same client-assets target', () => {
+    // The router deliberately does NOT special-case datapacks: the kind rides
+    // along in the payload, and AddonsTab's droppedAssets consumer forks it to
+    // the datapack LIBRARY install instead of the asset pipeline. This pin is
+    // what that consumer's contract stands on.
+    expect(
+      routeDrop(['C:/terralith.zip', 'C:/readme.txt'], { ...base, addonsKind: 'datapack' }),
+    ).toEqual({
+      target: 'client-assets',
+      kind: 'datapack',
+      paths: ['C:/terralith.zip'],
+    });
+  });
+
   it('routes everything to droppedWorld on the worlds tab', () => {
     expect(routeDrop(['C:/w'], { ...base, clientTab: 'worlds' })).toEqual({
       target: 'client-world',

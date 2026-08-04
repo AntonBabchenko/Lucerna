@@ -19,6 +19,77 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+/// Whether this Minecraft version can load data packs at all.
+///
+/// Data packs were introduced in **1.13**. On a 1.12.2 instance the entire
+/// feature is inert: the library would accept files, the world picker would
+/// offer worlds, and the game would read none of it — the "folder that
+/// silently does nothing" trap this feature exists to avoid.
+///
+/// **Unparseable or empty ⟹ `true`.** Uncertainty must not hide the feature:
+/// a snapshot id (`26w14a`), an odd loader-synth id, or an instance whose
+/// version has not been resolved yet all get the kind rather than losing it.
+///
+/// Deliberately NOT `mods::local::descriptor_era`, even though that answers
+/// the same 1.13 question today. That boundary is the Forge FML descriptor
+/// rewrite; this one is the data-pack system. They coincide by accident of
+/// history, and coupling them means a future change to one silently moves the
+/// other. Only the shared version PARSING is reused.
+///
+/// 2026 versions (`26.1`) parse to major 26 and are `true`, as they must be.
+#[must_use]
+pub fn supports_datapacks(mc_version: &str) -> bool {
+    let Some(mm) = crate::mods::local::first_major_minor(mc_version) else {
+        return true;
+    };
+    let mut parts = mm.split('.');
+    let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
+        return true;
+    };
+    match (major.parse::<u32>(), minor.parse::<u32>()) {
+        (Ok(1), Ok(m)) => m >= 13,
+        // Any major other than 1 is newer than the 1.x line (the 2026 scheme),
+        // so it is well past 1.13.
+        (Ok(_), Ok(_)) => true,
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod supports_tests {
+    use super::supports_datapacks;
+
+    #[test]
+    fn pre_1_13_versions_do_not_support_datapacks() {
+        assert!(!supports_datapacks("1.12.2"));
+        assert!(!supports_datapacks("1.7.10"));
+        assert!(!supports_datapacks("1.9"));
+    }
+
+    #[test]
+    fn one_thirteen_and_later_do() {
+        assert!(supports_datapacks("1.13"));
+        assert!(supports_datapacks("1.13.2"));
+        assert!(supports_datapacks("1.21.4"));
+    }
+
+    #[test]
+    fn the_2026_scheme_is_supported() {
+        // MC 26.x are real releases, not a typo — lexicographic comparison
+        // would put "26.1" before "1.13" and get this exactly backwards.
+        assert!(supports_datapacks("26.1"));
+    }
+
+    #[test]
+    fn an_unknown_version_keeps_the_feature_visible() {
+        // Uncertainty must not hide the feature — an instance whose version has
+        // not resolved yet still gets the datapack surface.
+        assert!(supports_datapacks(""));
+        assert!(supports_datapacks("26w14a"));
+        assert!(supports_datapacks("garbage"));
+    }
+}
+
 /// `{versions_dir}/{mc_version}/{mc_version}.jar` — the vanilla client jar.
 ///
 /// Derived from `mc_version`, **never** the effective/synth version id: a

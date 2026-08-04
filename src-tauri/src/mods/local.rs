@@ -172,7 +172,11 @@ pub struct JarMeta {
 /// Extract the first `major.minor` (e.g. "1.20") substring from `s`.
 /// Returns `None` when there is no `<digits>.<digits>` run (a bare `*`,
 /// a snapshot id like "21w13a", an empty string).
-fn first_major_minor(s: &str) -> Option<String> {
+///
+/// `pub(crate)` so `datapacks::compat` can share this parsing rather than
+/// reimplement it. It stays a plain substring extractor with no policy of its
+/// own — every caller decides what its own version boundary means.
+pub(crate) fn first_major_minor(s: &str) -> Option<String> {
     let b = s.as_bytes();
     let mut i = 0;
     while i < b.len() {

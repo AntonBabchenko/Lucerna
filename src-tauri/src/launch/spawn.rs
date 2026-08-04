@@ -68,6 +68,16 @@ pub fn is_running(instance_id: &str) -> bool {
     registry().is_running(instance_id)
 }
 
+/// True iff `instance_id` is mid-launch — claimed by [`start`] but not yet
+/// registered as running. The datapack write gate consults this alongside
+/// [`is_running`]: a `level.dat` write racing the boot (which opens the world
+/// and rewrites `level.dat` itself) is exactly as unsafe as one racing the
+/// running game, and `is_running` stays false for the whole multi-second
+/// spawn pipeline.
+pub fn is_starting(instance_id: &str) -> bool {
+    registry().is_starting(instance_id)
+}
+
 /// True iff ANY instance is running (tray + app-exit teardown).
 pub fn is_any_running() -> bool {
     registry().is_any_running()
@@ -275,6 +285,17 @@ pub async fn start(
         .ok_or_else(|| Error::AlreadyRunning {
             instance_id: instance.id.clone(),
         })?;
+    // Re-check the datapack-update flag AFTER claiming. `launch_instance`
+    // checks it at command entry, but the account refresh between that check
+    // and here is a network round-trip — a whole update can start inside it.
+    // The two sides pair Dekker-style: each sets its own flag first
+    // (`claim_start` here, `DatapackUpdateGuard::acquire` there), then checks
+    // the other's, so whichever interleaving occurs at least one side sees
+    // the other and refuses. The claim's `Drop` releases the reservation on
+    // this early return.
+    if crate::datapacks::guard::update_in_progress() {
+        return Err(Error::InstanceBusy);
+    }
     // Fresh run: clear any stale stop request for THIS instance.
     let _ = take_stop_requested(&instance.id);
 

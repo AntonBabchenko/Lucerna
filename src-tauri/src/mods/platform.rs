@@ -49,6 +49,18 @@ pub enum ContentKind {
     /// A Bukkit-family server plugin (Paper/Purpur). Searched via Modrinth's
     /// `project_type:plugin` facet and via Hangar (`mods::hangar`).
     Plugin,
+    /// A Minecraft data pack. Present for DISCOVERY ONLY — Modrinth's
+    /// `project_type:datapack` facet (undocumented but real: verified
+    /// 2026-08-04, 13 804 hits, while an unknown project_type returns 0) and
+    /// CurseForge class 6945.
+    ///
+    /// A datapack has no directory under `.minecraft/`: its library lives at
+    /// `<instance>/datapacks/` and its real home is
+    /// `saves/<world>/datapacks/`, one hardlink per world with its own
+    /// enabled state in that world's `level.dat`. So `assets::require_asset_kind`
+    /// rejects this variant, and every install/list/update/remove path goes
+    /// through `crate::datapacks::*` instead of the asset commands.
+    Datapack,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -548,6 +560,29 @@ pub trait ModPlatform: Send + Sync {
         _project_id: &str,
         _mc_version: Option<&str>,
         _plugin_loaders: &[&str],
+    ) -> Result<Vec<ModVersion>, Error> {
+        Ok(Vec::new())
+    }
+
+    /// Every datapack release of `project_id`, newest-first, filtered by the
+    /// raw `datapack` loader slug — the datapack twin of [`plugin_versions`].
+    /// A hybrid project (e.g. Terralith) publishes both a datapack and a mod,
+    /// and its unfiltered "latest version" is a mod jar, so the unfiltered
+    /// [`versions`] listing must never be used for this kind.
+    ///
+    /// Default: the platform hosts no datapacks. CurseForge deliberately
+    /// inherits this default until its own PR lands — its `versions` filters
+    /// solely via `modLoaderType`, which cannot express a datapack — and the
+    /// UI hides the CurseForge source for the datapack kind over that
+    /// interval, so the default is never a visible-but-broken card
+    /// (slice-2 design §13.1).
+    ///
+    /// [`plugin_versions`]: ModPlatform::plugin_versions
+    /// [`versions`]: ModPlatform::versions
+    async fn datapack_versions(
+        &self,
+        _project_id: &str,
+        _mc_version: Option<&str>,
     ) -> Result<Vec<ModVersion>, Error> {
         Ok(Vec::new())
     }

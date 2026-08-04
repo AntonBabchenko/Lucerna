@@ -359,6 +359,49 @@ impl ModPlatform for CurseForgeClient {
         ))
     }
 
+    async fn datapack_versions(
+        &self,
+        project_id: &str,
+        mc_version: Option<&str>,
+    ) -> Result<Vec<ModVersion>, Error> {
+        // A CurseForge project belongs to exactly one class, so a datapack
+        // project's (class 6945, wired into `class_id` for search) files are
+        // all datapack zips: unlike Modrinth's hybrid projects there is no mod
+        // jar to filter out, and no `modLoaderType` value could express the
+        // kind anyway — which is why this sat on the empty trait default (with
+        // the source hidden in the UI) until this PR. `gameVersion` is the
+        // only filter.
+        let auth = self.auth()?;
+        let mut params: Vec<(&str, String)> = vec![("pageSize", "50".to_string())];
+        if let Some(v) = mc_version {
+            params.push(("gameVersion", v.to_string()));
+        }
+        let url = format!(
+            "{}/v1/mods/{}/files?{}",
+            self.base,
+            project_id,
+            encode_pairs(&params)
+        );
+        let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
+            .await
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
+        let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
+        let mut versions: Vec<ModVersion> = env
+            .data
+            .into_iter()
+            .filter_map(|f| convert_version(f, project_id))
+            .collect();
+        // Same rule as the Modrinth datapack listing: a datapack build has no
+        // meaningful Java-loader identity, and any tag `convert_version`
+        // parsed out of a hybrid-tagged `gameVersions` would be misleading on
+        // a datapack row. The Java loader post-filter and the
+        // filename-mismatch defence are skipped for the same reason.
+        for v in &mut versions {
+            v.loaders.clear();
+        }
+        Ok(versions)
+    }
+
     async fn resolve_deps(
         &self,
         version: &ModVersion,
@@ -1140,6 +1183,47 @@ mod tests {
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "12345");
+    }
+
+    #[tokio::test]
+    async fn datapack_versions_list_by_game_version_with_no_loader_semantics() {
+        // A CurseForge project belongs to exactly ONE class, so a datapack
+        // project's (class 6945) files are all datapack zips — the reason no
+        // modLoaderType filter exists or is sent. The mock matches the exact
+        // query: a gameVersion param and nothing else, so an implementation
+        // that sneaks a modLoaderType in fails to match and the test fails.
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/999/files"))
+            .and(query_param("gameVersion", "1.21.4"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                "data":[{"id":7,"modId":999,"displayName":"Terralith v2.5.5",
+                         "fileName":"Terralith_1.21_v2.5.5.zip",
+                         "fileLength":1000,"hashes":[{"value":"aa","algo":1}],
+                         "gameVersions":["1.21.4","Fabric","Forge"],
+                         "downloadUrl":"https://cdn/terralith.zip",
+                         "fileDate":"2026-06-01T00:00:00Z","isAvailable":true,
+                         "releaseType":1,"dependencies":[]}],
+                "pagination":null}"#,
+            ))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v = client(s.uri())
+            .datapack_versions("999", Some("1.21.4"))
+            .await
+            .unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].primary_file.filename, "Terralith_1.21_v2.5.5.zip");
+        // A hybrid-tagged file's Java-loader tags must not leak onto a
+        // datapack build — same rule as the Modrinth datapack listing.
+        assert!(
+            v[0].loaders.is_empty(),
+            "loader tags must be cleared: {:?}",
+            v[0].loaders
+        );
     }
 
     #[tokio::test]
