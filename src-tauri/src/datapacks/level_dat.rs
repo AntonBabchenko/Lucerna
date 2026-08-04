@@ -232,6 +232,37 @@ pub fn forget(root: &mut Value, entry: &str) -> Result<bool> {
     Ok(removed_enabled || removed_disabled)
 }
 
+/// Case-insensitive [`drop_entry`].
+fn drop_entry_ci(list: &mut Vec<Value>, entry: &str) -> bool {
+    let needle = entry.to_lowercase();
+    let before = list.len();
+    list.retain(|v| !matches!(v, Value::String(s) if s.to_lowercase() == needle));
+    list.len() != before
+}
+
+/// [`forget`], matching case-insensitively.
+///
+/// NTFS is case-insensitive, so a level.dat entry spelled `file/VeinMiner.zip`
+/// and an on-disk file named `veinminer.zip` are the SAME file — the reason
+/// `world_link::contains_ci` exists, with a regression test there
+/// (`a_case_mismatched_disabled_entry_still_reports_disabled`) proving the
+/// drift is real and encountered, not hypothetical. `forget`'s exact
+/// comparison silently removes nothing in that case, leaving a name in
+/// level.dat with no file behind it: a permanent `Orphaned` row and Minecraft's
+/// "data packs are no longer present" screen, forever.
+///
+/// Use this wherever the entry being removed was DERIVED from a filename that
+/// may not match level.dat's own spelling — notably
+/// `world_link::migrate_placements`, which renames an entry it only knows by
+/// the library's filename. `forget` stays for callers holding level.dat's own
+/// exact string.
+pub fn forget_ci(root: &mut Value, entry: &str) -> Result<bool> {
+    let dp = datapacks_mut(root)?;
+    let removed_enabled = drop_entry_ci(list_mut(dp, "Enabled")?, entry);
+    let removed_disabled = drop_entry_ci(list_mut(dp, "Disabled")?, entry);
+    Ok(removed_enabled || removed_disabled)
+}
+
 /// The world folder's own name, for user-facing messages. `world_dir` is
 /// always the caller-supplied world directory itself (never derived from
 /// some other path), so this can only come back empty for a path with no
@@ -368,6 +399,56 @@ mod tests {
         let mut root = HashMap::new();
         root.insert("Data".to_string(), Value::Compound(data));
         Value::Compound(root)
+    }
+
+    /// A root whose DataPacks lists hold exactly these entries. Built through
+    /// `set_enabled` rather than by hand so the fixture can never disagree with
+    /// the shape the production code actually writes.
+    fn root_with_lists(enabled: &[&str], disabled: &[&str]) -> Value {
+        let mut root = sample_root();
+        for e in enabled {
+            set_enabled(&mut root, e, true).unwrap();
+        }
+        for d in disabled {
+            set_enabled(&mut root, d, false).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn forget_ci_removes_an_entry_whose_case_differs() {
+        // The exact-match `forget` is what leaves a permanent orphan here: the
+        // name stays in level.dat with no file behind it, and Minecraft shows
+        // "data packs are no longer present" on every load.
+        let mut root = root_with_lists(&["file/VeinMiner.zip"], &[]);
+        assert!(forget_ci(&mut root, "file/veinminer.zip").unwrap());
+        let (enabled, disabled) = lists(&root);
+        assert!(enabled.is_empty(), "enabled still holds: {enabled:?}");
+        assert!(disabled.is_empty(), "disabled still holds: {disabled:?}");
+    }
+
+    #[test]
+    fn forget_ci_clears_a_case_mismatched_disabled_entry_too() {
+        let mut root = root_with_lists(&[], &["file/VeinMiner.zip"]);
+        assert!(forget_ci(&mut root, "file/veinminer.zip").unwrap());
+        let (_enabled, disabled) = lists(&root);
+        assert!(disabled.is_empty(), "disabled still holds: {disabled:?}");
+    }
+
+    #[test]
+    fn forget_ci_reports_no_change_when_nothing_matched() {
+        let mut root = root_with_lists(&["file/other.zip"], &[]);
+        assert!(!forget_ci(&mut root, "file/veinminer.zip").unwrap());
+        let (enabled, _disabled) = lists(&root);
+        assert_eq!(enabled, vec!["file/other.zip".to_string()]);
+    }
+
+    #[test]
+    fn forget_stays_case_exact() {
+        // The exact variant keeps its semantics: callers holding level.dat's
+        // own spelling must not silently start matching neighbours.
+        let mut root = root_with_lists(&["file/VeinMiner.zip"], &[]);
+        assert!(!forget(&mut root, "file/veinminer.zip").unwrap());
     }
 
     #[test]
