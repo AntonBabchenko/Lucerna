@@ -60,37 +60,6 @@ fn world_dirs_checked(instance_root: &Path, world: &str) -> Result<(PathBuf, Pat
     Ok((world_dir, dp_dir))
 }
 
-/// Every world under `<instance>/.minecraft/saves/` that already has a file
-/// or folder named `filename` in its own `datapacks/` folder. Used to fan a
-/// library reinstall out to every world that already links the old bytes —
-/// see [`crate::datapacks::library::install_named_at`].
-///
-/// One `read_dir` of `saves/`; a missing `saves/` dir yields an empty vec,
-/// never an error — mirrors `worlds::list_worlds`'s own "missing saves ⇒
-/// empty" policy. Deliberately synchronous (not `tokio::fs`): this is a
-/// single shallow directory listing plus one `exists()` per world, called
-/// from `install_named_at` which is not on a latency-sensitive path.
-pub(crate) fn worlds_linking(instance_root: &Path, filename: &str) -> Vec<PathBuf> {
-    let saves_dir = instance_root.join(".minecraft").join("saves");
-    let Ok(rd) = std::fs::read_dir(&saves_dir) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for entry in rd.flatten() {
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        if !meta.is_dir() {
-            continue;
-        }
-        let candidate = entry.path().join("datapacks").join(filename);
-        if candidate.exists() {
-            out.push(candidate);
-        }
-    }
-    out
-}
-
 /// `Some(err)` when `dest` already holds something that is NOT the library
 /// file at `src`, so placing over it would destroy a pack Lucerna did not put
 /// there. `None` when the destination is free, or already holds exactly these
@@ -121,10 +90,7 @@ async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error
         .await
         .map_err(|e| Error::io(src.display().to_string(), e))?;
     if src_meta.len() == dest_meta.len() {
-        let (Ok(a), Ok(b)) = (
-            tokio::fs::read(src).await,
-            tokio::fs::read(dest).await,
-        ) else {
+        let (Ok(a), Ok(b)) = (tokio::fs::read(src).await, tokio::fs::read(dest).await) else {
             return Ok(None);
         };
         let (sa, sb) = (
@@ -170,14 +136,16 @@ pub(crate) struct WorldPlacement {
 /// Every world whose `datapacks/` folder holds an entry named `filename`, with
 /// world NAMES rather than paths, and an identity verdict per world.
 ///
-/// [`worlds_linking`] answers only "does an entry with this name exist there",
-/// which is enough for a same-name reinstall (same name, same intent, and
-/// `materialize` writes the same bytes either way). It is NOT enough for an
-/// update, which deletes the old entry and links a differently-named one: a
-/// same-named entry that is not ours must be left alone. `materialize` commits
-/// by unconditional rename over the destination, so without this check the
-/// update path silently destroys a pack the user installed by hand — the F5
-/// defect, reintroduced on the update path.
+/// This replaced a `worlds_linking` helper that answered only "does an entry
+/// with this name exist there". That was enough for a same-name reinstall
+/// (same name, same intent, and `materialize` writes the same bytes either
+/// way), but NOT for an update, which deletes the old entry and links a
+/// differently-named one: a same-named entry that is not ours must be left
+/// alone. `materialize` commits by unconditional rename over the destination,
+/// so a name-only check lets the update path silently destroy a pack the user
+/// installed by hand — the F5 defect, reintroduced on the update path. The old
+/// helper was deleted rather than kept, so no future caller can reach for the
+/// unsafe one by mistake.
 ///
 /// A directory entry is never `is_ours`: a folder datapack has no file sha1 to
 /// compare against the library's zip.
@@ -201,10 +169,10 @@ pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<W
         let Some(world) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        // Match `worlds::list_worlds`' own filter, which `worlds_linking`
-        // omits: without it a dot-directory under `saves/` would be treated as
-        // a world, and `world_dirs_checked` would then reject it downstream
-        // with a confusing path error instead of it never being offered.
+        // Match `worlds::list_worlds`' own filter: without it a dot-directory
+        // under `saves/` would be treated as a world, and `world_dirs_checked`
+        // would then reject it downstream with a confusing path error instead
+        // of it never having been offered.
         if crate::worlds::fs::validate_segment(&world).is_err() {
             continue;
         }
@@ -270,7 +238,7 @@ fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
 /// such a world; `write_at` already treats "no pre-existing file" as the one
 /// case where it skips the backup, so writing this empty root back out (when
 /// an edit actually changes something) is exactly as safe as it looks.
-fn read_level_dat_or_empty(world_dir: &Path) -> Result<(Value, level_dat::Framing)> {
+pub(crate) fn read_level_dat_or_empty(world_dir: &Path) -> Result<(Value, level_dat::Framing)> {
     if !world_dir.join("level.dat").exists() {
         return Ok((Value::Compound(HashMap::new()), level_dat::Framing::Gzip));
     }
@@ -613,7 +581,7 @@ async fn migrate_one(
 /// A directory that cannot be read (missing `datapacks/` folder, a world
 /// that has never had a pack added) yields an empty list, never an error —
 /// mirrors `read_level_dat_or_empty`'s "absent is a supported state" policy.
-async fn list_on_disk_entries(dp_dir: &Path) -> Vec<String> {
+pub(crate) async fn list_on_disk_entries(dp_dir: &Path) -> Vec<String> {
     let mut on_disk = Vec::new();
     let Ok(mut rd) = tokio::fs::read_dir(dp_dir).await else {
         return on_disk;
@@ -684,7 +652,7 @@ fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) ->
 /// Query-only: never compare a value here that is about to be written back
 /// to level.dat — those writes must keep the caller's exact filename.
 #[must_use]
-fn contains_ci(haystack: &[String], needle: &str) -> bool {
+pub(crate) fn contains_ci(haystack: &[String], needle: &str) -> bool {
     let needle = needle.to_lowercase();
     haystack.iter().any(|h| h.to_lowercase() == needle)
 }
@@ -882,7 +850,10 @@ mod tests {
             matches!(err, Error::ModsFilenameConflict { .. }),
             "got {err:?}"
         );
-        assert!(dp.join("vm.zip").join("data").is_dir(), "the folder pack must survive");
+        assert!(
+            dp.join("vm.zip").join("data").is_dir(),
+            "the folder pack must survive"
+        );
     }
 
     #[tokio::test]
@@ -924,7 +895,9 @@ mod tests {
         seed_library(td.path(), "vm-1.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
         std::fs::create_dir_all(saves.join("Alpha")).unwrap();
-        add_to_world_at(td.path(), "Alpha", "vm-1.zip").await.unwrap();
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip")
+            .await
+            .unwrap();
         // The user turns it OFF. Preserving this is the whole point.
         set_enabled_in_world_at(td.path(), "Alpha", "vm-1.zip", false)
             .await

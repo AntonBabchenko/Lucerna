@@ -246,7 +246,8 @@ pub async fn install_named_at(
                         .find(|r| r.filename.eq_ignore_ascii_case(filename))
                 })
                 .is_some_and(|row| {
-                    row.source == Some(prov.source) && row.project_id.as_deref() == Some(&prov.project_id)
+                    row.source == Some(prov.source)
+                        && row.project_id.as_deref() == Some(&prov.project_id)
                 });
             if !same_project {
                 return Err(Error::ModsFilenameConflict {
@@ -572,7 +573,7 @@ mod tests {
             .await
             .unwrap();
 
-        // No `.minecraft/saves/` at all — `worlds_linking`'s missing-saves
+        // No `.minecraft/saves/` at all — `placements_of`'s missing-saves
         // case must yield an empty fan-out, not an error.
         let entry = install_named_at(td.path(), "vm.zip", &datapack_zip_v2(), None)
             .await
@@ -668,7 +669,10 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(matches!(err, Error::ModsFilenameConflict { .. }), "got {err:?}");
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
         assert_eq!(
             std::fs::read(td.path().join("datapacks/terralith.zip")).unwrap(),
             datapack_zip(),

@@ -866,7 +866,12 @@ mod tests {
         // 148 896 with no facet and 0 for `project_type:nonsense_xyz`. An
         // unknown value filters to nothing rather than being ignored, which is
         // what proves the facet is live rather than silently dropped.
-        let f = build_facets(ContentKind::Datapack, Some("1.21.4"), Some(LoaderKind::Fabric), None);
+        let f = build_facets(
+            ContentKind::Datapack,
+            Some("1.21.4"),
+            Some(LoaderKind::Fabric),
+            None,
+        );
         assert!(f.contains(&vec!["project_type:datapack".to_string()]));
         assert!(f.contains(&vec!["versions:1.21.4".to_string()]));
         // A datapack has no Java loader. The `datapack` loader tag belongs on

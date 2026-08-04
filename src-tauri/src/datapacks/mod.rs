@@ -25,6 +25,7 @@ pub mod compat;
 pub mod guard;
 pub mod level_dat;
 pub mod library;
+pub mod overview;
 pub mod pack_meta;
 pub mod registry;
 pub mod state;
@@ -91,6 +92,45 @@ pub struct WorldDatapack {
     pub compat: PackCompat,
 }
 
+/// One world's view of one library pack.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+pub struct DatapackPlacementView {
+    pub world: String,
+    /// `None` when this world's `level.dat` could not be read, so the
+    /// enabled/disabled answer is genuinely unknown rather than guessed. A
+    /// missing level.dat is NOT this case — an unplayed world reads as two
+    /// empty lists, which is a real answer.
+    pub state: Option<WorldPackState>,
+}
+
+/// One row of the instance-level library screen.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct DatapackLibraryEntry {
+    pub pack: InstalledDatapack,
+    /// `false` ⟹ the pack is gone from the library but still linked in worlds.
+    /// Reachable through a non-cascading removal: deleting one hardlink name
+    /// provably cannot affect the others, so the pack keeps loading in game
+    /// while `registry::list` drops its row on the next read. The listing is
+    /// therefore the UNION of the registry and the on-disk world entries, never
+    /// the registry alone.
+    pub in_library: bool,
+    /// Per-INSTANCE, not per-world: the verdict compares the pack's own
+    /// `pack_format` against the instance's Minecraft, and no world is an
+    /// input, so rendering it per world would print N identical copies.
+    pub compat: PackCompat,
+    /// Empty ⟺ "in no world" — the state the library screen exists to surface.
+    pub placements: Vec<DatapackPlacementView>,
+}
+
+/// Everything the library screen renders, in one read.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct DatapackLibraryView {
+    /// The instance's expected `pack_format`. Exposed here because nothing else
+    /// does, and the frontend cannot compute it.
+    pub expected_pack_format: Option<u32>,
+    pub entries: Vec<DatapackLibraryEntry>,
+}
+
 /// Where a catalog-installed datapack came from. `None` at every local-install
 /// call site; `Some` only from the catalog command.
 ///
@@ -131,11 +171,19 @@ pub struct LibraryInstall {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldMigration {
     /// Relinked, and level.dat rewritten preserving the pack's enabled state.
-    Migrated { world: String, was_enabled: bool },
+    Migrated {
+        world: String,
+        was_enabled: bool,
+    },
     /// A same-named entry whose content is not the library's — left untouched.
     /// Replacing it would destroy a pack the user put there themselves.
-    SkippedNotOurs { world: String },
-    Failed { world: String, details: String },
+    SkippedNotOurs {
+        world: String,
+    },
+    Failed {
+        world: String,
+        details: String,
+    },
 }
 
 /// `<instance>/datapacks/`.
