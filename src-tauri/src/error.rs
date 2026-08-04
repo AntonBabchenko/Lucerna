@@ -634,6 +634,38 @@ pub enum Error {
     /// A pre-fill run is already in flight for this instance.
     #[error("A translation pre-fill is already running for this instance")]
     L10nPrefillBusy,
+
+    /// A share bundle failed whole-file validation — not a zip, no
+    /// `lucerna-l10n.json`, a schema from a newer Lucerna, a filesystem-hostile
+    /// language code, or over the size caps. `error` is typed rather than a
+    /// message for the same reason `L10nTranslationInvalid`'s is: the UI
+    /// localises it, and it drives different copy per case (a plain resource
+    /// pack gets "install it as one instead", a future schema gets "update the
+    /// launcher").
+    #[error("Not a valid Lucerna translations file: {error:?}")]
+    L10nShareBundleInvalid {
+        error: crate::l10n::share::BundleError,
+    },
+
+    /// Share import (and, later, deleting stored translations) refused because
+    /// an AI pre-fill run is writing the same global store files right now.
+    /// `store::save` rewrites a whole file, so the two would be
+    /// last-writer-wins and could silently destroy entries the user already
+    /// paid a model for.
+    #[error("A translation pre-fill is running; try again when it finishes")]
+    L10nSharePrefillActive,
+
+    /// The export destination's filename would be deleted by a later Apply:
+    /// every apply sweeps `resourcepacks/` of files starting with
+    /// `options_txt::PACK_PREFIX`. Refused outright rather than writing a
+    /// bundle that destroys itself the next time the recipient applies.
+    #[error("Export filename must not start with the reserved prefix")]
+    L10nShareDestReserved,
+
+    /// Nothing to export: no selected namespace holds an override for this
+    /// language.
+    #[error("Nothing to export for this selection")]
+    L10nShareNothingToExport,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -466,6 +466,288 @@ pub async fn l10n_revert_machine(
     Ok(u32::try_from(removed).unwrap_or(u32::MAX))
 }
 
+// =========================================================================
+// In-game mod localization — share bundles + cross-instance apply targets
+// =========================================================================
+
+pub use crate::l10n::share::{BundleSummary, ConflictPolicy, ImportResult};
+pub use crate::l10n::targets::ApplyTarget;
+
+/// Every instance's translation-pack state for `lang` — the single data source
+/// behind the "apply in other instances" offer and the Overview badge.
+///
+/// Runs the same scan-and-cache path `l10n_coverage` uses, per instance. The
+/// jar-scan cache is keyed by (language, jar SHA-1) and filled lazily, so an
+/// instance whose translations were never opened for this language is a cache
+/// MISS and its jars are read once here — which is exactly the flagship case
+/// (the same mod at a different version in another instance). Callers treat
+/// this as async work with a spinner; repeat calls are cache hits.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_apply_targets(
+    app: tauri::AppHandle,
+    lang: String,
+) -> Result<Vec<ApplyTarget>, crate::error::Error> {
+    validate_override_identifiers("", &lang)?;
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let cache_path = crate::paths::l10n_scan_cache_file(&app)
+        .map_err(|e| crate::error::Error::io("<l10n_scan_cache_file>", e))?;
+    let versions_dir = crate::paths::versions_dir(&app)
+        .map_err(|e| crate::error::Error::io("<versions_dir>", e))?;
+    let lang = crate::l10n::coverage::default_target_code(&lang);
+
+    let overridden: std::collections::BTreeSet<String> =
+        crate::l10n::store::namespaces_with_overrides(&store_dir, &lang)
+            .into_iter()
+            .collect();
+
+    let mut out = Vec::new();
+    for inst in crate::instances::list_instances_with_status(&app)? {
+        let Ok(inst_root) = instance_root(&app, &inst.id) else {
+            continue; // an instance that vanished between the listing and here
+        };
+        let mc_version = read_active_mc_and_loader(&app, &inst.id)
+            .map(|(mc, _loader)| mc)
+            .unwrap_or_default();
+        // A single unscannable instance — a broken mods dir, a jar that
+        // vanished mid-scan — must not empty the whole offer. Skip it: this
+        // list's job is to name the instances we CAN help with.
+        let Ok(cov) = crate::l10n::coverage::scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            &mc_version,
+            &lang,
+        )
+        .await
+        else {
+            continue;
+        };
+
+        let covered = cov
+            .namespaces
+            .iter()
+            .any(|n| overridden.contains(&n.namespace));
+        let client_jar = crate::datapacks::compat::client_jar_path(&versions_dir, &mc_version);
+        let fmt = crate::l10n::pack_format::from_client_jar_path(&client_jar);
+        // Rebuild with THIS instance's format. The pack embeds `pack.mcmeta`,
+        // whose contents depend on the Minecraft version, so one rebuild shared
+        // across a mixed-version fleet would mark every instance but one
+        // permanently outdated.
+        let rebuild = match cov.apply_gate {
+            crate::l10n::pack_format::ApplyGate::Ready => {
+                crate::l10n::apply::assemble_current_pack(&store_dir, &lang, fmt)
+            }
+            _ => None,
+        };
+        let pack_path = inst_root
+            .join(".minecraft")
+            .join("resourcepacks")
+            .join(format!(
+                "{}{lang}.zip",
+                crate::l10n::options_txt::PACK_PREFIX
+            ));
+        let disk = std::fs::read(&pack_path).ok();
+        let enabled = matches!(cov.pack_state, crate::l10n::options_txt::PackState::Enabled);
+        let state = crate::l10n::targets::classify(
+            disk.as_deref(),
+            rebuild.as_deref(),
+            enabled,
+            cov.apply_gate,
+        );
+        let empty_rebuild_with_pack = disk.is_some()
+            && rebuild.is_none()
+            && matches!(cov.apply_gate, crate::l10n::pack_format::ApplyGate::Ready);
+        let candidate = crate::l10n::targets::candidacy(covered, state, empty_rebuild_with_pack);
+        let is_running = crate::launch::spawn::is_running(&inst.id);
+        let prefill_active = crate::l10n::prefill::cancel::is_active(&inst.id);
+        out.push(ApplyTarget {
+            instance_id: inst.id.clone(),
+            name: inst.name.clone(),
+            covered,
+            state,
+            applied_other_lang: other_lang_applied(&inst_root, &lang),
+            is_running,
+            prefill_active,
+            candidate,
+            actionable: crate::l10n::targets::actionable(candidate, is_running, prefill_active),
+        });
+    }
+    Ok(out)
+}
+
+/// The language code of a DIFFERENT Lucerna pack currently enabled on this
+/// instance, if any.
+///
+/// Exactly one Lucerna pack exists per instance and every apply sweeps the
+/// others away, so applying `lang` here would REPLACE whatever language is
+/// applied now. A bulk action must disclose that rather than silently
+/// overwriting a deliberate per-instance choice.
+///
+/// Best-effort throughout: an unreadable `options.txt` or resourcepacks
+/// directory means "nothing to disclose", the same tolerance the sweep itself
+/// takes.
+fn other_lang_applied(inst_root: &std::path::Path, lang: &str) -> Option<String> {
+    let mc_dir = inst_root.join(".minecraft");
+    let options = std::fs::read_to_string(mc_dir.join("options.txt")).ok()?;
+    let dir = std::fs::read_dir(mc_dir.join("resourcepacks")).ok()?;
+    for entry in dir.flatten() {
+        // `continue`, never `?`: one filename that is not valid UTF-8 must skip
+        // that entry, not abandon the scan and report "no other language" when
+        // there is one.
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix(crate::l10n::options_txt::PACK_PREFIX) else {
+            continue;
+        };
+        let Some(other) = rest.strip_suffix(".zip") else {
+            continue;
+        };
+        if other != lang && options.contains(&name) {
+            return Some(other.to_string());
+        }
+    }
+    None
+}
+
+/// Namespaces holding at least one override for `lang`.
+///
+/// Feeds the export dialog's checkbox list. Deliberately NOT scoped to an
+/// instance: the override store is global, so a user must be able to export a
+/// mod that is not installed in whichever instance they happen to have open.
+/// The caller uses its own instance's mods only to decide which boxes start
+/// ticked.
+#[tauri::command]
+#[specta::specta]
+pub fn l10n_overridden_namespaces(
+    app: tauri::AppHandle,
+    lang: String,
+) -> Result<Vec<String>, crate::error::Error> {
+    validate_override_identifiers("", &lang)?;
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let lang = crate::l10n::coverage::default_target_code(&lang);
+    Ok(crate::l10n::store::namespaces_with_overrides(
+        &store_dir, &lang,
+    ))
+}
+
+/// Write a share bundle to `dest_path`.
+///
+/// The save dialog lives in the FRONTEND (the established pattern — see the
+/// modpack export command, which likewise takes a destination the UI chose);
+/// taking a path rather than opening a dialog here is also what keeps this
+/// write testable against a temp directory.
+///
+/// Keyed on `mc_version` rather than an instance id so the eventual global
+/// translations manager, which has no instance context, can call it unchanged
+/// with a version the user picks.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_export(
+    app: tauri::AppHandle,
+    mc_version: String,
+    lang: String,
+    namespaces: Vec<String>,
+    note: String,
+    dest_path: String,
+) -> Result<(), crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    validate_override_identifiers("", &lang)?;
+    if namespaces.is_empty() {
+        return Err(crate::error::Error::L10nShareNothingToExport);
+    }
+    let dest = std::path::PathBuf::from(&dest_path);
+    if dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_none_or(crate::l10n::share::dest_filename_reserved)
+    {
+        return Err(crate::error::Error::L10nShareDestReserved);
+    }
+    let versions_dir = crate::paths::versions_dir(&app)
+        .map_err(|e| crate::error::Error::io("<versions_dir>", e))?;
+    let client_jar = crate::datapacks::compat::client_jar_path(&versions_dir, &mc_version);
+    let fmt = crate::l10n::pack_format::from_client_jar_path(&client_jar);
+    match crate::l10n::pack_format::apply_gate(fmt) {
+        crate::l10n::pack_format::ApplyGate::UnknownFormat => {
+            return Err(crate::error::Error::L10nFormatUnknown { mc_version });
+        }
+        crate::l10n::pack_format::ApplyGate::TooOld => {
+            return Err(crate::error::Error::L10nFormatTooOld { mc_version });
+        }
+        crate::l10n::pack_format::ApplyGate::Ready => {}
+    }
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let lang = crate::l10n::coverage::default_target_code(&lang);
+    let stores: Vec<_> = namespaces
+        .iter()
+        .filter(|ns| !crate::l10n::scan::is_traversal_unsafe(ns))
+        .map(|ns| crate::l10n::store::load(&store_dir, &lang, ns))
+        .collect();
+    let bytes = crate::l10n::share::build_bundle(&stores, &lang, fmt, &note)
+        .ok_or(crate::error::Error::L10nShareNothingToExport)?;
+    tokio::fs::write(&dest, bytes)
+        .await
+        .map_err(|e| crate::error::Error::io("<share bundle write>", e))
+}
+
+/// Parse and validate a bundle WITHOUT writing anything — feeds the import
+/// summary dialog. Advisory only: [`l10n_import_bundle`] re-reads and
+/// re-validates from scratch, because the file can change between the two
+/// calls.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_inspect_bundle(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<BundleSummary, crate::error::Error> {
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| crate::error::Error::io("<share bundle read>", e))?;
+    let parsed = crate::l10n::share::parse_bundle_bytes(&bytes)
+        .map_err(|error| crate::error::Error::L10nShareBundleInvalid { error })?;
+    Ok(crate::l10n::share::inspect(&store_dir, &parsed))
+}
+
+/// Merge a bundle into the global override store under `policy`.
+///
+/// Gated on the data root and on any active AI pre-fill run — that run writes
+/// the same per-(language, namespace) files and `store::save` rewrites whole
+/// files, so the two would be last-writer-wins. There is deliberately NO
+/// running-game gate: an import touches only the store, never an instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_import_bundle(
+    app: tauri::AppHandle,
+    path: String,
+    policy: ConflictPolicy,
+) -> Result<ImportResult, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    if crate::l10n::prefill::cancel::any_active() {
+        return Err(crate::error::Error::L10nSharePrefillActive);
+    }
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| crate::error::Error::io("<share bundle read>", e))?;
+    let parsed = crate::l10n::share::parse_bundle_bytes(&bytes)
+        .map_err(|error| crate::error::Error::L10nShareBundleInvalid { error })?;
+    Ok(crate::l10n::share::merge(
+        &store_dir,
+        &parsed,
+        policy,
+        crate::instances::unix_ms_f64(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,5 +849,53 @@ mod tests {
             apply_write_allowed(true).unwrap_err(),
             crate::error::Error::InstanceBusy
         ));
+    }
+
+    // -----------------------------------------------------------------
+    // other_lang_applied
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn other_lang_applied_reports_only_a_different_enabled_language() {
+        let td = tempfile::tempdir().unwrap();
+        let mc = td.path().join(".minecraft");
+        let packs = mc.join("resourcepacks");
+        std::fs::create_dir_all(&packs).unwrap();
+        let de = format!("{}de_de.zip", crate::l10n::options_txt::PACK_PREFIX);
+        std::fs::write(packs.join(&de), b"zip").unwrap();
+        std::fs::write(
+            mc.join("options.txt"),
+            format!("resourcePacks:[\"vanilla\",\"file/{de}\"]\n"),
+        )
+        .unwrap();
+
+        // Asking about ru_ru finds the de_de pack that applying would replace.
+        assert_eq!(
+            other_lang_applied(td.path(), "ru_ru"),
+            Some("de_de".to_string())
+        );
+        // Asking about the language that IS applied discloses nothing.
+        assert_eq!(other_lang_applied(td.path(), "de_de"), None);
+    }
+
+    #[test]
+    fn other_lang_applied_ignores_a_pack_file_that_options_txt_does_not_list() {
+        // A pack left on disk but not enabled changes nothing in game, so it is
+        // not something applying would "replace" from the user's point of view.
+        let td = tempfile::tempdir().unwrap();
+        let mc = td.path().join(".minecraft");
+        let packs = mc.join("resourcepacks");
+        std::fs::create_dir_all(&packs).unwrap();
+        std::fs::write(
+            packs.join(format!(
+                "{}de_de.zip",
+                crate::l10n::options_txt::PACK_PREFIX
+            )),
+            b"zip",
+        )
+        .unwrap();
+        std::fs::write(mc.join("options.txt"), "resourcePacks:[\"vanilla\"]\n").unwrap();
+
+        assert_eq!(other_lang_applied(td.path(), "ru_ru"), None);
     }
 }
