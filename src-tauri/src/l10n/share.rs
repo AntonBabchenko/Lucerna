@@ -436,7 +436,13 @@ pub fn build_bundle(
 
     let mut namespaces = serde_json::Map::new();
     for s in stores {
-        if s.entries.is_empty() {
+        // Skip exactly what `pack::build` skips. It drops a traversal-unsafe
+        // namespace as defence in depth (a hand-edited or corrupted store file
+        // can carry one), and if the metadata kept it the bundle would
+        // advertise entries for which this archive contains no `assets/` tree.
+        // Keeping the two halves in agreement here means no caller has to
+        // remember to filter first.
+        if s.entries.is_empty() || crate::l10n::scan::is_traversal_unsafe(&s.namespace) {
             continue;
         }
         let mut m = serde_json::Map::new();
@@ -839,5 +845,44 @@ mod tests {
         // A store with no entries is equally nothing to ship.
         let empty = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
         assert!(build_bundle(&[empty], "ru_ru", fmt, "").is_none());
+    }
+
+    #[test]
+    fn build_bundle_metadata_skips_the_same_namespaces_the_pack_half_drops() {
+        // Read the raw `lucerna-l10n.json` entry rather than going through
+        // `parse_bundle_bytes`. The importer applies its own, stricter
+        // `is_mc_identifier` gate on the way back in, so a round-trip
+        // assertion passes whether or not the WRITER did its job — only the
+        // bytes we actually wrote can show that. (`pack::build` drops a
+        // traversal-unsafe namespace as defence in depth; the metadata half
+        // must agree, or the bundle advertises entries for which this archive
+        // carries no `assets/` tree.)
+        let mut good = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        good.set("k", "v", "V", 1.0);
+        let mut evil = crate::l10n::store::NamespaceStore::new("../../evil", "ru_ru");
+        evil.set("k", "v", "V", 1.0);
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+
+        let bytes = build_bundle(&[good, evil], "ru_ru", fmt, "").expect("one good namespace");
+
+        let mut ar = zip::ZipArchive::new(std::io::Cursor::new(&bytes[..])).unwrap();
+        let mut raw = String::new();
+        {
+            use std::io::Read;
+            ar.by_name(METADATA_NAME)
+                .unwrap()
+                .read_to_string(&mut raw)
+                .unwrap();
+        }
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let ns = v["namespaces"].as_object().expect("namespaces object");
+        assert!(ns.contains_key("create"));
+        assert!(
+            !ns.contains_key("../../evil"),
+            "metadata must not describe a namespace the pack half refused to write"
+        );
     }
 }
