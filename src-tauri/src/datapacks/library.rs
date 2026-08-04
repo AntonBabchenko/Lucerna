@@ -336,6 +336,72 @@ pub async fn list_at(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
     registry::list(instance_root).await
 }
 
+/// Remove a datapack from the library, optionally cascading into every world
+/// that holds it. This is the seam behind `datapacks_remove_from_library`.
+///
+/// Placements are computed BEFORE the library file goes away: `placements_of`'s
+/// `is_ours` verdict is a sha1 comparison against the library copy, and after
+/// deletion every world file would look foreign.
+///
+/// With `cascade`, each world holding OUR file goes through
+/// `world_link::remove_from_world_at` — file unlinked, level.dat entries
+/// dropped. That entry point takes `level_dat_lock` itself; the calls here are
+/// sequential, never nested under it, so this cannot deadlock. A same-named
+/// file that is not ours is left alone either way. A per-world failure does
+/// not abort the others, but it does keep the library copy and registry row —
+/// see [`crate::datapacks::LibraryRemoval::removed_from_library`].
+pub async fn remove_from_library_at(
+    instance_root: &Path,
+    filename: &str,
+    cascade: bool,
+) -> Result<crate::datapacks::LibraryRemoval> {
+    use crate::datapacks::WorldRemoval;
+
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+
+    let placements = crate::datapacks::world_link::placements_of(instance_root, filename).await;
+    let mut worlds = Vec::with_capacity(placements.len());
+    let mut any_failed = false;
+    for p in placements {
+        if !p.is_ours {
+            worlds.push(WorldRemoval::KeptNotOurs { world: p.world });
+            continue;
+        }
+        if !cascade {
+            worlds.push(WorldRemoval::KeptNoCascade { world: p.world });
+            continue;
+        }
+        match crate::datapacks::world_link::remove_from_world_at(instance_root, &p.world, filename)
+            .await
+        {
+            Ok(()) => worlds.push(WorldRemoval::Removed { world: p.world }),
+            Err(e) => {
+                any_failed = true;
+                worlds.push(WorldRemoval::Failed {
+                    world: p.world,
+                    details: e.to_string(),
+                });
+            }
+        }
+    }
+
+    if any_failed {
+        return Ok(crate::datapacks::LibraryRemoval {
+            worlds,
+            removed_from_library: false,
+        });
+    }
+    remove_at(instance_root, filename).await?;
+    Ok(crate::datapacks::LibraryRemoval {
+        worlds,
+        removed_from_library: true,
+    })
+}
+
 /// Remove a datapack from the instance's library, then drop its registry
 /// entry. Deleting one name provably cannot affect any other hardlink pointing
 /// at the same physical file (see `mods::store`'s module doc), so a plain
@@ -678,6 +744,181 @@ mod tests {
             datapack_zip(),
             "the user's pack must survive untouched"
         );
+    }
+
+    #[tokio::test]
+    async fn cascading_removal_clears_every_world() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        std::fs::create_dir_all(saves.join("Beta")).unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Beta", "vm.zip")
+            .await
+            .unwrap();
+        crate::datapacks::world_link::set_enabled_in_world_at(td.path(), "Beta", "vm.zip", false)
+            .await
+            .unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert!(out.removed_from_library);
+        let mut removed: Vec<&str> = out
+            .worlds
+            .iter()
+            .map(|w| match w {
+                crate::datapacks::WorldRemoval::Removed { world } => world.as_str(),
+                other => panic!("expected Removed, got {other:?}"),
+            })
+            .collect();
+        removed.sort_unstable();
+        assert_eq!(removed, vec!["Alpha", "Beta"]);
+        assert!(!td.path().join("datapacks/vm.zip").exists());
+        assert!(list_at(td.path()).await.unwrap().is_empty());
+        for w in ["Alpha", "Beta"] {
+            let wd = saves.join(w);
+            assert!(
+                !wd.join("datapacks/vm.zip").exists(),
+                "{w}'s link must be gone"
+            );
+            let (root, _) = crate::datapacks::level_dat::read_at(&wd).unwrap();
+            let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
+            assert!(
+                enabled.is_empty() && disabled.is_empty(),
+                "{w}'s level.dat must not name the pack: {enabled:?} {disabled:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn non_cascading_removal_leaves_world_links_and_names_them() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", false)
+            .await
+            .unwrap();
+
+        assert!(out.removed_from_library);
+        assert_eq!(
+            out.worlds,
+            vec![crate::datapacks::WorldRemoval::KeptNoCascade {
+                world: "Alpha".into()
+            }],
+            "F3: the removal must NAME the world still holding the pack"
+        );
+        assert!(!td.path().join("datapacks/vm.zip").exists());
+        // The world's own hardlink survives and still reads the full content —
+        // deleting one name of a hardlinked file cannot affect the others.
+        assert_eq!(
+            std::fs::read(saves.join("Alpha/datapacks/vm.zip")).unwrap(),
+            datapack_zip()
+        );
+    }
+
+    #[tokio::test]
+    async fn cascade_skips_a_foreign_same_named_world_file() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let saves = td.path().join(".minecraft").join("saves");
+        let dp = saves.join("Alpha").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::write(dp.join("vm.zip"), b"the user's own pack").unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            out.worlds,
+            vec![crate::datapacks::WorldRemoval::KeptNotOurs {
+                world: "Alpha".into()
+            }]
+        );
+        assert!(out.removed_from_library, "the library copy still goes");
+        assert_eq!(
+            std::fs::read(dp.join("vm.zip")).unwrap(),
+            b"the user's own pack",
+            "a foreign same-named file must never be cascade-deleted"
+        );
+    }
+
+    /// Windows-only: holding a handle without `FILE_SHARE_DELETE` is exactly
+    /// what a running game does to a loaded pack, and it makes `remove_file`
+    /// fail with a sharing violation (os error 32 → `WorldInUse`)
+    /// deterministically. (A readonly attribute no longer works for this —
+    /// std's Windows `remove_file` clears it itself.) On Unix, deletability is
+    /// a property of the parent directory, so the same failure cannot be
+    /// staged this way; the retention policy is platform-independent and CI
+    /// runs this on Windows.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_failed_world_keeps_the_library_copy_for_a_retry() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        let locked = saves.join("Alpha/datapacks/vm.zip");
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 /* FILE_SHARE_READ: no delete sharing */)
+            .open(&locked)
+            .unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(
+                out.worlds.as_slice(),
+                [crate::datapacks::WorldRemoval::Failed { world, .. }] if world == "Alpha"
+            ),
+            "got {:?}",
+            out.worlds
+        );
+        assert!(!out.removed_from_library);
+        assert!(
+            td.path().join("datapacks/vm.zip").exists(),
+            "the library copy must survive a failed cascade so a retry can converge"
+        );
+        assert_eq!(list_at(td.path()).await.unwrap().len(), 1);
+
+        // Release the handle and retry: the removal must now finish everywhere.
+        drop(held);
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+        assert!(out.removed_from_library);
+        assert!(!locked.exists());
+        assert!(!td.path().join("datapacks/vm.zip").exists());
     }
 
     #[tokio::test]

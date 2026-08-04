@@ -389,7 +389,13 @@ pub async fn remove_from_world_at(instance_root: &Path, world: &str, filename: &
 
     let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
     let entry = level_dat_entry(filename);
-    if level_dat::forget(&mut root, &entry)? {
+    // `forget_ci`, not `forget`: the name arrives from a UI row or — on the
+    // cascade path — from the library registry, and level.dat may spell the
+    // same file with different case (NTFS is case-insensitive; the drift is
+    // documented and encountered — see `contains_ci`). An exact match would
+    // delete the file but keep the name: a permanent Orphaned row and
+    // Minecraft's "data packs are no longer present" screen.
+    if level_dat::forget_ci(&mut root, &entry)? {
         level_dat::write_at(&world_dir, &root, framing).await?;
     }
     Ok(())
@@ -1029,6 +1035,39 @@ mod tests {
         let (root, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&root);
         assert!(enabled.is_empty());
+        assert!(disabled.is_empty());
+    }
+
+    #[tokio::test]
+    async fn remove_clears_a_case_drifted_level_dat_entry() {
+        // NTFS is case-insensitive: a level.dat entry spelled
+        // `file/VeinMiner.zip` and a removal request for `veinminer.zip` name
+        // the SAME file — the drift `contains_ci` exists for. An exact
+        // `forget` would delete the file but keep the name: a permanent
+        // Orphaned row and Minecraft's "data packs are no longer present"
+        // screen. The cascade removal path hands this function the LIBRARY's
+        // spelling, so the mismatch is reachable, not hypothetical.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "VeinMiner.zip", 48).await;
+        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        add_to_world_at(td.path(), "Survival", "VeinMiner.zip")
+            .await
+            .unwrap();
+
+        remove_from_world_at(td.path(), "Survival", "veinminer.zip")
+            .await
+            .unwrap();
+
+        // Only level.dat is asserted: on a case-sensitive filesystem the
+        // lowercase path legitimately misses the file (idempotent Ok), but the
+        // name must be gone from the lists on every platform.
+        let (root, _framing) = level_dat::read_at(&world_dir(td.path(), "Survival")).unwrap();
+        let (enabled, disabled) = level_dat::lists(&root);
+        assert!(
+            enabled.is_empty(),
+            "level.dat still names the pack: {enabled:?}"
+        );
         assert!(disabled.is_empty());
     }
 
