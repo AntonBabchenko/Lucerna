@@ -287,6 +287,14 @@ pub struct ModpackStatus {
     /// the user has since added it. Empty for instances imported before
     /// this feature and for non-pack instances.
     pub missing_mods: Vec<MissingModStatus>,
+    /// What the pack's own completer mod is still waiting for, if it has one.
+    /// Set by the command, not by `compute_status` — the helper reads the
+    /// instance directory and `compute_status` is pure.
+    ///
+    /// `#[serde(default)]` so specta emits it OPTIONAL — without it every
+    /// existing `ModpackStatus` literal in the frontend stops type-checking.
+    #[serde(default)]
+    pub pack_completion: Option<crate::mods::pack_completion::PackCompletion>,
 }
 
 /// A mod/asset present in both the installed pack and the new version

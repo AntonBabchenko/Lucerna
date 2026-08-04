@@ -491,3 +491,35 @@ async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
         report.violations
     );
 }
+
+/// The report carries what the pack is still waiting for, so the launch gate can
+/// tell "you assembled this wrong" from "this pack fills itself in on first run".
+#[tokio::test]
+async fn the_report_carries_pack_completion_when_the_helper_is_present() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+
+    let plain = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
+        .await
+        .unwrap();
+    assert!(
+        plain.pack_completion.is_none(),
+        "an instance with no helper reports nothing"
+    );
+
+    let cfg = root.join(".minecraft").join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(
+        cfg.join("missing_mods_checker.json"),
+        r#"[{"displayName":"Balm","pattern":"balm.jar","destination":"mods"}]"#,
+    )
+    .unwrap();
+
+    let with = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1")
+        .await
+        .unwrap();
+    let c = with.pack_completion.expect("helper present");
+    assert_eq!(c.total, 1);
+    assert_eq!(c.outstanding.len(), 1);
+    assert_eq!(c.outstanding[0].display_name, "Balm");
+}
