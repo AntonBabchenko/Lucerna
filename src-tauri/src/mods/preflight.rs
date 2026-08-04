@@ -112,40 +112,98 @@ pub enum Violation {
     },
 }
 
-/// True when a dependency declared in `source` is enforced on this instance.
+/// Where a descriptor sits in the order this instance's loader reads files.
 ///
-/// Supersedes the old loader-family test: `RangeFamily::Maven` covers
+/// `None` — the loader never opens this file on this instance.
+/// `Some(n)` — it does; lower is read first and is therefore authoritative.
+///
+/// Supersedes the old boolean loader-family test: `RangeFamily::Maven` covers
 /// `mods.toml`, `neoforge.mods.toml` and the legacy annotation alike, so family
 /// alone cannot tell a 1.12.2 instance that its jars' `mods.toml` is inert — and
-/// a measured 1.12.2 jar ships exactly that, demanding a version of a mod its
-/// annotation asks for unversioned.
+/// a measured 1.12.2 jar ships exactly that.
+///
+/// Instance-level only. Whether a file the loader *would* open is actually read
+/// for a PARTICULAR jar additionally depends on what else that jar ships — see
+/// [`effective_rank`], which layers shadowing on top of this.
 ///
 /// Wildcard-free on purpose: a new `DescriptorSource` cannot be added without
 /// answering for every loader.
-fn dep_applies_to_instance(
+fn descriptor_rank(
     source: crate::mods::local::DescriptorSource,
     loader: crate::instances::schema::LoaderKind,
     era: crate::mods::local::DescriptorEra,
-) -> bool {
+) -> Option<u8> {
     use crate::instances::schema::LoaderKind as L;
     use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
     match loader {
         L::Forge => match era {
-            E::Legacy => matches!(source, S::McmodAnnotation),
-            E::Modern => matches!(source, S::ModsToml),
+            // Complementary, not competing: `mcmod.info` is the provider list,
+            // the annotation is the requirement list. Equal rank, both read.
+            E::Legacy => match source {
+                S::McmodInfo | S::McmodAnnotation => Some(0),
+                S::ModsToml | S::NeoForgeToml | S::FabricJson | S::QuiltJson => None,
+            },
+            E::Modern => match source {
+                S::ModsToml => Some(0),
+                S::McmodInfo
+                | S::McmodAnnotation
+                | S::NeoForgeToml
+                | S::FabricJson
+                | S::QuiltJson => None,
+            },
         },
-        // NeoForge has no legacy era (it starts at MC 1.20.1) and reads
-        // `mods.toml` when a jar ships no `neoforge.mods.toml`. The reverse is
-        // NOT true — MinecraftForge has no knowledge of the NeoForge filename.
-        L::NeoForge => matches!(source, S::NeoForgeToml | S::ModsToml),
+        // NeoForge has no legacy era (it starts at MC 1.20.1) and falls back to
+        // `mods.toml` only for a jar that ships no `neoforge.mods.toml` — the
+        // per-jar half of that rule lives in `effective_rank`. The reverse is
+        // NOT true: MinecraftForge has no knowledge of the NeoForge filename.
+        L::NeoForge => match source {
+            S::NeoForgeToml => Some(0),
+            S::ModsToml => Some(1),
+            S::McmodInfo | S::McmodAnnotation | S::FabricJson | S::QuiltJson => None,
+        },
         // Fabric reads only fabric.mod.json — a Quilt mod on a Fabric instance is
         // a loader-compat issue (handled elsewhere), not a missing-dependency one.
-        L::Fabric => matches!(source, S::FabricJson),
-        // Quilt runs Fabric mods too, so it reads both descriptors.
-        L::Quilt => matches!(source, S::QuiltJson | S::FabricJson),
-        // Vanilla loads no mods → no declared mod dependency applies.
-        L::Vanilla => false,
+        L::Fabric => match source {
+            S::FabricJson => Some(0),
+            S::QuiltJson | S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => {
+                None
+            }
+        },
+        // Quilt runs Fabric mods, but a jar shipping `quilt.mod.json` never
+        // reaches Quilt Loader's Fabric plugin at all: `QuiltPluginManagerImpl`
+        // registers the quilt plugin first and `scanZip` breaks as soon as it
+        // claims the file. Again the per-jar half is `effective_rank`'s.
+        L::Quilt => match source {
+            S::QuiltJson => Some(0),
+            S::FabricJson => Some(1),
+            S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => None,
+        },
+        // Vanilla loads no mods → no declared descriptor applies.
+        L::Vanilla => None,
     }
+}
+
+/// [`descriptor_rank`] narrowed to one jar: a descriptor is inert when that same
+/// jar also ships one of a **strictly better** rank, because the loader reads
+/// only the better one and ignores this file for this jar.
+///
+/// "Strictly better", not "the single best": equal ranks are complementary
+/// rather than alternative (see the Forge-legacy arm above), and a
+/// keep-only-the-top rule would drop half of what a 1.12.2 jar declares.
+fn effective_rank(
+    source: crate::mods::local::DescriptorSource,
+    present: &[crate::mods::local::DescriptorSource],
+    loader: crate::instances::schema::LoaderKind,
+    era: crate::mods::local::DescriptorEra,
+) -> Option<u8> {
+    let rank = descriptor_rank(source, loader, era)?;
+    let shadowed = present
+        .iter()
+        .any(|other| descriptor_rank(*other, loader, era).is_some_and(|r| r < rank));
+    if shadowed {
+        return None;
+    }
+    Some(rank)
 }
 
 /// The launcher launches a client; a SERVER-only dep is not enforced.
@@ -167,7 +225,7 @@ pub fn resolve(
             // a Forge instance never loads fabric.mod.json, and a 1.12.2 one
             // never loads mods.toml. Anything else is a declaration the loader
             // cannot enforce, so it is not a launch-readiness problem.
-            if !dep_applies_to_instance(dep.source, loader, era) {
+            if effective_rank(dep.source, &m.manifest.sources_present, loader, era).is_none() {
                 continue;
             }
             // The loader only logs a warning for `discouraged` and carries on.
@@ -570,67 +628,75 @@ mod tests {
     /// measured 1.12.2 jar ships BOTH `mcmod.info` and a `mods.toml` stamped
     /// `loaderVersion="[24,)"` — written for its 1.14+ build — so "which file is
     /// present" cannot answer this.
+    ///
+    /// The old boolean `dep_applies_to_instance` is now a projection of the
+    /// ranking: `is_some()`. Every assertion it made is kept verbatim, so a
+    /// refactor that changes admissibility fails here rather than in production.
     #[test]
     fn only_the_descriptor_the_loader_opens_is_admitted() {
         use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
         use LoaderKind as L;
+        let ok = |s, l, e| descriptor_rank(s, l, e).is_some();
 
         // Forge 1.12.2 reads the annotation; its mods.toml is written for 1.14+.
-        assert!(dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::Forge,
-            E::Legacy
-        ));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Forge, E::Legacy));
+        assert!(ok(S::McmodAnnotation, L::Forge, E::Legacy));
+        assert!(ok(S::McmodInfo, L::Forge, E::Legacy));
+        assert!(!ok(S::ModsToml, L::Forge, E::Legacy));
         // Forge 1.13+ reads mods.toml, never neoforge.mods.toml — the asymmetry
         // is deliberate: NeoForge falls back to mods.toml, Forge has no
         // knowledge of the NeoForge filename at all.
-        assert!(dep_applies_to_instance(S::ModsToml, L::Forge, E::Modern));
-        assert!(!dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::Forge,
-            E::Modern
-        ));
-        assert!(!dep_applies_to_instance(
-            S::NeoForgeToml,
-            L::Forge,
-            E::Modern
-        ));
+        assert!(ok(S::ModsToml, L::Forge, E::Modern));
+        assert!(!ok(S::McmodAnnotation, L::Forge, E::Modern));
+        assert!(!ok(S::McmodInfo, L::Forge, E::Modern));
+        assert!(!ok(S::NeoForgeToml, L::Forge, E::Modern));
         // NeoForge prefers its own file and falls back to mods.toml.
-        assert!(dep_applies_to_instance(
-            S::NeoForgeToml,
-            L::NeoForge,
-            E::Modern
-        ));
-        assert!(dep_applies_to_instance(S::ModsToml, L::NeoForge, E::Modern));
-        assert!(!dep_applies_to_instance(
-            S::FabricJson,
-            L::NeoForge,
-            E::Modern
-        ));
-        assert!(!dep_applies_to_instance(
-            S::McmodAnnotation,
-            L::NeoForge,
-            E::Modern
-        ));
+        assert!(ok(S::NeoForgeToml, L::NeoForge, E::Modern));
+        assert!(ok(S::ModsToml, L::NeoForge, E::Modern));
+        assert!(!ok(S::FabricJson, L::NeoForge, E::Modern));
+        assert!(!ok(S::McmodAnnotation, L::NeoForge, E::Modern));
         // Fabric reads only its own; Quilt reads both.
-        assert!(dep_applies_to_instance(S::FabricJson, L::Fabric, E::Modern));
-        assert!(!dep_applies_to_instance(S::QuiltJson, L::Fabric, E::Modern));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Fabric, E::Modern));
-        assert!(dep_applies_to_instance(S::QuiltJson, L::Quilt, E::Modern));
-        assert!(dep_applies_to_instance(S::FabricJson, L::Quilt, E::Modern));
-        assert!(!dep_applies_to_instance(S::ModsToml, L::Quilt, E::Modern));
+        assert!(ok(S::FabricJson, L::Fabric, E::Modern));
+        assert!(!ok(S::QuiltJson, L::Fabric, E::Modern));
+        assert!(!ok(S::ModsToml, L::Fabric, E::Modern));
+        assert!(ok(S::QuiltJson, L::Quilt, E::Modern));
+        assert!(ok(S::FabricJson, L::Quilt, E::Modern));
+        assert!(!ok(S::ModsToml, L::Quilt, E::Modern));
         // Vanilla loads no mods.
         for s in [
             S::McmodAnnotation,
+            S::McmodInfo,
             S::ModsToml,
             S::NeoForgeToml,
             S::FabricJson,
             S::QuiltJson,
         ] {
-            assert!(!dep_applies_to_instance(s, L::Vanilla, E::Modern));
-            assert!(!dep_applies_to_instance(s, L::Vanilla, E::Legacy));
+            assert!(!ok(s, L::Vanilla, E::Modern));
+            assert!(!ok(s, L::Vanilla, E::Legacy));
         }
+    }
+
+    /// Ordering, not just membership: a loader that reads two files still reads
+    /// one of them FIRST, and that is what decides a provider's version.
+    #[test]
+    fn descriptor_rank_orders_the_files_a_loader_reads() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        use LoaderKind as L;
+
+        assert!(
+            descriptor_rank(S::NeoForgeToml, L::NeoForge, E::Modern)
+                < descriptor_rank(S::ModsToml, L::NeoForge, E::Modern)
+        );
+        assert!(
+            descriptor_rank(S::QuiltJson, L::Quilt, E::Modern)
+                < descriptor_rank(S::FabricJson, L::Quilt, E::Modern)
+        );
+        // The one tie in the table, and it is deliberate: on the legacy era
+        // these two are complementary, not competing — `mcmod.info` contributes
+        // providers and never dependencies, the annotation the reverse.
+        assert_eq!(
+            descriptor_rank(S::McmodInfo, L::Forge, E::Legacy),
+            descriptor_rank(S::McmodAnnotation, L::Forge, E::Legacy)
+        );
     }
 
     // `dep_family_matches_instance_loader` was superseded by
