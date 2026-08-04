@@ -706,7 +706,7 @@ mod tests {
     }
 
     async fn seed_library(root: &Path, filename: &str, pack_format: u32) {
-        library::install_named_at(root, filename, &datapack_zip(pack_format))
+        library::install_named_at(root, filename, &datapack_zip(pack_format), None)
             .await
             .unwrap();
     }

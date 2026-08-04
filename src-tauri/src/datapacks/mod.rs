@@ -43,10 +43,19 @@ pub struct InstalledDatapack {
     /// Display name: `pack.description` when it is a plain string, else the
     /// filename without its extension.
     pub name: String,
-    /// Always `None` in slice 1 (local files only). Reserved for the catalog.
+    /// `None` for a local install; `Some` once the catalog supplies it.
     pub source: Option<crate::mods::platform::ModSource>,
     pub project_id: Option<String>,
+    /// Load-bearing for update checking: `classify_asset_update` answers
+    /// `UpToDate` whenever this is `None`, so a pack installed without it can
+    /// never report an available update.
     pub version_id: Option<String>,
+    /// Human-readable version from the catalog (e.g. `1.20.4-2.1.0`), for the
+    /// library row. Added in registry `FILE_VERSION` 2 with
+    /// `#[serde(default)]`, so a v1 file reads back as `None` — `migrate`
+    /// cannot backfill a field and does not try.
+    #[serde(default)]
+    pub version_number: Option<String>,
     /// RFC 3339.
     pub installed_at: String,
 }
@@ -80,6 +89,35 @@ pub struct WorldDatapack {
     /// unavailable for it.
     pub in_library: bool,
     pub compat: PackCompat,
+}
+
+/// Where a catalog-installed datapack came from. `None` at every local-install
+/// call site; `Some` only from the catalog command.
+///
+/// A struct rather than four `Option` parameters: the four fields are only ever
+/// meaningful together, and `install_named_at` already carries enough arguments
+/// that four more positional `Option`s would be a mix-up waiting to happen.
+#[derive(Debug, Clone)]
+pub struct DatapackProvenance {
+    pub source: crate::mods::platform::ModSource,
+    pub project_id: String,
+    pub version_id: String,
+    pub version_number: Option<String>,
+}
+
+/// Largest datapack Lucerna will buffer. Classification and hashing both hold
+/// the whole pack in memory alongside the caller's copy, so peak is roughly
+/// twice this. The cap exists because slice 2 adds an AUTOMATED download path:
+/// before it, every pack came from a file the user picked themselves.
+/// Same class of guard as `ModpackOverridesTooLarge` / `WorldImportTooLarge`.
+pub const MAX_DATAPACK_BYTES: usize = 256 * 1024 * 1024;
+
+/// The result of a library install: the registry row, plus what the same-name
+/// fan-out did to each world already holding that filename.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LibraryInstall {
+    pub pack: InstalledDatapack,
+    pub refreshed: Vec<WorldMigration>,
 }
 
 /// What happened to one world when a library pack was replaced under it —
