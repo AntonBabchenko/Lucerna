@@ -280,6 +280,22 @@
       "createHeading": "New instance",
       "nameLabel": "Name",
       "nameCounter": "{count}/{max}",
+      "folderLabel": "Folder",
+      "folderHint": "The name of this instance's folder on disk.",
+      "folderChange": "Change",
+      "folderRenameTitle": "Rename instance folder",
+      "folderRenameLabel": "New folder name",
+      "folderRenameHint": "Only Latin letters, digits, hyphens and underscores are kept. Anything else is transliterated.",
+      "folderRenamePreview": "Will become: {name}",
+      "folderRenameUnusable": "This name leaves nothing usable — try adding some Latin letters.",
+      "folderRenameShortcutWarning": "Desktop shortcuts to this instance created before now may stop working.",
+      "folderRenameConfirm": "Rename",
+      "folderRenamed": "Folder renamed",
+      "folderBrokenTitle": "This instance will not launch",
+      "folderBrokenBody": "Its folder name contains characters Java cannot read on this system. Rename the folder to fix it.",
+      "folderBrokenFix": "Fix folder name",
+      "dataRootBrokenTitle": "This instance will not launch",
+      "dataRootBrokenBody": "The data folder path contains characters Java cannot read on this system. Renaming the instance will not help — the data folder has to move.",
       "mcVersionLabel": "Minecraft version",
       "chooseMcOption": "-- Choose Minecraft version --",
       "noVersions": "Version list unavailable — check your connection and reopen.",
@@ -335,7 +351,11 @@
       "nameEmpty": "Name cannot be empty",
       "nameTooLong": "Name is too long: {actual}/{max} characters",
       "pickMcFirst": "Pick a Minecraft version first",
-      "loaderNoSupport": "{loader} does not support Minecraft {mc} — try another version or loader"
+      "loaderNoSupport": "{loader} does not support Minecraft {mc} — try another version or loader",
+      "dirNameEmpty": "That name leaves no usable folder name.",
+      "dirNameTaken": "A folder named {name} already exists.",
+      "dirNameReserved": "{name} is a name Windows reserves for devices.",
+      "pathNotLaunchable": "Java cannot read this instance's path on this system."
     },
     "delete": {
       "title": "Delete instance?",
@@ -1936,6 +1956,11 @@
     "forgeMappingsMissing": "Forge mappings for {mc} are not available",
     "instanceNameEmpty": "Instance name cannot be empty",
     "instanceNameTooLong": "Instance name is too long: {actual}/{max} characters",
+    "instanceDirNameEmpty": "That name leaves no usable folder name.",
+    "instanceDirNameTaken": "A folder named {name} already exists.",
+    "instanceDirNameReserved": "{name} is a name Windows reserves for devices.",
+    "pathNotLaunchableInstance": "This instance will not launch: its folder name contains characters Java cannot read on this system. Rename the folder in Manage to fix it.",
+    "pathNotLaunchableDataRoot": "This instance will not launch: the data folder path contains characters Java cannot read on this system. The data folder has to move.",
     "mcLogsUpload": "Couldn't upload log to mclo.gs",
     "modsNetwork": "Couldn't reach the mod service — check your internet connection (or VPN / antivirus).",
     "modsPlatformAuthInvalid": "CurseForge API key is invalid — please enter a new one in Settings",
@@ -2640,71 +2665,238 @@
       "other": "Other (custom keys)"
     },
     "propEnums": {
-      "gamemode": { "survival": "Survival", "creative": "Creative", "adventure": "Adventure", "spectator": "Spectator" },
+      "gamemode": {
+        "survival": "Survival",
+        "creative": "Creative",
+        "adventure": "Adventure",
+        "spectator": "Spectator"
+      },
       "difficulty": { "peaceful": "Peaceful", "easy": "Easy", "normal": "Normal", "hard": "Hard" }
     },
     "props": {
-      "gamemode": { "label": "Game mode", "desc": "Default game mode for players joining for the first time." },
-      "difficulty": { "label": "Difficulty", "desc": "World difficulty; affects hostile mobs, hunger and damage." },
-      "hardcore": { "label": "Hardcore", "desc": "Locks difficulty to hard and permanently bans a player on death." },
+      "gamemode": {
+        "label": "Game mode",
+        "desc": "Default game mode for players joining for the first time."
+      },
+      "difficulty": {
+        "label": "Difficulty",
+        "desc": "World difficulty; affects hostile mobs, hunger and damage."
+      },
+      "hardcore": {
+        "label": "Hardcore",
+        "desc": "Locks difficulty to hard and permanently bans a player on death."
+      },
       "pvp": { "label": "PvP", "desc": "Whether players can deal damage to one another." },
-      "forceGamemode": { "label": "Force game mode", "desc": "Reset players to the server's default game mode every time they join." },
-      "allowFlight": { "label": "Allow flight", "desc": "Allow flight granted by mods/plugins without kicking players for flying." },
-      "allowNether": { "label": "Allow Nether", "desc": "Enable the Nether dimension and nether portals." },
-      "enableCommandBlock": { "label": "Command blocks", "desc": "Allow command blocks to execute." },
-      "spawnMonsters": { "label": "Spawn monsters", "desc": "Whether hostile mobs spawn naturally." },
-      "spawnAnimals": { "label": "Spawn animals", "desc": "Whether passive animals spawn naturally." },
+      "forceGamemode": {
+        "label": "Force game mode",
+        "desc": "Reset players to the server's default game mode every time they join."
+      },
+      "allowFlight": {
+        "label": "Allow flight",
+        "desc": "Allow flight granted by mods/plugins without kicking players for flying."
+      },
+      "allowNether": {
+        "label": "Allow Nether",
+        "desc": "Enable the Nether dimension and nether portals."
+      },
+      "enableCommandBlock": {
+        "label": "Command blocks",
+        "desc": "Allow command blocks to execute."
+      },
+      "spawnMonsters": {
+        "label": "Spawn monsters",
+        "desc": "Whether hostile mobs spawn naturally."
+      },
+      "spawnAnimals": {
+        "label": "Spawn animals",
+        "desc": "Whether passive animals spawn naturally."
+      },
       "spawnNpcs": { "label": "Spawn villagers", "desc": "Whether villagers spawn." },
-      "generateStructures": { "label": "Generate structures", "desc": "Generate villages, strongholds and other structures in new chunks." },
-      "playerIdleTimeout": { "label": "Idle timeout (min)", "desc": "Kick players after this many idle minutes; 0 never kicks." },
-      "opPermissionLevel": { "label": "Op permission level", "desc": "Permission level (0–4) granted to operators." },
-      "functionPermissionLevel": { "label": "Function permission level", "desc": "Permission level required to run datapack functions and gated commands." },
-      "levelName": { "label": "World folder", "desc": "Folder name of the world to load or create." },
-      "levelSeed": { "label": "World seed", "desc": "Seed for world generation; empty picks a random seed." },
-      "levelType": { "label": "World type", "desc": "Generation preset: minecraft:normal, flat, largebiomes, amplified, or a custom id." },
-      "generatorSettings": { "label": "Generator settings", "desc": "JSON customization for the world type (mainly superflat layers)." },
-      "maxWorldSize": { "label": "Max world size", "desc": "World border radius in blocks from the centre." },
-      "spawnProtection": { "label": "Spawn protection", "desc": "Radius in blocks around spawn where only ops can build; 0 disables it." },
-      "initialEnabledPacks": { "label": "Enabled datapacks", "desc": "Comma-separated datapacks enabled when the world is created." },
-      "initialDisabledPacks": { "label": "Disabled datapacks", "desc": "Comma-separated datapacks disabled when the world is created." },
+      "generateStructures": {
+        "label": "Generate structures",
+        "desc": "Generate villages, strongholds and other structures in new chunks."
+      },
+      "playerIdleTimeout": {
+        "label": "Idle timeout (min)",
+        "desc": "Kick players after this many idle minutes; 0 never kicks."
+      },
+      "opPermissionLevel": {
+        "label": "Op permission level",
+        "desc": "Permission level (0–4) granted to operators."
+      },
+      "functionPermissionLevel": {
+        "label": "Function permission level",
+        "desc": "Permission level required to run datapack functions and gated commands."
+      },
+      "levelName": {
+        "label": "World folder",
+        "desc": "Folder name of the world to load or create."
+      },
+      "levelSeed": {
+        "label": "World seed",
+        "desc": "Seed for world generation; empty picks a random seed."
+      },
+      "levelType": {
+        "label": "World type",
+        "desc": "Generation preset: minecraft:normal, flat, largebiomes, amplified, or a custom id."
+      },
+      "generatorSettings": {
+        "label": "Generator settings",
+        "desc": "JSON customization for the world type (mainly superflat layers)."
+      },
+      "maxWorldSize": {
+        "label": "Max world size",
+        "desc": "World border radius in blocks from the centre."
+      },
+      "spawnProtection": {
+        "label": "Spawn protection",
+        "desc": "Radius in blocks around spawn where only ops can build; 0 disables it."
+      },
+      "initialEnabledPacks": {
+        "label": "Enabled datapacks",
+        "desc": "Comma-separated datapacks enabled when the world is created."
+      },
+      "initialDisabledPacks": {
+        "label": "Disabled datapacks",
+        "desc": "Comma-separated datapacks disabled when the world is created."
+      },
       "maxPlayers": { "label": "Max players", "desc": "Maximum number of players online at once." },
       "whiteList": { "label": "Whitelist", "desc": "When on, only whitelisted players may join." },
-      "enforceWhitelist": { "label": "Enforce whitelist", "desc": "Kick already-online non-whitelisted players when the whitelist reloads." },
-      "onlineMode": { "label": "Online mode", "desc": "Verify players against Microsoft/Mojang auth; turning it off allows offline accounts but lets anyone impersonate any name." },
-      "enforceSecureProfile": { "label": "Enforce secure profile", "desc": "Require a signed chat profile; players without one can't join." },
-      "motd": { "label": "MOTD", "desc": "Message shown beneath the server name in the multiplayer list." },
-      "hideOnlinePlayers": { "label": "Hide online players", "desc": "Omit the player list from the server status shown on ping." },
-      "viewDistance": { "label": "View distance", "desc": "Radius in chunks the server sends to each player." },
-      "simulationDistance": { "label": "Simulation distance", "desc": "Radius in chunks where entities and blocks are ticked around players." },
-      "entityBroadcastRangePercentage": { "label": "Entity broadcast range", "desc": "How close entities must be to be sent to players, as a percentage of the default range." },
-      "maxTickTime": { "label": "Max tick time (ms)", "desc": "Watchdog crashes the server if one tick exceeds this; -1 disables the watchdog." },
-      "syncChunkWrites": { "label": "Sync chunk writes", "desc": "Write chunks to disk synchronously; safer, but can stall on slow disks." },
-      "maxChainedNeighborUpdates": { "label": "Max chained updates", "desc": "Limit on consecutive chained block updates before extras are skipped." },
-      "networkCompressionThreshold": { "label": "Compression threshold", "desc": "Compress packets larger than this many bytes; -1 disables, 0 compresses everything." },
-      "pauseWhenEmptySeconds": { "label": "Pause when empty (s)", "desc": "Pause ticking after this many seconds with no players; 0 never pauses." },
-      "serverIp": { "label": "Bind IP", "desc": "Bind to a specific network interface; leave empty to bind all." },
+      "enforceWhitelist": {
+        "label": "Enforce whitelist",
+        "desc": "Kick already-online non-whitelisted players when the whitelist reloads."
+      },
+      "onlineMode": {
+        "label": "Online mode",
+        "desc": "Verify players against Microsoft/Mojang auth; turning it off allows offline accounts but lets anyone impersonate any name."
+      },
+      "enforceSecureProfile": {
+        "label": "Enforce secure profile",
+        "desc": "Require a signed chat profile; players without one can't join."
+      },
+      "motd": {
+        "label": "MOTD",
+        "desc": "Message shown beneath the server name in the multiplayer list."
+      },
+      "hideOnlinePlayers": {
+        "label": "Hide online players",
+        "desc": "Omit the player list from the server status shown on ping."
+      },
+      "viewDistance": {
+        "label": "View distance",
+        "desc": "Radius in chunks the server sends to each player."
+      },
+      "simulationDistance": {
+        "label": "Simulation distance",
+        "desc": "Radius in chunks where entities and blocks are ticked around players."
+      },
+      "entityBroadcastRangePercentage": {
+        "label": "Entity broadcast range",
+        "desc": "How close entities must be to be sent to players, as a percentage of the default range."
+      },
+      "maxTickTime": {
+        "label": "Max tick time (ms)",
+        "desc": "Watchdog crashes the server if one tick exceeds this; -1 disables the watchdog."
+      },
+      "syncChunkWrites": {
+        "label": "Sync chunk writes",
+        "desc": "Write chunks to disk synchronously; safer, but can stall on slow disks."
+      },
+      "maxChainedNeighborUpdates": {
+        "label": "Max chained updates",
+        "desc": "Limit on consecutive chained block updates before extras are skipped."
+      },
+      "networkCompressionThreshold": {
+        "label": "Compression threshold",
+        "desc": "Compress packets larger than this many bytes; -1 disables, 0 compresses everything."
+      },
+      "pauseWhenEmptySeconds": {
+        "label": "Pause when empty (s)",
+        "desc": "Pause ticking after this many seconds with no players; 0 never pauses."
+      },
+      "serverIp": {
+        "label": "Bind IP",
+        "desc": "Bind to a specific network interface; leave empty to bind all."
+      },
       "serverPort": { "label": "Port", "desc": "TCP/UDP port the server listens on." },
-      "preventProxyConnections": { "label": "Prevent proxy connections", "desc": "Kick players whose authentication region differs from their connection (blocks some proxies/VPNs)." },
-      "rateLimit": { "label": "Rate limit", "desc": "Max packets per player per tick before a kick; 0 disables the limit." },
-      "useNativeTransport": { "label": "Native transport", "desc": "Use optimized Linux packet send/receive; harmless to leave on elsewhere." },
-      "enableStatus": { "label": "Show status", "desc": "Reply to pings so the server appears online in the multiplayer list." },
-      "acceptsTransfers": { "label": "Accept transfers", "desc": "Allow players to be transferred in from another server." },
-      "enableRcon": { "label": "Enable RCON", "desc": "Enable the remote console for external administration." },
+      "preventProxyConnections": {
+        "label": "Prevent proxy connections",
+        "desc": "Kick players whose authentication region differs from their connection (blocks some proxies/VPNs)."
+      },
+      "rateLimit": {
+        "label": "Rate limit",
+        "desc": "Max packets per player per tick before a kick; 0 disables the limit."
+      },
+      "useNativeTransport": {
+        "label": "Native transport",
+        "desc": "Use optimized Linux packet send/receive; harmless to leave on elsewhere."
+      },
+      "enableStatus": {
+        "label": "Show status",
+        "desc": "Reply to pings so the server appears online in the multiplayer list."
+      },
+      "acceptsTransfers": {
+        "label": "Accept transfers",
+        "desc": "Allow players to be transferred in from another server."
+      },
+      "enableRcon": {
+        "label": "Enable RCON",
+        "desc": "Enable the remote console for external administration."
+      },
       "rconPort": { "label": "RCON port", "desc": "Port the RCON server listens on." },
-      "rconPassword": { "label": "RCON password", "desc": "Password for RCON; required when RCON is enabled." },
-      "broadcastRconToOps": { "label": "Broadcast RCON to ops", "desc": "Show RCON command output to online operators." },
-      "enableQuery": { "label": "Enable query", "desc": "Enable the query protocol used by some server-list tools." },
+      "rconPassword": {
+        "label": "RCON password",
+        "desc": "Password for RCON; required when RCON is enabled."
+      },
+      "broadcastRconToOps": {
+        "label": "Broadcast RCON to ops",
+        "desc": "Show RCON command output to online operators."
+      },
+      "enableQuery": {
+        "label": "Enable query",
+        "desc": "Enable the query protocol used by some server-list tools."
+      },
       "queryPort": { "label": "Query port", "desc": "Port the query protocol listens on." },
-      "resourcePack": { "label": "Resource pack URL", "desc": "URL of a resource pack offered to players on join." },
-      "resourcePackSha1": { "label": "Resource pack SHA-1", "desc": "SHA-1 hash of the resource pack for integrity checking." },
-      "resourcePackId": { "label": "Resource pack ID", "desc": "UUID identifying the resource pack." },
-      "resourcePackPrompt": { "label": "Resource pack prompt", "desc": "Custom message shown when players are asked to accept the pack." },
-      "requireResourcePack": { "label": "Require resource pack", "desc": "Kick players who decline the server resource pack." },
-      "enableJmxMonitoring": { "label": "JMX monitoring", "desc": "Expose tick timings over JMX for external monitoring tools." },
-      "broadcastConsoleToOps": { "label": "Broadcast console to ops", "desc": "Show console command output to online operators." },
-      "textFilteringConfig": { "label": "Text filtering config", "desc": "Configuration for an external chat text-filtering service." },
-      "logIps": { "label": "Log IPs", "desc": "Whether player IP addresses are written to the server log." },
-      "bugReportLink": { "label": "Bug report link", "desc": "URL players are pointed to when reporting bugs." }
+      "resourcePack": {
+        "label": "Resource pack URL",
+        "desc": "URL of a resource pack offered to players on join."
+      },
+      "resourcePackSha1": {
+        "label": "Resource pack SHA-1",
+        "desc": "SHA-1 hash of the resource pack for integrity checking."
+      },
+      "resourcePackId": {
+        "label": "Resource pack ID",
+        "desc": "UUID identifying the resource pack."
+      },
+      "resourcePackPrompt": {
+        "label": "Resource pack prompt",
+        "desc": "Custom message shown when players are asked to accept the pack."
+      },
+      "requireResourcePack": {
+        "label": "Require resource pack",
+        "desc": "Kick players who decline the server resource pack."
+      },
+      "enableJmxMonitoring": {
+        "label": "JMX monitoring",
+        "desc": "Expose tick timings over JMX for external monitoring tools."
+      },
+      "broadcastConsoleToOps": {
+        "label": "Broadcast console to ops",
+        "desc": "Show console command output to online operators."
+      },
+      "textFilteringConfig": {
+        "label": "Text filtering config",
+        "desc": "Configuration for an external chat text-filtering service."
+      },
+      "logIps": {
+        "label": "Log IPs",
+        "desc": "Whether player IP addresses are written to the server log."
+      },
+      "bugReportLink": {
+        "label": "Bug report link",
+        "desc": "URL players are pointed to when reporting bugs."
+      }
     },
     "mods": {
       "empty": "No mods",

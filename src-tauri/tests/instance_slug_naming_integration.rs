@@ -15,9 +15,10 @@ use std::path::Path;
 use tempfile::tempdir;
 
 fn seed(instances: &Path, name: &str, created_unix_ms: f64) -> String {
-    let (id, dir) = reserve_unique_dir(instances, name, "instance").unwrap();
+    let (id, dir) = reserve_unique_dir(instances, name, None, "instance").unwrap();
     let inst = InstanceFile {
         id: id.clone(),
+        uid: None,
         name: name.into(),
         mc_version: "1.20.4".into(),
         loader: LoaderKind::Vanilla,
@@ -71,14 +72,36 @@ fn same_name_instances_get_distinct_readable_dirs_and_scan_sees_both() {
 }
 
 #[test]
-fn cyrillic_name_yields_a_readable_directory() {
+fn cyrillic_name_yields_a_readable_transliterated_directory() {
+    // This test previously asserted the directory was `Мой-сервер`. Directory
+    // names are ASCII now: the Windows JVM launcher decodes argv through the
+    // system ANSI code page, so a name that code page cannot express reaches
+    // java.exe as `?` and the game dies before Minecraft starts. Readability is
+    // preserved by transliteration rather than by keeping the original script.
     let dir = tempdir().unwrap();
     let instances = dir.path().join("instances");
     let id = seed(&instances, "Мой сервер", 1000.0);
-    assert_eq!(id, "Мой-сервер");
-    assert!(instances.join("Мой-сервер").join("instance.json").is_file());
+    assert_eq!(id, "Moi-server");
+    assert!(instances.join(&id).join("instance.json").is_file());
 
     let all = list_all(&instances);
     assert_eq!(all.len(), 1);
-    assert_eq!(all[0].id, "Мой-сервер");
+    assert_eq!(all[0].id, "Moi-server");
+}
+
+#[test]
+fn cjk_name_with_a_latin_part_keeps_the_latin_part() {
+    // The bug that started this: the pack directory was
+    // `红石生电优化-Redstone-Survival-Optimiz`, and the JVM received the CJK
+    // characters as `?`, which is an illegal Windows path character.
+    let dir = tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let id = seed(
+        &instances,
+        "红石生电优化【Redstone Survival Optimization】",
+        1000.0,
+    );
+    assert_eq!(id, "Redstone-Survival-Optimization");
+    assert!(id.is_ascii());
+    assert!(instances.join(&id).join("instance.json").is_file());
 }

@@ -260,6 +260,10 @@ describe('formatError', () => {
       forge_mappings_missing: { kind: 'forge_mappings_missing', mc: '1.20.1' },
       instance_name_empty: { kind: 'instance_name_empty' },
       instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },
+      instance_dir_name_empty: { kind: 'instance_dir_name_empty' },
+      instance_dir_name_taken: { kind: 'instance_dir_name_taken', name: 'My-Pack' },
+      instance_dir_name_reserved: { kind: 'instance_dir_name_reserved', name: 'CON' },
+      path_not_launchable: { kind: 'path_not_launchable', data_root: false },
       mods_network: {
         kind: 'mods_network',
         url: 'https://leak.test/mods',

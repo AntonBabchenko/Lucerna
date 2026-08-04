@@ -58,11 +58,7 @@ pub async fn create_client_instance(
         client_loader,
         client_loader_version,
         None, // heap: adaptive default
-        None,
-        None,
-        None,
-        None,
-        None,
+        crate::instances::schema::PackOrigin::default(),
         None,
         Some(server_id.to_string()),
     )?;
@@ -238,6 +234,7 @@ mod tests {
         use crate::instances::schema::{InstanceFile, InstanceWithStatus, LoaderKind};
         let file = InstanceFile {
             id: "i1".into(),
+            uid: None,
             name: "Client".into(),
             mc_version: "1.20.4".into(),
             loader: LoaderKind::Fabric,

@@ -10,6 +10,7 @@ use tempfile::tempdir;
 fn make(id: &str, name: &str) -> InstanceFile {
     InstanceFile {
         id: id.into(),
+        uid: None,
         name: name.into(),
         mc_version: "1.20.4".into(),
         loader: LoaderKind::Vanilla,

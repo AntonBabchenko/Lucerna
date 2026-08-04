@@ -64,6 +64,9 @@ pub fn cloned_instance_file(
 ) -> InstanceFile {
     InstanceFile {
         id,
+        // A fresh uid, NOT the source's: two instances sharing one uid would make
+        // `--launch <uid>` ambiguous and a shortcut could open the wrong clone.
+        uid: Some(crate::instances::ids::new_id()),
         name,
         mc_version: src.mc_version.clone(),
         loader: src.loader,
@@ -243,7 +246,7 @@ pub fn clone_instance(
         crate::paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
 
     let (id, dst_root) =
-        crate::naming::reserve_unique_dir(&instances_parent, &new_name, "instance")?;
+        crate::naming::reserve_unique_dir(&instances_parent, &new_name, None, "instance")?;
     let cleanup = crate::naming::DirCleanup::new(&dst_root);
 
     std::fs::create_dir_all(dst_root.join(".minecraft"))
@@ -289,6 +292,7 @@ mod tests {
     fn source_file() -> InstanceFile {
         InstanceFile {
             id: "Source".into(),
+            uid: None,
             name: "Source".into(),
             mc_version: "1.20.1".into(),
             loader: LoaderKind::Fabric,
