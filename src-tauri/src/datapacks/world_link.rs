@@ -154,6 +154,20 @@ pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<W
         Ok(bytes) => Some(crate::datapacks::library::sha1_hex(&bytes)),
         Err(_) => None,
     };
+    placements_against(instance_root, filename, lib_sha.as_deref()).await
+}
+
+/// [`placements_of`]'s body, with the identity reference supplied by the
+/// caller instead of read from the library file. The distinction matters on
+/// the reinstall path: by the time the fan-out runs, the library file already
+/// holds the NEW bytes, so hashing against it would classify every
+/// legitimately-linked-but-stale world as foreign. The caller captures the
+/// OLD file's sha1 before replacing it and passes it here.
+async fn placements_against(
+    instance_root: &Path,
+    filename: &str,
+    lib_sha: Option<&str>,
+) -> Vec<WorldPlacement> {
     let saves_dir = instance_root.join(".minecraft").join("saves");
     let Ok(rd) = std::fs::read_dir(&saves_dir) else {
         return Vec::new();
@@ -183,8 +197,8 @@ pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<W
         let is_ours = if cand_meta.is_dir() {
             false
         } else {
-            match (&lib_sha, tokio::fs::read(&candidate).await) {
-                (Some(lib), Ok(bytes)) => crate::datapacks::library::sha1_hex(&bytes) == *lib,
+            match (lib_sha, tokio::fs::read(&candidate).await) {
+                (Some(lib), Ok(bytes)) => crate::datapacks::library::sha1_hex(&bytes) == lib,
                 _ => false,
             }
         };
@@ -195,6 +209,54 @@ pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<W
         });
     }
     out
+}
+
+/// The same-name reinstall fan-out: push the library's (already replaced)
+/// bytes into every world whose `datapacks/` holds this filename AND whose
+/// current content is provably the pack being replaced — `expected_sha` is the
+/// OLD library file's hash, captured by the caller before `place_bytes` ran.
+/// A same-named entry that does not match is a pack the user (or a world
+/// import) put there themselves; replacing it would be the F5 data loss, so it
+/// is skipped and reported. `None` (fresh install, or the old file was
+/// unreadable) skips every candidate — the safe direction.
+///
+/// level.dat is deliberately never touched: each world's own enabled/disabled
+/// choice stands, which is why the per-world outcome is
+/// [`WorldMigration::Refreshed`], not `Migrated`.
+///
+/// Takes [`level_dat_lock`] once, and snapshots the placements INSIDE it, so
+/// a concurrent locked removal cannot interleave between the snapshot and the
+/// writes — without the lock, `remove_from_world_at` could delete a world's
+/// file and level.dat entry and this fan-out would then re-materialize the
+/// file from its stale snapshot, leaving it present-and-unlisted, which
+/// Minecraft auto-enables: a silently resurrected, just-removed pack.
+pub(crate) async fn refresh_placements(
+    instance_root: &Path,
+    filename: &str,
+    expected_sha: Option<&str>,
+) -> Vec<crate::datapacks::WorldMigration> {
+    use crate::datapacks::WorldMigration;
+
+    let src = library_dir_at(instance_root).join(filename);
+
+    let _guard = level_dat_lock().lock().await;
+
+    let placements = placements_against(instance_root, filename, expected_sha).await;
+    let mut report = Vec::with_capacity(placements.len());
+    for p in placements {
+        if !p.is_ours {
+            report.push(WorldMigration::SkippedNotOurs { world: p.world });
+            continue;
+        }
+        match materialize(&src, &p.path, LinkPolicy::LinkIfPossible).await {
+            Ok(_) => report.push(WorldMigration::Refreshed { world: p.world }),
+            Err(e) => report.push(WorldMigration::Failed {
+                world: p.world,
+                details: e.details(),
+            }),
+        }
+    }
+    report
 }
 
 /// Serializes the three level.dat mutations below against each other and
@@ -471,13 +533,23 @@ pub(crate) async fn migrate_placements(
 ) -> Vec<crate::datapacks::WorldMigration> {
     use crate::datapacks::WorldMigration;
 
-    let placements = placements_of(instance_root, old_filename).await;
-    if placements.is_empty() {
-        return Vec::new();
-    }
     let src = library_dir_at(instance_root).join(new_filename);
+    // The NEW library file's hash, for the foreign-under-the-new-name check in
+    // `migrate_one`. Unreadable ⟹ nothing can migrate anyway — every
+    // materialize would fail — so report nothing rather than guessing.
+    let src_sha = match tokio::fs::read(&src).await {
+        Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes),
+        Err(_) => return Vec::new(),
+    };
 
     let _guard = level_dat_lock().lock().await;
+
+    // Snapshot INSIDE the lock: a concurrent locked removal committing between
+    // an outside-the-lock snapshot and the per-world writes would hand
+    // `migrate_one` a world the user just emptied, and it would re-add the new
+    // pack there, enabled. Spec §8.5 places identity verification under the
+    // lock for exactly this reason.
+    let placements = placements_of(instance_root, old_filename).await;
 
     let mut report = Vec::with_capacity(placements.len());
     for p in placements {
@@ -485,7 +557,16 @@ pub(crate) async fn migrate_placements(
             report.push(WorldMigration::SkippedNotOurs { world: p.world });
             continue;
         }
-        match migrate_one(instance_root, &src, &p, old_filename, new_filename).await {
+        match migrate_one(
+            instance_root,
+            &src,
+            &src_sha,
+            &p,
+            old_filename,
+            new_filename,
+        )
+        .await
+        {
             Ok(was_enabled) => report.push(WorldMigration::Migrated {
                 world: p.world,
                 was_enabled,
@@ -502,9 +583,23 @@ pub(crate) async fn migrate_placements(
 /// One world's half of [`migrate_placements`]. Assumes `level_dat_lock` is
 /// ALREADY held by the caller — it takes no lock of its own, and must never
 /// call the three public entry points above.
+///
+/// Step order is link-new → rewrite-level.dat → delete-old-LAST, and the
+/// order is load-bearing for retry convergence. The retry finds a world by
+/// its still-present OLD file (`placements_of`), so the old file must be the
+/// last thing to go: with delete-first, a failure in the middle left the
+/// world holding neither a findable old file nor a listed new one — invisible
+/// to the re-run, which then reported success and deleted the old library
+/// file, permanently. With delete-last, every failure position leaves the old
+/// file in place and the re-run picks the world up again. The cost is a
+/// transient both-files window in the failed state (the new file may sit
+/// unlisted, which Minecraft auto-enables), but that state is REPORTED as
+/// Failed and converges on retry — the opposite trade of silent permanent
+/// loss.
 async fn migrate_one(
     instance_root: &Path,
     src: &Path,
+    src_sha: &str,
     placement: &WorldPlacement,
     old_filename: &str,
     new_filename: &str,
@@ -519,15 +614,81 @@ async fn migrate_one(
     // `(true, _, false) => Enabled` arm encodes. Reading this as two-valued
     // silently writes such a pack into `Disabled`, turning off a pack the user
     // had on.
+    //
+    // But the NEW entry wins when it is already listed: a previous partial run
+    // may have written it (and forgotten the old entry) before failing at the
+    // old-file removal. Deriving from the old entry on that retry would read
+    // "in neither list" = enabled and flip a disabled pack back on — the exact
+    // reversal this whole function exists to prevent.
     let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
-    let (_enabled, disabled) = level_dat::lists(&root);
+    let (enabled, disabled) = level_dat::lists(&root);
     let old_entry = level_dat_entry(old_filename);
-    let was_enabled = !contains_ci(&disabled, &old_entry);
+    let new_entry = level_dat_entry(new_filename);
+    let was_enabled = if contains_ci(&disabled, &new_entry) {
+        false
+    } else if contains_ci(&enabled, &new_entry) {
+        true
+    } else {
+        !contains_ci(&disabled, &old_entry)
+    };
 
-    // Delete the OLD world-side entry. Skipping this is not a tidiness issue:
-    // the stale file stays present and, once `forget_ci` drops its name from
-    // both lists, becomes present-and-unlisted — which Minecraft auto-enables.
-    // The world would then load BOTH the old and the new version of the pack.
+    tokio::fs::create_dir_all(&dp_dir)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let dest = dp_dir.join(new_filename);
+
+    // The NEW name's slot in this world may already be occupied by something
+    // that is not the new library file — the same F5 hazard as everywhere
+    // else, one name over. `materialize` replaces its destination
+    // unconditionally, so check first. Matching content falls through (a
+    // previous partial run already linked it).
+    match tokio::fs::metadata(&dest).await {
+        Ok(meta) if meta.is_dir() => {
+            return Err(Error::ModsFilenameConflict {
+                filename: new_filename.to_string(),
+                existing_sha: String::new(),
+                incoming_sha: src_sha.to_string(),
+            });
+        }
+        Ok(_) => {
+            let existing_sha = match tokio::fs::read(&dest).await {
+                Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes),
+                Err(_) => String::new(),
+            };
+            if existing_sha != src_sha {
+                return Err(Error::ModsFilenameConflict {
+                    filename: new_filename.to_string(),
+                    existing_sha,
+                    incoming_sha: src_sha.to_string(),
+                });
+            }
+        }
+        Err(_) => {}
+    }
+
+    materialize(src, &dest, LinkPolicy::LinkIfPossible)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: e.path.display().to_string(),
+            details: e.details(),
+        })?;
+
+    // `forget_ci`, not `forget`: the old entry is known to us only by the
+    // library's filename, and level.dat may hold a different case for the same
+    // file. An exact match would remove nothing and leave a permanent orphan.
+    let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
+    let changed_set = level_dat::set_enabled(&mut root, &new_entry, was_enabled)?;
+    if changed_forget || changed_set {
+        level_dat::write_at(&world_dir, &root, framing).await?;
+    }
+
+    // Delete the OLD world-side entry, LAST (see the fn doc for why). Not a
+    // tidiness step: left permanently, the stale file is present-and-unlisted
+    // after the `forget_ci` above, which Minecraft auto-enables — the world
+    // would load BOTH versions.
     match tokio::fs::metadata(&placement.path).await {
         Ok(meta) => {
             // Same type-directed removal `remove_from_world_at` uses: Minecraft
@@ -550,30 +711,6 @@ async fn migrate_one(
                 details: e.to_string(),
             })
         }
-    }
-
-    tokio::fs::create_dir_all(&dp_dir)
-        .await
-        .map_err(|e| Error::ModsInstancePath {
-            path: dp_dir.display().to_string(),
-            details: e.to_string(),
-        })?;
-    let dest = dp_dir.join(new_filename);
-    materialize(src, &dest, LinkPolicy::LinkIfPossible)
-        .await
-        .map_err(|e| Error::ModsInstancePath {
-            path: e.path.display().to_string(),
-            details: e.details(),
-        })?;
-
-    // `forget_ci`, not `forget`: the old entry is known to us only by the
-    // library's filename, and level.dat may hold a different case for the same
-    // file. An exact match would remove nothing and leave a permanent orphan.
-    let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
-    let changed_set =
-        level_dat::set_enabled(&mut root, &level_dat_entry(new_filename), was_enabled)?;
-    if changed_forget || changed_set {
-        level_dat::write_at(&world_dir, &root, framing).await?;
     }
     Ok(was_enabled)
 }

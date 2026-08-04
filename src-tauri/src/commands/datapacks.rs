@@ -15,8 +15,18 @@
 /// Fully-qualified per this file's neighbours (`commands::instances`): a
 /// re-export exists, but every existing guard call site spells out
 /// `crate::launch::spawn::is_running`.
+///
+/// `is_starting` alongside `is_running`: the `running` registry is only
+/// populated after the JVM process exists, so a launch is invisible to
+/// `is_running` for its whole multi-second spawn pipeline — during which the
+/// game will shortly open a world and rewrite its `level.dat`. A datapack
+/// write admitted in that window races the boot exactly like one racing the
+/// running game.
 fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(instance_id))
+    crate::datapacks::guard::datapack_write_allowed(
+        crate::launch::spawn::is_running(instance_id)
+            || crate::launch::spawn::is_starting(instance_id),
+    )
 }
 
 /// Best-effort expected pack_format for `instance_id`'s installed Minecraft,
@@ -154,10 +164,13 @@ pub async fn datapacks_remove_from_world(
 }
 
 /// Resolve a catalog version to verified bytes: a SHA-1-checked download
-/// through the shared content cache, with the size cap enforced BEFORE
-/// anything is buffered (F19). The catalog is an automated path — before it,
-/// every pack came from a file the user picked themselves, which is why the
-/// cap sits here at the entry rather than only inside `install_named_at`.
+/// through the shared content cache, size-capped twice (F19) — on the
+/// platform's DECLARED size before any I/O, and on the file's ACTUAL size
+/// before it is buffered into memory, because the declared size is remote
+/// metadata that can simply be wrong. The catalog is an automated path —
+/// before it, every pack came from a file the user picked themselves, which
+/// is why the cap sits here at the entry rather than only inside
+/// `install_named_at`.
 async fn fetch_datapack_bytes(
     data_dir: &std::path::Path,
     version: &crate::mods::platform::ModVersion,
@@ -177,6 +190,23 @@ async fn fetch_datapack_bytes(
     let fetch =
         crate::mods::install::fetch_to_cache(data_dir, &f.url, &sha, f.size, "mods", &progress)
             .await?;
+    // The actual size, before the read allocates: a declared size of 1 KB on
+    // a 4 GB file (bad platform metadata) passed the check above and the
+    // streaming download enforces only the hash — this is the last point
+    // before the whole file lands in memory.
+    let actual = tokio::fs::metadata(&fetch.path)
+        .await
+        .map_err(|e| crate::error::Error::ModsCacheIo {
+            details: format!("{}: {e}", fetch.path.display()),
+        })?
+        .len();
+    if actual > crate::datapacks::MAX_DATAPACK_BYTES as u64 {
+        return Err(crate::error::Error::DatapackTooLarge {
+            filename: f.filename.clone(),
+            size_bytes: actual as f64,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
     tokio::fs::read(&fetch.path)
         .await
         .map_err(|e| crate::error::Error::ModsCacheIo {
@@ -286,9 +316,13 @@ pub async fn datapacks_update_one(
     old_filename: String,
     target: crate::mods::platform::ModVersion,
 ) -> Result<crate::datapacks::DatapackUpdateOutcome, crate::error::Error> {
-    guard(&instance_id)?;
+    // Own flag FIRST, then the other side's — the Dekker order `spawn::start`
+    // mirrors (claim, then check this flag). Checking `guard` before
+    // acquiring would leave an interleaving where both sides pass their
+    // checks before either flag is visible.
     let _update_guard = crate::datapacks::guard::DatapackUpdateGuard::acquire()
         .ok_or(crate::error::Error::InstanceBusy)?;
+    guard(&instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
     crate::network::throttle::with_interactive(async move {

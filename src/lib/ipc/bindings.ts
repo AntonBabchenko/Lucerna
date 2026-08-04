@@ -5808,8 +5808,21 @@ export type WorldDatapack = {
  *  previous behaviour swallowed per-world failures into a `diag!` line.
  */
 export type WorldMigration = 
-/**  Relinked, and level.dat rewritten preserving the pack's enabled state. */
+/**
+ *  Relinked, and level.dat rewritten preserving the pack's enabled state.
+ *  Produced only by `world_link::migrate_placements`, which actually read
+ *  that state.
+ */
 { kind: "migrated"; world: string; was_enabled: boolean } | 
+/**
+ *  A same-name refresh: the world's file now holds the new bytes, and
+ *  level.dat was deliberately never touched — each world's own
+ *  enabled/disabled choice stands exactly as it was. A separate variant
+ *  from [`WorldMigration::Migrated`] because this path does not KNOW the
+ *  state; fabricating `was_enabled: true` here would tell the UI a
+ *  disabled pack had been enabled.
+ */
+{ kind: "refreshed"; world: string } | 
 /**
  *  A same-named entry whose content is not the library's — left untouched.
  *  Replacing it would destroy a pack the user put there themselves.

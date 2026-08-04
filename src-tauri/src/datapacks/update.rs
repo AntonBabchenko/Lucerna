@@ -46,18 +46,30 @@ pub async fn update_at(
         });
     }
 
-    // Case-insensitive: NTFS is, so names differing only in case address the
-    // SAME file, and treating that as a rename would run the migrate-and-
-    // remove path against the file just installed. The old (registered)
-    // spelling wins — installing under it keeps the registry and the
-    // directory entry consistent on every platform.
-    if new_filename.eq_ignore_ascii_case(old_filename) {
+    // Case-insensitive with FULL Unicode folding, not `eq_ignore_ascii_case`:
+    // NTFS folds the whole of Unicode ($UpCase covers Cyrillic and friends),
+    // so `Пак.zip` → `пак.zip` addresses the same file exactly like
+    // `VM.zip` → `vm.zip` does, and treating it as a rename would run the
+    // migrate-and-remove path against the file just installed. The old
+    // (registered) spelling wins — installing under it keeps the registry and
+    // the directory entry consistent on every platform.
+    if new_filename.to_lowercase() == old_filename.to_lowercase() {
         let install =
             library::install_named_at(instance_root, old_filename, bytes, Some(provenance)).await?;
+        // A failed same-name refresh is NOT a completed update: the registry
+        // already carries the new version_id (so the update check will answer
+        // UpToDate and never re-offer), and the failed world sits on stale
+        // bytes. `completed: false` is the only surface that can tell the
+        // user, and it must behave exactly like the renamed branch's
+        // per-world failure.
+        let failed = install
+            .refreshed
+            .iter()
+            .any(|m| matches!(m, WorldMigration::Failed { .. }));
         return Ok(DatapackUpdateOutcome {
             pack: install.pack,
             migrations: install.refreshed,
-            completed: true,
+            completed: !failed,
         });
     }
 
@@ -66,13 +78,13 @@ pub async fn update_at(
     // `install.refreshed` covers worlds that already held the NEW name (rare,
     // but a re-run after a partial failure lands here); the migration below
     // covers worlds still on the OLD name. Together they are the full
-    // per-world report.
+    // per-world report, and a failure in EITHER half blocks the cleanup step.
     let mut migrations = install.refreshed;
-    let moved = world_link::migrate_placements(instance_root, old_filename, new_filename).await;
-    let failed = moved
+    migrations
+        .extend(world_link::migrate_placements(instance_root, old_filename, new_filename).await);
+    let failed = migrations
         .iter()
         .any(|m| matches!(m, WorldMigration::Failed { .. }));
-    migrations.extend(moved);
 
     if failed {
         // No rollback (§8.5). The old library file also cannot be cleaned up
@@ -172,9 +184,9 @@ mod tests {
         assert!(
             matches!(
                 out.migrations.as_slice(),
-                [WorldMigration::Migrated { world, .. }] if world == "Alpha"
+                [WorldMigration::Refreshed { world }] if world == "Alpha"
             ),
-            "got {:?}",
+            "a same-name refresh must not claim it read an enabled state: {:?}",
             out.migrations
         );
         assert_eq!(
@@ -221,6 +233,73 @@ mod tests {
         assert_eq!(
             std::fs::read(td.path().join("datapacks/VM.zip")).unwrap(),
             v2_zip()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cyrillic_case_only_rename_is_treated_as_unchanged() {
+        // NTFS folds the WHOLE of Unicode, not just ASCII: П and п address the
+        // same file. An ASCII-only comparison would classify this as a real
+        // rename and run migrate-and-remove against the file just installed —
+        // and the conflict row lookup would miss the existing row for the same
+        // reason, failing the pack's own update as a spurious conflict.
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "Пак.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+
+        let out = update_at(td.path(), "Пак.zip", "пак.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+
+        assert!(out.completed);
+        assert_eq!(out.pack.filename, "Пак.zip", "the registered spelling wins");
+        let listed = library::list_at(td.path()).await.unwrap();
+        assert_eq!(listed.len(), 1, "exactly one row, not old+new: {listed:?}");
+        assert_eq!(listed[0].version_id.as_deref(), Some("v2"));
+    }
+
+    /// Windows-only for the same reason as the partial-failure test below: a
+    /// handle without delete sharing is what makes the world-side replace fail
+    /// deterministically.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_failed_same_name_refresh_is_not_reported_completed() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        seed_world(td.path(), "Alpha", "vm.zip").await;
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 /* FILE_SHARE_READ: no delete sharing */)
+            .open(world_dir(td.path(), "Alpha").join("datapacks/vm.zip"))
+            .unwrap();
+
+        let out = update_at(td.path(), "vm.zip", "vm.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+        drop(held);
+
+        // The registry already says v2 (the library file holds the new bytes),
+        // so the update check will answer UpToDate and never re-offer this —
+        // `completed: false` plus the named world is the ONLY surface that can
+        // tell the user Alpha is still on the old bytes.
+        assert!(
+            !out.completed,
+            "a failed world refresh must not report a completed update"
+        );
+        assert!(
+            matches!(
+                out.migrations.as_slice(),
+                [WorldMigration::Failed { world, .. }] if world == "Alpha"
+            ),
+            "got {:?}",
+            out.migrations
         );
     }
 

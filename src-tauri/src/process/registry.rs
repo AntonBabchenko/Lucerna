@@ -111,6 +111,18 @@ impl<T> ProcessRegistry<T> {
             .contains_key(id)
     }
 
+    /// True iff `id` is mid-start: claimed by [`Self::claim_start`] but not
+    /// yet inserted as running. `is_running` is false for the whole spawn
+    /// pipeline (the `running` map is only populated after the JVM process
+    /// exists), so a gate that must also refuse during that window checks
+    /// both.
+    pub fn is_starting(&self, id: &str) -> bool {
+        self.starting
+            .lock()
+            .expect("registry starting poisoned")
+            .contains(id)
+    }
+
     pub fn is_any_running(&self) -> bool {
         !self
             .running
