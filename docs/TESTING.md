@@ -35,7 +35,7 @@ pnpm typecheck   # svelte-kit sync + svelte-check
 pnpm lint        # Biome + Prettier (Svelte) + no-network audit
 ```
 
-Pre-existing lint warnings exist in three files inherited from v0.1.0 (`PhaseStatusRow.svelte`, `ManageInstancesModal.svelte`, `+page.svelte`). If those are the *only* warnings, the lint baseline is intact.
+Pre-existing lint warnings exist in two files inherited from v0.1.0 (`ManageInstancesModal.svelte`, `+page.svelte`). If those are the *only* warnings, the lint baseline is intact. (`PhaseStatusRow.svelte` was the third until the operations centre retired it.)
 
 ### Regenerating the IPC bindings
 
