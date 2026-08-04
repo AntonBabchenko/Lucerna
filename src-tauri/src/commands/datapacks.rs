@@ -174,13 +174,13 @@ async fn fetch_datapack_bytes(
     // pre-I/O gate every mod install path shares.
     let sha = crate::mods::install::guard_version(version)?;
     let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
-    let cached =
+    let fetch =
         crate::mods::install::fetch_to_cache(data_dir, &f.url, &sha, f.size, "mods", &progress)
             .await?;
-    tokio::fs::read(&cached)
+    tokio::fs::read(&fetch.path)
         .await
         .map_err(|e| crate::error::Error::ModsCacheIo {
-            details: format!("{}: {e}", cached.display()),
+            details: format!("{}: {e}", fetch.path.display()),
         })
 }
 
