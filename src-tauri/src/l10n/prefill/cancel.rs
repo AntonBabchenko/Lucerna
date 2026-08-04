@@ -46,6 +46,17 @@ pub fn is_active(instance_id: &str) -> bool {
         .contains_key(instance_id)
 }
 
+/// True iff ANY pre-fill run is currently registered — for gates protecting
+/// the GLOBAL override store rather than one instance's pack: a run for any
+/// instance writes `<lang>/<namespace>.json` files every instance shares, so
+/// share-import (and slice 2's delete) must refuse while one is in flight.
+pub fn any_active() -> bool {
+    !registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
+}
+
 /// De-register `instance_id` (always called when the run returns, success or
 /// not).
 pub fn end(instance_id: &str) {
@@ -86,5 +97,14 @@ mod tests {
         let second = begin("inst-c");
         assert!(!second.load(Ordering::SeqCst));
         end("inst-c");
+    }
+
+    #[test]
+    fn any_active_sees_a_run_on_any_instance() {
+        assert!(!any_active());
+        let _flag = begin("inst-any");
+        assert!(any_active());
+        end("inst-any");
+        assert!(!any_active());
     }
 }
