@@ -4,11 +4,23 @@
 //! derive their on-disk directory names here, so neither depends on the other
 //! for naming policy.
 //!
-//! The design deliberately uses a character **allowlist** (keep Unicode
+//! The design deliberately uses a character **allowlist** (keep ASCII
 //! letters/digits + `-`/`_`, replace everything else with `-`) rather than a
 //! per-OS denylist. Keeping only the universally-safe intersection means the
 //! result is a valid directory component on Windows, macOS, and Linux without
-//! enumerating each platform's forbidden set. Consequences:
+//! enumerating each platform's forbidden set.
+//!
+//! **ASCII specifically, not "safe Unicode".** The Windows JVM launcher decodes
+//! its command line through the system ANSI code page, and we pass instance
+//! paths as `--gameDir` and `-Djava.library.path`. A directory name holding
+//! characters that code page cannot express therefore reaches `java.exe` with
+//! `?` substituted — an illegal Windows path character — and the game dies with
+//! `InvalidPathException` before Minecraft starts. Which characters are affected
+//! depends on the user's locale, so this cannot be narrowed to "non-Latin".
+//! Readability for non-Latin names is restored one level up by [`derive_base`],
+//! never by widening this allowlist.
+//!
+//! Further consequences:
 //!
 //! - No dots survive → Windows "reserved-name-with-extension" (`nul.txt`) and
 //!   `.`/`..` traversal are structurally impossible; the reserved-name check is
@@ -40,11 +52,15 @@ const MAX_SUFFIX: u32 = 10_000;
 
 /// Turn a display name into a filesystem-safe directory slug.
 ///
-/// Keeps Unicode alphanumerics (Cyrillic/CJK letters included, so non-English
-/// names stay readable) plus ASCII `-`/`_`; every other character becomes `-`.
-/// Consecutive `-` collapse, leading/trailing separators are stripped, the
-/// result is capped at [`MAX_SLUG_LEN`] characters, and an empty result falls
-/// back to `fallback_base` (e.g. `"instance"` / `"server"`).
+/// Keeps ASCII alphanumerics plus `-`/`_`; every other character — including
+/// Cyrillic and CJK letters — becomes `-`. Consecutive `-` collapse,
+/// leading/trailing separators are stripped, the result is capped at
+/// [`MAX_SLUG_LEN`] characters, and an empty result falls back to
+/// `fallback_base` (e.g. `"instance"` / `"server"`).
+///
+/// Callers wanting a readable name for a non-Latin display name should use
+/// [`derive_base`], which falls back to transliteration instead of to a bare
+/// `"instance"`.
 ///
 /// Original case is preserved (`All The Mods 10` → `All-The-Mods-10`).
 pub fn slugify(name: &str, fallback_base: &str) -> String {
@@ -57,7 +73,7 @@ pub fn slugify(name: &str, fallback_base: &str) -> String {
         if kept >= MAX_SLUG_LEN {
             break;
         }
-        let mapped = if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+        let mapped = if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
             ch
         } else {
             '-'
@@ -79,6 +95,72 @@ pub fn slugify(name: &str, fallback_base: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// Minimum ASCII **letters** a candidate must carry to count as readable.
+/// Digits deliberately excluded: "Сборка 1.20 с шейдерами" reduces to `1-20`,
+/// which looks like a name and identifies nothing. Three, because no meaningful
+/// folder name is two letters long and three already give a recognisable root.
+const MIN_RESIDUE_LETTERS: usize = 3;
+
+fn ascii_letter_count(s: &str) -> usize {
+    s.chars().filter(|c| c.is_ascii_alphabetic()).count()
+}
+
+/// Replace every non-alphanumeric character with a space, ahead of
+/// transliteration.
+///
+/// Unidecode-family transliteration does two different jobs: it romanises
+/// scripts (`Моя` → `Moia`) **and** it spells symbols out as English words
+/// (`🎮` → `video game`, `€` → `EUR`). Only the first is wanted here — without
+/// this filter the name `🎮🎮🎮` produces the directory
+/// `video-game-video-game-video-game`, which is both absurd and worse than the
+/// `instance` fallback it replaced. Symbols are decorative; the display name
+/// keeps them, the directory does not.
+fn letters_and_digits_only(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect()
+}
+
+/// Derive a readable ASCII directory base from a display name.
+///
+/// Ladder, in this order:
+/// 1. the ASCII residue of `display_name`, if it carries enough letters;
+/// 2. `pack_slug`, when the instance is being installed from a modpack;
+/// 3. transliteration of `display_name`;
+/// 4. `fallback_base` (`"instance"` / `"server"`), which [`reserve_unique_dir`]
+///    then suffixes as needed.
+///
+/// **The order is load-bearing in two places.** Transliterating before taking
+/// the residue would turn `红石生电优化【Redstone Survival Optimization】` into
+/// `Hong-Shi-Sheng-Dian-You-Hua-Reds` (truncated at the cap) instead of
+/// `Redstone-Survival-Optimization`. And a pack's canonical slug is real English
+/// matching what the user saw on Modrinth, so it beats romanisation whenever it
+/// exists.
+///
+/// Passing `""` as `fallback_base` makes "nothing usable" observable (an empty
+/// return) rather than silently becoming `instance` — the rename command relies
+/// on that to reject a name outright.
+pub fn derive_base(display_name: &str, pack_slug: Option<&str>, fallback_base: &str) -> String {
+    let residue = slugify(display_name, "");
+    if ascii_letter_count(&residue) >= MIN_RESIDUE_LETTERS {
+        return residue;
+    }
+    if let Some(slug) = pack_slug {
+        let from_slug = slugify(slug, "");
+        if ascii_letter_count(&from_slug) >= MIN_RESIDUE_LETTERS {
+            return from_slug;
+        }
+    }
+    let translit = slugify(
+        &deunicode::deunicode(&letters_and_digits_only(display_name)),
+        "",
+    );
+    if ascii_letter_count(&translit) >= MIN_RESIDUE_LETTERS {
+        return translit;
+    }
+    fallback_base.to_string()
 }
 
 /// True iff `name` is a Windows reserved device name (case-insensitive).
@@ -128,9 +210,10 @@ fn existing_lowercased(parent: &Path) -> HashSet<String> {
 pub fn reserve_unique_dir(
     parent: &Path,
     name: &str,
+    pack_slug: Option<&str>,
     fallback_base: &str,
 ) -> Result<(String, PathBuf)> {
-    let base = slugify(name, fallback_base);
+    let base = derive_base(name, pack_slug, fallback_base);
     // Idempotent; guarantees the non-recursive create below won't hit NotFound
     // when `instances/` or `servers/` doesn't exist yet.
     std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
@@ -215,8 +298,27 @@ mod tests {
     }
 
     #[test]
-    fn keeps_cyrillic_letters_readable() {
-        assert_eq!(slugify("Мой сервер", "server"), "Мой-сервер");
+    fn drops_cyrillic_letters() {
+        // PRODUCT DECISION, not an incidental edit: this test previously asserted
+        // `Мой-сервер` survived. Directory names must be ASCII because the Windows
+        // JVM launcher decodes argv through the system ANSI code page, so a name
+        // the code page cannot express reaches java.exe as `?` and kills the
+        // launch. The readability job moves one level up, to `derive_base`.
+        assert_eq!(slugify("Мой сервер", "server"), "server");
+    }
+
+    #[test]
+    fn drops_cjk_and_keeps_the_latin_part() {
+        assert_eq!(
+            slugify("红石生电优化【Redstone Survival Optimization】", "instance"),
+            "Redstone-Survival-Optimization"
+        );
+    }
+
+    #[test]
+    fn drops_precomposed_diacritics() {
+        // Precomposed `é` has no ASCII form here; `derive_base` transliterates.
+        assert_eq!(slugify("café", "instance"), "caf");
     }
 
     #[test]
@@ -273,6 +375,79 @@ mod tests {
         assert!(!s.starts_with('-') && !s.ends_with('-'));
     }
 
+    // ---- derive_base ----------------------------------------------------
+
+    #[test]
+    fn latin_residue_wins_when_substantial() {
+        assert_eq!(
+            derive_base(
+                "红石生电优化【Redstone Survival Optimization】",
+                None,
+                "instance"
+            ),
+            "Redstone-Survival-Optimization"
+        );
+    }
+
+    #[test]
+    fn digits_only_residue_is_not_substantial() {
+        // "Сборка 1.20 с шейдерами" reduces to "1-20" — looks like a name, means
+        // nothing. Three ASCII LETTERS are required; digits do not count.
+        let got = derive_base("Сборка 1.20 с шейдерами", None, "instance");
+        assert_ne!(got, "1-20");
+        assert!(
+            got.starts_with("Sborka"),
+            "expected transliteration, got {got}"
+        );
+    }
+
+    #[test]
+    fn pack_slug_beats_transliteration() {
+        assert_eq!(
+            derive_base(
+                "红石生电优化",
+                Some("redstone-survival-optimization"),
+                "instance"
+            ),
+            "redstone-survival-optimization"
+        );
+    }
+
+    #[test]
+    fn transliterates_when_no_residue_and_no_slug() {
+        assert_eq!(derive_base("Моя сборка", None, "instance"), "Moia-sborka");
+    }
+
+    #[test]
+    fn cjk_transliterates_when_no_slug() {
+        let got = derive_base("红石生电优化", None, "instance");
+        assert!(
+            got.starts_with("Hong"),
+            "expected pinyin-ish romanisation, got {got}"
+        );
+        assert!(got.is_ascii());
+    }
+
+    #[test]
+    fn emoji_only_still_falls_back_to_base() {
+        assert_eq!(derive_base("🎮🎮🎮", None, "instance"), "instance");
+    }
+
+    #[test]
+    fn derive_base_output_is_always_ascii_and_capped() {
+        for name in [
+            "红石生电优化【Redstone Survival Optimization】",
+            "Моя сборка",
+            "🎮",
+            "",
+        ] {
+            let got = derive_base(name, None, "instance");
+            assert!(got.is_ascii(), "{name} produced non-ASCII: {got}");
+            assert!(got.chars().count() <= MAX_SLUG_LEN);
+            assert!(!got.starts_with('-') && !got.ends_with('-'));
+        }
+    }
+
     // ---- is_reserved ----------------------------------------------------
 
     #[test]
@@ -306,8 +481,8 @@ mod tests {
     fn reserves_base_then_suffixes_on_collision() {
         let dir = tempdir().unwrap();
         let parent = dir.path().join("instances");
-        let (a, pa) = reserve_unique_dir(&parent, "My Pack", "instance").unwrap();
-        let (b, pb) = reserve_unique_dir(&parent, "My Pack", "instance").unwrap();
+        let (a, pa) = reserve_unique_dir(&parent, "My Pack", None, "instance").unwrap();
+        let (b, pb) = reserve_unique_dir(&parent, "My Pack", None, "instance").unwrap();
         assert_eq!(a, "My-Pack");
         assert_eq!(b, "My-Pack-2");
         assert!(pa.is_dir() && pb.is_dir());
@@ -318,7 +493,7 @@ mod tests {
         let dir = tempdir().unwrap();
         // `instances/` deliberately does not exist yet.
         let parent = dir.path().join("instances");
-        let (name, path) = reserve_unique_dir(&parent, "First", "instance").unwrap();
+        let (name, path) = reserve_unique_dir(&parent, "First", None, "instance").unwrap();
         assert_eq!(name, "First");
         assert!(path.is_dir());
     }
@@ -330,8 +505,8 @@ mod tests {
         // consistent cross-platform behaviour (second → suffixed).
         let dir = tempdir().unwrap();
         let parent = dir.path().join("instances");
-        let (a, _) = reserve_unique_dir(&parent, "Test", "instance").unwrap();
-        let (b, _) = reserve_unique_dir(&parent, "test", "instance").unwrap();
+        let (a, _) = reserve_unique_dir(&parent, "Test", None, "instance").unwrap();
+        let (b, _) = reserve_unique_dir(&parent, "test", None, "instance").unwrap();
         assert_eq!(a, "Test");
         assert_eq!(b, "test-2");
     }
@@ -340,7 +515,7 @@ mod tests {
     fn reserved_base_skips_to_suffix() {
         let dir = tempdir().unwrap();
         let parent = dir.path().join("instances");
-        let (name, _) = reserve_unique_dir(&parent, "CON", "instance").unwrap();
+        let (name, _) = reserve_unique_dir(&parent, "CON", None, "instance").unwrap();
         assert_eq!(name, "CON-2");
     }
 
@@ -352,7 +527,7 @@ mod tests {
         std::fs::create_dir_all(parent.join("Pack-2")).unwrap();
         std::fs::create_dir_all(parent.join("Pack-4")).unwrap();
         // First free is 3, not 5 (probe-first, not max+1).
-        let (name, _) = reserve_unique_dir(&parent, "Pack", "instance").unwrap();
+        let (name, _) = reserve_unique_dir(&parent, "Pack", None, "instance").unwrap();
         assert_eq!(name, "Pack-3");
     }
 
@@ -360,12 +535,12 @@ mod tests {
     fn user_named_pack_2_does_not_clobber_an_unrelated_suffix() {
         let dir = tempdir().unwrap();
         let parent = dir.path().join("instances");
-        let (p, _) = reserve_unique_dir(&parent, "Pack", "instance").unwrap();
-        let (p2, _) = reserve_unique_dir(&parent, "Pack-2", "instance").unwrap();
+        let (p, _) = reserve_unique_dir(&parent, "Pack", None, "instance").unwrap();
+        let (p2, _) = reserve_unique_dir(&parent, "Pack-2", None, "instance").unwrap();
         assert_eq!(p, "Pack");
         assert_eq!(p2, "Pack-2");
         // A second "Pack" must skip the occupied "Pack-2" and land on "Pack-3".
-        let (p3, _) = reserve_unique_dir(&parent, "Pack", "instance").unwrap();
+        let (p3, _) = reserve_unique_dir(&parent, "Pack", None, "instance").unwrap();
         assert_eq!(p3, "Pack-3");
     }
 
@@ -373,8 +548,8 @@ mod tests {
     fn all_emoji_names_share_fallback_base_and_suffix() {
         let dir = tempdir().unwrap();
         let parent = dir.path().join("instances");
-        let (a, _) = reserve_unique_dir(&parent, "🎮", "instance").unwrap();
-        let (b, _) = reserve_unique_dir(&parent, "🎲", "instance").unwrap();
+        let (a, _) = reserve_unique_dir(&parent, "🎮", None, "instance").unwrap();
+        let (b, _) = reserve_unique_dir(&parent, "🎲", None, "instance").unwrap();
         assert_eq!(a, "instance");
         assert_eq!(b, "instance-2");
     }
@@ -383,7 +558,7 @@ mod tests {
     fn returned_name_matches_created_directory() {
         let dir = tempdir().unwrap();
         let parent = dir.path().join("servers");
-        let (name, path) = reserve_unique_dir(&parent, "My Server", "server").unwrap();
+        let (name, path) = reserve_unique_dir(&parent, "My Server", None, "server").unwrap();
         assert_eq!(path, parent.join(&name));
         assert!(path.is_dir());
     }

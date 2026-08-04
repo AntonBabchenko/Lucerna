@@ -118,6 +118,10 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   forge_mappings_missing: 'clean',
   instance_name_empty: 'clean',
   instance_name_too_long: 'clean',
+  instance_dir_name_empty: 'clean',
+  instance_dir_name_taken: 'clean',
+  instance_dir_name_reserved: 'clean',
+  path_not_launchable: 'clean',
   mods_platform_auth: 'clean',
   mods_distribution_disabled: 'clean',
   mods_not_found: 'clean',
@@ -379,6 +383,18 @@ export function formatError(e: IpcError): string {
       return translate('errors.instanceNameEmpty');
     case 'instance_name_too_long':
       return translate('errors.instanceNameTooLong', { actual: e.actual, max: e.max });
+    case 'instance_dir_name_empty':
+      return translate('errors.instanceDirNameEmpty');
+    case 'instance_dir_name_taken':
+      return translate('errors.instanceDirNameTaken', { name: e.name });
+    case 'instance_dir_name_reserved':
+      return translate('errors.instanceDirNameReserved', { name: e.name });
+    case 'path_not_launchable':
+      // Two remedies, two messages: rename the instance folder, or move the
+      // data root. Same distinction the Manage banner draws.
+      return e.data_root
+        ? translate('errors.pathNotLaunchableDataRoot')
+        : translate('errors.pathNotLaunchableInstance');
     case 'mc_logs_upload':
       return withDetailTail(translate('errors.mcLogsUpload'), e.details);
     case 'mods_network':

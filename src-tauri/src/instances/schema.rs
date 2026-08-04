@@ -71,9 +71,42 @@ impl LoaderKind {
     }
 }
 
+/// Where an instance came from, when it came from a modpack.
+///
+/// Bundles what used to be six positional `create_instance` parameters (the
+/// function carried thirteen and a `#[allow(clippy::too_many_arguments)]`).
+///
+/// `slug` is **transient**: it feeds the directory-name ladder in
+/// [`crate::naming::derive_base`] at creation time and is deliberately not
+/// persisted — `project_id` already covers linking back to the pack's page.
+#[derive(Debug, Clone, Default)]
+pub struct PackOrigin {
+    pub name_and_version: Option<(String, String)>,
+    pub project_id: Option<String>,
+    pub source: Option<crate::mods::platform::ModSource>,
+    pub summary: Option<String>,
+    pub version_id: Option<String>,
+    pub slug: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstanceFile {
+    /// **Derived from the containing directory on read** — see
+    /// [`crate::instances::store::read_instance_json`]. The value written here
+    /// is vestigial: kept for compatibility with older launcher builds, ignored
+    /// when loading. Renaming the folder therefore renames the instance, and a
+    /// folder renamed outside the launcher keeps working.
     pub id: String,
+    /// Identity that survives a directory rename. Exists for exactly one
+    /// consumer: desktop shortcuts, which carry `--launch <uid>`. Shortcuts are
+    /// files on the user's desktop that we never record creating, so a rename
+    /// cannot go and repair them — the token inside them has to stay valid.
+    ///
+    /// `Option` because instances created before this field existed have none.
+    /// Filled in lazily (on shortcut creation, and before a rename), never by a
+    /// startup migration that would rewrite every `instance.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
     pub name: String,
     pub mc_version: String,
     pub loader: LoaderKind,
@@ -512,6 +545,7 @@ mod tests {
     fn sample() -> InstanceFile {
         InstanceFile {
             id: "3f4a-bbbb-cccc-dddd-eeeeffffaaaa".into(),
+            uid: None,
             name: "Default".into(),
             mc_version: "1.20.4".into(),
             loader: LoaderKind::Vanilla,

@@ -16,6 +16,7 @@ use tempfile::tempdir;
 fn make(id: &str, name: &str, mc: &str, created_unix_ms: f64) -> InstanceFile {
     InstanceFile {
         id: id.into(),
+        uid: None,
         name: name.into(),
         mc_version: mc.into(),
         loader: LoaderKind::Vanilla,
