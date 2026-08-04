@@ -6,6 +6,7 @@ import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 const m = vi.hoisted(() => ({
   instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
   previewInstanceDirName: vi.fn().mockResolvedValue('Preview-Name'),
+  renameInstanceDir: vi.fn(),
   listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   listFabricLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -798,5 +799,41 @@ describe('ManageInstancesModal — advanced initial heap (-Xms)', () => {
     await fireEvent.change(xms, { target: { value: '' } });
 
     expect(m.setInstanceMinHeap).toHaveBeenCalledWith('inst-1', null);
+  });
+});
+
+describe('ManageInstancesModal — folder rename keeps the selection', () => {
+  it('follows the new id so the detail pane does not empty after the repair', async () => {
+    // Renaming the folder changes the instance id (the directory name IS the id).
+    // `selected` is derived by matching `selectedId`, so unless the modal follows
+    // the new id the detail pane goes blank the instant the rename succeeds —
+    // right after the user repaired an instance they thought they had lost.
+    const before = makeInstance({ id: 'Old-Name', name: 'My Pack' });
+    const after = makeInstance({ id: 'New-Name', name: 'My Pack' });
+    m.renameInstanceDir.mockResolvedValue({ status: 'ok', data: after });
+
+    const baseProps = {
+      open: true,
+      activeInstance: before,
+      versions: [version],
+      onChanged: () => {},
+    };
+    const { rerender } = render(ManageInstancesModal, {
+      props: { ...baseProps, instances: [before] },
+    });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Change' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Rename' }));
+
+    // The parent refreshes its list on onChanged, which is what supplies the
+    // renamed instance — mirror that here.
+    await rerender({
+      ...baseProps,
+      instances: [after],
+      activeInstance: after,
+    });
+
+    expect(m.renameInstanceDir).toHaveBeenCalled();
+    expect(screen.getByDisplayValue('My Pack')).toBeTruthy();
   });
 });

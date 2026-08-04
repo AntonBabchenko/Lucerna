@@ -44,13 +44,54 @@ pub fn rename_dir(parent: &Path, current_id: &str, new_name: &str) -> Result<Str
     if to.exists() {
         return Err(Error::InstanceDirNameTaken { name: target });
     }
-    std::fs::rename(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
+    std::fs::rename(&from, &to).map_err(|e| classify_rename_io_error(e.kind(), current_id))?;
     Ok(target)
+}
+
+/// Map a failed directory rename onto a typed error.
+///
+/// Pure, so the classification is testable: provoking a real `PermissionDenied`
+/// from a unit test would mean holding an OS handle on a temp directory, which
+/// is platform-specific and flaky. The syscall is the OS's business; which
+/// message the user gets is ours, and this is that choice.
+///
+/// Takes the SOURCE name, not the destination. The lock is on the directory
+/// being moved — the first version of this reported the destination, and the
+/// first user to hit it was sent looking at a path that did not exist yet.
+pub(crate) fn classify_rename_io_error(kind: std::io::ErrorKind, source_name: &str) -> Error {
+    if kind == std::io::ErrorKind::PermissionDenied {
+        // Windows `ERROR_ACCESS_DENIED` on a directory rename almost always means
+        // an open handle somewhere in the tree, not a permissions problem — an
+        // Explorer window in the folder is the everyday cause. Naming a likely
+        // culprit beats echoing "access denied" and leaving the user to guess.
+        return Error::InstanceDirLocked {
+            name: source_name.to_string(),
+        };
+    }
+    Error::io(source_name.to_string(), format!("rename failed: {kind:?}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permission_denied_becomes_a_locked_folder_error() {
+        let e = classify_rename_io_error(std::io::ErrorKind::PermissionDenied, "My-Pack");
+        assert!(matches!(e, Error::InstanceDirLocked { ref name } if name == "My-Pack"));
+    }
+
+    #[test]
+    fn other_io_kinds_stay_generic_and_name_the_source() {
+        let e = classify_rename_io_error(std::io::ErrorKind::NotFound, "My-Pack");
+        // An absent source is a different problem — it must not claim the folder
+        // is open in another program.
+        assert!(!matches!(e, Error::InstanceDirLocked { .. }));
+        assert!(
+            format!("{e}").contains("My-Pack"),
+            "should name the SOURCE, not the destination: {e}"
+        );
+    }
     use tempfile::tempdir;
 
     #[test]
