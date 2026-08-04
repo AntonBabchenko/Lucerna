@@ -43,6 +43,7 @@
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import ScreenshotsGallery from '$lib/screenshots/ScreenshotsGallery.svelte';
   import OperationsBar from '$lib/tasks/OperationsBar.svelte';
+  import { installGame } from '$lib/tasks/adapters/game-install';
   import {
     enqueueImport,
     opCompletionTick,
@@ -1006,7 +1007,7 @@
     if (dataLocation.fellBack) return;
     installing = true;
     installError = null;
-    const result = await commands.installInstance(activeInstance.id);
+    const result = await installGame(activeInstance.id, activeInstance.name);
     installing = false;
     if (result.status === 'error') {
       installError = formatError(result.error);
