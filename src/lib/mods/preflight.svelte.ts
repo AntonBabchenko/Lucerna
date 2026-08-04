@@ -8,6 +8,7 @@ import {
   type PreflightReport,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { preflightCache } from './preflight-cache';
 
 // ---------------------------------------------------------------------------
@@ -120,9 +121,10 @@ export async function remediateViolation(
   }
   const primary = vr.data[idx[0]];
   const res = v.provider_sha1
-    ? await commands.modsUpdateOne(instanceId, v.provider_sha1, primary)
-    : await commands.modsInstallWithDeps(
+    ? await updateMod(instanceId, primary.name, v.provider_sha1, primary)
+    : await installModWithDeps(
         instanceId,
+        primary.name,
         { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
         [],
       );
@@ -169,9 +171,10 @@ export async function remediatePickedVersion(
   chosen: ModVersion,
 ): Promise<{ ok: boolean; installedVersion?: string }> {
   const res = v.provider_sha1
-    ? await commands.modsUpdateOne(instanceId, v.provider_sha1, chosen)
-    : await commands.modsInstallWithDeps(
+    ? await updateMod(instanceId, chosen.name, v.provider_sha1, chosen)
+    : await installModWithDeps(
         instanceId,
+        chosen.name,
         { source: chosen.source, project_id: chosen.project_id, version_id: chosen.version_id },
         [],
       );
