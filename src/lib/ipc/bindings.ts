@@ -1903,6 +1903,7 @@ export const events = {
 	modInstalled: makeEvent<ModInstalled>("mod-installed"),
 	modToggle: makeEvent<ModToggle>("mod-toggle"),
 	modUninstalled: makeEvent<ModUninstalled>("mod-uninstalled"),
+	modsReconciled: makeEvent<ModsReconciled>("mods-reconciled"),
 	processExited: makeEvent<ProcessExited>("process-exited"),
 	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
 	serverExited: makeEvent<ServerExited>("server-exited"),
@@ -4452,6 +4453,19 @@ export type ModpackVersionEntry = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+/**
+ *  The instance's `mods/` directory changed without us: `reconcile` found jars
+ *  the registry did not know, or records whose file is gone.
+ * 
+ *  Distinct from `ModInstalled` on purpose. That event means WE installed
+ *  something and has five listeners, two of which re-request the mod list;
+ *  reusing it here would wake half the app and shape a refresh loop. This one is
+ *  consumed only by the views derived FROM the mod list — never by the list.
+ */
+export type ModsReconciled = {
+	instance_id: string,
+};
 
 /**  Translation coverage for one resource namespace. */
 export type NamespaceCoverage = {
