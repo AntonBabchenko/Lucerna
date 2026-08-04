@@ -360,6 +360,8 @@
       return get(t)('instance.error.dirNameTaken', { name: e.name });
     if (e.kind === 'instance_dir_name_reserved')
       return get(t)('instance.error.dirNameReserved', { name: e.name });
+    if (e.kind === 'instance_dir_locked')
+      return get(t)('instance.error.dirLocked', { name: e.name });
     if (e.kind === 'path_not_launchable') return get(t)('instance.error.pathNotLaunchable');
     return formatError(e);
   }
@@ -915,7 +917,16 @@
                   <InstanceFolderRow
                     instance={selected}
                     formatIpcError={ipcErrorMessage}
-                    onRenamed={() => onChanged()}
+                    onRenamed={(updated) => {
+                      // The directory name IS the id, so a rename changes it.
+                      // Without following it here, `selected` (derived by matching
+                      // `selectedId`) goes null and the detail pane empties the
+                      // instant the repair succeeds — alarming at exactly the
+                      // wrong moment. Pinned by "follows the new id" in
+                      // manage-modal-tier1.test.ts.
+                      selectedId = updated.id;
+                      onChanged();
+                    }}
                   />
 
                   <!-- The flash zone spans label + control + the snapshots toggle

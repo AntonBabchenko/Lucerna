@@ -263,6 +263,7 @@ describe('formatError', () => {
       instance_dir_name_empty: { kind: 'instance_dir_name_empty' },
       instance_dir_name_taken: { kind: 'instance_dir_name_taken', name: 'My-Pack' },
       instance_dir_name_reserved: { kind: 'instance_dir_name_reserved', name: 'CON' },
+      instance_dir_locked: { kind: 'instance_dir_locked', name: 'My-Pack' },
       path_not_launchable: { kind: 'path_not_launchable', data_root: false },
       mods_network: {
         kind: 'mods_network',
