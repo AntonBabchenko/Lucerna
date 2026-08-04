@@ -746,6 +746,18 @@ fn project_type_facet(kind: ContentKind) -> &'static str {
         ContentKind::ResourcePack => "project_type:resourcepack",
         ContentKind::Shader => "project_type:shader",
         ContentKind::Plugin => "project_type:plugin",
+        // Undocumented but real: Modrinth's documented facet values are
+        // mod/modpack/resourcepack/shader, yet `project_type:datapack`
+        // genuinely filters — measured 2026-08-04 against /v2/search, 13 804
+        // hits versus 148 896 unfaceted and 0 for a nonsense value, so unknown
+        // values filter to nothing rather than being ignored.
+        //
+        // Note the hits report `project_type: "mod"` in their own payload:
+        // Modrinth's project_type is version-specific while the facet spans
+        // every type a project publishes. A hybrid such as Terralith ships
+        // both a datapack and a mod, which is why VERSION listing must filter
+        // by the `datapack` loader slug — see `datapack_versions`.
+        ContentKind::Datapack => "project_type:datapack",
     }
 }
 
@@ -790,7 +802,13 @@ fn build_facets(
                 }
             }
         }
-        ContentKind::ResourcePack | ContentKind::Shader => {}
+        // Datapacks join resource packs and shaders here: they have no Java
+        // loader, so no `categories:` facet applies. Modrinth does tag them
+        // with a `datapack` loader, but that belongs on the VERSION query
+        // (`datapack_versions`), not on search — the search facet is already
+        // `project_type:datapack`, and adding a second constraint here would
+        // only narrow it redundantly.
+        ContentKind::ResourcePack | ContentKind::Shader | ContentKind::Datapack => {}
     }
     facets
 }
@@ -838,6 +856,26 @@ mod tests {
         assert!(!f
             .iter()
             .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
+    }
+
+    #[test]
+    fn datapack_facets_use_the_datapack_project_type_and_no_categories() {
+        // `project_type:datapack` is absent from Modrinth's documented facet
+        // values (mod/modpack/resourcepack/shader) but genuinely filters —
+        // measured against /v2/search on 2026-08-04: 13 804 hits, versus
+        // 148 896 with no facet and 0 for `project_type:nonsense_xyz`. An
+        // unknown value filters to nothing rather than being ignored, which is
+        // what proves the facet is live rather than silently dropped.
+        let f = build_facets(ContentKind::Datapack, Some("1.21.4"), Some(LoaderKind::Fabric), None);
+        assert!(f.contains(&vec!["project_type:datapack".to_string()]));
+        assert!(f.contains(&vec!["versions:1.21.4".to_string()]));
+        // A datapack has no Java loader. The `datapack` loader tag belongs on
+        // the version query, not on search.
+        assert!(
+            !f.iter()
+                .any(|g| g.iter().any(|s| s.starts_with("categories:"))),
+            "datapack search must carry no categories facet: {f:?}"
+        );
     }
 
     #[test]

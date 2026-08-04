@@ -5,9 +5,19 @@ use serde::Deserialize;
 
 pub const GAME_MINECRAFT: u32 = 432;
 
+/// CurseForge's class id for Minecraft data packs.
+///
+/// Promoted from the prose below when `ContentKind::Datapack` landed. Note
+/// that a class id only constrains SEARCH — `class_id`'s one non-test caller
+/// is `search()`. Version listing for a datapack is a separate problem
+/// CurseForge cannot express through `modLoaderType`, which is why the CF
+/// datapack path is its own PR and the CurseForge source is hidden for this
+/// kind until then.
+pub const DATAPACK_CLASS_ID: u32 = 6945;
+
 // CurseForge Minecraft class IDs (https://docs.curseforge.com — categories):
-// Mods=6, Resource Packs=12, Shaders=6552, Bukkit Plugins=5. (Datapacks=6945,
-// Worlds=17 — unused.) `search()` early-returns for `Plugin` before this is
+// Mods=6, Resource Packs=12, Shaders=6552, Bukkit Plugins=5, Datapacks=6945.
+// (Worlds=17 — unused.) `search()` early-returns for `Plugin` before this is
 // ever called (CF is not offered as a plugin source) — the arm exists purely
 // so this defensive lookup stays exhaustive.
 pub fn class_id(kind: crate::mods::platform::ContentKind) -> u32 {
@@ -17,6 +27,7 @@ pub fn class_id(kind: crate::mods::platform::ContentKind) -> u32 {
         ResourcePack => 12,
         Shader => 6552,
         Plugin => 5,
+        Datapack => DATAPACK_CLASS_ID,
     }
 }
 
