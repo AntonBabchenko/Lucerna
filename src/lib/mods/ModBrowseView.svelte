@@ -857,6 +857,41 @@
         }
         version = versions.data[0]!;
       }
+      // A version picked for a project whose pack is ALREADY in the library is
+      // a version SWITCH, and datapacks_update_one owns switch semantics: it
+      // replaces the library file, migrates every world holding the old
+      // filename (preserving each world's enabled choice) and removes the old
+      // file. A bare install here would land the new filename ALONGSIDE the
+      // old one — two versions in the library, every world still on the old.
+      const existing = datapackById.get(`${card.source}:${card.project_id}`);
+      if (existing && existing.in_library) {
+        const updated = await commands.datapacksUpdateOne(
+          instanceId,
+          existing.pack.filename,
+          version,
+        );
+        if (updated.status === 'error') {
+          showInstallFailure(card.name, updated.error, () => {
+            void startDatapackInstall(card, pinnedVersion);
+          });
+          return;
+        }
+        const failedWorlds = updated.data.migrations.filter((m) => m.kind === 'failed');
+        if (!updated.data.completed && failedWorlds.length > 0) {
+          pushWarning(
+            get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
+            failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
+          );
+        } else {
+          pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+        }
+        // No world picker: the worlds moved with the update. Placement changes
+        // remain a library-screen affair.
+        await refreshInstalledDatapacks();
+        datapacksChanged.value++;
+        return;
+      }
+
       const installed = await commands.datapacksInstallFromVersion(instanceId, version);
       if (installed.status === 'error') {
         showInstallFailure(card.name, installed.error, () => {
@@ -1320,6 +1355,7 @@
       filename={removeDialogFor.pack.filename}
       packName={removeDialogFor.pack.name}
       placements={removeDialogFor.placements}
+      inLibrary={removeDialogFor.in_library}
       onClose={() => (removeDialogFor = null)}
       onRemoved={() => {
         void refreshInstalledDatapacks();

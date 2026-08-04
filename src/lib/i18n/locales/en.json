@@ -892,7 +892,7 @@
       "noPlacements": "This pack is in no world yet — use “Add to worlds…” to place it.",
       "summaryInNoWorld": "In no world",
       "summaryDisabledEverywhere": "Disabled everywhere",
-      "summaryEnabledIn": "Enabled in {enabled} of {total} worlds",
+      "summaryEnabledIn": "Enabled in {enabled} of {total, plural, one {# world} other {# worlds}}",
       "updateIncomplete": "{count, plural, one {# world did not receive the update — the old version was kept so a retry can finish} other {# worlds did not receive the update — the old version was kept so a retry can finish}}",
       "picker": {
         "title": "Add “{name}” to worlds",
@@ -911,7 +911,9 @@
         "confirm": "Remove",
         "toastRemoved": "Removed {name}",
         "toastFailed": "Could not remove {name}",
-        "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}"
+        "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
+        "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
+        "worldsOnlyNote": "The library copy is already gone; removing clears the pack from the listed worlds."
       }
     },
     "install": {

@@ -22,9 +22,11 @@
     type ModVersion,
     type WorldPackState,
   } from '$lib/ipc/bindings';
+  import { events } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { datapacksChanged } from '$lib/settings/state.svelte';
-  import { datapackWorldSummary } from '$lib/worlds/datapacks-gating';
+  import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { SvelteSet } from 'svelte/reactivity';
@@ -80,16 +82,59 @@
     base: string | null;
   } | null>(null);
 
+  // Every datapack mutation is hard-guarded in the backend while the game
+  // runs or starts; this is the matching UI gate (§7.7 — mutations reuse the
+  // shared `datapacksDisabledKey`), so the buttons explain themselves instead
+  // of failing with an error toast. Seeded from runningInstances and kept
+  // live by the process events, mirroring RunningInstancesPopover.
+  let running = $state(false);
+  $effect(() => {
+    const id = instanceId;
+    if (id === null) {
+      running = false;
+      return;
+    }
+    void (async () => {
+      try {
+        const rows = await commands.runningInstances();
+        if (instanceId !== id) return;
+        running = rows.some((r) => r.instance_id === id);
+      } catch {
+        // Unknown ⟹ leave the UI usable; the backend guard is authoritative.
+      }
+    })();
+  });
+  listenUntilDestroyed([
+    events.processSpawned.listen((e) => {
+      if (e.payload.instance_id === instanceId) running = true;
+    }),
+    events.processExited.listen((e) => {
+      if (e.payload.instance_id === instanceId) running = false;
+    }),
+  ]);
+  const disabledKey = $derived(datapacksDisabledKey({ running, busy }));
+  const gated = $derived(busy || disabledKey !== null);
+
   // Refetch on instance change and whenever a producer bumps datapacksChanged
   // (installs from Browse / the dropzone / this view's own actions). The
   // generation counter drops a stale in-flight response.
+  //
+  // Update badges and icon summaries are cleared only on a REAL instance
+  // switch: a datapacksChanged bump also lands here after a FAILED update
+  // (completed:false keeps the old version installed), and wiping
+  // updateStates then would destroy the very update badge the user needs to
+  // retry — the failure would become silent staleness.
   let generation = 0;
+  let lastFetchedId: string | null = null;
   $effect(() => {
     const id = instanceId;
     void datapacksChanged.value;
     const gen = ++generation;
-    updateStates = new Map();
-    summaries = new Map();
+    if (id !== lastFetchedId) {
+      updateStates = new Map();
+      summaries = new Map();
+    }
+    lastFetchedId = id;
     if (id === null) {
       view = null;
       loading = false;
@@ -156,10 +201,14 @@
 
   async function checkUpdates() {
     if (instanceId === null) return;
+    // Capture the instance: a slow network check started on instance A must
+    // not land its badges on instance B's rows after a switch.
+    const reqId = instanceId;
     checking = true;
     error = null;
     try {
-      const res = await commands.datapacksCheckUpdates(instanceId);
+      const res = await commands.datapacksCheckUpdates(reqId);
+      if (instanceId !== reqId) return;
       if (res.status === 'error') {
         pushWarning(get(t)('addons.installed.checkFailed'), [formatError(res.error)]);
         return;
@@ -348,12 +397,21 @@
 
 <div class="p-3" data-testid="installed-datapacks">
   <div class="flex items-center justify-end gap-2 mb-2">
+    {#if disabledKey !== null && !busy}
+      <!-- Why every mutation below is disabled: the game owns level.dat while
+           it runs, and the backend refuses datapack writes for the duration.
+           One visible line beats six tooltips on unfocusable disabled
+           buttons. -->
+      <p class="text-xs text-warning-text mr-auto" data-testid="datapacks-gate-note">
+        {$t(disabledKey)}
+      </p>
+    {/if}
     {#if updateCount > 0}
       <BusyButton
         type="button"
         class="btn-warning btn-sm"
         {busy}
-        disabled={checking || instanceId === null}
+        disabled={checking || instanceId === null || disabledKey !== null}
         onclick={updateAll}
       >
         {$t('addons.installed.updateAll', { count: updateCount })}
@@ -457,6 +515,11 @@
                   packFormat: entry.compat.pack_format,
                   expected: entry.compat.expected,
                 })}
+                aria-label={$t('worlds.datapacks.formatMismatch', {
+                  packFormat: entry.compat.pack_format,
+                  expected: entry.compat.expected,
+                })}
+                role="img"
               >
                 <Icon name="warning" size={15} />
               </span>
@@ -485,7 +548,7 @@
               <button
                 type="button"
                 class="btn-icon btn-icon-sm btn-icon-warning"
-                disabled={busy}
+                disabled={gated}
                 onclick={() => update(entry, latest)}
                 aria-label={$t('addons.installed.update')}
                 use:tooltip={$t('addons.installed.update')}
@@ -496,7 +559,7 @@
               <button
                 type="button"
                 class="btn-icon btn-icon-sm !text-accent"
-                disabled={busy}
+                disabled={gated}
                 onclick={() => (pickerFor = entry)}
                 aria-label={$t('addons.datapacks.addToWorlds')}
                 use:tooltip={$t('addons.datapacks.addToWorlds')}
@@ -506,7 +569,7 @@
             <button
               type="button"
               class="btn-icon btn-icon-sm btn-icon-danger"
-              disabled={busy}
+              disabled={gated}
               onclick={() => (removeFor = entry)}
               aria-label={$t('addons.installed.remove')}
               use:tooltip={$t('addons.installed.remove')}
@@ -528,7 +591,7 @@
                       <button
                         type="button"
                         class={`btn-icon btn-icon-sm ${p.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
-                        disabled={busy}
+                        disabled={gated}
                         aria-label={p.state === 'enabled'
                           ? $t('worlds.datapacks.disable')
                           : $t('worlds.datapacks.enable')}
@@ -544,7 +607,7 @@
                       <button
                         type="button"
                         class="btn-icon btn-icon-sm btn-icon-danger"
-                        disabled={busy}
+                        disabled={gated}
                         aria-label={$t('worlds.datapacks.removeFromWorld')}
                         use:tooltip={$t('worlds.datapacks.removeFromWorld')}
                         onclick={() => removeFromWorld(entry, p.world)}
@@ -598,6 +661,7 @@
       filename={removeFor.pack.filename}
       packName={removeFor.pack.name}
       placements={removeFor.placements}
+      inLibrary={removeFor.in_library}
       onClose={() => (removeFor = null)}
       onRemoved={() => {
         void refresh();
