@@ -10,6 +10,29 @@ use crate::error::{Error, Result};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+pub mod guard;
+pub mod listing;
+pub mod mutate;
+pub mod sidecar;
+pub mod update;
+
+/// Serialises every read-modify-write of a server's `level.dat`.
+///
+/// Mirrors `datapacks::world_link`'s lock and its rationale: two concurrent
+/// commands read-modify-writing the same `level.dat` silently lose one side's
+/// edit. One global lock, not per-server — the client precedent is one lock
+/// for all instances, contention is nil, and a per-id map is complexity with
+/// no demonstrated need.
+///
+/// Same composition rule, enforced the same way: this is private to the
+/// module tree, and only entry points defined here take it. A public function
+/// that takes it must never call another public function that also takes it —
+/// `tokio::sync::Mutex` is not reentrant, so that deadlocks.
+pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 /// `level-name` from raw `server.properties` text, defaulting to `world` when
 /// the key is absent or blank (matches the vanilla server default).
 pub fn level_name(props_raw: &str) -> String {
