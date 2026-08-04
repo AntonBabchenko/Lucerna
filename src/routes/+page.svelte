@@ -175,6 +175,25 @@
   // restart. The modal itself must NOT read this (its suite pins exact
   // l10nCoverage call counts), and this page already reads settings.
   let l10nAiConsent = $state(false);
+  // Which instance LocalizationModal shows. Null = follow the active instance,
+  // which is what the Overview row's entry point wants. The Manage modal's
+  // entry point sets it, because its selection is independent of the active
+  // instance and would otherwise open a different instance's translations
+  // than the one whose row the user just clicked.
+  let l10nTargetId = $state<string | null>(null);
+  $effect(() => {
+    if (!l10nOpen) l10nTargetId = null;
+  });
+  // The instance the modal is actually reporting on, resolved once so the
+  // `instanceId` it receives and the Minecraft version handed to its share
+  // export can never come from two different instances — the Manage entry
+  // point routinely points somewhere other than the active instance, and a
+  // shared file's resource-pack half is built for ONE version.
+  const l10nInstanceId = $derived(l10nTargetId ?? activeInstance?.id ?? null);
+  const l10nInstance = $derived(
+    instances.find((i) => i.id === l10nInstanceId) ??
+      (activeInstance?.id === l10nInstanceId ? activeInstance : null),
+  );
 
   async function openLocalization() {
     l10nOpen = true;
@@ -326,6 +345,11 @@
   // 'system' preference — the backend has no way to know what "system"
   // resolves to, but the frontend just rendered the whole UI in it.
   let l10nLang = $state($locale ?? 'en');
+  // The "needs attention" badge on the Overview Localization row. Deliberately
+  // a second source from l10nPercent: percent answers "how much is
+  // translated", this answers "is what we have actually live in this
+  // instance", and the two refresh on different triggers.
+  let l10nBadge = $state<'not_applied' | 'outdated' | null>(null);
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
@@ -550,6 +574,32 @@
       // bindable — converge on it instead of the row being stuck showing
       // the bare guess. A no-op once l10nLang is already a full code.
       if (r.data.lang !== targetLang) l10nLang = r.data.lang;
+    });
+  });
+
+  // Feeds the same row's "not applied" / "outdated" badge — see l10nBadge's
+  // declaration for why this is not folded into the coverage effect above.
+  $effect(() => {
+    const id = activeInstance?.id ?? null;
+    const targetLang = l10nLang;
+    // Reading l10nOpen makes this re-run when the translations modal closes.
+    // Applying, importing and AI pre-fill all happen with that modal open, so
+    // its close is the one cheap signal that any of them may have changed this
+    // instance's pack — and there is no point refreshing a badge that is
+    // currently behind a modal anyway.
+    const modalOpen = l10nOpen;
+    if (!id || modalOpen) {
+      if (!id) l10nBadge = null;
+      return;
+    }
+    void commands.l10nApplyTargets(targetLang).then((r) => {
+      if (activeInstance?.id !== id) return; // ignore a stale async result
+      if (r.status !== 'ok') {
+        l10nBadge = null;
+        return;
+      }
+      const row = r.data.find((x) => x.instanceId === id);
+      l10nBadge = row?.candidate ? (row.state === 'outdated' ? 'outdated' : 'not_applied') : null;
     });
   });
 
@@ -1514,6 +1564,7 @@
               onOpenLocalization={() => void openLocalization()}
               {l10nPercent}
               {l10nLang}
+              {l10nBadge}
               {preflightUnknown}
             />
           {/snippet}
@@ -1558,12 +1609,17 @@
     focusField={manageFocus}
     onCloneRequest={(id) => (cloneTargetId = id)}
     onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
+    onTranslationsRequest={(id) => {
+      l10nTargetId = id;
+      void openLocalization();
+    }}
   />
 
   <LocalizationModal
     bind:open={l10nOpen}
     bind:lang={l10nLang}
-    instanceId={activeInstance?.id ?? null}
+    instanceId={l10nInstanceId}
+    mcVersion={l10nInstance?.mc_version ?? ''}
     aiConsent={l10nAiConsent}
   />
 

@@ -91,6 +91,31 @@ async fn sweep_stale_lucerna_packs(inst_root: &std::path::Path, keep_filename: O
     }
 }
 
+/// Load every namespace with overrides for `lang` and build the pack bytes —
+/// the single source of truth for the (stores, description, build) triple.
+///
+/// BOTH `rebuild_pack` and the cross-instance apply-targets command call this.
+/// The targets command byte-compares an instance's installed pack against this
+/// function's output, so a second assembly site would let the inputs drift —
+/// most fragile of all, the free-form description string — and would flag every
+/// applied instance as permanently outdated while the byte-stability test in
+/// `pack.rs` stayed green. The description is therefore frozen and deliberately
+/// unlocalized: it is part of the hashed bytes, so translating it would make a
+/// pack applied under one UI language read 'outdated' under another.
+pub(crate) fn assemble_current_pack(
+    store_dir: &std::path::Path,
+    lang: &str,
+    fmt: crate::l10n::pack_format::PackFormat,
+) -> Option<Vec<u8>> {
+    let namespaces = crate::l10n::store::namespaces_with_overrides(store_dir, lang);
+    let stores: Vec<_> = namespaces
+        .iter()
+        .map(|ns| crate::l10n::store::load(store_dir, lang, ns))
+        .collect();
+    let description = format!("Lucerna translations ({lang})");
+    crate::l10n::pack::build(&stores, lang, fmt, &description)
+}
+
 /// Rebuild and install the override pack for one instance: build it from
 /// every namespace with overrides for `lang`, place it, register it in the
 /// Add-ons list, and enable it in `options.txt`.
@@ -133,13 +158,7 @@ pub async fn rebuild_pack(
         crate::l10n::pack_format::ApplyGate::Ready => {}
     }
 
-    let namespaces = crate::l10n::store::namespaces_with_overrides(&store_dir, lang);
-    let stores: Vec<_> = namespaces
-        .iter()
-        .map(|ns| crate::l10n::store::load(&store_dir, lang, ns))
-        .collect();
-    let description = format!("Lucerna translations ({lang})");
-    let built = crate::l10n::pack::build(&stores, lang, fmt, &description);
+    let built = assemble_current_pack(&store_dir, lang, fmt);
 
     let mc_dir = inst_root.join(".minecraft");
     let filename = format!("{}{lang}.zip", crate::l10n::options_txt::PACK_PREFIX);
@@ -378,5 +397,61 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         sweep_stale_lucerna_packs(td.path(), None).await;
         assert!(installed_resource_packs(td.path()).await.is_empty());
+    }
+
+    #[test]
+    fn assemble_current_pack_is_the_single_source_for_pack_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        s.set("item.create.wrench", "Ключ", "Wrench", 1.0);
+        crate::l10n::store::save(dir.path(), &s).unwrap();
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+
+        let a = assemble_current_pack(dir.path(), "ru_ru", fmt).expect("one override exists");
+        let b = assemble_current_pack(dir.path(), "ru_ru", fmt).expect("deterministic");
+        assert_eq!(a, b, "the same store must yield identical bytes");
+
+        // It must also equal `pack::build` fed the same stores with the FROZEN
+        // description — the exact string `rebuild_pack` shipped with. If this
+        // assertion ever fails the description drifted, and every applied pack
+        // would report 'outdated' forever while the determinism check above
+        // stayed green.
+        let stores = vec![crate::l10n::store::load(dir.path(), "ru_ru", "create")];
+        let direct =
+            crate::l10n::pack::build(&stores, "ru_ru", fmt, "Lucerna translations (ru_ru)")
+                .unwrap();
+        assert_eq!(a, direct);
+    }
+
+    #[test]
+    fn pack_zip_timestamps_are_the_fixed_1980_constant() {
+        // The whole outdated-vs-current byte comparison rests on the `zip`
+        // crate's `time` feature staying OFF (Cargo.toml declares
+        // default-features = false). With it on, every entry embeds the build's
+        // wall-clock time and every instance reads 'outdated' forever. DOS
+        // timestamps have two-second granularity, so a build-twice-and-compare
+        // check cannot catch that — pin the stored timestamp itself.
+        let fmt = crate::l10n::pack_format::PackFormat {
+            major: 34,
+            minor: 0,
+        };
+        let mut s = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        s.set("k", "v", "V", 1.0);
+        let bytes = crate::l10n::pack::build(&[s], "ru_ru", fmt, "d").unwrap();
+        let mut ar = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        for i in 0..ar.len() {
+            let entry = ar.by_index(i).unwrap();
+            // `zip::DateTime` derives PartialEq but NOT Debug, so this is an
+            // `assert!` on a comparison rather than `assert_eq!`.
+            assert!(
+                entry.last_modified() == Some(zip::DateTime::default()),
+                "entry {} carries a non-1980 timestamp — the zip crate's `time` \
+                 feature got enabled somewhere, so pack bytes now embed build time",
+                entry.name()
+            );
+        }
     }
 }

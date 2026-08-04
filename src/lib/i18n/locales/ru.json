@@ -328,7 +328,8 @@
       "compatCheckUnavailable": "Не удалось проверить совместимость модов.",
       "openFolderFailed": "Не удалось открыть папку профиля.",
       "openSourceFolderFailed": "Не удалось открыть исходную папку.",
-      "cloneBtn": "Клонировать…"
+      "cloneBtn": "Клонировать…",
+      "translationsBtn": "Переводы"
     },
     "clone": {
       "title": "Клонировать {name}",
@@ -452,6 +453,38 @@
         "toastDeferredTitle": "Перевод сохранён",
         "toastDeferredLine": "Он включится при следующем запуске этого профиля.",
         "toastFailedTitle": "Не удалось применить перевод"
+      },
+      "targets": {
+        "title": "Применить в других инстансах?",
+        "stateNotApplied": "не применено",
+        "stateOutdated": "устарело",
+        "running": "сначала остановите инстанс",
+        "prefill": "идёт ИИ-перевод",
+        "replacesOther": "заменит применённый пак {lang}",
+        "applyAction": "Применить",
+        "applied": "Применено",
+        "deferred": "Заработает после первого запуска",
+        "nothingToShip": "Нечего применять"
+      },
+      "share": {
+        "exportBtn": "Экспорт…",
+        "importBtn": "Импорт…",
+        "exportTitle": "Экспорт переводов",
+        "exportHint": "Как обычный ресурспак файл рассчитан на Minecraft {version}; на других версиях импортируйте его через Lucerna.",
+        "noteLabel": "Подпись или автор (необязательно)",
+        "exportAction": "Экспортировать",
+        "exportDone": "Переводы экспортированы",
+        "importTitle": "Импорт переводов",
+        "importSummary": "{fresh} новых · {conflicts} конфликтов · {invalid} пропущено",
+        "importedInto": "Файл на языке {lang} — переводы попадут именно в него.",
+        "conflictKeepMine": "Оставить мои переводы",
+        "conflictTakeFile": "Взять из файла",
+        "importAction": "Импортировать",
+        "importResult": "{added} добавлено · {replaced} заменено · {kept} оставлено моих",
+        "notABundle": "Это не файл переводов Lucerna.",
+        "looksLikePack": "Похоже на обычный ресурспак — его можно установить в инстанс на экране дополнений.",
+        "schemaTooNew": "Файл создан более новой версией Lucerna — обновите лаунчер, чтобы импортировать его.",
+        "fromNote": "От: {note}"
       },
       "packDisabled": {
         "message": "Обновление сборки отключило ваш перевод. Файл пакета остался на месте — включите его снова.",
@@ -2129,7 +2162,21 @@
     "l10nLangInvalid": "«{lang}» — недопустимый целевой язык.",
     "l10nPrefillKeyMissing": "Для {provider} не сохранён API-ключ. Добавьте его в «Настройки → Интеграции».",
     "l10nPrefillProvider": "{provider} отклонил запрос на перевод (HTTP {status}). Проверьте API-ключ и название модели — полный ответ есть в логах.",
-    "l10nPrefillBusy": "Для этого инстанса перевод уже выполняется."
+    "l10nPrefillBusy": "Для этого инстанса перевод уже выполняется.",
+    "l10nShareBundleInvalid": "Не удалось прочитать файл переводов: {reason}",
+    "l10nShareBundleReason": {
+      "notAZip": "это не zip-архив",
+      "noMetadata": "в нём нет данных переводов Lucerna",
+      "metadataTooLarge": "данные переводов в нём слишком велики",
+      "schemaInvalid": "данные переводов в нём повреждены",
+      "schemaTooNew": "он создан более новой версией Lucerna (формат {found})",
+      "langInvalid": "в нём указан недопустимый язык ({lang})",
+      "tooManyNamespaces": "в нём слишком много модов",
+      "tooManyEntries": "в нём слишком много записей"
+    },
+    "l10nSharePrefillActive": "Идёт ИИ-перевод. Повторите, когда он закончится.",
+    "l10nShareDestReserved": "Выберите другое имя файла — имена, начинающиеся с «lucerna-translation-», удаляются автоматически при применении переводов.",
+    "l10nShareNothingToExport": "Для этого выбора нечего экспортировать."
   },
   "settings": {
     "title": "Настройки",

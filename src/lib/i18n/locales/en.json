@@ -328,7 +328,8 @@
       "compatCheckUnavailable": "Couldn't check mod compatibility.",
       "openFolderFailed": "Couldn't open the instance folder.",
       "openSourceFolderFailed": "Couldn't open the source folder.",
-      "cloneBtn": "Clone…"
+      "cloneBtn": "Clone…",
+      "translationsBtn": "Translations"
     },
     "clone": {
       "title": "Clone {name}",
@@ -452,6 +453,38 @@
         "toastDeferredTitle": "Translations saved",
         "toastDeferredLine": "They'll turn on the next time you launch this instance.",
         "toastFailedTitle": "Couldn't apply translations"
+      },
+      "targets": {
+        "title": "Apply in other instances?",
+        "stateNotApplied": "not applied",
+        "stateOutdated": "outdated",
+        "running": "stop the instance first",
+        "prefill": "AI pre-fill in progress",
+        "replacesOther": "replaces the applied {lang} pack",
+        "applyAction": "Apply",
+        "applied": "Applied",
+        "deferred": "Will be active after the first launch",
+        "nothingToShip": "Nothing to apply"
+      },
+      "share": {
+        "exportBtn": "Export…",
+        "importBtn": "Import…",
+        "exportTitle": "Export translations",
+        "exportHint": "As a plain resource pack the file targets Minecraft {version}; on other versions, import it through Lucerna instead.",
+        "noteLabel": "Label / author (optional)",
+        "exportAction": "Export",
+        "exportDone": "Translations exported",
+        "importTitle": "Import translations",
+        "importSummary": "{fresh} new · {conflicts} conflicts · {invalid} skipped as invalid",
+        "importedInto": "This file is for {lang} — it will be imported into that language.",
+        "conflictKeepMine": "Keep my translations",
+        "conflictTakeFile": "Take from the file",
+        "importAction": "Import",
+        "importResult": "{added} added · {replaced} replaced · {kept} kept as mine",
+        "notABundle": "This is not a Lucerna translations file.",
+        "looksLikePack": "It looks like a regular resource pack — you can install it into an instance from the Add-ons screen instead.",
+        "schemaTooNew": "This file was made by a newer Lucerna — update the launcher to import it.",
+        "fromNote": "From: {note}"
       },
       "packDisabled": {
         "message": "A modpack update turned off your translations. The pack is still here — turn it back on.",
@@ -2129,7 +2162,21 @@
     "l10nLangInvalid": "\"{lang}\" isn't a valid target language.",
     "l10nPrefillKeyMissing": "No API key saved for {provider}. Add one in Settings → Integrations.",
     "l10nPrefillProvider": "{provider} refused the translation request (HTTP {status}). Check the API key and the model name — the full response is in Logs.",
-    "l10nPrefillBusy": "A translation run is already in progress for this instance."
+    "l10nPrefillBusy": "A translation run is already in progress for this instance.",
+    "l10nShareBundleInvalid": "Couldn't read the translations file: {reason}",
+    "l10nShareBundleReason": {
+      "notAZip": "it is not a zip archive",
+      "noMetadata": "it carries no Lucerna translation data",
+      "metadataTooLarge": "its translation data is too large",
+      "schemaInvalid": "its translation data is damaged",
+      "schemaTooNew": "it was made by a newer Lucerna (format {found})",
+      "langInvalid": "it names an invalid language ({lang})",
+      "tooManyNamespaces": "it contains too many mods",
+      "tooManyEntries": "it contains too many entries"
+    },
+    "l10nSharePrefillActive": "A translation pre-fill is running. Try again when it finishes.",
+    "l10nShareDestReserved": "Choose another file name — names beginning with \"lucerna-translation-\" are removed automatically when translations are applied.",
+    "l10nShareNothingToExport": "Nothing to export for this selection."
   },
   "settings": {
     "title": "Settings",

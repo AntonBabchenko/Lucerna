@@ -332,6 +332,44 @@ describe('OverviewTab attention dismiss', () => {
   });
 });
 
+// The store the translations live in is global, so an instance drifts out of
+// step without anyone touching it — a friend's import or a translation made
+// elsewhere leaves this instance's pack stale, or never built at all. The badge
+// is the only passive tell, so its presence has to be pinned in both
+// directions: silent when there is nothing to say, loud when there is.
+describe('OverviewTab localization badge', () => {
+  it('shows no badge when the state is omitted or null', () => {
+    const omitted = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, l10nPercent: 81 },
+    });
+    expect(omitted.queryByTestId('l10n-badge')).toBeNull();
+
+    const explicitNull = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, l10nPercent: 81, l10nBadge: null },
+    });
+    expect(explicitNull.queryByTestId('l10n-badge')).toBeNull();
+  });
+
+  it('badges the row when the pack was never applied to this instance', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        l10nPercent: 81,
+        l10nBadge: 'not_applied',
+      },
+    });
+    expect(getByTestId('l10n-badge').textContent).toContain('not applied');
+  });
+
+  it('badges the row when the applied pack has gone stale', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, l10nPercent: 81, l10nBadge: 'outdated' },
+    });
+    expect(getByTestId('l10n-badge').textContent).toContain('outdated');
+  });
+});
+
 describe('OverviewTab version-error Reload', () => {
   it('renders a Reload button for the versions error and calls onRetryError', async () => {
     const onRetryError = vi.fn();

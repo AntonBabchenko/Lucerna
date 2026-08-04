@@ -11,8 +11,11 @@
   import { t } from '$lib/i18n';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { coverageTone, namespacePercent, sortNamespaces, type CoverageTone } from './coverage';
+  import ApplyTargetsDialog from './ApplyTargetsDialog.svelte';
   import KeyTable from './KeyTable.svelte';
   import PrefillDialog from './PrefillDialog.svelte';
+  import ShareExportDialog from './ShareExportDialog.svelte';
+  import ShareImportDialog from './ShareImportDialog.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import DialogTitle from '$lib/ui/DialogTitle.svelte';
@@ -30,6 +33,7 @@
     instanceId,
     lang = $bindable(),
     aiConsent = false,
+    mcVersion = '',
   }: {
     open: boolean;
     /** The instance to report on. Null while nothing is selected — the
@@ -46,6 +50,13 @@
      *  already reads settings — adding a second reader here would only give
      *  the two of them a way to disagree. */
     aiConsent?: boolean;
+    /** The Minecraft version of `instanceId`. Only the share export needs
+     *  it — a shared file's resource-pack half is built for ONE version — and
+     *  `InstanceCoverage` does not carry it, so the caller resolves it for
+     *  the SAME instance it passes as `instanceId`. Optional with an empty
+     *  default because the component tests that never open the export dialog
+     *  have no version to give it. */
+    mcVersion?: string;
   } = $props();
 
   // Draggable list/detail split. Not persisted — reopening starts from the
@@ -165,9 +176,45 @@
   // translations sit on disk, invisible until the modal is reopened.
   let keyReloadToken = $state(0);
 
+  let shareExportOpen = $state(false);
+  let shareImportOpen = $state(false);
+  // The offer dialog is opened proactively — after an apply, an import, or an
+  // AI pre-fill run. It fetches its own candidates and closes itself when
+  // there is nothing actionable, so over-triggering costs the user nothing
+  // while under-triggering silently leaves other instances stale.
+  let offerOpen = $state(false);
+  let offerLang = $state('');
+  let offerExclude = $state<string | null>(null);
+
+  function openOffer(targetLang: string, exclude: string | null) {
+    offerLang = targetLang;
+    offerExclude = exclude;
+    offerOpen = true;
+  }
+
+  function handleImported(r: { lang: string }) {
+    // Same-language import: the rows and percentages on screen were read
+    // before the merge and are now stale on disk — reuse the exact refresh the
+    // pre-fill run uses. A different language changes nothing that is
+    // currently displayed.
+    if (r.lang === lang) {
+      void refreshCoverageSilently();
+      keyReloadToken += 1;
+    }
+    // The offer must ask about the language that was actually imported, not
+    // the one open in the editor: applying the editor's language would ship a
+    // pack containing none of what just arrived. The current instance is NOT
+    // excluded — its own pack is stale too after an import.
+    openOffer(r.lang, null);
+  }
+
   function afterPrefillRun() {
     void refreshCoverageSilently();
     keyReloadToken += 1;
+    // A run is the largest single change this feature ever makes to the
+    // global store, and it ends by rebuilding THIS instance's pack — which
+    // leaves every other instance exactly as stale as a manual apply does.
+    openOffer(lang, instanceId);
   }
 
   async function refreshCoverageSilently() {
@@ -201,6 +248,10 @@
             $t('instance.l10n.apply.toastDeferredLine'),
           ]);
         }
+        // Deferred counts as much as applied here: the pack WAS written, so
+        // this instance is current and the others are the ones now behind.
+        // The failure path below is the only one with nothing to offer.
+        openOffer(lang, instanceId);
       } else {
         pushWarning($t('instance.l10n.apply.toastFailedTitle'), [formatError(res.error)]);
       }
@@ -350,6 +401,28 @@
             {$t('instance.l10n.prefill.allButton')}
           </button>
         {/if}
+        <!--
+          Both act on the GLOBAL override store, not on this instance's
+          coverage, so neither waits for the coverage load: a user must be
+          able to send or receive translations for mods this instance does not
+          have, and an import is exactly what an empty instance needs.
+        -->
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          data-testid="l10n-share-export"
+          onclick={() => (shareExportOpen = true)}
+        >
+          {$t('instance.l10n.share.exportBtn')}
+        </button>
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          data-testid="l10n-share-import"
+          onclick={() => (shareImportOpen = true)}
+        >
+          {$t('instance.l10n.share.importBtn')}
+        </button>
         {#if applyReason}
           <!--
             Inline, not only in the tooltip: the wrapper-span pattern below is
@@ -560,6 +633,33 @@
       namespace={prefillScope.namespace}
       onClose={() => (prefillScope = null)}
       onFinished={afterPrefillRun}
+    />
+  {/if}
+  <!--
+    None of the three owns an `open` prop — this modal decides when each one
+    exists, which is also what lets the offer dialog close itself by calling
+    `onClose` the moment it finds nothing worth offering.
+  -->
+  {#if shareExportOpen}
+    <ShareExportDialog
+      {lang}
+      {mcVersion}
+      instanceNamespaces={coverage?.namespaces.map((n) => n.namespace) ?? []}
+      onClose={() => (shareExportOpen = false)}
+    />
+  {/if}
+  {#if shareImportOpen}
+    <ShareImportDialog
+      {lang}
+      onImported={handleImported}
+      onClose={() => (shareImportOpen = false)}
+    />
+  {/if}
+  {#if offerOpen}
+    <ApplyTargetsDialog
+      lang={offerLang}
+      exclude={offerExclude}
+      onClose={() => (offerOpen = false)}
     />
   {/if}
 {/if}
