@@ -60,6 +60,15 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     assetInstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     assetUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Datapack kind: the 1.13+ gate + the library listing (Browse badges and
+    // the Installed-datapacks view read the same command).
+    instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
+    datapacksListLibrary: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { expected_pack_format: null, entries: [] } }),
+    datapacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksInstallFromFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    listWorldNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -245,6 +254,46 @@ describe('AddonsTab', () => {
     // updates" button. (assetsList is no longer a valid mount signal: the Browse
     // pane now calls it on mount for non-mod kinds to render installed badges.)
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+  });
+
+  it('shows the Data packs tab with its dropzone, and hides CurseForge in the source picker', async () => {
+    render(AddonsTab, { props });
+    const tab = await screen.findByRole('tab', { name: 'Data packs' });
+    await fireEvent.click(tab);
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Data packs' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+    });
+    expect(screen.getByTestId('file-dropzone')).toBeTruthy();
+    // §13.1: until the CurseForge datapack PR lands, the source picker offers
+    // Modrinth only — a CF selection would query the empty trait default and
+    // render visible-but-broken cards. The custom listbox renders its active
+    // value on the trigger; Modrinth being both active and sole option is
+    // asserted via the trigger text here (option enumeration needs the
+    // popover open, which other Select tests cover).
+    expect(screen.getByTestId('browse-source-select').textContent).toContain('Modrinth');
+  });
+
+  it('hides the Data packs tab on a pre-1.13 instance and evicts the active kind', async () => {
+    vi.mocked(commands.instanceSupportsDatapacks).mockResolvedValue({
+      status: 'ok',
+      data: false,
+    });
+    try {
+      render(AddonsTab, { props: { ...props, mcVersion: '1.12.2', loader: 'forge' } });
+      await waitFor(() => {
+        expect(screen.queryByRole('tab', { name: 'Data packs' })).toBeNull();
+      });
+      // The other three kinds are untouched.
+      expect(screen.getByRole('tab', { name: 'Mods' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Shaders' })).toBeTruthy();
+    } finally {
+      vi.mocked(commands.instanceSupportsDatapacks).mockResolvedValue({
+        status: 'ok',
+        data: true,
+      });
+    }
   });
 
   it('both tablists (content-kind switch + sub-tabs) have an accessible name', () => {

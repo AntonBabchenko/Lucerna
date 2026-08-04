@@ -9,10 +9,12 @@ type Loader = 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
 // keeps the exclusion compiler-enforced at every instance-side call site.
 export type InstanceContentKind = Exclude<ContentKind, 'plugin'>;
 
-export const CONTENT_KINDS: InstanceContentKind[] = ['mod', 'resource_pack', 'shader'];
+export const CONTENT_KINDS: InstanceContentKind[] = ['mod', 'resource_pack', 'shader', 'datapack'];
 
-/** Mods need a non-vanilla instance; resource packs/shaders run on any
- *  selected instance (including vanilla). */
+/** Mods need a non-vanilla instance; resource packs/shaders/datapacks run on
+ *  any selected instance (including vanilla — datapacks deliberately have NO
+ *  loader gate; the separate 1.13+ version gate lives in
+ *  `instance_supports_datapacks` and hides the whole kind, not the button). */
 export function canInstallContent(
   kind: InstanceContentKind,
   instanceId: string | null,

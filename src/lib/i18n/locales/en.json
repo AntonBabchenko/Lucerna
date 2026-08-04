@@ -672,6 +672,8 @@
       "updateAvailableTitle": "Update available",
       "checkFailed": "couldn't check",
       "installed": "Installed",
+      "inLibrary": "In library",
+      "inLibraryVersion": "In library · v{version}",
       "disabled": "Disabled",
       "disable": "Disable",
       "enable": "Enable",
@@ -880,7 +882,41 @@
     "subTabsLabel": "Add-on views",
     "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
     "dropzoneShader": "Drop a shader .zip here to install — or click to browse",
+    "dropzoneDatapack": "Drop a datapack .zip here to add it to the library — or click to browse",
     "dropzoneDisabled": "Select an instance to install",
+    "datapacks": {
+      "empty": "No datapacks in this instance's library yet.",
+      "onlyInWorlds": "Only in worlds",
+      "stateUnknown": "State unknown",
+      "addToWorlds": "Add to worlds…",
+      "expandAria": "Show worlds for {name}",
+      "noPlacements": "This pack is in no world yet — use “Add to worlds…” to place it.",
+      "summaryInNoWorld": "In no world",
+      "summaryDisabledEverywhere": "Disabled everywhere",
+      "summaryEnabledIn": "Enabled in {enabled} of {total, plural, one {# world} other {# worlds}}",
+      "updateIncomplete": "{count, plural, one {# world did not receive the update — the old version was kept so a retry can finish} other {# worlds did not receive the update — the old version was kept so a retry can finish}}",
+      "picker": {
+        "title": "Add “{name}” to worlds",
+        "noWorlds": "This instance has no worlds yet. Worlds are created in-game — the pack is saved in the library and will appear here once a world exists.",
+        "apply": "Add to selected worlds",
+        "libraryOnly": "Library only",
+        "toastAdded": "{count, plural, one {Added to # world} other {Added to # worlds}}",
+        "toastFailed": "{count, plural, one {# world failed} other {# worlds failed}}"
+      },
+      "remove": {
+        "title": "Remove “{name}”?",
+        "affectedWorlds": "{count, plural, one {It is used in # world:} other {It is used in # worlds:}}",
+        "cascade": "Also remove from worlds",
+        "keepNote": "If unchecked, the worlds keep their copies and the pack keeps loading in game.",
+        "bodyNoWorlds": "The pack is in no world; it will be removed from the library.",
+        "confirm": "Remove",
+        "toastRemoved": "Removed {name}",
+        "toastFailed": "Could not remove {name}",
+        "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
+        "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
+        "worldsOnlyNote": "The library copy is already gone; removing clears the pack from the listed worlds."
+      }
+    },
     "install": {
       "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
       "toastFailed": "{count, plural, one {# add-on failed to install} other {# add-ons failed to install}}"

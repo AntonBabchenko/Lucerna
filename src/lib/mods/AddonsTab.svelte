@@ -1,5 +1,20 @@
+<script module lang="ts">
+  // Session-lived answers for the 1.13 datapack gate, keyed by instanceId
+  // and mcVersion joined with a newline — a character that can appear in
+  // neither half, so the key can never be ambiguous. Module-level so it
+  // survives the remount AddonsTab goes through on every top-level tab
+  // switch — see the supportsDatapacks effect for why that matters.
+  const supportsDatapacksCache = new Map<string, boolean>();
+</script>
+
 <script lang="ts">
-  import type { CompatVerdict, ContentKind, InstalledMod, ModSource } from '$lib/ipc/bindings';
+  import type {
+    CompatVerdict,
+    ContentKind,
+    DatapackPlacementView,
+    InstalledMod,
+    ModSource,
+  } from '$lib/ipc/bindings';
   import {
     modBrowseOpenProject,
     modBrowserNav,
@@ -7,12 +22,15 @@
     droppedMods,
     droppedAssets,
     assetsChanged,
+    datapacksChanged,
   } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
   import InstalledModsView from './installed/InstalledModsView.svelte';
   import InstalledAssetsView from './InstalledAssetsView.svelte';
+  import InstalledDatapacksView from './InstalledDatapacksView.svelte';
+  import DatapackWorldPicker from './DatapackWorldPicker.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
@@ -101,11 +119,6 @@
   // Add-ons never surface the "plugin" ContentKind (plugins install to
   // servers, not client instances — see servers/mods/ServerModBrowser +
   // Task 16's plugin browser), so these maps exclude it explicitly.
-  // The datapack entries are INERT in this slice: CONTENT_KINDS still lists
-  // three kinds, so nothing renders them yet. They exist because these two
-  // Records are exhaustive over InstanceContentKind by design — the compile
-  // error on a missing key is the omission guard — and the datapack kind
-  // switch lands in the next slice-2 PR.
   const kindLabels: Record<InstanceContentKind, TranslationKey> = {
     mod: 'addons.kindMods',
     resource_pack: 'addons.kindResourcePacks',
@@ -118,8 +131,68 @@
     shader: 'shader',
     datapack: 'world',
   };
+
+  // Whether the active instance's Minecraft can load data packs at all (the
+  // system arrived in 1.13). `true` with no instance selected — uncertainty
+  // must not hide the feature; a genuine pre-1.13 answer hides the datapack
+  // tab entirely (the whole feature is inert there: the game would read none
+  // of it).
+  //
+  // Keyed on BOTH instance and mc version: the Manage modal changes an
+  // instance's Minecraft IN PLACE (directory-as-identity — the id never
+  // changes), so an id-only dependency would leave the gate stale after a
+  // 1.21 → 1.12.2 downgrade with the tab still mounted.
+  //
+  // The module-level cache (below the component in module context) kills the
+  // paint-then-vanish flash: AddonsTab remounts on every top-level tab
+  // switch, and without a remembered answer a pre-1.13 instance would render
+  // the Data packs tab for one frame on EVERY visit before the IPC answer
+  // lands and yanks it. It also covers the reverse switch: landing on a new
+  // instance seeds from ITS cached answer (or true), never the previous
+  // instance's stale `false`.
+  let supportsDatapacks = $state(true);
+  $effect(() => {
+    const id = instanceId;
+    const mc = mcVersion;
+    if (id === null) {
+      supportsDatapacks = true;
+      return;
+    }
+    const key = `${id}\n${mc ?? ''}`;
+    supportsDatapacks = supportsDatapacksCache.get(key) ?? true;
+    void (async () => {
+      const r = await commands.instanceSupportsDatapacks(id);
+      if (instanceId !== id || mcVersion !== mc) return;
+      const v = r.status === 'ok' ? r.data : true;
+      supportsDatapacksCache.set(key, v);
+      supportsDatapacks = v;
+    })();
+  });
+
+  // The datapack tab can vanish UNDER the active kind: the kind-reset effect
+  // below deliberately reads only `kind`, so switching from a 1.21 instance
+  // onto a 1.12.2 one would otherwise leave the datapack pane mounted with no
+  // tab pointing at it (the spec's §7.1 second defect). Reset to 'mod', the
+  // same default every other reset uses.
+  $effect(() => {
+    if (!supportsDatapacks && kind === 'datapack') kind = 'mod';
+  });
+
+  // §13.1: CurseForge datapacks land in their own PR; until then the source
+  // picker hides CF for this kind. DERIVED, not written back into `source`:
+  // overwriting the rune would erase the user's CurseForge selection for the
+  // OTHER kinds on a mere visit to the datapack tab — the mask applies only
+  // while the datapack kind is active, and flipping back restores the choice.
+  const effectiveSource = $derived(
+    kind === 'datapack' && source === 'curseforge' ? ('modrinth' as ModSource) : source,
+  );
+
   const kindOptions = $derived(
-    CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]), icon: kindIcons[k] })),
+    CONTENT_KINDS.filter((k) => k !== 'datapack' || supportsDatapacks).map((k) => ({
+      value: k,
+      label: $t(kindLabels[k]),
+      icon: kindIcons[k],
+    })),
   );
 
   // Compat-warning dialog state — declared early so the kind-change
@@ -288,14 +361,20 @@
     }
   });
 
-  // Zips dropped on a Resource-pack/Shader segment arrive via droppedAssets
-  // (routed by MainTabs). Consume and reset; guard that the payload kind still
-  // matches the active segment (the user may have switched kinds mid-drag).
+  // Zips dropped on a Resource-pack/Shader/Datapack segment arrive via
+  // droppedAssets (routed by MainTabs). Consume and reset; guard that the
+  // payload kind still matches the active segment (the user may have switched
+  // kinds mid-drag). Datapacks fork HERE, not in the router: they install
+  // into the instance's library, never through `assetInstallLocal`, whose
+  // `require_asset_kind` gate rejects the kind with a modpack-overrides
+  // error message.
   $effect(() => {
     const v = droppedAssets.value;
     if (v !== null) {
       droppedAssets.value = null;
-      if (v.kind === kind && kind !== 'mod') void installAssetsFromFiles(v.paths);
+      if (v.kind !== kind || kind === 'mod') return;
+      if (kind === 'datapack') void installDatapacksFromFiles(v.paths);
+      else void installAssetsFromFiles(v.paths);
     }
   });
 
@@ -315,6 +394,65 @@
       filters: [{ name: get(t)('common.fileFilter.addonZip'), extensions: ['zip'] }],
     });
     if (Array.isArray(r) && r.length > 0) await installAssetsFromFiles(r);
+  }
+
+  async function installDatapacksFromPicker() {
+    if (assetInstallDisabled) return;
+    const r = await openFile({
+      multiple: true,
+      filters: [{ name: get(t)('common.fileFilter.datapack'), extensions: ['zip'] }],
+    });
+    if (Array.isArray(r) && r.length > 0) await installDatapacksFromFiles(r);
+  }
+
+  // The world picker opened after a local datapack install — §7.3: it opens
+  // after a successful install from the catalog, the file picker, AND once
+  // per drag-drop batch. This is where the "installed means live" wrong
+  // belief would otherwise form: the pack is in the library and the game
+  // reads none of it until a world is picked.
+  let datapackPickerTarget = $state<{
+    filename: string;
+    packName: string;
+    placements: DatapackPlacementView[];
+  } | null>(null);
+
+  // Local datapack zips (file picker + drag-drop) go into the instance's
+  // LIBRARY; the world picker then opens ONCE per batch, targeting the last
+  // successful install (a multi-zip drop is rare, and each pack stays
+  // reachable through the library screen's own «Add to worlds…»).
+  async function installDatapacksFromFiles(paths: string[]) {
+    if (instanceId === null) return;
+    let ok = 0;
+    let last: { filename: string; packName: string } | null = null;
+    const failed: string[] = [];
+    for (const path of paths) {
+      const r = await commands.datapacksInstallFromFile(instanceId, path);
+      if (r.status === 'ok') {
+        ok += 1;
+        last = { filename: r.data.filename, packName: r.data.name };
+      } else {
+        failed.push(`${filenameOf(path)}: ${formatError(r.error)}`);
+      }
+    }
+    if (ok > 0) pushSuccess(get(t)('addons.install.toastInstalled', { count: ok }));
+    if (failed.length > 0)
+      pushWarning(get(t)('addons.install.toastFailed', { count: failed.length }), failed);
+    // Refresh the Installed-datapacks view + Browse badges (no Tauri events).
+    if (ok > 0) {
+      datapacksChanged.value++;
+      if (last !== null) {
+        // Real placements, not [] — a reinstall over a pack already linked in
+        // worlds must show each world's CURRENT state, or the picker would
+        // route a present-but-disabled world through add (which re-enables)
+        // instead of the explicit toggle.
+        const lib = await commands.datapacksListLibrary(instanceId);
+        const entry =
+          lib.status === 'ok'
+            ? lib.data.entries.find((e) => e.pack.filename === last.filename)
+            : undefined;
+        datapackPickerTarget = { ...last, placements: entry?.placements ?? [] };
+      }
+    }
   }
 
   async function installAssetsFromFiles(paths: string[]) {
@@ -464,7 +602,11 @@
       ariaLabel={$t('addons.subTabsLabel')}
       onChange={(id) => selectView(id as View)}
     />
-    <SourcePicker value={source} onChange={(v) => (source = v)} />
+    <SourcePicker
+      value={effectiveSource}
+      onChange={(v) => (source = v)}
+      options={kind === 'datapack' ? ['modrinth'] : undefined}
+    />
   </div>
 
   {#if kind === 'shader' && detectedShaderLoaders.length === 0}
@@ -533,15 +675,17 @@
     </div>
   {/if}
 
-  {#if kind === 'resource_pack' || kind === 'shader'}
+  {#if kind === 'resource_pack' || kind === 'shader' || kind === 'datapack'}
     <div class="px-3 pt-3" data-tour-ctx="addons-dropzone">
       <FileDropzone
         label={kind === 'resource_pack'
           ? $t('addons.dropzoneResourcePack')
-          : $t('addons.dropzoneShader')}
+          : kind === 'shader'
+            ? $t('addons.dropzoneShader')
+            : $t('addons.dropzoneDatapack')}
         disabled={assetInstallDisabled}
         disabledLabel={$t('addons.dropzoneDisabled')}
-        onClick={installAssetsFromPicker}
+        onClick={kind === 'datapack' ? installDatapacksFromPicker : installAssetsFromPicker}
       />
     </div>
   {/if}
@@ -553,7 +697,7 @@
       {#key kind}
         <ModBrowseView
           {kind}
-          {source}
+          source={effectiveSource}
           {instanceId}
           {instanceName}
           {mcVersion}
@@ -574,6 +718,12 @@
             onFilterApplied={() => (requestedFilter = null)}
             onBrowseFor={browseForDependency}
           />
+        {:else if kind === 'datapack'}
+          <!-- An explicit branch, not the assets fallback: a datapack's
+               Installed view is the LIBRARY screen — per-world placements,
+               cascade removal — and the assets view's commands reject the
+               kind at the backend boundary anyway. -->
+          <InstalledDatapacksView {instanceId} {mcVersion} {loader} />
         {:else}
           <InstalledAssetsView {instanceId} {kind} {mcVersion} {loader} />
         {/if}
@@ -581,6 +731,19 @@
     {/if}
   </div>
 </div>
+
+{#if datapackPickerTarget && instanceId}
+  <DatapackWorldPicker
+    {instanceId}
+    filename={datapackPickerTarget.filename}
+    packName={datapackPickerTarget.packName}
+    placements={datapackPickerTarget.placements}
+    onClose={() => (datapackPickerTarget = null)}
+    onApplied={() => {
+      datapacksChanged.value++;
+    }}
+  />
+{/if}
 
 <ContextualTour id="addons" steps={ADDONS_STEPS} />
 
