@@ -640,6 +640,71 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('(1)');
   });
 
+  /// A pack that could not bundle every file ships a completer mod that fetches
+  /// the rest on first launch. The drawer is where the user finds out WHICH
+  /// files those are — the same surface that already explains what the import
+  /// skipped and what it could not resolve, rather than a fifth place to look.
+  it('lists what the pack is still waiting for, with a link per row', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Better MC',
+          version: 'v40',
+          files: [],
+          missing_mods: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+        pack_completion: {
+          total: 2,
+          outstanding: [
+            {
+              display_name: 'Balm (Fabric Edition)',
+              pattern: 'balm-fabric-1.20.1-7.3.38.jar',
+              url: 'https://example.invalid/balm',
+              destination: 'mods',
+            },
+            // No url: the pack author left one out. The row must still render.
+            {
+              display_name: 'Stay Clear',
+              pattern: 'Stay Clear V1.1 [1.20.1].zip',
+              url: null,
+              destination: 'resourcepacks',
+            },
+          ],
+        },
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+
+    const section = await findByTestId('imported-detail-pending-section');
+    const rows = section.querySelectorAll('[data-testid="pending-file-row"]');
+    expect(rows).toHaveLength(2);
+    expect(section.textContent).toContain('Balm (Fabric Edition)');
+    expect(section.textContent).toContain('Stay Clear');
+    expect(section.textContent).toContain('resourcepacks');
+
+    // The row without a url renders no open control rather than disappearing.
+    const opens = section.querySelectorAll('[data-testid="pending-file-open"]');
+    expect(opens).toHaveLength(1);
+
+    // The URL comes from a third-party file inside the instance: it is opened
+    // only by this click, never automatically.
+    expect(openUrlMock).not.toHaveBeenCalledWith('https://example.invalid/balm');
+    await fireEvent.click(opens[0]);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://example.invalid/balm');
+    });
+  });
+
   it('renders inert wrong-loader jars as an informational section', async () => {
     vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
       status: 'ok',
