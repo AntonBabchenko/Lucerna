@@ -8,8 +8,8 @@
  * state to reset.
  */
 import { describe, expect, it } from 'vitest';
-import { hasBlocking } from '$lib/mods/preflight.svelte';
 import type { PreflightReport } from '$lib/ipc/bindings';
+import { hasBlocking } from '$lib/mods/preflight.svelte';
 
 const violation = {
   dependent_sha1: 'a',
