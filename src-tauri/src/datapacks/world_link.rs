@@ -91,6 +91,79 @@ pub(crate) fn worlds_linking(instance_root: &Path, filename: &str) -> Vec<PathBu
     out
 }
 
+/// One world holding an entry by a given name, and whether that entry is
+/// provably the library's own content.
+pub(crate) struct WorldPlacement {
+    pub world: String,
+    pub path: PathBuf,
+    /// The world-side entry's sha1 equals the library entry's. `false` means a
+    /// same-named entry the user (or a world import) put there — replacing it
+    /// would be data loss, so every MUTATING caller must skip it and say so.
+    pub is_ours: bool,
+}
+
+/// Every world whose `datapacks/` folder holds an entry named `filename`, with
+/// world NAMES rather than paths, and an identity verdict per world.
+///
+/// [`worlds_linking`] answers only "does an entry with this name exist there",
+/// which is enough for a same-name reinstall (same name, same intent, and
+/// `materialize` writes the same bytes either way). It is NOT enough for an
+/// update, which deletes the old entry and links a differently-named one: a
+/// same-named entry that is not ours must be left alone. `materialize` commits
+/// by unconditional rename over the destination, so without this check the
+/// update path silently destroys a pack the user installed by hand — the F5
+/// defect, reintroduced on the update path.
+///
+/// A directory entry is never `is_ours`: a folder datapack has no file sha1 to
+/// compare against the library's zip.
+pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<WorldPlacement> {
+    let lib_sha = match tokio::fs::read(library_dir_at(instance_root).join(filename)).await {
+        Ok(bytes) => Some(crate::datapacks::library::sha1_hex(&bytes)),
+        Err(_) => None,
+    };
+    let saves_dir = instance_root.join(".minecraft").join("saves");
+    let Ok(rd) = std::fs::read_dir(&saves_dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in rd.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let Some(world) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        // Match `worlds::list_worlds`' own filter, which `worlds_linking`
+        // omits: without it a dot-directory under `saves/` would be treated as
+        // a world, and `world_dirs_checked` would then reject it downstream
+        // with a confusing path error instead of it never being offered.
+        if crate::worlds::fs::validate_segment(&world).is_err() {
+            continue;
+        }
+        let candidate = entry.path().join("datapacks").join(filename);
+        let Ok(cand_meta) = tokio::fs::metadata(&candidate).await else {
+            continue;
+        };
+        let is_ours = if cand_meta.is_dir() {
+            false
+        } else {
+            match (&lib_sha, tokio::fs::read(&candidate).await) {
+                (Some(lib), Ok(bytes)) => crate::datapacks::library::sha1_hex(&bytes) == *lib,
+                _ => false,
+            }
+        };
+        out.push(WorldPlacement {
+            world,
+            path: candidate,
+            is_ours,
+        });
+    }
+    out
+}
+
 /// Serializes the three level.dat mutations below against each other and
 /// against themselves.
 ///
@@ -318,6 +391,138 @@ pub async fn set_enabled_in_world_at(
     Ok(())
 }
 
+/// Move every world holding `old_filename` onto `new_filename`, preserving each
+/// world's own enabled/disabled choice.
+///
+/// Both library files must already exist: the caller installs the new one
+/// first and deletes the old one afterwards. This function owns only the world
+/// side.
+///
+/// **It lives here, and takes [`level_dat_lock`] itself, for a reason.** The
+/// lock is a non-reentrant `tokio::sync::Mutex` and all three public entry
+/// points above take it internally, so a caller outside this module cannot
+/// compose them into a read → unlink → relink → rewrite sequence: doing so
+/// deadlocks with no error, no timeout and no log line. The lock is taken ONCE
+/// here, around every world, and the module-private helpers are called
+/// directly.
+///
+/// Never fails as a whole — every world's outcome is reported so the caller can
+/// tell the user exactly which worlds moved. Re-running converges, because a
+/// migrated world no longer holds `old_filename`.
+pub(crate) async fn migrate_placements(
+    instance_root: &Path,
+    old_filename: &str,
+    new_filename: &str,
+) -> Vec<crate::datapacks::WorldMigration> {
+    use crate::datapacks::WorldMigration;
+
+    let placements = placements_of(instance_root, old_filename).await;
+    if placements.is_empty() {
+        return Vec::new();
+    }
+    let src = library_dir_at(instance_root).join(new_filename);
+
+    let _guard = level_dat_lock().lock().await;
+
+    let mut report = Vec::with_capacity(placements.len());
+    for p in placements {
+        if !p.is_ours {
+            report.push(WorldMigration::SkippedNotOurs { world: p.world });
+            continue;
+        }
+        match migrate_one(instance_root, &src, &p, old_filename, new_filename).await {
+            Ok(was_enabled) => report.push(WorldMigration::Migrated {
+                world: p.world,
+                was_enabled,
+            }),
+            Err(e) => report.push(WorldMigration::Failed {
+                world: p.world,
+                details: e.to_string(),
+            }),
+        }
+    }
+    report
+}
+
+/// One world's half of [`migrate_placements`]. Assumes `level_dat_lock` is
+/// ALREADY held by the caller — it takes no lock of its own, and must never
+/// call the three public entry points above.
+async fn migrate_one(
+    instance_root: &Path,
+    src: &Path,
+    placement: &WorldPlacement,
+    old_filename: &str,
+    new_filename: &str,
+) -> Result<bool> {
+    let (world_dir, dp_dir) = world_dirs_checked(instance_root, &placement.world)?;
+
+    // Read the CURRENT state before changing anything.
+    //
+    // Enabled-ness is `!in_disabled`, NOT `in_enabled`. A pack present on disk
+    // and named in neither list is ENABLED — Minecraft auto-enables a
+    // present-but-unlisted pack, which is what `state::derive`'s
+    // `(true, _, false) => Enabled` arm encodes. Reading this as two-valued
+    // silently writes such a pack into `Disabled`, turning off a pack the user
+    // had on.
+    let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
+    let (_enabled, disabled) = level_dat::lists(&root);
+    let old_entry = level_dat_entry(old_filename);
+    let was_enabled = !contains_ci(&disabled, &old_entry);
+
+    // Delete the OLD world-side entry. Skipping this is not a tidiness issue:
+    // the stale file stays present and, once `forget_ci` drops its name from
+    // both lists, becomes present-and-unlisted — which Minecraft auto-enables.
+    // The world would then load BOTH the old and the new version of the pack.
+    match tokio::fs::metadata(&placement.path).await {
+        Ok(meta) => {
+            // Same type-directed removal `remove_from_world_at` uses: Minecraft
+            // loads folder datapacks too, and `remove_file` on a directory
+            // fails with OS error 5 on Windows, which `map_removal_err` would
+            // then mistranslate into "quit Minecraft and try again".
+            let removal = if meta.is_dir() {
+                tokio::fs::remove_dir_all(&placement.path).await
+            } else {
+                tokio::fs::remove_file(&placement.path).await
+            };
+            if let Err(e) = removal {
+                return Err(map_removal_err(&placement.path, e, &placement.world));
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(Error::ModsInstancePath {
+                path: placement.path.display().to_string(),
+                details: e.to_string(),
+            })
+        }
+    }
+
+    tokio::fs::create_dir_all(&dp_dir)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let dest = dp_dir.join(new_filename);
+    materialize(src, &dest, LinkPolicy::LinkIfPossible)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: e.path.display().to_string(),
+            details: e.details(),
+        })?;
+
+    // `forget_ci`, not `forget`: the old entry is known to us only by the
+    // library's filename, and level.dat may hold a different case for the same
+    // file. An exact match would remove nothing and leave a permanent orphan.
+    let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
+    let changed_set =
+        level_dat::set_enabled(&mut root, &level_dat_entry(new_filename), was_enabled)?;
+    if changed_forget || changed_set {
+        level_dat::write_at(&world_dir, &root, framing).await?;
+    }
+    Ok(was_enabled)
+}
+
 /// The `.zip` files and directories Minecraft's own `datapacks/` scanner
 /// would load out of one world's folder: any directory, regardless of what
 /// it's called, plus any file whose name ends `.zip`. Without the directory
@@ -521,6 +726,138 @@ mod tests {
     /// `test_seam::scope()` in the same test — the mutex is not reentrant.
     fn hardlink_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    #[tokio::test]
+    async fn placements_of_marks_only_the_library_content_as_ours() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Ours")).unwrap();
+        std::fs::create_dir_all(saves.join("Theirs").join("datapacks")).unwrap();
+        add_to_world_at(td.path(), "Ours", "vm.zip").await.unwrap();
+        // Same NAME, different content — a pack the user dropped in by hand.
+        std::fs::write(
+            saves.join("Theirs").join("datapacks").join("vm.zip"),
+            datapack_zip(57),
+        )
+        .unwrap();
+
+        let found = placements_of(td.path(), "vm.zip").await;
+
+        let mut ours: Vec<&str> = found
+            .iter()
+            .filter(|p| p.is_ours)
+            .map(|p| p.world.as_str())
+            .collect();
+        ours.sort_unstable();
+        assert_eq!(ours, vec!["Ours"]);
+        let theirs = found
+            .iter()
+            .find(|p| p.world == "Theirs")
+            .expect("Theirs must still be listed, just not claimed");
+        assert!(!theirs.is_ours);
+    }
+
+    #[tokio::test]
+    async fn migrate_preserves_a_disabled_pack_and_removes_the_old_file() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip").await.unwrap();
+        // The user turns it OFF. Preserving this is the whole point.
+        set_enabled_in_world_at(td.path(), "Alpha", "vm-1.zip", false)
+            .await
+            .unwrap();
+        seed_library(td.path(), "vm-2.zip", 57).await;
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert_eq!(
+            report,
+            vec![crate::datapacks::WorldMigration::Migrated {
+                world: "Alpha".to_string(),
+                was_enabled: false,
+            }]
+        );
+
+        let dp = saves.join("Alpha").join("datapacks");
+        assert!(
+            !dp.join("vm-1.zip").exists(),
+            "the OLD world file must be gone: present-and-unlisted is auto-enabled by Minecraft, \
+             so leaving it loads BOTH versions"
+        );
+        assert!(dp.join("vm-2.zip").exists());
+
+        let (root, _) = level_dat::read_at(&world_dir(td.path(), "Alpha")).unwrap();
+        let (enabled, disabled) = level_dat::lists(&root);
+        assert!(
+            disabled.iter().any(|s| s == "file/vm-2.zip"),
+            "must still be disabled: {disabled:?}"
+        );
+        assert!(
+            !enabled.iter().any(|s| s.contains("vm-")),
+            "nothing may have been enabled: {enabled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn migrate_keeps_an_unlisted_pack_enabled() {
+        // A pack present on disk but named in NEITHER list is enabled —
+        // Minecraft auto-enables it on the next load (state::derive's
+        // `(true, _, false) => Enabled`). Reading enabled-ness as `in_enabled`
+        // instead of `!in_disabled` silently turns such a pack off.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        let dp = saves.join("Beta").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        // Copy the library bytes so identity matches, but write NO level.dat:
+        // both lists are absent.
+        std::fs::write(dp.join("vm-1.zip"), datapack_zip(48)).unwrap();
+        seed_library(td.path(), "vm-2.zip", 57).await;
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert_eq!(
+            report,
+            vec![crate::datapacks::WorldMigration::Migrated {
+                world: "Beta".to_string(),
+                was_enabled: true,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn migrate_leaves_a_foreign_same_named_file_alone() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let saves = td.path().join(".minecraft").join("saves");
+        let dp = saves.join("Gamma").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        let foreign = datapack_zip(57);
+        std::fs::write(dp.join("vm-1.zip"), &foreign).unwrap();
+        seed_library(td.path(), "vm-2.zip", 61).await;
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert_eq!(
+            report,
+            vec![crate::datapacks::WorldMigration::SkippedNotOurs {
+                world: "Gamma".to_string(),
+            }]
+        );
+        assert_eq!(
+            std::fs::read(dp.join("vm-1.zip")).unwrap(),
+            foreign,
+            "a same-named pack the user installed must survive untouched"
+        );
+        assert!(!dp.join("vm-2.zip").exists());
     }
 
     #[tokio::test]

@@ -82,6 +82,24 @@ pub struct WorldDatapack {
     pub compat: PackCompat,
 }
 
+/// What happened to one world when a library pack was replaced under it —
+/// either by an update to a new filename (`world_link::migrate_placements`) or
+/// by a same-name reinstall (`library::install_named_at`'s fan-out).
+///
+/// Returned rather than logged: a datapack update touches N worlds, and the
+/// user needs to know exactly which ones moved when one of them fails. The
+/// previous behaviour swallowed per-world failures into a `diag!` line.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorldMigration {
+    /// Relinked, and level.dat rewritten preserving the pack's enabled state.
+    Migrated { world: String, was_enabled: bool },
+    /// A same-named entry whose content is not the library's — left untouched.
+    /// Replacing it would destroy a pack the user put there themselves.
+    SkippedNotOurs { world: String },
+    Failed { world: String, details: String },
+}
+
 /// `<instance>/datapacks/`.
 pub fn library_dir_at(instance_root: &Path) -> PathBuf {
     instance_root.join("datapacks")
