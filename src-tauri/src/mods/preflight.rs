@@ -824,10 +824,28 @@ mod tests {
         }
     }
     fn modz(sha: &str, provided: Vec<ProvidedMod>, deps: Vec<DeclaredDep>) -> ParsedMod {
+        // Derived from DEPS ONLY. Providers must not contribute: these fixtures
+        // pair a `ModsToml` provider with a `ModsToml` dep, and folding both in
+        // would make a single-descriptor fixture look dual-descriptor and start
+        // shadowing itself once `effective_rank` lands.
+        let mut sources: Vec<DescriptorSource> = deps.iter().map(|d| d.source).collect();
+        sources.dedup();
+        modz_from(sha, provided, deps, sources)
+    }
+    fn modz_from(
+        sha: &str,
+        provided: Vec<ProvidedMod>,
+        deps: Vec<DeclaredDep>,
+        sources_present: Vec<DescriptorSource>,
+    ) -> ParsedMod {
         ParsedMod {
             sha1: sha.into(),
             name: sha.to_uppercase(),
-            manifest: ManifestDeps { provided, deps },
+            manifest: ManifestDeps {
+                provided,
+                deps,
+                sources_present,
+            },
         }
     }
     fn prov(id: &str, ver: &str) -> ProvidedMod {
