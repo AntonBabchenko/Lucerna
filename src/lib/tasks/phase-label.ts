@@ -167,8 +167,14 @@ function clonePhase(tr: Translate, task: Task): string | null {
  *  already owns; that component is NOT one of the two being deleted). Its
  *  `null`-phase "preparing" case corresponds exactly to a `data-migration`
  *  task before its first tick: `DataMigrationProgress.phase` is always a
- *  populated string once a tick arrives (see `adapters/data-migration.ts`),
- *  so `Task.phase === null` here only ever means "not ticked yet". */
+ *  populated string once a tick arrives, so `Task.phase === null` here only
+ *  ever means "not ticked yet".
+ *
+ *  No adapter currently produces a `data-migration` task — the migration is a
+ *  blocking modal that owns the screen, so surfacing it in the strip as well
+ *  was judged redundant. The kind and this labeller are kept because they are
+ *  what makes the `modal` lane testable, and reversing that call should stay a
+ *  few lines rather than a resurrection. */
 function dataMigrationPhase(tr: Translate, task: Task): string | null {
   switch (task.phase) {
     case null:
