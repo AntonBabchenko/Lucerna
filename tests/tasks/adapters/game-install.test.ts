@@ -19,8 +19,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { commands } from '$lib/ipc/bindings';
-import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 import { installGame } from '$lib/tasks/adapters/game-install';
+import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 describe('game-install adapter', () => {
   beforeEach(() => {

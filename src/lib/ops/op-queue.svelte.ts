@@ -45,11 +45,11 @@ import type { CloneRequest } from '$lib/instances/clone-request';
 import type { LauncherImportRequest } from '$lib/instances/import/launcher-import-runner';
 import { commands } from '$lib/ipc/bindings';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
-import { taskFor } from '$lib/tasks/registry.svelte';
 import { cloneInstance } from '$lib/tasks/adapters/clone';
 import { runRepair, runVerify } from '$lib/tasks/adapters/integrity';
 import { importLauncherInstance } from '$lib/tasks/adapters/launcher-import';
 import { importModpack } from '$lib/tasks/adapters/pack-import';
+import { taskFor } from '$lib/tasks/registry.svelte';
 import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
 export type IntegrityKind = 'verify' | 'repair';
@@ -82,9 +82,7 @@ async function runIntegrityOp(
 ): Promise<void> {
   try {
     const outcome =
-      kind === 'verify'
-        ? await runVerify(instanceId, name)
-        : await runRepair(instanceId, name);
+      kind === 'verify' ? await runVerify(instanceId, name) : await runRepair(instanceId, name);
     const tr = get(t);
     if (outcome.status === 'ok') {
       const report = outcome.data;

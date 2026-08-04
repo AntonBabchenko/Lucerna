@@ -149,11 +149,7 @@
   }
 
   function reportLine(detail: TaskDetail): string {
-    const parts = [
-      detail.name,
-      badgeLabel(detail.outcome.kind),
-      outcomeDetailText(detail.outcome),
-    ];
+    const parts = [detail.name, badgeLabel(detail.outcome.kind), outcomeDetailText(detail.outcome)];
     if (detail.host) parts.push(detail.host);
     if (detail.sha1) parts.push(detail.sha1);
     parts.push(detail.install_path);
@@ -231,7 +227,9 @@
                     >{badgeLabel(d.outcome.kind)}</StatusBadge
                   >
                   {#if d.bytes}
-                    <span class="ml-auto shrink-0 text-xs text-muted">{formatSize($t, d.bytes)}</span>
+                    <span class="ml-auto shrink-0 text-xs text-muted"
+                      >{formatSize($t, d.bytes)}</span
+                    >
                   {/if}
                 </div>
                 <div class="truncate text-xs text-secondary">{outcomeDetailText(d.outcome)}</div>

@@ -53,14 +53,14 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { finish, start, upsertProgress } from '../registry.svelte';
 import {
   advanceProgressDisplay,
   canShowRate,
   emptyProgressDisplay,
-  toTaskRate,
   type ProgressDisplay,
+  toTaskRate,
 } from '../rate';
+import { finish, start, upsertProgress } from '../registry.svelte';
 import type { TaskProgress } from '../types';
 
 /** Throttle window for the byte-rate EWMA — matches ServerHostingTab's own

@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/ops/import-runner', () => ({ runImport: vi.fn() }));
 
 import { runImport } from '$lib/ops/import-runner';
-import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 import { importModpack } from '$lib/tasks/adapters/pack-import';
+import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 describe('pack-import adapter', () => {
   beforeEach(() => {

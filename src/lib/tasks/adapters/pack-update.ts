@@ -20,13 +20,8 @@
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
 import type { UpdateOutcome } from '$lib/modpacks/update-runner';
 import { runUpdate } from '$lib/modpacks/update-runner';
+import { advanceProgressDisplay, canShowRate, emptyProgressDisplay, toTaskRate } from '../rate';
 import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
-import {
-  advanceProgressDisplay,
-  canShowRate,
-  emptyProgressDisplay,
-  toTaskRate,
-} from '../rate';
 import type { TaskProgress } from '../types';
 
 /** Widens the runner's own outcome with the one status `runUpdate` can

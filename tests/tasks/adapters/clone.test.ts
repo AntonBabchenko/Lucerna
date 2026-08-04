@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/instances/clone-runner', () => ({ runClone: vi.fn() }));
 
 import { runClone } from '$lib/instances/clone-runner';
-import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 import { cloneInstance } from '$lib/tasks/adapters/clone';
+import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 describe('clone adapter', () => {
   beforeEach(() => {

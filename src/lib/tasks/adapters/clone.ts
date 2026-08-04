@@ -8,9 +8,9 @@
 // so a thrown error still lands the task in a terminal state instead of
 // wedging it as permanently running.
 
+import type { CloneRequest } from '$lib/instances/clone-request';
 import type { CloneOutcome } from '$lib/instances/clone-runner';
 import { runClone } from '$lib/instances/clone-runner';
-import type { CloneRequest } from '$lib/instances/clone-request';
 import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
 
 /** Widens the runner's own outcome with the one status `runClone` can never

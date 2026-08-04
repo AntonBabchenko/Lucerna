@@ -5,8 +5,8 @@ vi.mock('$lib/instances/import/launcher-import-runner', () => ({
 }));
 
 import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
-import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 import { importLauncherInstance } from '$lib/tasks/adapters/launcher-import';
+import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 describe('launcher-import adapter', () => {
   beforeEach(() => {

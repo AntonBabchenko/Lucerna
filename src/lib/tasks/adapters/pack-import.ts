@@ -9,16 +9,11 @@
 // wedging it as permanently running.
 
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
+import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 import type { ImportOutcome } from '$lib/ops/import-runner';
 import { runImport } from '$lib/ops/import-runner';
-import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+import { advanceProgressDisplay, canShowRate, emptyProgressDisplay, toTaskRate } from '../rate';
 import { finish, start, TaskCancelledError, upsertProgress } from '../registry.svelte';
-import {
-  advanceProgressDisplay,
-  canShowRate,
-  emptyProgressDisplay,
-  toTaskRate,
-} from '../rate';
 import type { TaskProgress } from '../types';
 
 /** Widens the runner's own outcome with the one status `runImport` can

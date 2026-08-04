@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canShowRate, toTaskRate } from '$lib/tasks/rate';
 import { advanceProgressDisplay, emptyProgressDisplay } from '$lib/servers/upload-progress-format';
+import { canShowRate, toTaskRate } from '$lib/tasks/rate';
 
 describe('canShowRate', () => {
   it('allows a byte phase with a known total', () => {
