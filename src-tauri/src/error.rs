@@ -165,6 +165,17 @@ pub enum Error {
     #[error("'{name}' is a name Windows reserves for devices")]
     InstanceDirNameReserved { name: String },
 
+    /// The directory could not be renamed because something holds it open.
+    ///
+    /// On Windows this arrives as `ERROR_ACCESS_DENIED`, and the everyday cause
+    /// is an Explorer window sitting in the folder or one of its descendants —
+    /// a handle on any descendant blocks renaming the ancestor. Carries the
+    /// SOURCE directory name: the lock is on the folder being moved, not on the
+    /// destination, and reporting the destination sent the first user who hit
+    /// this looking at a path that did not exist yet.
+    #[error("folder '{name}' is open in another program")]
+    InstanceDirLocked { name: String },
+
     /// The path cannot be expressed in the system ANSI code page, so the JVM
     /// would receive it with `?` substituted and die on `InvalidPathException`
     /// before Minecraft starts.
@@ -906,6 +917,19 @@ mod tests {
             json.contains(r#""kind":"instance_name_empty""#),
             "got: {json}"
         );
+    }
+
+    #[test]
+    fn dir_locked_serializes_with_tag_and_name() {
+        let e = Error::InstanceDirLocked {
+            name: "My-Pack".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"instance_dir_locked""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""name":"My-Pack""#), "got: {json}");
     }
 
     #[test]

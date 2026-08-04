@@ -355,6 +355,7 @@
       "dirNameEmpty": "That name leaves no usable folder name.",
       "dirNameTaken": "A folder named {name} already exists.",
       "dirNameReserved": "{name} is a name Windows reserves for devices.",
+      "dirLocked": "The folder {name} is open in another program (Explorer, for example). Close it and try again.",
       "pathNotLaunchable": "Java cannot read this instance's path on this system."
     },
     "delete": {
@@ -1968,6 +1969,7 @@
     "instanceDirNameEmpty": "That name leaves no usable folder name.",
     "instanceDirNameTaken": "A folder named {name} already exists.",
     "instanceDirNameReserved": "{name} is a name Windows reserves for devices.",
+    "instanceDirLocked": "The folder {name} is open in another program (Explorer, for example). Close it and try again.",
     "pathNotLaunchableInstance": "This instance will not launch: its folder name contains characters Java cannot read on this system. Rename the folder in Manage to fix it.",
     "pathNotLaunchableDataRoot": "This instance will not launch: the data folder path contains characters Java cannot read on this system. The data folder has to move.",
     "mcLogsUpload": "Couldn't upload log to mclo.gs",
