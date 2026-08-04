@@ -51,9 +51,33 @@
   let note = $state('');
   let busy = $state(false);
 
+  let query = $state('');
+
   const titleId = `l10n-share-export-title-${crypto.randomUUID()}`;
 
+  /** Below this many rows the list is scannable and a search box is just noise.
+   *  Above it, one "Pre-fill all" run can put a hundred namespaces in the store
+   *  and scrolling alone stops being a way to find anything. */
+  const SEARCH_THRESHOLD = 10;
+  const showSearch = $derived(namespaces.length > SEARCH_THRESHOLD);
+
+  /** The search is a VIEW. `checked` stays keyed on the whole store and
+   *  `selected` is derived from it, never from `visible` — otherwise filtering
+   *  would silently drop the hidden half of the user's selection at export. */
+  const visible = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    return q === '' ? namespaces : namespaces.filter((ns) => ns.toLowerCase().includes(q));
+  });
+
   const selected = $derived(namespaces.filter((ns) => checked[ns]));
+
+  /** Bulk actions act on what the user can see. Ticking rows hidden behind a
+   *  filter would be a change they cannot audit. */
+  function setVisible(value: boolean) {
+    const next = { ...checked };
+    for (const ns of visible) next[ns] = value;
+    checked = next;
+  }
 
   onMount(async () => {
     const res = await commands.l10nOverriddenNamespaces(lang);
@@ -109,9 +133,64 @@
     <LoadingPanel label={$t('common.loading')} />
   {:else if loadError}
     <p class="text-sm text-danger" role="alert" data-testid="share-export-error">{loadError}</p>
+  {:else if namespaces.length === 0}
+    <div class="flex flex-col gap-1" data-testid="share-export-empty">
+      <p class="text-sm text-primary">{$t('instance.l10n.share.emptyTitle')}</p>
+      <p class="text-xs text-secondary">{$t('instance.l10n.share.emptyBody')}</p>
+    </div>
   {:else}
-    <div class="flex max-h-64 flex-col gap-1 overflow-y-auto">
-      {#each namespaces as ns (ns)}
+    <div class="flex flex-col gap-0.5">
+      <p class="text-sm text-primary" data-testid="share-export-heading">
+        {$t('instance.l10n.share.listHeading')}
+      </p>
+      <p class="text-xs text-secondary" data-testid="share-export-tick-note">
+        {$t('instance.l10n.share.listTickNote')}
+      </p>
+    </div>
+
+    {#if showSearch}
+      <input
+        class="border rounded px-2 py-1 text-sm"
+        placeholder={$t('instance.l10n.share.searchPlaceholder')}
+        bind:value={query}
+        data-testid="share-export-search"
+      />
+    {/if}
+
+    <div class="flex items-center justify-between gap-2">
+      <span
+        class="text-xs text-secondary"
+        data-testid="share-export-count"
+        data-selected={selected.length}
+        data-total={namespaces.length}
+      >
+        {$t('instance.l10n.share.selectedCount', {
+          selected: selected.length,
+          total: namespaces.length,
+        })}
+      </span>
+      <span class="flex gap-1">
+        <button
+          type="button"
+          class="btn-ghost btn-xs"
+          data-testid="share-export-select-all"
+          onclick={() => setVisible(true)}
+        >
+          {$t('instance.l10n.share.selectAll')}
+        </button>
+        <button
+          type="button"
+          class="btn-ghost btn-xs"
+          data-testid="share-export-clear"
+          onclick={() => setVisible(false)}
+        >
+          {$t('instance.l10n.share.clearAll')}
+        </button>
+      </span>
+    </div>
+
+    <div class="flex max-h-80 flex-col gap-1 overflow-y-auto">
+      {#each visible as ns (ns)}
         <label class="flex items-center gap-2 text-sm text-primary">
           <input
             type="checkbox"
@@ -133,11 +212,13 @@
         data-testid="share-export-note"
       />
     </label>
-  {/if}
 
-  <p class="text-xs text-muted" data-testid="share-export-hint">
-    {$t('instance.l10n.share.exportHint', { version: mcVersion })}
-  </p>
+    <!-- Describes the file this dialog would produce, so it belongs with the
+         list rather than with the empty state, where there is no file. -->
+    <p class="text-xs text-muted" data-testid="share-export-hint">
+      {$t('instance.l10n.share.exportHint', { version: mcVersion })}
+    </p>
+  {/if}
 
   <div class="mt-2 flex justify-end gap-2">
     <button type="button" class="btn-ghost btn-sm" onclick={onClose} disabled={busy}>
