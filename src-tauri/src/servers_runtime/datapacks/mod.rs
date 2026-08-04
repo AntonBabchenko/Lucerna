@@ -45,6 +45,22 @@ pub fn level_name(props_raw: &str) -> String {
         .to_string()
 }
 
+/// `runtime/<level>/` for a server — the world dir, and therefore the dir
+/// holding `level.dat` and the datapack provenance sidecar.
+///
+/// Same traversal guard as [`datapacks_dir`]: `level-name` comes from a file
+/// the server process (or an import) wrote, so a crafted `../../escape` must
+/// not let `Path::join` walk out of the runtime dir.
+pub fn world_dir(runtime: &Path, props_raw: &str) -> PathBuf {
+    let name = level_name(props_raw);
+    let safe = if crate::servers_runtime::runtime::is_safe_mod_name(&name) {
+        name
+    } else {
+        "world".to_string()
+    };
+    runtime.join(safe)
+}
+
 /// `runtime/<level>/datapacks/` for a server, given its `runtime/` dir and the
 /// raw `server.properties` (to honour a custom `level-name`).
 ///
@@ -54,13 +70,7 @@ pub fn level_name(props_raw: &str) -> String {
 /// Guard it as a single path segment, falling back to the vanilla default
 /// `world` when it isn't.
 pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
-    let name = level_name(props_raw);
-    let safe = if crate::servers_runtime::runtime::is_safe_mod_name(&name) {
-        name
-    } else {
-        "world".to_string()
-    };
-    runtime.join(safe).join("datapacks")
+    world_dir(runtime, props_raw).join("datapacks")
 }
 
 /// A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
