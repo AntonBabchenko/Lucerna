@@ -221,6 +221,24 @@ pub fn stop_instance(instance_id: String) -> Result<(), crate::error::Error> {
     crate::launch::spawn::stop(&instance_id)
 }
 
+/// Whether this instance's Minecraft can load data packs at all (the system
+/// arrived in 1.13). `true` when `mc_version` is empty or unparseable —
+/// uncertainty must not hide the feature. Derived from `instance.json` alone,
+/// deliberately NOT from the client jar (`l10n::pack_format` reads the jar and
+/// answers unknown for a never-installed instance, which would hide the kind
+/// for a perfectly legitimate 1.21 instance).
+#[tauri::command]
+#[specta::specta]
+pub fn instance_supports_datapacks(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<bool, crate::error::Error> {
+    let instance = crate::instances::read_instance(&app, &instance_id)?;
+    Ok(crate::datapacks::compat::supports_datapacks(
+        &instance.mc_version,
+    ))
+}
+
 /// All instances on disk with precomputed `ready` status. Sorted
 /// oldest-first by `created_unix_ms`.
 #[tauri::command]

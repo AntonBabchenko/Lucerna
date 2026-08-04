@@ -39,15 +39,21 @@ async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Opti
     .flatten()
 }
 
-/// List the instance's datapack library (`<instance>/datapacks/`), reconciled
-/// against disk. Unguarded — read-only.
+/// The instance-level library view: every datapack Lucerna knows about —
+/// the registry UNION the packs still linked in worlds — each with its state
+/// in every world and one per-instance compat verdict. Unguarded — read-only.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_list_library(
     app: tauri::AppHandle,
     instance_id: String,
-) -> Result<Vec<crate::datapacks::InstalledDatapack>, crate::error::Error> {
-    crate::datapacks::library::list_at(&crate::datapacks::instance_root(&app, &instance_id)?).await
+) -> Result<crate::datapacks::DatapackLibraryView, crate::error::Error> {
+    let expected = expected_pack_format(&app, &instance_id).await;
+    crate::datapacks::overview::list_at(
+        &crate::datapacks::instance_root(&app, &instance_id)?,
+        expected,
+    )
+    .await
 }
 
 /// Install a `.zip` file or folder datapack from `src_path` (a file-picker
@@ -67,18 +73,24 @@ pub async fn datapacks_install_from_file(
     .await
 }
 
-/// Remove a datapack from the instance's library and its registry entry.
+/// Remove a datapack from the instance's library. With `cascade`, first unlink
+/// it and drop its level.dat entries in every world holding it; without,
+/// world links survive — and keep loading in game — which the library listing
+/// then reports as `in_library: false`. Either way the result names each
+/// affected world (F3).
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_remove_from_library(
     app: tauri::AppHandle,
     instance_id: String,
     filename: String,
-) -> Result<(), crate::error::Error> {
+    cascade: bool,
+) -> Result<crate::datapacks::LibraryRemoval, crate::error::Error> {
     guard(&instance_id)?;
-    crate::datapacks::library::remove_at(
+    crate::datapacks::library::remove_from_library_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &filename,
+        cascade,
     )
     .await
 }
