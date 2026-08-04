@@ -3077,6 +3077,39 @@
       "clearFinished": "Clear",
       "details": "Details",
       "modalLock": "Cannot be cancelled"
+    },
+    "report": {
+      "title": "Install report",
+      "filesCount": "{count, plural, one {# file} other {# files}}",
+      "filterAriaLabel": "Filter by outcome",
+      "filter": {
+        "installed": "{count} installed",
+        "unchanged": "{count} unchanged",
+        "skipped": "{count} skipped",
+        "failed": "{count} failed"
+      },
+      "badge": {
+        "installed": "Installed",
+        "unchanged": "Unchanged",
+        "skipped": "Skipped",
+        "failed": "Failed"
+      },
+      "outcome": {
+        "downloadedLinked": "Downloaded · linked to the shared file",
+        "cachedLinked": "Already cached · linked to the shared file",
+        "downloadedCopied": "Downloaded · copied as an independent file",
+        "cachedCopied": "Already cached · copied as an independent file",
+        "unchanged": "Already up to date — nothing was downloaded"
+      },
+      "reason": "Reason: {reason}",
+      "detail": {
+        "host": "Host",
+        "sha1": "SHA-1",
+        "path": "Install path"
+      },
+      "empty": "This task recorded no files.",
+      "emptyFiltered": "No files match this filter.",
+      "copyReport": "Copy report"
     }
   }
 }

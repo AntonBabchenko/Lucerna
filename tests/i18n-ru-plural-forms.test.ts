@@ -105,3 +105,98 @@ describe('tasks.strip.finishedSummary', () => {
     expect(tr('tasks.strip.finishedSummary', { count: 2 })).toBe('2 operations finished');
   });
 });
+
+// TaskReportModal (src/lib/tasks/TaskReportModal.svelte): the "All" filter
+// chip and the header totals line both share this key, and share the same
+// "файл" agreement STRIP_COUNT_FORMS's sibling REPAIR_PARTIAL_FORMS already
+// pinned above — spelled out again here (not reused) because a future editor
+// touching either key's forms independently should not silently desync the
+// other.
+const REPORT_FILES_COUNT_FORMS: ReadonlyArray<[count: number, noun: string]> = [
+  [1, 'файл'],
+  [2, 'файла'],
+  [3, 'файла'],
+  [4, 'файла'],
+  [5, 'файлов'],
+  [11, 'файлов'], // 11-14 take the genitive plural despite ending in 1-4
+  [21, 'файл'],
+  [0, 'файлов'],
+];
+
+describe('tasks.report.filesCount', () => {
+  it.each(REPORT_FILES_COUNT_FORMS)('agrees in Russian: "%i %s"', (count, noun) => {
+    locale.set('ru');
+    const text = get(t)('tasks.report.filesCount', { count });
+    expect(text).toBe(`${count} ${noun}`);
+  });
+
+  it('leaves the English singular/plural pair unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.report.filesCount', { count: 1 })).toBe('1 file');
+    expect(tr('tasks.report.filesCount', { count: 2 })).toBe('2 files');
+  });
+});
+
+// The four outcome filter chips ("2 skipped", "265 installed", …) are
+// deliberately worded as invariant short-form participles / fixed phrases
+// ("установлено", "без изменений", "пропущено", "не удалось") rather than
+// re-triggering the "файл" noun agreement above — Russian does not inflect
+// these regardless of the count they're attached to. Pinned explicitly (not
+// assumed) so a future edit that "fixes" one into a plural block would fail
+// here instead of shipping subtly wrong grammar.
+const REPORT_FILTER_COUNTS = [1, 2, 3, 4, 5, 11, 21, 0];
+
+describe('tasks.report.filter.installed', () => {
+  it.each(REPORT_FILTER_COUNTS)('stays invariant in Russian at count %i', (count) => {
+    locale.set('ru');
+    expect(get(t)('tasks.report.filter.installed', { count })).toBe(`${count} установлено`);
+  });
+
+  it('leaves the English phrasing unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.report.filter.installed', { count: 1 })).toBe('1 installed');
+    expect(tr('tasks.report.filter.installed', { count: 2 })).toBe('2 installed');
+  });
+});
+
+describe('tasks.report.filter.unchanged', () => {
+  it.each(REPORT_FILTER_COUNTS)('stays invariant in Russian at count %i', (count) => {
+    locale.set('ru');
+    expect(get(t)('tasks.report.filter.unchanged', { count })).toBe(`${count} без изменений`);
+  });
+
+  it('leaves the English phrasing unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.report.filter.unchanged', { count: 1 })).toBe('1 unchanged');
+    expect(tr('tasks.report.filter.unchanged', { count: 2 })).toBe('2 unchanged');
+  });
+});
+
+describe('tasks.report.filter.skipped', () => {
+  it.each(REPORT_FILTER_COUNTS)('stays invariant in Russian at count %i', (count) => {
+    locale.set('ru');
+    expect(get(t)('tasks.report.filter.skipped', { count })).toBe(`${count} пропущено`);
+  });
+
+  it('leaves the English phrasing unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.report.filter.skipped', { count: 2 })).toBe('2 skipped');
+  });
+});
+
+describe('tasks.report.filter.failed', () => {
+  it.each(REPORT_FILTER_COUNTS)('stays invariant in Russian at count %i', (count) => {
+    locale.set('ru');
+    expect(get(t)('tasks.report.filter.failed', { count })).toBe(`${count} не удалось`);
+  });
+
+  it('leaves the English phrasing unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.report.filter.failed', { count: 5 })).toBe('5 failed');
+  });
+});

@@ -3077,6 +3077,39 @@
       "clearFinished": "Очистить",
       "details": "Подробнее",
       "modalLock": "Нельзя отменить"
+    },
+    "report": {
+      "title": "Отчёт об установке",
+      "filesCount": "{count, plural, one {# файл} few {# файла} many {# файлов} other {# файлов}}",
+      "filterAriaLabel": "Фильтр по результату",
+      "filter": {
+        "installed": "{count} установлено",
+        "unchanged": "{count} без изменений",
+        "skipped": "{count} пропущено",
+        "failed": "{count} не удалось"
+      },
+      "badge": {
+        "installed": "Установлено",
+        "unchanged": "Без изменений",
+        "skipped": "Пропущено",
+        "failed": "Ошибка"
+      },
+      "outcome": {
+        "downloadedLinked": "Скачан · связан с общим файлом",
+        "cachedLinked": "Уже был в кэше · связан с общим файлом",
+        "downloadedCopied": "Скачан · скопирован как отдельный файл",
+        "cachedCopied": "Уже был в кэше · скопирован как отдельный файл",
+        "unchanged": "Уже актуален — ничего не скачивалось"
+      },
+      "reason": "Причина: {reason}",
+      "detail": {
+        "host": "Хост",
+        "sha1": "SHA-1",
+        "path": "Путь установки"
+      },
+      "empty": "Для этой операции не записано ни одного файла.",
+      "emptyFiltered": "Нет файлов, соответствующих фильтру.",
+      "copyReport": "Копировать отчёт"
     }
   }
 }

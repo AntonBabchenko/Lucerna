@@ -35,6 +35,7 @@
   import { KIND_LABEL_KEY } from './types';
   import type { Task } from './types';
   import OperationsPanel from './OperationsPanel.svelte';
+  import TaskReportModal from './TaskReportModal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Icon from '$lib/ui/icons/Icon.svelte';
   import { tooltip } from '$lib/ui/tooltip';
@@ -47,6 +48,21 @@
 
   // Disclosure state for the panel this strip mounts below.
   let expanded = $state(false);
+
+  // The report modal a row's Details click opens. `onDetails` stays a plain
+  // callback prop (OperationsPanel's existing contract — see its module doc
+  // comment) so a future host can still intercept it; absent an override,
+  // this IS the default behaviour, since otherwise Details would be a dead
+  // end.
+  let reportTask = $state<Task | null>(null);
+
+  function handleDetails(task: Task) {
+    if (onDetails) {
+      onDetails(task);
+    } else {
+      reportTask = task;
+    }
+  }
 
   const allTasks = $derived(taskList());
   const activeTasks = $derived(allTasks.filter(isActiveTask));
@@ -159,7 +175,11 @@
     </button>
 
     {#if expanded}
-      <OperationsPanel onClose={() => (expanded = false)} {onDetails} />
+      <OperationsPanel onClose={() => (expanded = false)} onDetails={handleDetails} />
     {/if}
   </div>
+{/if}
+
+{#if reportTask}
+  <TaskReportModal task={reportTask} onClose={() => (reportTask = null)} />
 {/if}
