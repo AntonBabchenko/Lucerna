@@ -362,13 +362,37 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the default page size. An instance with no recorded activity returns an
 	 *  empty list, not an error.
 	 */
-	instanceJournalRead: (instanceId: string, limit: number) => typedError<JournalEntry[], Error>(__TAURI_INVOKE("instance_journal_read", { instanceId, limit })),
+	instanceJournalRead: (instanceId: string, limit: number) => typedError<JournalEntry_Serialize[], Error>(__TAURI_INVOKE("instance_journal_read", { instanceId, limit })),
 	/**
 	 *  Delete the instance's journal. The history is the user's own local data,
 	 *  so they get an explicit way to drop it (mirrors "clear old logs"). Absent
 	 *  journal is a no-op.
 	 */
 	instanceJournalClear: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("instance_journal_clear", { instanceId })),
+	/**
+	 *  Read a previously persisted install/import report for `task_id`, in full.
+	 * 
+	 *  No paging contract here, unlike `instance_journal_read`: the journal is a
+	 *  single growing jsonl file that a page size makes sense against, but a
+	 *  report is one small, already-bounded JSON file (rotation caps the total
+	 *  on disk, not any one file's row count), and the History UI wants every
+	 *  row at once so it can filter and virtualize rendering client-side.
+	 * 
+	 *  `Ok(None)` when the task never produced a report, or its report already
+	 *  rotated out — not an error, since both are ordinary states for an
+	 *  instance with a long history.
+	 */
+	instanceReportRead: (instanceId: string, taskId: string) => typedError<{
+	version?: number,
+	task_id: string,
+	/**
+	 *  Wall-clock time the report was written. `f64` — specta-typescript
+	 *  forbids 64-bit integer exports (same convention as
+	 *  `journal::JournalEntry::at_unix_ms`).
+	 */
+	at_unix_ms: number | null,
+	details: TaskDetail[],
+} | null, Error>(__TAURI_INVOKE("instance_report_read", { instanceId, taskId })),
 	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
@@ -2436,6 +2460,19 @@ export type DependencyGraph = {
 };
 
 /**
+ *  What happened to one file.
+ * 
+ *  `fetched` and `placement` are ORTHOGONAL. `fetch_to_cache` always ensures the
+ *  sha-keyed file exists in `mod-cache/` (downloading only on a miss) and
+ *  `materialize` then hardlinks *from that cache path* either way — so a freshly
+ *  downloaded jar is ALSO `Linked`. Collapsing them into one union would make
+ *  "linked" read as "was not downloaded", which is false.
+ */
+export type DetailOutcome = { kind: "installed"; fetched: Fetched; placement: Placement } | 
+/**  Destination already held a byte-identical file; no store call was made. */
+{ kind: "unchanged" } | { kind: "skipped"; reason: string } | { kind: "failed"; reason: string };
+
+/**
  *  A single diagnoser hit. Returned by `diagnose` and consumed
  *  directly by the UI. Pattern_id is on the wire so per-pattern
  *  presentation tweaks (icons, etc.) can be added later without
@@ -2719,6 +2756,13 @@ export type ExportPreview = {
 	 */
 	saves_size_bytes: number | null,
 };
+
+/**
+ *  Whether a file's bytes were pulled over the network for this task, or were
+ *  already sitting in the content-addressed cache from a prior install.
+ *  Orthogonal to [`crate::mods::store::Placement`] — see [`DetailOutcome`].
+ */
+export type Fetched = "downloaded" | "cached";
 
 /**
  *  What the Connect tab shows. `NotApplicable` = non-Windows; `Unknown` = port
@@ -3078,6 +3122,18 @@ export type InstallSummary = {
 	 *  excluded). Empty when the primary had no missing deps.
 	 */
 	installed_dependencies: string[],
+	/**
+	 *  One row per installed jar (primary + dependencies), in `install_seq`
+	 *  order. Unlike the modpack import/update paths — which carry their
+	 *  per-file report on the terminal `Channel` message because they already
+	 *  take one — this command has no channel, so the report rides the
+	 *  return value instead. `InstallSummary` has exactly one producer
+	 *  (`mods_install_with_deps`) and one consumer (the UI toast), which is
+	 *  what makes widening the return value cheap here; the same design was
+	 *  rejected for the modpack paths, where it would have meant inventing an
+	 *  envelope across three unrelated command signatures.
+	 */
+	details: TaskDetail[],
 };
 
 /**
@@ -3237,22 +3293,41 @@ export type IntegrityStatus = {
 };
 
 /**  One recorded moment in an instance's life. */
-export type JournalEntry = {
+export type JournalEntry = JournalEntry_Serialize | JournalEntry_Deserialize;
+
+/**  One recorded moment in an instance's life. */
+export type JournalEntry_Deserialize = {
 	/**
 	 *  Wall-clock time of the recorded action. `f64` because
 	 *  specta-typescript forbids 64-bit integer exports.
 	 */
 	at_unix_ms: number | null,
-	event: JournalEvent,
+	event: JournalEvent_Deserialize,
+};
+
+/**  One recorded moment in an instance's life. */
+export type JournalEntry_Serialize = {
+	/**
+	 *  Wall-clock time of the recorded action. `f64` because
+	 *  specta-typescript forbids 64-bit integer exports.
+	 */
+	at_unix_ms: number | null,
+	event: JournalEvent_Serialize,
 };
 
 /**
  *  What happened. Two variants, each internally uniform, so the UI renders
  *  from a fixed field set per branch instead of a wide grab-bag struct.
  */
-export type JournalEvent = 
+export type JournalEvent = JournalEvent_Serialize | JournalEvent_Deserialize;
+
+/**
+ *  What happened. Two variants, each internally uniform, so the UI renders
+ *  from a fixed field set per branch instead of a wide grab-bag struct.
+ */
+export type JournalEvent_Deserialize = 
 /**  A change to the instance's installed content. */
-{ kind: "content"; action: ContentAction; 
+({ kind: "content"; action: ContentAction; 
 /**
  *  Display name of the affected content (mod title, pack name, asset
  *  filename). Empty for instance-wide actions like integrity repair
@@ -3264,13 +3339,24 @@ subject: string; from_version: string | null; to_version: string | null;
  *  dependencies, modpack update, integrity repair). `None` for
  *  single-subject actions.
  */
-affected: number | null } | 
+affected: number | null; 
+/**
+ *  Id of the `.lucerna/reports/<taskId>.json` this row can deep-link
+ *  to, so History can reopen the task's per-file detail. `None` for
+ *  actions that never produced a report (most single-file changes)
+ *  and for every row recorded before install reports existed.
+ * 
+ *  Additive — rows written before install reports existed deserialise
+ *  to None. `skip_serializing_if` keeps old rows byte-identical on
+ *  rewrite.
+ */
+report_id?: string | null }) & { duration_seconds?: never; exit_code?: never; log_path?: never; outcome?: never } | 
 /**
  *  A launch attempt that has finished. In-flight launches are never
  *  recorded — the running-instances popover already shows those, and a
  *  half-written row would be a second source of truth.
  */
-{ kind: "launch"; outcome: LaunchOutcome; 
+({ kind: "launch"; outcome: LaunchOutcome; 
 /**
  *  `None` when the code is genuinely unknown — the app-exit teardown
  *  kills the game and removes the registry entry before the
@@ -3282,7 +3368,56 @@ exit_code: number | null; duration_seconds: number | null;
  *  The captured game-console log for this run, so a journal row can
  *  deep-link into the log viewer.
  */
-log_path: string | null };
+log_path: string | null }) & { action?: never; affected?: never; from_version?: never; report_id?: never; subject?: never; to_version?: never };
+
+/**
+ *  What happened. Two variants, each internally uniform, so the UI renders
+ *  from a fixed field set per branch instead of a wide grab-bag struct.
+ */
+export type JournalEvent_Serialize = 
+/**  A change to the instance's installed content. */
+({ kind: "content"; action: ContentAction; 
+/**
+ *  Display name of the affected content (mod title, pack name, asset
+ *  filename). Empty for instance-wide actions like integrity repair
+ *  or a bulk dependency install.
+ */
+subject: string; from_version: string | null; to_version: string | null; 
+/**
+ *  Item count for actions that touch more than one file (install with
+ *  dependencies, modpack update, integrity repair). `None` for
+ *  single-subject actions.
+ */
+affected: number | null; 
+/**
+ *  Id of the `.lucerna/reports/<taskId>.json` this row can deep-link
+ *  to, so History can reopen the task's per-file detail. `None` for
+ *  actions that never produced a report (most single-file changes)
+ *  and for every row recorded before install reports existed.
+ * 
+ *  Additive — rows written before install reports existed deserialise
+ *  to None. `skip_serializing_if` keeps old rows byte-identical on
+ *  rewrite.
+ */
+report_id?: string | null }) & { duration_seconds?: never; exit_code?: never; log_path?: never; outcome?: never } | 
+/**
+ *  A launch attempt that has finished. In-flight launches are never
+ *  recorded — the running-instances popover already shows those, and a
+ *  half-written row would be a second source of truth.
+ */
+({ kind: "launch"; outcome: LaunchOutcome; 
+/**
+ *  `None` when the code is genuinely unknown — the app-exit teardown
+ *  kills the game and removes the registry entry before the
+ *  exit-watcher can read a status. Recording a fake `0` there would
+ *  claim a clean exit that was never observed.
+ */
+exit_code: number | null; duration_seconds: number | null; 
+/**
+ *  The captured game-console log for this run, so a journal row can
+ *  deep-link into the log viewer.
+ */
+log_path: string | null }) & { action?: never; affected?: never; from_version?: never; report_id?: never; subject?: never; to_version?: never };
 
 /**
  *  One key's editor row: what the mod ships (English + its own target-language
@@ -3584,7 +3719,36 @@ export type ModInstallPhase = "downloading" | "verifying" | "copying";
  */
 export type ModInstallProgress = { phase: "downloading"; instance_id: string; project_id: string; 
 /**  f64 not u64 — specta forbids BigInt-style exports. */
-bytes_done: number | null; bytes_total: number | null } | { phase: "verifying"; instance_id: string; project_id: string; bytes_done: number | null } | { phase: "copying"; instance_id: string; project_id: string };
+bytes_done: number | null; bytes_total: number | null; 
+/**  1-based index of the jar being installed within this operation. */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number } | { phase: "verifying"; instance_id: string; project_id: string; bytes_done: number | null; 
+/**  1-based index of the jar being installed within this operation. */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number } | { phase: "copying"; instance_id: string; project_id: string; 
+/**
+ *  1-based index of the jar being installed within this operation.
+ *  Copying is phase 2 (commit); by the time it runs, phase 1 has
+ *  already advanced `current` through every item, so this always
+ *  equals `total` — see `install_batch` / `update_one`.
+ */
+current: number; 
+/**
+ *  Total jars this operation will install. `0` while the set is still
+ *  being resolved — manifest extras download before `install_seq`
+ *  exists, so their ticks genuinely have no total yet.
+ */
+total: number };
 
 export type ModInstalled = {
 	instance_id: string,
@@ -3919,7 +4083,15 @@ skipped_overrides: SkippedOverride[];
  *  `InertLoaderJar`). Empty in the common case; non-empty drives a
  *  non-fatal "N inert jar(s)" note on the import-complete toast.
  */
-inert_loader_jars: InertLoaderJar[] };
+inert_loader_jars: InertLoaderJar[]; 
+/**
+ *  One row per file this import touched — what it was, where it came
+ *  from, how big, and what happened to it. Rides this terminal
+ *  message rather than a dedicated event (correlation is free: the
+ *  channel belongs to one invocation); a later task persists it into
+ *  a per-file install report.
+ */
+details: TaskDetail[] };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -4327,7 +4499,14 @@ export type PathStatus =
  */
 "data_root";
 
-/**  How a store entry ended up in the instance. */
+/**
+ *  How a store entry ended up in the instance.
+ * 
+ *  Deserialize (not just Serialize): `tasks::DetailOutcome::Installed` embeds
+ *  this and round-trips through a persisted per-file install report, so a
+ *  write-only derive here would fail to compile the moment that type gained
+ *  its own `Deserialize`.
+ */
 export type Placement = 
 /**  One physical file, shared with the store and any other instance. */
 "linked" | 
@@ -5144,6 +5323,62 @@ export type SourceCaps = {
 	supports_server_filter: boolean,
 	/**  Modrinth/CF support export; FTB packs are curated (nowhere to upload). */
 	can_export: boolean,
+};
+
+/**  One file's provenance and outcome — a row in a per-file install report. */
+export type TaskDetail = {
+	name: string,
+	install_path: string,
+	origin: TaskOrigin,
+	host: string | null,
+	bytes: number | null,
+	sha1: string | null,
+	outcome: DetailOutcome,
+};
+
+/**
+ *  Where a file's bytes came from.
+ * 
+ *  NOT `ModSource`: that enum is Copy+Hash+Eq, is persisted in four on-disk
+ *  schemas and keys the exhaustive `platform_for` match, so widening it with
+ *  archive/local would force meaningless HTTP-client arms. This maps *from* it.
+ * 
+ *  Named `TaskOrigin`, never `Origin` — `l10n::store::Origin` already owns the
+ *  short name and the bindings exporter dedupes on the bare Rust type name
+ *  (the same trap that forced `ModInstallPhase`).
+ */
+export type TaskOrigin = "modrinth" | "curseforge" | "ftb" | "atlauncher" | 
+/**
+ *  A file extracted from a modpack/archive rather than fetched from a
+ *  named platform (e.g. a pack's `overrides/` entry).
+ */
+"archive" | 
+/**
+ *  A user-supplied local file, or a source with no report-worthy
+ *  platform identity (see the `Hangar` mapping below).
+ */
+"local";
+
+/**
+ *  A persisted report: one task's [`TaskDetail`] rows plus the metadata
+ *  needed to find and order them again later.
+ * 
+ *  Deliberately NOT `#[derive(Default)]` — a default `version: 0` would look
+ *  like a pre-`FILE_VERSION` file to a future migration and silently take the
+ *  migration branch on a value nothing ever wrote (see
+ *  `datapacks::registry::OnDisk`'s doc comment for the bug this avoids).
+ *  Every construction site below sets `version: FILE_VERSION` explicitly.
+ */
+export type TaskReport = {
+	version?: number,
+	task_id: string,
+	/**
+	 *  Wall-clock time the report was written. `f64` — specta-typescript
+	 *  forbids 64-bit integer exports (same convention as
+	 *  `journal::JournalEntry::at_unix_ms`).
+	 */
+	at_unix_ms: number | null,
+	details: TaskDetail[],
 };
 
 export type ThemePreference = "system" | "light" | "dark";

@@ -1,4 +1,5 @@
 import type { ContentKind, ModSource } from '$lib/ipc/bindings';
+import type { Granularity, SortDir } from '$lib/screenshots/screenshots-view';
 
 // Cross-component state for opening the Settings modal at a specific tab.
 //
@@ -139,3 +140,10 @@ export const assetsChanged = $state<{ value: number }>({ value: 0 });
 // completes; combobox shows just the "Any version" entry until then.
 import type { VersionEntry } from '$lib/ipc/bindings';
 export const mcVersions = $state<{ value: VersionEntry[] }>({ value: [] });
+
+// Screenshot browsing preferences, shared by the instance tab and the gallery
+// so switching instances does not silently reset the user's choice. Session
+// scope on purpose: a restart returns to days + newest-first, and persisting
+// two view toggles is not worth a Rust settings-schema field + migration.
+export const screenshotGranularity = $state<{ value: Granularity }>({ value: 'day' });
+export const screenshotSortDir = $state<{ value: SortDir }>({ value: 'newest' });

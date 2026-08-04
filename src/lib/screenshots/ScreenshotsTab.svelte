@@ -7,7 +7,7 @@
   import { get } from 'svelte/store';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
-  import ScreenshotGrid from './ScreenshotGrid.svelte';
+  import ScreenshotBrowser from './ScreenshotBrowser.svelte';
 
   let { instanceId }: { instanceId: string | null } = $props();
 
@@ -69,15 +69,12 @@
     </button>
   </div>
 {:else}
-  <div class="flex items-center justify-end px-3 pt-3">
-    <button
-      type="button"
-      class="btn-secondary btn-xs flex items-center gap-1.5"
-      onclick={openFolder}
-    >
-      <Icon name="folderOpen" size={14} />
-      {$t('screenshots.openFolder')}
-    </button>
-  </div>
-  <ScreenshotGrid {shots} onChanged={reload} />
+  <ScreenshotBrowser {shots} onChanged={reload} resetKey={instanceId} {controls} />
 {/if}
+
+{#snippet controls()}
+  <button type="button" class="btn-secondary btn-xs flex items-center gap-1.5" onclick={openFolder}>
+    <Icon name="folderOpen" size={14} />
+    {$t('screenshots.openFolder')}
+  </button>
+{/snippet}

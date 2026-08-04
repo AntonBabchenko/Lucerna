@@ -4,7 +4,7 @@
   // Determinate progress for an in-flight modpack update. `progress === null`
   // is the pre-first-event "preparing" state (also a removal-only update that
   // emits no per-file events) — label only, no bar. Bar markup mirrors
-  // OperationsView.svelte for visual consistency.
+  // OperationsBar.svelte for visual consistency.
   let {
     progress,
   }: {

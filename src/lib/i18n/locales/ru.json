@@ -1174,6 +1174,15 @@
     "filterAll": "Все профили",
     "groupToday": "Сегодня",
     "groupYesterday": "Вчера",
+    "groupBy": "Группировка",
+    "groupDays": "Дни",
+    "groupMonths": "Месяцы",
+    "sortBy": "Порядок",
+    "sortNewest": "Новые",
+    "sortOldest": "Старые",
+    "showMore": "Показать ещё",
+    "shownOf": "Показано {shown} из {total}",
+    "total": "Всего {n}",
     "toolPan": "Перемещение",
     "toolMarker": "Маркер",
     "toolEraser": "Ластик",
@@ -2505,10 +2514,11 @@
       "yearsAgo": "{n} г назад"
     },
     "size": {
-      "bytes": "{n} Б",
-      "kilobytes": "{n} КБ",
-      "megabytes": "{n} МБ",
-      "gigabytes": "{n} ГБ"
+      "bytes": "{n, number, ::group-off} Б",
+      "kilobytes": "{n, number, ::.0 group-off} КБ",
+      "megabytes": "{n, number, ::.0 group-off} МБ",
+      "gigabytes": "{n, number, ::.00 group-off} ГБ",
+      "perSecond": "{size}/с"
     },
     "duration": {
       "lessThanMinute": "< 1 мин",
@@ -3261,6 +3271,78 @@
       "import": "Импортировать",
       "importing": "Импортирую…",
       "back": "Назад"
+    }
+  },
+  "tasks": {
+    "kind": {
+      "gameInstall": "Установка Minecraft",
+      "modInstall": "Установка модов",
+      "modUpdate": "Обновление модов",
+      "packImport": "Импорт сборки",
+      "launcherImport": "Импорт из лаунчера",
+      "packUpdate": "Обновление сборки",
+      "clone": "Клонирование инстанса",
+      "verify": "Проверка инстанса",
+      "repair": "Восстановление инстанса",
+      "serverUpload": "Заливка сервера",
+      "appUpdate": "Обновление Lucerna",
+      "dataMigration": "Перенос папки данных"
+    },
+    "origin": {
+      "modrinth": "Modrinth",
+      "curseforge": "CurseForge",
+      "ftb": "FTB",
+      "atlauncher": "ATLauncher",
+      "archive": "Архив сборки",
+      "local": "Локальный файл"
+    },
+    "strip": {
+      "count": "{count, plural, one {# операция} few {# операции} many {# операций} other {# операций}}",
+      "eta": "~{clock}",
+      "toggle": "Показать подробности операции",
+      "finishedSummary": "{count, plural, one {# операция завершена} few {# операции завершены} many {# операций завершено} other {# операций завершено}}"
+    },
+    "panel": {
+      "ariaLabel": "Подробности операции",
+      "runningHeading": "Выполняются",
+      "queuedHeading": "В очереди",
+      "finishedHeading": "Завершённые",
+      "clearFinished": "Очистить",
+      "details": "Подробнее",
+      "modalLock": "Нельзя отменить"
+    },
+    "report": {
+      "title": "Отчёт об установке",
+      "filesCount": "{count, plural, one {# файл} few {# файла} many {# файлов} other {# файлов}}",
+      "filterAriaLabel": "Фильтр по результату",
+      "filter": {
+        "installed": "{count} установлено",
+        "unchanged": "{count} без изменений",
+        "skipped": "{count} пропущено",
+        "failed": "{count} не удалось"
+      },
+      "badge": {
+        "installed": "Установлено",
+        "unchanged": "Без изменений",
+        "skipped": "Пропущено",
+        "failed": "Ошибка"
+      },
+      "outcome": {
+        "downloadedLinked": "Скачан · связан с общим файлом",
+        "cachedLinked": "Уже был в кэше · связан с общим файлом",
+        "downloadedCopied": "Скачан · скопирован как отдельный файл",
+        "cachedCopied": "Уже был в кэше · скопирован как отдельный файл",
+        "unchanged": "Уже актуален — ничего не скачивалось"
+      },
+      "reason": "Причина: {reason}",
+      "detail": {
+        "host": "Хост",
+        "sha1": "SHA-1",
+        "path": "Путь установки"
+      },
+      "empty": "Для этой операции не записано ни одного файла.",
+      "emptyFiltered": "Нет файлов, соответствующих фильтру.",
+      "copyReport": "Копировать отчёт"
     }
   }
 }

@@ -9,6 +9,7 @@ use crate::mods::modpack::overrides;
 use crate::mods::modpack::schema::*;
 use crate::mods::modpack::{curseforge as cf_parse, modrinth as mr_parse};
 use crate::mods::platform::{ModFile, ModSource, ModVersion};
+use crate::tasks::{DetailOutcome, Fetched, TaskDetail, TaskOrigin};
 use futures_util::stream::{self, StreamExt};
 
 /// Concurrent download fan-out width for the modpack pre-warm pass. Matches
@@ -674,6 +675,254 @@ fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
     out
 }
 
+/// Build one `TaskDetail` row for a `ModpackFile` seen by the fresh-import
+/// per-file loop. `sha1` is a parameter — not derived from `file.sha1`
+/// internally — because the ATLauncher md5-resolve-failure path never
+/// learns the real sha1 and must report `None`, not the md5-as-sha1
+/// selection token. Trimmed and empty-checked the same way
+/// `modpack_file_to_mod_version` treats `ModFile.sha1`, so a blank sha1
+/// never surfaces as a fake identity. `bytes` is the manifest's DECLARED
+/// size (`ModpackFile::size`) — never verified against what actually
+/// landed on disk.
+///
+/// `pub(crate)`: also reused by `commands::modpack_cmds::apply_update_diff`
+/// (the modpack-update phase-2 loop) so the two per-file install reports
+/// stay byte-for-byte consistent instead of drifting apart.
+pub(crate) fn modpack_file_detail(
+    file: &ModpackFile,
+    sha1: Option<&str>,
+    outcome: DetailOutcome,
+) -> TaskDetail {
+    TaskDetail {
+        name: file.name.clone(),
+        install_path: file.install_path.clone(),
+        origin: file.source.into(),
+        host: crate::network::request::host_of(&file.url),
+        bytes: Some(file.size),
+        sha1: sha1
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        outcome,
+    }
+}
+
+/// Build the `TaskDetail` row for a file the archive extractor wrote
+/// directly to disk (`overrides/`). `ExtractedAsset` carries no
+/// name/url/source (see its own doc comment), so this row always reports
+/// `TaskOrigin::Archive` and `host: None` — mirrors how the origin snapshot
+/// folds these in with an empty `url` a few lines below in
+/// `install_resolved_pack`.
+///
+/// `fetched`/`placement`: the bytes came from the archive already held in
+/// memory — no `fetch_to_cache` cache decision applies — and were written
+/// via `store::place_bytes`, an independent per-instance copy, never a
+/// `mod-cache/`-linked entry, so `Placement::Copied` is accurate.
+/// `Fetched::Downloaded` is the closer of the two available variants: the
+/// bytes are NOT "already sitting in the cache from a prior install" (the
+/// definition of `Cached`) — they are fresh to this import.
+fn extracted_asset_detail(asset: &overrides::ExtractedAsset) -> TaskDetail {
+    TaskDetail {
+        name: asset
+            .filename
+            .trim_end_matches(".jar")
+            .trim_end_matches(".disabled")
+            .to_string(),
+        install_path: asset.install_path.clone(),
+        origin: TaskOrigin::Archive,
+        host: None,
+        bytes: Some(asset.size as f64),
+        sha1: Some(asset.sha1.clone()),
+        outcome: DetailOutcome::Installed {
+            fetched: Fetched::Downloaded,
+            placement: crate::mods::store::Placement::Copied,
+        },
+    }
+}
+
+/// Build the `TaskDetail` row for an `overrides/` entry the extractor
+/// skipped for exceeding the per-file size cap. Declared-oversize entries
+/// are never read into memory (see `overrides::extract`), so no sha1 exists
+/// to report.
+fn skipped_override_detail(skipped: &SkippedOverride) -> TaskDetail {
+    let name = skipped
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&skipped.path)
+        .to_string();
+    TaskDetail {
+        name,
+        install_path: skipped.path.clone(),
+        origin: TaskOrigin::Archive,
+        host: None,
+        bytes: Some(skipped.size),
+        sha1: None,
+        outcome: DetailOutcome::Skipped {
+            reason: "exceeds the per-file size cap".to_string(),
+        },
+    }
+}
+
+/// The fresh-import per-file install loop, extracted from
+/// `install_resolved_pack` so it can be driven directly in tests: it needs
+/// only plain paths (`data_dir`/`instance_root`), not an `AppHandle`, and
+/// this codebase has no test harness for mocking one (`install_resolved_pack`
+/// itself has never been unit-tested end-to-end — only its pure helpers,
+/// e.g. `build_pack_origin`, are).
+///
+/// Returns the pre-existing `(failures, resolved_for_origin)` pair
+/// unchanged, plus one `TaskDetail` row per file for the install report.
+/// Behaviour is otherwise identical to the loop this replaces — see the
+/// inline comments carried over from there for the ATLauncher md5
+/// pre-resolve step and the 97e2bd3 "record even on failure" invariant.
+#[allow(clippy::too_many_arguments)]
+async fn install_selected_files(
+    data_dir: &std::path::Path,
+    instance_root: &std::path::Path,
+    selected: &[&ModpackFile],
+    game_version: &str,
+    loader: crate::mods::platform::LoaderKind,
+    on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
+    install_progress: &ProgressFn,
+) -> (Vec<(String, String)>, Vec<ModpackFile>, Vec<TaskDetail>) {
+    let total = selected.len() as u32;
+    let mut failures: Vec<(String, String)> = vec![];
+    let mut resolved_for_origin: Vec<ModpackFile> = Vec::with_capacity(selected.len());
+    let mut details: Vec<TaskDetail> = Vec::with_capacity(selected.len());
+
+    for (idx, file) in selected.iter().enumerate() {
+        on_progress(ModpackProgress::InstallingFile {
+            current: idx as u32 + 1,
+            total,
+            file_name: file.name.clone(),
+        });
+
+        // ATLauncher md5 files: the summary's sha1 holds the md5 (selection token).
+        // Pre-resolve the real sha1 by downloading + md5-verifying into the
+        // sha1-keyed cache, then run the normal install path on a clone whose
+        // sha1 is the real one (guaranteed cache hit — no second download).
+        let resolved_owned;
+        let file: &ModpackFile = if let Some(md5) = &file.md5 {
+            match crate::mods::install::fetch_to_cache_md5(
+                data_dir,
+                &file.url,
+                md5,
+                file.size,
+                "modpacks",
+                install_progress,
+            )
+            .await
+            {
+                Ok((_, real_sha1)) => {
+                    let mut c = (*file).clone();
+                    c.sha1 = real_sha1;
+                    c.md5 = None;
+                    resolved_owned = c;
+                    &resolved_owned
+                }
+                Err(e) => {
+                    let reason = e.to_string();
+                    failures.push((file.install_path.clone(), reason.clone()));
+                    // The real sha1 was never computed here — report `None`,
+                    // not the md5-as-sha1 selection token (which PackOrigin
+                    // also refuses to persist, per the debug_assert in the
+                    // caller).
+                    details.push(modpack_file_detail(
+                        file,
+                        None,
+                        DetailOutcome::Failed { reason },
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            file
+        };
+
+        if file.install_path.starts_with("mods/") {
+            let mv = modpack_file_to_mod_version(file, game_version, loader);
+            match install_one(data_dir, instance_root, mv, install_progress).await {
+                Ok(installed) => {
+                    // `placement: None` is install_one's idempotent-skip
+                    // branch (destination already byte-identical, no store
+                    // call made) — exactly `DetailOutcome::Unchanged`'s
+                    // definition, not a lie-by-omission `Installed`.
+                    let outcome = match installed.placement {
+                        Some(placement) => DetailOutcome::Installed {
+                            fetched: installed.fetched,
+                            placement,
+                        },
+                        None => DetailOutcome::Unchanged,
+                    };
+                    details.push(modpack_file_detail(file, Some(&installed.sha1), outcome));
+                }
+                Err(e) => {
+                    let reason = e.to_string();
+                    failures.push((file.install_path.clone(), reason.clone()));
+                    details.push(modpack_file_detail(
+                        file,
+                        Some(&file.sha1),
+                        DetailOutcome::Failed { reason },
+                    ));
+                }
+            }
+        } else {
+            match install_asset(
+                data_dir,
+                instance_root,
+                &file.url,
+                &file.sha1,
+                file.size,
+                &file.install_path,
+                install_progress,
+            )
+            .await
+            {
+                Ok(asset) => {
+                    register_asset_if_applicable(
+                        instance_root,
+                        &file.install_path,
+                        &file.filename,
+                        &file.sha1,
+                        &file.name,
+                        Some(file.source),
+                        (!file.project_id.is_empty()).then(|| file.project_id.clone()),
+                        (!file.version_id.is_empty()).then(|| file.version_id.clone()),
+                    )
+                    .await;
+                    details.push(modpack_file_detail(
+                        file,
+                        Some(&file.sha1),
+                        DetailOutcome::Installed {
+                            fetched: asset.fetched,
+                            placement: asset.placement,
+                        },
+                    ));
+                }
+                Err(e) => {
+                    let reason = e.to_string();
+                    failures.push((file.install_path.clone(), reason.clone()));
+                    details.push(modpack_file_detail(
+                        file,
+                        Some(&file.sha1),
+                        DetailOutcome::Failed { reason },
+                    ));
+                }
+            }
+        }
+
+        // Record in the pack origin regardless of install outcome: a file that
+        // failed to install must still appear in the snapshot so it surfaces as
+        // `removed_files` (with a Restore affordance), matching pre-97e2bd3
+        // behaviour. (ATL md5 files whose md5-fetch failed already `continue`d
+        // above and are intentionally excluded — we never persist an md5 token.)
+        resolved_for_origin.push((*file).clone());
+    }
+
+    (failures, resolved_for_origin, details)
+}
+
 /// Shared install pipeline for a pack whose manifest has already been
 /// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
 /// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
@@ -682,6 +931,12 @@ fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
 /// `archive_bytes` is `None` for FTB packs — they have no local archive
 /// and therefore no overrides to extract; the overrides block is guarded
 /// by this option. All other behaviour is identical for every format.
+///
+/// Returns the per-file `TaskDetail` rows alongside the created instance —
+/// NOT carried on `InstanceWithStatus` itself (that type is the general
+/// instance schema, reused far beyond one import) — so the caller
+/// (`commands::modpack_cmds::journal_pack_import`) can persist them into an
+/// install report and stamp the journal row that names it.
 #[allow(clippy::too_many_arguments)]
 pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
@@ -703,7 +958,13 @@ pub async fn install_resolved_pack(
     // wrapped channel closure already satisfies these bounds.
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+) -> Result<
+    (
+        crate::instances::schema::InstanceWithStatus,
+        Vec<TaskDetail>,
+    ),
+    Error,
+> {
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
     }
@@ -835,14 +1096,6 @@ pub async fn install_resolved_pack(
                 .any(|s| s.eq_ignore_ascii_case(&f.sha1))
         })
         .collect();
-    let total = selected.len() as u32;
-    let mut failures: Vec<(String, String)> = vec![];
-    // Accumulate files with their REAL sha1s for the origin snapshot.
-    // ATLauncher md5 files carry md5-in-sha1 as a transient selection token;
-    // the pre-resolve step below replaces it with the real computed sha1.
-    // Non-md5 files are pushed as-is (the selection token IS the real sha1).
-    let mut resolved_for_origin: Vec<ModpackFile> = Vec::with_capacity(selected.len());
-
     // Concurrent pre-warm (HIGH-5): download every sha1-keyed selected file
     // into the shared content cache, up to MODPACK_PREWARM_CONCURRENCY at a
     // time, BEFORE the serial install loop below. The loop is otherwise
@@ -858,86 +1111,16 @@ pub async fn install_resolved_pack(
     // the instance. (ATLauncher md5 files are excluded — see `prewarm_targets`.)
     prewarm_cache(&data_dir, &selected, &install_progress).await;
 
-    for (idx, file) in selected.iter().enumerate() {
-        on_progress(ModpackProgress::InstallingFile {
-            current: idx as u32 + 1,
-            total,
-            file_name: file.name.clone(),
-        });
-
-        // ATLauncher md5 files: the summary's sha1 holds the md5 (selection token).
-        // Pre-resolve the real sha1 by downloading + md5-verifying into the
-        // sha1-keyed cache, then run the normal install path on a clone whose
-        // sha1 is the real one (guaranteed cache hit — no second download).
-        let resolved_owned;
-        let file: &ModpackFile = if let Some(md5) = &file.md5 {
-            match crate::mods::install::fetch_to_cache_md5(
-                &data_dir,
-                &file.url,
-                md5,
-                file.size,
-                "modpacks",
-                &install_progress,
-            )
-            .await
-            {
-                Ok((_, real_sha1)) => {
-                    let mut c = (*file).clone();
-                    c.sha1 = real_sha1;
-                    c.md5 = None;
-                    resolved_owned = c;
-                    &resolved_owned
-                }
-                Err(e) => {
-                    failures.push((file.install_path.clone(), e.to_string()));
-                    continue;
-                }
-            }
-        } else {
-            file
-        };
-
-        let res = if file.install_path.starts_with("mods/") {
-            let mv = modpack_file_to_mod_version(file, &summary.game_version, summary.loader);
-            install_one(&data_dir, &instance_root, mv, &install_progress)
-                .await
-                .map(|_| ())
-        } else {
-            let r = install_asset(
-                &data_dir,
-                &instance_root,
-                &file.url,
-                &file.sha1,
-                file.size,
-                &file.install_path,
-                &install_progress,
-            )
-            .await;
-            if r.is_ok() {
-                register_asset_if_applicable(
-                    &instance_root,
-                    &file.install_path,
-                    &file.filename,
-                    &file.sha1,
-                    &file.name,
-                    Some(file.source),
-                    (!file.project_id.is_empty()).then(|| file.project_id.clone()),
-                    (!file.version_id.is_empty()).then(|| file.version_id.clone()),
-                )
-                .await;
-            }
-            r
-        };
-        if let Err(e) = &res {
-            failures.push((file.install_path.clone(), e.to_string()));
-        }
-        // Record in the pack origin regardless of install outcome: a file that
-        // failed to install must still appear in the snapshot so it surfaces as
-        // `removed_files` (with a Restore affordance), matching pre-97e2bd3
-        // behaviour. (ATL md5 files whose md5-fetch failed already `continue`d
-        // above and are intentionally excluded — we never persist an md5 token.)
-        resolved_for_origin.push((*file).clone());
-    }
+    let (failures, resolved_for_origin, mut details) = install_selected_files(
+        &data_dir,
+        &instance_root,
+        &selected,
+        &summary.game_version,
+        summary.loader,
+        on_progress,
+        &install_progress,
+    )
+    .await;
 
     // md5-in-sha1 selection tokens must never reach the persisted PackOrigin.
     debug_assert!(
@@ -971,6 +1154,11 @@ pub async fn install_resolved_pack(
             skipped_overrides = outcome.skipped;
         }
     }
+    // One TaskDetail row per bundled/skipped overrides entry, alongside the
+    // rows `install_selected_files` already produced for the manifest-listed
+    // files.
+    details.extend(bundled_assets.iter().map(extracted_asset_detail));
+    details.extend(skipped_overrides.iter().map(skipped_override_detail));
 
     // Persist the origin snapshot. Best-effort — the import itself
     // is already done at this point; a write failure here only loses
@@ -1076,10 +1264,14 @@ pub async fn install_resolved_pack(
         instance_id: inst.id.clone(),
         skipped_overrides,
         inert_loader_jars,
+        // Cloned: the live-toast progress event and the returned details both
+        // need an owned copy — the caller persists the latter into a report
+        // right after this call returns.
+        details: details.clone(),
     });
 
     if failures.is_empty() {
-        Ok(inst)
+        Ok((inst, details))
     } else {
         Err(Error::ModpackPartialFailure {
             instance_id: inst.id,
@@ -1105,7 +1297,13 @@ pub async fn import(
     hint_version_id: Option<String>,
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+) -> Result<
+    (
+        crate::instances::schema::InstanceWithStatus,
+        Vec<TaskDetail>,
+    ),
+    Error,
+> {
     on_progress(ModpackProgress::Inspecting);
     let summary = inspect(bytes, cf_base).await?;
     install_resolved_pack(
@@ -2393,6 +2591,240 @@ mod tests {
             status.removed_files[0].sha1, "bbbb2222",
             "the failed-install file must surface as removed_files so Restore is available"
         );
+    }
+
+    // ── Per-file install report (`TaskDetail`) ──────────────────────────────
+
+    #[test]
+    fn modpack_file_detail_derives_origin_host_and_declared_bytes() {
+        let file = sample_file("cafef00d");
+        let detail = modpack_file_detail(&file, Some(&file.sha1), DetailOutcome::Unchanged);
+        assert_eq!(detail.name, file.name);
+        assert_eq!(detail.install_path, file.install_path);
+        assert_eq!(detail.origin, TaskOrigin::Modrinth);
+        assert_eq!(
+            detail.host.as_deref(),
+            Some("example.com"),
+            "host must be parsed from the file's url"
+        );
+        assert_eq!(
+            detail.bytes,
+            Some(42.0),
+            "bytes reports the manifest's DECLARED size, never a measured one"
+        );
+        assert_eq!(detail.sha1.as_deref(), Some("cafef00d"));
+    }
+
+    #[test]
+    fn modpack_file_detail_reports_no_sha1_when_unresolved() {
+        let file = sample_file("irrelevant");
+        // Whitespace-only sha1 (mirrors modpack_file_to_mod_version's own
+        // empty-sha1-to-None convention) must not surface as a fake identity.
+        let whitespace = modpack_file_detail(
+            &file,
+            Some("   "),
+            DetailOutcome::Failed {
+                reason: "boom".into(),
+            },
+        );
+        assert_eq!(whitespace.sha1, None);
+        // No sha1 known at all (the ATL md5-resolve-failure case: the real
+        // sha1 was never computed).
+        let none = modpack_file_detail(
+            &file,
+            None,
+            DetailOutcome::Failed {
+                reason: "boom".into(),
+            },
+        );
+        assert_eq!(none.sha1, None);
+    }
+
+    #[test]
+    fn extracted_asset_detail_reports_archive_origin_and_no_host() {
+        let asset = overrides::ExtractedAsset {
+            install_path: "mods/foo.jar".into(),
+            filename: "foo.jar".into(),
+            sha1: "abc123".into(),
+            size: 555,
+        };
+        let detail = extracted_asset_detail(&asset);
+        assert_eq!(detail.origin, TaskOrigin::Archive);
+        assert_eq!(
+            detail.host, None,
+            "an archive-extracted file has no remote host"
+        );
+        assert_eq!(detail.install_path, "mods/foo.jar");
+        assert_eq!(detail.name, "foo", "name strips the .jar suffix");
+        assert_eq!(detail.bytes, Some(555.0));
+        assert_eq!(detail.sha1.as_deref(), Some("abc123"));
+        assert_eq!(
+            detail.outcome,
+            DetailOutcome::Installed {
+                fetched: Fetched::Downloaded,
+                placement: crate::mods::store::Placement::Copied,
+            }
+        );
+    }
+
+    #[test]
+    fn skipped_override_detail_reports_skipped_with_no_sha1() {
+        let skipped = SkippedOverride {
+            path: "mods/mods.rar".into(),
+            size: 999.0,
+        };
+        let detail = skipped_override_detail(&skipped);
+        assert_eq!(detail.origin, TaskOrigin::Archive);
+        assert_eq!(detail.host, None);
+        assert_eq!(detail.install_path, "mods/mods.rar");
+        assert_eq!(detail.name, "mods.rar");
+        assert_eq!(detail.bytes, Some(999.0));
+        assert_eq!(
+            detail.sha1, None,
+            "an oversized override is never read into memory, so no sha1 exists"
+        );
+        match detail.outcome {
+            DetailOutcome::Skipped { reason } => assert!(!reason.is_empty()),
+            other => panic!("expected Skipped outcome, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn install_selected_files_reports_one_detail_row_per_installed_file() {
+        use sha1::{Digest, Sha1};
+        use tempfile::TempDir;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mod_body: &[u8] = b"mod-report-bytes";
+        let mod_sha1 = hex::encode(Sha1::digest(mod_body));
+        let asset_body: &[u8] = b"resourcepack-report-bytes";
+        let asset_sha1 = hex::encode(Sha1::digest(asset_body));
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/mod.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(mod_body.to_vec()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rp.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(asset_body.to_vec()))
+            .mount(&server)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+
+        let mut mod_file = sample_file(&mod_sha1);
+        mod_file.filename = "mod.jar".into();
+        mod_file.install_path = "mods/mod.jar".into();
+        mod_file.url = format!("{}/mod.jar", server.uri());
+
+        let mut asset_file = sample_file(&asset_sha1);
+        asset_file.filename = "rp.zip".into();
+        asset_file.install_path = "resourcepacks/rp.zip".into();
+        asset_file.url = format!("{}/rp.zip", server.uri());
+
+        let selected: Vec<&ModpackFile> = vec![&mod_file, &asset_file];
+        let noop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+        let on_progress: &(dyn Fn(ModpackProgress) + Send + Sync) = &|_| {};
+
+        let (failures, resolved_for_origin, details) = install_selected_files(
+            td_data.path(),
+            td_inst.path(),
+            &selected,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+            on_progress,
+            &noop,
+        )
+        .await;
+
+        assert!(
+            failures.is_empty(),
+            "expected no failures, got {failures:?}"
+        );
+        assert_eq!(resolved_for_origin.len(), 2);
+        assert_eq!(details.len(), 2, "one TaskDetail row per selected file");
+
+        let mod_detail = details
+            .iter()
+            .find(|d| d.install_path == "mods/mod.jar")
+            .expect("mod file must have a detail row");
+        assert_eq!(mod_detail.origin, TaskOrigin::Modrinth);
+        assert_eq!(mod_detail.host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(mod_detail.sha1.as_deref(), Some(mod_sha1.as_str()));
+        assert_eq!(mod_detail.bytes, Some(42.0));
+        assert_eq!(
+            mod_detail.outcome,
+            DetailOutcome::Installed {
+                fetched: Fetched::Downloaded,
+                placement: crate::mods::store::Placement::Linked,
+            },
+            "a fresh mods/ install must report the REAL fetched+placement from install_one"
+        );
+
+        let asset_detail = details
+            .iter()
+            .find(|d| d.install_path == "resourcepacks/rp.zip")
+            .expect("asset file must have a detail row");
+        assert_eq!(asset_detail.origin, TaskOrigin::Modrinth);
+        assert_eq!(
+            asset_detail.outcome,
+            DetailOutcome::Installed {
+                fetched: Fetched::Downloaded,
+                placement: crate::mods::store::Placement::Copied,
+            },
+            "install_asset always force-copies — never linked"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_selected_files_reports_failed_detail_when_install_errors() {
+        use tempfile::TempDir;
+
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+
+        // A host that is never on the allowlist and never seam-permitted:
+        // fails fast in the network chokepoint, no real dial, no mock server
+        // needed.
+        let mut file = sample_file("deadbeefcafe");
+        file.url = "https://not-on-allowlist.example.invalid/x.jar".into();
+
+        let selected: Vec<&ModpackFile> = vec![&file];
+        let noop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+        let on_progress: &(dyn Fn(ModpackProgress) + Send + Sync) = &|_| {};
+
+        let (failures, resolved_for_origin, details) = install_selected_files(
+            td_data.path(),
+            td_inst.path(),
+            &selected,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+            on_progress,
+            &noop,
+        )
+        .await;
+
+        assert_eq!(failures.len(), 1, "the failure must still be counted");
+        assert_eq!(
+            resolved_for_origin.len(),
+            1,
+            "a failed file must still be recorded in the origin snapshot (97e2bd3)"
+        );
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].sha1.as_deref(), Some("deadbeefcafe"));
+        match &details[0].outcome {
+            DetailOutcome::Failed { reason } => assert!(
+                !reason.is_empty(),
+                "a failed row must carry a non-empty reason"
+            ),
+            other => panic!("expected a Failed outcome, got {other:?}"),
+        }
     }
 
     // ── classify_inert_loader_jars (import-time wrong-loader detection) ────────

@@ -34,7 +34,7 @@
   // filter state survive switching tabs), the pack-detail drawer, and the
   // inspect → picker step of an import. Once the user confirms the picker, the
   // actual import is handed up to the page via `onImport` — the PAGE owns the
-  // op-queue store + OperationsView widget, so the modal can be closed
+  // op-queue store + OperationsBar strip, so the modal can be closed
   // mid-import without losing progress or the new-instance handoff.
   //
   // The picker dialog stashes the file path on the `ModpackSummary` (`._path`)
@@ -270,7 +270,7 @@
   }
 
   // The user confirmed the picker. Hand the import request up to the page
-  // (which owns the op-queue store + OperationsView widget) and clear the
+  // (which owns the op-queue store + OperationsBar strip) and clear the
   // local picker state. Synchronous — ModpacksTab no longer awaits the import,
   // so closing the modal here is harmless.
   function confirmImport(selectedShas: string[]) {

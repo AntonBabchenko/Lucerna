@@ -32,6 +32,7 @@
 <button
   bind:this={el}
   type="button"
+  data-testid="screenshot-card"
   class="relative block aspect-video w-full overflow-hidden rounded border border-border-subtle bg-base"
   onclick={() => onOpen(shot)}
   use:tooltip={shot.file_name}

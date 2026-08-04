@@ -319,7 +319,7 @@ pub async fn install_missing_into_dir(
             &nop,
         )
         .await?;
-        let bytes = tokio::fs::read(&cached)
+        let bytes = tokio::fs::read(&cached.path)
             .await
             .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
         if !jar_provides(&bytes, &needed_id) {
@@ -332,7 +332,7 @@ pub async fn install_missing_into_dir(
             continue;
         }
         let out = dest.join(&candidate.primary_file.filename);
-        tokio::fs::copy(&cached, &out)
+        tokio::fs::copy(&cached.path, &out)
             .await
             .map_err(|e| crate::error::Error::io(out.display().to_string(), e))?;
         report
