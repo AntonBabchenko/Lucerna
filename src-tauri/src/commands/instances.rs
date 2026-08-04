@@ -34,7 +34,12 @@ pub async fn launch_instance(
     crate::data_root::reject_if_fallen_back(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
     // library/client jars — the JVM could read a half-written file and crash.
-    if crate::verify::repair_in_progress() {
+    // Same reasoning for a datapack update mid-flight: it is a download plus
+    // one level.dat rewrite per world, the game rewrites level.dat on save
+    // and exit, and whichever side loses the race silently reverts the
+    // user's enable/disable choices. The forward direction (no datapack
+    // write while the game runs) is `datapacks::guard`.
+    if crate::verify::repair_in_progress() || crate::datapacks::guard::update_in_progress() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Stop here rather than letting the JVM die on an InvalidPathException. We

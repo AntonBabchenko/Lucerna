@@ -29,6 +29,7 @@ pub mod overview;
 pub mod pack_meta;
 pub mod registry;
 pub mod state;
+pub mod update;
 pub mod world_link;
 
 /// One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
@@ -184,6 +185,20 @@ pub enum WorldMigration {
         world: String,
         details: String,
     },
+}
+
+/// The result of `datapacks_update_one`.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct DatapackUpdateOutcome {
+    /// The new registry row, carrying the target version's provenance.
+    pub pack: InstalledDatapack,
+    /// Per-world outcomes: same-name refreshes plus cross-name migrations.
+    pub migrations: Vec<WorldMigration>,
+    /// `false` ⟹ at least one world failed to migrate. The OLD library file
+    /// and its registry row were kept — both versions sit in the library until
+    /// a re-run converges, which it does because a migrated world no longer
+    /// holds the old filename (§8.5: no rollback by design).
+    pub completed: bool,
 }
 
 /// One world's outcome of a library removal.

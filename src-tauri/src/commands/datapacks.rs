@@ -266,6 +266,44 @@ pub async fn datapacks_check_updates(
     Ok(out)
 }
 
+/// Apply one datapack update: install the target version into the library and
+/// propagate it into every world holding the pack, preserving each world's
+/// own enabled/disabled choice (`datapacks::update::update_at`, the §8.5
+/// corrected algorithm).
+///
+/// Holds [`crate::datapacks::guard::DatapackUpdateGuard`] for the duration so
+/// `launch_instance` refuses to start mid-update: the forward [`guard`] below
+/// is a one-shot `is_running` snapshot calibrated for sub-second commands,
+/// and this one inserts a network download plus N level.dat writes into its
+/// window. Wrapped in `with_interactive` like `asset_update_one` — the user
+/// is watching this download.
+#[tauri::command]
+#[specta::specta]
+pub async fn datapacks_update_one(
+    app: tauri::AppHandle,
+    instance_id: String,
+    old_filename: String,
+    target: crate::mods::platform::ModVersion,
+) -> Result<crate::datapacks::DatapackUpdateOutcome, crate::error::Error> {
+    guard(&instance_id)?;
+    let _update_guard = crate::datapacks::guard::DatapackUpdateGuard::acquire()
+        .ok_or(crate::error::Error::InstanceBusy)?;
+    let root = crate::datapacks::instance_root(&app, &instance_id)?;
+    let dd = super::data_dir(&app)?;
+    crate::network::throttle::with_interactive(async move {
+        let bytes = fetch_datapack_bytes(&dd, &target).await?;
+        crate::datapacks::update::update_at(
+            &root,
+            &old_filename,
+            &target.primary_file.filename,
+            &bytes,
+            &provenance_of(&target),
+        )
+        .await
+    })
+    .await
+}
+
 /// Toggle a datapack's enabled/disabled state for one world. level.dat only —
 /// the file itself is never touched.
 #[tauri::command]

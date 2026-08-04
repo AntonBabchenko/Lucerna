@@ -366,6 +366,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_datapack_versions,
             commands::datapacks_install_from_version,
             commands::datapacks_check_updates,
+            commands::datapacks_update_one,
             // In-game mod localization (translation coverage + override editor):
             commands::l10n_coverage,
             commands::l10n_namespace_keys,

@@ -20,6 +20,8 @@
 //! gate rejects the common case up front; the OS-lock mapping still covers
 //! the race.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::error::{Error, Result};
 
 pub fn datapack_write_allowed(is_running: bool) -> Result<()> {
@@ -27,6 +29,47 @@ pub fn datapack_write_allowed(is_running: bool) -> Result<()> {
         return Err(Error::InstanceBusy);
     }
     Ok(())
+}
+
+/// Set while `datapacks_update_one` is rewriting a pack across its worlds.
+///
+/// [`datapack_write_allowed`] above is the FORWARD gate — no datapack write
+/// while the game runs — built on a one-shot `is_running` snapshot that
+/// `guard`'s module doc calibrates to "the sub-second window every other
+/// instance command already accepts". An update does not fit that
+/// calibration: it inserts a network download plus one level.dat
+/// read-modify-write per world into the window, so the user can start the
+/// game halfway through. This is the REVERSE gate: `launch_instance` refuses
+/// to start while an update is mid-flight — the exact shape of
+/// `verify::RepairGuard`, which launch already consults for the same reason.
+static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// True while a datapack update is rewriting worlds. Checked by the launch
+/// path.
+pub fn update_in_progress() -> bool {
+    UPDATE_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+/// RAII guard for the update-in-progress flag. `acquire()` returns `None`
+/// when an update is already running (rejects a concurrent second update even
+/// if the frontend queue is bypassed); the flag clears on drop — panic-safe.
+pub struct DatapackUpdateGuard {
+    _private: (),
+}
+
+impl DatapackUpdateGuard {
+    pub fn acquire() -> Option<Self> {
+        UPDATE_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| DatapackUpdateGuard { _private: () })
+    }
+}
+
+impl Drop for DatapackUpdateGuard {
+    fn drop(&mut self) {
+        UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]
@@ -44,5 +87,24 @@ mod tests {
             datapack_write_allowed(true).unwrap_err(),
             Error::InstanceBusy
         ));
+    }
+
+    #[test]
+    fn update_guard_is_exclusive_and_clears_on_drop() {
+        // Process-global state: this is the only test that touches it, same
+        // arrangement as `verify`'s RepairGuard test.
+        assert!(!update_in_progress());
+        let g1 = DatapackUpdateGuard::acquire().expect("first acquire succeeds");
+        assert!(update_in_progress());
+        assert!(
+            DatapackUpdateGuard::acquire().is_none(),
+            "a second concurrent update must be rejected"
+        );
+        drop(g1);
+        assert!(!update_in_progress());
+        let g2 = DatapackUpdateGuard::acquire().expect("re-acquire after drop");
+        assert!(update_in_progress());
+        drop(g2);
+        assert!(!update_in_progress());
     }
 }
