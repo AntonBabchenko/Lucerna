@@ -65,6 +65,14 @@ function sameScope(a: Task['scope'], b: Task['scope']): boolean {
   return a.instanceId === b.instanceId && a.serverId === b.serverId;
 }
 
+/** A task is "active" for exactly as long as it hasn't reached a terminal
+ *  state. Shared by `taskFor`/`clearFinished` here and by `OperationsBar`'s
+ *  active/finished split, so the definition of "active" can't drift between
+ *  the registry and the surface that renders it. */
+export function isActiveTask(t: Task): boolean {
+  return t.state === 'queued' || t.state === 'running';
+}
+
 /** Register a new task.
  *
  * - `serial` — at most one running at a time; queues behind an
@@ -153,6 +161,17 @@ export function cancelQueued(id: string): void {
   tasks = tasks.filter((t) => !(t.id === id && t.caps.cancellable));
 }
 
+/** Drop every finished (terminal-state) task from the session — the
+ *  expanded panel's Finished-section "Clear" control. Active (queued /
+ *  running) tasks are untouched. Also drops the cleared ids from
+ *  `finishedOrder` so a later `finish()` can't evict a phantom id that no
+ *  longer has a row to evict `details` from. */
+export function clearFinished(): void {
+  const clearedIds = new Set(tasks.filter((t) => !isActiveTask(t)).map((t) => t.id));
+  tasks = tasks.filter(isActiveTask);
+  finishedOrder = finishedOrder.filter((id) => !clearedIds.has(id));
+}
+
 /** Move a queued `serial` task up/down by one slot among the other queued
  *  `serial` tasks. No-op at the ends, or for an unknown/non-reorderable id. */
 export function moveQueued(id: string, dir: 'up' | 'down'): void {
@@ -182,8 +201,7 @@ export function taskList(): Task[] {
  *  button-disabling flag from this, and a lingering finished task would
  *  disable verify/repair forever. */
 export function taskFor(scope: Task['scope']): Task | null {
-  const isActive = (t: Task): boolean => t.state === 'queued' || t.state === 'running';
-  return tasks.find((t) => isActive(t) && sameScope(t.scope, scope)) ?? null;
+  return tasks.find((t) => isActiveTask(t) && sameScope(t.scope, scope)) ?? null;
 }
 
 /** Test-only reset of the module singleton. */

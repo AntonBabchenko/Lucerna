@@ -1,7 +1,7 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OperationsBar from '$lib/tasks/OperationsBar.svelte';
-import { __resetTasksForTest, start, upsertProgress } from '$lib/tasks/registry.svelte';
+import { __resetTasksForTest, finish, start, upsertProgress } from '$lib/tasks/registry.svelte';
 
 // `phase`/`progress`/`scope` are always present on StartInput; most cases
 // here don't care about `phase`, so a shared base keeps each `start()` call
@@ -113,5 +113,75 @@ describe('OperationsBar', () => {
 
     await fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('shows the real phase text alongside the kind label on a byte phase', () => {
+    start({
+      ...base,
+      id: 'a',
+      kind: 'game-install',
+      lane: 'concurrent',
+      title: 'My Instance',
+      progress: { current: 10, total: 100, unit: 'files' },
+    });
+    upsertProgress('a', { phase: 'libraries' });
+
+    const { getByTestId } = render(OperationsBar);
+
+    expect(getByTestId('operations-bar-kind').textContent?.trim()).toBe('Installing Minecraft');
+    expect(getByTestId('operations-bar-phase').textContent?.trim()).toBe('Downloading libraries');
+  });
+
+  it('shows no phase text when the kind has no phase vocabulary', () => {
+    start({ ...base, id: 'a', kind: 'clone', lane: 'serial', title: 'Clone target' });
+
+    const { queryByTestId } = render(OperationsBar);
+
+    expect(queryByTestId('operations-bar-phase')).toBeNull();
+  });
+
+  it('opens and closes the panel on the toggle, without pushing the strip', async () => {
+    start({ ...base, id: 'a', kind: 'verify', lane: 'serial', title: 'Inst' });
+    const { getByTestId, queryByTestId } = render(OperationsBar);
+
+    expect(queryByTestId('operations-panel')).toBeNull();
+
+    await fireEvent.click(getByTestId('operations-bar-toggle'));
+    expect(getByTestId('operations-panel')).toBeTruthy();
+
+    await fireEvent.click(getByTestId('operations-bar-toggle'));
+    expect(queryByTestId('operations-panel')).toBeNull();
+  });
+
+  it('keeps rendering — with a finished summary instead of a spinner — once the only task finishes', () => {
+    start({ ...base, id: 'a', kind: 'pack-import', lane: 'serial', title: 'Some Pack' });
+    finish('a', { state: 'ok' });
+
+    const { getByTestId, queryByTestId } = render(OperationsBar);
+
+    expect(getByTestId('operations-bar')).toBeTruthy();
+    expect(queryByTestId('operations-bar-kind')).toBeNull();
+    expect(getByTestId('operations-bar-finished-summary').textContent?.trim()).toBe(
+      '1 operation finished',
+    );
+  });
+
+  it('summarises several finished tasks with real Russian-safe plural text (English pinned here)', () => {
+    start({ ...base, id: 'a', kind: 'pack-import', lane: 'serial', title: 'Pack A' });
+    start({ ...base, id: 'b', kind: 'clone', lane: 'serial', title: 'Clone B' });
+    finish('a', { state: 'ok' });
+    finish('b', { state: 'failed' });
+
+    const { getByTestId } = render(OperationsBar);
+
+    expect(getByTestId('operations-bar-finished-summary').textContent?.trim()).toBe(
+      '2 operations finished',
+    );
+  });
+
+  it('still renders nothing when the session truly has no tasks at all, finished included', () => {
+    const { queryByTestId } = render(OperationsBar);
+    expect(queryByTestId('operations-bar')).toBeNull();
+    expect(queryByTestId('operations-bar-finished-summary')).toBeNull();
   });
 });

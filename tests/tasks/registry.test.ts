@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetTasksForTest,
   cancelQueued,
+  clearFinished,
   finish,
   start,
   taskFor,
@@ -77,5 +78,32 @@ describe('task registry', () => {
 
   it('ignores a progress write for an unknown id', () => {
     expect(() => upsertProgress('nope', { phase: 'x' })).not.toThrow();
+  });
+
+  it('clears finished tasks without touching active ones', () => {
+    start({ ...base, id: 'a', kind: 'verify', lane: 'serial' });
+    start({ ...base, id: 'b', kind: 'repair', lane: 'serial' });
+    finish('a', { state: 'ok' });
+    clearFinished();
+    expect(taskList().map((t) => t.id)).toEqual(['b']);
+  });
+
+  it('leaves the queue and running task alone when nothing has finished yet', () => {
+    start({ ...base, id: 'a', kind: 'verify', lane: 'serial' });
+    clearFinished();
+    expect(taskList().map((t) => t.id)).toEqual(['a']);
+  });
+
+  it('does not resurrect a cleared task’s details bookkeeping on a later finish', () => {
+    // Regression guard for finishedOrder: clearing finished tasks must also
+    // drop their ids from the eviction-order bookkeeping, or a later finish
+    // could evict a phantom id and silently under-evict a real one.
+    start({ ...base, id: 'a', kind: 'mod-install', lane: 'concurrent' });
+    finish('a', { state: 'ok', details: [{ name: 'a.jar' } as never] });
+    clearFinished();
+
+    start({ ...base, id: 'b', kind: 'mod-install', lane: 'concurrent' });
+    finish('b', { state: 'ok', details: [{ name: 'b.jar' } as never] });
+    expect(taskList().find((t) => t.id === 'b')?.details).not.toBeNull();
   });
 });

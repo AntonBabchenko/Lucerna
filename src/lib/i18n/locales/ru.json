@@ -3066,7 +3066,17 @@
     "strip": {
       "count": "{count, plural, one {# операция} few {# операции} many {# операций} other {# операций}}",
       "eta": "~{clock}",
-      "toggle": "Показать подробности операции"
+      "toggle": "Показать подробности операции",
+      "finishedSummary": "{count, plural, one {# операция завершена} few {# операции завершены} many {# операций завершено} other {# операций завершено}}"
+    },
+    "panel": {
+      "ariaLabel": "Подробности операции",
+      "runningHeading": "Выполняются",
+      "queuedHeading": "В очереди",
+      "finishedHeading": "Завершённые",
+      "clearFinished": "Очистить",
+      "details": "Подробнее",
+      "modalLock": "Нельзя отменить"
     }
   }
 }

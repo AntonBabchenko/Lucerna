@@ -3066,7 +3066,17 @@
     "strip": {
       "count": "{count, plural, one {# operation} other {# operations}}",
       "eta": "~{clock}",
-      "toggle": "Show operation details"
+      "toggle": "Show operation details",
+      "finishedSummary": "{count, plural, one {# operation finished} other {# operations finished}}"
+    },
+    "panel": {
+      "ariaLabel": "Operation details",
+      "runningHeading": "Running",
+      "queuedHeading": "Queued",
+      "finishedHeading": "Finished",
+      "clearFinished": "Clear",
+      "details": "Details",
+      "modalLock": "Cannot be cancelled"
     }
   }
 }

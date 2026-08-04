@@ -74,3 +74,34 @@ describe('tasks.strip.count', () => {
     expect(tr('tasks.strip.count', { count: 2 })).toBe('2 operations');
   });
 });
+
+// OperationsBar's finished-only state ("N operations finished") pairs the
+// same "операция" noun with a short passive participle ("завершена" /
+// "завершены" / "завершено") that agrees with it independently — a second
+// word whose ending could drift out of sync with the noun's own plural
+// bucket without its own pin.
+const STRIP_FINISHED_SUMMARY_FORMS: ReadonlyArray<[count: number, phrase: string]> = [
+  [1, 'операция завершена'],
+  [2, 'операции завершены'],
+  [3, 'операции завершены'],
+  [4, 'операции завершены'],
+  [5, 'операций завершено'],
+  [11, 'операций завершено'], // 11-14 take the genitive plural despite ending in 1-4
+  [21, 'операция завершена'],
+  [0, 'операций завершено'],
+];
+
+describe('tasks.strip.finishedSummary', () => {
+  it.each(STRIP_FINISHED_SUMMARY_FORMS)('agrees in Russian: "%i %s"', (count, phrase) => {
+    locale.set('ru');
+    const text = get(t)('tasks.strip.finishedSummary', { count });
+    expect(text).toBe(`${count} ${phrase}`);
+  });
+
+  it('leaves the English singular/plural pair unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.strip.finishedSummary', { count: 1 })).toBe('1 operation finished');
+    expect(tr('tasks.strip.finishedSummary', { count: 2 })).toBe('2 operations finished');
+  });
+});
