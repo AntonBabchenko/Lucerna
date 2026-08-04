@@ -1,182 +1,194 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Capture listener callbacks at module-eval time via vi.hoisted so the
-// vi.mock factory (which is hoisted itself) can access them. Mirrors
-// tests/phase-status-row.test.ts's shape, but for a plain module (no
-// component render) — this adapter is a module-level singleton, like
-// $lib/ops/op-queue.svelte, not a mounted component.
+// Capture the listener callback at module-eval time via vi.hoisted so the
+// vi.mock factory (which is hoisted itself) can access it. This adapter now
+// subscribes PER CALL (mirrors game-install.test.ts's shape), not at module
+// load, so there is only ever one live listener at a time in these tests.
 const listeners = vi.hoisted(() => ({
   modInstallProgress: null as ((event: { payload: unknown }) => void) | null,
-  modInstalled: null as ((event: { payload: unknown }) => void) | null,
-  modInstallFailed: null as ((event: { payload: unknown }) => void) | null,
 }));
 
-vi.mock('$lib/ipc/bindings', () => {
-  type Key = 'modInstallProgress' | 'modInstalled' | 'modInstallFailed';
-  const makeEvent = (key: Key) => ({
-    listen: (cb: (event: { payload: unknown }) => void) => {
-      listeners[key] = cb;
-      return Promise.resolve(() => {
-        listeners[key] = null;
-      });
-    },
-  });
-  return {
-    events: {
-      modInstallProgress: makeEvent('modInstallProgress'),
-      modInstalled: makeEvent('modInstalled'),
-      modInstallFailed: makeEvent('modInstallFailed'),
-    },
-  };
-});
-
-vi.mock('$lib/i18n', () => ({
-  t: {
-    subscribe: (run: (v: unknown) => void) => {
-      // Identity translator: returns the key so tests can assert which
-      // i18n key a fallback title resolved to.
-      run((key: string) => key);
-      return () => {};
+vi.mock('$lib/ipc/bindings', () => ({
+  commands: {
+    modsInstallWithDeps: vi.fn(),
+    modsUpdateOne: vi.fn(),
+  },
+  events: {
+    modInstallProgress: {
+      listen: vi.fn((cb: (event: { payload: unknown }) => void) => {
+        listeners.modInstallProgress = cb;
+        return Promise.resolve(() => {
+          listeners.modInstallProgress = null;
+        });
+      }),
     },
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
+import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
-import {
-  __resetModInstallAdapterForTest,
-  ensureModInstallListener,
-} from '$lib/tasks/adapters/mod-install';
 
-function emitModInstallProgress(payload: unknown) {
+function emit(payload: unknown) {
   listeners.modInstallProgress?.({ payload });
 }
-function emitModInstalled(payload: unknown) {
-  listeners.modInstalled?.({ payload });
-}
-function emitModInstallFailed(payload: unknown) {
-  listeners.modInstallFailed?.({ payload });
-}
+
+const primary = { source: 'modrinth', project_id: 'p', version_id: 'v' } as const;
+const target = {
+  source: 'modrinth',
+  project_id: 'p',
+  version_id: 'v2',
+  name: 'X',
+  version_number: '2.0',
+  mc_versions: ['1.21'],
+  loaders: ['fabric'],
+  primary_file: { filename: 'x.jar', sha1: 'abc', size: 1 },
+  deps: [],
+  published_at: null,
+} as never;
 
 describe('mod-install adapter', () => {
   beforeEach(() => {
     __resetTasksForTest();
-    __resetModInstallAdapterForTest();
     vi.clearAllMocks();
     listeners.modInstallProgress = null;
-    listeners.modInstalled = null;
-    listeners.modInstallFailed = null;
-    ensureModInstallListener();
   });
 
-  it('shows x of N once the backend knows the total', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      bytes_done: 10,
-      bytes_total: 100,
-      current: 3,
-      total: 8,
-    });
-    expect(taskList()[0].progress).toEqual({ current: 3, total: 8, unit: 'files' });
-  });
-
-  it('treats total = 0 as indeterminate', () => {
-    // Manifest extras download before the install set is resolved, so the
-    // backend genuinely cannot know a total yet.
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 0,
-      total: 0,
+  it('tags a mod install as mod-install, scoped to the instance, concurrent lane', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
     } as never);
-    expect(taskList()[0].progress).toBeNull();
-  });
 
-  it('registers a concurrent mod-install task scoped to the instance', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 1,
-      total: 3,
-    });
+    await installModWithDeps('i', 'X', primary, []);
+
     const task = taskList()[0];
     expect(task.kind).toBe('mod-install');
     expect(task.lane).toBe('concurrent');
     expect(task.scope).toEqual({ instanceId: 'i' });
-    expect(task.state).toBe('running');
+    expect(task.state).toBe('ok');
   });
 
-  it('does not mint a second task for a second tick on the same instance', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 1,
-      total: 3,
-    });
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 2,
-      total: 3,
-    });
-    expect(taskList().length).toBe(1);
-    expect(taskList()[0].progress).toEqual({ current: 2, total: 3, unit: 'files' });
+  it('carries InstallSummary.details onto the finished task (the per-mod report)', async () => {
+    const detail = {
+      name: 'X',
+      install_path: 'mods/x.jar',
+      origin: 'modrinth',
+      host: null,
+      bytes: 100,
+      sha1: 'abc',
+      outcome: 'installed',
+    };
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [detail] },
+    } as never);
+
+    await installModWithDeps('i', 'X', primary, []);
+    expect(taskList()[0].details).toEqual([detail]);
   });
 
-  it('finishes ok on modInstalled', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 1,
-      total: 1,
-    });
-    emitModInstalled({ instance_id: 'i', sha1: 'x', filename: 'x.jar', name: 'X' });
-    expect(taskList()[0].state).toBe('ok');
+  it('tags a mod UPDATE as mod-update, not mod-install — the whole point of this adapter', async () => {
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as never);
+
+    await updateMod('i', 'X', 'sha1', target);
+
+    const task = taskList()[0];
+    expect(task.kind).toBe('mod-update');
+    expect(task.lane).toBe('concurrent');
+    expect(task.scope).toEqual({ instanceId: 'i' });
+    expect(task.state).toBe('ok');
   });
 
-  it('finishes failed on modInstallFailed', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'i',
-      project_id: 'p',
-      current: 1,
-      total: 1,
+  it('feeds current/total from modInstallProgress ticks onto the task', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockImplementation(async () => {
+      emit({
+        phase: 'downloading',
+        instance_id: 'i',
+        project_id: 'p',
+        current: 2,
+        total: 5,
+      });
+      return { status: 'ok', data: { primary_name: 'X', installed_dependencies: [], details: [] } };
     });
-    emitModInstallFailed({
-      instance_id: 'i',
-      project_id: 'p',
-      error: { kind: 'io', path: 'x', details: 'y' },
+
+    await installModWithDeps('i', 'X', primary, []);
+    expect(taskList()[0].progress).toEqual({ current: 2, total: 5, unit: 'files' });
+  });
+
+  it('treats total = 0 as indeterminate', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockImplementation(async () => {
+      emit({ phase: 'downloading', instance_id: 'i', project_id: 'p', current: 0, total: 0 });
+      return { status: 'ok', data: { primary_name: 'X', installed_dependencies: [], details: [] } };
     });
+
+    await installModWithDeps('i', 'X', primary, []);
+    expect(taskList()[0].progress).toBeNull();
+  });
+
+  it('ignores a progress tick for a different instance', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockImplementation(async () => {
+      emit({ phase: 'downloading', instance_id: 'OTHER', project_id: 'p', current: 9, total: 9 });
+      return { status: 'ok', data: { primary_name: 'X', installed_dependencies: [], details: [] } };
+    });
+
+    await installModWithDeps('i', 'X', primary, []);
+    expect(taskList()[0].progress).toBeNull();
+  });
+
+  it('marks the task failed on an error result (install)', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_not_found', id: 'i' },
+    } as never);
+
+    const outcome = await installModWithDeps('i', 'X', primary, []);
+    expect(taskList()[0].state).toBe('failed');
+    expect(outcome.status).toBe('error');
+  });
+
+  it('marks the task failed on an error result (update)', async () => {
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_not_found', id: 'i' },
+    } as never);
+
+    const outcome = await updateMod('i', 'X', 'sha1', target);
+    expect(taskList()[0].state).toBe('failed');
+    expect(outcome.status).toBe('error');
+  });
+
+  it('marks the task failed when the command throws (bridge failure)', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockRejectedValue(new Error('bridge died'));
+    await installModWithDeps('i', 'X', primary, []);
     expect(taskList()[0].state).toBe('failed');
   });
 
-  it('ignores modInstalled for an instance with no active task', () => {
-    emitModInstalled({ instance_id: 'unknown', sha1: 'x', filename: 'x.jar', name: 'X' });
-    expect(taskList().length).toBe(0);
+  it('unsubscribes the listener once the call settles', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    } as never);
+    await installModWithDeps('i', 'X', primary, []);
+    expect(listeners.modInstallProgress).toBeNull();
   });
 
-  it('keeps two different instances independent under the concurrent lane', () => {
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'a',
-      project_id: 'p',
-      current: 1,
-      total: 2,
-    });
-    emitModInstallProgress({
-      phase: 'downloading',
-      instance_id: 'b',
-      project_id: 'p',
-      current: 1,
-      total: 2,
-    });
+  it('keeps a concurrent install and update on the same instance as two separate tasks', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    } as never);
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as never);
+
+    await Promise.all([
+      installModWithDeps('i', 'X', primary, []),
+      updateMod('i', 'Y', 'sha1', target),
+    ]);
+
     expect(taskList().length).toBe(2);
-    expect(taskList().every((t) => t.state === 'running')).toBe(true);
+    const kinds = taskList()
+      .map((t) => t.kind)
+      .sort();
+    expect(kinds).toEqual(['mod-install', 'mod-update']);
   });
 });

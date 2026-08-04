@@ -1,109 +1,134 @@
-// Event adapter for instance integrity checks (verify + repair). Subscribes
-// to the GLOBAL `verifyProgress` event rather than wrapping a call:
-// `op-queue.svelte.ts` already owns the verify/repair CALL (it awaits
-// `commands.verifyInstance` / `commands.repairInstance` directly to learn
-// success/failure and drive its own `running`/queue state), and this task
-// must not touch that module or its consumers — this adapter only shadows
-// the same event stream so the task registry carries a record too.
+// Call-wrapping adapters for instance verify and repair. Previously (see
+// git history at `d8c1d7a9`) this was a GLOBAL event listener on
+// `verifyProgress` — deliberately shaped that way because
+// `op-queue.svelte.ts` already owned the verify/repair CALL (it awaits
+// `commands.verifyInstance` / `commands.repairInstance` directly to drive
+// its own queue), and the old adapter was told not to touch that module.
+// That event-only shape had two consequences its own comment documented
+// honestly, both fixed here the same way `game-install.ts` fixes the
+// analogous game-install-vs-repair ambiguity:
 //
-// SAME-EVENT AMBIGUITY (same shape as game-install.ts's documented
-// `installProgress` cross-talk, and mod-install.ts's documented
-// `mods_update_one` cross-talk): `VerifyProgress` carries no field
-// distinguishing a plain verify from a repair.
-// `repair_instance_report` (src-tauri/src/verify/repair.rs) calls the SAME
-// `verify_instance_report` (src-tauri/src/verify/scan.rs) a plain verify
-// uses, and only adds `VerifyPhase::Repairing` ticks for the fix step —
-// which is SKIPPED ENTIRELY when `verify_instance_report` finds the instance
-// already healthy (`repair_instance_report` returns early in that case, see
-// repair.rs). So a "repair" that fixes nothing is byte-for-byte identical on
-// the wire to a plain verify. This adapter always tags its task
-// `kind: 'verify'`: honest for a plain verify and for a healthy-instance
-// repair, and merely under-labels an actual repair's fix step (still shown,
-// just under the 'verify' kind/label rather than 'repair'). Splitting them
-// needs a backend change (an explicit operation kind or id threaded onto the
-// event), not a frontend guess.
+// (1) SAME-EVENT AMBIGUITY: `VerifyProgress` carries no field
+// distinguishing a plain verify from a repair — `repair_instance_report`
+// (src-tauri/src/verify/repair.rs) calls the SAME `verify_instance_report`
+// (src-tauri/src/verify/scan.rs) a plain verify uses. The old adapter
+// therefore always tagged its task `kind: 'verify'`, even for a repair.
+// This adapter instead wraps `commands.verifyInstance` /
+// `commands.repairInstance` directly, so `kind` is `'verify'` or `'repair'`
+// by construction — we know which one it is because we are the one
+// invoking it, not because the wire payload told us.
 //
-// COMPLETION AMBIGUITY: there is no single "done" tick either.
-// `verify_instance_report` always ends with `VerifyPhase::Complete` — but a
-// repair-with-problems calls it TWICE (once before the fix, once after, to
-// re-verify — see `repair_instance_report`), and repair's own true last tick
-// is `emit_repairing(1, 1)`, which arrives AFTER that second `Complete`. A
-// tick is therefore treated as terminal when EITHER `phase === 'complete'`
-// OR (`phase === 'repairing'` and `files_done === files_total`): the first
-// case closes a plain verify (or a repair that needed no fix) at its one and
-// only Complete; the second closes a repair's fix step. A targeted repair's
-// per-download ticks can ALSO satisfy `files_done === files_total` before
-// the operation's real last tick (e.g. the final item of a 2-item download
-// batch) — that just closes the task a little early and lets the next
-// tick(s) open (and, for the true final `repairing(1,1)` marker, immediately
-// re-close) a short-lived follow-up task. Never wedges anything 'running'
-// forever, which is the property that actually matters here.
+// (2) COMPLETION AMBIGUITY: there is no single "done" tick either. A
+// repair-with-problems calls `verify_instance_report` TWICE (once before
+// the fix, once after, to re-verify), so `VerifyPhase::Complete` fires
+// twice, and repair's own true last tick (`emit_repairing(1, 1)`) arrives
+// AFTER that second `Complete`. The old event-only adapter had to GUESS a
+// terminal tick from this pattern (`phase === 'complete'` OR (`phase ===
+// 'repairing'` and `files_done === files_total`)) — its own comment noted
+// that guess could close the task a little early and reopen a short-lived
+// follow-up. Because this adapter now AWAITS the real command, it needs no
+// guess at all: the awaited `Result` is the one unambiguous terminal
+// signal, so `finish()` is called exactly once, from exactly one place.
+// The event stream is read ONLY for the file counter now (`upsertProgress`
+// on every tick, unconditionally) — the double-`Complete` / late-
+// `repairing(1,1)` pattern the previous agent found is preserved exactly as
+// documented above (nothing here changes the backend), but it is now
+// purely a mid-flight PROGRESS-DISPLAY curiosity (the phase/counter can
+// visibly restart partway through a repair's re-verify pass) rather than a
+// task-completion correctness concern.
 //
-// Keyed by `instance_id`. Lane 'serial': verify and repair queue behind each
-// other today (`op-queue.svelte.ts`'s single `running` gate) — the registry
-// enforces the same one-at-a-time rule structurally via the 'serial' lane
-// (see `registry.svelte.ts`'s `start()`), so no extra bookkeeping is needed
-// here for that part.
+// `typedError` re-throws real `Error` instances rather than resolving to
+// `{status:'error'}` (see the bottom of `$lib/ipc/bindings`), so a bridge
+// failure can throw straight out of the command call. `finish()` runs on
+// every exit path (both `Result` branches, and the `catch`) so a thrown
+// error still lands the task in a terminal state instead of wedging it as
+// permanently running — same discipline the runner adapters in `89523af5`
+// use.
+//
+// This module still does not touch `op-queue.svelte.ts` or its consumers:
+// it is a second, independent caller of the same backend commands, exactly
+// like `installGame` is a second, independent caller of
+// `commands.installInstance` alongside +page.svelte's own call. Wiring one
+// to replace the other is a later migration task's job.
+//
+// Keyed by nothing persistent (no module-level map): each call owns its own
+// task id and its own listener span, so no cross-call bookkeeping is
+// needed. Lane 'serial' still enforces the one-at-a-time rule structurally
+// via the registry's `start()` (see `registry.svelte.ts`), matching
+// today's `op-queue.svelte.ts` behaviour of one strictly-serial queue.
 
-import { get } from 'svelte/store';
-import { t } from '$lib/i18n';
-import { events } from '$lib/ipc/bindings';
+import type { VerifyReport } from '$lib/ipc/bindings';
+import { commands, events } from '$lib/ipc/bindings';
+import { formatError } from '$lib/ipc/format-error';
 import { finish, start, upsertProgress } from '../registry.svelte';
 
-let listenerInit = false;
-// instanceId -> task id for the verify/repair task currently tracked for it.
-const activeTaskId = new Map<string, string>();
+export type IntegrityOutcome =
+  | { status: 'ok'; data: VerifyReport }
+  | { status: 'error'; message: string };
 
-function isTerminalTick(phase: string, filesDone: number, filesTotal: number): boolean {
-  if (phase === 'complete') return true;
-  return phase === 'repairing' && filesTotal > 0 && filesDone === filesTotal;
-}
-
-/** Lazily attach the global listener. Idempotent and safe to call from
- *  anywhere repeatedly. Wrapped in try/catch exactly like
- *  `op-queue.svelte.ts`'s `ensureListener` — a module-load subscription
- *  throws under vitest, where there is no Tauri runtime, so callers must
- *  invoke this explicitly rather than relying on an import-time side
- *  effect. `listenUntilDestroyed` (`$lib/ipc/listen.ts`) does not fit here:
- *  it ties teardown to a component's `onDestroy`, but this is a module-level
- *  singleton with no owning component, same as `op-queue.svelte.ts`. */
-export function ensureIntegrityListener(): void {
-  if (listenerInit) return;
-  listenerInit = true;
+/** Attach the progress listener for exactly the span of one call, filtered
+ *  to `instanceId`. Every tick just updates the counter — no tick is ever
+ *  treated as terminal here (see the module doc comment on why that guess
+ *  is gone). */
+async function withVerifyProgress<T>(
+  id: string,
+  instanceId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const unlisten = await events.verifyProgress.listen((e) => {
+    const p = e.payload;
+    if (p.instance_id !== instanceId) return;
+    upsertProgress(id, {
+      phase: p.phase,
+      progress: { current: p.files_done, total: p.files_total, unit: 'files' },
+    });
+  });
   try {
-    events.verifyProgress
-      .listen((e) => {
-        const p = e.payload;
-        const progress = { current: p.files_done, total: p.files_total, unit: 'files' as const };
-        let id = activeTaskId.get(p.instance_id);
-        if (id === undefined) {
-          id = `verify-${crypto.randomUUID()}`;
-          activeTaskId.set(p.instance_id, id);
-          start({
-            id,
-            kind: 'verify',
-            scope: { instanceId: p.instance_id },
-            title: get(t)('tasks.kind.verify'),
-            phase: p.phase,
-            progress,
-            lane: 'serial',
-          });
-        } else {
-          upsertProgress(id, { phase: p.phase, progress });
-        }
-        if (isTerminalTick(p.phase, p.files_done, p.files_total)) {
-          activeTaskId.delete(p.instance_id);
-          finish(id, { state: 'ok' });
-        }
-      })
-      .catch(() => {});
-  } catch {
-    /* no Tauri runtime (vitest) — listener inert */
+    return await run();
+  } finally {
+    unlisten();
   }
 }
 
-/** Test-only reset of the module singleton. */
-export function __resetIntegrityAdapterForTest(): void {
-  listenerInit = false;
-  activeTaskId.clear();
+async function runIntegrityCall(
+  kind: 'verify' | 'repair',
+  instanceId: string,
+  name: string,
+  call: () => ReturnType<typeof commands.verifyInstance>,
+): Promise<IntegrityOutcome> {
+  const id = `${kind}-${crypto.randomUUID()}`;
+  start({
+    id,
+    kind,
+    scope: { instanceId },
+    title: name,
+    phase: null,
+    progress: null,
+    lane: 'serial',
+  });
+
+  try {
+    const r = await withVerifyProgress(id, instanceId, call);
+    if (r.status === 'ok') {
+      finish(id, { state: 'ok' });
+      return { status: 'ok', data: r.data };
+    }
+    finish(id, { state: 'failed' });
+    return { status: 'error', message: formatError(r.error) };
+  } catch (e) {
+    finish(id, { state: 'failed' });
+    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Verify an instance's integrity as a `verify` task. */
+export function runVerify(instanceId: string, name: string): Promise<IntegrityOutcome> {
+  return runIntegrityCall('verify', instanceId, name, () => commands.verifyInstance(instanceId));
+}
+
+/** Repair an instance as a `repair` task — always tagged `kind: 'repair'`,
+ *  even on a healthy instance where the fix step is skipped entirely (a
+ *  no-op repair is still the repair the user asked for, not a verify). */
+export function runRepair(instanceId: string, name: string): Promise<IntegrityOutcome> {
+  return runIntegrityCall('repair', instanceId, name, () => commands.repairInstance(instanceId));
 }
