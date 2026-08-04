@@ -21,6 +21,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 import type { InstanceWithStatus, ModpackVersionEntry } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { createModpackUpdateFlow } from '$lib/modpacks/modpack-update-flow.svelte';
+import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 const fetchToTemp = commands.modpackFetchToTemp as ReturnType<typeof vi.fn>;
 const computeUpdate = commands.modpackComputeUpdate as ReturnType<typeof vi.fn>;
@@ -98,5 +99,49 @@ describe('createModpackUpdateFlow', () => {
     expect(ok).toBe(false);
     expect(flow.error).toBe('formatted:io');
     expect(flow.phase).toBe('idle');
+  });
+
+  // The apply step is a long-running job, so it belongs in the operations
+  // strip like every other one. It was shipped in #347 with the adapter built
+  // but never called — the strip stayed empty during a modpack update.
+  it('registers a pack-update task in the registry while applying', async () => {
+    __resetTasksForTest();
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+
+    const p = flow.confirm(inst);
+    await flush();
+
+    const task = taskList().find((t) => t.kind === 'pack-update');
+    expect(task).toBeDefined();
+    expect(task?.scope.instanceId).toBe('i1');
+
+    expect(await p).toBe(true);
+    expect(taskList().find((t) => t.kind === 'pack-update')?.state).toBe('ok');
+  });
+
+  // The three consuming surfaces render their own inline progress off
+  // `flow.progress`; registering a task must not take that away from them.
+  it('keeps feeding the flow its own inline progress', async () => {
+    __resetTasksForTest();
+    let phaseCh: { onmessage: ((m: unknown) => void) | null } | undefined;
+    let release!: (v: unknown) => void;
+    applyUpdate.mockImplementation((...args: unknown[]) => {
+      phaseCh = args[3] as typeof phaseCh;
+      return new Promise((r) => {
+        release = r;
+      });
+    });
+
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    const p = flow.confirm(inst);
+    await flush();
+
+    phaseCh!.onmessage?.({ phase: 'installing_file', current: 5, total: 9, file_name: 'Iris' });
+    expect(flow.progress).toEqual({ current: 5, total: 9, fileName: 'Iris' });
+
+    release({ status: 'ok', data: { id: 'i1' } });
+    await p;
   });
 });
