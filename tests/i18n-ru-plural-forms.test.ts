@@ -43,3 +43,34 @@ describe('instance.integrity.toastRepairPartial', () => {
     );
   });
 });
+
+// OperationsBar (src/lib/tasks/OperationsBar.svelte) shows "N operations"
+// when several tasks are in flight. "операция" is a feminine noun with its
+// own one/few/many split, distinct from the masculine "файл" pattern above
+// (few/many share the "-и"/"-й" endings) — pinned separately so a future
+// edit to one key's plural forms can't accidentally pass by coincidence.
+const STRIP_COUNT_FORMS: ReadonlyArray<[count: number, noun: string]> = [
+  [1, 'операция'],
+  [2, 'операции'],
+  [3, 'операции'],
+  [4, 'операции'],
+  [5, 'операций'],
+  [11, 'операций'], // 11-14 take the genitive plural despite ending in 1-4
+  [21, 'операция'],
+  [0, 'операций'],
+];
+
+describe('tasks.strip.count', () => {
+  it.each(STRIP_COUNT_FORMS)('agrees in Russian: "%i %s"', (count, noun) => {
+    locale.set('ru');
+    const text = get(t)('tasks.strip.count', { count });
+    expect(text).toBe(`${count} ${noun}`);
+  });
+
+  it('leaves the English singular/plural pair unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('tasks.strip.count', { count: 1 })).toBe('1 operation');
+    expect(tr('tasks.strip.count', { count: 2 })).toBe('2 operations');
+  });
+});

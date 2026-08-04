@@ -3062,6 +3062,11 @@
       "atlauncher": "ATLauncher",
       "archive": "Modpack archive",
       "local": "Local file"
+    },
+    "strip": {
+      "count": "{count, plural, one {# operation} other {# operations}}",
+      "eta": "~{clock}",
+      "toggle": "Show operation details"
     }
   }
 }

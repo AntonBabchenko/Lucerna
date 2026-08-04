@@ -3062,6 +3062,11 @@
       "atlauncher": "ATLauncher",
       "archive": "Архив сборки",
       "local": "Локальный файл"
+    },
+    "strip": {
+      "count": "{count, plural, one {# операция} few {# операции} many {# операций} other {# операций}}",
+      "eta": "~{clock}",
+      "toggle": "Показать подробности операции"
     }
   }
 }
