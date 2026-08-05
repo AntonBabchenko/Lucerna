@@ -795,9 +795,17 @@
   //
   // Deliberately never calls `commands.modsListInstalled`, directly or through a
   // composable: that command is what emits this event, so re-requesting the list
-  // here would feed the handler its own trigger.
+  // here would feed the handler its own trigger. That rules out
+  // `stats.refreshInstalledStats`, which lists one level down — the Total /
+  // Enabled / Disabled counts are already current without it, because whatever
+  // listing produced this event returned the reconciled set to its caller.
+  //
+  // A single extra listing would terminate on its own (the marker is cleared
+  // when taken), but the case this feature exists for is a pack's downloader mod
+  // writing dozens of jars over minutes: there, each re-listing finds a FURTHER
+  // change, re-arms the marker and re-emits, for as long as the writer runs.
+  // `tests/external-change-no-relist.test.ts` pins this.
   const debouncedExternalChangeStats = debounceTrailing(() => {
-    void stats.refreshInstalledStats(activeInstance?.id ?? null);
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
   onDestroy(() => {
