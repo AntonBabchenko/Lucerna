@@ -1366,7 +1366,19 @@ pub async fn mods_list_installed(
     instance_id: String,
 ) -> crate::error::Result<Vec<InstalledMod>> {
     let inst_root = instance_root(&app, &instance_id)?;
-    crate::mods::installed::list(&inst_root).await
+    // The ONLY caller of the taking form. Every other command uses `list` and
+    // leaves the marker standing, so an external change cannot be swallowed by
+    // whichever background listing happened to run first.
+    let (mods, pending) = crate::mods::installed::list_taking_external_change(&inst_root).await?;
+    if pending {
+        // Fire-and-forget, exactly like the other mod events: a failed emit must
+        // never fail the listing itself.
+        let _ = ModsReconciled {
+            instance_id: instance_id.clone(),
+        }
+        .emit(&app);
+    }
+    Ok(mods)
 }
 
 /// Rename `<name>.jar` to `<name>.jar.disabled` and flip the registry

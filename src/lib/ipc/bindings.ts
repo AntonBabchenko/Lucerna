@@ -925,6 +925,15 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  this feature and for non-pack instances.
 	 */
 	missing_mods: MissingModStatus[],
+	/**
+	 *  What the pack's own completer mod is still waiting for, if it has one.
+	 *  Set by the command, not by `compute_status` — the helper reads the
+	 *  instance directory and `compute_status` is pure.
+	 * 
+	 *  `#[serde(default)]` so specta emits it OPTIONAL — without it every
+	 *  existing `ModpackStatus` literal in the frontend stops type-checking.
+	 */
+	pack_completion?: PackCompletion | null,
 } | null, Error>(__TAURI_INVOKE("modpack_status", { instanceId })),
 	/**
 	 *  Record that the user installed a substitute (from `substitute_source` /
@@ -1993,6 +2002,7 @@ export const events = {
 	modInstalled: makeEvent<ModInstalled>("mod-installed"),
 	modToggle: makeEvent<ModToggle>("mod-toggle"),
 	modUninstalled: makeEvent<ModUninstalled>("mod-uninstalled"),
+	modsReconciled: makeEvent<ModsReconciled>("mods-reconciled"),
 	processExited: makeEvent<ProcessExited>("process-exited"),
 	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
 	serverExited: makeEvent<ServerExited>("server-exited"),
@@ -4538,6 +4548,15 @@ export type ModpackStatus = {
 	 *  this feature and for non-pack instances.
 	 */
 	missing_mods: MissingModStatus[],
+	/**
+	 *  What the pack's own completer mod is still waiting for, if it has one.
+	 *  Set by the command, not by `compute_status` — the helper reads the
+	 *  instance directory and `compute_status` is pure.
+	 * 
+	 *  `#[serde(default)]` so specta emits it OPTIONAL — without it every
+	 *  existing `ModpackStatus` literal in the frontend stops type-checking.
+	 */
+	pack_completion?: PackCompletion | null,
 };
 
 export type ModpackSummary = {
@@ -4647,6 +4666,19 @@ export type ModpackVersionEntry = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+/**
+ *  The instance's `mods/` directory changed without us: `reconcile` found jars
+ *  the registry did not know, or records whose file is gone.
+ * 
+ *  Distinct from `ModInstalled` on purpose. That event means WE installed
+ *  something and has five listeners, two of which re-request the mod list;
+ *  reusing it here would wake half the app and shape a refresh loop. This one is
+ *  consumed only by the views derived FROM the mod list — never by the list.
+ */
+export type ModsReconciled = {
+	instance_id: string,
+};
 
 /**  Translation coverage for one resource namespace. */
 export type NamespaceCoverage = {
@@ -4787,6 +4819,13 @@ export type OrphanRef = {
 
 export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
 
+export type PackCompletion = {
+	/**  Entries the manifest declares in total. */
+	total: number,
+	/**  Those whose file is not on disk yet. */
+	outstanding: PendingFile[],
+};
+
 /**
  *  Snapshot of the mods the user selected at modpack-import time, kept
  *  in `installed-mods.json` alongside the live entries so the launcher
@@ -4879,6 +4918,17 @@ export type PathStatus =
  *  move.
  */
 "data_root";
+
+export type PendingFile = {
+	/**  Human-readable name, as the pack author wrote it. */
+	display_name: string,
+	/**  Filename the helper will produce, verbatim from the manifest. */
+	pattern: string,
+	/**  Where the user can obtain it. DISPLAY ONLY — never opened without a click. */
+	url: string | null,
+	/**  Single directory name under `.minecraft`, e.g. `mods` or `resourcepacks`. */
+	destination: string,
+};
 
 /**
  *  How a store entry ended up in the instance.
@@ -4974,6 +5024,15 @@ export type PrefillProgress = {
 export type PreflightReport = {
 	/**  All detected violations. Empty means no problems found. */
 	violations: DepViolation[],
+	/**
+	 *  What a self-completing pack has yet to fetch, when this instance has one.
+	 *  While `outstanding` is non-empty the violations are advisory: the pack is
+	 *  designed to arrive incomplete and fill itself in on first launch.
+	 * 
+	 *  `#[serde(default)]` so specta emits it OPTIONAL — without it every
+	 *  existing `PreflightReport` literal in the frontend stops type-checking.
+	 */
+	pack_completion?: PackCompletion | null,
 };
 
 export type ProblemArtifact = {

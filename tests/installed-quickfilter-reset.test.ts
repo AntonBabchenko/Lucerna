@@ -173,6 +173,7 @@ vi.mock('$lib/ipc/bindings', () => ({
         return Promise.resolve(() => {});
       },
     },
+    modsReconciled: { listen: () => Promise.resolve(() => {}) },
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));

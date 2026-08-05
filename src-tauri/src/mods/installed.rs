@@ -168,6 +168,14 @@ pub(crate) struct OnDisk {
     pub(crate) mods: Vec<InstalledMod>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pack_origin: Option<PackOrigin>,
+    /// An external change has been reconciled but not yet announced.
+    ///
+    /// `reconcile` sets it; only the command that emits `ModsReconciled` clears
+    /// it, via [`list_taking_external_change`]. A transient return value cannot
+    /// work here — ~20 other commands reconcile this directory, and whichever
+    /// ran first would swallow the change silently.
+    #[serde(default)]
+    pub(crate) external_change_pending: bool,
 }
 
 fn default_version() -> u32 {
@@ -205,11 +213,31 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
     Ok(state.mods)
 }
 
+/// `list`, and takes the pending external-change marker: reports whether one was
+/// set and clears it in the same write.
+///
+/// Only a caller that will ANNOUNCE the change may use this. Everything else
+/// uses [`list`], which leaves the marker standing.
+pub async fn list_taking_external_change(
+    instance_root: &Path,
+) -> Result<(Vec<InstalledMod>, bool), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    let migrated = migrate(&mut state);
+    let reconciled = reconcile(instance_root, &mut state).await?;
+    let pending = state.external_change_pending;
+    state.external_change_pending = false;
+    if migrated || reconciled || pending {
+        write(instance_root, &state).await?;
+    }
+    Ok((state.mods, pending))
+}
+
 pub(crate) async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
     let path = registry_path(instance_root);
     if !fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
         return Ok(OnDisk {
             version: FILE_VERSION,
+            external_change_pending: false,
             mods: vec![],
             pack_origin: None,
         });
@@ -218,6 +246,7 @@ pub(crate) async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error>
     // Corrupt JSON: treat as empty; reconcile will rebuild from disk.
     Ok(serde_json::from_slice::<OnDisk>(&bytes).unwrap_or(OnDisk {
         version: FILE_VERSION,
+        external_change_pending: false,
         mods: vec![],
         pack_origin: None,
     }))
@@ -376,6 +405,13 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
             requires: Vec::new(),
         });
         changed = true;
+    }
+
+    // Persisted, not returned: `list` has twenty-one callers and `changed` is a
+    // transition. Whichever of them ran first after an external write would
+    // consume it, and the one command that announces would always see `false`.
+    if changed {
+        state.external_change_pending = true;
     }
 
     Ok(changed)
@@ -909,6 +945,7 @@ mod tests {
         rp.sha1 = "rp1".into();
         let v1 = OnDisk {
             version: 1,
+            external_change_pending: false,
             mods: vec![],
             pack_origin: Some(PackOrigin {
                 project_id: None,
@@ -946,6 +983,7 @@ mod tests {
         let sha = place_jar(&mods_dir(td.path()), "stuck.jar", b"stuck-bytes").await;
         let v2 = OnDisk {
             version: 2,
+            external_change_pending: false,
             mods: vec![InstalledMod {
                 filename: "stuck.jar".into(),
                 sha1: sha.clone(),
@@ -983,6 +1021,7 @@ mod tests {
         let td = TempDir::new().unwrap();
         let v2 = OnDisk {
             version: 2,
+            external_change_pending: false,
             mods: vec![
                 InstalledMod {
                     filename: "unresolved.jar".into(),
@@ -1041,6 +1080,7 @@ mod tests {
         rp.install_path = "resourcepacks/RP.zip".into();
         let v2 = OnDisk {
             version: 2,
+            external_change_pending: false,
             mods: vec![],
             pack_origin: Some(PackOrigin {
                 project_id: None,
@@ -1544,5 +1584,43 @@ mod tests {
                 .unwrap()
                 .enrich_attempted
         );
+    }
+
+    /// A jar that appears in `mods/` without going through us — a pack's own
+    /// downloader mod, or the user dropping a file in — must stay announceable
+    /// until somebody announces it. Twenty other commands reconcile this same
+    /// directory; a transient flag would be eaten by whichever ran first.
+    #[tokio::test]
+    async fn an_external_change_survives_until_it_is_taken() {
+        let td = tempfile::TempDir::new().unwrap();
+        let root = td.path();
+        let dir = mods_dir(root);
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        // Quiet instance: nothing to announce.
+        let (mods, pending) = list_taking_external_change(root).await.unwrap();
+        assert!(mods.is_empty());
+        assert!(!pending);
+
+        // A jar appears without us.
+        tokio::fs::write(dir.join("outsider.jar"), b"not really a jar")
+            .await
+            .unwrap();
+
+        // Another command lists first. It reconciles and persists — and must
+        // NOT consume the marker.
+        let mods = list(root).await.unwrap();
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].filename, "outsider.jar");
+        assert!(mods[0].source.is_none(), "not ours: a manual mod");
+        assert_eq!(list(root).await.unwrap().len(), 1, "still not consumed");
+
+        // The announcing caller finally takes it.
+        let (_, pending) = list_taking_external_change(root).await.unwrap();
+        assert!(pending, "the marker outlived the other listings");
+
+        // Taken once, never twice.
+        let (_, pending) = list_taking_external_change(root).await.unwrap();
+        assert!(!pending);
     }
 }

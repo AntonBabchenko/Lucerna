@@ -28,6 +28,7 @@ pub mod modpack;
 pub mod modrinth;
 pub mod optimise;
 pub mod orphans;
+pub mod pack_completion;
 pub mod platform;
 pub mod preflight;
 pub mod project_cache;

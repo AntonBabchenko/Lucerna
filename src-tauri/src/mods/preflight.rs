@@ -408,6 +408,14 @@ pub struct DepViolation {
 pub struct PreflightReport {
     /// All detected violations. Empty means no problems found.
     pub violations: Vec<DepViolation>,
+    /// What a self-completing pack has yet to fetch, when this instance has one.
+    /// While `outstanding` is non-empty the violations are advisory: the pack is
+    /// designed to arrive incomplete and fill itself in on first launch.
+    ///
+    /// `#[serde(default)]` so specta emits it OPTIONAL — without it every
+    /// existing `PreflightReport` literal in the frontend stops type-checking.
+    #[serde(default)]
+    pub pack_completion: Option<crate::mods::pack_completion::PackCompletion>,
 }
 
 /// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
@@ -662,7 +670,10 @@ pub async fn dependency_preflight_for_root(
         .into_iter()
         .map(|v| enrich(v, &provider_owner, &provider_sha1))
         .collect();
-    Ok(PreflightReport { violations })
+    Ok(PreflightReport {
+        violations,
+        pack_completion: crate::mods::pack_completion::read(root),
+    })
 }
 
 #[cfg(test)]
@@ -1226,6 +1237,7 @@ mod tests {
                 provider_sha1: Some("abc123".into()),
                 family: Some(crate::mods::version_range::RangeFamily::Maven),
             }],
+            pack_completion: None,
         };
         let json = serde_json::to_string(&report).unwrap();
         let back: PreflightReport = serde_json::from_str(&json).unwrap();

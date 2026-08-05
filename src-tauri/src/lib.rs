@@ -404,6 +404,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ModInstalled,
             commands::ModUninstalled,
             commands::ModToggle,
+            commands::ModsReconciled,
             commands::ModInstallFailed,
             commands::GpuPrefApplied,
             servers_runtime::runtime::ServerLogLine,
