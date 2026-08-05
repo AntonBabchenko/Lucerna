@@ -101,7 +101,9 @@ describe('ModpackDetailModal install busy state', () => {
     });
 
     await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
-    const btn = await findByRole('button', { name: 'Install' });
+    // Icon-only row button; its accessible name is the aria-label, which names
+    // the version and where it lands (modpacks.detail.installRowTip).
+    const btn = await findByRole('button', { name: 'Install 1.0 as a new instance' });
     expect(btn.querySelector('[role="status"]')).toBeNull();
 
     await fireEvent.click(btn);
