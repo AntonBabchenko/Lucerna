@@ -174,6 +174,10 @@ pub async fn adopt_copied_jars(
 /// phase failure (instance create, or Mods copy when Mods selected) the
 /// half-built instance is deleted (rollback). Best-effort failures
 /// (other categories, enrich) are tolerated and reflected in the result.
+///
+/// Returns the new instance id plus the number of copied jars whose identity
+/// could not be recovered. That count is a RESULT, not progress, so it rides
+/// this return value — `ImportProgress::Done` carries no payload.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_import(
     app: &tauri::AppHandle,
@@ -186,7 +190,7 @@ pub async fn run_import(
     // `launcher_import_run` stays `Send` (`emit` is held across an `.await`).
     // Mirrors `modpack::import::import`'s `on_progress` bound.
     emit: &(dyn Fn(ImportProgress) + Send + Sync),
-) -> Result<String> {
+) -> Result<(String, u32)> {
     use crate::instances;
     use crate::paths;
 
@@ -261,11 +265,9 @@ pub async fn run_import(
         .await?;
     }
 
-    emit(ImportProgress::Done {
-        instance_id: id.clone(),
-        untracked_mods: untracked,
-    });
-    Ok(id)
+    // Phase marker only — `untracked` rides the return value.
+    emit(ImportProgress::Done);
+    Ok((id, untracked))
 }
 
 /// SHA-1 (hex, lowercase) of every `*.jar` directly under `dir`.

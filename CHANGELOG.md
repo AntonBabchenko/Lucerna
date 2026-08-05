@@ -90,6 +90,12 @@ release is **0.9.0**.
   datapacks with it. They land in the new instance's datapack library, keeping
   the identity that lets Lucerna offer updates for them later, and you place
   them into a world once you have one.
+- The **Details** report after importing a modpack was empty — "0 files" — for
+  every pack of about thirty files or more, even though the import itself had
+  worked. The list is now taken from the finished operation rather than from a
+  progress message that could arrive after it, and shows every file with where
+  it came from and whether it was downloaded or reused. Updating a modpack
+  gets the same per-file report, which it never had.
 
 ## [0.21.0] — 2026-07-31
 

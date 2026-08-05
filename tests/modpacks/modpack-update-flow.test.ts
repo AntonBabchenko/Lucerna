@@ -38,7 +38,7 @@ beforeEach(() => {
     status: 'ok',
     data: { added: [], removed: [], updated: [], new_version_number: '1.3.0', version_bump: null },
   });
-  applyUpdate.mockResolvedValue({ status: 'ok', data: { id: 'i1' } });
+  applyUpdate.mockResolvedValue({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
 });
 
 describe('createModpackUpdateFlow', () => {
@@ -86,7 +86,7 @@ describe('createModpackUpdateFlow', () => {
     expect(flow.phase).toBe('applying');
     phaseCh!.onmessage({ phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' });
     expect(flow.progress).toEqual({ current: 3, total: 12, fileName: 'Sodium' });
-    release({ status: 'ok', data: { id: 'i1' } });
+    release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
     expect(await p).toBe(true);
     expect(flow.phase).toBe('idle');
   });
@@ -141,7 +141,7 @@ describe('createModpackUpdateFlow', () => {
     phaseCh!.onmessage?.({ phase: 'installing_file', current: 5, total: 9, file_name: 'Iris' });
     expect(flow.progress).toEqual({ current: 5, total: 9, fileName: 'Iris' });
 
-    release({ status: 'ok', data: { id: 'i1' } });
+    release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
     await p;
   });
 });

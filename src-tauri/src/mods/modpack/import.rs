@@ -935,11 +935,13 @@ async fn install_selected_files(
 /// and therefore no overrides to extract; the overrides block is guarded
 /// by this option. All other behaviour is identical for every format.
 ///
-/// Returns the per-file `TaskDetail` rows alongside the created instance —
-/// NOT carried on `InstanceWithStatus` itself (that type is the general
-/// instance schema, reused far beyond one import) — so the caller
-/// (`commands::modpack_cmds::journal_pack_import`) can persist them into an
-/// install report and stamp the journal row that names it.
+/// Returns a `ModpackImportOutcome` — the created instance plus the per-file
+/// `TaskDetail` rows and the two non-fatal notes. They are NOT carried on
+/// `InstanceWithStatus` itself (that type is the general instance schema,
+/// reused far beyond one import), and they are deliberately NOT sent on the
+/// progress channel either (see `ModpackProgress::Done`). The caller
+/// (`commands::modpack_cmds::journal_pack_import`) persists the rows into an
+/// install report and stamps the journal row that names it.
 #[allow(clippy::too_many_arguments)]
 pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
@@ -961,13 +963,7 @@ pub async fn install_resolved_pack(
     // wrapped channel closure already satisfies these bounds.
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<
-    (
-        crate::instances::schema::InstanceWithStatus,
-        Vec<TaskDetail>,
-    ),
-    Error,
-> {
+) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, Error> {
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
     }
@@ -1238,8 +1234,8 @@ pub async fn install_resolved_pack(
     };
 
     // Record the skipped oversized overrides so the Imported drawer can
-    // show the informational "skipped" note after a restart (the Done
-    // event below only reaches the live import toast).
+    // show the informational "skipped" note after a restart (the returned
+    // outcome below only reaches the live import toast).
     origin.skipped_overrides = skipped_overrides.clone();
     origin.inert_loader_jars = inert_loader_jars.clone();
     if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
@@ -1263,18 +1259,16 @@ pub async fn install_resolved_pack(
         crate::diag!("[modpack::import] enrich_instance failed (non-fatal): {e}");
     }
 
-    on_progress(ModpackProgress::Done {
-        instance_id: inst.id.clone(),
-        skipped_overrides,
-        inert_loader_jars,
-        // Cloned: the live-toast progress event and the returned details both
-        // need an owned copy — the caller persists the latter into a report
-        // right after this call returns.
-        details: details.clone(),
-    });
+    // Phase marker only — the result rides the return value below.
+    on_progress(ModpackProgress::Done);
 
     if failures.is_empty() {
-        Ok((inst, details))
+        Ok(crate::mods::modpack::schema::ModpackImportOutcome {
+            instance: inst,
+            skipped_overrides,
+            inert_loader_jars,
+            details,
+        })
     } else {
         Err(Error::ModpackPartialFailure {
             instance_id: inst.id,
@@ -1300,13 +1294,7 @@ pub async fn import(
     hint_version_id: Option<String>,
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
-) -> Result<
-    (
-        crate::instances::schema::InstanceWithStatus,
-        Vec<TaskDetail>,
-    ),
-    Error,
-> {
+) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, Error> {
     on_progress(ModpackProgress::Inspecting);
     let summary = inspect(bytes, cf_base).await?;
     install_resolved_pack(

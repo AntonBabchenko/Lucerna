@@ -8,6 +8,7 @@ use crate::error::Error;
 use crate::instances::import::discovery;
 use crate::instances::import::model::{
     build_import_plan, ContentCategory, DiscoverResult, ForeignInstance, ImportProgress,
+    LauncherImportOutcome,
 };
 use crate::instances::import::pipeline;
 use crate::instances::schema::InstanceFile;
@@ -46,7 +47,7 @@ pub async fn launcher_import_run(
     loader_override: Option<crate::instances::schema::LoaderKind>,
     loader_version_override: Option<String>,
     on_progress: Channel<ImportProgress>,
-) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+) -> Result<LauncherImportOutcome, Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     let mut foreign = foreign;
     if let Some(v) = mc_version_override {
@@ -87,7 +88,7 @@ pub async fn launcher_import_run(
     let emit = move |p: ImportProgress| {
         let _ = on_progress.send(p);
     };
-    let id = pipeline::run_import(
+    let (id, untracked_mods) = pipeline::run_import(
         &app,
         &foreign,
         &plan,
@@ -103,9 +104,10 @@ pub async fn launcher_import_run(
         crate::paths::versions_dir(&app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = crate::instances::status::ready_status(&versions_dir, &instance);
     // A freshly imported instance directory cannot already contain icon.png.
-    Ok(crate::instances::schema::InstanceWithStatus::from_file(
-        &instance, ready, false,
-    ))
+    Ok(LauncherImportOutcome {
+        instance: crate::instances::schema::InstanceWithStatus::from_file(&instance, ready, false),
+        untracked_mods,
+    })
 }
 
 /// Resolve the still-existing source directory recorded at import time.

@@ -879,7 +879,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
  *  `datapack_versions` is real, which is exactly what update checking
  *  needs. Served by `datapacks::vanillatweaks::VanillaTweaksPlatform`.
  */
-"vanilla_tweaks" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
+"vanilla_tweaks" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackImportOutcome, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
@@ -1007,7 +1007,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  ones from the warm cache, and rewrites `pack_origin` + the instance's
 	 *  version metadata. `overrides/`-bundled content is not touched.
 	 */
-	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
+	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Re-fetch the instance's current modpack version and re-extract its
 	 *  `overrides/` — recovers bundled mods/files that a per-file Restore
@@ -1045,7 +1045,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  and are applied when present. They are blank only for a bare `.minecraft`
 	 *  the user never filled — guarded below by the empty-version check.
 	 */
-	launcherImportRun: (foreign: ForeignInstance, selected: ContentCategory[], targetName: string, mcVersionOverride: string | null, loaderOverride: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, loaderVersionOverride: string | null, onProgress: Channel<ImportProgress>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("launcher_import_run", { foreign, selected, targetName, mcVersionOverride, loaderOverride, loaderVersionOverride, onProgress })),
+	launcherImportRun: (foreign: ForeignInstance, selected: ContentCategory[], targetName: string, mcVersionOverride: string | null, loaderOverride: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, loaderVersionOverride: string | null, onProgress: Channel<ImportProgress>) => typedError<LauncherImportOutcome, Error>(__TAURI_INVOKE("launcher_import_run", { foreign, selected, targetName, mcVersionOverride, loaderOverride, loaderVersionOverride, onProgress })),
 	/**
 	 *  Open the folder the instance was imported from, so the user can find and
 	 *  clean up the original files. The path is read server-side from the
@@ -3406,7 +3406,15 @@ export type HostKeyPreview = {
 };
 
 /**  Typed progress streamed to the UI during an import. */
-export type ImportProgress = { phase: "creating_instance"; name: string } | { phase: "copying"; category: ContentCategory; current: number; total: number } | { phase: "recovering_identities" } | { phase: "done"; instance_id: string; untracked_mods: number };
+export type ImportProgress = { phase: "creating_instance"; name: string } | { phase: "copying"; category: ContentCategory; current: number; total: number } | { phase: "recovering_identities" } | 
+/**
+ *  Terminal phase marker — deliberately **payload-free**, for the same
+ *  reason as `ModpackProgress::Done` (see that variant's doc comment): a
+ *  channel message is delivered out-of-band from the command's response
+ *  and can land after it, so anything the UI must READ belongs on the
+ *  return value. Here that is [`LauncherImportOutcome::untracked_mods`].
+ */
+{ phase: "done" };
 
 /**
  *  Provenance written when an instance is created via launcher import.
@@ -3935,6 +3943,22 @@ export type LaunchOutcome =
 "crashed" | 
 /**  The user pressed Stop. */
 "stopped";
+
+/**
+ *  What `launcher_import_run` returns.
+ * 
+ *  `untracked_mods` used to ride `ImportProgress::Done`, where the runner read
+ *  it out of a captured local right after awaiting the command — a read that is
+ *  only ever correct by luck of transport timing.
+ */
+export type LauncherImportOutcome = {
+	instance: InstanceWithStatus,
+	/**
+	 *  Copied jars whose identity could not be recovered from Modrinth or
+	 *  CurseForge — they stay in the instance but have no known provenance.
+	 */
+	untracked_mods: number,
+};
 
 /**
  *  The result of a library install: the registry row, plus what the same-name
@@ -4504,6 +4528,37 @@ export type ModpackHit = {
 	author: string | null,
 };
 
+/**
+ *  What `modpack_import` returns: the created instance plus everything the
+ *  completion toast and the install report need.
+ * 
+ *  These ride the return value rather than `ModpackProgress::Done` — see that
+ *  variant's doc comment for the transport bug that forced the split.
+ */
+export type ModpackImportOutcome = {
+	instance: InstanceWithStatus,
+	/**
+	 *  Overrides skipped during extraction because they exceeded the per-file
+	 *  size cap (non-loadable blobs — see `SkippedOverride`). Empty in the
+	 *  common case; non-empty drives a non-fatal "N file(s) skipped" note on
+	 *  the import-complete toast.
+	 */
+	skipped_overrides: SkippedOverride[],
+	/**
+	 *  Installed jars built for a loader family this instance cannot load
+	 *  (inert — e.g. a Fabric jar on a Forge instance — see `InertLoaderJar`).
+	 *  Empty in the common case; non-empty drives a non-fatal "N inert jar(s)"
+	 *  note on the import-complete toast.
+	 */
+	inert_loader_jars: InertLoaderJar[],
+	/**
+	 *  One row per file this import touched — what it was, where it came from,
+	 *  how big, and what happened to it. The UI hands these to the task
+	 *  registry; the backend separately persists them as an install report.
+	 */
+	details: TaskDetail[],
+};
+
 /**  One batch entry: an instance id paired with its resolved status. */
 export type ModpackInstanceUpdate = {
 	instance_id: string,
@@ -4516,29 +4571,26 @@ export type ModpackInstanceUpdate = {
  *  `install_progress` channel from sub-3 so PhaseStatusRow + the
  *  import progress view can both render fine-grained state.
  */
-export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | { phase: "done"; instance_id: string; 
+export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | 
 /**
- *  Overrides skipped during extraction because they exceeded the
- *  per-file size cap (non-loadable blobs — see `SkippedOverride`).
- *  Empty in the common case; non-empty drives a non-fatal "N file(s)
- *  skipped" note on the import-complete toast.
+ *  Terminal phase marker — deliberately **payload-free**.
+ * 
+ *  It used to carry the import's result (skipped overrides, inert jars,
+ *  per-file report rows). That was a real bug, not a style question: a
+ *  channel message is delivered out-of-band from the command's own
+ *  response, and Tauri routes any JSON body at or above
+ *  `MAX_JSON_DIRECT_EXECUTE_THRESHOLD` (8192 bytes, `ipc/channel.rs`)
+ *  through a *second* async IPC round trip that lands after the response
+ *  has already resolved. A 37-file pack serialises to ~10 KB, so the UI
+ *  read its captured local while it was still empty and every install
+ *  report came back "0 files".
+ * 
+ *  The rule this encodes: a task's terminal result travels on the
+ *  command's **return value** (`ModpackImportOutcome`,
+ *  `ModpackUpdateOutcome`); the channel carries progress only. Adding a
+ *  field back here breaks `done_is_a_payload_free_phase_marker`.
  */
-skipped_overrides: SkippedOverride[]; 
-/**
- *  Installed jars built for a loader family this instance cannot load
- *  (inert — e.g. a Fabric jar on a Forge instance — see
- *  `InertLoaderJar`). Empty in the common case; non-empty drives a
- *  non-fatal "N inert jar(s)" note on the import-complete toast.
- */
-inert_loader_jars: InertLoaderJar[]; 
-/**
- *  One row per file this import touched — what it was, where it came
- *  from, how big, and what happened to it. Rides this terminal
- *  message rather than a dedicated event (correlation is free: the
- *  channel belongs to one invocation); a later task persists it into
- *  a per-file install report.
- */
-details: TaskDetail[] };
+{ phase: "done" };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -4691,6 +4743,25 @@ export type ModpackUpdateDiff = {
 export type ModpackUpdateEntry = {
 	old: PackOriginFile,
 	new: ModpackFile,
+};
+
+/**
+ *  What `modpack_apply_update` returns. Same reasoning as
+ *  [`ModpackImportOutcome`]; a version bump never touches `overrides/`, so
+ *  there is nothing to skip and no `skipped_overrides` field.
+ */
+export type ModpackUpdateOutcome = {
+	instance: InstanceWithStatus,
+	/**
+	 *  The mods dir is re-classified by an update, so a switch that changes
+	 *  the loader family reports which bundled jars have stopped loading.
+	 */
+	inert_loader_jars: InertLoaderJar[],
+	/**
+	 *  Per-file rows for the removals + installs the update performed,
+	 *  including per-file failures (this path continues past them).
+	 */
+	details: TaskDetail[],
 };
 
 /**  The resolved update state for one pack instance. */
