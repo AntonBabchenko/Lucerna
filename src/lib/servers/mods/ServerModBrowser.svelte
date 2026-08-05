@@ -24,6 +24,7 @@
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
   import Select from '$lib/ui/Select.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import { displayCore } from '$lib/servers/core-display';
@@ -73,6 +74,14 @@
   // "Installed" badge); unchecking hides them so only not-yet-installed mods
   // remain on the current page. Pure client-side filter — no refetch.
   let showInstalled = $state(true);
+  // A server-targeted browse should not offer client-only mods (minimaps, HUDs,
+  // shaders). Component-local and reset to on when the Add-ons tab remounts —
+  // same lifetime as `showInstalled` above. Unlike that one this is a
+  // SERVER-side facet, so `total` and the page count stay consistent with what
+  // is rendered. CurseForge's search API exposes no client/server facet, so the
+  // control is disabled (and explained) for that source.
+  let serverOnly = $state(true);
+  const serverOnlyAvailable = $derived(source !== 'curseforge');
 
   const pageSize = $derived(browserPrefs.pageSize);
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
@@ -103,6 +112,7 @@
       sort,
       page_size: pageSize,
       offset: page * pageSize,
+      server_only: serverOnly && serverOnlyAvailable,
     });
     if (seq !== reqSeq) return;
     if (result.status === 'ok') {
@@ -138,6 +148,7 @@
     const __ = source;
     const ___ = cfKeyVersion.value;
     const ____ = sort;
+    const _____ = serverOnly;
     if (debounce) clearTimeout(debounce);
     if (firstRun) {
       firstRun = false;
@@ -349,6 +360,25 @@
         data-testid="server-mod-show-installed"
       />
       {$t('browse.filter.showInstalled')}
+    </label>
+    <!-- The tooltip lives on the LABEL, not the input: a disabled input swallows
+         pointer events, and the CurseForge case is exactly when the explanation
+         is needed most. -->
+    <label
+      class="flex shrink-0 items-center gap-1.5 text-xs text-secondary whitespace-nowrap"
+      class:opacity-60={!serverOnlyAvailable}
+      use:tooltip={serverOnlyAvailable
+        ? $t('servers.mods.serverOnlyTooltip')
+        : $t('servers.mods.serverOnlyUnavailable')}
+    >
+      <input
+        type="checkbox"
+        class="accent-accent"
+        bind:checked={serverOnly}
+        disabled={!serverOnlyAvailable}
+        data-testid="server-mod-server-only"
+      />
+      {$t('servers.mods.serverOnlyLabel')}
     </label>
     <LayoutToggle />
   </div>
