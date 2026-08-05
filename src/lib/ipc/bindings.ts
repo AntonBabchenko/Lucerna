@@ -99,8 +99,16 @@ export const commands = {
 	 *  — the UI shows an Install button when the instance is not ready and
 	 *  a Play button once it is. Emits `installProgress` during the run.
 	 *  Resolves version+loader from `instance.json` server-side.
+	 * 
+	 *  Returns the per-file install report. It rides the RETURN VALUE, never the
+	 *  `installProgress` event: a Tauri payload of 8192 bytes or more is delivered
+	 *  AFTER the command response, so a report carried on the progress path would
+	 *  race the caller that needs it. Same reasoning as `InstallSummary::details`.
+	 * 
+	 *  An empty vec is impossible on success — the version JSON row alone is
+	 *  always pushed — so the frontend can treat `Ok` as "there is a report".
 	 */
-	installInstance: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("install_instance", { instanceId })),
+	installInstance: (instanceId: string) => typedError<TaskDetail[], Error>(__TAURI_INVOKE("install_instance", { instanceId })),
 	/**
 	 *  Launch the given instance. Assumes it is already installed (the UI
 	 *  only enables Play when `instance.ready == true`, which checks the
@@ -6084,7 +6092,22 @@ export type TaskOrigin = "modrinth" | "curseforge" | "ftb" | "atlauncher" |
  *  A user-supplied local file, or a source with no report-worthy
  *  platform identity (see the `Hangar` mapping below).
  */
-"local";
+"local" | 
+/**
+ *  A file from the game's own distribution — Mojang's CDN, a loader's
+ *  maven, the JRE mirror.
+ * 
+ *  Deliberately NOT `Local`: that variant means a file the user supplied,
+ *  and these are fetched over the network like any other platform's
+ *  content. One variant covers all three sources rather than splitting
+ *  hairs the report already records per row — the exact host lives in
+ *  `TaskDetail::host`.
+ * 
+ *  No `ModSource` maps here, and none ever should: this origin is produced
+ *  only by the version-install pipeline, which knows nothing about mod
+ *  platforms.
+ */
+"game";
 
 /**
  *  A persisted report: one task's [`TaskDetail`] rows plus the metadata
