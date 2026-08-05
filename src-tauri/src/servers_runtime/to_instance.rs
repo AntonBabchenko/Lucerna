@@ -86,11 +86,11 @@ pub async fn create_client_instance(
     }
 
     // Mirror the server's non-mod configuration so the produced client matches
-    // it (#17): `config/`, `resourcepacks/`. Without these the
-    // client can desync from the server (e.g. a config-driven mod crashes on
-    // join) — the very failure this "client from server" feature exists to
-    // avoid. Best-effort: the instance is already usable from the mandatory mod
-    // copy above, so a partial config copy is logged, not a rollback.
+    // it (#17): `config/` and `resourcepacks/`. Without these the client can
+    // desync from the server (e.g. a config-driven mod crashes on join) — the
+    // very failure this "client from server" feature exists to avoid.
+    // Best-effort: the instance is already usable from the mandatory mod copy
+    // above, so a partial config copy is logged, not a rollback.
     let mc_dir = crate::paths::minecraft_dir(app, &instance_id)
         .map_err(|e| Error::io("<minecraft_dir>", e))?;
     if let Err(e) = copy_server_config_dirs(&p.runtime, &mc_dir) {
@@ -244,11 +244,14 @@ pub(crate) async fn copy_server_datapacks(
             // Identity-bearing: place the bytes under the same name, keeping
             // the identity that makes update checking possible.
             Some(p) => match tokio::fs::read(&src).await {
-                Ok(bytes) => {
-                    crate::datapacks::library::install_named_at(instance_root, &r.filename, &bytes, Some(p))
-                        .await
-                        .map(|_| ())
-                }
+                Ok(bytes) => crate::datapacks::library::install_named_at(
+                    instance_root,
+                    &r.filename,
+                    &bytes,
+                    Some(p),
+                )
+                .await
+                .map(|_| ()),
                 Err(e) => Err(Error::io(src.display().to_string(), e)),
             },
             // No identity: `install_local_at` already handles both a `.zip`
@@ -331,7 +334,9 @@ mod tests {
     async fn library_rows(
         instance_root: &std::path::Path,
     ) -> Vec<crate::datapacks::InstalledDatapack> {
-        crate::datapacks::registry::list(instance_root).await.unwrap()
+        crate::datapacks::registry::list(instance_root)
+            .await
+            .unwrap()
     }
 
     /// A `.zip` with a catalogue identity arrives in the instance library WITH
