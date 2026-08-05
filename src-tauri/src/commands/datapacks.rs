@@ -325,12 +325,35 @@ pub async fn datapacks_update_one(
     guard(&instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
+    // A Vanilla Tweaks pack has no direct URL — its bytes exist only after a
+    // build request — and its filename carries the version, so it changes with
+    // every release. Both come back together from the build, which is why the
+    // filename is taken from there and never predicted. Resolved before the
+    // async block so the block's ownership is untouched.
+    let vt_family = if target.source == crate::mods::platform::ModSource::VanillaTweaks {
+        let (mc_version, _loader) = super::read_active_mc_and_loader(&app, &instance_id)?;
+        Some(
+            crate::datapacks::vanillatweaks::family_for(&mc_version).ok_or(
+                crate::error::Error::VanillaTweaksUnavailable { mc_version },
+            )?,
+        )
+    } else {
+        None
+    };
     crate::network::throttle::with_interactive(async move {
-        let bytes = fetch_datapack_bytes(&dd, &target).await?;
+        let (filename, bytes) = match vt_family {
+            Some(family) => {
+                crate::datapacks::vanillatweaks::build_one(&family, &target.project_id).await?
+            }
+            None => (
+                target.primary_file.filename.clone(),
+                fetch_datapack_bytes(&dd, &target).await?,
+            ),
+        };
         crate::datapacks::update::update_at(
             &root,
             &old_filename,
-            &target.primary_file.filename,
+            &filename,
             &bytes,
             &datapack_provenance_of(&target),
         )
