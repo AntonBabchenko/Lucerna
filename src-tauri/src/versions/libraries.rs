@@ -230,27 +230,52 @@ pub(crate) fn collect_library_downloads(
         .collect()
 }
 
+/// What `ensure_libraries` did with one library, so the caller can build an
+/// install-report row without re-deriving any of it. Everything but
+/// `downloaded` already comes out of `collect_library_downloads`; only the
+/// download closure knows whether bytes actually moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryOutcome {
+    pub rel_path: String,
+    pub url: String,
+    pub sha1: String,
+    pub size: u64,
+    /// `false` when the SHA precheck matched, or when a locally-produced
+    /// artifact was found already in place.
+    pub downloaded: bool,
+}
+
 /// Download all libraries that should install on the current platform,
 /// up to `CONCURRENCY` at a time. Reuses `network::download_with_sha`.
 /// Idempotent — files that exist with matching SHA-1 are skipped. Short-
 /// circuits on the first error (in-flight downloads are dropped).
+///
+/// Returns one [`LibraryOutcome`] per work-item, sorted by `rel_path`, for the
+/// install report.
 pub async fn ensure_libraries(
     libs: &[Library],
     os: &str,
     arch: &str,
     app: &tauri::AppHandle,
-) -> Result<()> {
+) -> Result<Vec<LibraryOutcome>> {
     let root = libraries_dir(app).map_err(|e| crate::error::Error::io("<libraries_dir>", e))?;
     let downloads = collect_library_downloads(libs, os, arch);
 
     let app = app.clone();
     let root = std::sync::Arc::new(root);
-    stream::iter(downloads)
-        .map(|(rel_path, url, sha1, _size)| {
+    let mut outcomes = stream::iter(downloads)
+        .map(|(rel_path, url, sha1, size)| {
             let app = app.clone();
             let root = std::sync::Arc::clone(&root);
             async move {
                 let dest = root.join(&rel_path);
+                let outcome = |downloaded: bool| LibraryOutcome {
+                    rel_path: rel_path.clone(),
+                    url: url.clone(),
+                    sha1: sha1.clone(),
+                    size,
+                    downloaded,
+                };
                 if url.is_empty() {
                     // Locally-produced artifact (e.g. modern-era Forge's
                     // `{PATCHED}` client jar =
@@ -263,7 +288,7 @@ pub async fn ensure_libraries(
                     // the file SHA1 won't bytewise-match the reference. Trust
                     // by existence (TOFU) — the install pipeline made it.
                     if tokio::fs::metadata(&dest).await.is_ok() {
-                        return Ok(());
+                        return Ok(outcome(false));
                     }
                     return Err(crate::error::Error::io(
                         dest.display().to_string(),
@@ -274,18 +299,23 @@ pub async fn ensure_libraries(
                     ));
                 }
                 if file_matches_sha(&dest, &sha1).await {
-                    return Ok(());
+                    return Ok(outcome(false));
                 }
-                download_with_sha(&app, &url, &dest, &sha1, "libraries").await
+                download_with_sha(&app, &url, &dest, &sha1, "libraries").await?;
+                Ok(outcome(true))
             }
         })
         .buffer_unordered(CONCURRENCY)
         // `try_collect` stops consuming on the first `Err` and drops the
         // remaining in-flight futures (short-circuit), unlike a plain
         // `collect` that would run every download to completion first.
-        .try_collect::<Vec<()>>()
+        .try_collect::<Vec<LibraryOutcome>>()
         .await?;
-    Ok(())
+    // `buffer_unordered` yields in completion order, which is a download race.
+    // The report must read the same way on every run, so sort by the one field
+    // that is unique per work-item — `collect_library_downloads` dedupes on it.
+    outcomes.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    Ok(outcomes)
 }
 
 async fn file_matches_sha(path: &std::path::Path, expected_sha_hex: &str) -> bool {
@@ -460,6 +490,26 @@ mod tests {
         assert_eq!(got, expected);
         // Sanity: vanilla (1) + fabric (1) + excluded (0) = 2.
         assert_eq!(got.len(), 2);
+    }
+
+    #[test]
+    fn library_outcome_carries_every_column_the_report_needs() {
+        // A report row needs the path, the URL (for its host), the sha1 and
+        // the size. Dropping any of them from `LibraryOutcome` would empty a
+        // column of the install report silently rather than fail a build, so
+        // pin all four here.
+        let outcome = LibraryOutcome {
+            rel_path: "net/example/lib/1/lib-1.jar".into(),
+            url: "https://libraries.minecraft.net/net/example/lib/1/lib-1.jar".into(),
+            sha1: "deadbeef".into(),
+            size: 100,
+            downloaded: true,
+        };
+        assert_eq!(outcome.rel_path, "net/example/lib/1/lib-1.jar");
+        assert_eq!(outcome.sha1, "deadbeef");
+        assert_eq!(outcome.size, 100);
+        assert!(outcome.downloaded);
+        assert!(outcome.url.starts_with("https://"));
     }
 
     #[test]
