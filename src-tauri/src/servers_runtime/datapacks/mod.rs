@@ -154,6 +154,27 @@ pub struct ServerDatapackEntry {
     pub is_folder: bool,
 }
 
+/// The result of one server datapack update.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
+pub struct ServerDatapackUpdateOutcome {
+    /// The new sidecar row, carrying the target version's provenance.
+    pub record: crate::servers_runtime::installed::ServerInstalledRecord,
+    /// The enabled state carried across to the new name.
+    ///
+    /// `None` for a same-filename refresh: that path deliberately never reads
+    /// or writes `level.dat`, so it does not KNOW the state — reporting `true`
+    /// would tell the admin a disabled pack had been switched on. (Exactly why
+    /// the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
+    pub was_enabled: Option<bool>,
+    /// `false` ⟹ the old file was left on disk because its sha1 did not match
+    /// its sidecar row — a hand-replaced pack this must not delete. `true` for
+    /// a same-name refresh, where the file was replaced in place and nothing
+    /// is left behind.
+    pub old_removed: bool,
+    /// `false` ⟹ something needs attention; the row is not done.
+    pub completed: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
