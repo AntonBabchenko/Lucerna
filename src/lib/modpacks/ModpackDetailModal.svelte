@@ -248,6 +248,11 @@
       {:else}
         <ul class="space-y-2">
           {#each visibleVersions as v (v.id)}
+            <!-- `null` filter on purpose: a row is a version the user picked by
+                 hand, so the "why this one" reason is irrelevant here — only
+                 the MC / loader segments are used. -->
+            {@const meta = summarisePick(v, null)}
+            {@const rowTip = $t('modpacks.detail.installRowTip', { version: v.version_number })}
             <li
               class="p-2 border rounded text-sm"
               class:border-accent={v.id === highlightVersionId}
@@ -258,13 +263,16 @@
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{v.name}</div>
                   <div class="text-xs text-muted">
-                    MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
+                    {joinSummary([
+                      meta.mc ? $t('modpacks.detail.mcLabel', { mc: meta.mc }) : null,
+                      meta.loaders,
+                    ])}
                   </div>
                 </div>
                 <span
                   class="inline-flex ml-2"
                   use:tooltip={{
-                    text: installDisabledReason ?? $t('common.install'),
+                    text: installDisabledReason ?? rowTip,
                     describe: false,
                   }}
                 >
@@ -272,7 +280,7 @@
                     class="btn-icon btn-icon-sm !text-accent"
                     busy={downloading}
                     disabled={installDisabledReason !== null}
-                    aria-label={$t('common.install')}
+                    aria-label={rowTip}
                     onclick={() => install(v.id)}
                   >
                     <Icon name="download" size={15} />
