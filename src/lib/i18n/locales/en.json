@@ -2732,7 +2732,21 @@
       "kindDatapacks": "Datapacks",
       "pinnedFacets": "For {core} {mcVersion}",
       "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
-      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file"
+      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file",
+      "noKinds": "This server's Minecraft is older than 1.13, and its core takes neither mods nor plugins — there is nothing Lucerna can add on here."
+    },
+    "datapacks": {
+      "stateGhost": "Listed in the world, but the file is gone",
+      "enable": "Enable",
+      "disable": "Disable",
+      "checkUpdates": "Check for updates",
+      "note": "Data packs are enabled and disabled in the world itself, so this list matches what /datapack list shows in game.",
+      "empty": "No data packs in this server's world yet.",
+      "remove": "Remove data pack",
+      "removeConfirm": "Remove {name} from this server's world?",
+      "removeGhostConfirm": "The world still lists {name}, but its file is gone. Clear the entry?",
+      "updatePartial": "{name} was updated, but the old file could not be removed — it doesn't match what Lucerna installed. Remove it by hand.",
+      "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {
       "launchSection": "Launch"
