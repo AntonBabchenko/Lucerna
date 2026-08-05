@@ -10,6 +10,8 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-08-05
+
 ### Added
 
 - **Translate the mods you play with.** The Translation screen now lets you write
@@ -40,6 +42,15 @@ release is **0.9.0**.
   than killing the run — a run that quietly loses work while the coverage
   number refuses to move is worse than one that says what it lost.
 
+  The permission is the gate for the whole section: while it is off, the
+  provider, model, port and key fields are inactive rather than merely
+  unsaved, so a key is never filed in the OS keyring for a feature you have
+  not agreed to. The **Translate with AI** buttons stay on screen either
+  way — disabled, carrying the reason they cannot run (permission off, no
+  key stored, coverage still loading, or a Minecraft version that cannot
+  load packs) — because a button that simply isn't there is
+  indistinguishable from a launcher that cannot do this at all.
+
 - **Share what you translated.** Export your own strings as a file and hand it
   to someone else, or apply one set across several instances at once. The
   export dialog now says what it is offering — the mods you have overrides
@@ -52,7 +63,10 @@ release is **0.9.0**.
   language: %s`) matches what you actually read on screen (`Invalid language:
   ru_ru`). Hits rank exact before prefix before substring, because on a
   hundred-mod pack an unranked list is barely better than the mod list it
-  replaces.
+  replaces. Narrowing that mod list by name keeps the filter box on screen
+  when nothing matches, and says nothing matched, instead of replacing the
+  whole pane — filter included — with "this instance has no translatable
+  text yet".
 
 - **Datapacks, from the catalogue into your worlds.** Instances get a new
   **Data packs** option in Add-ons, alongside mods, resource packs and
@@ -112,7 +126,11 @@ release is **0.9.0**.
   running, how far along it is, and what it belongs to, with the surfaces
   keeping their own inline bars as well. Finished imports and updates carry a
   **Details** report listing every file, where it came from, and whether it
-  was downloaded or already in the cache.
+  was downloaded or already in the cache. Installing a game version reports
+  the same way, down to each library, asset bundle and the client jar. The
+  strip opens from a click anywhere on it, a finished row opens its report
+  the same way, and an imported pack is named in the strip rather than
+  identified by its project id.
 
 - **Navigate a thousand screenshots.** The gallery and the per-instance
   screenshots tab now group shots by day or month, sort newest- or
@@ -217,7 +235,10 @@ release is **0.9.0**.
   you when a refresh decides it no longer matches.
 - The own-server tour's first step pointed at the wrong control: Start and
   Stop moved to the sidebar when servers became a mode, and the step was
-  still spotlighting the panel header.
+  still spotlighting the panel header. It also promised a Beta marker that
+  no longer exists anywhere — the title it referred to went away when
+  servers became a mode, and servers have since gained plugins, backups, the
+  `server.properties` editor, datapacks, SFTP export and crash diagnosis.
 
 ## [0.21.0] — 2026-07-31
 
@@ -1137,7 +1158,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.18.0...v0.19.0
