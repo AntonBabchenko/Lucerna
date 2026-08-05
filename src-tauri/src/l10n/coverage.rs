@@ -176,10 +176,38 @@ pub async fn scan_instance(
     let mut available: BTreeSet<String> = BTreeSet::new();
     let mut fresh: Vec<(String, CachedJarScan)> = Vec::new();
 
+    // Which namespaces the user has actually translated. Read once: it decides
+    // whether a cached jar can be believed as-is, and on a typical pack it is a
+    // handful of names against hundreds of mods, so almost every jar still
+    // costs nothing beyond its cache lookup.
+    let overridden_ns: BTreeSet<String> =
+        crate::l10n::store::namespaces_with_overrides(store_dir, lang)
+            .into_iter()
+            .collect();
+
     for m in installed.iter().filter(|m| m.enabled) {
         if let Some(hit) = cached.get(lang, &m.sha1) {
-            available.extend(hit.codes.iter().cloned());
-            for c in &hit.namespaces {
+            let touched = hit
+                .namespaces
+                .iter()
+                .any(|c| overridden_ns.contains(&c.namespace));
+            if !touched {
+                available.extend(hit.codes.iter().cloned());
+                for c in &hit.namespaces {
+                    merge_into(&mut per_ns, c.clone());
+                }
+                continue;
+            }
+            // The cached row is still right about the jar and still wrong about
+            // the user, so the jar is read purely to fold the override count in.
+            // The cache is left exactly as it is — it is a fact about the file.
+            let codes = hit.codes.clone();
+            let mut rows = hit.namespaces.clone();
+            available.extend(codes);
+            if let Ok(bytes) = tokio::fs::read(mods_dir.join(&m.filename)).await {
+                fold_jar_overrides(&mut rows, &bytes, lang, store_dir);
+            }
+            for c in &rows {
                 merge_into(&mut per_ns, c.clone());
             }
             continue;
@@ -191,7 +219,7 @@ pub async fn scan_instance(
         // is no worse than the already-handled "missing" case above: both
         // mean this mod's coverage is unknowable right now. Skip it rather
         // than aborting the whole instance's report over one bad jar.
-        let (cov, codes) = match scan_one_jar(&bytes, lang, store_dir) {
+        let (cov, codes) = match scan_one_jar(&bytes, lang) {
             Ok(v) => v,
             Err(e) => {
                 crate::diag!("[l10n] scan failed for {}: {e}", m.filename);
@@ -199,16 +227,21 @@ pub async fn scan_instance(
             }
         };
         available.extend(codes.iter().cloned());
-        for c in &cov {
-            merge_into(&mut per_ns, c.clone());
-        }
+        // Cache the OVERRIDE-FREE rows, then report the folded ones. Caching
+        // the folded rows would freeze today's override count against a jar
+        // that never changes again.
         fresh.push((
             m.sha1.clone(),
             CachedJarScan {
                 codes,
-                namespaces: cov,
+                namespaces: cov.clone(),
             },
         ));
+        let mut rows = cov;
+        fold_jar_overrides(&mut rows, &bytes, lang, store_dir);
+        for c in &rows {
+            merge_into(&mut per_ns, c.clone());
+        }
     }
 
     if !fresh.is_empty() {
@@ -291,13 +324,22 @@ fn merge_into(acc: &mut BTreeMap<String, NamespaceCoverage>, c: NamespaceCoverag
         .or_insert(c);
 }
 
-/// Coverage for one jar, plus every language code it ships.
-/// `store_dir` is unused in this PR (no overrides exist yet) and is threaded
-/// through so the next PR adds the override count without changing signatures.
+/// Coverage for one jar, plus every language code it ships — **jar facts
+/// only**. `overridden` is always 0 here.
+///
+/// The split is load-bearing, not tidiness. This result is what the scan cache
+/// stores, and the cache is keyed by `(lang, jar SHA-1)`: writing a translation
+/// does not change the jar, so anything cached here is frozen for as long as
+/// the mod file is. An override count folded in at this level would therefore
+/// read zero forever — which is precisely the bug this function used to have,
+/// under a comment promising "the next PR" would wire `store_dir` up. It never
+/// did, so a fully translated mod showed 0%.
+///
+/// The user's contribution is added by [`fold_jar_overrides`], live, after the
+/// cache lookup.
 fn scan_one_jar(
     jar_bytes: &[u8],
     lang: &str,
-    _store_dir: &Path,
 ) -> Result<(Vec<NamespaceCoverage>, Vec<String>), crate::error::Error> {
     let entries = crate::l10n::scan::list_lang_entries(jar_bytes)?;
     let codes: Vec<String> = entries.iter().map(|(e, _)| e.code.clone()).collect();
@@ -317,9 +359,50 @@ fn scan_one_jar(
             .iter()
             .find(|(e, _)| e.namespace == ns && e.code == lang)
             .and_then(|(e, p)| crate::l10n::scan::read_lang_map(jar_bytes, e, p));
+        // Deliberately no overrides: see this function's doc comment.
         out.push(namespace_coverage(&ns, &en, target.as_ref(), &[]));
     }
     Ok((out, codes))
+}
+
+/// Add the user's override count to rows already carrying this jar's facts.
+///
+/// Never cached, and never merged into what the cache stores: the jar is
+/// unchanged by translating, so a cached override count would be stale from the
+/// moment it was written.
+///
+/// Recomputes `namespace_coverage` from the jar's own maps rather than adding a
+/// number, because `overridden` must exclude keys the mod already translates —
+/// a disjointness that needs the key SETS, which the cache does not hold and
+/// deliberately never will.
+fn fold_jar_overrides(
+    rows: &mut [NamespaceCoverage],
+    jar_bytes: &[u8],
+    lang: &str,
+    store_dir: &Path,
+) {
+    let Ok(entries) = crate::l10n::scan::list_lang_entries(jar_bytes) else {
+        return;
+    };
+    for row in rows.iter_mut() {
+        let store = crate::l10n::store::load(store_dir, lang, &row.namespace);
+        if store.entries.is_empty() {
+            continue;
+        }
+        let en = entries
+            .iter()
+            .find(|(e, _)| e.namespace == row.namespace && e.code == "en_us")
+            .and_then(|(e, p)| crate::l10n::scan::read_lang_map(jar_bytes, e, p));
+        let Some(en) = en else {
+            continue;
+        };
+        let target = entries
+            .iter()
+            .find(|(e, _)| e.namespace == row.namespace && e.code == lang)
+            .and_then(|(e, p)| crate::l10n::scan::read_lang_map(jar_bytes, e, p));
+        let keys: Vec<String> = store.entries.keys().cloned().collect();
+        *row = namespace_coverage(&row.namespace, &en, target.as_ref(), &keys);
+    }
 }
 
 /// Serializes the disk read-modify-write; held only over the synchronous
@@ -840,8 +923,7 @@ mod tests {
             ),
             ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
         ]);
-        let store_dir = Path::new("unused");
-        let (cov, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        let (cov, codes) = scan_one_jar(&bytes, "ru_ru").expect("readable jar");
         assert_eq!(cov.len(), 1);
         assert_eq!(cov[0].namespace, "create");
         assert_eq!(cov[0].total_keys, 3);
@@ -857,8 +939,7 @@ mod tests {
         // namespace is dropped from the report entirely rather than showing
         // up with a zero (or worse, undefined) denominator.
         let bytes = jar(&[("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#)]);
-        let store_dir = Path::new("unused");
-        let (cov, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        let (cov, codes) = scan_one_jar(&bytes, "ru_ru").expect("readable jar");
         assert!(cov.is_empty());
         // The code list is independent of whether English is present.
         assert_eq!(codes, vec!["ru_ru".to_string()]);
@@ -874,8 +955,7 @@ mod tests {
             ("assets/create/lang/ru_ru.json", r#"{"a":"А"}"#),
             ("assets/create/lang/de_de.json", r#"{"a":"D"}"#),
         ]);
-        let store_dir = Path::new("unused");
-        let (_, codes) = scan_one_jar(&bytes, "ru_ru", store_dir).expect("readable jar");
+        let (_, codes) = scan_one_jar(&bytes, "ru_ru").expect("readable jar");
         let mut sorted = codes;
         sorted.sort();
         assert_eq!(
@@ -891,6 +971,114 @@ mod tests {
     // ---------------------------------------------------------------------
     // scan_instance
     // ---------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn scan_instance_counts_the_users_overrides() {
+        // The whole defect: `scan_one_jar` passed an empty override list, so a
+        // mod the user had fully translated reported 0%.
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+        let bytes = jar(&[("assets/create/lang/en_us.json", r#"{"a":"A","b":"B"}"#)]);
+        tokio::fs::write(mods_dir.join("create.jar"), &bytes)
+            .await
+            .unwrap();
+
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+
+        let mut store = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        store.set("a", "А", "A", 0.0);
+        crate::l10n::store::save(&store_dir, &store).unwrap();
+
+        let out = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        let ns = out
+            .namespaces
+            .iter()
+            .find(|c| c.namespace == "create")
+            .expect("create scanned");
+        assert_eq!(ns.overridden, 1, "the user's own translation must count");
+        assert_eq!(ns.from_mod, 0);
+    }
+
+    #[tokio::test]
+    async fn an_override_written_after_the_jar_was_cached_still_counts() {
+        // The trap in fixing the above: the cache is keyed by (lang, jar
+        // SHA-1), and translating does not change the jar. Fold the override
+        // count into the CACHED rows and it freezes at whatever it was when
+        // the jar was first seen — here, zero, forever.
+        let td = tempdir().unwrap();
+        let inst_root = td.path().join("instance");
+        let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
+        let bytes = jar(&[("assets/create/lang/en_us.json", r#"{"a":"A","b":"B"}"#)]);
+        tokio::fs::write(mods_dir.join("create.jar"), &bytes)
+            .await
+            .unwrap();
+
+        let cache_path = td.path().join("l10n/scan-cache.json");
+        let store_dir = td.path().join("l10n");
+        let versions_dir = td.path().join("versions");
+
+        // First scan: nothing translated, and the jar lands in the cache.
+        let first = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            first
+                .namespaces
+                .iter()
+                .find(|c| c.namespace == "create")
+                .unwrap()
+                .overridden,
+            0
+        );
+
+        // The user translates a key. The jar is untouched, so the cache still
+        // hits on the second scan.
+        let mut store = crate::l10n::store::NamespaceStore::new("create", "ru_ru");
+        store.set("a", "А", "A", 0.0);
+        crate::l10n::store::save(&store_dir, &store).unwrap();
+
+        let second = scan_instance(
+            &inst_root,
+            &cache_path,
+            &store_dir,
+            &versions_dir,
+            "1.20.1",
+            "ru_ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            second
+                .namespaces
+                .iter()
+                .find(|c| c.namespace == "create")
+                .unwrap()
+                .overridden,
+            1,
+            "a cached jar must not freeze the user's override count"
+        );
+    }
 
     #[tokio::test]
     async fn scan_instance_cache_hit_still_returns_the_jars_language_codes() {

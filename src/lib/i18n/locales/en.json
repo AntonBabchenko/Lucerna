@@ -464,6 +464,8 @@
         "applyAction": "Apply",
         "applied": "Applied",
         "deferred": "Will be active after the first launch",
+        "openButton": "Apply elsewhere…",
+        "noCandidates": "No other instance needs these translations right now.",
         "nothingToShip": "Nothing to apply"
       },
       "share": {

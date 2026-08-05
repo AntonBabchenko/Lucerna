@@ -179,16 +179,25 @@
   let shareExportOpen = $state(false);
   let shareImportOpen = $state(false);
   // The offer dialog is opened proactively — after an apply, an import, or an
-  // AI pre-fill run. It fetches its own candidates and closes itself when
-  // there is nothing actionable, so over-triggering costs the user nothing
-  // while under-triggering silently leaves other instances stale.
+  // AI pre-fill run, and from its own button beside Apply.
+  //
+  // The two are not the same event. Import and pre-fill change the GLOBAL
+  // store, which silently puts every other instance out of date — that is when
+  // an unprompted offer earns its interruption, and there it still self-closes
+  // when there is nothing to do. Apply acts on THIS instance on purpose and
+  // nothing elsewhere moved under the user, so it no longer opens anything;
+  // the button does. A dialog the user opened deliberately owes them an
+  // answer even when the answer is "nobody needs this", hence `unsolicited`.
   let offerOpen = $state(false);
   let offerLang = $state('');
   let offerExclude = $state<string | null>(null);
 
-  function openOffer(targetLang: string, exclude: string | null) {
+  let offerUnsolicited = $state(true);
+
+  function openOffer(targetLang: string, exclude: string | null, unsolicited = true) {
     offerLang = targetLang;
     offerExclude = exclude;
+    offerUnsolicited = unsolicited;
     offerOpen = true;
   }
 
@@ -248,10 +257,12 @@
             $t('instance.l10n.apply.toastDeferredLine'),
           ]);
         }
-        // Deferred counts as much as applied here: the pack WAS written, so
-        // this instance is current and the others are the ones now behind.
-        // The failure path below is the only one with nothing to offer.
-        openOffer(lang, instanceId);
+        // Apply is the one action that changes pack state, and it used to be
+        // the one action that left the screen showing the old state: the
+        // "switched off in this instance" banner stayed up after the Apply
+        // that turned it back on, and the percentages never moved. Every
+        // other write path already refreshes; this one simply did not.
+        void refreshCoverageSilently();
       } else {
         pushWarning($t('instance.l10n.apply.toastFailedTitle'), [formatError(res.error)]);
       }
@@ -450,6 +461,18 @@
               {$t('instance.l10n.apply.button')}
             </BusyButton>
           </span>
+          <!--
+            Carrying the same translations to other instances is now something
+            the user asks for, not something Apply does to them on the way past.
+          -->
+          <button
+            type="button"
+            class="btn-ghost btn-sm"
+            data-testid="l10n-apply-elsewhere"
+            onclick={() => instanceId && openOffer(lang, instanceId, false)}
+          >
+            {$t('instance.l10n.targets.openButton')}
+          </button>
         {/if}
         <CloseButton onClick={close} ariaLabel={$t('instance.l10n.closeLabel')} />
       </div>
@@ -679,6 +702,7 @@
     <ApplyTargetsDialog
       lang={offerLang}
       exclude={offerExclude}
+      unsolicited={offerUnsolicited}
       onClose={() => (offerOpen = false)}
     />
   {/if}

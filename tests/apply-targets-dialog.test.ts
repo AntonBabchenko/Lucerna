@@ -26,6 +26,34 @@ beforeEach(() => {
 });
 
 describe('ApplyTargetsDialog', () => {
+  it('says so instead of vanishing when the user asked and there is nothing to do', async () => {
+    // A press deserves an answer. Self-closing is right only for an offer
+    // nobody asked for.
+    mocks.l10nApplyTargets.mockResolvedValue({
+      status: 'ok',
+      data: [target({ actionable: false, isRunning: true })],
+    });
+    const onClose = vi.fn();
+    render(ApplyTargetsDialog, {
+      props: { lang: 'ru_ru', exclude: null, unsolicited: false, onClose },
+    });
+
+    await waitFor(() => screen.getByTestId('apply-targets-none'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('still vanishes when it offered itself and there is nothing to do', async () => {
+    mocks.l10nApplyTargets.mockResolvedValue({
+      status: 'ok',
+      data: [target({ actionable: false, isRunning: true })],
+    });
+    const onClose = vi.fn();
+    render(ApplyTargetsDialog, { props: { lang: 'ru_ru', exclude: null, onClose } });
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(screen.queryByTestId('apply-targets-none')).toBeNull();
+  });
+
   it('drops the stale state chip once a row has a result', async () => {
     // The chip is a snapshot from load; the result line is newer. Showing
     // both put "not applied" next to "Applied" on one row.

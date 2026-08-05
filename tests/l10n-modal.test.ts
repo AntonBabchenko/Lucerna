@@ -370,6 +370,24 @@ describe('LocalizationModal', () => {
       await waitFor(() => expect(toastList().some((t) => t.kind === 'success')).toBe(true));
     });
 
+    it('refreshes coverage after applying, so the screen stops lying', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: true,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByTestId('l10n-apply');
+      const before = vi.mocked(commands.l10nCoverage).mock.calls.length;
+
+      await fireEvent.click(screen.getByTestId('l10n-apply'));
+
+      await waitFor(() =>
+        expect(vi.mocked(commands.l10nCoverage).mock.calls.length).toBeGreaterThan(before),
+      );
+    });
+
     // `l10nApply` returning `false` means "written, not yet enabled" — not a
     // failure. It must read as neutral information, not success and not error.
     it('shows a neutral info toast — not success, not a warning — when Apply is deferred', async () => {
@@ -727,7 +745,10 @@ describe('LocalizationModal', () => {
     // The overrides are global but the pack is per-instance, so an Apply here
     // leaves every other instance holding a stale pack. The offer is what
     // stops that from being the user's problem to remember.
-    it('offers the other instances after a successful Apply', async () => {
+    // Reversed deliberately. Apply acts on THIS instance on the user's
+    // initiative and moves nothing elsewhere, so it no longer summons a dialog
+    // about other instances; carrying the work over is now its own button.
+    it('does not summon the offer on Apply any more', async () => {
       mockCoverageOk(coverage({ applyGate: 'ready' }));
       vi.mocked(commands.l10nApply).mockResolvedValue(ok(true));
       vi.mocked(commands.l10nApplyTargets).mockResolvedValue(ok([applyTarget()]));
@@ -737,10 +758,23 @@ describe('LocalizationModal', () => {
 
       await fireEvent.click(await screen.findByTestId('l10n-apply'));
 
+      await waitFor(() => expect(commands.l10nApply).toHaveBeenCalled());
+      expect(screen.queryByTestId('apply-targets-dialog')).toBeNull();
+    });
+
+    it('opens the offer from its own button', async () => {
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApplyTargets).mockResolvedValue(ok([applyTarget()]));
+      render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us', mcVersion: '1.21.1' },
+      });
+
+      await fireEvent.click(await screen.findByTestId('l10n-apply-elsewhere'));
+
       expect(await screen.findByTestId('apply-targets-row-other')).toBeTruthy();
     });
 
-    it('leaves the instance that just applied out of the offer', async () => {
+    it('leaves the current instance out of the offer', async () => {
       mockCoverageOk(coverage({ applyGate: 'ready' }));
       vi.mocked(commands.l10nApply).mockResolvedValue(ok(true));
       vi.mocked(commands.l10nApplyTargets).mockResolvedValue(
@@ -750,11 +784,11 @@ describe('LocalizationModal', () => {
         props: { open: true, instanceId: 'a', lang: 'en_us', mcVersion: '1.21.1' },
       });
 
-      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+      await fireEvent.click(await screen.findByTestId('l10n-apply-elsewhere'));
 
       await screen.findByTestId('apply-targets-row-other');
-      // Offering the instance whose pack was just rebuilt would be asking the
-      // user to redo the thing they have this second finished doing.
+      // Offering the instance the user is standing in would be asking them to
+      // redo what the Apply button beside it already does.
       expect(screen.queryByTestId('apply-targets-row-a')).toBeNull();
     });
   });
