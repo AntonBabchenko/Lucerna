@@ -1189,6 +1189,10 @@
     },
     "detail": {
       "scopeNote": "Installs into a new instance.",
+      "pickNewest": "Newest version",
+      "pickNewestFiltered": "Newest matching your filter",
+      "mcLabel": "Minecraft {mc}",
+      "installRowTip": "Install {version} as a new instance",
       "dialogAriaLabel": "Modpack details",
       "closeScrimAriaLabel": "Close",
       "closeAriaLabel": "Close modpack details",
