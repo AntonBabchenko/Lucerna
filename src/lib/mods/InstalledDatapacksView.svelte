@@ -525,7 +525,7 @@
               >
                 <CardMedia
                   iconUrl={summaries.get(entry.pack.filename)?.icon_url ?? null}
-                  placeholder="world"
+                  placeholder="datapack"
                   size="sm"
                 />
                 <span class="min-w-0 flex-1 truncate">
@@ -536,7 +536,7 @@
                 </span>
               </button>
             {:else}
-              <CardMedia iconUrl={null} placeholder="world" size="sm" />
+              <CardMedia iconUrl={null} placeholder="datapack" size="sm" />
               <div class="min-w-0 flex-1 truncate">
                 <span class="text-sm text-primary">{entry.pack.name}</span>
                 <span
@@ -635,7 +635,7 @@
                 {#each entry.placements as p (p.world)}
                   {@const badge = placementBadge(p.state)}
                   <div class="flex items-center gap-2 py-1 text-sm">
-                    <Icon name="world" size={14} class="text-muted flex-shrink-0" />
+                    <Icon name="datapack" size={14} class="text-muted flex-shrink-0" />
                     <span class="flex-1 min-w-0 truncate text-primary">{p.world}</span>
                     <StatusBadge variant={badge.variant}>{badge.label}</StatusBadge>
                     {#if p.state === 'enabled' || p.state === 'disabled'}

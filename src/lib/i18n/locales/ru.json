@@ -924,7 +924,7 @@
     "kindMods": "Моды",
     "kindResourcePacks": "Ресурс-паки",
     "kindShaders": "Шейдеры",
-    "kindDatapacks": "Датапаки",
+    "kindDatapacks": "Датапаки (Beta)",
     "kindSwitchAria": "Тип контента",
     "subTabsLabel": "Разделы дополнений",
     "dropzoneResourcePack": "Перетащите .zip ресурспака сюда для установки — или нажмите для выбора",
@@ -1346,7 +1346,7 @@
       "confirmDelete": "Удалить резервную копию {timestamp}?"
     },
     "datapacks": {
-      "tab": "Датапаки",
+      "tab": "Датапаки (Beta)",
       "title": "Датапаки",
       "empty": "Датапаков пока нет",
       "add": "Добавить датапак",
@@ -2765,7 +2765,7 @@
     },
     "addons": {
       "kindPlugins": "Плагины",
-      "kindDatapacks": "Датапаки",
+      "kindDatapacks": "Датапаки (Beta)",
       "pinnedFacets": "Для {core} {mcVersion}",
       "dropzonePlugin": "Перетащите .jar плагина сюда или нажмите для выбора файла",
       "dropzoneDatapack": "Перетащите .zip датапака сюда или нажмите для выбора файла",

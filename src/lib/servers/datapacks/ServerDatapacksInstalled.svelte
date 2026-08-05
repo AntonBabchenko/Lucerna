@@ -336,7 +336,7 @@
         {@const canUpdateRow = isUpdatable(row) && check?.kind === 'update_available'}
         {@const rowBusy = updatingKeys.has(key)}
         <CardShell variant="row" accent={rowAccent(row, key)}>
-          <CardMedia placeholder={row.is_folder ? 'folderOpen' : 'world'} size="sm" />
+          <CardMedia placeholder={row.is_folder ? 'folderOpen' : 'datapack'} size="sm" />
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
               <span class="truncate text-sm font-medium text-primary">
