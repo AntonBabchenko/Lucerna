@@ -238,7 +238,15 @@
       const res = await commands.l10nApply(instanceId, lang);
       if (res.status === 'ok') {
         if (res.data) {
-          pushSuccess($t('instance.l10n.apply.toastAppliedTitle'));
+          // The pack is live, but a game that is ALREADY running will not show
+          // it until its resources are reloaded — and the thing a user
+          // naturally tries, switching the game's language, is exactly what
+          // does not work: Minecraft re-reads the language files without
+          // re-resolving the active pack set. Confirmed in a live game
+          // 2026-08-05, where it read as "the launcher applied nothing".
+          pushSuccess($t('instance.l10n.apply.toastAppliedTitle'), [
+            $t('instance.l10n.apply.toastAppliedReloadLine'),
+          ]);
         } else {
           // `false` is not a failure — the pack is written and registered,
           // it just can't flip on in options.txt yet because the instance

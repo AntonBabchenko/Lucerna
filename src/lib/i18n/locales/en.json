@@ -450,6 +450,7 @@
         "reasonUnknownFormat": "Launch this instance once, then apply translations.",
         "reasonTooOld": "This Minecraft version can't load resource-pack overrides.",
         "toastAppliedTitle": "Translations applied",
+        "toastAppliedReloadLine": "Already playing? Press F3+T in game to reload resource packs. Switching the game's language on its own will not pick them up.",
         "toastDeferredTitle": "Translations saved",
         "toastDeferredLine": "They'll turn on the next time you launch this instance.",
         "toastFailedTitle": "Couldn't apply translations"
