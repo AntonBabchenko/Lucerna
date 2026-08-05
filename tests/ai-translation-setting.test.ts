@@ -1,17 +1,19 @@
 // Settings → Integrations gains the AI translation section: the consent gate
 // for the whole pre-fill feature, plus the provider / model / credential it
-// needs. Five things are pinned here, and each one is a promise the feature
+// needs. Six things are pinned here, and each one is a promise the feature
 // makes to the user before they spend anything:
 //
 //   1. the permission starts OFF and persists without clobbering a sibling
 //      panel's field (the panel owns four GeneralSettings fields, no more);
-//   2. the credential controls follow the provider — a local model needs a
+//   2. while it is off it gates the entire section, not just the button that
+//      makes the request — consent first, configuration second;
+//   3. the credential controls follow the provider — a local model needs a
 //      port and no key, a hosted one the reverse;
-//   3. a stored key is never read back into the UI, at the DOM *and* at the
+//   4. a stored key is never read back into the UI, at the DOM *and* at the
 //      IPC surface, so the second can't quietly outgrow the first;
-//   4. nothing below the provider picker survives a switch, so one provider's
+//   5. nothing below the provider picker survives a switch, so one provider's
 //      key status is never shown (or its pasted key filed) under another;
-//   5. what the feature does NOT translate is on screen before the user
+//   6. what the feature does NOT translate is on screen before the user
 //      turns anything on, not discovered afterwards.
 //
 // `vi.mock` is hoisted above the `const` declarations below, so every entry in
@@ -117,7 +119,76 @@ describe('Settings → Integrations: AI translation', () => {
     expect(screen.getByTestId('ai-test-hint').textContent).toMatch(/one tiny request/i);
   });
 
+  it('locks every provider control until the permission is on', async () => {
+    // Everything under the checkbox describes a request the section has just
+    // promised will not be sent. Leaving it live invites the user to pick a
+    // provider, name a model and file a key for a feature that then does
+    // nothing — and puts the credential in the keyring before they have agreed
+    // to the thing it is for.
+    l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
+    render(AiTranslationSection);
+    // Clear key only exists once a stored key is known, so wait for the status
+    // rather than for the field — otherwise the query below races the effect.
+    await waitFor(() => expect(screen.getByTestId('ai-key-clear')).toBeTruthy());
+
+    // Named rather than a bare array so a failure says WHICH control is live.
+    const gated = () =>
+      Object.entries({
+        provider: 'ai-provider-select',
+        model: 'ai-model-input',
+        key: 'ai-key-input',
+        save: 'ai-key-save',
+        clear: 'ai-key-clear',
+        test: 'ai-test-connection',
+      }).map(
+        ([name, id]) =>
+          [name, screen.getByTestId(id) as HTMLInputElement | HTMLButtonElement] as const,
+      );
+
+    for (const [name, el] of gated()) {
+      expect(`${name}=${el.disabled}`).toBe(`${name}=true`);
+    }
+    expect(screen.getByTestId('ai-gated-note')).toBeTruthy();
+
+    await fireEvent.click(screen.getByTestId('ai-translation-toggle'));
+
+    await waitFor(() =>
+      expect((screen.getByTestId('ai-provider-select') as HTMLButtonElement).disabled).toBe(false),
+    );
+    for (const [name, el] of gated()) {
+      // Save key keeps its own gate: there is nothing in the field to save.
+      // The new permission gate must not swallow it into a blanket "enabled".
+      expect(`${name}=${el.disabled}`).toBe(`${name}=${name === 'save'}`);
+    }
+    expect(screen.queryByTestId('ai-gated-note')).toBeNull();
+  });
+
+  it('locks the local port field until the permission is on', async () => {
+    // The port belongs to the same gate even though a local model sends
+    // nothing off this machine: the permission is what turns the feature on.
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ ai_provider: 'local' }) },
+    });
+    render(AiTranslationSection);
+
+    const port = await waitFor(() => screen.getByTestId('ai-local-port-input') as HTMLInputElement);
+    expect(port.disabled).toBe(true);
+
+    await fireEvent.click(screen.getByTestId('ai-translation-toggle'));
+
+    await waitFor(() =>
+      expect((screen.getByTestId('ai-local-port-input') as HTMLInputElement).disabled).toBe(false),
+    );
+  });
+
   it('hides the API key field for the local provider', async () => {
+    // Switching providers is only reachable once the permission is on, so this
+    // fixture starts there. The subject is the switch, not the gate.
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true }) },
+    });
     render(AiTranslationSection);
     // Default provider is a hosted one, so the key field is there to begin with.
     await waitFor(() => expect(screen.getByTestId('ai-key-input')).toBeTruthy());
@@ -197,6 +268,12 @@ describe('Settings → Integrations: AI translation', () => {
           resolveSecond = resolve;
         }),
     );
+    // The picker is behind the permission gate, so this fixture starts with it
+    // on — the staleness under test is a property of the switch itself.
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true }) },
+    });
     render(AiTranslationSection);
     await waitFor(() =>
       expect(screen.getByTestId('ai-key-status').textContent?.trim()).toBe('Stored'),
