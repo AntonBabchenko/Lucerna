@@ -141,4 +141,57 @@ describe('OperationsPanel', () => {
 
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('keeps the report control keyboard-operable, not a click handler on the row', async () => {
+    // The wrong implementation this rules out is an `onclick` on the <li>.
+    // It looks identical to a mouse user and is unreachable for a keyboard
+    // one: a list item is not focusable and fires no click on Enter/Space.
+    //
+    // (An earlier version of this test clicked a row's Cancel button and
+    // asserted the report did NOT open. That pinned nothing: `capsFor` grants
+    // `cancellable` only while a task is `queued`, and `details` only exist
+    // after `finish()`, so no row can ever carry both. There is no bubbling
+    // to guard against.)
+    start({ ...base, id: 'rep', kind: 'game-install', lane: 'concurrent', title: 'Reported' });
+    finish('rep', { state: 'ok', details: [{ name: 'a.jar' } as never] });
+    const onDetails = vi.fn();
+
+    const { getByTestId } = render(OperationsPanel, { props: { onClose: vi.fn(), onDetails } });
+    const control = getByTestId('operations-panel-details-rep');
+
+    expect(control.tagName).toBe('BUTTON');
+    expect(control.getAttribute('aria-label')).toBeTruthy();
+
+    control.focus();
+    expect(document.activeElement).toBe(control);
+
+    await fireEvent.keyDown(control, { key: 'Enter' });
+    await fireEvent.click(control);
+    expect(onDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes the whole row the report control, not a trailing button', () => {
+    start({ ...base, id: 'withReport', kind: 'mod-install', lane: 'concurrent', title: 'A' });
+    finish('withReport', { state: 'ok', details: [{ name: 'a.jar' } as never] });
+
+    const { getByTestId } = render(OperationsPanel, { props: { onClose: vi.fn() } });
+
+    const control = getByTestId('operations-panel-details-withReport');
+    expect(control.className).toContain('absolute');
+    expect(control.className).toContain('inset-0');
+    // The row must establish the containing block, or `inset-0` resolves
+    // against the scrolling panel and one row's overlay covers all of them.
+    expect(getByTestId('operations-panel-row-withReport').className).toContain('relative');
+  });
+
+  it('gives a row without a report no clickable affordance', () => {
+    start({ ...base, id: 'noReport', kind: 'verify', lane: 'serial', title: 'B' });
+    finish('noReport', { state: 'ok' });
+
+    const { getByTestId, queryByTestId } = render(OperationsPanel, { props: { onClose: vi.fn() } });
+
+    expect(queryByTestId('operations-panel-details-noReport')).toBeNull();
+    expect(queryByTestId('operations-panel-chevron-noReport')).toBeNull();
+    expect(getByTestId('operations-panel-row-noReport').className).not.toContain('cursor-pointer');
+  });
 });

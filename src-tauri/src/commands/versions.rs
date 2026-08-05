@@ -16,7 +16,11 @@ pub async fn install_version(
     app: tauri::AppHandle,
     version_id: String,
 ) -> Result<(), crate::error::Error> {
-    crate::versions::install_version(&version_id, &app).await
+    // Discards the install report: this command installs a bare version id and
+    // has no task registered against it. `install_instance` is the one that
+    // returns the report, because that is the call the Operations Centre wraps.
+    crate::versions::install_version(&version_id, &app).await?;
+    Ok(())
 }
 
 /// List Fabric loader versions compatible with `mc_id`. Sorted

@@ -184,4 +184,43 @@ describe('OperationsBar', () => {
     expect(queryByTestId('operations-bar')).toBeNull();
     expect(queryByTestId('operations-bar-finished-summary')).toBeNull();
   });
+
+  it('makes the whole strip the disclosure control, not just the chevron', () => {
+    start({ ...base, id: 'a', kind: 'game-install', lane: 'concurrent', title: 'Haste' });
+
+    const { getByTestId } = render(OperationsBar);
+
+    const toggle = getByTestId('operations-bar-toggle');
+    expect(toggle.className).toContain('absolute');
+    expect(toggle.className).toContain('inset-0');
+  });
+
+  it('keeps the chevron as an indicator, not a second control', () => {
+    start({ ...base, id: 'a', kind: 'game-install', lane: 'concurrent', title: 'Haste' });
+
+    const { getByTestId } = render(OperationsBar);
+
+    const indicator = getByTestId('operations-bar-indicator');
+    expect(indicator.tagName).toBe('SPAN');
+    expect(indicator.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('renders the overlay before the panel so panel clicks are not swallowed', async () => {
+    // jsdom does no hit-testing, so "click the panel, assert it stays open"
+    // would pass no matter how the two are stacked — a vacuous test. What
+    // actually keeps the panel usable in a browser is paint order: the panel
+    // carries `z-[var(--z-popover)]` and must come AFTER the full-bleed
+    // overlay. Assert that structural fact instead of a behaviour jsdom
+    // cannot observe.
+    start({ ...base, id: 'a', kind: 'game-install', lane: 'concurrent', title: 'Haste' });
+
+    const { getByTestId } = render(OperationsBar);
+    await fireEvent.click(getByTestId('operations-bar-toggle'));
+
+    const overlay = getByTestId('operations-bar-toggle');
+    const panel = getByTestId('operations-panel');
+
+    expect(overlay.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel.className).toContain('z-[var(--z-popover)]');
+  });
 });

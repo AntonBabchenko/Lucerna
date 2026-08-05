@@ -2653,6 +2653,7 @@ export type TranslationKey =
   | 'tasks.origin.atlauncher'
   | 'tasks.origin.curseforge'
   | 'tasks.origin.ftb'
+  | 'tasks.origin.game'
   | 'tasks.origin.local'
   | 'tasks.origin.modrinth'
   | 'tasks.panel.ariaLabel'

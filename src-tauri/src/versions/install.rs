@@ -8,6 +8,7 @@
 use crate::error::{Error, Result};
 use crate::network::get_json;
 use crate::paths::versions_dir;
+use crate::tasks::TaskDetail;
 use crate::versions::manifest::list_manifest;
 use crate::versions::version_json::{parse, VersionDetails};
 use serde::Serialize;
@@ -78,12 +79,33 @@ fn require_client_downloads(
 /// 3. Assets — download the asset index and every missing object
 ///    concurrently (8 at a time).
 /// 4. Client — download the client.jar.
-pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result<()> {
+///
+/// Returns a per-file install report. Rows accumulate in pipeline order —
+/// version JSON, JRE, libraries, assets, client — so the report reads the way
+/// the install ran. Assets and the JRE collapse to one aggregated row each
+/// (see [`super::report::phase_row`] for why); everything else is per-file.
+///
+/// A failed install returns no report at all: every phase short-circuits on
+/// its first error, so there is no partial truth to report.
+pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result<Vec<TaskDetail>> {
+    let mut report: Vec<TaskDetail> = Vec::new();
+
     emit(app, version_id, InstallPhase::Manifest, 0, 1, 0.0);
 
-    // Phase 1: per-version JSON
+    // Phase 1: per-version JSON. Existence is probed BEFORE the call — once
+    // `ensure_version_json` returns, "was it already there" is unrecoverable.
+    let json_path = version_json_path(app, version_id)?;
+    let json_was_cached = tokio::fs::metadata(&json_path).await.is_ok();
     let details = ensure_version_json(version_id, app).await?;
     emit(app, version_id, InstallPhase::Manifest, 1, 1, 0.0);
+    report.push(super::report::file_row(
+        format!("{version_id}.json"),
+        json_path.display().to_string(),
+        "",
+        "",
+        tokio::fs::metadata(&json_path).await.ok().map(|m| m.len()),
+        !json_was_cached,
+    ));
 
     // Detect platform (used by libraries below; JRE has its own
     // platform detection inside the jre module).
@@ -100,10 +122,16 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
         .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT)
         .to_string();
     emit(app, version_id, InstallPhase::Jre, 0, 1, 0.0);
+    // `ensure_jre` returns `()`, and its byte total surfaces only through this
+    // progress callback. Latch the last tick here rather than widening a
+    // function other call sites share.
+    let jre_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     {
         let app_clone = app.clone();
         let version_id_owned = version_id.to_string();
+        let jre_bytes = std::sync::Arc::clone(&jre_bytes);
         crate::jre::ensure_jre(&component, app, move |done, total, bytes| {
+            jre_bytes.store(bytes, std::sync::atomic::Ordering::Relaxed);
             InstallProgress {
                 version_id: version_id_owned.clone(),
                 phase: InstallPhase::Jre,
@@ -120,11 +148,17 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     // No explicit "Jre done" emit — the per-file callback fires
     // total/total on the last file. For a fully-cached install,
     // ensure_jre's marker-fast-path itself emits (1, 1, 0).
+    report.push(super::report::phase_row(
+        format!("runtime/{component}"),
+        format!("runtime/{component}"),
+        None,
+        jre_bytes.load(std::sync::atomic::Ordering::Relaxed),
+    ));
 
     // Phase 2: libraries
     let lib_count = details.libraries.len() as u32;
     emit(app, version_id, InstallPhase::Libraries, 0, lib_count, 0.0);
-    super::libraries::ensure_libraries(&details.libraries, os, arch, app).await?;
+    let libs = super::libraries::ensure_libraries(&details.libraries, os, arch, app).await?;
     emit(
         app,
         version_id,
@@ -133,6 +167,22 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
         lib_count,
         0.0,
     );
+    for lib in &libs {
+        let name = lib
+            .rel_path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&lib.rel_path)
+            .to_string();
+        report.push(super::report::file_row(
+            name,
+            format!("libraries/{}", lib.rel_path),
+            &lib.url,
+            &lib.sha1,
+            Some(lib.size),
+            lib.downloaded,
+        ));
+    }
 
     // Phase 3: assets
     // After ensure_version_json returns, the merged JSON always has
@@ -141,11 +191,17 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     let asset_index = require_asset_index(&details)?;
     let app_clone = app.clone();
     let version_id_owned = version_id.to_string();
+    // Same latching trick as the JRE above — `ensure_assets` returns `()` and
+    // its byte counter surfaces only through the progress callback. Skipped
+    // objects contribute 0, so this ends up as bytes actually transferred.
+    let asset_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let asset_bytes_cb = std::sync::Arc::clone(&asset_bytes);
     // No instance context here (we install a version, not an instance), so
     // `game_dir` is None. Legacy `virtual` indexes still materialise into the
     // version-scoped `<assets>/virtual/<id>/`; `map_to_resources` needs a
     // per-instance dir and is handled at launch time (see deferral note).
     super::assets::ensure_assets(asset_index, None, app, move |done, total, bytes| {
+        asset_bytes_cb.store(bytes, std::sync::atomic::Ordering::Relaxed);
         InstallProgress {
             version_id: version_id_owned.clone(),
             phase: InstallPhase::Assets,
@@ -158,6 +214,12 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
         .ok();
     })
     .await?;
+    report.push(super::report::phase_row(
+        "assets/objects",
+        "assets/objects",
+        crate::network::request::host_of(super::assets::ASSET_BASE_URL),
+        asset_bytes.load(std::sync::atomic::Ordering::Relaxed),
+    ));
 
     // Phase 4: client
     // Same invariant: vanilla parent always supplies downloads.
@@ -173,11 +235,20 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     let client_dest_id = crate::versions::loaders::parse_synth_id(version_id)
         .map(|(_loader, _lv, mc)| mc)
         .unwrap_or_else(|| version_id.to_string());
-    super::client::ensure_client(&client_dest_id, &client_download.client, app).await?;
+    let client_downloaded =
+        super::client::ensure_client(&client_dest_id, &client_download.client, app).await?;
     emit(app, version_id, InstallPhase::Client, 1, 1, 0.0);
+    report.push(super::report::file_row(
+        format!("{client_dest_id}.jar"),
+        format!("versions/{client_dest_id}/{client_dest_id}.jar"),
+        &client_download.client.url,
+        &client_download.client.sha1,
+        Some(client_download.client.size),
+        client_downloaded,
+    ));
 
     emit(app, version_id, InstallPhase::Complete, 1, 1, 0.0);
-    Ok(())
+    Ok(report)
 }
 
 /// Fetch + cache the per-version JSON. Stored at
@@ -198,6 +269,21 @@ pub(crate) async fn ensure_version_json(
 
 const MAX_INHERITS_DEPTH: u32 = 4;
 
+/// Where [`ensure_version_json`] caches the per-version (or merged loader)
+/// JSON.
+///
+/// Extracted so `install_version` can tell "already on disk" from "fetched"
+/// for its report WITHOUT `ensure_version_json` having to report it: that
+/// function is recursive and has four callers, three of which want nothing to
+/// do with an install report.
+pub(crate) fn version_json_path(
+    app: &tauri::AppHandle,
+    version_id: &str,
+) -> Result<std::path::PathBuf> {
+    let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
+    Ok(dir.join(version_id).join(format!("{version_id}.json")))
+}
+
 #[async_recursion::async_recursion]
 async fn ensure_version_json_inner(
     version_id: &str,
@@ -211,8 +297,7 @@ async fn ensure_version_json_inner(
         ));
     }
 
-    let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    let path = dir.join(version_id).join(format!("{version_id}.json"));
+    let path = version_json_path(app, version_id)?;
 
     // Disk fast-path — both vanilla and synth ids share this. A parse
     // failure means the cached file is corrupt (truncated write, disk

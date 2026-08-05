@@ -26,7 +26,7 @@
 //
 // DROP-IN REPLACEMENT for `commands.installInstance`: `installGame` resolves
 // (or rejects) with EXACTLY the same `Result` shape/behavior as
-// `commands.installInstance` itself — a bare `{status:'ok', data: null} |
+// `commands.installInstance` itself — `{status:'ok', data: TaskDetail[]} |
 // {status:'error', error: Error}`, and a real thrown `Error` (a bridge
 // failure — see `typedError`'s doc comment at the bottom of
 // `$lib/ipc/bindings`, which rethrows those instead of resolving to
@@ -90,7 +90,11 @@ export async function installGame(
 
   try {
     const r = await commands.installInstance(instanceId);
-    finish(id, { state: r.status === 'ok' ? 'ok' : 'failed' });
+    // The per-file report rides the command's RETURN VALUE — see that
+    // command's own doc comment for why it cannot ride `installProgress`. A
+    // failed install has no report (every phase short-circuits on its first
+    // error), so the failure branch stays report-less exactly as before.
+    finish(id, r.status === 'ok' ? { state: 'ok', details: r.data } : { state: 'failed' });
     return r;
   } catch (e) {
     // A real thrown Error (bridge failure) — land the task in a terminal

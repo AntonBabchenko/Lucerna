@@ -41,7 +41,7 @@ describe('game-install adapter', () => {
           current_step: null,
         },
       });
-      return { status: 'ok', data: null };
+      return { status: 'ok', data: [] };
     });
 
     await installGame('inst-1', 'My Instance');
@@ -71,10 +71,10 @@ describe('game-install adapter', () => {
   // identically after the one-line swap from `commands.installInstance` to
   // `installGame`.
   it('resolves with the same Result shape as commands.installInstance (ok)', async () => {
-    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: null });
+    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: [] });
 
     const result = await installGame('inst-1', 'My Instance');
-    expect(result).toEqual({ status: 'ok', data: null });
+    expect(result).toEqual({ status: 'ok', data: [] });
   });
 
   it('resolves with the same Result shape as commands.installInstance (error, raw IpcError untouched)', async () => {
@@ -99,8 +99,37 @@ describe('game-install adapter', () => {
     expect(taskList()[0].state).toBe('failed');
   });
 
+  // The whole point of widening `install_instance`'s return type: the report
+  // has to reach the finished task, or the Operations Centre still shows a
+  // game install with no Details while a modpack import has one.
+  it('carries the backend install report onto the finished task', async () => {
+    const report = [{ name: '1.20.4.jar' }] as never;
+    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: report });
+
+    await installGame('inst-1', 'My Instance');
+
+    // `toEqual`, not `toBe`: the registry stores tasks in a Svelte 5 `$state`
+    // array, which deep-proxies nested objects — reading it back never yields
+    // the identical reference that went in.
+    expect(taskList()[0].details).toEqual(report);
+  });
+
+  it('finishes without a report when the install fails', async () => {
+    // Every install phase short-circuits on its first error, so a failed run
+    // produces no report at all — the task must not claim one.
+    vi.mocked(commands.installInstance).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_not_found', id: 'inst-1' },
+    } as never);
+
+    await installGame('inst-1', 'My Instance');
+
+    expect(taskList()[0].state).toBe('failed');
+    expect(taskList()[0].details).toBeNull();
+  });
+
   it('unsubscribes the global listener once the call settles', async () => {
-    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: null });
+    vi.mocked(commands.installInstance).mockResolvedValue({ status: 'ok', data: [] });
     await installGame('inst-1', 'My Instance');
     expect(listeners.install).toBeNull();
   });

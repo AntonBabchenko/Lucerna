@@ -6,6 +6,7 @@ pub mod install;
 pub mod libraries;
 pub mod loaders;
 pub mod manifest;
+pub(crate) mod report;
 pub mod resolve;
 pub mod version_json;
 

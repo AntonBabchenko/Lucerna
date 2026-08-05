@@ -3435,7 +3435,8 @@
       "ftb": "FTB",
       "atlauncher": "ATLauncher",
       "archive": "Modpack archive",
-      "local": "Local file"
+      "local": "Local file",
+      "game": "Game files"
     },
     "strip": {
       "count": "{count, plural, one {# operation} other {# operations}}",
