@@ -97,6 +97,11 @@ pub async fn create_client_instance(
         crate::diag!("instance-from-server: config-dir copy incomplete: {e}");
     }
 
+    // Datapacks are NOT part of that mirror: they belong in the instance's
+    // datapack LIBRARY with their catalogue identity, not in a directory under
+    // `.minecraft/`. See `copy_server_datapacks`.
+    copy_server_datapacks(&p.runtime, &instance_root).await;
+
     // Register + best-effort enrich the copied jars (no manifest identities).
     // Non-fatal: the mods are already on disk; only the Mods-tab metadata is
     // affected if this fails.
