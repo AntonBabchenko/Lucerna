@@ -571,6 +571,29 @@ pub enum Error {
         limit_bytes: f64,
     },
 
+    /// Vanilla Tweaks publishes per Minecraft family, and the family derived
+    /// from this version does not exist upstream — usually a Minecraft
+    /// release VT has not caught up with. Deliberately not answered by
+    /// falling back to an older family: that would promise a compatibility
+    /// nobody checked.
+    #[error("Vanilla Tweaks has no packs for Minecraft {mc_version}")]
+    VanillaTweaksUnavailable { mc_version: String },
+
+    /// Vanilla Tweaks refused to build the selection, or answered something
+    /// we could not read. Carries the server's own message rather than one of
+    /// ours: we do not know its failure modes, and inventing wording would
+    /// hide theirs.
+    #[error("Vanilla Tweaks could not build that selection: {message}")]
+    VanillaTweaksBuildFailed { message: String },
+
+    /// The produced bundle exceeded the whole-bundle cap. Distinct from
+    /// `DatapackTooLarge`, which bounds one pack: a build is one zip holding
+    /// one zip per selected pack, so the per-pack limit cannot bound it.
+    #[error(
+        "the Vanilla Tweaks download is {size_bytes} bytes, over the {limit_bytes} byte limit"
+    )]
+    VanillaTweaksBundleTooLarge { size_bytes: f64, limit_bytes: f64 },
+
     /// A translation the user typed failed Minecraft's `%s`/`%N$s` format
     /// grammar and was refused before it ever reached the override store.
     /// `reason` is typed, not a message — mirrors `DatapackInvalid`'s reason

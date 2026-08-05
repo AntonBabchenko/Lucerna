@@ -30,6 +30,7 @@ pub mod pack_meta;
 pub mod registry;
 pub mod state;
 pub mod update;
+pub mod vanillatweaks;
 pub mod world_link;
 
 /// One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
@@ -152,6 +153,15 @@ pub struct DatapackProvenance {
 /// before it, every pack came from a file the user picked themselves.
 /// Same class of guard as `ModpackOverridesTooLarge` / `WorldImportTooLarge`.
 pub const MAX_DATAPACK_BYTES: usize = 256 * 1024 * 1024;
+
+/// Largest Vanilla Tweaks bundle Lucerna will buffer. A build is one zip
+/// holding one zip per selected pack, so `MAX_DATAPACK_BYTES` cannot bound it
+/// — a legitimate twenty-pack selection would trip a per-pack limit. Eight
+/// times the single-pack ceiling is a deliberate round number rather than a
+/// measurement: VT packs run to tens of kilobytes, so this clears any
+/// realistic selection while still refusing a response that is plainly not
+/// the bundle we asked for.
+pub const MAX_VT_BUNDLE_BYTES: usize = 8 * MAX_DATAPACK_BYTES;
 
 /// The result of a library install: the registry row, plus what the same-name
 /// fan-out did to each world already holding that filename.

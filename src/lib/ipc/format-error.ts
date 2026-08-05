@@ -198,6 +198,12 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   datapack_invalid: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
+  // Vanilla Tweaks builder. The version is ours; the build message is the
+  // upstream service's own wording, kept verbatim because we do not know its
+  // failure modes and paraphrasing would hide them.
+  vanilla_tweaks_unavailable: 'clean',
+  vanilla_tweaks_build_failed: 'clean',
+  vanilla_tweaks_bundle_too_large: 'clean',
   // In-game mod localization — the override editor. All three are built
   // entirely from structured fields; nothing to truncate or hide.
   l10n_translation_invalid: 'clean',
@@ -691,6 +697,16 @@ export function formatError(e: IpcError): string {
       // nullable — 0 is an honest "unknown" the sentence still survives.
       return translate('errors.datapackTooLarge', {
         filename: e.filename,
+        sizeMb: Math.ceil((e.size_bytes ?? 0) / (1024 * 1024)),
+        limitMb: Math.floor((e.limit_bytes ?? 0) / (1024 * 1024)),
+      });
+    case 'vanilla_tweaks_unavailable':
+      return translate('errors.vanillaTweaksUnavailable', { mcVersion: e.mc_version });
+    case 'vanilla_tweaks_build_failed':
+      return translate('errors.vanillaTweaksBuildFailed', { message: e.message });
+    case 'vanilla_tweaks_bundle_too_large':
+      // Same whole-megabyte treatment as the per-pack cap above.
+      return translate('errors.vanillaTweaksBundleTooLarge', {
         sizeMb: Math.ceil((e.size_bytes ?? 0) / (1024 * 1024)),
         limitMb: Math.floor((e.limit_bytes ?? 0) / (1024 * 1024)),
       });

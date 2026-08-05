@@ -94,8 +94,8 @@ describe('ModpackDetailModal', () => {
     });
     await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
     // The per-version install button is icon-only; its accessible name is the
-    // aria-label (common.install = "Install").
-    const installBtn = await findByRole('button', { name: 'Install' });
+    // aria-label (modpacks.detail.installRowTip), which names the version.
+    const installBtn = await findByRole('button', { name: 'Install rl.zip as a new instance' });
     await fireEvent.click(installBtn);
     expect(await findByText('Open on CurseForge')).toBeTruthy();
   });

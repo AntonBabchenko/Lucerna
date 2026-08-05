@@ -249,6 +249,9 @@ pub(crate) fn guard_version(v: &ModVersion) -> Result<String, Error> {
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
                 ModSource::Hangar => "hangar",
+                // VT builds on demand — there is no individual file to
+                // distribute, and no VT pack ever reaches a mod install.
+                ModSource::VanillaTweaks => "vanillatweaks",
             }
             .into(),
             project_id: v.project_id.clone(),
@@ -823,6 +826,9 @@ pub async fn update_asset(
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
                 ModSource::Hangar => "hangar",
+                // VT builds on demand — there is no individual file to
+                // distribute, and no VT pack ever reaches a mod install.
+                ModSource::VanillaTweaks => "vanillatweaks",
             }
             .into(),
             project_id: target.project_id.clone(),

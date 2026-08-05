@@ -450,6 +450,7 @@
         "reasonUnknownFormat": "Launch this instance once, then apply translations.",
         "reasonTooOld": "This Minecraft version can't load resource-pack overrides.",
         "toastAppliedTitle": "Translations applied",
+        "toastAppliedReloadLine": "Already playing? Press F3+T in game to reload resource packs. Switching the game's language on its own will not pick them up.",
         "toastDeferredTitle": "Translations saved",
         "toastDeferredLine": "They'll turn on the next time you launch this instance.",
         "toastFailedTitle": "Couldn't apply translations"
@@ -961,6 +962,17 @@
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
         "worldsOnlyNote": "The library copy is already gone; removing clears the pack from the listed worlds."
+      },
+      "vt": {
+        "open": "Vanilla Tweaks…",
+        "title": "Vanilla Tweaks",
+        "subtitle": "Tick the tweaks you want. Vanilla Tweaks puts them together and Lucerna adds them like any other datapack.",
+        "build": "Add selected",
+        "selected": "{count, plural, one {# pack selected} other {# packs selected}}",
+        "installed": "Already added",
+        "conflicts": "Doesn't work together with {names}",
+        "empty": "Vanilla Tweaks has no packs for this Minecraft version yet.",
+        "someFailed": "{count, plural, one {# pack could not be added} other {# packs could not be added}}"
       }
     },
     "install": {
@@ -1183,7 +1195,8 @@
     },
     "card": {
       "byAuthor": "by {author}",
-      "quickInstall": "Install latest version as a new instance",
+      "quickInstall": "Install this pack's newest version as a new instance. Its Minecraft version and loader come from that pack version.",
+      "quickInstallForMc": "Install this pack's newest version for Minecraft {mc} as a new instance.",
       "downloads": "{count, plural, one {# download} other {# downloads}}",
       "downloadsShort": "{count, number} dl",
       "distributionDisabled": "CurseForge download disabled",
@@ -1191,6 +1204,10 @@
     },
     "detail": {
       "scopeNote": "Installs into a new instance.",
+      "pickNewest": "Newest version",
+      "pickNewestFiltered": "Newest matching your filter",
+      "mcLabel": "Minecraft {mc}",
+      "installRowTip": "Install {version} as a new instance",
       "dialogAriaLabel": "Modpack details",
       "closeScrimAriaLabel": "Close",
       "closeAriaLabel": "Close modpack details",
@@ -2167,6 +2184,9 @@
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
     "datapackTooLarge": "\"{filename}\" is {sizeMb} MB — over the {limitMb} MB limit for a datapack.",
+    "vanillaTweaksUnavailable": "Vanilla Tweaks has no packs for Minecraft {mcVersion} yet.",
+    "vanillaTweaksBuildFailed": "Vanilla Tweaks couldn't put that selection together. {message}",
+    "vanillaTweaksBundleTooLarge": "The download from Vanilla Tweaks is {sizeMb} MB — over the {limitMb} MB limit.",
     "l10nTranslationInvalid": "\"{key}\" isn't a valid translation: {reason}",
     "l10nTranslationInvalidReason": {
       "unsupportedSpecifier": "Minecraft only supports %s and %% (not %{specifier}).",

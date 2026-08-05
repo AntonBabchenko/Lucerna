@@ -34,6 +34,7 @@ fn key(source: ModSource, project_id: &str) -> String {
         ModSource::Ftb => "ftb", // FTB: pack-managed; keyed by id for dedup purposes.
         ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed; keyed by id for dedup purposes.
         ModSource::Hangar => "hangar",
+        ModSource::VanillaTweaks => "vanillatweaks", // VT: datapacks, never in a Java dep graph.
     };
     format!("{s}:{project_id}")
 }

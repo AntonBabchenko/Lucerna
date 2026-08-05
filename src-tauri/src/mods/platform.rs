@@ -21,6 +21,12 @@ pub enum ModSource {
     /// hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
     /// by `mods::hangar::HangarClient`.
     Hangar,
+    /// vanillatweaks.net — a datapack *builder*, not a registry: packs are
+    /// zipped on demand, so there are no project ids, version ids or file
+    /// hashes. Most of `ModPlatform` is therefore unsupported here; only
+    /// `datapack_versions` is real, which is exactly what update checking
+    /// needs. Served by `datapacks::vanillatweaks::VanillaTweaksPlatform`.
+    VanillaTweaks,
 }
 
 impl ModSource {
@@ -28,12 +34,13 @@ impl ModSource {
     /// exhaustively tested against this, the same shape as `AiProvider::ALL`
     /// in `instances::schema` — adding a variant without adding it here is
     /// caught by a test rather than by a silently-unmapped source later.
-    pub const ALL: [ModSource; 5] = [
+    pub const ALL: [ModSource; 6] = [
         ModSource::Modrinth,
         ModSource::Curseforge,
         ModSource::Ftb,
         ModSource::Atlauncher,
         ModSource::Hangar,
+        ModSource::VanillaTweaks,
     ];
 }
 
@@ -222,8 +229,12 @@ pub const fn supplies_project_loaders(source: ModSource) -> bool {
         ModSource::Curseforge => true,
         // Hangar has no loader concept (Paper/Bukkit plugins). FTB and
         // ATLauncher resolve to `unsupported::UnsupportedModPlatform`, so they
-        // never populate a summary at all.
-        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher => false,
+        // never populate a summary at all. Vanilla Tweaks serves datapacks,
+        // which have no loader either, and its `search`/`project` are
+        // unsupported so no summary is ever built for it.
+        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
+            false
+        }
     }
 }
 

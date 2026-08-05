@@ -871,7 +871,15 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
  *  hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
  *  by `mods::hangar::HangarClient`.
  */
-"hangar" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
+"hangar" | 
+/**
+ *  vanillatweaks.net — a datapack *builder*, not a registry: packs are
+ *  zipped on demand, so there are no project ids, version ids or file
+ *  hashes. Most of `ModPlatform` is therefore unsupported here; only
+ *  `datapack_versions` is real, which is exactly what update checking
+ *  needs. Served by `datapacks::vanillatweaks::VanillaTweaksPlatform`.
+ */
+"vanilla_tweaks" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
@@ -1783,6 +1791,25 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  is watching this download.
 	 */
 	datapacksUpdateOne: (instanceId: string, oldFilename: string, target: ModVersion_Deserialize) => typedError<DatapackUpdateOutcome, Error>(__TAURI_INVOKE("datapacks_update_one", { instanceId, oldFilename, target })),
+	/**
+	 *  The pack catalogue for `mc_version`'s family. A version with no family —
+	 *  pre-1.13, or a Minecraft release VT has not caught up with — is refused
+	 *  with a typed error rather than answered with an empty list.
+	 */
+	vtCatalogue: (mcVersion: string) => typedError<VtCatalogue, Error>(__TAURI_INVOKE("vt_catalogue", { mcVersion })),
+	/**
+	 *  Build `selection` and install every pack into the instance's datapack
+	 *  library. Placing them into worlds is the caller's next step — the frontend
+	 *  opens the same world picker a catalogue install opens.
+	 */
+	vtInstallToInstance: (instanceId: string, selection: ([string, string[]])[]) => typedError<VtInstallReport, Error>(__TAURI_INVOKE("vt_install_to_instance", { instanceId, selection })),
+	/**
+	 *  Build `selection` and install every pack into the server's world. Refused
+	 *  while the server runs or is starting, through the same guard every other
+	 *  server datapack mutation opens with — taken BEFORE the build request, so
+	 *  the network round trip is inside the guarded window rather than racing it.
+	 */
+	vtInstallToServer: (id: string, selection: ([string, string[]])[]) => typedError<VtInstallReport, Error>(__TAURI_INVOKE("vt_install_to_server", { id, selection })),
 	/**
 	 *  Scan the instance's enabled mods for language coverage in `lang`.
 	 * 
@@ -2947,6 +2974,27 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  to match the rest of the datapack surface (specta has no u64).
  */
 { kind: "datapack_too_large"; filename: string; size_bytes: number | null; limit_bytes: number | null } | 
+/**
+ *  Vanilla Tweaks publishes per Minecraft family, and the family derived
+ *  from this version does not exist upstream — usually a Minecraft
+ *  release VT has not caught up with. Deliberately not answered by
+ *  falling back to an older family: that would promise a compatibility
+ *  nobody checked.
+ */
+{ kind: "vanilla_tweaks_unavailable"; mc_version: string } | 
+/**
+ *  Vanilla Tweaks refused to build the selection, or answered something
+ *  we could not read. Carries the server's own message rather than one of
+ *  ours: we do not know its failure modes, and inventing wording would
+ *  hide theirs.
+ */
+{ kind: "vanilla_tweaks_build_failed"; message: string } | 
+/**
+ *  The produced bundle exceeded the whole-bundle cap. Distinct from
+ *  `DatapackTooLarge`, which bounds one pack: a build is one zip holding
+ *  one zip per selected pack, so the per-pack limit cannot bound it.
+ */
+{ kind: "vanilla_tweaks_bundle_too_large"; size_bytes: number | null; limit_bytes: number | null } | 
 /**
  *  A translation the user typed failed Minecraft's `%s`/`%N$s` format
  *  grammar and was refused before it ever reached the override store.
@@ -4235,7 +4283,15 @@ export type ModSource = "modrinth" | "curseforge" | "ftb" | "atlauncher" |
  *  hangar.papermc.io — Bukkit/Spigot/Paper/Purpur plugin registry, served
  *  by `mods::hangar::HangarClient`.
  */
-"hangar";
+"hangar" | 
+/**
+ *  vanillatweaks.net — a datapack *builder*, not a registry: packs are
+ *  zipped on demand, so there are no project ids, version ids or file
+ *  hashes. Most of `ModPlatform` is therefore unsupported here; only
+ *  `datapack_versions` is real, which is exactly what update checking
+ *  needs. Served by `datapacks::vanillatweaks::VanillaTweaksPlatform`.
+ */
+"vanilla_tweaks";
 
 export type ModSummary = {
 	source: ModSource,
@@ -6135,6 +6191,44 @@ export type ViolationKind =
  *  another mod. The range is inverted: it names the versions that clash.
  */
 "incompatible_installed";
+
+export type VtCatalogue = {
+	versionName?: string,
+	categories: VtCategory[],
+};
+
+export type VtCategory = {
+	category: string,
+	packs: VtPack[],
+};
+
+/**
+ *  One selected pack's outcome. Reported per pack so a single bad pack never
+ *  costs the user the rest of their selection.
+ */
+export type VtInstallOutcome = {
+	filename: string,
+	installed: boolean,
+	error: string | null,
+};
+
+export type VtInstallReport = {
+	outcomes: VtInstallOutcome[],
+};
+
+/**
+ *  One pack as VT describes it. `version` is a plain string like `2.8.21` —
+ *  there is no version id, and this string is the whole identity of a
+ *  release. `incompatible` names other packs by their `name`, not their
+ *  `display`.
+ */
+export type VtPack = {
+	name: string,
+	display: string,
+	version: string,
+	description?: string,
+	incompatible?: string[],
+};
 
 /**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
 export type WhitelistEntry = {

@@ -152,12 +152,37 @@ pub async fn server_update_datapack_one(
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
     let dd = super::data_dir(&app)?;
+    // See the twin in `commands::datapacks`: a Vanilla Tweaks pack has no
+    // direct URL, and its filename carries the version, so both come back
+    // together from a one-pack build instead of being fetched and predicted.
+    let vt_family = if target.source == crate::mods::platform::ModSource::VanillaTweaks {
+        let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+        let p = crate::paths::server_paths(&base, &id);
+        let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+        Some(
+            crate::datapacks::vanillatweaks::family_for(&file.mc_version).ok_or(
+                Error::VanillaTweaksUnavailable {
+                    mc_version: file.mc_version.clone(),
+                },
+            )?,
+        )
+    } else {
+        None
+    };
     crate::network::throttle::with_interactive(async move {
-        let bytes = super::fetch_datapack_bytes(&dd, &target).await?;
+        let (filename, bytes) = match vt_family {
+            Some(family) => {
+                crate::datapacks::vanillatweaks::build_one(&family, &target.project_id).await?
+            }
+            None => (
+                target.primary_file.filename.clone(),
+                super::fetch_datapack_bytes(&dd, &target).await?,
+            ),
+        };
         update::update_one(
             &world,
             &old_filename,
-            &target.primary_file.filename,
+            &filename,
             &bytes,
             &super::datapack_provenance_of(&target),
         )

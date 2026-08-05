@@ -1091,6 +1091,11 @@ async fn install_one_plugin(
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
                 ModSource::Hangar => "hangar",
+                // VT builds on demand, so its synthetic version carries an
+                // empty `url` — the `url.is_empty()` guard above turns any
+                // attempt to install one as a mod into this typed refusal
+                // rather than a silent download of nothing.
+                ModSource::VanillaTweaks => "vanillatweaks",
             }
             .into(),
             project_id: v.project_id.clone(),

@@ -1114,8 +1114,12 @@ describe('ModpackDetailModal — per-version Install button is an accent icon', 
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
-    // Icon-only install: the accessible name is common.install ("Install").
-    const installBtn = await screen.findByRole('button', { name: /^install$/i });
+    // Icon-only install: the accessible name is modpacks.detail.installRowTip,
+    // which names the version and where it lands. This assertion is about the
+    // button's variant/size/tint — the name is only the locator.
+    const installBtn = await screen.findByRole('button', {
+      name: 'Install 2.0.0 as a new instance',
+    });
     expect(installBtn).toHaveBtnVariant('icon');
     expect(installBtn.className).toContain('btn-icon-sm');
     expect(installBtn.className).toContain('!text-accent');

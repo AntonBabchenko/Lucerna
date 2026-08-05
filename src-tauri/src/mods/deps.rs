@@ -38,6 +38,11 @@ impl ProjectKey {
             // plugins can enter dedup/dep-graph keying, to avoid a collision with real
             // Modrinth ids.
             ModSource::Hangar => ProjectKey::Modrinth(v.project_id.clone()),
+            // TODO(vanillatweaks): placeholder — VT serves datapacks, which have
+            // no Java dependency graph, so VT versions stay dead in this path.
+            // A VT project_id is `<category>/<name>` and cannot collide with a
+            // real Modrinth id.
+            ModSource::VanillaTweaks => ProjectKey::Modrinth(v.project_id.clone()),
         }
     }
     pub fn of_ref(r: &DepProjectRef) -> ProjectKey {

@@ -76,6 +76,10 @@ const ALLOWED_PATTERNS: &[&str] = &[
     // CF-ref files reuse the existing edge/mediafilez forgecdn hosts above.
     "api.modpacks.ch",
     "dist.modpacks.ch",
+    // Vanilla Tweaks datapack builder. One host serves both the per-family
+    // category JSON and the zip a build request produces, so one concrete
+    // entry covers the whole feature.
+    "vanillatweaks.net",
     // ATLauncher modpack source. api = catalogue metadata, download.nodecdn.net
     // = Configs.json manifest + server-download mod files.
     "api.atlauncher.com",
@@ -235,6 +239,22 @@ mod tests {
     }
 
     #[test]
+    fn vanillatweaks_host_is_allowed() {
+        // The builder's catalogue GET and its build POST share one host, so
+        // one concrete entry covers the whole feature.
+        assert!(is_host_allowed("vanillatweaks.net"));
+        assert!(check_url_allowed(
+            "https://vanillatweaks.net/assets/resources/json/1.21/dpcategories.json",
+            "vt-catalogue"
+        )
+        .is_ok());
+        // Bare host, so exact match only — same rule the FTB and ipify
+        // entries are pinned to.
+        assert!(!is_host_allowed("evil.vanillatweaks.net"));
+        assert!(!is_host_allowed("vanillatweaks.net.evil"));
+    }
+
+    #[test]
     fn allowed_patterns_match_documented_list() {
         assert!(ALLOWED_PATTERNS.contains(&"*.mojang.com"));
         assert!(ALLOWED_PATTERNS.contains(&"*.minecraft.net"));
@@ -250,8 +270,8 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"api.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"dist.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"api.ipify.org"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo) + 3 Paper/Purpur core hosts + 2 Hangar hosts + 3 AI translation provider hosts.
-        assert_eq!(ALLOWED_PATTERNS.len(), 38);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo) + 3 Paper/Purpur core hosts + 2 Hangar hosts + 3 AI translation provider hosts + 1 Vanilla Tweaks host.
+        assert_eq!(ALLOWED_PATTERNS.len(), 39);
     }
 
     #[test]
