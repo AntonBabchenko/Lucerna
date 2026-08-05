@@ -247,7 +247,11 @@
     if (res.status !== 'ok') return; // best-effort; leave the map as-is
     const m = new Map<string, ServerDatapackEntry>();
     for (const e of res.data) {
-      if (e.record.source && e.record.project_id) {
+      // A ghost (level.dat names it, the file is gone) is not installed — the
+      // installed pane deliberately offers it no toggle either. Rendering it
+      // as "Installed" here would draw a live enable/disable control that,
+      // on click, flips a level.dat entry for a file that does not exist.
+      if (e.present && e.record.source && e.record.project_id) {
         m.set(`${e.record.source}:${e.record.project_id}`, e);
       }
     }
