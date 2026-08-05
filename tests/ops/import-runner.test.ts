@@ -24,43 +24,62 @@ const req = {
   versionId: null,
 };
 
+const row = {
+  name: 'capes-1.5.4+1.20.5-fabric.jar',
+  install_path: 'mods/capes-1.5.4+1.20.5-fabric.jar',
+  origin: 'modrinth',
+  host: 'cdn.modrinth.com',
+  bytes: 77259,
+  sha1: 'b8a4d24d',
+  outcome: { kind: 'installed', fetched: 'cached', placement: 'linked' },
+};
+
+/** Resolve the command WITHOUT ever driving the phase channel.
+ *
+ *  This is the production ordering, not a convenience: Tauri delivers a
+ *  channel payload of 8192 bytes or more through a second async IPC round
+ *  trip that lands after the command's own response, so by the time the
+ *  runner reads its result nothing has arrived. Any outcome field that a
+ *  test can only satisfy by calling `onmessage` first is a field the real
+ *  app loses. */
+function resolvesWithoutAnyChannelMessage(data: unknown) {
+  modpackImport.mockResolvedValue({ status: 'ok', data });
+}
+
 beforeEach(() => vi.clearAllMocks());
 
 describe('runImport', () => {
-  it('returns ok with the instance id from r.data.id', async () => {
-    modpackImport.mockImplementation(async (...args: unknown[]) => {
-      const phaseCh = args[6] as { onmessage: (m: unknown) => void };
-      phaseCh.onmessage({ phase: 'done', skipped_overrides: [], inert_loader_jars: [] });
-      return { status: 'ok', data: { name: 'My Pack', id: 'i1' } };
+  it('takes the whole outcome from the command result, never from a done message', async () => {
+    resolvesWithoutAnyChannelMessage({
+      instance: { name: 'My Pack', id: 'i1' },
+      skipped_overrides: [{ path: 'overrides/big.zip', size: 1024 }],
+      inert_loader_jars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
+      details: [row],
     });
+
     const out = await runImport(req, () => {});
+
     expect(out).toEqual({
       status: 'ok',
       name: 'My Pack',
       instanceId: 'i1',
-      skipped: [],
-      inertLoaderJars: [],
+      skipped: [{ path: 'overrides/big.zip', size: 1024 }],
+      inertLoaderJars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
+      details: [row],
     });
   });
 
-  it('captures inert_loader_jars from the done payload into the outcome', async () => {
-    modpackImport.mockImplementation(async (...args: unknown[]) => {
-      const phaseCh = args[6] as { onmessage: (m: unknown) => void };
-      phaseCh.onmessage({
-        phase: 'done',
-        skipped_overrides: [],
-        inert_loader_jars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
-      });
-      return { status: 'ok', data: { name: 'My Pack', id: 'i1' } };
+  it('reports the report rows even when the pack installed nothing else of note', async () => {
+    resolvesWithoutAnyChannelMessage({
+      instance: { name: 'My Pack', id: 'i1' },
+      skipped_overrides: [],
+      inert_loader_jars: [],
+      details: [row],
     });
+
     const out = await runImport(req, () => {});
-    expect(out).toEqual({
-      status: 'ok',
-      name: 'My Pack',
-      instanceId: 'i1',
-      skipped: [],
-      inertLoaderJars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
-    });
+
+    expect((out as { details: unknown }).details).toEqual([row]);
   });
 
   it('maps modpack_partial_failure to a partial outcome with file basenames', async () => {
@@ -85,7 +104,15 @@ describe('runImport', () => {
       const tickCh = args[7] as { onmessage: (m: unknown) => void };
       phaseCh.onmessage({ phase: 'enriching' });
       tickCh.onmessage({ current: 5, total: 10 });
-      return { status: 'ok', data: { name: 'P' } };
+      return {
+        status: 'ok',
+        data: {
+          instance: { name: 'P', id: 'i1' },
+          skipped_overrides: [],
+          inert_loader_jars: [],
+          details: [],
+        },
+      };
     });
     await runImport(req, (phase, bytes) => seen.push([phase, bytes]));
     // First call resets to (null,null); then phase, then bytes.

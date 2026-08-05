@@ -61,7 +61,7 @@ describe('runLauncherImport', () => {
   it('calls launcherImportRun with the right arguments', async () => {
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: mockInstance,
+      data: { instance: mockInstance, untracked_mods: 0 },
     });
 
     await runLauncherImport(
@@ -83,7 +83,7 @@ describe('runLauncherImport', () => {
   it('returns ok outcome with name and instanceId', async () => {
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: mockInstance,
+      data: { instance: mockInstance, untracked_mods: 0 },
     });
 
     const outcome = await runLauncherImport(
@@ -99,12 +99,14 @@ describe('runLauncherImport', () => {
     });
   });
 
-  it('picks up untrackedMods from the done phase', async () => {
+  it('picks up untrackedMods from the command result, not from a done message', async () => {
+    // Deliberately drives the channel only as far as a mid-import phase: the
+    // terminal message carries no payload, and a channel message can land
+    // after the command's response anyway (see the runner's doc comment).
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockImplementation(
       async (_f, _s, _n, _mv, _lo, _lv, ch: { onmessage: ((m: unknown) => void) | null }) => {
         ch.onmessage?.({ phase: 'creating_instance', name: 'My Pack' });
-        ch.onmessage?.({ phase: 'done', instance_id: 'inst-abc', untracked_mods: 3 });
-        return { status: 'ok', data: mockInstance };
+        return { status: 'ok', data: { instance: mockInstance, untracked_mods: 3 } };
       },
     );
 
@@ -121,8 +123,8 @@ describe('runLauncherImport', () => {
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockImplementation(
       async (_f, _s, _n, _mv, _lo, _lv, ch: { onmessage: ((m: unknown) => void) | null }) => {
         ch.onmessage?.({ phase: 'creating_instance', name: 'My Pack' });
-        ch.onmessage?.({ phase: 'done', instance_id: 'inst-abc', untracked_mods: 0 });
-        return { status: 'ok', data: mockInstance };
+        ch.onmessage?.({ phase: 'done' });
+        return { status: 'ok', data: { instance: mockInstance, untracked_mods: 0 } };
       },
     );
 
@@ -153,7 +155,7 @@ describe('runLauncherImport', () => {
   it('passes mcVersionOverride/loaderOverride through when provided', async () => {
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: mockInstance,
+      data: { instance: mockInstance, untracked_mods: 0 },
     });
 
     await runLauncherImport(

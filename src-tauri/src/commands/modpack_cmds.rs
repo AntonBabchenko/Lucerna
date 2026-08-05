@@ -55,7 +55,7 @@ pub async fn modpack_import(
     hint_version_id: Option<String>,
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
-) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     let install_progress: crate::mods::install::ProgressFn =
         Box::new(move |phase, current, total| {
@@ -73,7 +73,7 @@ pub async fn modpack_import(
     if is_staged_summary_sidecar(&path) {
         let summary = read_staged_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
-        let (imported, details) = modpack::import::install_resolved_pack(
+        let outcome = modpack::import::install_resolved_pack(
             &app,
             summary,
             &selected_shas,
@@ -89,8 +89,8 @@ pub async fn modpack_import(
             install_progress,
         )
         .await?;
-        journal_pack_import(&app, &imported, details);
-        return Ok(imported);
+        journal_pack_import(&app, &outcome.instance, outcome.details.clone());
+        return Ok(outcome);
     }
 
     // Archive path (Modrinth `.mrpack` / CurseForge `.zip`).
@@ -100,7 +100,7 @@ pub async fn modpack_import(
             path: path.clone(),
             details: e.to_string(),
         })?;
-    let (imported, details) = modpack::import::import(
+    let outcome = modpack::import::import(
         &app,
         &bytes,
         &selected_shas,
@@ -115,8 +115,8 @@ pub async fn modpack_import(
         install_progress,
     )
     .await?;
-    journal_pack_import(&app, &imported, details);
-    Ok(imported)
+    journal_pack_import(&app, &outcome.instance, outcome.details.clone());
+    Ok(outcome)
 }
 
 /// Open the freshly-created instance's journal with the import that made it.
@@ -607,7 +607,7 @@ pub async fn modpack_apply_update(
     new_version_id: String,
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
-) -> crate::error::Result<crate::instances::schema::InstanceWithStatus> {
+) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateOutcome> {
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -759,21 +759,13 @@ pub async fn modpack_apply_update(
             report_id: Some(task_id),
         },
     );
-    let _ = on_progress.send(ModpackProgress::Done {
-        instance_id: instance_id.clone(),
-        // A version update never touches `overrides/`, so nothing is skipped.
-        skipped_overrides: vec![],
-        // The mods dir WAS re-classified above, so report it: a switch that
-        // changes the loader family is precisely when the user needs to know
-        // which bundled jars have stopped loading.
+    // Phase marker only — the result rides the return value below.
+    let _ = on_progress.send(ModpackProgress::Done);
+    Ok(crate::mods::modpack::schema::ModpackUpdateOutcome {
+        instance: updated_inst,
         inert_loader_jars,
-        // Per-file install-report rows for phase 2 (removals + installs),
-        // accumulated by `apply_update_diff` — including any per-file
-        // failures, since this path continues past them rather than
-        // aborting.
         details,
-    });
-    Ok(updated_inst)
+    })
 }
 
 /// Phase 2 of `modpack_apply_update`: remove the old files, then install the
@@ -1112,15 +1104,11 @@ pub async fn modpack_reimport_overrides(
         crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
     }
 
-    let _ = on_progress.send(ModpackProgress::Done {
-        instance_id: instance_id.clone(),
-        skipped_overrides: outcome.skipped,
-        inert_loader_jars,
-        // Per-file install-report rows are out of scope for the
-        // reimport-overrides path — see the same note in
-        // `modpack_apply_update`.
-        details: vec![],
-    });
+    // Phase marker only. This path's caller (`ImportedDetailDrawer`'s
+    // `reimportPackFiles`) discards the result and re-reads the instance, and
+    // the drawer's "skipped"/"won't load" sections read `pack_origin` — which
+    // was just refreshed above — so there is nothing for a payload to carry.
+    let _ = on_progress.send(ModpackProgress::Done);
     Ok(())
 }
 

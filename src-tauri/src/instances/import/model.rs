@@ -109,10 +109,25 @@ pub enum ImportProgress {
         total: u32,
     },
     RecoveringIdentities,
-    Done {
-        instance_id: String,
-        untracked_mods: u32,
-    },
+    /// Terminal phase marker — deliberately **payload-free**, for the same
+    /// reason as `ModpackProgress::Done` (see that variant's doc comment): a
+    /// channel message is delivered out-of-band from the command's response
+    /// and can land after it, so anything the UI must READ belongs on the
+    /// return value. Here that is [`LauncherImportOutcome::untracked_mods`].
+    Done,
+}
+
+/// What `launcher_import_run` returns.
+///
+/// `untracked_mods` used to ride `ImportProgress::Done`, where the runner read
+/// it out of a captured local right after awaiting the command — a read that is
+/// only ever correct by luck of transport timing.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LauncherImportOutcome {
+    pub instance: crate::instances::schema::InstanceWithStatus,
+    /// Copied jars whose identity could not be recovered from Modrinth or
+    /// CurseForge — they stay in the instance but have no known provenance.
+    pub untracked_mods: u32,
 }
 
 /// Strip `-Xmx`/`-Xms` tokens (those map to `max_heap_mb`) and collapse

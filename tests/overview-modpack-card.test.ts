@@ -226,7 +226,10 @@ describe('ModpackCard', () => {
         version_bump: null,
       },
     });
-    vi.mocked(commands.modpackApplyUpdate).mockResolvedValue({ status: 'ok', data: modrinthInst });
+    vi.mocked(commands.modpackApplyUpdate).mockResolvedValue({
+      status: 'ok',
+      data: { instance: modrinthInst, inert_loader_jars: [], details: [] },
+    });
     // First sweep → update available; the post-confirm forced re-sweep → up to date.
     vi.mocked(commands.modpacksCheckUpdates)
       .mockResolvedValueOnce(

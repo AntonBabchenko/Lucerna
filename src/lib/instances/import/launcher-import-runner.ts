@@ -1,6 +1,10 @@
 // Launcher-instance import runner: wraps the single-channel launcherImportRun
 // command and returns a structured outcome. Toasting + navigation belong to the
 // op-queue store (it owns completionTick), so this stays pure and unit-testable.
+//
+// The channel carries PROGRESS ONLY — see the same note in
+// `$lib/ops/import-runner`. `untracked_mods` is a result, so it comes off
+// `r.data`, not out of a captured `done` message.
 
 import { Channel } from '@tauri-apps/api/core';
 import type { ContentCategory, ForeignInstance, ImportProgress } from '$lib/ipc/bindings';
@@ -46,17 +50,11 @@ export async function runLauncherImport(
   );
 
   if (r.status === 'ok') {
-    let untrackedMods = 0;
-    // latestPhase is reassigned in ch.onmessage callback; cast to escape over-narrow inference.
-    const phase = latestPhase as ImportProgress | null;
-    if (phase !== null && phase.phase === 'done') {
-      untrackedMods = phase.untracked_mods;
-    }
     return {
       status: 'ok',
-      name: r.data.name,
-      instanceId: r.data.id,
-      untrackedMods,
+      name: r.data.instance.name,
+      instanceId: r.data.instance.id,
+      untrackedMods: r.data.untracked_mods,
     };
   }
   return { status: 'error', message: formatError(r.error) };

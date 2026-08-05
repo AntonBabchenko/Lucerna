@@ -111,7 +111,13 @@ export async function applyModpackUpdate(
       upsertProgress(id, { phase: taskPhase, progress, rate });
     });
 
-    finish(id, { state: outcome.status === 'ok' ? 'ok' : 'failed' });
+    // Same `details` hand-off as pack-import.ts / mod-install.ts — an update
+    // moves as many files as an import, so its report is worth as much.
+    if (outcome.status === 'ok') {
+      finish(id, { state: 'ok', details: outcome.details });
+    } else {
+      finish(id, { state: 'failed' });
+    }
     return outcome;
   } catch (e) {
     // A queued task dropped via `cancelQueued` before it ever ran — not a
