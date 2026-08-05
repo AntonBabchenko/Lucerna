@@ -216,11 +216,31 @@ mod tests {
     #[test]
     fn a_folder_pack_is_never_adopted_into_the_sidecar() {
         let td = world_with(&[]);
-        std::fs::create_dir_all(td.path().join("datapacks").join("MyFolderPack")).unwrap();
+        // Named WITH a `.zip` suffix on purpose: it is the `.ends_with(".zip")`
+        // filter that would (wrongly) admit this entry if `is_file()` were ever
+        // dropped from the on-disk filter — a fixture without the suffix would
+        // pass this test for the wrong reason, hiding that regression.
+        std::fs::create_dir_all(td.path().join("datapacks").join("FolderPack.zip")).unwrap();
         assert!(
             reconcile(td.path()).is_empty(),
             "a folder has no bytes to hash and no provenance to record — it is \
              listed from disk, never persisted"
+        );
+    }
+
+    #[test]
+    fn reconcile_folds_case_when_matching_a_row_to_its_file() {
+        // NTFS resolves `Terralith.zip` and `terralith.zip` to one file, so a
+        // sidecar row whose spelling drifted from the directory entry must be
+        // retained with its provenance — not pruned and re-adopted bare.
+        let td = world_with(&[("terralith.zip", b"v1")]);
+        crate::servers_runtime::installed::save(td.path(), &[row("Terralith.zip", "aa")]).unwrap();
+        let rows = reconcile(td.path());
+        assert_eq!(rows.len(), 1, "one file must never yield two rows");
+        assert_eq!(
+            rows[0].project_id.as_deref(),
+            Some("terralith"),
+            "the drifted-spelling row keeps its provenance"
         );
     }
 
