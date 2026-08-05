@@ -45,6 +45,9 @@
   let results = $state<Record<string, RowResult>>({});
   let running = $state(false);
   let loaded = $state(false);
+  /** Set once a run has completed. The secondary button then reads Close:
+   *  offering to cancel work that has already been written is a lie. */
+  let hasRun = $state(false);
   // There is no `open` prop to poll for dismissal mid-sequence (Modal is
   // mounted by the parent inside an `{#if}`), so record it locally. EVERY
   // close path goes through `closeSelf`, including Modal's own Escape and
@@ -129,6 +132,11 @@
           results[row.instanceId] = formatError(res.error);
         } else {
           results[row.instanceId] = res.data ? 'applied' : 'deferred';
+          // Both outcomes wrote the pack, so this row is done. Unticking is
+          // what gives the dialog a terminal state: a second press then means
+          // exactly one thing — retry what failed — and with nothing left
+          // ticked the primary button disables itself.
+          checked[row.instanceId] = false;
         }
         // Checked after the write, not before: the in-flight instance is
         // already half-done, so it finishes and gets its line.
@@ -136,6 +144,7 @@
       }
     } finally {
       running = false;
+      hasRun = true;
     }
   }
 </script>
@@ -169,7 +178,15 @@
               data-testid={`apply-targets-check-${row.instanceId}`}
             />
             <span class="text-primary">{row.name}</span>
-            {#if state}
+            <!--
+              The chip is the state as it was when the dialog loaded, and
+              `rows` is never refetched. Once a row has a result that snapshot
+              is stale, and showing both put "not applied" next to "Applied" on
+              one row. Hidden rather than flipped: after a deferred apply "not
+              applied" is still TRUE, so flipping it would invent a state the
+              backend never returned.
+            -->
+            {#if state && !results[row.instanceId]}
               <span class="rounded bg-subtle px-1.5 py-0.5 text-xs text-secondary">{state}</span>
             {/if}
           </label>
@@ -211,7 +228,7 @@
         data-testid="apply-targets-cancel"
         onclick={closeSelf}
       >
-        {$t('common.cancel')}
+        {hasRun ? $t('common.close') : $t('common.cancel')}
       </button>
       <BusyButton
         busy={running}

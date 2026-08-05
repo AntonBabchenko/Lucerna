@@ -456,13 +456,18 @@
     </header>
     {#if coverage?.packState === 'present_not_enabled'}
       <!--
-        The Finding-2 scenario: a modpack update's own overrides/options.txt
-        overwrote the instance's options.txt wholesale, wiping the
-        resourcePacks entry while leaving the generated pack file itself on
-        disk (see l10n::options_txt's module doc). Re-running Apply rebuilds
-        and re-registers the pack AND re-enables it in options.txt in one
-        call — the same action the header's Apply button already performs —
-        so this reuses it rather than a distinct command.
+        A modpack update's own overrides/options.txt overwrote the instance's
+        wholesale, wiping the resourcePacks entry while leaving the generated
+        pack file on disk (see l10n::options_txt's module doc). Re-running
+        Apply rebuilds, re-registers AND re-enables in one call — the same
+        action the header's Apply button performs — so this reuses it rather
+        than a distinct command.
+
+        The copy states what was OBSERVED, not what caused it. The backend
+        reports a state, never a reason, and this banner used to name a modpack
+        update as the culprit — which read as a flat lie to a maintainer who
+        had merely run an AI pre-fill. The button's label likewise has to admit
+        that Apply rebuilds rather than just flipping a switch.
       -->
       <!--
         `status`, not `alert`: it appears after the coverage load lands and
@@ -484,6 +489,21 @@
         >
           {$t('instance.l10n.packDisabled.reenableButton')}
         </BusyButton>
+      </div>
+    {:else if coverage?.packState === 'present_awaiting_launch'}
+      <!--
+        There is no options.txt at all, because the instance has never been
+        launched. Deliberately BUTTONLESS: `options_txt::update_atomically`
+        returns Ok(false) on a missing file and never creates one, so Apply
+        cannot change this state however many times it is pressed. Offering it
+        here was offering a button with no reachable success.
+      -->
+      <div
+        role="status"
+        class="flex items-center gap-3 border-b bg-subtle px-4 py-2 text-sm text-secondary"
+        data-testid="l10n-pack-awaiting-launch-banner"
+      >
+        <span>{$t('instance.l10n.packDisabled.awaitingLaunch')}</span>
       </div>
     {/if}
     <div class="flex flex-1 overflow-hidden" use:observeRow>

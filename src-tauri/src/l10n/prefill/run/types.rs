@@ -54,6 +54,11 @@ pub struct RunSummary {
     /// Distinct units the verifier refused twice. Their keys were not written
     /// and the mod's own English still shows.
     pub rejected: u32,
+    /// Batches whose answer could not be parsed at all. Their strings were not
+    /// written and were not even attempted a second time. Reported because a
+    /// run that quietly drops a batch is worse than one that stops: the
+    /// coverage number simply refuses to move and nothing says why.
+    pub unusable_batches: u32,
     pub cancelled: bool,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -66,6 +71,14 @@ pub struct RunSummary {
     /// (`pack_rebuild_error` says how); the strings are still on disk and the
     /// editor's Apply button can ship them.
     pub pack_rebuilt: bool,
+    /// True when the rebuilt pack is actually switched on in `options.txt`.
+    ///
+    /// `pack_rebuilt` true with this false means the pack was written but
+    /// cannot load yet: the instance has no `options.txt` (never launched) or
+    /// was running when the rebuild landed. The run used to discard this fact
+    /// and report a plain success, so the first the user heard of it was a
+    /// banner in the editor blaming a modpack update.
+    pub pack_activated: bool,
     pub pack_rebuild_error: Option<String>,
     /// Set when the run stopped early — a provider failure, or a namespace
     /// store that could not be written. The run is still REPORTED rather than
@@ -83,6 +96,7 @@ impl RunSummary {
             from_cache: 0,
             from_glossary: 0,
             rejected: 0,
+            unusable_batches: 0,
             cancelled: false,
             // Starts true and only ever falls: a run that made no model call
             // at all genuinely cost zero tokens, and that is known, not
@@ -91,6 +105,7 @@ impl RunSummary {
             prompt_tokens: 0,
             completion_tokens: 0,
             pack_rebuilt: false,
+            pack_activated: false,
             pack_rebuild_error: None,
             failed: None,
         }

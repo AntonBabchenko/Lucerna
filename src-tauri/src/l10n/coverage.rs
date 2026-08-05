@@ -248,12 +248,15 @@ pub async fn scan_instance(
 ///
 /// Both reads are synchronous `std::fs`, matching how the rest of this
 /// module already reads small local files inside an async function
-/// (`ScanCache::load`, a few lines above). `options.txt` missing entirely
-/// (the instance has never been launched) degrades to an empty string —
-/// `pack_state` then reports `PresentNotEnabled` if the pack file exists,
-/// which is the same "written, not yet active" outcome `l10n_apply` itself
-/// already explains to the user as deferred activation, not a modpack-wipe
-/// — re-running Apply resolves either cause identically.
+/// (`ScanCache::load`, a few lines above). A missing `options.txt` is passed
+/// through as `None`, NOT flattened to an empty string: it means the instance
+/// has never been launched, and `pack_state` reports it as
+/// `PresentAwaitingLaunch`. That used to be folded into `PresentNotEnabled` on
+/// the grounds that "re-running Apply resolves either cause identically" —
+/// which is false. `update_atomically` returns `Ok(false)` the moment
+/// `options.txt` is missing and never creates one, so re-applying here cannot
+/// change anything, and the UI that offered it was offering a button with no
+/// reachable success.
 fn lang_pack_state(inst_root: &Path, lang: &str) -> crate::l10n::options_txt::PackState {
     let filename = format!("{}{lang}.zip", crate::l10n::options_txt::PACK_PREFIX);
     let mc_dir = inst_root.join(".minecraft");
@@ -262,8 +265,8 @@ fn lang_pack_state(inst_root: &Path, lang: &str) -> crate::l10n::options_txt::Pa
         &filename,
     ));
     let pack_on_disk = pack_path.is_file();
-    let options_txt = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap_or_default();
-    crate::l10n::options_txt::pack_state(pack_on_disk, &options_txt)
+    let options_txt = std::fs::read_to_string(mc_dir.join("options.txt")).ok();
+    crate::l10n::options_txt::pack_state(pack_on_disk, options_txt.as_deref())
 }
 
 /// Fold one namespace's counts into the aggregate.

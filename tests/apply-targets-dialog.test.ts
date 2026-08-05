@@ -26,6 +26,75 @@ beforeEach(() => {
 });
 
 describe('ApplyTargetsDialog', () => {
+  it('drops the stale state chip once a row has a result', async () => {
+    // The chip is a snapshot from load; the result line is newer. Showing
+    // both put "not applied" next to "Applied" on one row.
+    mocks.l10nApplyTargets.mockResolvedValue({ status: 'ok', data: [target()] });
+    mocks.l10nApply.mockResolvedValue({ status: 'ok', data: true });
+    render(ApplyTargetsDialog, { props: { lang: 'ru_ru', exclude: null, onClose: vi.fn() } });
+
+    await waitFor(() => screen.getByTestId('apply-targets-run'));
+    const row = () => screen.getByTestId('apply-targets-row-b');
+    expect(row().textContent).toContain('not applied');
+
+    await fireEvent.click(screen.getByTestId('apply-targets-run'));
+    await waitFor(() => screen.getByTestId('apply-targets-result-b'));
+    expect(row().textContent).not.toContain('not applied');
+  });
+
+  it('keeps saying not applied for a deferred row, without contradicting itself', async () => {
+    // `deferred` means the pack was written but cannot switch on yet, so the
+    // pre-action chip was not WRONG — which is why it is hidden rather than
+    // flipped to "applied".
+    mocks.l10nApplyTargets.mockResolvedValue({ status: 'ok', data: [target()] });
+    mocks.l10nApply.mockResolvedValue({ status: 'ok', data: false });
+    render(ApplyTargetsDialog, { props: { lang: 'ru_ru', exclude: null, onClose: vi.fn() } });
+
+    await waitFor(() => screen.getByTestId('apply-targets-run'));
+    await fireEvent.click(screen.getByTestId('apply-targets-run'));
+
+    await waitFor(() => screen.getByTestId('apply-targets-result-b'));
+    const row = screen.getByTestId('apply-targets-row-b');
+    expect(row.textContent).not.toContain('not applied');
+    expect(screen.getByTestId('apply-targets-result-b').className).toContain('text-accent');
+  });
+
+  it('reaches a terminal state instead of staying re-pressable', async () => {
+    mocks.l10nApplyTargets.mockResolvedValue({ status: 'ok', data: [target()] });
+    mocks.l10nApply.mockResolvedValue({ status: 'ok', data: true });
+    render(ApplyTargetsDialog, { props: { lang: 'ru_ru', exclude: null, onClose: vi.fn() } });
+
+    await waitFor(() => screen.getByTestId('apply-targets-run'));
+    await fireEvent.click(screen.getByTestId('apply-targets-run'));
+
+    await waitFor(() =>
+      expect((screen.getByTestId('apply-targets-run') as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect((screen.getByTestId('apply-targets-check-b') as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId('apply-targets-cancel').textContent?.trim()).toBe('Close');
+    expect(mocks.l10nApply).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a failed row ticked so a second press retries only it', async () => {
+    mocks.l10nApplyTargets.mockResolvedValue({
+      status: 'ok',
+      data: [target(), target({ instanceId: 'c', name: 'Instance C' })],
+    });
+    mocks.l10nApply.mockResolvedValueOnce({ status: 'ok', data: true }).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'x', message: 'nope' },
+    });
+    render(ApplyTargetsDialog, { props: { lang: 'ru_ru', exclude: null, onClose: vi.fn() } });
+
+    await waitFor(() => screen.getByTestId('apply-targets-run'));
+    await fireEvent.click(screen.getByTestId('apply-targets-run'));
+
+    await waitFor(() => screen.getByTestId('apply-targets-result-c'));
+    expect((screen.getByTestId('apply-targets-check-b') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('apply-targets-check-c') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('apply-targets-run') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('lists candidates, disables busy rows and discloses a language replacement', async () => {
     mocks.l10nApplyTargets.mockResolvedValue({
       status: 'ok',

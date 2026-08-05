@@ -424,6 +424,28 @@ describe('LocalizationModal', () => {
       expect(screen.getByTestId('l10n-pack-reenable')).toBeTruthy();
     });
 
+    it('shows a buttonless banner when the instance has never been launched', async () => {
+      // There is no options.txt yet, so `update_atomically` returns Ok(false)
+      // and never creates one: Apply cannot change this state however many
+      // times it is pressed. Offering the button here offered a dead end, and
+      // the wipe copy blamed a modpack update that never happened.
+      mockCoverageOk(coverage({ packState: 'present_awaiting_launch' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const banner = await screen.findByTestId('l10n-pack-awaiting-launch-banner');
+      expect(banner.getAttribute('role')).toBe('status');
+      expect(screen.queryByTestId('l10n-pack-reenable')).toBeNull();
+      expect(screen.queryByTestId('l10n-pack-disabled-banner')).toBeNull();
+    });
+
+    it('does not blame a modpack update for a state it cannot know the cause of', async () => {
+      mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const banner = await screen.findByTestId('l10n-pack-disabled-banner');
+      expect(banner.textContent?.toLowerCase()).not.toContain('modpack');
+    });
+
     it('pressing the re-enable button calls l10nApply', async () => {
       mockCoverageOk(coverage({ packState: 'present_not_enabled' }));
       vi.mocked(commands.l10nApply).mockResolvedValue({
