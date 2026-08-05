@@ -371,10 +371,15 @@
         ? $t('servers.mods.serverOnlyTooltip')
         : $t('servers.mods.serverOnlyUnavailable')}
     >
+      <!-- Rendered unchecked when the source cannot honour it: a ticked box
+           would claim a filter is applied to results that are unfiltered. The
+           preference itself survives, so switching back to Modrinth restores
+           it — hence an explicit handler rather than `bind:checked`. -->
       <input
         type="checkbox"
         class="accent-accent"
-        bind:checked={serverOnly}
+        checked={serverOnly && serverOnlyAvailable}
+        onchange={(e) => (serverOnly = e.currentTarget.checked)}
         disabled={!serverOnlyAvailable}
         data-testid="server-mod-server-only"
       />

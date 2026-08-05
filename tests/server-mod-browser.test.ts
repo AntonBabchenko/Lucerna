@@ -358,5 +358,9 @@ describe('ServerModBrowser', () => {
     await waitFor(() => expect(mockSearch).toHaveBeenCalled());
     const cb = screen.getByTestId('server-mod-server-only') as HTMLInputElement;
     expect(cb.disabled).toBe(true);
+    // Unchecked, not merely greyed: a ticked box would claim a filter is
+    // applied to results CurseForge returns unfiltered.
+    expect(cb.checked).toBe(false);
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({ server_only: false });
   });
 });
