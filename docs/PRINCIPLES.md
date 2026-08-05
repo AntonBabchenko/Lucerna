@@ -40,6 +40,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `dist.modpacks.ch` | FTB modpack file downloads | enabled when user installs an FTB pack |
    | `api.atlauncher.com` | ATLauncher modpack catalogue (metadata) | requested on first open of ATLauncher modpack browser |
    | `download.nodecdn.net` | ATLauncher pack manifest (`Configs.json`) + mod file downloads | enabled when user installs an ATLauncher pack |
+   | `vanillatweaks.net` | Vanilla Tweaks datapack builder — per-MC-version category listing, and the zip the site builds from the selected packs (one host serves both) | requested when the user opens the Vanilla Tweaks builder or checks those packs for updates |
    | `meta.fabricmc.net`, `maven.fabricmc.net` | Fabric loader meta + libraries | on when user picks Fabric loader |
    | `meta.quiltmc.org`, `maven.quiltmc.org` | Quilt loader meta + libraries | on when user picks Quilt loader |
    | `maven.minecraftforge.net` | Forge installer JARs + library/processor mavens | on when user picks Forge loader |
@@ -50,7 +51,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `fill.papermc.io`, `fill-data.papermc.io` | Paper server core builds (Fill v3 API + jar CDN) | on when user picks the Paper core |
    | `api.purpurmc.org` | Purpur server core builds | on when user picks the Purpur core |
    | `hangar.papermc.io`, `hangarcdn.papermc.io` | Hangar plugin browser + Hangar-hosted plugin files | requested on first open of the plugin browser |
-   | `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.groq.com` | AI translation pre-fill (opt-in, user's own API key) — the chat-completion endpoint of whichever provider the user selects; only that one host is contacted | off by default; only when the user turns on AI translation and starts a pre-fill run |
+   | `api.anthropic.com`, `generativelanguage.googleapis.com`, `api.groq.com` | AI translation pre-fill (opt-in, user's own API key) — the chat-completion endpoint of whichever provider the user selects; only that one host is contacted. The fourth provider, `Local`, is not a host on this list at all — see commitment 5 | off by default; only when the user turns on AI translation and starts a pre-fill run |
 
    The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the single source of truth; this table mirrors it for human readers and is kept in sync by code review.
 
@@ -74,9 +75,16 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    - **Data.** Player counts, the version string and the MOTD are read; the `players.sample` list of other players' names is deliberately not. Nothing is persisted, exported, or sent anywhere else, and server addresses are kept out of the launcher log.
    - **Disclosure.** The setting states plainly that the server owner sees the user's IP address — the same exposure as joining that server.
 
-5. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
+5. **Fourth sanctioned outbound channel — the loopback seam (a user's own model server).** Choosing `Local` as the AI translation provider means posting to `127.0.0.1` on a user-supplied port. That is neither a launcher-chosen internet destination nor a user-typed remote host, so neither commitment 2 nor commitment 4 fits it — and adding `127.0.0.1` to `ALLOWED_PATTERNS` would let *every* code path in the launcher reach *every* local port. It gets its own narrow seam instead:
 
-6. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
+   - **Host is not caller-supplied.** `src-tauri/src/network/loopback.rs` holds `127.0.0.1` as a compile-time constant; the caller chooses only the port and the path.
+   - **Structural guard.** `src-tauri/tests/structural_loopback_confined.rs` fails the build if anything outside `l10n::prefill` calls the seam, so it cannot grow into a general "reach any local port" capability.
+   - **Consent is a type, not an ordering rule.** Every function in `l10n::prefill::provider` that reaches a model requires a `network::consent::AiConsent` — a token whose field is private to `network::consent`, so the only way to hold one is to have passed the permission check.
+   - **Nothing leaves the machine.** This is the one AI option that sends no data anywhere: the strings go to a server the user is running themselves.
+
+6. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
+
+7. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
 
 ### Appendix A — documented processes
 
@@ -118,6 +126,8 @@ The commitments above are not honour-system rules; most are enforced by tests in
 | `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`, plus an allowlist for `tauri_plugin_opener` call sites (Hard rule 3) |
 | `structural_no_raw_sftp.rs` | No SFTP session construction outside `servers_runtime::transfer` (Part A commitment 3) |
 | `structural_consented_dial.rs` | No TCP dialing outside `network::consent`, no raw UDP anywhere, and the consent check still present in `ConsentedTcp::open` (Part A commitment 4) |
+| `structural_loopback_confined.rs` | No call into the `127.0.0.1` seam (`network::loopback`) outside `l10n::prefill` (Part A commitment 5) |
+| `structural_no_sync_reconcile.rs` | A `#[tauri::command]` that runs the mods/plugins reconcile scan must be `async` — a synchronous command runs on the main thread and freezes the window for the length of the scan |
 | `structural_no_inplace_mods_write.rs` | No raw file write under `src/mods/`, `src/datapacks/`, or `src/worlds/` outside `mods::store` (instance side) and `mods::cache` (store side). Instance mod jars and world datapack links are hardlinks to one shared physical file, so an in-place write — `fs::copy` included, since it opens the destination with truncate — corrupts every instance or world sharing it. Only write-to-temp-then-rename is safe. |
 | `structural_platform_chokepoint.rs` | OS-specific behaviour stays behind the `platform::` seam rather than leaking `#[cfg(windows)]` across the codebase |
 | `structural_no_env_mutation.rs` | No `std::env::set_var` in production code — env overrides go through `test_seam` (this is what removed the need for single-threaded test runs) |
