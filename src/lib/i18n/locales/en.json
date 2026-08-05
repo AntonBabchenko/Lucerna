@@ -924,7 +924,7 @@
     "kindMods": "Mods",
     "kindResourcePacks": "Resource packs",
     "kindShaders": "Shaders",
-    "kindDatapacks": "Data packs",
+    "kindDatapacks": "Data packs (Beta)",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
     "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
@@ -1346,7 +1346,7 @@
       "confirmDelete": "Delete backup {timestamp}?"
     },
     "datapacks": {
-      "tab": "Datapacks",
+      "tab": "Datapacks (Beta)",
       "title": "Datapacks",
       "empty": "No datapacks yet",
       "add": "Add datapack",
@@ -2765,7 +2765,7 @@
     },
     "addons": {
       "kindPlugins": "Plugins",
-      "kindDatapacks": "Datapacks",
+      "kindDatapacks": "Datapacks (Beta)",
       "pinnedFacets": "For {core} {mcVersion}",
       "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
       "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file",

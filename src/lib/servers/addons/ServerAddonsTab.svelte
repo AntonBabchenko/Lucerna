@@ -168,7 +168,7 @@
   const KIND_ICONS: Record<ServerAddonsKind, IconName> = {
     mod: 'blocks',
     plugin: 'plug',
-    datapack: 'world',
+    datapack: 'datapack',
   };
 
   const kindOptions = $derived(
