@@ -38,7 +38,10 @@ beforeEach(() => {
     status: 'ok',
     data: { added: [], removed: [], updated: [], new_version_number: '1.3.0', version_bump: null },
   });
-  applyUpdate.mockResolvedValue({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
+  applyUpdate.mockResolvedValue({
+    status: 'ok',
+    data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
+  });
 });
 
 describe('createModpackUpdateFlow', () => {

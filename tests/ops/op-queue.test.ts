@@ -387,8 +387,10 @@ describe('op-queue store', () => {
   });
 
   it('enqueueLauncherImport: dedupes same root', async () => {
-    const d =
-      deferred<{ status: 'ok'; data: { instance: typeof mockInstanceData; untracked_mods: number } }>();
+    const d = deferred<{
+      status: 'ok';
+      data: { instance: typeof mockInstanceData; untracked_mods: number };
+    }>();
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
 
     enqueueLauncherImport('Prism Pack', {
