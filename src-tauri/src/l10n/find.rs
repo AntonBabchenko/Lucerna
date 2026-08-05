@@ -104,10 +104,18 @@ pub enum Rank {
 
 /// Match a raw query against a raw value, normalising both.
 pub fn rank(query: &str, value: &str) -> Option<Rank> {
-    let q = normalise(query);
+    rank_normalised(&normalise(query), value)
+}
+
+/// As [`rank`], with the query already normalised.
+///
+/// The caller loops over every key in an instance — tens of thousands — against
+/// one constant query, so re-normalising it per call is pure waste.
+pub fn rank_normalised(q: &str, value: &str) -> Option<Rank> {
     if q.is_empty() {
         return None;
     }
+    let q = q.to_string();
     let v = normalise(value);
 
     if v == q {

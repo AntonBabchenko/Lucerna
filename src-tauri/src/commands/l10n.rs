@@ -173,10 +173,16 @@ pub async fn l10n_search(
         crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
     let lang = crate::l10n::coverage::default_target_code(&lang);
 
-    let disabled_mods = crate::mods::installed::list(&inst_root)
+    let installed = crate::mods::installed::list(&inst_root)
         .await
-        .map(|mods| mods.iter().filter(|m| !m.enabled).count() as u32)
-        .unwrap_or(0);
+        .unwrap_or_default();
+    let disabled_mods = installed.iter().filter(|m| !m.enabled).count() as u32;
+    // Identity of the scan the memo is keyed on — see `l10n::search_cache`.
+    let enabled: Vec<(String, String)> = installed
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| (m.filename.clone(), m.sha1.clone()))
+        .collect();
 
     if crate::l10n::find::normalise(&query).is_empty() {
         return Ok(SearchResult {
@@ -186,10 +192,19 @@ pub async fn l10n_search(
         });
     }
 
-    let maps = crate::l10n::namespace_scan::instance_lang_maps(&inst_root, &lang).await?;
+    // Memoised: the jar walk is seconds on a large pack, and the maps come from
+    // JARS only, so a user translating between queries cannot stale them.
+    let maps = crate::l10n::search_cache::lang_maps_cached(&inst_root, &lang, &enabled, || {
+        crate::l10n::namespace_scan::instance_lang_maps(&inst_root, &lang)
+    })
+    .await?;
+
+    // Hoisted: `find::rank` normalises its query on every call, and this loop
+    // runs once per KEY — tens of thousands of times for one constant string.
+    let needle = crate::l10n::find::normalise(&query);
 
     let mut ranked: Vec<(crate::l10n::find::Rank, SearchHit)> = Vec::new();
-    for (namespace, (en, mod_tr)) in &maps {
+    for (namespace, (en, mod_tr)) in maps.iter() {
         let store = crate::l10n::store::load(&store_dir, &lang, namespace);
         for row in crate::l10n::store::namespace_key_rows(&store, en, Some(mod_tr)) {
             // `mod_value` is the string the player actually READ on screen
@@ -204,7 +219,7 @@ pub async fn l10n_search(
             ]
             .into_iter()
             .flatten()
-            .filter_map(|value| crate::l10n::find::rank(&query, value))
+            .filter_map(|value| crate::l10n::find::rank_normalised(&needle, value))
             .max();
             if let Some(rank) = best {
                 ranked.push((
