@@ -96,6 +96,9 @@ pub async fn resolve_download_url(
         // Hangar plugins never reach modpack export (plugins are server-side, not part of a
         // client modpack); bundle locally like the other pack-managed sources.
         ModSource::Hangar => Ok(None),
+        // Vanilla Tweaks packs are built on demand and have no stable download
+        // URL at all; bundle locally like the other pack-managed sources.
+        ModSource::VanillaTweaks => Ok(None),
     }
 }
 

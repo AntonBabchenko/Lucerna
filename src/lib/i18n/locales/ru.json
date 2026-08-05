@@ -959,6 +959,17 @@
         "toastFailedWorlds": "{count, plural, one {# мир не удалось очистить — копия в библиотеке сохранена, чтобы повтор мог завершить} few {# мира не удалось очистить — копия в библиотеке сохранена, чтобы повтор мог завершить} many {# миров не удалось очистить — копия в библиотеке сохранена, чтобы повтор мог завершить} other {# миров не удалось очистить — копия в библиотеке сохранена, чтобы повтор мог завершить}}",
         "toastKeptNotOurs": "{count, plural, one {# мир сохранил свою копию — файл там не совпадает с библиотечным и не был затронут} few {# мира сохранили свои копии — файлы там не совпадают с библиотечными и не были затронуты} many {# миров сохранили свои копии — файлы там не совпадают с библиотечными и не были затронуты} other {# миров сохранили свои копии — файлы там не совпадают с библиотечными и не были затронуты}}",
         "worldsOnlyNote": "Копии в библиотеке уже нет; удаление уберёт пак из перечисленных миров."
+      },
+      "vt": {
+        "open": "Vanilla Tweaks…",
+        "title": "Vanilla Tweaks",
+        "subtitle": "Отметьте нужные твики. Vanilla Tweaks соберёт их, а Lucerna добавит как обычный датапак.",
+        "build": "Добавить выбранные",
+        "selected": "{count, plural, one {выбран # пак} few {выбрано # пака} many {выбрано # паков} other {выбрано # паков}}",
+        "installed": "Уже добавлен",
+        "conflicts": "Не работает вместе с {names}",
+        "empty": "У Vanilla Tweaks пока нет паков для этой версии Minecraft.",
+        "someFailed": "{count, plural, one {# пак не добавлен} few {# пака не добавлено} many {# паков не добавлено} other {# паков не добавлено}}"
       }
     },
     "install": {
@@ -2170,6 +2181,9 @@
       "notAPack": "В архиве нет pack.mcmeta или папки data."
     },
     "datapackTooLarge": "«{filename}» весит {sizeMb} МБ — больше лимита {limitMb} МБ для датапака.",
+    "vanillaTweaksUnavailable": "У Vanilla Tweaks пока нет паков для Minecraft {mcVersion}.",
+    "vanillaTweaksBuildFailed": "Vanilla Tweaks не смог собрать этот набор. {message}",
+    "vanillaTweaksBundleTooLarge": "Загрузка с Vanilla Tweaks весит {sizeMb} МБ — больше лимита {limitMb} МБ.",
     "l10nTranslationInvalid": "«{key}» — недопустимый перевод: {reason}",
     "l10nTranslationInvalidReason": {
       "unsupportedSpecifier": "Minecraft поддерживает только %s и %% (не %{specifier}).",

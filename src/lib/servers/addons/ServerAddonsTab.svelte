@@ -293,7 +293,12 @@
         {:else if kind === 'plugin'}
           <ServerPluginsInstalled {serverId} {reloadToken} />
         {:else}
-          <ServerDatapacksInstalled {serverId} disabled={running} {reloadToken} />
+          <ServerDatapacksInstalled
+            {serverId}
+            mcVersion={server.mc_version}
+            disabled={running}
+            {reloadToken}
+          />
         {/if}
       </div>
     {/if}

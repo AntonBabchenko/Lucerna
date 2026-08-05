@@ -83,6 +83,10 @@ pub fn modpack_source_for(source: ModSource) -> Box<dyn ModpackSource> {
         ModSource::Hangar => Box::new(UnsupportedModpackSource {
             source: ModSource::Hangar,
         }),
+        // Vanilla Tweaks serves datapacks, not modpacks.
+        ModSource::VanillaTweaks => Box::new(UnsupportedModpackSource {
+            source: ModSource::VanillaTweaks,
+        }),
     }
 }
 

@@ -58,6 +58,11 @@ impl From<ModSource> for TaskOrigin {
             // exactly what `every_mod_source_maps_to_a_task_origin` enforces),
             // so it lands on `Local` rather than being left unmapped.
             ModSource::Hangar => TaskOrigin::Local,
+            // Vanilla Tweaks packs are datapacks, which are outside the
+            // install-report scope this type exists for — no `TaskDetail` is
+            // built for them. Lands on `Local` for the same reason Hangar
+            // does: the mapping has to stay total.
+            ModSource::VanillaTweaks => TaskOrigin::Local,
         }
     }
 }

@@ -472,6 +472,20 @@ describe('formatError', () => {
         size_bytes: 300 * 1024 * 1024,
         limit_bytes: 256 * 1024 * 1024,
       },
+      vanilla_tweaks_unavailable: {
+        kind: 'vanilla_tweaks_unavailable',
+        mc_version: '1.12.2',
+      },
+      // The message is the upstream service's own wording, kept verbatim.
+      vanilla_tweaks_build_failed: {
+        kind: 'vanilla_tweaks_build_failed',
+        message: 'no packs selected',
+      },
+      vanilla_tweaks_bundle_too_large: {
+        kind: 'vanilla_tweaks_bundle_too_large',
+        size_bytes: 3 * 1024 * 1024 * 1024,
+        limit_bytes: 2 * 1024 * 1024 * 1024,
+      },
       // `reason` is a nested tagged enum (`FormatError`), the first exported
       // type in this crate to carry another exported tagged enum as a field.
       // The sample uses the specifier the validator exists to catch: `%d` is

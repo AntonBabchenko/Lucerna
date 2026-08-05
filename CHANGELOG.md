@@ -52,6 +52,20 @@ release is **0.9.0**.
   Datapacks need Minecraft 1.13 or newer — below that the option isn't
   offered.
 
+- **Vanilla Tweaks, built from inside the launcher.** The datapack views —
+  both the instance's and the server's — gain a **Vanilla Tweaks** button that
+  opens the same tick-list the site has: every pack in its category, with its
+  description and version. Choose what you want, press once, and the packs
+  arrive as ordinary datapacks. Packs you already have are marked and their
+  boxes are ticked, and when two packs are known not to work together the pair
+  is flagged — a warning, not a veto, the same as on the site itself.
+
+  From then on they behave like anything else installed from a catalogue: the
+  usual **Check for updates** notices a new version and the usual update button
+  applies it. Vanilla Tweaks publishes per Minecraft version, so a version it
+  hasn't caught up with yet is reported as exactly that rather than as an empty
+  list.
+
 - **Datapacks on your own server.** The server's Add-ons tab gets the same
   **Datapacks** option — install from Modrinth or CurseForge, check for
   updates, and switch packs on and off. On and off are written into the world
