@@ -11,11 +11,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  ApplyGate,
   InstanceCoverage,
   NamespaceCoverage,
   PrefillEstimate,
   RunSummary,
 } from '$lib/ipc/bindings';
+import type { PrefillReadiness } from '$lib/l10n/prefill-readiness';
 
 // Every Channel the runner constructs, in construction order. `vi.hoisted` is
 // required: the `vi.mock` factory below is lifted above every `const`.
@@ -143,13 +145,13 @@ describe('LocalizationModal — prefill triggers', () => {
   // them it exists and what to go and fix. The reason has to be reachable, so
   // each case pins the inline copy in the header as well — the tooltip is
   // hover-only by construction and a keyboard user never reaches it.
-  const gatedStates = [
-    { aiReady: 'no_consent', gate: 'ready' as const, reason: /turned off in Settings/i },
-    { aiReady: 'no_key', gate: 'ready' as const, reason: /Add an API key/i },
+  const gatedStates: { aiReady: PrefillReadiness; gate: ApplyGate; reason: RegExp }[] = [
+    { aiReady: 'no_consent', gate: 'ready', reason: /turned off in Settings/i },
+    { aiReady: 'no_key', gate: 'ready', reason: /Add an API key/i },
     // The version gate is not fixable in Settings, but it is still a reason —
     // and the pre-fill borrows Apply's wording rather than inventing a second
     // vocabulary for the same fact about the same instance.
-    { aiReady: 'ready', gate: 'too_old' as const, reason: /can't load resource-pack overrides/i },
+    { aiReady: 'ready', gate: 'too_old', reason: /can't load resource-pack overrides/i },
   ];
 
   for (const state of gatedStates) {
