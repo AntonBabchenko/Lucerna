@@ -30,6 +30,7 @@ pub mod pack_meta;
 pub mod registry;
 pub mod state;
 pub mod update;
+pub mod vanillatweaks;
 pub mod world_link;
 
 /// One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
