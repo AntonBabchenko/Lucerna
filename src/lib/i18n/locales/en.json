@@ -959,6 +959,17 @@
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
         "worldsOnlyNote": "The library copy is already gone; removing clears the pack from the listed worlds."
+      },
+      "vt": {
+        "open": "Vanilla Tweaks…",
+        "title": "Vanilla Tweaks",
+        "subtitle": "Tick the tweaks you want. Vanilla Tweaks puts them together and Lucerna adds them like any other datapack.",
+        "build": "Add selected",
+        "selected": "{count, plural, one {# pack selected} other {# packs selected}}",
+        "installed": "Already added",
+        "conflicts": "Doesn't work together with {names}",
+        "empty": "Vanilla Tweaks has no packs for this Minecraft version yet.",
+        "someFailed": "{count, plural, one {# pack could not be added} other {# packs could not be added}}"
       }
     },
     "install": {
@@ -2165,6 +2176,9 @@
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
     "datapackTooLarge": "\"{filename}\" is {sizeMb} MB — over the {limitMb} MB limit for a datapack.",
+    "vanillaTweaksUnavailable": "Vanilla Tweaks has no packs for Minecraft {mcVersion} yet.",
+    "vanillaTweaksBuildFailed": "Vanilla Tweaks couldn't put that selection together. {message}",
+    "vanillaTweaksBundleTooLarge": "The download from Vanilla Tweaks is {sizeMb} MB — over the {limitMb} MB limit.",
     "l10nTranslationInvalid": "\"{key}\" isn't a valid translation: {reason}",
     "l10nTranslationInvalidReason": {
       "unsupportedSpecifier": "Minecraft only supports %s and %% (not %{specifier}).",
