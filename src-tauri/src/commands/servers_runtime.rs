@@ -3248,14 +3248,19 @@ pub fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<String>> 
 /// the installed filename. Server must be stopped (live worlds hold files open).
 #[tauri::command]
 #[specta::specta]
-pub fn server_install_datapack(app: AppHandle, id: String, zip_path: String) -> Result<String> {
+pub async fn server_install_datapack(
+    app: AppHandle,
+    id: String,
+    zip_path: String,
+) -> Result<String> {
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
-    crate::servers_runtime::datapacks::install_datapack(&dir, std::path::Path::new(&zip_path))
+    let world = crate::servers_runtime::datapacks::world_dir(&p.runtime, &server_props_raw(&p));
+    crate::servers_runtime::datapacks::install_datapack(&world, std::path::Path::new(&zip_path))
+        .await
 }
 
 /// Remove a datapack archive from a server's world `datapacks/`. Idempotent.

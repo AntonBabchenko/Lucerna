@@ -7,7 +7,6 @@
 //! mirroring [`super::quarantine`]'s style.
 
 use crate::error::{Error, Result};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub mod guard;
@@ -97,54 +96,19 @@ pub fn list_datapacks(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Validate `src_zip` is a datapack and copy it into `dir` (created if absent),
-/// returning the installed filename. Rejects an unsafe destination filename and
-/// a zip without a root `pack.mcmeta`. Overwrites an existing same-name pack.
-pub fn install_datapack(dir: &Path, src_zip: &Path) -> Result<String> {
+/// Validate `src_zip` and install it into the world's `datapacks/`, returning
+/// the installed filename. Records a provenance-less sidecar row (so the pack
+/// lists with real state) and writes through temp-then-rename.
+///
+/// `world_dir` is `runtime/<level>/` — the sidecar and `level.dat` live there.
+pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String> {
     let filename = src_zip
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::to_string)
         .ok_or_else(|| Error::io("<datapack>", "source path has no filename"))?;
-    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
-        return Err(Error::io("<datapack>", "invalid filename"));
-    }
-    if !filename.to_ascii_lowercase().ends_with(".zip") {
-        return Err(Error::io("<datapack>", "datapack must be a .zip"));
-    }
-    let mut bytes = Vec::new();
-    std::fs::File::open(src_zip)
-        .and_then(|mut f| f.read_to_end(&mut bytes).map(|_| ()))
-        .map_err(|e| Error::io(src_zip.display().to_string(), e))?;
-    if !zip_is_datapack(&bytes) {
-        // pack.mcmeta alone isn't the datapack marker (see pack_meta) — name
-        // the real kind when that's why it was rejected. The blanket "no
-        // pack.mcmeta" wording would be false for a rejected resource pack,
-        // which carries one too, and also false for a zip with pack.mcmeta
-        // but no data/ or assets/ tree at all (also `Neither`).
-        let details = match crate::datapacks::pack_meta::classify(&bytes) {
-            crate::datapacks::pack_meta::PackKind::ResourcePack => {
-                "this looks like a resource pack, not a datapack"
-            }
-            crate::datapacks::pack_meta::PackKind::Neither => {
-                "not a valid datapack (needs pack.mcmeta and a data/ folder)"
-            }
-            // Unreachable: this branch only runs when `!zip_is_datapack(&bytes)`,
-            // and `zip_is_datapack` is exactly `classify(bytes) == Datapack`.
-            // `classify` is a pure function of its byte-slice argument, so a
-            // second call on the same `bytes` cannot return `Datapack` here.
-            crate::datapacks::pack_meta::PackKind::Datapack => {
-                unreachable!("zip_is_datapack already proved classify(&bytes) != Datapack")
-            }
-        };
-        return Err(Error::io("<datapack>", details));
-    }
-    std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
-    let dest = dir.join(&filename);
-    if !dest.starts_with(dir) {
-        return Err(Error::io("<datapack>", "path escapes datapacks dir"));
-    }
-    std::fs::write(&dest, &bytes).map_err(|e| Error::io(dest.display().to_string(), e))?;
+    let bytes = std::fs::read(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
+    mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
     Ok(filename)
 }
 
@@ -299,32 +263,45 @@ mod tests {
         assert!(!zip_is_datapack(&bytes));
     }
 
-    #[test]
-    fn install_datapack_writes_validated_zip() {
+    #[tokio::test]
+    async fn install_datapack_writes_validated_zip() {
         let td = tempfile::tempdir().unwrap();
         let src = td.path().join("CoolPack.zip");
         std::fs::write(&src, datapack_zip()).unwrap();
-        let dir = td.path().join("world").join("datapacks");
-        let name = install_datapack(&dir, &src).unwrap();
+        let world = td.path().join("world");
+        let name = install_datapack(&world, &src).await.unwrap();
         assert_eq!(name, "CoolPack.zip");
-        assert!(dir.join("CoolPack.zip").exists());
-        assert_eq!(list_datapacks(&dir), vec!["CoolPack.zip".to_string()]);
+        assert!(world.join("datapacks").join("CoolPack.zip").exists());
+        assert_eq!(
+            list_datapacks(&world.join("datapacks")),
+            vec!["CoolPack.zip".to_string()]
+        );
     }
 
-    #[test]
-    fn install_datapack_rejects_non_datapack() {
+    #[tokio::test]
+    async fn install_datapack_rejects_non_datapack() {
         let td = tempfile::tempdir().unwrap();
         let src = td.path().join("notapack.zip");
         std::fs::write(&src, zip(&[("readme.txt", b"x")])).unwrap();
-        let dir = td.path().join("world").join("datapacks");
-        assert!(install_datapack(&dir, &src).is_err());
-        assert!(!dir.join("notapack.zip").exists());
+        let world = td.path().join("world");
+        assert!(install_datapack(&world, &src).await.is_err());
+        assert!(!world.join("datapacks").join("notapack.zip").exists());
     }
 
-    #[test]
-    fn install_datapack_rejects_a_resource_pack_with_an_accurate_message() {
-        // Regression: this used to say "no pack.mcmeta at the zip root", which
-        // is false — a resource pack carries one too.
+    #[tokio::test]
+    async fn install_datapack_rejects_a_resource_pack_with_an_accurate_message() {
+        // Regression intent unchanged from the original: the rejection reason
+        // must accurately identify a resource pack, never the false "no
+        // pack.mcmeta at the zip root" the shipped code used to say (every
+        // resource pack carries one too). The MECHANISM changed: the new path
+        // returns a typed `Error::DatapackInvalid { reason }` whose
+        // `#[error(...)]` Display is deliberately generic
+        // ("{filename} is not a usable datapack") — see `DatapackRejection`'s
+        // own doc comment, the reason is typed specifically so the UI can
+        // localise it, and a hand-written English sentence baked into the
+        // Display would reach a Russian user untranslated. So the accuracy
+        // check now reads the TYPED reason rather than grepping the rendered
+        // string — matches every other typed-error assertion in this crate.
         let td = tempfile::tempdir().unwrap();
         let src = td.path().join("Faithful.zip");
         std::fs::write(
@@ -335,19 +312,27 @@ mod tests {
             ]),
         )
         .unwrap();
-        let dir = td.path().join("world").join("datapacks");
-        let msg = install_datapack(&dir, &src).unwrap_err().to_string();
-        assert!(msg.contains("resource pack"), "message was: {msg}");
-        assert!(!msg.contains("no pack.mcmeta"), "message was: {msg}");
+        let world = td.path().join("world");
+        let err = install_datapack(&world, &src).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::DatapackInvalid {
+                    reason: crate::error::DatapackRejection::IsAResourcePack,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
     }
 
-    #[test]
-    fn install_datapack_rejects_non_zip_extension() {
+    #[tokio::test]
+    async fn install_datapack_rejects_non_zip_extension() {
         let td = tempfile::tempdir().unwrap();
         let src = td.path().join("pack.jar");
         std::fs::write(&src, datapack_zip()).unwrap();
-        let dir = td.path().join("world").join("datapacks");
-        assert!(install_datapack(&dir, &src).is_err());
+        let world = td.path().join("world");
+        assert!(install_datapack(&world, &src).await.is_err());
     }
 
     #[test]

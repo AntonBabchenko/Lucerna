@@ -2,8 +2,9 @@
 
 use std::path::Path;
 
-use crate::datapacks::{level_dat, level_dat_entry};
-use crate::error::{Error, Result};
+use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance};
+use crate::error::{DatapackRejection, Error, Result};
+use crate::servers_runtime::installed::ServerInstalledRecord;
 
 use super::level_dat_lock;
 
@@ -83,6 +84,137 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     }
 
     super::sidecar::forget(world_dir, filename)
+}
+
+/// Place verified bytes into the world's `datapacks/` and record a sidecar
+/// row. `provenance: None` is a local install (file picker / drag-drop);
+/// `Some` is a catalog install.
+///
+/// The same-name conflict rule is slice 2's provenance table, with the server
+/// world dir as the analogue of the client library dir:
+///
+/// * local install — the admin picked this exact file under this exact name;
+///   never blocked (slice 1 pinned "reinstalling a newer zip refreshes", and a
+///   differing-bytes rule would break it);
+/// * catalog install onto a row from the SAME project — the update path; allow;
+/// * catalog install onto a local pack, a different project's pack, or a
+///   DIRECTORY (never provably ours) — two packs competing for one name;
+///   `ModsFilenameConflict`.
+///
+/// No `level.dat` write: a fresh pack lands present-and-unlisted, which the
+/// game auto-enables on boot — the honest server-side default, and exactly
+/// why `state::derive`'s `(true, _, false)` arm exists.
+pub async fn install_bytes(
+    world_dir: &Path,
+    filename: &str,
+    bytes: &[u8],
+    provenance: Option<&DatapackProvenance>,
+) -> Result<ServerInstalledRecord> {
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+    // Minecraft's pack scanner loads directories and `*.zip` only, and a
+    // non-zip name written here is worse than one that never loads: the
+    // sidecar reconcile adopts only `.zip`, so the row is dropped on the next
+    // listing while the file stays on disk — invisible and unremovable.
+    if !filename.to_ascii_lowercase().ends_with(".zip") {
+        return Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason: DatapackRejection::NotAZip,
+        });
+    }
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return Err(Error::DatapackTooLarge {
+            filename: filename.to_string(),
+            size_bytes: bytes.len() as f64,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+
+    // Classification and hashing each walk the whole archive; a catalog
+    // install is an automated path where a large pack would stall the async
+    // executor.
+    let owned = bytes.to_vec();
+    let name_for_join = filename.to_string();
+    let (kind, meta, sha1) = tokio::task::spawn_blocking(move || {
+        (
+            pack_meta::classify(&owned),
+            pack_meta::read_meta(&owned),
+            crate::datapacks::library::sha1_hex(&owned),
+        )
+    })
+    .await
+    .map_err(|e| Error::io(name_for_join, format!("join: {e}")))?;
+
+    if kind != pack_meta::PackKind::Datapack {
+        let reason = match kind {
+            pack_meta::PackKind::ResourcePack => DatapackRejection::IsAResourcePack,
+            pack_meta::PackKind::Neither => DatapackRejection::NotAPack,
+            // Unreachable: `kind` was computed once above and is not Datapack.
+            pack_meta::PackKind::Datapack => unreachable!("kind != Datapack was just checked"),
+        };
+        return Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason,
+        });
+    }
+
+    let dp_dir = world_dir.join("datapacks");
+    let dest = dp_dir.join(filename);
+    if !dest.starts_with(&dp_dir) {
+        return Err(Error::ServerFileInvalid {
+            filename: filename.to_string(),
+            reason: "path escapes the datapacks dir".into(),
+        });
+    }
+
+    if let Some(prov) = provenance {
+        if let Ok(meta_dest) = std::fs::metadata(&dest) {
+            let want = filename.to_lowercase();
+            let existing_row = super::sidecar::reconcile(world_dir)
+                .into_iter()
+                .find(|r| r.filename.to_lowercase() == want);
+            // A directory can never be proven ours — it has no file sha1, and
+            // placing bytes here would rename a zip over a whole pack folder.
+            let same_project = !meta_dest.is_dir()
+                && existing_row.as_ref().is_some_and(|row| {
+                    row.source == Some(prov.source)
+                        && row.project_id.as_deref() == Some(prov.project_id.as_str())
+                });
+            if !same_project {
+                return Err(Error::ModsFilenameConflict {
+                    filename: filename.to_string(),
+                    existing_sha: existing_row.map(|r| r.sha1).unwrap_or_default(),
+                    incoming_sha: sha1,
+                });
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&dp_dir).map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+    // Temp-then-rename: a bare `std::fs::write` here would leave a truncated
+    // pack on disk if the install were interrupted mid-write, and the server
+    // would refuse to load it.
+    crate::mods::store::place_bytes(&dest, bytes)
+        .await
+        .map_err(|e| Error::io(e.path.display().to_string(), e.details()))?;
+
+    let record = ServerInstalledRecord {
+        filename: filename.to_string(),
+        sha1,
+        source: provenance.map(|p| p.source),
+        project_id: provenance.map(|p| p.project_id.clone()),
+        version_id: provenance.map(|p| p.version_id.clone()),
+        name: meta
+            .description
+            .or_else(|| Some(filename.trim_end_matches(".zip").to_string())),
+        version_number: provenance.and_then(|p| p.version_number.clone()),
+        enrich_attempted: false,
+    };
+    super::sidecar::upsert_by_filename(world_dir, record.clone())?;
+    Ok(record)
 }
 
 #[cfg(test)]
@@ -316,5 +448,160 @@ mod tests {
         boot_world(td.path()).await;
         remove(td.path(), "p.zip").await.unwrap();
         remove(td.path(), "p.zip").await.unwrap();
+    }
+
+    fn prov(project: &str, version: &str) -> crate::datapacks::DatapackProvenance {
+        crate::datapacks::DatapackProvenance {
+            source: crate::mods::platform::ModSource::Modrinth,
+            project_id: project.into(),
+            version_id: version.into(),
+            version_number: Some(format!("{version}.0")),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_catalog_install_records_full_provenance() {
+        // The slice-2 lesson: `classify_asset_update` answers UpToDate forever
+        // when version_id is None, so an install that drops provenance makes
+        // update checking permanently inert.
+        let td = world(&[]);
+        install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"v1"),
+            Some(&prov("terralith", "v1")),
+        )
+        .await
+        .unwrap();
+        let rows = crate::servers_runtime::installed::load(td.path());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].version_id.as_deref(), Some("v1"));
+        assert_eq!(rows[0].project_id.as_deref(), Some("terralith"));
+    }
+
+    #[tokio::test]
+    async fn a_local_install_records_a_provenance_less_row() {
+        let td = world(&[]);
+        install_bytes(td.path(), "hand.zip", &datapack_zip(b"x"), None)
+            .await
+            .unwrap();
+        let rows = crate::servers_runtime::installed::load(td.path());
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].source.is_none() && rows[0].sha1.len() == 40);
+    }
+
+    #[tokio::test]
+    async fn a_catalog_install_will_not_clobber_a_hand_installed_pack_of_the_same_name() {
+        let td = world(&[]);
+        install_bytes(td.path(), "t.zip", &datapack_zip(b"mine"), None)
+            .await
+            .unwrap();
+        let err = install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"theirs"),
+            Some(&prov("terralith", "v1")),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap(),
+            datapack_zip(b"mine"),
+            "the user's pack must be untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_catalog_install_onto_the_same_project_is_the_update_path_and_is_allowed() {
+        let td = world(&[]);
+        install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"v1"),
+            Some(&prov("terralith", "v1")),
+        )
+        .await
+        .unwrap();
+        install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"v2"),
+            Some(&prov("terralith", "v2")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap(),
+            datapack_zip(b"v2")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_local_install_over_an_existing_name_is_never_blocked() {
+        // Slice 1 pinned this deliberately: reinstalling a newer zip by hand is
+        // the ordinary workflow, and the conflict rule keys on PROVENANCE, not
+        // on differing bytes.
+        let td = world(&[]);
+        install_bytes(td.path(), "t.zip", &datapack_zip(b"v1"), None)
+            .await
+            .unwrap();
+        install_bytes(td.path(), "t.zip", &datapack_zip(b"v2"), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap(),
+            datapack_zip(b"v2")
+        );
+    }
+
+    #[tokio::test]
+    async fn installing_over_a_folder_of_the_same_name_is_always_a_conflict() {
+        let td = world(&[]);
+        std::fs::create_dir_all(td.path().join("datapacks").join("t.zip")).unwrap();
+        let err = install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"x"),
+            Some(&prov("p", "v1")),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_rejects_a_resource_pack_and_a_non_zip_name() {
+        let td = world(&[]);
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":34}}"#).unwrap();
+        zw.start_file("assets/minecraft/textures/x.png", opts)
+            .unwrap();
+        zw.write_all(b"\x89PNG").unwrap();
+        let rp = zw.finish().unwrap().into_inner();
+
+        assert!(install_bytes(td.path(), "rp.zip", &rp, None).await.is_err());
+        assert!(install_bytes(td.path(), "p.jar", &datapack_zip(b"x"), None)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn install_writes_no_level_dat_so_a_fresh_pack_reads_as_enabled() {
+        let td = world(&[]);
+        install_bytes(td.path(), "p.zip", &datapack_zip(b"x"), None)
+            .await
+            .unwrap();
+        assert!(!td.path().join("level.dat").exists());
+        assert_eq!(state_of(td.path(), "p.zip"), Some(WorldPackState::Enabled));
     }
 }
