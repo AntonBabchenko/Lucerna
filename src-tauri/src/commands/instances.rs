@@ -244,6 +244,23 @@ pub fn instance_supports_datapacks(
     ))
 }
 
+/// Whether a Minecraft version can load data packs at all (they arrived in
+/// 1.13). `true` for an empty or unparseable version — uncertainty must not
+/// hide the feature.
+///
+/// Version-keyed rather than id-keyed, unlike its instance twin above. That
+/// one reads `instance.json` because the Manage modal changes an instance's
+/// Minecraft IN PLACE, so a list row can be stale. A server has no such flow —
+/// `mc_version` is written at create/import and no command edits it — and
+/// `ServerWithStatus.mc_version` is already on the object the caller holds. So
+/// this takes the string, needs no `AppHandle` and no file read, and its
+/// answer caches under one key for every server on that version.
+#[tauri::command]
+#[specta::specta]
+pub fn mc_version_supports_datapacks(mc_version: String) -> bool {
+    crate::datapacks::compat::supports_datapacks(&mc_version)
+}
+
 /// All instances on disk with precomputed `ready` status. Sorted
 /// oldest-first by `created_unix_ms`.
 #[tauri::command]

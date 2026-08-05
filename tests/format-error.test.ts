@@ -424,6 +424,7 @@ describe('formatError', () => {
       },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
+      server_world_not_created: { kind: 'server_world_not_created' },
       server_upload_in_progress: { kind: 'server_upload_in_progress', id: 'srv-1' },
       upload_cancelled: { kind: 'upload_cancelled' },
       server_not_running: { kind: 'server_not_running', id: 'srv-1' },

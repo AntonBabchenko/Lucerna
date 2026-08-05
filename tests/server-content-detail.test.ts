@@ -111,7 +111,13 @@ describe('ServerContentDetail', () => {
       const installButtons = screen.getAllByRole('button', { name: 'Install' });
       expect(installButtons).toHaveLength(2);
       await fireEvent.click(installButtons[1]);
-      await waitFor(() => expect(props.installVersion).toHaveBeenCalledWith('v8'));
+      // installVersion receives the whole chosen version object, not just its
+      // id — the datapack browser's install command needs the full
+      // ModVersion, and handing back the id alone forced a by-id cache with
+      // no request-sequencing guard (see ServerContentDetail's prop doc).
+      await waitFor(() =>
+        expect(props.installVersion).toHaveBeenCalledWith(version('v8', '7.1.0')),
+      );
       await waitFor(() =>
         expect(props.onInstalled).toHaveBeenCalledWith(
           { installed: ['worldedit.jar'], unresolved: [] },

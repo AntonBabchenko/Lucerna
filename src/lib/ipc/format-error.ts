@@ -179,6 +179,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_file_invalid: 'clean',
   server_core_unsupported: 'clean',
   server_content_stale: 'clean',
+  server_world_not_created: 'clean',
   server_name_invalid: 'clean',
   upload_not_configured: 'clean',
   sftp_auth_failed: 'clean',
@@ -645,6 +646,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverCoreUnsupported', { reason: e.reason });
     case 'server_content_stale':
       return translate('errors.serverContentStale');
+    case 'server_world_not_created':
+      return translate('errors.serverWorldNotCreated');
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':

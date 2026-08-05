@@ -68,6 +68,8 @@ mod desktop;
 pub use desktop::*;
 mod datapacks;
 pub use datapacks::*;
+mod server_datapacks;
+pub use server_datapacks::*;
 mod l10n;
 pub use l10n::*;
 

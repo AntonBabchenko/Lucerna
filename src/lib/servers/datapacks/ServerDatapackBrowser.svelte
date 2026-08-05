@@ -3,12 +3,11 @@
     commands,
     type InstalledMod,
     type InstallMissingReport,
-    type LoaderKind,
     type ModSort,
     type ModSource,
     type ModSummary,
     type ModVersion,
-    type ServerModEntryEnriched,
+    type ServerDatapackEntry,
   } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
@@ -26,23 +25,39 @@
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
-  import { displayCore } from '$lib/servers/core-display';
 
-  // A lighter, server-targeted mod browser (S2 #3). Deliberately NOT a retrofit
-  // of the instance ModBrowseView — that component is deeply instance-coupled
-  // (registry-aware "installed" marks, dependency dialog, preflight, asset
-  // install, compat/orphan flows). This reuses only the target-agnostic low-level
-  // pieces (modsSearch / modsVersions / ModResultsGrid / ModCard) and drives a
-  // server-targeted install (serverInstallMod). Mods only — no RP/shaders, no
-  // loader/MC facets (the server's are fixed). Auto-picks the newest compatible
-  // version; dependency resolution happens in the backend kernel.
+  // A datapack-targeted server catalog browser (Task 12). Copied from
+  // ServerModBrowser and keeps its machinery — pagination, the reqSeq
+  // out-of-order guard, needsCfKey handling, the results grid, the detail
+  // modal, the source-picker plumbing — diverging only where a datapack
+  // genuinely differs from a mod:
+  //   - no loader prop/facet: a datapack has no loader.
+  //   - version listing is modsDatapackVersions, never modsVersions — a
+  //     hybrid project (mod jar + datapack zip under one listing, e.g.
+  //     Terralith) would otherwise return the jar.
+  //   - install is serverInstallDatapackVersion, which differs from
+  //     serverInstallMod/serverInstallPlugin in BOTH directions: it takes the
+  //     full ModVersion (not just a version id) and returns a
+  //     ServerInstalledRecord (not an InstallMissingReport). ServerContentDetail's
+  //     installVersion prop hands back the full chosen ModVersion for exactly
+  //     this reason, so this component's adapter (installDetailVersion) has
+  //     the object in hand with no by-id cache to keep in sync. A datapack
+  //     install has no dependency graph, so `reportOf` below's
+  //     { installed: [filename], unresolved: [] } is a truthful — not fudged
+  //     — InstallMissingReport.
+  //   - the installed badge stays the ordinary "Installed" (never "In
+  //     library"): that client-only wording exists because a library pack is
+  //     inert until placed in a world, but a server has one world and a
+  //     present-and-unlisted pack auto-enables — it IS live. ModCard already
+  //     renders the ordinary badge as long as this component doesn't reach for
+  //     the client's installedLabelFor override, so there is nothing extra to
+  //     do here.
 
   let {
     serverId,
     mcVersion,
-    loader,
     onInstalled,
-    // Bindable so an Add-ons host can own the source picker in its sub-tab
+    // Bindable so the Add-ons host can own the source picker in its sub-tab
     // row (showSourcePicker={false}) while legacy embedders keep the inline
     // picker with the local default.
     source = $bindable<ModSource>('modrinth'),
@@ -50,7 +65,6 @@
   }: {
     serverId: string;
     mcVersion: string;
-    loader: LoaderKind;
     onInstalled: () => void;
     source?: ModSource;
     showSourcePicker?: boolean;
@@ -70,7 +84,7 @@
   // The project whose in-launcher detail card is open (null = closed).
   let detail = $state<ModSummary | null>(null);
   // Client parity (ModBrowseView): default shows installed cards (with their
-  // "Installed" badge); unchecking hides them so only not-yet-installed mods
+  // "Installed" badge); unchecking hides them so only not-yet-installed packs
   // remain on the current page. Pure client-side filter — no refetch.
   let showInstalled = $state(true);
 
@@ -96,10 +110,10 @@
     error = null;
     const result = await commands.modsSearch({
       source,
-      kind: 'mod',
+      kind: 'datapack',
       query,
       mc_version: mcVersion,
-      loader,
+      loader: null,
       sort,
       page_size: pageSize,
       offset: page * pageSize,
@@ -164,9 +178,19 @@
     void reload();
   }
 
-  // Shared success/dependency/unresolved toast block. Both the card-install
-  // (install newest) and the detail-modal install (install chosen version)
-  // land here, so the toast copy lives in exactly one place (DRY).
+  // A datapack install has no dependency graph — there is nothing to resolve
+  // — so `unresolved: []` is a fact about the install, not a stub standing in
+  // for a report this command doesn't actually produce. Centralised so the
+  // two install paths below (browse-card install and the detail-modal
+  // adapter) build the same honest shape instead of each spelling it out.
+  function reportOf(filename: string): InstallMissingReport {
+    return { installed: [filename], unresolved: [] };
+  }
+
+  // Shared success/dependency/unresolved toast block, mirroring ServerModBrowser.
+  // A datapack install carries no dependency graph, so `report.unresolved` is
+  // always empty in practice — the block is kept as-is so both callers stay
+  // structurally identical.
   function toastInstalled(name: string, report: InstallMissingReport): void {
     const depCount = Math.max(0, report.installed.length - 1);
     const msg =
@@ -186,7 +210,7 @@
     installing.add(card.project_id);
     error = null;
     try {
-      const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, loader);
+      const versions = await commands.modsDatapackVersions(card.source, card.project_id, mcVersion);
       if (versions.status !== 'ok') {
         error = formatError(versions.error);
         return;
@@ -195,7 +219,8 @@
         pushWarning(get(t)('servers.mods.noCompatibleVersion', { name: card.name }));
         return;
       }
-      // modsVersions returns newest-first (same assumption the dep resolver uses).
+      // modsDatapackVersions returns newest-first (same assumption modsVersions'
+      // callers make).
       const newest = versions.data[0];
       if (!newest.primary_file.distribution_allowed) {
         // CurseForge "author disabled third-party downloads": never fetched
@@ -204,14 +229,9 @@
         pushWarning(get(t)('servers.mods.externalDownload', { name: card.name }));
         return;
       }
-      const res = await commands.serverInstallMod(
-        serverId,
-        card.source,
-        card.project_id,
-        newest.version_id,
-      );
+      const res = await commands.serverInstallDatapackVersion(serverId, newest);
       if (res.status === 'ok') {
-        toastInstalled(card.name, res.data);
+        toastInstalled(card.name, reportOf(res.data.filename));
         // Flip the just-installed card to its "Installed" state immediately.
         await loadInstalled();
       } else {
@@ -225,17 +245,24 @@
   // ── Installed-state parity (client ModBrowseView) ──────────────────────────
   // Map of installed identities for the mounted server, keyed
   // `${source}:${project_id}`, so a browse card renders the "Installed" state
-  // (toggle + uninstall) instead of a re-installable button — this is what stops
-  // the same mod being installed over and over (toast spam). Reassigned
+  // (toggle + uninstall) instead of a re-installable button. Reassigned
   // immutably (new Map) after every mutation; ModResultsGrid calls
   // installedFor(hit) in its render, so swapping the map re-renders the cards.
-  let installedByKey = $state(new Map<string, ServerModEntryEnriched>());
+  let installedByKey = $state(new Map<string, ServerDatapackEntry>());
 
   async function loadInstalled(): Promise<void> {
-    const res = await commands.serverListModsEnriched(serverId);
+    const res = await commands.serverListDatapacks(serverId);
     if (res.status !== 'ok') return; // best-effort; leave the map as-is
-    const m = new Map<string, ServerModEntryEnriched>();
-    for (const e of res.data) if (e.source && e.project_id) m.set(`${e.source}:${e.project_id}`, e);
+    const m = new Map<string, ServerDatapackEntry>();
+    for (const e of res.data) {
+      // A ghost (level.dat names it, the file is gone) is not installed — the
+      // installed pane deliberately offers it no toggle either. Rendering it
+      // as "Installed" here would draw a live enable/disable control that,
+      // on click, flips a level.dat entry for a file that does not exist.
+      if (e.present && e.record.source && e.record.project_id) {
+        m.set(`${e.record.source}:${e.record.project_id}`, e);
+      }
+    }
     installedByKey = m;
   }
 
@@ -249,15 +276,15 @@
     const e = installedByKey.get(`${card.source}:${card.project_id}`);
     if (!e) return null;
     return {
-      filename: e.filename,
-      sha1: e.sha1,
-      source: e.source,
-      project_id: e.project_id,
-      version_id: e.version_id,
-      name: e.name ?? card.name,
-      version_number: e.version_number,
+      filename: e.record.filename,
+      sha1: e.record.sha1,
+      source: e.record.source,
+      project_id: e.record.project_id,
+      version_id: e.record.version_id,
+      name: e.record.name ?? card.name,
+      version_number: e.record.version_number,
       installed_at: '',
-      enabled: !e.disabled,
+      enabled: e.state === 'enabled',
       requires: [],
       enrich_attempted: false,
     };
@@ -270,16 +297,17 @@
   // `hits` so a fully-installed page renders an empty grid, not "no results".
   const visibleHits = $derived(showInstalled ? hits : hits.filter((h) => installedFor(h) === null));
 
-  // Enable/disable an installed browse card. Mutations join on_disk_filename
-  // (base filename + `.disabled` when disabled), never the base filename.
-  // Backend refuses while the server runs (surfaces via `error`), consistent
-  // with how install already behaves on this tab — no extra gating needed.
+  // Enable/disable an installed browse card. Backend refuses while the server
+  // runs (surfaces via `error`), consistent with install already behaving that
+  // way on this tab — no extra gating needed.
   async function toggleInstalled(card: ModSummary): Promise<void> {
     const e = installedByKey.get(`${card.source}:${card.project_id}`);
     if (!e) return;
-    const res = e.disabled
-      ? await commands.serverEnableMod(serverId, e.on_disk_filename)
-      : await commands.serverDisableMod(serverId, e.on_disk_filename);
+    const res = await commands.serverSetDatapackEnabled(
+      serverId,
+      e.record.filename,
+      e.state !== 'enabled',
+    );
     if (res.status === 'ok') {
       await loadInstalled();
       onInstalled();
@@ -291,7 +319,7 @@
   async function uninstallInstalled(card: ModSummary): Promise<void> {
     const e = installedByKey.get(`${card.source}:${card.project_id}`);
     if (!e) return;
-    const res = await commands.serverDeleteMod(serverId, e.on_disk_filename);
+    const res = await commands.serverRemoveDatapack(serverId, e.record.filename);
     if (res.status === 'ok') {
       await loadInstalled();
       onInstalled();
@@ -314,10 +342,41 @@
     if (v.primary_file.distribution_allowed) return null;
     return modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
   }
+
+  // ── Detail-modal install adapter ────────────────────────────────────────
+  // See the top-of-file note: serverInstallDatapackVersion needs the full
+  // ModVersion and returns a ServerInstalledRecord, neither of which matches
+  // ServerContentDetail's mod/plugin-shaped installVersion/loadVersions props.
+  // These two local types mirror ServerContentDetail's own (private) aliases
+  // so the adapter functions below type-check against the same envelope shape
+  // without exporting anything from that shared component.
+  //
+  // installVersion now hands back the whole chosen ModVersion (widened on
+  // ServerContentDetail itself), so there is no by-id cache to keep in sync
+  // here — that cache used to have no request-sequencing guard: open project
+  // A (slow), close, open project B (fast), then A's response would land and
+  // overwrite the cache, and a valid install on B would miss the lookup and
+  // fail with a spurious error.
+  type VersionsResult = Awaited<ReturnType<typeof commands.modsVersions>>;
+  type InstallResult = Awaited<ReturnType<typeof commands.serverInstallMod>>;
+
+  async function loadDetailVersions(
+    projectSource: ModSource,
+    projectId: string,
+  ): Promise<VersionsResult> {
+    return commands.modsDatapackVersions(projectSource, projectId, mcVersion);
+  }
+
+  async function installDetailVersion(v: ModVersion): Promise<InstallResult> {
+    const res = await commands.serverInstallDatapackVersion(serverId, v);
+    if (res.status === 'error') return res;
+    return { status: 'ok', data: reportOf(res.data.filename) };
+  }
 </script>
 
-<div class="flex flex-col gap-2" data-testid="server-mod-browser">
-  <!-- Toolbar: source + search + pinned facets + sort + layout -->
+<div class="flex flex-col gap-2" data-testid="server-datapack-browser">
+  <!-- Toolbar: source + search + pinned facets (Minecraft version only — a
+       datapack has no loader) + sort + layout -->
   <div class="flex items-center gap-2">
     {#if showSourcePicker}
       <SourcePicker value={source} onChange={(v) => (source = v)} />
@@ -328,10 +387,10 @@
       placeholder={$t('servers.mods.searchPlaceholder')}
       aria-label={$t('servers.mods.searchPlaceholder')}
       bind:value={query}
-      data-testid="server-mod-search"
+      data-testid="server-datapack-search"
     />
     <span class="text-xs text-muted whitespace-nowrap"
-      >{$t('servers.addons.pinnedFacets', { core: displayCore(loader), mcVersion })}</span
+      >{$t('servers.datapacks.pinnedFacets', { mcVersion })}</span
     >
     <Select
       class="filter-control filter-control-select"
@@ -339,14 +398,14 @@
       options={sortOptions}
       onChange={(v) => (sort = v as ModSort)}
       ariaLabel={$t('browse.filter.sortLabel')}
-      dataTestid="server-mod-sort"
+      dataTestid="server-datapack-sort"
     />
     <label class="flex shrink-0 items-center gap-1.5 text-xs text-secondary whitespace-nowrap">
       <input
         type="checkbox"
         class="accent-accent"
         bind:checked={showInstalled}
-        data-testid="server-mod-show-installed"
+        data-testid="server-datapack-show-installed"
       />
       {$t('browse.filter.showInstalled')}
     </label>
@@ -366,7 +425,7 @@
       hits={visibleHits}
       layout={browserPrefs.layout}
       isMod={true}
-      placeholderIcon="puzzle"
+      placeholderIcon="world"
       {installedFor}
       isCardBusy={(id) => installing.has(id)}
       onInstall={(h) => void install(h)}
@@ -386,9 +445,8 @@
     project={d}
     onClose={() => (detail = null)}
     loadProject={() => commands.modsProject(d.source, d.project_id)}
-    loadVersions={() => commands.modsVersions(d.source, d.project_id, mcVersion, loader)}
-    installVersion={(v) =>
-      commands.serverInstallMod(serverId, d.source, d.project_id, v.version_id)}
+    loadVersions={() => loadDetailVersions(d.source, d.project_id)}
+    installVersion={installDetailVersion}
     externalOf={(v) => externalOf(d, v)}
     openExternal={openUrl}
     projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}

@@ -97,6 +97,19 @@ pub fn is_running(id: &str) -> bool {
         .contains_key(id)
 }
 
+/// True while `start` holds the start claim for this server but its process
+/// is not yet in the live map — the window `is_running` cannot see, which
+/// spans Java resolution and a possible JRE download.
+///
+/// Takes only `starting()`, so it cannot violate the module's
+/// state-then-starting lock order.
+pub fn is_starting(id: &str) -> bool {
+    starting()
+        .lock()
+        .expect("server starting set poisoned")
+        .contains(id)
+}
+
 /// In-process subscribers to a server's console output, keyed by server id.
 /// `spawn_pump` forwards every line here in addition to the `ServerLogLine`
 /// UI event, so backend code can await a specific console response — e.g. the
@@ -322,6 +335,17 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     let _claim = claim_start(server_id).ok_or_else(|| Error::ServerAlreadyRunning {
         id: server_id.to_string(),
     })?;
+
+    // Dekker pairing with `datapacks::guard::UpdateGuard`: the update sets its
+    // own flag BEFORE testing ours, and we test its flag AFTER claiming ours,
+    // so no interleaving lets both sides through. Without this, a start that
+    // began during a download would find `update_in_progress` false on the way
+    // in and hand the JVM a world whose level.dat is mid-rewrite.
+    if crate::servers_runtime::datapacks::guard::update_in_progress(server_id) {
+        return Err(Error::ServerAlreadyRunning {
+            id: server_id.to_string(),
+        });
+    }
 
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, server_id);

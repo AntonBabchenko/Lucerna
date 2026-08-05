@@ -325,6 +325,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
+            commands::server_set_datapack_enabled,
+            commands::server_install_datapack_version,
+            commands::server_check_datapack_updates,
+            commands::server_update_datapack_one,
+            commands::mc_version_supports_datapacks,
             // Own server (plugin management: Paper/Purpur runtime/plugins/):
             commands::server_list_plugins,
             commands::server_list_plugins_enriched,

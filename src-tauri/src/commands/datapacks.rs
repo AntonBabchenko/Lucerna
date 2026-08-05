@@ -171,7 +171,7 @@ pub async fn datapacks_remove_from_world(
 /// before it, every pack came from a file the user picked themselves, which
 /// is why the cap sits here at the entry rather than only inside
 /// `install_named_at`.
-async fn fetch_datapack_bytes(
+pub(super) async fn fetch_datapack_bytes(
     data_dir: &std::path::Path,
     version: &crate::mods::platform::ModVersion,
 ) -> Result<Vec<u8>, crate::error::Error> {
@@ -217,7 +217,7 @@ async fn fetch_datapack_bytes(
 /// Extract the provenance a catalog version carries. Recording it is what
 /// makes update checking live: `classify_asset_update` answers `UpToDate`
 /// forever when `version_id` is `None`.
-fn provenance_of(
+pub(super) fn datapack_provenance_of(
     version: &crate::mods::platform::ModVersion,
 ) -> crate::datapacks::DatapackProvenance {
     crate::datapacks::DatapackProvenance {
@@ -248,7 +248,7 @@ pub async fn datapacks_install_from_version(
         &root,
         &version.primary_file.filename,
         &bytes,
-        Some(&provenance_of(&version)),
+        Some(&datapack_provenance_of(&version)),
     )
     .await
 }
@@ -332,7 +332,7 @@ pub async fn datapacks_update_one(
             &old_filename,
             &target.primary_file.filename,
             &bytes,
-            &provenance_of(&target),
+            &datapack_provenance_of(&target),
         )
         .await
     })

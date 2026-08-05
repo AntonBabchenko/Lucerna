@@ -2131,6 +2131,7 @@
     "serverFileInvalid": "Server file {filename} was rejected: {reason}",
     "serverCoreUnsupported": "Not supported by this server core: {reason}",
     "serverContentStale": "The installed list changed — refresh and try again",
+    "serverWorldNotCreated": "This server's world doesn't exist yet. Start the server once so Minecraft creates it, then you can enable or disable data packs.",
     "serverNameInvalid": "That server name can't be used — it may be empty, too long, or already taken.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host",
@@ -2745,7 +2746,20 @@
       "kindDatapacks": "Datapacks",
       "pinnedFacets": "For {core} {mcVersion}",
       "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
-      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file"
+      "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file",
+      "noKinds": "This server's Minecraft is older than 1.13, and its core takes neither mods nor plugins — there is nothing Lucerna can add on here."
+    },
+    "datapacks": {
+      "stateGhost": "Listed in the world, but the file is gone",
+      "enable": "Enable",
+      "disable": "Disable",
+      "checkUpdates": "Check for updates",
+      "note": "Data packs are enabled and disabled in the world itself, so this list matches what /datapack list shows in game.",
+      "empty": "No data packs in this server's world yet.",
+      "remove": "Remove data pack",
+      "removeConfirm": "Remove {name} from this server's world?",
+      "removeGhostConfirm": "The world still lists {name}, but its file is gone. Clear the entry?",
+      "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {
       "launchSection": "Launch"
