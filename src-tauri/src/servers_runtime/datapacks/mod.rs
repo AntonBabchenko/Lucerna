@@ -47,9 +47,13 @@ pub fn level_name(props_raw: &str) -> String {
 /// `runtime/<level>/` for a server — the world dir, and therefore the dir
 /// holding `level.dat` and the datapack provenance sidecar.
 ///
-/// Same traversal guard as [`datapacks_dir`]: `level-name` comes from a file
-/// the server process (or an import) wrote, so a crafted `../../escape` must
-/// not let `Path::join` walk out of the runtime dir.
+/// `level-name` comes from a file the server process (or an import) wrote, so
+/// it is not trusted: a crafted `../../escape` would let `Path::join` walk out
+/// of the runtime dir. Guard it as a single path segment, falling back to the
+/// vanilla default `world` when it is not one.
+///
+/// This is where that guard lives — [`datapacks_dir`] delegates here, so the
+/// two can never disagree about which world they mean.
 pub fn world_dir(runtime: &Path, props_raw: &str) -> PathBuf {
     let name = level_name(props_raw);
     let safe = if crate::servers_runtime::runtime::is_safe_mod_name(&name) {
@@ -61,13 +65,8 @@ pub fn world_dir(runtime: &Path, props_raw: &str) -> PathBuf {
 }
 
 /// `runtime/<level>/datapacks/` for a server, given its `runtime/` dir and the
-/// raw `server.properties` (to honour a custom `level-name`).
-///
-/// `level-name` is written by the server process / carried in from an imported
-/// `server.properties`, so it is not fully trusted: a crafted value like
-/// `../../escape` would let `Path::join` walk outside the server's runtime dir.
-/// Guard it as a single path segment, falling back to the vanilla default
-/// `world` when it isn't.
+/// raw `server.properties` (to honour a custom `level-name`). The traversal
+/// guard lives in [`world_dir`], which this delegates to.
 pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
     world_dir(runtime, props_raw).join("datapacks")
 }
