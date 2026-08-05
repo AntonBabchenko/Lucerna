@@ -76,6 +76,66 @@ impl VtClient {
             message: format!("the pack list was not the expected JSON: {e}"),
         })
     }
+
+    /// Ask VT to build a bundle for `selection` and return the absolute URL
+    /// of the zip it produced. `selection` is `(category, [pack name])` — the
+    /// endpoint is keyed by category, which is why a pack's identity in our
+    /// registry has to carry its category too.
+    pub async fn build_link(
+        &self,
+        family: &str,
+        selection: &[(String, Vec<String>)],
+    ) -> Result<String> {
+        // BTreeMap so the encoded body is deterministic — a stable body makes
+        // the request diffable in a log and the test's matcher meaningful.
+        let by_category: std::collections::BTreeMap<&str, &Vec<String>> = selection
+            .iter()
+            .map(|(cat, names)| (cat.as_str(), names))
+            .collect();
+        let packs_json =
+            serde_json::to_string(&by_category).map_err(|e| Error::VanillaTweaksBuildFailed {
+                message: format!("could not encode the selection: {e}"),
+            })?;
+        let body = format!(
+            "packs={}&version={}",
+            urlencoding::encode(&packs_json),
+            urlencoding::encode(family)
+        );
+        let url = format!("{}/assets/server/zipdatapacks.php", self.base);
+        let res = crate::network::request::post(
+            &url,
+            &[("content-type", "application/x-www-form-urlencoded")],
+            body.as_bytes(),
+            "vt-build",
+        )
+        .await?;
+        if !(200..300).contains(&res.status) {
+            return Err(Error::VanillaTweaksBuildFailed {
+                message: format!("the build request failed with HTTP {}", res.status),
+            });
+        }
+
+        #[derive(Deserialize)]
+        struct BuildResponse {
+            #[serde(default)]
+            status: String,
+            #[serde(default)]
+            link: String,
+            #[serde(default)]
+            message: String,
+        }
+
+        let parsed: BuildResponse =
+            serde_json::from_slice(&res.body).map_err(|e| Error::VanillaTweaksBuildFailed {
+                message: format!("the build response was not the expected JSON: {e}"),
+            })?;
+        if parsed.status != "success" {
+            return Err(Error::VanillaTweaksBuildFailed {
+                message: parsed.message,
+            });
+        }
+        Ok(format!("{}{}", self.base, parsed.link))
+    }
 }
 
 impl Default for VtClient {
@@ -87,7 +147,7 @@ impl Default for VtClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const SAMPLE: &str = r#"{
@@ -145,5 +205,57 @@ mod tests {
             matches!(err, Error::VanillaTweaksUnavailable { .. }),
             "expected VanillaTweaksUnavailable, got {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn build_posts_packs_grouped_by_category_and_returns_an_absolute_link() {
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/assets/server/zipdatapacks.php"))
+            .and(body_string_contains("version=1.21"))
+            // The selection is a JSON object keyed by category. Pack names
+            // carry spaces, so the encoding of the space is load-bearing.
+            .and(body_string_contains("survival"))
+            .and(body_string_contains("armor%20statues"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"status":"success","link":"/assets/dl/1234/datapacks.zip","message":""}"#,
+            ))
+            .mount(&s)
+            .await;
+
+        let c = VtClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let link = c
+            .build_link(
+                "1.21",
+                &[("survival".into(), vec!["armor statues".into()])],
+            )
+            .await
+            .unwrap();
+        assert_eq!(link, format!("{}/assets/dl/1234/datapacks.zip", s.uri()));
+    }
+
+    #[tokio::test]
+    async fn a_refused_build_carries_the_servers_own_message() {
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/assets/server/zipdatapacks.php"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"status":"error","link":"","message":"no packs selected"}"#,
+            ))
+            .mount(&s)
+            .await;
+
+        let c = VtClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let err = c.build_link("1.21", &[]).await.unwrap_err();
+        match err {
+            Error::VanillaTweaksBuildFailed { message } => {
+                assert_eq!(message, "no packs selected");
+            }
+            other => panic!("expected VanillaTweaksBuildFailed, got {other:?}"),
+        }
     }
 }
