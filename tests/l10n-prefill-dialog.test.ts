@@ -103,7 +103,9 @@ function summary(over: Partial<RunSummary> = {}): RunSummary {
     completionTokens: 800,
     usageKnown: true,
     packRebuilt: true,
+    packActivated: true,
     packRebuildError: null,
+    unusableBatches: 0,
     failed: null,
     ...over,
   };
@@ -237,6 +239,34 @@ describe('PrefillDialog', () => {
       expect(el.textContent).toContain('3');
       expect(el.textContent).toContain('10');
     });
+  });
+
+  it('says so when batches came back unreadable and were skipped', async () => {
+    // Losing a batch instead of the whole run is only acceptable BECAUSE it
+    // is reported; otherwise coverage just refuses to move with no reason.
+    vi.mocked(commands.l10nPrefillEstimate).mockResolvedValue(ok(estimate()));
+    vi.mocked(commands.l10nPrefillStart).mockResolvedValue(ok(summary({ unusableBatches: 3 })));
+    render(PrefillDialog, { props: dialogProps() });
+
+    await screen.findByTestId('l10n-prefill-estimate');
+    await fireEvent.click(screen.getByTestId('l10n-prefill-start'));
+
+    await screen.findByTestId('l10n-prefill-summary');
+    expect(screen.getByTestId('l10n-prefill-unusable').textContent).toContain('3');
+  });
+
+  it('says so when the pack was built but is not switched on', async () => {
+    vi.mocked(commands.l10nPrefillEstimate).mockResolvedValue(ok(estimate()));
+    vi.mocked(commands.l10nPrefillStart).mockResolvedValue(
+      ok(summary({ packRebuilt: true, packActivated: false })),
+    );
+    render(PrefillDialog, { props: dialogProps() });
+
+    await screen.findByTestId('l10n-prefill-estimate');
+    await fireEvent.click(screen.getByTestId('l10n-prefill-start'));
+
+    await screen.findByTestId('l10n-prefill-summary');
+    expect(screen.getByTestId('l10n-prefill-pack-not-on')).toBeTruthy();
   });
 
   it('reports written, cached and rejected counts in the summary', async () => {

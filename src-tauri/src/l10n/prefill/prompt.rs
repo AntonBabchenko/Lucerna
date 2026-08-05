@@ -95,10 +95,48 @@ pub fn parse_response(raw: &str) -> Result<BTreeMap<String, String>, String> {
         .collect())
 }
 
-/// The substring from the first `{` to its matching `}`, ignoring braces
-/// inside JSON strings. Enough to survive fences and chatty preambles.
+/// The model's answer object: the first balanced `{…}` that actually carries a
+/// `translations` field, falling back to the first balanced object.
+///
+/// Taking the first object blindly is not enough. A preamble can itself contain
+/// a balanced object — "Here is my plan: {…}" followed by the real answer — and
+/// the caller then reports `response has no 'translations' field` for an answer
+/// that has one a few bytes further on. Sibling objects are therefore walked in
+/// order, skipping past each one already consumed, so the scan stays linear.
+///
+/// The fallback preserves the old behaviour for an answer that carries no
+/// `translations` anywhere: the same slice reaches the caller and produces the
+/// same message, so a genuinely malformed answer is reported exactly as before.
 fn extract_json_object(raw: &str) -> Option<&str> {
-    let start = raw.find('{')?;
+    let mut first: Option<&str> = None;
+    let mut from = 0usize;
+    while let Some(rel) = raw[from..].find('{') {
+        let start = from + rel;
+        let Some(object) = balanced_object_at(raw, start) else {
+            // No matching `}` from here, so there is none from any later `{`
+            // inside this tail either.
+            break;
+        };
+        if carries_translations(object) {
+            return Some(object);
+        }
+        first.get_or_insert(object);
+        from = start + object.len();
+    }
+    first
+}
+
+/// Whether `slice` parses and has a top-level `translations` field. Only the
+/// top level: `parse_response` reads no deeper, so looking deeper here would
+/// hand it a slice it then rejects.
+fn carries_translations(slice: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(slice)
+        .is_ok_and(|value| value.get("translations").is_some())
+}
+
+/// The substring from the `{` at `start` to its matching `}`, ignoring braces
+/// inside JSON strings.
+fn balanced_object_at(raw: &str, start: usize) -> Option<&str> {
     let bytes = raw.as_bytes();
     let mut depth = 0usize;
     let mut in_string = false;
@@ -119,8 +157,8 @@ fn extract_json_object(raw: &str) -> Option<&str> {
             b'"' => in_string = true,
             b'{' => depth += 1,
             b'}' => {
-                // Cannot underflow: the scan starts at the first `{`, so the
-                // very first byte matched raises depth to 1, and reaching 0
+                // Cannot underflow: the scan starts at a `{`, so the very
+                // first byte matched raises depth to 1, and reaching 0
                 // returns immediately.
                 depth -= 1;
                 if depth == 0 {
@@ -148,6 +186,26 @@ mod tests {
             .expect("well-formed response parses");
         assert_eq!(out.get("s0").map(String::as_str), Some("Альфа"));
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn parses_past_a_decoy_object_in_the_preamble() {
+        // The failure this was written for: a chatty preamble that is itself a
+        // balanced JSON object. Taking the first object reports "no
+        // `translations` field" for an answer that plainly has one.
+        let out = parse_response(
+            "{\"note\": \"translating now\"}\n{\"translations\":{\"s0\":\"Альфа\"}}",
+        )
+        .expect("the real answer is found past the decoy");
+        assert_eq!(out.get("s0").map(String::as_str), Some("Альфа"));
+    }
+
+    #[test]
+    fn an_answer_with_no_translations_anywhere_still_reports_the_same_way() {
+        // The fallback must not turn a genuinely malformed answer into a
+        // different error — the caller's message is what the user reads.
+        let err = parse_response("{\"note\": \"nothing here\"}").expect_err("no translations");
+        assert!(err.contains("translations"), "unexpected message: {err}");
     }
 
     #[test]

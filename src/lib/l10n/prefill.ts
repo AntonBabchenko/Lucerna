@@ -29,13 +29,27 @@ export type SummaryView = {
   tokens: { prompt: number; completion: number } | null;
   /** Set when the strings were written but the pack rebuild failed. */
   packError: { message: string | null } | null;
+  /** Batches whose answer could not be parsed. Their strings were not written
+   *  and were not retried, so the coverage number will not move for them. A
+   *  run that drops a batch silently is worse than one that stops. */
+  unusableBatches: number;
+  /** True when the pack was rebuilt but is not switched on in options.txt —
+   *  the instance has never been launched, or was running. Reported here
+   *  because otherwise the run claims a success the user cannot see in game. */
+  packBuiltNotOn: boolean;
   /** Set when the run stopped early; the counts above still hold. */
   failed: string | null;
 };
 
 export function summaryView(summary: RunSummary): SummaryView {
   return {
-    tone: summary.failed !== null || !summary.packRebuilt ? 'warning' : 'success',
+    tone:
+      summary.failed !== null ||
+      !summary.packRebuilt ||
+      summary.unusableBatches > 0 ||
+      (summary.packRebuilt && !summary.packActivated)
+        ? 'warning'
+        : 'success',
     written: summary.written,
     fromCache: summary.fromCache,
     fromGlossary: summary.fromGlossary,
@@ -48,6 +62,8 @@ export function summaryView(summary: RunSummary): SummaryView {
     // caveat is keyed off the boolean and carries the message as an optional
     // detail rather than being derived from the message's presence.
     packError: summary.packRebuilt ? null : { message: summary.packRebuildError },
+    unusableBatches: summary.unusableBatches,
+    packBuiltNotOn: summary.packRebuilt && !summary.packActivated,
     failed: summary.failed,
   };
 }

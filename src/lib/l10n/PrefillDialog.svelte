@@ -258,6 +258,26 @@
       <p class="text-xs text-muted">{$t('instance.l10n.prefill.rejectedNote')}</p>
     {/if}
     <!--
+      A batch whose answer could not be parsed is LOST, not retried, and the
+      run carried on past it. Saying so is the whole condition on carrying on:
+      without this line the coverage number simply refuses to move and nothing
+      explains why.
+    -->
+    {#if summary.unusableBatches > 0}
+      <p class="text-xs text-warning-text" data-testid="l10n-prefill-unusable">
+        {$t('instance.l10n.prefill.unusableBatchesNote', { count: summary.unusableBatches })}
+      </p>
+    {/if}
+    <!--
+      The pack exists and will not load. The editor would otherwise be the
+      first place this surfaces, as a banner, long after the run.
+    -->
+    {#if summary.packBuiltNotOn}
+      <p class="text-xs text-warning-text" data-testid="l10n-prefill-pack-not-on">
+        {$t('instance.l10n.prefill.packBuiltNotOnNote')}
+      </p>
+    {/if}
+    <!--
       Both caveats sit BESIDE the counts, never instead of them: everything
       counted above was verified and (for a cloud provider) paid for, and the
       strings are on disk either way.

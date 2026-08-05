@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::instances::schema::AiProvider;
 use crate::l10n::prefill::plan::{BatchUnit, Target};
 use crate::l10n::prefill::prompt;
@@ -16,6 +16,11 @@ use crate::network::consent::AiConsent;
 
 use super::transport::{complete_with_retry, is_cancelled, log_safe};
 use super::types::{clamp_u32, Rejected};
+
+/// How much of an unusable answer reaches the diagnostic log. Mirrors the cap
+/// `provider::DETAILS_CAP` puts on a quoted body: enough to see the shape of
+/// what came back, not enough for a chatty model to flood the log.
+const RAW_ANSWER_LOG_CAP: usize = 400;
 
 /// What [`decide_batch`] made of one response. Not an IPC type: `Target` is
 /// internal plumbing, and the UI is told counts, not fan-out.
@@ -64,6 +69,11 @@ pub(super) struct BatchOutput {
     /// One entry per KEY: the fan-out `decide_batch` performed.
     pub(super) writes: Vec<Written>,
     pub(super) rejected: u32,
+    /// Set when the model's answer could not be parsed at all, so this batch
+    /// wrote nothing. It does NOT fail the run: the next batch is a different
+    /// prompt over different strings and has every chance of parsing. Counted
+    /// on the summary so the loss is reported rather than swallowed.
+    pub(super) unusable: bool,
     /// Units this batch accounted for, however it accounted for them — the
     /// progress bar's denominator is units, not outcomes.
     pub(super) resolved: u32,
@@ -79,6 +89,7 @@ impl BatchOutput {
             answers: BTreeMap::new(),
             writes: Vec::new(),
             rejected: 0,
+            unusable: false,
             resolved: clamp_u32(resolved),
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -137,13 +148,34 @@ pub(super) async fn translate_batch(job: BatchJob) -> Result<BatchOutput> {
     let user = prompt::build_user_prompt(&job.lang, job.role, &pairs, &terms);
 
     let completion = complete_with_retry(&job, &user).await?;
-    let answers = prompt::parse_response(&completion.content).map_err(|reason| {
-        Error::L10nPrefillProvider {
-            provider: job.provider.id().to_string(),
-            status: 0,
-            details: reason,
+    let answers = match prompt::parse_response(&completion.content) {
+        Ok(answers) => answers,
+        Err(reason) => {
+            // Losing the batch, not the run. A malformed answer is a fact
+            // about THIS reply; the next batch is a different prompt over
+            // different strings. Aborting everything is reserved for a
+            // provider that cannot serve us at all — an unretryable non-2xx,
+            // which `complete_with_retry` already surfaces above.
+            //
+            // The raw answer is logged because it is the only thing that can
+            // later distinguish a decoy object in the preamble from a model
+            // that genuinely replied in prose. It is diagnostics, never the
+            // user-facing error: it can be long, and it is not their problem.
+            crate::diag!(
+                "[l10n] prefill: unusable answer ({reason}): {}",
+                completion
+                    .content
+                    .chars()
+                    .take(RAW_ANSWER_LOG_CAP)
+                    .collect::<String>()
+            );
+            let mut out = BatchOutput::new(job.role, job.units.len());
+            out.unusable = true;
+            // The tokens were spent whether or not the answer was usable.
+            out.note_usage(completion.usage);
+            return Ok(out);
         }
-    })?;
+    };
 
     let outcome = decide_batch(&job.units, &answers);
     let mut out = BatchOutput::new(job.role, job.units.len());

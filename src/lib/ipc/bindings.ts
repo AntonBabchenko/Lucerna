@@ -4815,7 +4815,19 @@ export type PackState =
  *  Pack file exists but options.txt does not list it — the state a
  *  modpack update leaves behind. The UI offers to re-enable.
  */
-"present_not_enabled" | "enabled";
+"present_not_enabled" | 
+/**
+ *  Pack file exists and there is no `options.txt` at all: the instance has
+ *  never been launched, so Minecraft has not written one yet.
+ * 
+ *  A separate variant rather than a flavour of `PresentNotEnabled`,
+ *  because the two differ in the only way that matters to the user — the
+ *  remedy. Re-applying fixes a wiped entry; it can do NOTHING here, since
+ *  `update_atomically` returns `Ok(false)` on a missing file and never
+ *  creates one. Collapsing them made the UI offer a button that could not
+ *  succeed, under a message blaming a modpack update that never happened.
+ */
+"present_awaiting_launch" | "enabled";
 
 /**
  *  Whether this instance can be handed to the JVM at all, and if not, which
@@ -5206,6 +5218,13 @@ export type RunSummary = {
 	 *  and the mod's own English still shows.
 	 */
 	rejected: number,
+	/**
+	 *  Batches whose answer could not be parsed at all. Their strings were not
+	 *  written and were not even attempted a second time. Reported because a
+	 *  run that quietly drops a batch is worse than one that stops: the
+	 *  coverage number simply refuses to move and nothing says why.
+	 */
+	unusableBatches: number,
 	cancelled: boolean,
 	promptTokens: number,
 	completionTokens: number,
@@ -5222,6 +5241,16 @@ export type RunSummary = {
 	 *  editor's Apply button can ship them.
 	 */
 	packRebuilt: boolean,
+	/**
+	 *  True when the rebuilt pack is actually switched on in `options.txt`.
+	 * 
+	 *  `pack_rebuilt` true with this false means the pack was written but
+	 *  cannot load yet: the instance has no `options.txt` (never launched) or
+	 *  was running when the rebuild landed. The run used to discard this fact
+	 *  and report a plain success, so the first the user heard of it was a
+	 *  banner in the editor blaming a modpack update.
+	 */
+	packActivated: boolean,
 	packRebuildError: string | null,
 	/**
 	 *  Set when the run stopped early — a provider failure, or a namespace
