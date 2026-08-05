@@ -86,7 +86,7 @@ pub async fn create_client_instance(
     }
 
     // Mirror the server's non-mod configuration so the produced client matches
-    // it (#17): `config/`, `resourcepacks/`, `datapacks/`. Without these the
+    // it (#17): `config/`, `resourcepacks/`. Without these the
     // client can desync from the server (e.g. a config-driven mod crashes on
     // join) — the very failure this "client from server" feature exists to
     // avoid. Best-effort: the instance is already usable from the mandatory mod
@@ -135,12 +135,17 @@ pub(crate) fn address_for_port(port: Option<u16>) -> String {
 
 /// Server runtime subdirectories that carry client-relevant configuration and
 /// must be mirrored into the produced client instance (#17).
-const CONFIG_DIRS: &[&str] = &["config", "resourcepacks", "datapacks"];
+const CONFIG_DIRS: &[&str] = &["config", "resourcepacks"];
 
-/// Copy the server's `config/`, `resourcepacks/`, and `datapacks/` directories
-/// (when present) from `runtime` into the client instance's `.minecraft` dir.
-/// Skips absent dirs and symlinks (cycle/escape safety). The first hard error
-/// surfaces to the caller, which logs it (best-effort by design).
+/// Copy the server's `config/` and `resourcepacks/` directories (when present)
+/// from `runtime` into the client instance's `.minecraft` dir. Skips absent
+/// dirs and symlinks (cycle/escape safety). The first hard error surfaces to
+/// the caller, which logs it (best-effort by design).
+///
+/// `datapacks/` used to be on this list and was dead at both ends: a server
+/// keeps its packs in `runtime/<level>/datapacks/`, and the client reads its
+/// library at `<instance>/datapacks/`, never `.minecraft/datapacks/`. They are
+/// carried by [`copy_server_datapacks`] instead.
 pub(crate) fn copy_server_config_dirs(
     runtime: &std::path::Path,
     mc_dir: &std::path::Path,
@@ -214,7 +219,15 @@ mod tests {
             b"{}"
         );
         assert!(mc.join("resourcepacks/pack.zip").is_file());
-        assert!(mc.join("datapacks/vanilla.zip").is_file());
+        // `runtime/datapacks/` is NOT where a server keeps its packs — those
+        // live in `runtime/<level>/datapacks/` — and `.minecraft/datapacks/`
+        // is not somewhere the client reads: its library is
+        // `<instance>/datapacks/`. The mirror was dead at both ends, so it is
+        // gone; datapacks are carried by `copy_server_datapacks` instead.
+        assert!(
+            !mc.join("datapacks").exists(),
+            "datapacks go to the instance library, not into .minecraft/"
+        );
         assert!(!mc.join("logs").exists(), "only config dirs are mirrored");
     }
 
