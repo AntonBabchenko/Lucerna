@@ -28,6 +28,19 @@ pub enum TaskOrigin {
     /// A user-supplied local file, or a source with no report-worthy
     /// platform identity (see the `Hangar` mapping below).
     Local,
+    /// A file from the game's own distribution — Mojang's CDN, a loader's
+    /// maven, the JRE mirror.
+    ///
+    /// Deliberately NOT `Local`: that variant means a file the user supplied,
+    /// and these are fetched over the network like any other platform's
+    /// content. One variant covers all three sources rather than splitting
+    /// hairs the report already records per row — the exact host lives in
+    /// `TaskDetail::host`.
+    ///
+    /// No `ModSource` maps here, and none ever should: this origin is produced
+    /// only by the version-install pipeline, which knows nothing about mod
+    /// platforms.
+    Game,
 }
 
 impl TaskOrigin {
@@ -35,13 +48,14 @@ impl TaskOrigin {
     /// `every_mod_source_maps_to_a_task_origin` a real totality check rather
     /// than a tautology, and catches a forgotten arm here the same way those
     /// two catch one in their own call sites.
-    pub const ALL: [TaskOrigin; 6] = [
+    pub const ALL: [TaskOrigin; 7] = [
         TaskOrigin::Modrinth,
         TaskOrigin::Curseforge,
         TaskOrigin::Ftb,
         TaskOrigin::Atlauncher,
         TaskOrigin::Archive,
         TaskOrigin::Local,
+        TaskOrigin::Game,
     ];
 }
 
@@ -133,5 +147,24 @@ mod tests {
     fn origin_serialises_snake_case() {
         let json = serde_json::to_string(&TaskOrigin::Curseforge).unwrap();
         assert_eq!(json, "\"curseforge\"");
+    }
+
+    #[test]
+    fn game_origin_is_listed_in_all() {
+        // `ALL` is a FIXED-SIZE array: adding a variant to the enum does not
+        // make it stop compiling, so nothing but this test catches a variant
+        // that was added to `TaskOrigin` and forgotten here. Every consumer
+        // that iterates origins would silently skip it.
+        assert!(
+            TaskOrigin::ALL.contains(&TaskOrigin::Game),
+            "TaskOrigin::Game must be listed in ALL"
+        );
+        assert_eq!(TaskOrigin::ALL.len(), 7);
+    }
+
+    #[test]
+    fn game_origin_serialises_snake_case() {
+        let json = serde_json::to_string(&TaskOrigin::Game).unwrap();
+        assert_eq!(json, "\"game\"");
     }
 }
