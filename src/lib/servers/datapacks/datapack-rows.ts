@@ -1,5 +1,5 @@
-import type { ServerDatapackEntry } from '$lib/ipc/bindings';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
+import type { ServerDatapackEntry } from '$lib/ipc/bindings';
 import type { BadgeVariant } from '$lib/ui/cards/card-status';
 
 export type RowBadge = {
