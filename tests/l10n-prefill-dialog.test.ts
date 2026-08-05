@@ -138,37 +138,54 @@ afterEach(() => {
 });
 
 describe('LocalizationModal — prefill triggers', () => {
-  it('hides the translate buttons when consent is off', async () => {
+  // Every state below renders BOTH triggers. A button that vanishes teaches a
+  // user the feature does not exist; one that is visible and greyed teaches
+  // them it exists and what to go and fix. The reason has to be reachable, so
+  // each case pins the inline copy in the header as well — the tooltip is
+  // hover-only by construction and a keyboard user never reaches it.
+  const gatedStates = [
+    { aiReady: 'no_consent', gate: 'ready' as const, reason: /turned off in Settings/i },
+    { aiReady: 'no_key', gate: 'ready' as const, reason: /Add an API key/i },
+    // The version gate is not fixable in Settings, but it is still a reason —
+    // and the pre-fill borrows Apply's wording rather than inventing a second
+    // vocabulary for the same fact about the same instance.
+    { aiReady: 'ready', gate: 'too_old' as const, reason: /can't load resource-pack overrides/i },
+  ];
+
+  for (const state of gatedStates) {
+    it(`keeps both translate buttons visible and disabled — ${state.aiReady}/${state.gate}`, async () => {
+      mockCoverage(coverage({ applyGate: state.gate }));
+      render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us', aiReady: state.aiReady },
+      });
+      // Wait for coverage, otherwise "present" would be measured before the
+      // gate that is supposed to disable it has even been read.
+      await screen.findByTestId('l10n-namespace-row');
+
+      const all = screen.getByTestId('l10n-prefill-all') as HTMLButtonElement;
+      const perRow = screen.getAllByTestId('l10n-prefill-namespace') as HTMLButtonElement[];
+      expect(all.disabled).toBe(true);
+      expect(perRow.length).toBeGreaterThan(0);
+      for (const b of perRow) expect(b.disabled).toBe(true);
+      expect(screen.getByTestId('l10n-prefill-reason').textContent).toMatch(state.reason);
+    });
+  }
+
+  it('enables both translate buttons once nothing is missing', async () => {
+    // The control render for the three cases above: without it they would all
+    // pass against a component that renders the buttons permanently dead.
     mockCoverage(coverage({ applyGate: 'ready' }));
     render(LocalizationModal, {
-      props: { open: true, instanceId: 'a', lang: 'en_us', aiConsent: false },
-    });
-    // Wait for coverage to land, otherwise "absent" is only "not rendered yet".
-    await screen.findByTestId('l10n-namespace-row');
-
-    expect(screen.queryByTestId('l10n-prefill-all')).toBeNull();
-    expect(screen.queryByTestId('l10n-prefill-namespace')).toBeNull();
-  });
-
-  it('hides the translate buttons when the apply gate is not ready', async () => {
-    // Consent is ON here — the only thing keeping the buttons away is the
-    // gate. Without the control render below, this test would also pass on a
-    // component that never renders the buttons at all.
-    mockCoverage(coverage({ applyGate: 'too_old' }));
-    const gated = render(LocalizationModal, {
-      props: { open: true, instanceId: 'a', lang: 'en_us', aiConsent: true },
+      props: { open: true, instanceId: 'b', lang: 'en_us', aiReady: 'ready' },
     });
     await screen.findByTestId('l10n-namespace-row');
-    expect(screen.queryByTestId('l10n-prefill-all')).toBeNull();
-    expect(screen.queryByTestId('l10n-prefill-namespace')).toBeNull();
-    gated.unmount();
 
-    mockCoverage(coverage({ applyGate: 'ready' }));
-    render(LocalizationModal, {
-      props: { open: true, instanceId: 'b', lang: 'en_us', aiConsent: true },
-    });
-    expect(await screen.findByTestId('l10n-prefill-all')).toBeTruthy();
-    expect(await screen.findByTestId('l10n-prefill-namespace')).toBeTruthy();
+    expect((screen.getByTestId('l10n-prefill-all') as HTMLButtonElement).disabled).toBe(false);
+    for (const b of screen.getAllByTestId('l10n-prefill-namespace') as HTMLButtonElement[]) {
+      expect(b.disabled).toBe(false);
+    }
+    // No reason to give, so no line taking up header space.
+    expect(screen.queryByTestId('l10n-prefill-reason')).toBeNull();
   });
 
   it('refreshes the open key table when a run finishes, not just the coverage', async () => {
@@ -182,7 +199,7 @@ describe('LocalizationModal — prefill triggers', () => {
     vi.mocked(commands.l10nPrefillStart).mockResolvedValue(ok(summary()));
 
     render(LocalizationModal, {
-      props: { open: true, instanceId: 'inst-1', lang: 'ru_ru', aiConsent: true },
+      props: { open: true, instanceId: 'inst-1', lang: 'ru_ru', aiReady: 'ready' },
     });
 
     await fireEvent.click(await screen.findByTestId('l10n-namespace-row'));

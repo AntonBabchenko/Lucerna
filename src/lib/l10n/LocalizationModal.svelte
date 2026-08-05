@@ -6,7 +6,12 @@
   //
   // Own module rather than a section of ManageInstancesModal.svelte, which is
   // already at this project's 800-line file ceiling.
-  import { commands, type InstanceCoverage, type NamespaceCoverage } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type ApplyGate,
+    type InstanceCoverage,
+    type NamespaceCoverage,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -18,6 +23,7 @@
     type CoverageTone,
     type NamespaceSort,
   } from './coverage';
+  import type { PrefillReadiness } from './prefill-readiness';
   import ApplyTargetsDialog from './ApplyTargetsDialog.svelte';
   import KeyTable from './KeyTable.svelte';
   import PrefillDialog from './PrefillDialog.svelte';
@@ -40,7 +46,7 @@
     open = $bindable(),
     instanceId,
     lang = $bindable(),
-    aiConsent = false,
+    aiReady = 'no_consent',
     mcVersion = '',
   }: {
     open: boolean;
@@ -53,11 +59,11 @@
      *  so the row refetches for the same language instead of the two
      *  surfaces silently measuring different things. */
     lang: string;
-    /** `general.allow_ai_translation`. A PROP, not a read: this component's
-     *  test suite pins exact `l10nCoverage` call counts, and +page.svelte
-     *  already reads settings — adding a second reader here would only give
-     *  the two of them a way to disagree. */
-    aiConsent?: boolean;
+    /** Why the AI pre-fill is or is not usable. A PROP, not a read: this
+     *  component's test suite pins exact `l10nCoverage` call counts, and
+     *  +page.svelte already reads settings — adding a second reader here
+     *  would only give the two of them a way to disagree. */
+    aiReady?: PrefillReadiness;
     /** The Minecraft version of `instanceId`. Only the share export needs
      *  it — a shared file's resource-pack half is built for ONE version — and
      *  `InstanceCoverage` does not carry it, so the caller resolves it for
@@ -328,19 +334,40 @@
     }
   }
 
-  const applyReason = $derived.by(() => {
-    if (!coverage) return '';
-    if (coverage.applyGate === 'unknown_format')
-      return $t('instance.l10n.apply.reasonUnknownFormat');
-    if (coverage.applyGate === 'too_old') return $t('instance.l10n.apply.reasonTooOld');
+  // Keyed over the whole union rather than an if-chain: a fourth gate variant
+  // has to be a compile error here, not a silently empty reason. The pre-fill
+  // buttons below now read their enablement off this string, so an unhandled
+  // gate would quietly re-enable a paid run whose output the game cannot load.
+  const applyReasons: Record<ApplyGate, string> = $derived({
+    ready: '',
+    unknown_format: $t('instance.l10n.apply.reasonUnknownFormat'),
+    too_old: $t('instance.l10n.apply.reasonTooOld'),
+  });
+  const applyReason = $derived(coverage ? applyReasons[coverage.applyGate] : '');
+
+  // The pre-fill needs consent to reach a provider, a credential to
+  // authenticate with, and an instance whose Minecraft version could actually
+  // load the resulting pack. Missing any of them, the triggers stay on screen
+  // and go disabled WITH the reason — hiding them teaches the user the feature
+  // does not exist, which is the one thing that is never true. The version
+  // gate is the least fixable of the three and is still said out loud rather
+  // than implied by absence.
+  //
+  // An empty string means "nothing missing"; `canPrefill` reads off it so the
+  // enablement and the explanation can never disagree.
+  const prefillDisabledReason = $derived.by(() => {
+    if (aiReady === 'no_consent') return $t('instance.l10n.prefill.disabledNoConsent');
+    if (aiReady === 'no_key') return $t('instance.l10n.prefill.disabledNoKey');
+    // Before coverage lands there is no applyGate to judge, and the header
+    // renders regardless — so this is a real state, not a transient nobody
+    // sees on a large pack.
+    if (!coverage) return $t('instance.l10n.loading');
+    // Borrowed from Apply rather than reworded: it is the same fact about the
+    // same instance, and two vocabularies for it would read as two problems.
+    if (coverage.applyGate !== 'ready') return applyReason;
     return '';
   });
-
-  // The pre-fill needs both permissions to be meaningful: consent to reach a
-  // provider at all, and an instance the resulting pack could actually be
-  // applied to. Offering the buttons without the second would let a user pay
-  // for strings this Minecraft version can never load.
-  const canPrefill = $derived(aiConsent && coverage?.applyGate === 'ready');
+  const canPrefill = $derived(prefillDisabledReason === '');
 
   // `null` = the dialog is closed. `{ namespace: null }` = whole instance.
   let prefillScope = $state<{ namespace: string | null } | null>(null);
@@ -500,16 +527,36 @@
             dataTestid="l10n-language-select"
           />
         {/if}
-        {#if canPrefill}
+        {#if prefillDisabledReason}
+          <!--
+            Inline, not only in the tooltip — the same remedy the Apply gate
+            below already carries, for the same reason: the wrapper span never
+            matches :focus-visible and `describe: false` suppresses
+            aria-describedby, so a keyboard or screen-reader user would never
+            reach the one copy of the text telling them what to fix. This is
+            the header's single copy; the per-namespace icons stay
+            tooltip-only, because one line per mod row is noise, not help.
+          -->
+          <span class="text-xs text-warning-text" data-testid="l10n-prefill-reason">
+            {prefillDisabledReason}
+          </span>
+        {/if}
+        <span
+          class="inline-flex"
+          use:tooltip={prefillDisabledReason
+            ? { text: prefillDisabledReason, describe: false }
+            : null}
+        >
           <button
             type="button"
             class="btn-secondary btn-sm"
+            disabled={!canPrefill}
             data-testid="l10n-prefill-all"
             onclick={() => (prefillScope = { namespace: null })}
           >
             {$t('instance.l10n.prefill.allButton')}
           </button>
-        {/if}
+        </span>
         <!--
           Both act on the GLOBAL override store, not on this instance's
           coverage, so neither waits for the coverage load: a user must be
@@ -733,6 +780,9 @@
               {#each sortedNamespaces as row, i (row.namespace)}
                 {@const percent = namespacePercent(row)}
                 {@const selected = selectedNamespace === row.namespace}
+                {@const nsLabel = $t('instance.l10n.prefill.namespaceButtonAria', {
+                  namespace: row.namespace,
+                })}
                 <!--
                 A flex row, not a button containing a button: the selector IS
                 a <button>, and nesting the per-namespace translate action
@@ -780,25 +830,32 @@
                       </span>
                     </span>
                   </button>
-                  {#if canPrefill}
-                    <!--
+                  <!--
                     Icon-only action ⇒ .btn-icon family carrying use:tooltip AND
-                    aria-label from the same key (DESIGN.md §5). The tooltip sits
-                    on the button, not on a wrapping span: the action stays
-                    enabled, and the span form only opens on hover — its
-                    :focus-visible check can never match a non-focusable
-                    wrapper, so keyboard focus would reach the button silently.
-                    tabindex follows the roving row so consent-on does not
-                    double the list's tab stops: Tab from the focused row
+                    aria-label from the same key (DESIGN.md §5). The tooltip is
+                    routed to whichever element can actually fire it: enabled,
+                    it stays on the BUTTON, which also gives keyboard users the
+                    hint (the wrapper's :focus-visible check can never match a
+                    non-focusable span); disabled, it moves to the SPAN, because
+                    a disabled button fires no pointer events at all — and a
+                    disabled button is not focusable either, so nothing is lost.
+                    Exactly one of the two carries text at any time.
+                    tabindex follows the roving row so an enabled AI action does
+                    not double the list's tab stops: Tab from the focused row
                     reaches its own AI button and then leaves the list.
                   -->
+                  <span
+                    class="inline-flex shrink-0"
+                    use:tooltip={canPrefill
+                      ? null
+                      : { text: prefillDisabledReason, describe: false }}
+                  >
                     <button
                       type="button"
-                      class="btn-icon btn-icon-sm shrink-0"
+                      class="btn-icon btn-icon-sm"
+                      disabled={!canPrefill}
                       tabindex={i === focusIndex ? 0 : -1}
-                      aria-label={$t('instance.l10n.prefill.namespaceButtonAria', {
-                        namespace: row.namespace,
-                      })}
+                      aria-label={nsLabel}
                       data-testid="l10n-prefill-namespace"
                       onclick={() => {
                         // Claim the tab stop, same rule as the row button beside
@@ -809,13 +866,11 @@
                         focusIndex = i;
                         prefillScope = { namespace: row.namespace };
                       }}
-                      use:tooltip={$t('instance.l10n.prefill.namespaceButtonAria', {
-                        namespace: row.namespace,
-                      })}
+                      use:tooltip={canPrefill ? nsLabel : null}
                     >
                       <Icon name="aiTranslate" size={14} />
                     </button>
-                  {/if}
+                  </span>
                 </li>
               {/each}
             </ul>

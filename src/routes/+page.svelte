@@ -17,6 +17,11 @@
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
   import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
+  import {
+    needsStoredKey,
+    prefillReadiness,
+    type PrefillReadiness,
+  } from '$lib/l10n/prefill-readiness';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import {
@@ -170,13 +175,15 @@
   let manageOpen = $state(false);
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
-  // `general.allow_ai_translation`, handed to LocalizationModal as a prop.
+  // Why the AI pre-fill is or is not usable, handed to LocalizationModal as a
+  // prop. Both non-ready answers are fixable in Settings, so the modal renders
+  // its translate buttons disabled WITH the reason rather than hiding them.
   // Read fresh every time that modal opens rather than once at startup — the
-  // same reason refreshPingEnabled re-reads: the permission can be revoked in
-  // Settings mid-session and the translate buttons must follow it without a
-  // restart. The modal itself must NOT read this (its suite pins exact
+  // same reason refreshPingEnabled re-reads: the permission can be revoked, or
+  // a key cleared, in Settings mid-session and the buttons must follow without
+  // a restart. The modal itself must NOT read this (its suite pins exact
   // l10nCoverage call counts), and this page already reads settings.
-  let l10nAiConsent = $state(false);
+  let l10nAiReady = $state<PrefillReadiness>('no_consent');
   // Which instance LocalizationModal shows. Null = follow the active instance,
   // which is what the Overview row's entry point wants. The Manage modal's
   // entry point sets it, because its selection is independent of the active
@@ -200,7 +207,23 @@
   async function openLocalization() {
     l10nOpen = true;
     const r = await commands.appSettingsGet();
-    l10nAiConsent = r.status === 'ok' ? (r.data.general.allow_ai_translation ?? false) : false;
+    if (r.status !== 'ok') {
+      // Unknown is not permission. Falling back to the most restrictive answer
+      // keeps a failed settings read from enabling a paid run.
+      l10nAiReady = 'no_consent';
+      return;
+    }
+    const general = r.data.general;
+    const consent = general.allow_ai_translation ?? false;
+    const provider = general.ai_provider ?? 'anthropic';
+    // The keyring is only consulted when its answer could change the outcome —
+    // not for a provider that needs no key, and not for a user who has not
+    // permitted the feature in the first place.
+    const keyStored =
+      consent && needsStoredKey(provider)
+        ? await commands.l10nPrefillKeyStatus(provider).then((s) => s.status === 'ok' && s.data)
+        : false;
+    l10nAiReady = prefillReadiness({ consent, provider, keyStored });
   }
   // Which Manage field the modal should scroll to and flash when it opens.
   // Set by whichever entry point opened it; every site that flips manageOpen
@@ -1659,7 +1682,7 @@
     bind:lang={l10nLang}
     instanceId={l10nInstanceId}
     mcVersion={l10nInstance?.mc_version ?? ''}
-    aiConsent={l10nAiConsent}
+    aiReady={l10nAiReady}
   />
 
   {#if cloneTargetId !== null}

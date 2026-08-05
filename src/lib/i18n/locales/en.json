@@ -532,6 +532,8 @@
       "prefill": {
         "allButton": "Translate with AI",
         "namespaceButtonAria": "Translate missing in {namespace} with AI",
+      "disabledNoConsent": "AI translation is turned off in Settings → Integrations → AI translation.",
+      "disabledNoKey": "Add an API key in Settings → Integrations → AI translation.",
         "title": "AI translation",
         "scopeAll": "Every mod in this instance",
         "scopeNamespace": "Only {namespace}",
