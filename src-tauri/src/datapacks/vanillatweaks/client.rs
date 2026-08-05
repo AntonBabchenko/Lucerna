@@ -136,6 +136,35 @@ impl VtClient {
         }
         Ok(format!("{}{}", self.base, parsed.link))
     }
+
+    /// Download a built bundle, refusing anything over the whole-bundle cap.
+    pub async fn download_bundle(&self, url: &str) -> Result<Vec<u8>> {
+        self.download_bundle_with_limit(url, crate::datapacks::MAX_VT_BUNDLE_BYTES)
+            .await
+    }
+
+    /// The limit is a parameter so a test can prove the refusal without
+    /// allocating the real cap.
+    ///
+    /// The check is on the bytes actually received, not on a declared length:
+    /// the build endpoint serves a file it just generated and does not
+    /// promise a `Content-Length` we could trust ahead of the read. Saying so
+    /// here rather than implying a pre-download check that does not happen.
+    pub async fn download_bundle_with_limit(&self, url: &str, limit: usize) -> Result<Vec<u8>> {
+        let res = crate::network::request::get(url, &[], "vt-bundle").await?;
+        if !(200..300).contains(&res.status) {
+            return Err(Error::VanillaTweaksBuildFailed {
+                message: format!("the bundle download failed with HTTP {}", res.status),
+            });
+        }
+        if res.body.len() > limit {
+            return Err(Error::VanillaTweaksBundleTooLarge {
+                size_bytes: res.body.len() as f64,
+                limit_bytes: limit as f64,
+            });
+        }
+        Ok(res.body)
+    }
 }
 
 impl Default for VtClient {
