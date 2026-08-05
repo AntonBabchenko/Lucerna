@@ -8,8 +8,10 @@
 
 pub mod client;
 pub mod family;
+pub mod platform;
 pub mod unpack;
 
 pub use client::{VtCatalogue, VtCategory, VtClient, VtPack};
 pub use family::family_for;
+pub use platform::VanillaTweaksPlatform;
 pub use unpack::split_bundle;

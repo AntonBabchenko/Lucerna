@@ -441,7 +441,11 @@ fn dep_project_ref(
         // FTB and ATLauncher are pack-only sources with no per-mod browser.
         // Hangar plugins never reach this dep-violation path either (plugins have no Java
         // dependency graph) — no per-mod browser link for it here.
-        ModSource::Ftb | ModSource::Atlauncher | ModSource::Hangar => None,
+        // Vanilla Tweaks is a datapack builder — datapacks have no dependency
+        // graph, so a VT pack never reaches a dep violation either.
+        ModSource::Ftb | ModSource::Atlauncher | ModSource::Hangar | ModSource::VanillaTweaks => {
+            None
+        }
     }
 }
 

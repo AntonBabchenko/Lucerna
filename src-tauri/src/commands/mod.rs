@@ -206,6 +206,14 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
             source: ModSource::Atlauncher,
         }),
         ModSource::Hangar => Box::new(crate::mods::hangar::HangarClient::new()),
+        // Vanilla Tweaks builds packs on demand: only `datapack_versions` is
+        // real. Deliberately NOT `UnsupportedModPlatform` — that type does not
+        // override `datapack_versions`, and the trait default answers
+        // `Ok(vec![])`, which `classify_asset_update` reads as "up to date"
+        // forever. A silent lie, where this is a real answer.
+        ModSource::VanillaTweaks => {
+            Box::new(crate::datapacks::vanillatweaks::VanillaTweaksPlatform::new())
+        }
     }
 }
 
@@ -477,6 +485,7 @@ async fn find_version(
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
                 ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
                 ModSource::Hangar => "hangar",
+                ModSource::VanillaTweaks => "vanillatweaks", // VT: built on demand, no per-mod browser.
             }
             .into(),
         })
@@ -549,6 +558,16 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
         // FTB/ATLauncher stubs above; introduce DepProjectRef::Hangar before Hangar plugins
         // can reach dedup/dep-graph keying, to avoid a collision with real Modrinth ids.
         crate::mods::platform::ModSource::Hangar => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
+        // TODO(vanillatweaks): placeholder — VT packs are datapacks, which have
+        // no Java dependency graph at all, so they never reach dep resolution.
+        // Borrowing the Modrinth tag mirrors the stubs above; a VT project_id
+        // is `<category>/<name>`, which cannot collide with a Modrinth id.
+        crate::mods::platform::ModSource::VanillaTweaks => {
             crate::mods::platform::DepProjectRef::Modrinth {
                 project_id: v.project_id.clone(),
                 version_id: Some(v.version_id.clone()),
