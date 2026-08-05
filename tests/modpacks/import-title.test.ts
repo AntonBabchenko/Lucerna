@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { importTitle } from '$lib/modpacks/import-request';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+import { importTitle } from '$lib/modpacks/import-request';
 
 const base: ModpackImportRequest = {
   path: 'C:\\packs\\Haste-1.2.3.mrpack',
