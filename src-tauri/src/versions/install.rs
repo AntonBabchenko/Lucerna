@@ -217,7 +217,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     report.push(super::report::phase_row(
         "assets/objects",
         "assets/objects",
-        Some("resources.download.minecraft.net".to_string()),
+        crate::network::request::host_of(super::assets::ASSET_BASE_URL),
         asset_bytes.load(std::sync::atomic::Ordering::Relaxed),
     ));
 
