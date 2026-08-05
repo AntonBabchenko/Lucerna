@@ -442,7 +442,8 @@
                 "missingFirst": "untranslated first"
               },
       "nsFilter": {
-                "placeholder": "Filter mods"
+                "placeholder": "Filter mods",
+                "noMatch": "No mod matches that filter."
               },
               "nsSort": {
                 "label": "Sort mods",

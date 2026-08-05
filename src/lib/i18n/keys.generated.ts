@@ -479,6 +479,7 @@ export type TranslationKey =
   | 'instance.l10n.loadFailed'
   | 'instance.l10n.loading'
   | 'instance.l10n.namespaceCount'
+  | 'instance.l10n.nsFilter.noMatch'
   | 'instance.l10n.nsFilter.placeholder'
   | 'instance.l10n.nsSort.label'
   | 'instance.l10n.nsSort.leastCovered'
