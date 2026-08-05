@@ -262,11 +262,11 @@ pub async fn modpack_status(
             asset_present.insert(f.install_path.clone());
         }
     }
-    Ok(Some(crate::mods::modpack::import::compute_status(
-        origin,
-        &installed,
-        &asset_present,
-    )))
+    let mut st = crate::mods::modpack::import::compute_status(origin, &installed, &asset_present);
+    // `compute_status` is pure; reading the completer's manifest needs the
+    // instance directory, so it happens here.
+    st.pack_completion = crate::mods::pack_completion::read(&inst_root);
+    Ok(Some(st))
 }
 
 /// Record that the user installed a substitute (from `substitute_source` /

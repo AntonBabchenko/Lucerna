@@ -80,6 +80,7 @@ vi.mock('$lib/ipc/bindings', () => {
       modInstalled: { listen: () => Promise.resolve(() => {}) },
       modUninstalled: { listen: () => Promise.resolve(() => {}) },
       modToggle: { listen: () => Promise.resolve(() => {}) },
+      modsReconciled: { listen: () => Promise.resolve(() => {}) },
       gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
     },
     // Exported for the dialog-path test to drive a plan with a required dep.

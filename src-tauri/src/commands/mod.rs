@@ -385,6 +385,18 @@ pub struct ModToggle {
     pub enabled: bool,
 }
 
+/// The instance's `mods/` directory changed without us: `reconcile` found jars
+/// the registry did not know, or records whose file is gone.
+///
+/// Distinct from `ModInstalled` on purpose. That event means WE installed
+/// something and has five listeners, two of which re-request the mod list;
+/// reusing it here would wake half the app and shape a refresh loop. This one is
+/// consumed only by the views derived FROM the mod list — never by the list.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModsReconciled {
+    pub instance_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ModInstallFailed {
     pub instance_id: String,
