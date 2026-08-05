@@ -5,12 +5,20 @@ use crate::launch::guardrail::{ram_warning, RamWarning, RAM_WARN_PERCENT};
 /// — the UI shows an Install button when the instance is not ready and
 /// a Play button once it is. Emits `installProgress` during the run.
 /// Resolves version+loader from `instance.json` server-side.
+///
+/// Returns the per-file install report. It rides the RETURN VALUE, never the
+/// `installProgress` event: a Tauri payload of 8192 bytes or more is delivered
+/// AFTER the command response, so a report carried on the progress path would
+/// race the caller that needs it. Same reasoning as `InstallSummary::details`.
+///
+/// An empty vec is impossible on success — the version JSON row alone is
+/// always pushed — so the frontend can treat `Ok` as "there is a report".
 #[tauri::command]
 #[specta::specta]
 pub async fn install_instance(
     app: tauri::AppHandle,
     instance_id: String,
-) -> Result<(), crate::error::Error> {
+) -> Result<Vec<crate::tasks::TaskDetail>, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     crate::versions::install_version(&effective_id, &app).await

@@ -234,8 +234,10 @@ pub(crate) fn collect_library_downloads(
 /// install-report row without re-deriving any of it. Everything but
 /// `downloaded` already comes out of `collect_library_downloads`; only the
 /// download closure knows whether bytes actually moved.
+// `pub`, not `pub(crate)`, to match `ensure_libraries`' own visibility — a
+// public fn returning a crate-private type is a privacy warning.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LibraryOutcome {
+pub struct LibraryOutcome {
     pub rel_path: String,
     pub url: String,
     pub sha1: String,
