@@ -1836,6 +1836,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	l10nNamespaceKeys: (instanceId: string, namespace: string, lang: string) => typedError<KeyRow[], Error>(__TAURI_INVOKE("l10n_namespace_keys", { instanceId, namespace, lang })),
 	/**
+	 *  Find a string anywhere in this instance, without knowing its mod.
+	 * 
+	 *  The entry point for the case the per-namespace editor cannot serve: the
+	 *  player saw a line in game and has the TEXT, not the mod. Matching is
+	 *  forgiving on purpose — see `l10n::find` for why a literal substring search
+	 *  finds neither `Invalid language: %s` nor `§dServux: %s§r`.
+	 * 
+	 *  Searches the key, the mod's English, AND the user's own override. The
+	 *  per-mod search deliberately excluded the override on the grounds that the
+	 *  target script may be unreadable to the user; that holds for someone
+	 *  translating INTO an alphabet they do not know, and not at all for someone
+	 *  looking for a phrasing they themselves wrote and now dislike.
+	 */
+	l10nSearch: (instanceId: string, lang: string, query: string) => typedError<SearchResult, Error>(__TAURI_INVOKE("l10n_search", { instanceId, lang, query })),
+	/**
 	 *  Write or clear one translation override in the global per-`(lang,
 	 *  namespace)` store.
 	 * 
@@ -5551,6 +5566,34 @@ export type Screenshot = {
 	file_name: string,
 	size_bytes: number | null,
 	modified_unix_ms: number | null,
+};
+
+/**
+ *  One hit: the row the editor already knows how to render, plus the mod it
+ *  came from — which is the whole point, because the user searching does not
+ *  know that.
+ */
+export type SearchHit = {
+	namespace: string,
+	row: KeyRow,
+};
+
+/**  What an instance-wide search found, and what it could not see. */
+export type SearchResult = {
+	/**  Best matches first. */
+	hits: SearchHit[],
+	/**
+	 *  Mods present but switched off. Their strings were NOT searched, and an
+	 *  empty result means something different when this is non-zero — the user
+	 *  can act on that, so it must not be silently omitted.
+	 */
+	disabledMods: number,
+	/**
+	 *  True when `hits` was cut at [`SEARCH_HIT_CAP`]. Reported rather than
+	 *  silently truncated: a capped list that claims to be complete is worse
+	 *  than one that admits it stopped counting.
+	 */
+	truncated: boolean,
 };
 
 /**

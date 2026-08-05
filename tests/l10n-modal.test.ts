@@ -8,6 +8,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nNamespaceKeys: vi.fn(),
     l10nSetOverride: vi.fn(),
     l10nApply: vi.fn(),
+    l10nSearch: vi.fn(),
     // The share/offer dialogs the modal mounts fetch on mount. These two get
     // a default rather than a bare vi.fn() so every case that is NOT about
     // them sees what the real backend would report for a launcher with
@@ -434,6 +435,82 @@ describe('LocalizationModal', () => {
       await fireEvent.click(await screen.findByTestId('l10n-apply'));
 
       await waitFor(() => expect(toastList().some((t) => t.kind === 'warning')).toBe(true));
+    });
+  });
+
+  describe('mod list filter and sort', () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ns({ namespace: `mod${String(i).padStart(2, '0')}` }));
+
+    it('offers the filter only once the list is long enough to need it', async () => {
+      mockCoverageOk(coverage({ namespaces: many(5) }));
+      const short = render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us' },
+      });
+      await screen.findByTestId('l10n-ns-sort');
+      expect(screen.queryByTestId('l10n-ns-filter')).toBeNull();
+      short.unmount();
+
+      mockCoverageOk(coverage({ namespaces: many(20) }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByTestId('l10n-ns-filter');
+    });
+
+    it('keeps the open mod visible even when the filter excludes it', async () => {
+      // Otherwise the key table on the right shows a mod that is not on the
+      // left, which reads as a bug rather than as a filter.
+      mockCoverageOk(coverage({ namespaces: [...many(19), ns({ namespace: 'create' })] }));
+      mockKeysOk();
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const rows = await screen.findAllByTestId('l10n-namespace-row');
+      const create = rows.find((r) => r.textContent?.includes('create'));
+      await fireEvent.click(create as HTMLElement);
+
+      await fireEvent.input(screen.getByTestId('l10n-ns-filter'), { target: { value: 'mod0' } });
+
+      const after = screen.getAllByTestId('l10n-namespace-row');
+      expect(after.some((r) => r.textContent?.includes('create'))).toBe(true);
+    });
+  });
+
+  describe('instance-wide search', () => {
+    it('swaps the key pane for results once a query is typed, and back when cleared', async () => {
+      mockCoverageOk(coverage());
+      vi.mocked(commands.l10nSearch).mockResolvedValue({
+        status: 'ok',
+        data: {
+          hits: [
+            {
+              namespace: 'minersdelight',
+              row: {
+                key: 'minersdelight.container.sticky_basket',
+                sourceEn: 'Sticky Basket',
+                modValue: null,
+                overrideValue: null,
+                state: 'missing',
+                origin: null,
+              },
+            },
+          ],
+          disabledMods: 0,
+          truncated: false,
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const input = await screen.findByTestId('l10n-find-input');
+      expect(screen.queryByTestId('l10n-find-results')).toBeNull();
+
+      await fireEvent.input(input, { target: { value: 'Sticky Basket' } });
+      // Assert on a HIT, not on the wrapper div: the first version of this
+      // test checked only `l10n-find-results`, which is an empty container the
+      // feature can be deleted out of while the test stays green.
+      expect(await screen.findByTestId('l10n-find-hit-ns-minersdelight')).toBeTruthy();
+
+      await fireEvent.click(screen.getByTestId('l10n-find-clear'));
+      expect(screen.queryByTestId('l10n-find-results')).toBeNull();
     });
   });
 

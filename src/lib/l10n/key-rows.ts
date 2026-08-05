@@ -53,13 +53,22 @@ const NO_STICKY: ReadonlySet<string> = new Set();
 
 function matchesSearch(row: KeyRow, q: string): boolean {
   if (!q) return true;
-  return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
+  return (
+    row.key.toLowerCase().includes(q) ||
+    row.sourceEn.toLowerCase().includes(q) ||
+    (row.overrideValue?.toLowerCase().includes(q) ?? false)
+  );
 }
 
-/** Apply the view, then the search term. Search matches the key or the English
- *  source — the two things a user knows going in — never the translated value
- *  itself: that may be in a script the user can't even read, which is the
- *  entire reason they're translating it.
+/** Apply the view, then the search term. Search matches the key, the English
+ *  source, and the user's own override.
+ *
+ *  The override used to be excluded, on the grounds that the target script may
+ *  be one the user cannot read — which is true of someone translating INTO an
+ *  alphabet they do not know, and false of the far commoner case: someone
+ *  hunting for a phrasing THEY wrote and now want to fix. The old reason does
+ *  not argue against including it, either — a user who cannot read the target
+ *  simply never types it, and loses nothing.
  *
  *  `sticky` holds the keys the user has changed in this sitting. They are
  *  exempt from the VIEW — a row you just translated keeps its place instead of
@@ -207,4 +216,35 @@ export function visibleViews(
   return VIEW_ORDER.filter(
     (view) => ANCHOR_VIEWS.has(view) || viewCount(view, counts, origins) > 0 || view === keepView,
   );
+}
+
+/** The orders the key table offers. `key` is the historical default — the
+ *  backend emits keys in a `BTreeSet`, i.e. already sorted — and stays it. */
+export type KeySort = 'key' | 'english' | 'missingFirst';
+
+export const KEY_SORTS: KeySort[] = ['key', 'english', 'missingFirst'];
+
+/** Order rows for display.
+ *
+ *  Sorting is NOT filtering, and `missingFirst` is not a duplicate of the
+ *  Untranslated view chip: the chip hides everything else, this keeps it in
+ *  context underneath. Both are legitimate and neither replaces the other.
+ *
+ *  Every order falls back to the key, so the result is total and a re-render
+ *  can never reshuffle equal rows under the user's cursor.
+ */
+export function sortRows(rows: KeyRow[], order: KeySort = 'key'): KeyRow[] {
+  const byKey = (a: KeyRow, b: KeyRow) => a.key.localeCompare(b.key);
+  return [...rows].sort((a, b) => {
+    switch (order) {
+      case 'english':
+        return a.sourceEn.localeCompare(b.sourceEn) || byKey(a, b);
+      case 'missingFirst': {
+        const rank = (r: KeyRow) => (r.state === 'missing' ? 0 : 1);
+        return rank(a) - rank(b) || byKey(a, b);
+      }
+      default:
+        return byKey(a, b);
+    }
+  });
 }

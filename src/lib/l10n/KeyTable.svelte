@@ -32,12 +32,16 @@
     countKeyStates,
     countOrigins,
     filterRows,
+    KEY_SORTS,
+    type KeySort,
     type KeyView,
+    sortRows,
     stickyOutOfView,
     viewCount,
     visibleViews,
   } from './key-rows';
   import KeyEditRow from './KeyEditRow.svelte';
+  import Select from '$lib/ui/Select.svelte';
 
   let {
     instanceId,
@@ -66,6 +70,20 @@
   let loadError = $state<string | null>(null);
   let search = $state('');
   let view = $state<KeyView>('all');
+  let sort = $state<KeySort>('key');
+  /** The key order, pinned exactly like the sidebar's `nsOrder` and for the
+   *  same reason. Re-deriving it on every render meant that under "untranslated
+   *  first" the row you just translated jumped off the page mid-edit — the very
+   *  failure the `sticky` set exists to prevent, reintroduced by a sort. */
+  let keyOrder = $state<string[]>([]);
+
+  function pickKeySort(order: KeySort) {
+    sort = order;
+    keyOrder = sortRows(rows, order).map((r) => r.key);
+    // The list is reordered from the start, so staying on page 3 would show
+    // rows with no relation to what was on screen a moment ago.
+    page = 0;
+  }
   // Keys the user has changed in this sitting. A changed row keeps its place
   // in the list instead of being yanked out from under the cursor — see
   // filterRows. Keys, never KeyRow objects: `rows` is patched in place on
@@ -149,7 +167,20 @@
     revertError = null;
   });
 
-  const filteredRows = $derived(filterRows(rows, search, view, sticky));
+  const filteredRows = $derived.by(() => {
+    const visible = filterRows(rows, search, view, sticky);
+    if (keyOrder.length === 0) return sortRows(visible, sort);
+    // Follow the pinned order; anything the fetch added since is appended in
+    // the current order rather than reshuffling what the user is looking at.
+    const rank = new Map(keyOrder.map((key, i) => [key, i]));
+    const known = visible.filter((r) => rank.has(r.key));
+    const fresh = sortRows(
+      visible.filter((r) => !rank.has(r.key)),
+      sort,
+    );
+    known.sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+    return [...known, ...fresh];
+  });
   const counts = $derived(countKeyStates(rows));
   const origins = $derived(countOrigins(rows));
   // Sticky rows are folded into `filteredRows`, not appended to `paged`,
@@ -356,6 +387,17 @@
       aria-label={$t('instance.l10n.keyTable.searchAriaLabel')}
       data-testid="l10n-key-search"
       bind:value={search}
+    />
+    <Select
+      value={sort}
+      options={KEY_SORTS.map((order) => ({
+        value: order,
+        label: $t(`instance.l10n.keySort.${order}`),
+      }))}
+      onChange={(v) => (sort = v as KeySort)}
+      ariaLabel={$t('instance.l10n.keySort.label')}
+      dataTestid="l10n-key-sort"
+      class="shrink-0"
     />
     <div class="flex flex-wrap items-center gap-2">
       <!--

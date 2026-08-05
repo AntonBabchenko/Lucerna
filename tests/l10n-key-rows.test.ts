@@ -6,6 +6,8 @@ import {
   countOrigins,
   displayValue,
   filterRows,
+  KEY_SORTS,
+  sortRows,
   stickyOutOfView,
   viewCount,
   visibleViews,
@@ -60,6 +62,15 @@ describe('displayValue', () => {
 });
 
 describe('filterRows', () => {
+  it('finds a row by the translation the user wrote', () => {
+    // The reason the old rule was reversed: you remember your own phrasing far
+    // more often than the key, and "find what I wrote so I can fix it" is the
+    // commonest search of all once a language is half done.
+    const mine = row({ key: 'a.b', sourceEn: 'Wrench', overrideValue: 'Гаечный ключ' });
+    const other = row({ key: 'c.d', sourceEn: 'Hammer', overrideValue: 'Молоток' });
+
+    expect(filterRows([mine, other], 'гаечный', 'all')).toEqual([mine]);
+  });
   const rows: KeyRow[] = [
     row({ key: 'gui.create.title', sourceEn: 'Create', state: 'from_mod', modValue: 'Крафт' }),
     row({
@@ -118,12 +129,15 @@ describe('filterRows', () => {
     expect(result.map((r) => r.key)).toEqual(['gui.create.ghost']);
   });
 
-  it('does not match against the translated value — the user may not be able to read it yet', () => {
-    // "Ключ" (Russian for "wrench") is the override value, not the key or the
-    // English source; searching for it must not surface the row, otherwise a
-    // user who can't read Cyrillic could never find a row by typing English.
-    const result = filterRows(rows, 'ключ', 'all');
-    expect(result).toHaveLength(0);
+  // Reversed deliberately. This used to assert that the override was NOT
+  // searchable, so that "a user who can't read Cyrillic could never find a row
+  // by typing English". The second half is the part worth keeping, and it is
+  // what this now pins: typing English still works. Excluding the override
+  // never followed from it — someone who cannot read the target simply never
+  // types it, while someone who wrote it is the commonest searcher of all.
+  it('still finds a row by its English source, whatever else it matches', () => {
+    const result = filterRows(rows, 'wrench', 'all');
+    expect(result.map((r) => r.key)).toEqual(['gui.create.wrench']);
   });
 
   it('is case-insensitive', () => {
@@ -416,5 +430,39 @@ describe('one filter axis', () => {
       'stale',
     );
     expect(visible).toEqual(['all', 'translated', 'missing', 'stale']);
+  });
+});
+
+describe('sortRows', () => {
+  // The missing row sorts LAST by key on purpose: if it sorted first anyway,
+  // the missingFirst assertion would pass with the branch deleted — which is
+  // exactly how the first version of this test was vacuous.
+  const a = row({ key: 'a.first', sourceEn: 'Apple', state: 'ok' });
+  const b = row({ key: 'z.second', sourceEn: 'Zebra', state: 'missing' });
+
+  it('orders by key by default', () => {
+    expect(sortRows([b, a]).map((r) => r.key)).toEqual(['a.first', 'z.second']);
+  });
+
+  it('orders by the English text when asked', () => {
+    expect(sortRows([b, a], 'english').map((r) => r.sourceEn)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('floats untranslated rows without hiding the rest', () => {
+    // Not a duplicate of the Untranslated chip: the chip HIDES the others,
+    // this keeps them in context underneath.
+    const out = sortRows([a, b], 'missingFirst');
+    expect(out.map((r) => r.key)).toEqual(['z.second', 'a.first']);
+    expect(out).toHaveLength(2);
+  });
+
+  it('never leaves equal rows in an unstable order', () => {
+    const x = row({ key: 'b.k', sourceEn: 'Same', state: 'ok' });
+    const y = row({ key: 'a.k', sourceEn: 'Same', state: 'ok' });
+    expect(sortRows([x, y], 'english').map((r) => r.key)).toEqual(['a.k', 'b.k']);
+  });
+
+  it('offers every order exactly once', () => {
+    expect(new Set(KEY_SORTS).size).toBe(KEY_SORTS.length);
   });
 });

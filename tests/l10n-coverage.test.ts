@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { NamespaceCoverage } from '$lib/ipc/bindings';
-import { coverageTone, namespacePercent, sortNamespaces } from '$lib/l10n/coverage';
+import {
+  coverageTone,
+  NAMESPACE_SORTS,
+  namespacePercent,
+  sortNamespaces,
+} from '$lib/l10n/coverage';
 
 const ns = (over: Partial<NamespaceCoverage>): NamespaceCoverage => ({
   namespace: 'x',
@@ -67,5 +72,39 @@ describe('sortNamespaces', () => {
     const before = rows.map((r) => r.namespace);
     sortNamespaces(rows);
     expect(rows.map((r) => r.namespace)).toEqual(before);
+  });
+});
+
+describe('sortNamespaces orders', () => {
+  // The mod's authors translated `heavy` almost fully; the user has barely
+  // touched it. The user did all the work on `mine`. If "by my translations"
+  // agrees with the default here, the comparator is reading the wrong field.
+  const heavy = { namespace: 'heavy', totalKeys: 100, fromMod: 90, overridden: 1 };
+  const mine = { namespace: 'mine', totalKeys: 100, fromMod: 0, overridden: 40 };
+
+  it('puts the least covered first by default', () => {
+    expect(sortNamespaces([heavy, mine]).map((r) => r.namespace)).toEqual(['mine', 'heavy']);
+  });
+
+  it('disagrees with the default when ordering by the user own translations', () => {
+    expect(sortNamespaces([heavy, mine], 'mine').map((r) => r.namespace)).toEqual([
+      'mine',
+      'heavy',
+    ]);
+    expect(sortNamespaces([mine, heavy], 'mine')[0].overridden).toBe(40);
+    expect(sortNamespaces([mine, heavy], 'mostCovered')[0].namespace).toBe('heavy');
+  });
+
+  it('sorts by name and by size', () => {
+    expect(sortNamespaces([mine, heavy], 'name').map((r) => r.namespace)).toEqual([
+      'heavy',
+      'mine',
+    ]);
+    const big = { namespace: 'big', totalKeys: 500, fromMod: 0, overridden: 0 };
+    expect(sortNamespaces([mine, big], 'mostKeys')[0].namespace).toBe('big');
+  });
+
+  it('offers every order exactly once', () => {
+    expect(new Set(NAMESPACE_SORTS).size).toBe(NAMESPACE_SORTS.length);
   });
 });

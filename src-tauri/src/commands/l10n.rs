@@ -118,6 +118,139 @@ pub async fn l10n_namespace_keys(
     ))
 }
 
+/// One hit: the row the editor already knows how to render, plus the mod it
+/// came from — which is the whole point, because the user searching does not
+/// know that.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub namespace: String,
+    pub row: KeyRow,
+}
+
+/// What an instance-wide search found, and what it could not see.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    /// Best matches first.
+    pub hits: Vec<SearchHit>,
+    /// Mods present but switched off. Their strings were NOT searched, and an
+    /// empty result means something different when this is non-zero — the user
+    /// can act on that, so it must not be silently omitted.
+    pub disabled_mods: u32,
+    /// True when `hits` was cut at [`SEARCH_HIT_CAP`]. Reported rather than
+    /// silently truncated: a capped list that claims to be complete is worse
+    /// than one that admits it stopped counting.
+    pub truncated: bool,
+}
+
+/// Enough hits to find anything real; short enough that a one-letter query
+/// cannot drag a hundred-mod pack's entire key space across IPC.
+const SEARCH_HIT_CAP: usize = 200;
+
+/// Find a string anywhere in this instance, without knowing its mod.
+///
+/// The entry point for the case the per-namespace editor cannot serve: the
+/// player saw a line in game and has the TEXT, not the mod. Matching is
+/// forgiving on purpose — see `l10n::find` for why a literal substring search
+/// finds neither `Invalid language: %s` nor `§dServux: %s§r`.
+///
+/// Searches the key, the mod's English, AND the user's own override. The
+/// per-mod search deliberately excluded the override on the grounds that the
+/// target script may be unreadable to the user; that holds for someone
+/// translating INTO an alphabet they do not know, and not at all for someone
+/// looking for a phrasing they themselves wrote and now dislike.
+#[tauri::command]
+#[specta::specta]
+pub async fn l10n_search(
+    app: tauri::AppHandle,
+    instance_id: String,
+    lang: String,
+    query: String,
+) -> Result<SearchResult, crate::error::Error> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let store_dir =
+        crate::paths::l10n_dir(&app).map_err(|e| crate::error::Error::io("<l10n_dir>", e))?;
+    let lang = crate::l10n::coverage::default_target_code(&lang);
+
+    let installed = crate::mods::installed::list(&inst_root)
+        .await
+        .unwrap_or_default();
+    let disabled_mods = installed.iter().filter(|m| !m.enabled).count() as u32;
+    // Identity of the scan the memo is keyed on — see `l10n::search_cache`.
+    let enabled: Vec<(String, String)> = installed
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| (m.filename.clone(), m.sha1.clone()))
+        .collect();
+
+    if crate::l10n::find::normalise(&query).is_empty() {
+        return Ok(SearchResult {
+            hits: Vec::new(),
+            disabled_mods,
+            truncated: false,
+        });
+    }
+
+    // Memoised: the jar walk is seconds on a large pack, and the maps come from
+    // JARS only, so a user translating between queries cannot stale them.
+    let maps = crate::l10n::search_cache::lang_maps_cached(&inst_root, &lang, &enabled, || {
+        crate::l10n::namespace_scan::instance_lang_maps(&inst_root, &lang)
+    })
+    .await?;
+
+    // Hoisted: `find::rank` normalises its query on every call, and this loop
+    // runs once per KEY — tens of thousands of times for one constant string.
+    let needle = crate::l10n::find::normalise(&query);
+
+    let mut ranked: Vec<(crate::l10n::find::Rank, SearchHit)> = Vec::new();
+    for (namespace, (en, mod_tr)) in maps.iter() {
+        let store = crate::l10n::store::load(&store_dir, &lang, namespace);
+        for row in crate::l10n::store::namespace_key_rows(&store, en, Some(mod_tr)) {
+            // `mod_value` is the string the player actually READ on screen
+            // whenever the mod ships their language — omitting it made the
+            // command miss the very case its doc comment describes. It was
+            // already loaded, already on the row and already crossing IPC.
+            let best = [
+                Some(row.key.as_str()),
+                Some(row.source_en.as_str()),
+                row.mod_value.as_deref(),
+                row.override_value.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .filter_map(|value| crate::l10n::find::rank_normalised(&needle, value))
+            .max();
+            if let Some(rank) = best {
+                ranked.push((
+                    rank,
+                    SearchHit {
+                        namespace: namespace.clone(),
+                        row,
+                    },
+                ));
+            }
+        }
+    }
+
+    // Best first, then a stable, predictable order so the same query twice
+    // never reshuffles rows under the user's cursor.
+    ranked.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.namespace.cmp(&b.1.namespace))
+            .then_with(|| a.1.row.key.cmp(&b.1.row.key))
+    });
+
+    let truncated = ranked.len() > SEARCH_HIT_CAP;
+    ranked.truncate(SEARCH_HIT_CAP);
+
+    Ok(SearchResult {
+        hits: ranked.into_iter().map(|(_, hit)| hit).collect(),
+        disabled_mods,
+        truncated,
+    })
+}
+
 /// Reject a `namespace` or `lang` that would corrupt a later composed
 /// zip-entry path if persisted verbatim: `l10n::store::load` (the very next
 /// thing `l10n_set_override` calls) constructs a fresh `NamespaceStore` from
