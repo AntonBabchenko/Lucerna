@@ -93,9 +93,30 @@ pub fn save(jar_dir: &Path, records: &[ServerInstalledRecord]) -> Result<()> {
     std::fs::rename(&tmp, &final_path).map_err(|e| Error::io(final_path.display().to_string(), e))
 }
 
+/// SHA-1 of a jar, also seeding [`HASH_CACHE`] so the next `reconcile_on_list`
+/// over the same unchanged file answers from memory instead of re-reading it.
+/// The install / update paths call this right after writing a jar and the UI
+/// re-lists immediately — without the seeding that jar is read twice.
+///
+/// The stat is taken BEFORE the read on purpose: if the file changes mid-read we
+/// store the digest under the OLD `(mtime, size)`, and the next lookup stats
+/// fresh metadata, misses, and re-hashes. Seeding is best-effort — a failed stat
+/// just leaves the slow path in place, exactly as it behaves today.
+///
+/// Server analogue of `crate::mods::installed::seed_hash_cache`, placed inside
+/// the hashing function so every call site is covered rather than each one
+/// having to remember.
 pub fn sha1_of(path: &Path) -> Result<String> {
+    let stat = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok().map(|mtime| (mtime, m.len())));
     let bytes = std::fs::read(path).map_err(|e| Error::io(path.display().to_string(), e))?;
-    Ok(hex::encode(Sha1::digest(bytes)))
+    let sha = hex::encode(Sha1::digest(bytes));
+    if let Some((mtime, size)) = stat {
+        let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        cache.insert(path.to_path_buf(), (mtime, size, sha.clone()));
+    }
+    Ok(sha)
 }
 
 /// Process-lifetime SHA-1 cache keyed by path, re-using the stored digest when
@@ -491,5 +512,37 @@ mod tests {
         assert_eq!(e.record.filename, "sodium.jar"); // base filename rewritten by sha1 match
         assert_eq!(e.record.project_id.as_deref(), Some("p")); // identity preserved
         assert!(e.enabled);
+    }
+
+    #[test]
+    fn sha1_of_seeds_the_hash_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let jar = dir.path().join("seeded.jar");
+        std::fs::write(&jar, b"some bytes").unwrap();
+
+        // Hashing through `sha1_of` must leave the digest in HASH_CACHE, so the
+        // reconcile that follows an install answers from memory instead of
+        // reading the jar a second time.
+        let real = sha1_of(&jar).unwrap();
+
+        let meta = std::fs::metadata(&jar).unwrap();
+        let mtime = meta.modified().unwrap();
+        {
+            let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+            let entry = cache
+                .get_mut(&jar)
+                .expect("sha1_of must have seeded the cache");
+            assert_eq!(*entry, (mtime, meta.len(), real.clone()));
+            // Poison it: a later lookup that re-read the bytes would recompute
+            // `real`, so getting the poison back is what proves the cache was
+            // hit — and therefore that `sha1_of` stored it under the right key.
+            entry.2 = "poisoned".to_string();
+        }
+
+        let again = cached_sha1(&jar, mtime, meta.len()).unwrap();
+        assert_eq!(
+            again, "poisoned",
+            "cached_sha1 re-read a file sha1_of should have cached"
+        );
     }
 }
