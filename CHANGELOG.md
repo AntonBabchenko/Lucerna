@@ -30,12 +30,39 @@ release is **0.9.0**.
   priority over any resource pack, so an override there would have no effect.
   The coverage report still works on those instances.
 
-- **Datapacks for singleplayer worlds.** A world's detail view gets a new
-  **Datapacks** tab next to Backups: install a datapack `.zip` **or folder**
-  into the instance's shared library, then decide per world whether a pack is
-  present and whether it's enabled. Removing a pack from a world also clears
-  its `level.dat` entry, so a removed pack no longer leaves Minecraft asking
-  about a missing data pack the next time that world loads.
+- **Datapacks, from the catalogue into your worlds.** Instances get a new
+  **Data packs** option in Add-ons, alongside mods, resource packs and
+  shaders: search Modrinth and CurseForge, install a pack, then choose which
+  worlds it goes into. A pack is stored once in the instance's library and
+  linked into every world that uses it, so the same pack in five worlds costs
+  the space of one. Every library row shows where that pack actually is —
+  enabled in some worlds, disabled in others, or in none yet — and expands to
+  the per-world detail.
+
+  Updating a pack carries the new version into every world that has it and
+  keeps each world's own enabled or disabled setting. Removing one offers to
+  clear it out of those worlds in the same step, and reports any world it left
+  untouched because the file sitting there isn't the one Lucerna installed. A
+  world that loses a pack loses its record of it too, so Minecraft no longer
+  asks about a missing data pack the next time that world loads. A world's
+  detail view still has its own **Datapacks** tab for working on one world at
+  a time, and either place accepts a pack that is a folder rather than a
+  `.zip`, or one that was put there outside the launcher.
+
+  Datapacks need Minecraft 1.13 or newer — below that the option isn't
+  offered.
+
+- **Datapacks on your own server.** The server's Add-ons tab gets the same
+  **Datapacks** option — install from Modrinth or CurseForge, check for
+  updates, and switch packs on and off. On and off are written into the world
+  itself rather than faked by renaming files, so the list matches what
+  `/datapack list` shows in the server console. Packs you put in the world
+  folder by hand — folders as well as `.zip` files — are listed next to the
+  ones Lucerna installed. An entry whose file has since gone missing is shown
+  as exactly that; clearing it is what stops the server asking about a pack
+  that no longer exists. Datapacks are changed while the server is stopped,
+  the same rule as its mods and plugins. Servers older than Minecraft 1.13
+  don't offer it at all.
 
 ### Fixed
 
