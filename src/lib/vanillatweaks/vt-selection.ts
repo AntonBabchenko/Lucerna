@@ -14,10 +14,7 @@ export function packId(category: string, pack: VtPack): string {
  * The ticked packs grouped by category — the exact shape the build request
  * takes. A category with nothing ticked is omitted rather than sent empty.
  */
-export function toSelection(
-  categories: VtCategory[],
-  ticked: Set<string>,
-): [string, string[]][] {
+export function toSelection(categories: VtCategory[], ticked: Set<string>): [string, string[]][] {
   const out: [string, string[]][] = [];
   for (const cat of categories) {
     const names = cat.packs.filter((p) => ticked.has(packId(cat.category, p))).map((p) => p.name);

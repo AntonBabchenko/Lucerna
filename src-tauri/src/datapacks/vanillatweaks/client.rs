@@ -256,10 +256,7 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let link = c
-            .build_link(
-                "1.21",
-                &[("survival".into(), vec!["armor statues".into()])],
-            )
+            .build_link("1.21", &[("survival".into(), vec!["armor statues".into()])])
             .await
             .unwrap();
         assert_eq!(link, format!("{}/assets/dl/1234/datapacks.zip", s.uri()));
@@ -270,9 +267,11 @@ mod tests {
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/assets/server/zipdatapacks.php"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"{"status":"error","link":"","message":"no packs selected"}"#,
-            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(
+                    r#"{"status":"error","link":"","message":"no packs selected"}"#,
+                ),
+            )
             .mount(&s)
             .await;
 

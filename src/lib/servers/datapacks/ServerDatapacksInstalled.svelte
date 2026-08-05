@@ -37,7 +37,6 @@
     reloadToken?: number;
   } = $props();
 
-
   let rows = $state<ServerDatapackEntry[]>([]);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
@@ -307,12 +306,7 @@
       panelClass="max-w-2xl w-full"
       dataTestid="server-vt-builder-modal"
     >
-      <VanillaTweaksBuilder
-        {mcVersion}
-        installed={vtInstalled}
-        busy={vtBusy}
-        onBuild={buildVt}
-      />
+      <VanillaTweaksBuilder {mcVersion} installed={vtInstalled} busy={vtBusy} onBuild={buildVt} />
     </Modal>
   {/if}
 

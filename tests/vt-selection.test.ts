@@ -30,7 +30,13 @@ const CATEGORIES: VtCategory[] = [
   {
     category: 'utilities',
     packs: [
-      { name: 'afk display', display: 'AFK Display', version: '1.1.2', description: '', incompatible: [] },
+      {
+        name: 'afk display',
+        display: 'AFK Display',
+        version: '1.1.2',
+        description: '',
+        incompatible: [],
+      },
     ],
   },
 ];

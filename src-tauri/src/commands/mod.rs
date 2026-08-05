@@ -70,8 +70,8 @@ mod datapacks;
 pub use datapacks::*;
 mod server_datapacks;
 mod vanillatweaks;
-pub use vanillatweaks::*;
 pub use server_datapacks::*;
+pub use vanillatweaks::*;
 mod l10n;
 pub use l10n::*;
 

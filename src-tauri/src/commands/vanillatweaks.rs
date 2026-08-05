@@ -130,10 +130,8 @@ pub async fn vt_install_to_server(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    let world = crate::servers_runtime::datapacks::world_dir(
-        &p.runtime,
-        &super::server_props_raw(&p),
-    );
+    let world =
+        crate::servers_runtime::datapacks::world_dir(&p.runtime, &super::server_props_raw(&p));
     let family = family_for(&file.mc_version).ok_or_else(|| Error::VanillaTweaksUnavailable {
         mc_version: file.mc_version.clone(),
     })?;

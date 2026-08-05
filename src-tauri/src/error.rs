@@ -589,7 +589,9 @@ pub enum Error {
     /// The produced bundle exceeded the whole-bundle cap. Distinct from
     /// `DatapackTooLarge`, which bounds one pack: a build is one zip holding
     /// one zip per selected pack, so the per-pack limit cannot bound it.
-    #[error("the Vanilla Tweaks download is {size_bytes} bytes, over the {limit_bytes} byte limit")]
+    #[error(
+        "the Vanilla Tweaks download is {size_bytes} bytes, over the {limit_bytes} byte limit"
+    )]
     VanillaTweaksBundleTooLarge { size_bytes: f64, limit_bytes: f64 },
 
     /// A translation the user typed failed Minecraft's `%s`/`%N$s` format

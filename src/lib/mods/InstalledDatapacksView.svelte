@@ -728,12 +728,7 @@
       panelClass="max-w-2xl w-full"
       dataTestid="vt-builder-modal"
     >
-      <VanillaTweaksBuilder
-        {mcVersion}
-        installed={vtInstalled}
-        busy={vtBusy}
-        onBuild={buildVt}
-      />
+      <VanillaTweaksBuilder {mcVersion} installed={vtInstalled} busy={vtBusy} onBuild={buildVt} />
     </Modal>
   {/if}
 

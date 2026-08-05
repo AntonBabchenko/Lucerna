@@ -333,9 +333,8 @@ pub async fn datapacks_update_one(
     let vt_family = if target.source == crate::mods::platform::ModSource::VanillaTweaks {
         let (mc_version, _loader) = super::read_active_mc_and_loader(&app, &instance_id)?;
         Some(
-            crate::datapacks::vanillatweaks::family_for(&mc_version).ok_or(
-                crate::error::Error::VanillaTweaksUnavailable { mc_version },
-            )?,
+            crate::datapacks::vanillatweaks::family_for(&mc_version)
+                .ok_or(crate::error::Error::VanillaTweaksUnavailable { mc_version })?,
         )
     } else {
         None

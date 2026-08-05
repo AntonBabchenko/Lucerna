@@ -34,12 +34,13 @@ impl ModSource {
     /// exhaustively tested against this, the same shape as `AiProvider::ALL`
     /// in `instances::schema` — adding a variant without adding it here is
     /// caught by a test rather than by a silently-unmapped source later.
-    pub const ALL: [ModSource; 5] = [
+    pub const ALL: [ModSource; 6] = [
         ModSource::Modrinth,
         ModSource::Curseforge,
         ModSource::Ftb,
         ModSource::Atlauncher,
         ModSource::Hangar,
+        ModSource::VanillaTweaks,
     ];
 }
 
@@ -231,10 +232,9 @@ pub const fn supplies_project_loaders(source: ModSource) -> bool {
         // never populate a summary at all. Vanilla Tweaks serves datapacks,
         // which have no loader either, and its `search`/`project` are
         // unsupported so no summary is ever built for it.
-        ModSource::Hangar
-        | ModSource::Ftb
-        | ModSource::Atlauncher
-        | ModSource::VanillaTweaks => false,
+        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
+            false
+        }
     }
 }
 

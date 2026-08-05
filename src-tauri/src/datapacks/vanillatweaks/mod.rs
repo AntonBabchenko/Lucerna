@@ -44,12 +44,11 @@ pub async fn build_one_with(
     family: &str,
     project_id: &str,
 ) -> crate::error::Result<(String, Vec<u8>)> {
-    let (category, name) =
-        project_id
-            .split_once('/')
-            .ok_or_else(|| crate::error::Error::VanillaTweaksBuildFailed {
-                message: format!("'{project_id}' is not a <category>/<name> pack id"),
-            })?;
+    let (category, name) = project_id.split_once('/').ok_or_else(|| {
+        crate::error::Error::VanillaTweaksBuildFailed {
+            message: format!("'{project_id}' is not a <category>/<name> pack id"),
+        }
+    })?;
     let mut packs = build_selection_with(
         client,
         family,
@@ -67,10 +66,7 @@ pub async fn build_one_with(
 }
 
 /// Production entry point for one pack.
-pub async fn build_one(
-    family: &str,
-    project_id: &str,
-) -> crate::error::Result<(String, Vec<u8>)> {
+pub async fn build_one(family: &str, project_id: &str) -> crate::error::Result<(String, Vec<u8>)> {
     build_one_with(&VtClient::new(), family, project_id).await
 }
 
