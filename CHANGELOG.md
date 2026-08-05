@@ -86,6 +86,10 @@ release is **0.9.0**.
 - World deletion, restore, backup and import are refused while the instance
   is running instead of racing the live game.
 - Cloning an instance now carries its datapack library along with it.
+- Building a client instance from your own server brings that server's
+  datapacks with it. They land in the new instance's datapack library, keeping
+  the identity that lets Lucerna offer updates for them later, and you place
+  them into a world once you have one.
 
 ## [0.21.0] — 2026-07-31
 
