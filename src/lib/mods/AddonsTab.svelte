@@ -129,7 +129,7 @@
     mod: 'blocks',
     resource_pack: 'resourcePack',
     shader: 'shader',
-    datapack: 'world',
+    datapack: 'datapack',
   };
 
   // Whether the active instance's Minecraft can load data packs at all (the

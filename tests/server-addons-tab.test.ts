@@ -117,19 +117,19 @@ describe('ServerAddonsTab', () => {
     await seed([makeServer('a', false, 'fabric')]);
     render(ServerAddonsTab, { serverId: 'a' });
     const tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Mods', 'Datapacks']);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Mods', 'Datapacks (Beta)']);
   });
 
   it('paper server offers Plugins + Datapacks; vanilla offers Datapacks only (both with sub-tabs)', async () => {
     await seed([makeServer('a', false, 'paper')]);
     const r = render(ServerAddonsTab, { serverId: 'a' });
     let tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Plugins', 'Datapacks']);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Plugins', 'Datapacks (Beta)']);
     r.unmount();
     await seed([makeServer('b', false, 'vanilla')]);
     render(ServerAddonsTab, { serverId: 'b' });
     tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Datapacks']);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Datapacks (Beta)']);
     // The datapack kind now gets the same Browse/Installed sub-tab row as
     // every other kind — the old flat (no sub-tabs) datapack pane is retired.
     expect(screen.queryByTestId('server-addons-subtabs')).not.toBeNull();
@@ -163,7 +163,7 @@ describe('ServerAddonsTab', () => {
     // Switch to Datapacks: the sub-view must be reset to Browse. Datapacks
     // now carries its own Browse/Installed sub-tabs (unlike the old flat
     // pane), so this also checks that row is still present.
-    await fireEvent.click(kindSwitch().getByRole('tab', { name: 'Datapacks' }));
+    await fireEvent.click(kindSwitch().getByRole('tab', { name: 'Datapacks (Beta)' }));
     await waitFor(() =>
       expect(subTabs().getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
         'true',

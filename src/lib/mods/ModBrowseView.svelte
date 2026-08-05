@@ -122,7 +122,7 @@
       : kind === 'shader'
         ? 'shader'
         : kind === 'datapack'
-          ? 'world'
+          ? 'datapack'
           : 'puzzle',
   );
 

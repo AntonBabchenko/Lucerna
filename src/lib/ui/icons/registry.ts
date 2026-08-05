@@ -18,6 +18,7 @@ import {
   CircleX,
   Copy,
   Crop,
+  Database,
   Download,
   EllipsisVertical,
   Eraser,
@@ -132,7 +133,11 @@ export const ICONS = {
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind
   plug: Plug, // plugin kind (server Add-ons kind switch)
-  world: Globe, // datapack kind (server Add-ons kind switch) — packs apply to the world
+  // Datapack kind. Named for what it is, not for where it lands: the previous
+  // name `world` pointed at the same Globe as `globe` above (join-server), so
+  // datapacks and "connect to a server" wore one glyph. A datapack is data —
+  // recipes, loot tables, advancements, worldgen — hence the database mark.
+  datapack: Database,
   server: Server, // own-server entry point (sidebar + server list rows)
   monitor: Monitor, // Client mode segment of the sidebar mode switcher
   switch: ArrowRightLeft, // version row: "switch to this installed version"
