@@ -383,11 +383,37 @@ pub async fn search(
 
 // ---- version (file) list --------------------------------------------
 
+/// Split a CurseForge file's `gameVersions` into Minecraft versions and
+/// loader tags.
+///
+/// CF mixes both into one array, plus `Client` / `Server` environment
+/// markers: `["1.20.1", "NeoForge", "Server"]`. The CF *mod* client already
+/// splits these; modpack files get the same treatment so the install CTA can
+/// name the loader it is about to install. Loader tags are emitted as
+/// Modrinth-style slugs — the vocabulary the Modrinth and FTB modpack paths
+/// already produce — deduplicated with first-seen order preserved, so the UI
+/// needs no per-source branch.
+fn split_game_version_tags(tags: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let mut mc_versions = Vec::new();
+    let mut loaders: Vec<String> = Vec::new();
+    for tag in tags {
+        if let Some(kind) = crate::mods::curseforge::types::loader_from_tag(&tag) {
+            let slug = kind.modrinth_slug().to_string();
+            if !loaders.contains(&slug) {
+                loaders.push(slug);
+            }
+        } else if !crate::mods::curseforge::types::is_environment_marker(&tag) {
+            mc_versions.push(tag);
+        }
+    }
+    (mc_versions, loaders)
+}
+
 /// List a CurseForge modpack project's files, newest-first, as
-/// `ModpackVersionEntry` rows for the version drawer. CurseForge files
-/// carry no loader tag, so `loaders` is left empty (the Modrinth-shaped
-/// `ModpackVersionEntry` tolerates this — the CF mod client does the
-/// same for mod files).
+/// `ModpackVersionEntry` rows for the version drawer. CurseForge mixes
+/// Minecraft versions, loader names and `Client`/`Server` markers into one
+/// `gameVersions` array; `split_game_version_tags` separates them so a pack
+/// version reports its loader like a Modrinth or FTB one does.
 pub async fn list_files(
     base: &str,
     key: Option<&str>,
@@ -411,13 +437,16 @@ pub async fn list_files(
     let mut entries: Vec<ModpackVersionEntry> = env
         .data
         .into_iter()
-        .map(|f| ModpackVersionEntry {
-            id: f.id.to_string(),
-            name: f.display_name,
-            version_number: f.file_name,
-            game_versions: f.game_versions,
-            loaders: vec![],
-            date_published: f.file_date.unwrap_or_default(),
+        .map(|f| {
+            let (game_versions, loaders) = split_game_version_tags(f.game_versions);
+            ModpackVersionEntry {
+                id: f.id.to_string(),
+                name: f.display_name,
+                version_number: f.file_name,
+                game_versions,
+                loaders,
+                date_published: f.file_date.unwrap_or_default(),
+            }
         })
         .collect();
     // Newest-first by publish date (lexical sort is correct for the
@@ -1257,5 +1286,52 @@ mod tests {
             }
             other => panic!("expected ModpackCfDistributionDisabled, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn split_game_version_tags_separates_loaders_markers_and_mc() {
+        let (mc, loaders) = split_game_version_tags(vec![
+            "1.20.1".to_string(),
+            "Forge".to_string(),
+            "Client".to_string(),
+            "forge".to_string(),
+            "1.20.2".to_string(),
+            "NeoForge".to_string(),
+        ]);
+        // Minecraft versions keep source order; markers and loader names are gone.
+        assert_eq!(mc, vec!["1.20.1".to_string(), "1.20.2".to_string()]);
+        // Case-insensitive, deduplicated, emitted as Modrinth-style slugs.
+        assert_eq!(loaders, vec!["forge".to_string(), "neoforge".to_string()]);
+    }
+
+    #[test]
+    fn split_game_version_tags_leaves_a_loaderless_file_untouched() {
+        let (mc, loaders) = split_game_version_tags(vec!["1.12.2".to_string()]);
+        assert_eq!(mc, vec!["1.12.2".to_string()]);
+        assert!(loaders.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_files_reports_the_loader_curseforge_mixed_into_game_versions() {
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [
+                { "id": 33, "displayName": "ATM9 1.0.5", "fileName": "atm9-1.0.5.zip",
+                  "gameVersions": ["1.20.1", "NeoForge", "Server"],
+                  "downloadUrl": "https://edge.forgecdn.net/c.zip",
+                  "fileDate": "2026-04-01T00:00:00Z" }
+            ],
+            "pagination": null
+        });
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/1234/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v = list_files(&s.uri(), Some("k"), "1234").await.unwrap();
+        assert_eq!(v[0].game_versions, vec!["1.20.1".to_string()]);
+        assert_eq!(v[0].loaders, vec!["neoforge".to_string()]);
     }
 }

@@ -17,6 +17,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { joinSummary, summarisePick } from '$lib/modpacks/install-summary';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
@@ -119,6 +120,24 @@
   const installDisabledReason = $derived.by(() => {
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);
+  });
+
+  // The caption under the CTA label: which version was picked, why, and what
+  // the resulting instance will run. Built from translated fragments rather
+  // than one message, so a source that reports no loader (CurseForge,
+  // ATLauncher) drops that segment instead of rendering " · ".
+  const recommendedSummary = $derived.by(() => {
+    if (!recommended) return '';
+    const pick = summarisePick(recommended, mcFilter);
+    return joinSummary([
+      $t(
+        pick.reason === 'newest'
+          ? 'modpacks.detail.pickNewest'
+          : 'modpacks.detail.pickNewestFiltered',
+      ),
+      pick.mc ? $t('modpacks.detail.mcLabel', { mc: pick.mc }) : null,
+      pick.loaders,
+    ]);
   });
 
   async function install(versionId: string) {
@@ -229,6 +248,11 @@
       {:else}
         <ul class="space-y-2">
           {#each visibleVersions as v (v.id)}
+            <!-- `null` filter on purpose: a row is a version the user picked by
+                 hand, so the "why this one" reason is irrelevant here — only
+                 the MC / loader segments are used. -->
+            {@const meta = summarisePick(v, null)}
+            {@const rowTip = $t('modpacks.detail.installRowTip', { version: v.version_number })}
             <li
               class="p-2 border rounded text-sm"
               class:border-accent={v.id === highlightVersionId}
@@ -239,13 +263,16 @@
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{v.name}</div>
                   <div class="text-xs text-muted">
-                    MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
+                    {joinSummary([
+                      meta.mc ? $t('modpacks.detail.mcLabel', { mc: meta.mc }) : null,
+                      meta.loaders,
+                    ])}
                   </div>
                 </div>
                 <span
                   class="inline-flex ml-2"
                   use:tooltip={{
-                    text: installDisabledReason ?? $t('common.install'),
+                    text: installDisabledReason ?? rowTip,
                     describe: false,
                   }}
                 >
@@ -253,7 +280,7 @@
                     class="btn-icon btn-icon-sm !text-accent"
                     busy={downloading}
                     disabled={installDisabledReason !== null}
-                    aria-label={$t('common.install')}
+                    aria-label={rowTip}
                     onclick={() => install(v.id)}
                   >
                     <Icon name="download" size={15} />
@@ -280,13 +307,18 @@
             use:tooltip={{ text: installDisabledReason ?? '', describe: false }}
           >
             <BusyButton
-              class="btn-primary w-full"
+              class="btn-primary w-full py-2"
               busy={downloading}
               disabled={installDisabledReason !== null}
               onclick={() => install(recommended.id)}
             >
               <Icon name="download" size={14} />
-              {$t('common.installVersion', { version: recommended.version_number })}
+              <span class="flex flex-col items-start text-left leading-tight">
+                <span>{$t('common.installVersion', { version: recommended.version_number })}</span>
+                <span class="text-xs font-normal opacity-80" data-testid="modpack-install-summary">
+                  {recommendedSummary}
+                </span>
+              </span>
             </BusyButton>
           </span>
         {:else}

@@ -135,6 +135,7 @@ An action's affordance is decided by its **role and density**, not its verb. A r
 | Enable / disable toggle | icon-only (`.btn-icon-success` on, `!text-muted` off) | yes | yes | zoom; colour = state |
 | Install (dense version / card row) | icon-only `.btn-icon-sm !text-accent` | yes | yes | zoom; `Spinner` while busy |
 | Install (prominent CTA) | icon+label `.btn-primary` + leading `download` | no | — | none |
+| Install (prominent CTA, non-obvious target) | icon+label `.btn-primary` + leading `download`, label stacked over a `text-xs font-normal opacity-80` caption naming what will be installed and why that one | no | — | none |
 | Open-folder (always) | icon+label `.btn-secondary` + leading `folderOpen` — never icon-only | no | — | none |
 | Open-external / view on page | `.btn-link` + trailing `externalLink` | only if it carries the URL | — | none |
 | Inline "jump elsewhere" | text-only `.btn-tertiary`, no icon | no | — | none |

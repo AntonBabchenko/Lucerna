@@ -1,7 +1,9 @@
 //! CurseForge Eternal API client (v1).
 
 pub mod keyring;
-mod types;
+// `pub(crate)` so the modpack client can reuse the same `gameVersions` tag
+// vocabulary instead of writing a second, drifting copy of it.
+pub(crate) mod types;
 
 use async_trait::async_trait;
 
