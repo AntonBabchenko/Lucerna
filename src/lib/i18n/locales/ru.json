@@ -532,6 +532,8 @@
       "prefill": {
         "allButton": "Перевести через ИИ",
         "namespaceButtonAria": "Перевести недостающее в {namespace} через ИИ",
+      "disabledNoConsent": "ИИ-перевод выключен в Настройках → Интеграции → ИИ-перевод.",
+      "disabledNoKey": "Добавьте API-ключ в Настройках → Интеграции → ИИ-перевод.",
         "title": "Перевод через ИИ",
         "scopeAll": "Все моды этого профиля",
         "scopeNamespace": "Только {namespace}",

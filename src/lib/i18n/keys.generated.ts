@@ -497,6 +497,8 @@ export type TranslationKey =
   | 'instance.l10n.prefill.cachedLabel'
   | 'instance.l10n.prefill.costLabel'
   | 'instance.l10n.prefill.costValue'
+  | 'instance.l10n.prefill.disabledNoConsent'
+  | 'instance.l10n.prefill.disabledNoKey'
   | 'instance.l10n.prefill.doneButton'
   | 'instance.l10n.prefill.estimateFailed'
   | 'instance.l10n.prefill.estimating'

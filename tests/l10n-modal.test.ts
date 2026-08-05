@@ -807,7 +807,7 @@ describe('LocalizationModal', () => {
       }),
     );
     render(LocalizationModal, {
-      props: { open: true, instanceId: 'a', lang: 'en_us', aiConsent: true },
+      props: { open: true, instanceId: 'a', lang: 'en_us', aiReady: 'ready' },
     });
     const btns = await screen.findAllByTestId('l10n-prefill-namespace');
     expect(btns[0].className).toContain('btn-icon');
