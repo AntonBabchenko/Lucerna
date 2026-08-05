@@ -30,6 +30,30 @@ release is **0.9.0**.
   priority over any resource pack, so an override there would have no effect.
   The coverage report still works on those instances.
 
+- **Let a model draft those translations for you.** Off until you switch it on
+  in Settings and supply your own API key. Pick Anthropic, Gemini or Groq —
+  or point it at a model running on your own machine, in which case nothing
+  leaves the computer at all. "Translate with AI" sends the English strings
+  of the mods you asked about and nothing else, and every answer lands as a
+  draft you can edit or throw away, never as a silent overwrite. A batch the
+  model answers unusably is dropped on its own and reported at the end rather
+  than killing the run — a run that quietly loses work while the coverage
+  number refuses to move is worse than one that says what it lost.
+
+- **Share what you translated.** Export your own strings as a file and hand it
+  to someone else, or apply one set across several instances at once. The
+  export dialog now says what it is offering — the mods you have overrides
+  for — and what a tick means, and a long list gets a count, select-all and a
+  search box instead of ten visible rows.
+
+- **Find a line you saw in the game without knowing which mod it came from.**
+  Search the whole instance for the text as the game *rendered* it: colour
+  codes and spacing are ignored, and a placeholder in the file (`Invalid
+  language: %s`) matches what you actually read on screen (`Invalid language:
+  ru_ru`). Hits rank exact before prefix before substring, because on a
+  hundred-mod pack an unranked list is barely better than the mod list it
+  replaces.
+
 - **Datapacks, from the catalogue into your worlds.** Instances get a new
   **Data packs** option in Add-ons, alongside mods, resource packs and
   shaders: search Modrinth and CurseForge, install a pack, then choose which
@@ -50,7 +74,9 @@ release is **0.9.0**.
   `.zip`, or one that was put there outside the launcher.
 
   Datapacks need Minecraft 1.13 or newer — below that the option isn't
-  offered.
+  offered. Every datapack entry point is labelled **(Beta)**: the feature is
+  new and touches your worlds, so it says so before anyone's world depends
+  on it.
 
 - **Vanilla Tweaks, built from inside the launcher.** The datapack views —
   both the instance's and the server's — gain a **Vanilla Tweaks** button that
@@ -78,6 +104,52 @@ release is **0.9.0**.
   the same rule as its mods and plugins. Servers older than Minecraft 1.13
   don't offer it at all.
 
+- **One place that shows every long-running job.** Installing a game version,
+  installing or updating mods, importing or updating a modpack, verifying an
+  instance — each used to report progress on its own surface, and work
+  started somewhere you had since navigated away from was simply invisible.
+  All of it now runs through one operations centre: a strip that says what is
+  running, how far along it is, and what it belongs to, with the surfaces
+  keeping their own inline bars as well. Finished imports and updates carry a
+  **Details** report listing every file, where it came from, and whether it
+  was downloaded or already in the cache.
+
+- **Navigate a thousand screenshots.** The gallery and the per-instance
+  screenshots tab now group shots by day or month, sort newest- or
+  oldest-first, and page through the result instead of rendering everything
+  at once. The lightbox steps across the whole collection rather than
+  stopping at the edge of one group.
+
+- **Copy, Cut and Paste on the launcher's own text fields.** Right-click a
+  text field and you get the launcher's own menu, in the launcher's language,
+  offering only the entries that apply to what is selected — instead of the
+  webview's default menu. The field keeps its selection and gets its focus
+  back afterwards.
+
+- **A server's mod browser can hide client-only mods.** Browsing mods for
+  your own server now offers to leave out the ones that only do anything on
+  a client. Modrinth supports this directly; CurseForge's search has no such
+  filter, so the control is disabled for that source rather than silently
+  doing nothing.
+
+### Changed
+
+- **The install button says what it will install.** On a modpack, the button
+  and each version row now name the pack version, the Minecraft version and
+  the loader they will use, so the choice is visible before you commit to a
+  new instance rather than after. CurseForge packs mix loader and
+  environment tags into their game-version list; those are now told apart, so
+  a row names the Minecraft version and the loader separately instead of
+  listing "Forge" as if it were a Minecraft version.
+
+- **Instance folders are readable, ASCII, and renameable.** A new instance
+  gets a directory named after it in ASCII (transliterated when the name
+  isn't, falling back to the pack's own slug), instead of a name the system
+  code page might not be able to express — which is a class of launch
+  failure, not a cosmetic issue. An instance's identity now comes from its
+  directory, so you can rename the folder, and desktop shortcuts carry a
+  stable id that a rename does not break.
+
 ### Fixed
 
 - A resource pack could be installed as a datapack on an own-server, and a
@@ -96,6 +168,56 @@ release is **0.9.0**.
   progress message that could arrive after it, and shows every file with where
   it came from and whether it was downloaded or reused. Updating a modpack
   gets the same per-file report, which it never had.
+- Opening a server's **Add-ons** tab froze the whole window for a couple of
+  seconds the first time. The scan that reads and hashes every jar in the
+  server's `mods/` folder — 140 jars and 224 MB on a real server — was
+  running on the thread that draws the window. It now runs off it, and a jar
+  that was just installed is no longer read a second time.
+- The Overview's "N incompatible mods" banner and the Installed tab's
+  incompatible filter could give different answers on the same instance —
+  each kept a private copy of the same scan, refreshed by different events.
+  There is now one scan behind both, an install or a loader change actually
+  re-runs it, and "Check compatibility" can finally surface a
+  wrong-loader jar, which it never could.
+- What a mod requires is now read from the jar, not guessed. A dependency
+  block that was commented out no longer counts, a version range written the
+  Maven way is read the way the loader reads it, and a mod declared
+  *incompatible* is no longer treated as a requirement — between them these
+  blocked the Play button on packs that ran fine. Where two loader
+  descriptors disagree inside one jar, the one the active loader actually
+  reads wins.
+- The dependency graph no longer shows a mod's dependencies for a loader you
+  are not using.
+- Changing an instance's `mods` folder outside the launcher is now noticed:
+  drop a jar in, delete one, and the launcher's own list agrees with what is
+  on disk. A pack that installs its own missing files on first run is
+  allowed to finish doing so instead of being reported as broken.
+- A desktop shortcut had no icon at all. The `.lnk` was pointed at a path
+  that does not exist as a file; shortcuts now carry the instance's own
+  picture, rendered at every size Explorer asks for.
+- Renaming an instance's folder while it is open in Explorer failed with a
+  raw "os error 5" naming a folder that did not exist yet. It now says the
+  folder is open in another program and names the right one — and the
+  selection follows the instance instead of the detail pane going blank on
+  success.
+- Applying translations while Minecraft is running left the game showing the
+  old text, and the obvious move — switching the game's language — is exactly
+  the one that does not work, because Minecraft re-reads its language files
+  without re-resolving resource packs. The success message now says to press
+  F3+T, and says outright that changing the language is not enough.
+- The translation coverage figure ignored the translations you wrote
+  yourself, so a mod you had fully translated still read 0%. Your overrides
+  now count. Applying no longer opens a file dialog it had no reason to open.
+- Every modpack card in the Russian interface showed "не число" where the
+  download count belongs, and the partial-repair message read "1 файлов".
+  Numbers are now handed to the dictionary as numbers, and the Russian
+  message carries proper agreement for all four plural forms.
+- In the translation key list, two filters that could contradict each other
+  became one, and a row you were editing no longer vanishes out from under
+  you when a refresh decides it no longer matches.
+- The own-server tour's first step pointed at the wrong control: Start and
+  Stop moved to the sidebar when servers became a mode, and the step was
+  still spotlighting the panel header.
 
 ## [0.21.0] — 2026-07-31
 

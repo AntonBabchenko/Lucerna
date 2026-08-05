@@ -3,8 +3,8 @@
 Lucerna's macOS build is **beta**: CI compiles it, runs the Rust suite on a
 real Mac, and publishes a Universal2 (Apple Silicon + Intel) `.dmg`. What CI
 *cannot* do is launch Minecraft. This checklist is the deferred end-to-end
-verification — run it on real hardware and report results on the tracking
-issue.
+verification — run it on real hardware and report the results (see
+**Reporting** at the end).
 
 The `.dmg` is **unsigned** (ad-hoc only, not notarized), so Gatekeeper
 quarantines a freshly downloaded copy. That is expected; the install step
@@ -68,5 +68,7 @@ below clears it.
 ## Reporting
 
 For each section note PASS / FAIL, your hardware + macOS version, and paste
-any error text or a crash log (Logs tab → Share). File results on the macOS
-beta tracking issue.
+any error text or a crash log (Logs tab → Share). Open a GitHub issue with
+the bug-report template and put "macOS beta" in the title, or email the
+maintainer at **anton.babchenko@outlook.com**. A single issue covering the
+whole checklist is more useful than one per failing step.

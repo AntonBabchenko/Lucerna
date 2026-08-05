@@ -47,8 +47,10 @@ pnpm tauri dev      # run the launcher in development
 | `pnpm tauri build` | Produce a release binary. |
 | `pnpm typecheck` | `svelte-kit sync` + `svelte-check`. |
 | `pnpm test` | Run the Vitest unit suite once. |
+| `pnpm test:e2e` | Playwright specs; the functional ones also run in CI. |
 | `pnpm lint` | Biome + Prettier (Svelte) + the no-network-calls gate. |
 | `pnpm format` | Auto-format with Biome + Prettier (Svelte). |
+| `pnpm i18n:keys` | Regenerate the i18n key union after editing `en.json`. |
 | `cargo test` (in `src-tauri/`) | Rust unit + integration tests. |
 
 Run the full local gate before opening a PR:
@@ -59,6 +61,10 @@ pnpm typecheck
 pnpm lint
 pnpm test
 ```
+
+If you touched `src/lib/i18n/locales/en.json`, also run `pnpm i18n:keys` and
+commit the regenerated `src/lib/i18n/keys.generated.ts` — CI runs
+`pnpm i18n:keys:check` and fails on a stale file.
 
 See [`docs/TESTING.md`](docs/TESTING.md) for the full test layout, including
 when a single-threaded run is required.
@@ -141,8 +147,10 @@ takes). See [`docs/SECURITY.md`](docs/SECURITY.md) Part E.
 2. Open a PR against `main` and fill in the template.
 3. Describe what changed and why; if you added a dependency, justify it (why it's
    needed, alternatives considered, dependency-tree impact) per `docs/PRINCIPLES.md`.
-4. A maintainer reviews before merge. CI (Rust tests on Linux + Windows, frontend
-   typecheck/test, lint) must pass.
+4. A maintainer reviews before merge. CI must pass: Rust tests on Linux,
+   Windows and macOS, a Linux bundle build, frontend typecheck + i18n-key
+   check + Vitest, functional Playwright e2e, lint, frontend coverage, and
+   `cargo-deny`. The `ci-gate` job aggregates the required ones.
 
 ## Reporting bugs and requesting features
 

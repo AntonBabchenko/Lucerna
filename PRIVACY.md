@@ -1,6 +1,6 @@
 # Lucerna Privacy Policy
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-08-05_
 
 ## 1. Summary
 
@@ -8,22 +8,33 @@ Lucerna does not transmit anything to Lucerna servers — there
 are no such servers. All launcher state lives on your machine.
 Third-party APIs are called only for documented purposes: the Mojang
 version manifest and downloads, Microsoft / Xbox Live sign-in and
-profile changes (when you choose to use them), mod and modpack
-browsing (Modrinth, CurseForge, FTB, ATLauncher), server cores and
-plugins (Paper, Purpur, Hangar), optional log sharing via mclo.gs
-(only when you click Share), and an optional GitHub Releases check
-for launcher updates. Section 3 lists every host individually.
+profile changes (when you choose to use them), mod, modpack and
+datapack browsing (Modrinth, CurseForge, FTB, ATLauncher, Vanilla
+Tweaks), server cores and plugins (Paper, Purpur, Hangar), optional
+log sharing via mclo.gs (only when you click Share), an optional
+GitHub Releases check for launcher updates, and — only if you turn it
+on and supply your own API key — an AI provider that drafts mod
+translations for you. Section 3 lists every host individually.
 
 ## 2. What data is stored on your machine
 
-- `account.json` in `%APPDATA%/com.lucerna.app/`: a list of
+Everything below lives under the launcher's **data root**. On a fresh
+install that root is a `LucernaData` folder next to the Lucerna
+executable (`%LOCALAPPDATA%/Lucerna/LucernaData` for a default
+install); if that location is not writable, or if the install predates
+this scheme, the root is `%APPDATA%/com.lucerna.app/` instead. Either
+way you can move it anywhere from Settings → Storage, and a small
+`data-location.json` pointer stays in `%APPDATA%/com.lucerna.app/` so
+the launcher can find a relocated root.
+
+- `account.json` in the data root: a list of
   accounts with `{id, kind, name, uuid, expires_at}` per entry.
   Microsoft accounts additionally have a refresh token and a
   Minecraft access token in the OS keyring (Windows Credential
   Manager via the `keyring` crate), keyed by the account's local
   `id`. Tokens are never written to disk.
 - Per-instance Minecraft state in
-  `%APPDATA%/com.lucerna.app/instances/<instance-id>/.minecraft/`:
+  `<data root>/instances/<instance-id>/.minecraft/`:
   worlds, screenshots, mods, configs, logs — the same shape as the
   Mojang reference launcher's `.minecraft` folder, but isolated to
   one instance.
@@ -36,13 +47,16 @@ for launcher updates. Section 3 lists every host individually.
   that file holds the host, port, and username you entered — the
   password goes to the OS keyring, never to disk.
 - Custom instance icons you have uploaded.
+- Mod translations you wrote yourself, stored per mod so one fix
+  applies to every instance using that mod, plus the resource pack
+  Lucerna builds from them.
+- If you turned on AI translation drafting, the API key you entered
+  goes to the OS keyring (never to disk); the provider you picked and
+  the model name are ordinary settings.
 - Installers downloaded by the in-app updater (`updates/`).
-- A few recent session logs from the launcher itself.
-
-All of the above lives under the launcher's data root, which
-defaults to `%APPDATA%/com.lucerna.app/` but can be moved anywhere
-from Settings → Storage. A small `data-location.json` pointer stays
-in the default location so the launcher can find a relocated root.
+- A few recent session logs from the launcher itself, and a
+  per-instance activity journal recording what the launcher did to
+  that instance (installs, updates, repairs, launch outcomes).
 
 Nothing in the list above leaves your machine unless you explicitly
 trigger a share action.
@@ -109,6 +123,11 @@ deliberately. It is described in
   metadata), `download.nodecdn.net` (pack `Configs.json` manifest and
   mod file downloads) — only when you browse or install an ATLauncher
   modpack.
+- **Vanilla Tweaks.** `vanillatweaks.net` — the per-Minecraft-version
+  datapack catalogue, and the zip the site builds from the packs you
+  ticked. Requested only when you open the Vanilla Tweaks builder or
+  check those packs for updates. The request carries the pack names
+  you selected and nothing else.
 - **Mod loader meta and mavens.** `meta.fabricmc.net`,
   `maven.fabricmc.net`, `meta.quiltmc.org`, `maven.quiltmc.org`,
   `maven.minecraftforge.net`, `files.minecraftforge.net`,
@@ -132,11 +151,21 @@ deliberately. It is described in
   address to set up port forwarding; never automatic.
 - **mclo.gs paste service.** `api.mclo.gs`, `mclo.gs` — only when
   you click Share in the Logs viewer. Before upload the log is
-  scrubbed of Windows and macOS user paths, access tokens, session
-  identifiers, and private LAN IP addresses, and the result is shown
-  to you in full first. Linux `/home/<user>/` paths are a known gap
-  in that scrubbing and are being fixed; until then, review a shared
-  log carefully on Linux.
+  scrubbed of Windows, macOS and Linux user paths, access tokens,
+  session identifiers, and private LAN IP addresses, and the result
+  is shown to you in full first.
+- **AI translation drafting.** `api.anthropic.com`,
+  `generativelanguage.googleapis.com`, `api.groq.com` — off by
+  default. If you turn it on in Settings and enter your own API key,
+  pressing "Translate with AI" sends **the English source strings of
+  the mods you asked about**, plus your key, to the chat-completion
+  endpoint of the one provider you selected; the other two are never
+  contacted. Nothing else about you, your instances or your machine
+  is included. The provider's own privacy policy and retention rules
+  apply to what you send — Lucerna cannot make promises on their
+  behalf. You can also point this at a model running on your own
+  machine (see below), in which case nothing leaves the machine at
+  all. Editing translations by hand never contacts anyone.
 
 Beyond this HTTP allowlist there is one further, user-initiated
 outbound channel: **SFTP upload** to a host **you provide**. It is used
@@ -148,6 +177,16 @@ config files or logs), and the server's SSH fingerprint is remembered on
 first connect (trust-on-first-use) so a changed fingerprint blocks the
 upload until you re-confirm. It runs only when you explicitly start an
 upload.
+
+There is also one destination that is not on the internet at all: if
+you choose **Local** as the AI translation provider, Lucerna posts the
+strings to `127.0.0.1` on the port you entered — a model server
+running on your own machine. Nothing leaves the computer. The host is
+a compile-time constant (only the port is yours to choose), the code
+path is confined to a single module (`network::loopback`) that only
+the translation feature may call, and a structural test fails the
+build if anything else calls it — so this cannot become a general
+"talk to any local port" capability.
 
 ## 4. What we do not collect
 
@@ -177,23 +216,39 @@ modules.
 - Anonymised mclo.gs paste: retention is controlled by mclo.gs (see
   https://mclo.gs/about). Lucerna only keeps the resulting URL
   in the launcher's local log.
+- Strings sent to an AI provider for translation drafting: retention
+  is controlled by that provider under its own policy, not by
+  Lucerna. Locally, only the resulting translations are kept — as
+  ordinary files in your data root, until you delete them.
 
 ## 6. Your choices
 
 - You can use offline-only accounts (no Microsoft sign-in
   required) for LAN and single-player.
-- To erase all Lucerna data: uninstall the launcher, delete
-  `%APPDATA%/com.lucerna.app/` — **and, if you moved the data root
-  from Settings → Storage, delete that location too; the default
-  folder only holds a small pointer file once the root has been
-  relocated** — then remove the relevant entries
-  from Windows Credential Manager (Control Panel → Credential
+- To erase all Lucerna data on Windows, the uninstaller does it for
+  you: it lists every folder it found — the data root wherever it
+  currently is, launcher settings and logs, browser cache, leftovers
+  of older installers — with its path and size, plus how many saved
+  sign-ins sit in Windows Credential Manager, and asks once whether
+  to erase it all. Keeping your data is the default answer; agreeing
+  also clears the credential-manager entries. A data root that is
+  unreachable at uninstall time (an unplugged drive, say) is never
+  deleted.
+- To do it by hand instead — or on Linux and macOS — delete the data
+  root (`LucernaData` next to the executable, or
+  `%APPDATA%/com.lucerna.app/`, or wherever you moved it from
+  Settings → Storage; the default folder keeps only a small pointer
+  file once the root has been relocated), then remove the relevant
+  entries from Windows Credential Manager (Control Panel → Credential
   Manager → Generic Credentials → look for these entries:
   the CurseForge API key (network address `lucerna`, username
   `curseforge-api-key`), the Microsoft refresh token (network
   address `lucerna-microsoft-refresh`, username `<account-id>`),
   the Minecraft access token (network address
-  `lucerna-mc-access`, username `<account-id>`), and — if you have
+  `lucerna-mc-access`, username `<account-id>`), the AI provider API
+  key if you turned drafting on (network address
+  `lucerna-ai-api-key`, username `anthropic` / `gemini` / `groq`),
+  and — if you have
   configured an "own server" SFTP upload — the SFTP password
   (network address `lucerna-sftp-password`, username
   `<server-id>`). The exact rendering varies by OS; macOS Keychain

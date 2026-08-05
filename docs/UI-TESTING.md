@@ -33,7 +33,8 @@ committed** — see the note below.
 
 The **functional** Playwright specs sit at the `tests-e2e/` top level
 (`mod-install`, `i18n-switch`, `servers-mode`, `tooltip`,
-`export-button-gating`, `sidebar-tooltip-clip`, `tour-pointer-events`).
+`export-button-gating`, `sidebar-tooltip-clip`, `tour-pointer-events`,
+`storage-data-location-adopt`).
 Those **do** run in CI — the `e2e (functional)` job runs
 `playwright test --project=chromium 'tests-e2e/(?!visual/)'` and is a
 required `ci-gate` dependency.
