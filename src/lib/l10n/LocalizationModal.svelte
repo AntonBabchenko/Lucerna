@@ -687,7 +687,14 @@
             <LoadingPanel label={$t('instance.l10n.loading')} />
           {:else if loadError}
             <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-error">{loadError}</p>
-          {:else if sortedNamespaces.length === 0}
+          {:else if (coverage?.namespaces.length ?? 0) === 0}
+            <!--
+              Keyed on the UNFILTERED list. Keying it on the filtered one meant
+              that a filter matching nothing replaced this whole branch — the
+              filter input included — so the user was told the instance had no
+              translatable text and was left with no way to clear the filter
+              that caused it. A dead end.
+            -->
             <p class="p-3 text-sm text-muted" data-testid="l10n-empty">
               {$t('instance.l10n.empty')}
             </p>
@@ -716,6 +723,11 @@
                 class="shrink-0"
               />
             </div>
+            {#if sortedNamespaces.length === 0}
+              <p class="p-3 text-sm text-muted" data-testid="l10n-ns-filter-empty">
+                {$t('instance.l10n.nsFilter.noMatch')}
+              </p>
+            {/if}
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>
               {#each sortedNamespaces as row, i (row.namespace)}

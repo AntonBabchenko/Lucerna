@@ -456,6 +456,23 @@ describe('LocalizationModal', () => {
       await screen.findByTestId('l10n-ns-filter');
     });
 
+    it('never strands the user with a filter it has hidden', async () => {
+      // The dead end this replaces: the empty state keyed on the FILTERED list,
+      // so a filter matching nothing swapped the whole branch — input and all —
+      // for "this instance has no translatable text yet", leaving no way to
+      // clear the filter that caused it.
+      mockCoverageOk(coverage({ namespaces: many(20) }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const filter = await screen.findByTestId('l10n-ns-filter');
+      await fireEvent.input(filter, { target: { value: 'zzz-nothing-matches' } });
+
+      expect(screen.getByTestId('l10n-ns-filter-empty')).toBeTruthy();
+      // The two things that made it a dead end must both still be there.
+      expect(screen.getByTestId('l10n-ns-filter')).toBeTruthy();
+      expect(screen.queryByTestId('l10n-empty')).toBeNull();
+    });
+
     it('keeps the open mod visible even when the filter excludes it', async () => {
       // Otherwise the key table on the right shows a mod that is not on the
       // left, which reads as a bug rather than as a filter.
