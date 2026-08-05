@@ -24,9 +24,18 @@
   let {
     lang,
     exclude = null,
+    unsolicited = true,
     onClose,
   }: {
     lang: string;
+    /** True when the launcher offered this on its own after an import or a
+     *  pre-fill run, false when the user pressed the button for it.
+     *
+     *  It decides what "nothing to do" looks like. Vanishing without a word is
+     *  right for an offer nobody asked for — over-triggering then costs
+     *  nothing. It is wrong for a press: that is a dead click, and the user is
+     *  left unsure whether anything happened. */
+    unsolicited?: boolean;
     /** The instance that just applied — the post-Apply trigger passes it so
      *  the dialog does not offer the one the user is already looking at. The
      *  post-import trigger passes `null`: after an import the current
@@ -74,8 +83,9 @@
     }
     const candidates = res.data.filter((row) => row.candidate && row.instanceId !== exclude);
     // A wall of disabled rows with nothing to do is worse than no dialog at
-    // all, so say nothing rather than interrupt for nothing.
-    if (!candidates.some((row) => row.actionable)) {
+    // all — but only when the dialog appeared uninvited. A user who pressed
+    // the button gets told, below, that there is nothing to carry.
+    if (unsolicited && !candidates.some((row) => row.actionable)) {
       closeSelf();
       return;
     }
@@ -215,7 +225,11 @@
       {/each}
     </ul>
 
-    {#if tickedCount === 0}
+    {#if rows.length === 0 || !rows.some((row) => row.actionable)}
+      <p class="text-sm text-secondary" data-testid="apply-targets-none">
+        {$t('instance.l10n.targets.noCandidates')}
+      </p>
+    {:else if tickedCount === 0}
       <p class="text-xs text-muted" data-testid="apply-targets-empty">
         {$t('instance.l10n.targets.nothingToShip')}
       </p>
