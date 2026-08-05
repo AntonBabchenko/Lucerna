@@ -6,6 +6,8 @@
 //! comparison rather than a blind rebuild. See
 //! `docs/superpowers/specs/2026-08-05-vanilla-tweaks-design.md`.
 
+pub mod client;
 pub mod family;
 
+pub use client::{VtCatalogue, VtCategory, VtClient, VtPack};
 pub use family::family_for;
