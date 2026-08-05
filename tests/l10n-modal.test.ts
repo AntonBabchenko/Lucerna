@@ -8,6 +8,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nNamespaceKeys: vi.fn(),
     l10nSetOverride: vi.fn(),
     l10nApply: vi.fn(),
+    l10nSearch: vi.fn(),
     // The share/offer dialogs the modal mounts fetch on mount. These two get
     // a default rather than a bare vi.fn() so every case that is NOT about
     // them sees what the real backend would report for a launcher with
@@ -434,6 +435,27 @@ describe('LocalizationModal', () => {
       await fireEvent.click(await screen.findByTestId('l10n-apply'));
 
       await waitFor(() => expect(toastList().some((t) => t.kind === 'warning')).toBe(true));
+    });
+  });
+
+  describe('instance-wide search', () => {
+    it('swaps the key pane for results once a query is typed, and back when cleared', async () => {
+      mockCoverageOk(coverage());
+      vi.mocked(commands.l10nSearch).mockResolvedValue({
+        status: 'ok',
+        data: { hits: [], disabledMods: 0, truncated: false },
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const input = await screen.findByTestId('l10n-find-input');
+      expect(screen.queryByTestId('l10n-find-results')).toBeNull();
+
+      await fireEvent.input(input, { target: { value: 'Sticky Basket' } });
+      expect(screen.getByTestId('l10n-find-results')).toBeTruthy();
+
+      await fireEvent.click(screen.getByTestId('l10n-find-clear'));
+      expect(screen.queryByTestId('l10n-find-results')).toBeNull();
     });
   });
 

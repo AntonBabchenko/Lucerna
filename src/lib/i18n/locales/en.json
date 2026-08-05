@@ -435,6 +435,14 @@
     "l10n": {
       "title": "Mod translations",
       "beta": "Beta",
+      "find": {
+        "placeholder": "Find a line you saw in game — across every mod in this instance",
+        "count": "{count} matches",
+        "noneBody": "That text is in no language file of this instance's enabled mods. It is most likely hardcoded in a mod, and cannot be translated from here.",
+        "disabledHint": "{count} mods are switched off. Their strings were not searched.",
+        "truncated": "Showing the closest matches only — narrow the query.",
+        "clear": "Clear the search"
+      },
       "closeLabel": "Close mod translations",
       "languageLabel": "Target language",
       "listRegionLabel": "Mods",

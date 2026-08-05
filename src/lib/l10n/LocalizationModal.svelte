@@ -14,6 +14,7 @@
   import ApplyTargetsDialog from './ApplyTargetsDialog.svelte';
   import KeyTable from './KeyTable.svelte';
   import PrefillDialog from './PrefillDialog.svelte';
+  import SearchResults from './SearchResults.svelte';
   import ShareExportDialog from './ShareExportDialog.svelte';
   import ShareImportDialog from './ShareImportDialog.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -191,6 +192,38 @@
   let offerOpen = $state(false);
   let offerLang = $state('');
   let offerExclude = $state<string | null>(null);
+
+  /** The instance-wide search box. Non-empty swaps the right pane into results
+   *  mode; clearing it returns to browsing. Not a separate screen, because the
+   *  user is mid-task and a screen change would cost them their place. */
+  let findQuery = $state('');
+  /** Debounced copy. `l10n_search` walks every enabled jar, so re-running it on
+   *  each keystroke would make a 300-mod pack unusable.
+   *
+   *  DELIBERATELY UNTESTED, and not for want of trying: three attempts (a call
+   *  count, fake timers, real timers) all passed with the debounce removed,
+   *  because Svelte coalesces the prop changes into a single effect run before
+   *  any difference can show. A test that cannot fail is not evidence, so
+   *  rather than keep a green one that proves nothing, the gap is recorded
+   *  here. The guard matters in production, where real typing arrives with
+   *  real gaps that batching does not absorb. */
+  let findSettled = $state('');
+  let findTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const FIND_DEBOUNCE_MS = 250;
+
+  $effect(() => {
+    const q = findQuery;
+    if (findTimer) clearTimeout(findTimer);
+    findTimer = setTimeout(() => {
+      findSettled = q;
+    }, FIND_DEBOUNCE_MS);
+    return () => {
+      if (findTimer) clearTimeout(findTimer);
+    };
+  });
+
+  const finding = $derived(findQuery.trim() !== '');
 
   let offerUnsolicited = $state(true);
 
@@ -548,27 +581,58 @@
         <span>{$t('instance.l10n.packDisabled.awaitingLaunch')}</span>
       </div>
     {/if}
-    <div class="flex flex-1 overflow-hidden" use:observeRow>
-      <aside
-        class="shrink-0 overflow-y-auto p-2"
-        style="width:{listWidth}px"
-        aria-label={$t('instance.l10n.listRegionLabel')}
-      >
-        {#if loading}
-          <LoadingPanel label={$t('instance.l10n.loading')} />
-        {:else if loadError}
-          <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-error">{loadError}</p>
-        {:else if sortedNamespaces.length === 0}
-          <p class="p-3 text-sm text-muted" data-testid="l10n-empty">
-            {$t('instance.l10n.empty')}
-          </p>
-        {:else}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>
-            {#each sortedNamespaces as row, i (row.namespace)}
-              {@const percent = namespacePercent(row)}
-              {@const selected = selectedNamespace === row.namespace}
-              <!--
+    <!--
+      The instance-wide search sits full width under the header rather than as
+      another control in the crowded toolbar: it is the entry point for the
+      case the per-mod editor cannot serve at all — the player has the TEXT and
+      not the mod — so it must not compete for space with the per-mod search,
+      which answers a different question.
+    -->
+    <div class="flex items-center gap-2 border-b px-4 py-2">
+      <input
+        class="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
+        placeholder={$t('instance.l10n.find.placeholder')}
+        bind:value={findQuery}
+        data-testid="l10n-find-input"
+      />
+      {#if finding}
+        <button
+          type="button"
+          class="btn-ghost btn-xs shrink-0"
+          aria-label={$t('instance.l10n.find.clear')}
+          data-testid="l10n-find-clear"
+          onclick={() => (findQuery = '')}
+        >
+          <Icon name="close" />
+        </button>
+      {/if}
+    </div>
+    {#if finding && instanceId}
+      <div class="flex-1 overflow-y-auto" data-testid="l10n-find-results">
+        <SearchResults {instanceId} {lang} query={findSettled} onSaved={refreshCoverageSilently} />
+      </div>
+    {:else}
+      <div class="flex flex-1 overflow-hidden" use:observeRow>
+        <aside
+          class="shrink-0 overflow-y-auto p-2"
+          style="width:{listWidth}px"
+          aria-label={$t('instance.l10n.listRegionLabel')}
+        >
+          {#if loading}
+            <LoadingPanel label={$t('instance.l10n.loading')} />
+          {:else if loadError}
+            <p role="alert" class="p-3 text-sm text-danger" data-testid="l10n-error">{loadError}</p>
+          {:else if sortedNamespaces.length === 0}
+            <p class="p-3 text-sm text-muted" data-testid="l10n-empty">
+              {$t('instance.l10n.empty')}
+            </p>
+          {:else}
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>
+              {#each sortedNamespaces as row, i (row.namespace)}
+                {@const percent = namespacePercent(row)}
+                {@const selected = selectedNamespace === row.namespace}
+                <!--
                 A flex row, not a button containing a button: the selector IS
                 a <button>, and nesting the per-namespace translate action
                 inside it would be invalid HTML and a Svelte a11y error. The
@@ -576,47 +640,47 @@
                 data-testid="l10n-namespace-row" — the modal's suite counts
                 elements with that testid.
               -->
-              <li class="flex items-center gap-1">
-                <!--
+                <li class="flex items-center gap-1">
+                  <!--
                   No aria-label: the namespace name and its percentage below
                   ARE the accessible content a screen-reader user needs — an
                   aria-label would replace both with nothing useful. See
                   OverviewTab.svelte's body-zone rule.
                 -->
-                <button
-                  bind:this={rowEls[i]}
-                  type="button"
-                  class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-subtle"
-                  class:bg-accent-soft={selected}
-                  tabindex={i === focusIndex ? 0 : -1}
-                  aria-current={selected ? 'true' : undefined}
-                  data-testid="l10n-namespace-row"
-                  onclick={() => {
-                    // The tab stop follows activation, as in TabBar /
-                    // SegmentedControl / ToggleChipGroup: a click focuses the
-                    // row whatever its tabindex says, so leaving the index
-                    // behind would make the next arrow press jump away from
-                    // the row the user is on, and would drop the list's single
-                    // tab stop back on row 1 when focus re-enters the list.
-                    focusIndex = i;
-                    selectedNamespace = row.namespace;
-                  }}
-                >
-                  <span class="truncate">{row.namespace}</span>
-                  <span class="flex shrink-0 items-center gap-2">
-                    <span class="font-mono {toneClass(coverageTone(percent))}">
-                      {$t('instance.l10n.percentValue', { percent })}
+                  <button
+                    bind:this={rowEls[i]}
+                    type="button"
+                    class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-subtle"
+                    class:bg-accent-soft={selected}
+                    tabindex={i === focusIndex ? 0 : -1}
+                    aria-current={selected ? 'true' : undefined}
+                    data-testid="l10n-namespace-row"
+                    onclick={() => {
+                      // The tab stop follows activation, as in TabBar /
+                      // SegmentedControl / ToggleChipGroup: a click focuses the
+                      // row whatever its tabindex says, so leaving the index
+                      // behind would make the next arrow press jump away from
+                      // the row the user is on, and would drop the list's single
+                      // tab stop back on row 1 when focus re-enters the list.
+                      focusIndex = i;
+                      selectedNamespace = row.namespace;
+                    }}
+                  >
+                    <span class="truncate">{row.namespace}</span>
+                    <span class="flex shrink-0 items-center gap-2">
+                      <span class="font-mono {toneClass(coverageTone(percent))}">
+                        {$t('instance.l10n.percentValue', { percent })}
+                      </span>
+                      <span class="text-xs text-muted">
+                        {$t('instance.l10n.namespaceCount', {
+                          covered: row.fromMod + row.overridden,
+                          total: row.totalKeys,
+                        })}
+                      </span>
                     </span>
-                    <span class="text-xs text-muted">
-                      {$t('instance.l10n.namespaceCount', {
-                        covered: row.fromMod + row.overridden,
-                        total: row.totalKeys,
-                      })}
-                    </span>
-                  </span>
-                </button>
-                {#if canPrefill}
-                  <!--
+                  </button>
+                  {#if canPrefill}
+                    <!--
                     Icon-only action ⇒ .btn-icon family carrying use:tooltip AND
                     aria-label from the same key (DESIGN.md §5). The tooltip sits
                     on the button, not on a wrapping span: the action stays
@@ -627,61 +691,65 @@
                     double the list's tab stops: Tab from the focused row
                     reaches its own AI button and then leaves the list.
                   -->
-                  <button
-                    type="button"
-                    class="btn-icon btn-icon-sm shrink-0"
-                    tabindex={i === focusIndex ? 0 : -1}
-                    aria-label={$t('instance.l10n.prefill.namespaceButtonAria', {
-                      namespace: row.namespace,
-                    })}
-                    data-testid="l10n-prefill-namespace"
-                    onclick={() => {
-                      // Claim the tab stop, same rule as the row button beside
-                      // it: a click focuses this button whatever its tabindex
-                      // said, and PrefillDialog's focus trap restores focus
-                      // here on close — so leaving the index behind would send
-                      // the next arrow press to a row the user never left.
-                      focusIndex = i;
-                      prefillScope = { namespace: row.namespace };
-                    }}
-                    use:tooltip={$t('instance.l10n.prefill.namespaceButtonAria', {
-                      namespace: row.namespace,
-                    })}
-                  >
-                    <Icon name="aiTranslate" size={14} />
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </aside>
-      <SplitterHandle
-        bind:width={listWidth}
-        min={LIST_MIN_WIDTH}
-        max={listMax}
-        label={$t('instance.l10n.resizeList')}
-        testId="l10n-list-splitter"
-      />
-      <section class="flex flex-1 min-w-0 flex-col overflow-hidden" data-testid="l10n-detail-pane">
-        {#if selectedNamespace && instanceId}
-          <KeyTable
-            {instanceId}
-            namespace={selectedNamespace}
-            {lang}
-            onOverrideSaved={refreshCoverageSilently}
-            reloadToken={keyReloadToken}
-          />
-        {:else}
-          <div
-            class="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted"
-            data-testid="l10n-detail-placeholder"
-          >
-            {$t('instance.l10n.detailPlaceholder')}
-          </div>
-        {/if}
-      </section>
-    </div>
+                    <button
+                      type="button"
+                      class="btn-icon btn-icon-sm shrink-0"
+                      tabindex={i === focusIndex ? 0 : -1}
+                      aria-label={$t('instance.l10n.prefill.namespaceButtonAria', {
+                        namespace: row.namespace,
+                      })}
+                      data-testid="l10n-prefill-namespace"
+                      onclick={() => {
+                        // Claim the tab stop, same rule as the row button beside
+                        // it: a click focuses this button whatever its tabindex
+                        // said, and PrefillDialog's focus trap restores focus
+                        // here on close — so leaving the index behind would send
+                        // the next arrow press to a row the user never left.
+                        focusIndex = i;
+                        prefillScope = { namespace: row.namespace };
+                      }}
+                      use:tooltip={$t('instance.l10n.prefill.namespaceButtonAria', {
+                        namespace: row.namespace,
+                      })}
+                    >
+                      <Icon name="aiTranslate" size={14} />
+                    </button>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </aside>
+        <SplitterHandle
+          bind:width={listWidth}
+          min={LIST_MIN_WIDTH}
+          max={listMax}
+          label={$t('instance.l10n.resizeList')}
+          testId="l10n-list-splitter"
+        />
+        <section
+          class="flex flex-1 min-w-0 flex-col overflow-hidden"
+          data-testid="l10n-detail-pane"
+        >
+          {#if selectedNamespace && instanceId}
+            <KeyTable
+              {instanceId}
+              namespace={selectedNamespace}
+              {lang}
+              onOverrideSaved={refreshCoverageSilently}
+              reloadToken={keyReloadToken}
+            />
+          {:else}
+            <div
+              class="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted"
+              data-testid="l10n-detail-placeholder"
+            >
+              {$t('instance.l10n.detailPlaceholder')}
+            </div>
+          {/if}
+        </section>
+      </div>
+    {/if}
   </Modal>
   <!--
     Stacked AFTER the modal it covers, per Modal.svelte's mount-order == paint-
