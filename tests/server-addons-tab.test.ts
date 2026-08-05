@@ -8,7 +8,12 @@ import type { ServerCore, ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 // row, dropzone and drop-consumption under test stay real.
 vi.mock('$lib/servers/mods/ServerModBrowser.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/plugins/ServerPluginBrowser.svelte', () => ({ default: stubComponent() }));
-vi.mock('$lib/servers/mods/ServerDatapacks.svelte', () => ({ default: stubComponent() }));
+vi.mock('$lib/servers/datapacks/ServerDatapackBrowser.svelte', () => ({
+  default: stubComponent(),
+}));
+vi.mock('$lib/servers/datapacks/ServerDatapacksInstalled.svelte', () => ({
+  default: stubComponent(),
+}));
 vi.mock('$lib/servers/addons/ServerModsInstalled.svelte', () => ({ default: stubComponent() }));
 vi.mock('$lib/servers/addons/ServerPluginsInstalled.svelte', () => ({ default: stubComponent() }));
 
@@ -20,13 +25,19 @@ function stubComponent() {
   };
 }
 
-const { serverList, serverInstallLocal, serverInstallPluginLocal, serverInstallDatapack } =
-  vi.hoisted(() => ({
-    serverList: vi.fn(),
-    serverInstallLocal: vi.fn(),
-    serverInstallPluginLocal: vi.fn(),
-    serverInstallDatapack: vi.fn(),
-  }));
+const {
+  serverList,
+  serverInstallLocal,
+  serverInstallPluginLocal,
+  serverInstallDatapack,
+  mcVersionSupportsDatapacks,
+} = vi.hoisted(() => ({
+  serverList: vi.fn(),
+  serverInstallLocal: vi.fn(),
+  serverInstallPluginLocal: vi.fn(),
+  serverInstallDatapack: vi.fn(),
+  mcVersionSupportsDatapacks: vi.fn(),
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -35,6 +46,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     serverInstallLocal,
     serverInstallPluginLocal,
     serverInstallDatapack,
+    mcVersionSupportsDatapacks,
   },
   events: {
     serverLogLine: { listen: vi.fn() },
@@ -54,11 +66,16 @@ import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
 
-function makeServer(id: string, running: boolean, loader: ServerCore): ServerWithStatus_Serialize {
+function makeServer(
+  id: string,
+  running: boolean,
+  loader: ServerCore,
+  mcVersion = '1.21',
+): ServerWithStatus_Serialize {
   return {
     id,
     name: id,
-    mc_version: '1.21',
+    mc_version: mcVersion,
     loader,
     loader_version: null,
     max_heap_mb: 2048,
@@ -87,6 +104,11 @@ describe('ServerAddonsTab', () => {
     serverInstallLocal.mockReset();
     serverInstallPluginLocal.mockReset();
     serverInstallDatapack.mockReset();
+    // 1.21 in every seeded server below, so this default (matching the real
+    // gate's answer for a modern version) keeps the pre-existing tests'
+    // behaviour unchanged. The one pre-1.13 test overrides it explicitly.
+    mcVersionSupportsDatapacks.mockReset();
+    mcVersionSupportsDatapacks.mockResolvedValue(true);
     droppedServerContent.value = null;
     serverAddonsKind.value = null;
   });
@@ -98,7 +120,7 @@ describe('ServerAddonsTab', () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Mods', 'Datapacks']);
   });
 
-  it('paper server offers Plugins + Datapacks; vanilla only Datapacks (no sub-tabs)', async () => {
+  it('paper server offers Plugins + Datapacks; vanilla offers Datapacks only (both with sub-tabs)', async () => {
     await seed([makeServer('a', false, 'paper')]);
     const r = render(ServerAddonsTab, { serverId: 'a' });
     let tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
@@ -108,10 +130,25 @@ describe('ServerAddonsTab', () => {
     render(ServerAddonsTab, { serverId: 'b' });
     tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Datapacks']);
-    expect(screen.queryByTestId('server-addons-subtabs')).toBeNull();
+    // The datapack kind now gets the same Browse/Installed sub-tab row as
+    // every other kind — the old flat (no sub-tabs) datapack pane is retired.
+    expect(screen.queryByTestId('server-addons-subtabs')).not.toBeNull();
   });
 
-  it('kind switch resets the sub-view to browse', async () => {
+  it('a pre-1.13 vanilla server offers no kinds and shows the empty state', async () => {
+    // The hole the 1.13 gate opens: vanilla is neither mod- nor
+    // plugin-capable, so a pre-1.13 vanilla server has nothing to offer once
+    // datapack is gated off too.
+    mcVersionSupportsDatapacks.mockResolvedValue(false);
+    await seed([makeServer('c', false, 'vanilla', '1.12.2')]);
+    render(ServerAddonsTab, { serverId: 'c' });
+    await waitFor(() => expect(screen.queryByTestId('server-addons-no-kinds')).not.toBeNull());
+    expect(screen.queryByTestId('server-addons-kind-switch')).toBeNull();
+    expect(screen.queryByTestId('server-addons-subtabs')).toBeNull();
+    expect(screen.queryByTestId('server-addons-dropzone')).toBeNull();
+  });
+
+  it('kind switch resets the sub-view to browse (Datapacks included)', async () => {
     await seed([makeServer('a', false, 'fabric')]);
     render(ServerAddonsTab, { serverId: 'a' });
     const kindSwitch = () => within(screen.getByTestId('server-addons-kind-switch'));
@@ -123,10 +160,19 @@ describe('ServerAddonsTab', () => {
       'true',
     );
 
-    // Switch to Datapacks (flat view, no sub-tabs) and back to Mods:
-    // the sub-view must be reset to Browse.
+    // Switch to Datapacks: the sub-view must be reset to Browse. Datapacks
+    // now carries its own Browse/Installed sub-tabs (unlike the old flat
+    // pane), so this also checks that row is still present.
     await fireEvent.click(kindSwitch().getByRole('tab', { name: 'Datapacks' }));
-    expect(screen.queryByTestId('server-addons-subtabs')).toBeNull();
+    await waitFor(() =>
+      expect(subTabs().getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
+        'true',
+      ),
+    );
+
+    // Open Installed again on Datapacks, then switch back to Mods: the reset
+    // must fire on every kind change, not just away-from-datapack.
+    await fireEvent.click(subTabs().getByRole('tab', { name: 'Installed' }));
     await fireEvent.click(kindSwitch().getByRole('tab', { name: 'Mods' }));
     await waitFor(() =>
       expect(subTabs().getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
