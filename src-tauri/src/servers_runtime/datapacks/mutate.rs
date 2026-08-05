@@ -50,6 +50,10 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     }
     let dp_dir = world_dir.join("datapacks");
     let path = dp_dir.join(filename);
+    // Deliberate defence-in-depth, not an oversight: `is_safe_filename` above
+    // already rejects separators, so `path` cannot actually escape `dp_dir`.
+    // This guards the unconditional `remove_dir_all` below against that
+    // invariant ever being wrong.
     if !path.starts_with(&dp_dir) {
         return Err(Error::ServerFileInvalid {
             filename: filename.to_string(),
@@ -196,6 +200,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_redundant_toggle_writes_nothing() {
+        // `set_enabled` writes only when the lists actually changed. Without
+        // that guard every no-op toggle would rewrite level.dat — and roll the
+        // backup, discarding the last good copy for no reason.
+        let td = world(&["p.zip"]);
+        boot_world(td.path()).await;
+        set_enabled(td.path(), "p.zip", false).await.unwrap();
+        let after_first = std::fs::read(td.path().join("level.dat")).unwrap();
+        let backup = td.path().join("level.dat_lucerna.bak");
+        let backup_before = std::fs::read(&backup).ok();
+
+        set_enabled(td.path(), "p.zip", false).await.unwrap();
+
+        assert_eq!(
+            std::fs::read(td.path().join("level.dat")).unwrap(),
+            after_first,
+            "a no-op toggle must not rewrite level.dat"
+        );
+        assert_eq!(
+            std::fs::read(&backup).ok(),
+            backup_before,
+            "and must not roll the backup"
+        );
+    }
+
+    #[tokio::test]
     async fn removal_clears_the_file_the_level_dat_name_and_the_sidecar_row() {
         let td = world(&["p.zip"]);
         boot_world(td.path()).await;
@@ -243,6 +273,12 @@ mod tests {
             .unwrap();
 
         remove(td.path(), "ghost-on.zip").await.unwrap();
+        // Selectivity: clearing one ghost must not take the other with it.
+        assert_eq!(
+            state_of(td.path(), "ghost-off.zip"),
+            Some(WorldPackState::NotAdded),
+            "removing one ghost name must not clear the other"
+        );
         remove(td.path(), "ghost-off.zip").await.unwrap();
 
         assert!(super::super::listing::entries(td.path()).is_empty());
