@@ -435,6 +435,12 @@
     "l10n": {
       "title": "Mod translations",
       "beta": "Beta",
+      "keySort": {
+                "label": "Sort keys",
+                "key": "by key",
+                "english": "by English text",
+                "missingFirst": "untranslated first"
+              },
       "nsFilter": {
                 "placeholder": "Filter mods"
               },

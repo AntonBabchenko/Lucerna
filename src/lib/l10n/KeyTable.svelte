@@ -32,7 +32,10 @@
     countKeyStates,
     countOrigins,
     filterRows,
+    KEY_SORTS,
+    type KeySort,
     type KeyView,
+    sortRows,
     stickyOutOfView,
     viewCount,
     visibleViews,
@@ -66,6 +69,7 @@
   let loadError = $state<string | null>(null);
   let search = $state('');
   let view = $state<KeyView>('all');
+  let sort = $state<KeySort>('key');
   // Keys the user has changed in this sitting. A changed row keeps its place
   // in the list instead of being yanked out from under the cursor — see
   // filterRows. Keys, never KeyRow objects: `rows` is patched in place on
@@ -149,7 +153,7 @@
     revertError = null;
   });
 
-  const filteredRows = $derived(filterRows(rows, search, view, sticky));
+  const filteredRows = $derived(sortRows(filterRows(rows, search, view, sticky), sort));
   const counts = $derived(countKeyStates(rows));
   const origins = $derived(countOrigins(rows));
   // Sticky rows are folded into `filteredRows`, not appended to `paged`,
@@ -357,6 +361,17 @@
       data-testid="l10n-key-search"
       bind:value={search}
     />
+    <select
+      class="ml-2 shrink-0 rounded border bg-transparent px-1 py-0.5 text-xs"
+      aria-label={$t('instance.l10n.keySort.label')}
+      data-testid="l10n-key-sort"
+      value={sort}
+      onchange={(e) => (sort = e.currentTarget.value as KeySort)}
+    >
+      {#each KEY_SORTS as order (order)}
+        <option value={order}>{$t(`instance.l10n.keySort.${order}`)}</option>
+      {/each}
+    </select>
     <div class="flex flex-wrap items-center gap-2">
       <!--
         One group, not two. See KeyView in key-rows.ts for why origin cannot be

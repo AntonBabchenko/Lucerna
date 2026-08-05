@@ -6,6 +6,8 @@ import {
   countOrigins,
   displayValue,
   filterRows,
+  KEY_SORTS,
+  sortRows,
   stickyOutOfView,
   viewCount,
   visibleViews,
@@ -428,5 +430,36 @@ describe('one filter axis', () => {
       'stale',
     );
     expect(visible).toEqual(['all', 'translated', 'missing', 'stale']);
+  });
+});
+
+describe('sortRows', () => {
+  const a = row({ key: 'z.first', sourceEn: 'Apple', state: 'ok' });
+  const b = row({ key: 'a.second', sourceEn: 'Zebra', state: 'missing' });
+
+  it('orders by key by default', () => {
+    expect(sortRows([a, b]).map((r) => r.key)).toEqual(['a.second', 'z.first']);
+  });
+
+  it('orders by the English text when asked', () => {
+    expect(sortRows([b, a], 'english').map((r) => r.sourceEn)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('floats untranslated rows without hiding the rest', () => {
+    // Not a duplicate of the Untranslated chip: the chip HIDES the others,
+    // this keeps them in context underneath.
+    const out = sortRows([a, b], 'missingFirst');
+    expect(out.map((r) => r.key)).toEqual(['a.second', 'z.first']);
+    expect(out).toHaveLength(2);
+  });
+
+  it('never leaves equal rows in an unstable order', () => {
+    const x = row({ key: 'b.k', sourceEn: 'Same', state: 'ok' });
+    const y = row({ key: 'a.k', sourceEn: 'Same', state: 'ok' });
+    expect(sortRows([x, y], 'english').map((r) => r.key)).toEqual(['a.k', 'b.k']);
+  });
+
+  it('offers every order exactly once', () => {
+    expect(new Set(KEY_SORTS).size).toBe(KEY_SORTS.length);
   });
 });
