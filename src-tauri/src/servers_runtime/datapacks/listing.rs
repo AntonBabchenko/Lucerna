@@ -56,6 +56,11 @@ fn union_names(level_dat_names: &[String], sidecar: &[String], on_disk: &[String
 /// with its derived state.
 ///
 /// `world_dir` is `runtime/<level>/`; its `datapacks/` child holds the packs.
+///
+/// **Not read-only:** this reconciles the provenance sidecar against disk and
+/// persists the result (best-effort) via [`sidecar::reconcile`], adopting a
+/// hand-dropped `.zip` and pruning a row whose file is gone. The client's
+/// `datapacks::registry::list` is deliberately the same shape.
 pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
     let dp_dir = world_dir.join("datapacks");
     let on_disk = on_disk_entries(&dp_dir);
@@ -68,7 +73,7 @@ pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
         .map(|(root, _)| level_dat::lists(&root));
     // `file/` is stripped with `filter_map`, which DROPS every entry lacking
     // the prefix — `vanilla` and the feature-flag packs every world carries.
-    let strip = |v: &Vec<String>| -> Vec<String> {
+    let strip = |v: &[String]| -> Vec<String> {
         v.iter()
             .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
             .collect()
@@ -106,7 +111,10 @@ pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
                         version_number: None,
                         enrich_attempted: false,
                     });
-                let st = lists.as_ref().map(|_| {
+                // `Some` only when level.dat was actually readable — an
+                // unreadable one degrades every state to unknown rather than
+                // guessing. (An ABSENT one is `Some` with empty lists.)
+                let st = lists.is_some().then(|| {
                     state::derive(
                         present,
                         world_link::contains_ci(&enabled, &name),
