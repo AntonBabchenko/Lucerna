@@ -82,7 +82,10 @@ beforeEach(() => {
   getVersions.mockResolvedValue({ status: 'ok', data: VERSIONS });
   fetchToTemp.mockResolvedValue({ status: 'ok', data: '/tmp/pack.mrpack' });
   computeUpdate.mockResolvedValue({ status: 'ok', data: DIFF });
-  applyUpdate.mockResolvedValue({ status: 'ok', data: inst });
+  applyUpdate.mockResolvedValue({
+    status: 'ok',
+    data: { instance: inst, inert_loader_jars: [], details: [] },
+  });
   changelog.mockResolvedValue({ status: 'ok', data: { sections: [], truncated: null } });
 });
 

@@ -259,12 +259,12 @@ describe('AddonsTab', () => {
 
   it('shows the Data packs tab with its dropzone and the full source picker', async () => {
     render(AddonsTab, { props });
-    const tab = await screen.findByRole('tab', { name: 'Data packs' });
+    const tab = await screen.findByRole('tab', { name: 'Data packs (Beta)' });
     await fireEvent.click(tab);
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Data packs' }).getAttribute('aria-selected')).toBe(
-        'true',
-      );
+      expect(
+        screen.getByRole('tab', { name: 'Data packs (Beta)' }).getAttribute('aria-selected'),
+      ).toBe('true');
     });
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
     // The CurseForge datapack version path is implemented (spec §13.1's
@@ -281,7 +281,7 @@ describe('AddonsTab', () => {
     try {
       render(AddonsTab, { props: { ...props, mcVersion: '1.12.2', loader: 'forge' } });
       await waitFor(() => {
-        expect(screen.queryByRole('tab', { name: 'Data packs' })).toBeNull();
+        expect(screen.queryByRole('tab', { name: 'Data packs (Beta)' })).toBeNull();
       });
       // The other three kinds are untouched.
       expect(screen.getByRole('tab', { name: 'Mods' })).toBeTruthy();

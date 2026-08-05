@@ -340,6 +340,7 @@ async fn search_hits(
     source: ModSource,
 ) -> Vec<ModSummary> {
     let q = ModSearchQuery {
+        server_only: false,
         source,
         kind: ContentKind::Mod,
         query: query.to_string(),

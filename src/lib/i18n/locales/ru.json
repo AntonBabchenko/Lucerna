@@ -950,7 +950,7 @@
     "kindMods": "Моды",
     "kindResourcePacks": "Ресурс-паки",
     "kindShaders": "Шейдеры",
-    "kindDatapacks": "Датапаки",
+    "kindDatapacks": "Датапаки (Beta)",
     "kindSwitchAria": "Тип контента",
     "subTabsLabel": "Разделы дополнений",
     "dropzoneResourcePack": "Перетащите .zip ресурспака сюда для установки — или нажмите для выбора",
@@ -1372,7 +1372,7 @@
       "confirmDelete": "Удалить резервную копию {timestamp}?"
     },
     "datapacks": {
-      "tab": "Датапаки",
+      "tab": "Датапаки (Beta)",
       "title": "Датапаки",
       "empty": "Датапаков пока нет",
       "add": "Добавить датапак",
@@ -2791,7 +2791,7 @@
     },
     "addons": {
       "kindPlugins": "Плагины",
-      "kindDatapacks": "Датапаки",
+      "kindDatapacks": "Датапаки (Beta)",
       "pinnedFacets": "Для {core} {mcVersion}",
       "dropzonePlugin": "Перетащите .jar плагина сюда или нажмите для выбора файла",
       "dropzoneDatapack": "Перетащите .zip датапака сюда или нажмите для выбора файла",
@@ -3102,6 +3102,9 @@
       "delete": "Удалить",
       "checkUpdates": "Проверить обновления",
       "openFolder": "Открыть папку",
+      "serverOnlyLabel": "Только серверные",
+      "serverOnlyTooltip": "Скрывает моды, которые платформа пометила как клиентские: миникарты, HUD, шейдеры. Выключи, если ищешь мод, нужный серверному дополнению, или тот, что Modrinth разметил неверно.",
+      "serverOnlyUnavailable": "CurseForge не сообщает, работает ли мод на сервере, поэтому для этого источника фильтр недоступен.",
       "deleteConfirm": "Удалить {name}?",
       "note": "Добавляйте и удаляйте моды в папке mods сервера.",
       "setAside": "отложен",

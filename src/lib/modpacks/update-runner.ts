@@ -1,16 +1,30 @@
 // Owns the apply IPC + its two progress Channels, lifted out of the Svelte
 // component so the channel wiring is unit-testable. Direct mirror of
-// src/lib/ops/import-runner.ts (runImport).
+// src/lib/ops/import-runner.ts (runImport) — including its rule that the
+// channels carry PROGRESS ONLY and every result field comes off `r.data`.
 
 import { Channel } from '@tauri-apps/api/core';
-import type { InstanceWithStatus, ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
+import type {
+  InertLoaderJar,
+  InstanceWithStatus,
+  ModpackProgress,
+  ProgressTick,
+  TaskDetail,
+} from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 
 export type UpdateProgressCb = (phase: ModpackProgress | null, bytes: ProgressTick | null) => void;
 
 export type UpdateOutcome =
-  | { status: 'ok'; inst: InstanceWithStatus }
+  | {
+      status: 'ok';
+      inst: InstanceWithStatus;
+      inertLoaderJars: InertLoaderJar[];
+      /** Per-file rows for the removals + installs this update performed —
+       *  what the task registry hands to the install-report modal. */
+      details: TaskDetail[];
+    }
   | { status: 'error'; message: string };
 
 export async function runUpdate(
@@ -41,6 +55,13 @@ export async function runUpdate(
     phaseChannel,
     tickChannel,
   );
-  if (r.status === 'ok') return { status: 'ok', inst: r.data };
+  if (r.status === 'ok') {
+    return {
+      status: 'ok',
+      inst: r.data.instance,
+      inertLoaderJars: r.data.inert_loader_jars,
+      details: r.data.details,
+    };
+  }
   return { status: 'error', message: formatError(r.error) };
 }

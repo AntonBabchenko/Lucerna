@@ -173,6 +173,12 @@ pub struct ModSearchQuery {
     /// when `kind == Plugin`. Ignored for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_core: Option<crate::servers_runtime::schema::ServerCore>,
+    /// Restrict a MOD search to projects the platform does not mark
+    /// client-only. Modrinth only — CurseForge's search API exposes no
+    /// client/server facet, so its client ignores this and the UI disables the
+    /// control for that source. Ignored for every kind except `Mod`.
+    #[serde(default)]
+    pub server_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

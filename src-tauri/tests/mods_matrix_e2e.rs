@@ -222,6 +222,9 @@ async fn fetch_pool(
             page_size,
             offset,
             plugin_core: None,
+            // This matrix walks the whole catalogue; the client/server filter is
+            // a server-browse concern and would only shrink the sample.
+            server_only: false,
         };
         let page = client
             .search(&q)

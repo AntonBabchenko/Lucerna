@@ -226,8 +226,25 @@ describe('op-queue store', () => {
     versionId: null,
   });
 
+  /** A `modpackImport` success. The skipped/inert notes and the report rows
+   *  ride the RESULT, never a `done` channel message — a channel payload can
+   *  land after the command's response resolves, which is what used to empty
+   *  the install report. Mocks that drive `onmessage` to deliver a result
+   *  would be testing an ordering production cannot provide. */
+  const importResult = (over: Record<string, unknown> = {}) => ({
+    status: 'ok' as const,
+    data: {
+      instance: { name: 'Pack', id: 'i1' },
+      skipped_overrides: [],
+      inert_loader_jars: [],
+      details: [],
+      ...over,
+    },
+  });
+  const importOk = importResult();
+
   it('dedupes a second import of the same path', async () => {
-    const d = deferred<{ status: 'ok'; data: { name: string } }>();
+    const d = deferred<{ status: 'ok'; data: typeof importOk.data }>();
     (commands.modpackImport as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
     enqueueImport('Pack', importReq('/tmp/p.mrpack'));
     enqueueImport('Pack', importReq('/tmp/p.mrpack')); // same path → ignored
@@ -237,21 +254,13 @@ describe('op-queue store', () => {
     // resolves its gate (see registry.svelte.ts's `start()`), so the
     // resulting call count is asserted after a flush, not synchronously.
     await vi.waitFor(() => expect(commands.modpackImport).toHaveBeenCalledTimes(1));
-    d.resolve({ status: 'ok', data: { name: 'Pack' } });
+    d.resolve(importOk);
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 
   it('import success pushes an action toast whose Open runs setActiveInstance', async () => {
-    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
-      async (...args: unknown[]) => {
-        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
-          phase: 'done',
-          skipped_overrides: [],
-          inert_loader_jars: [],
-          details: [],
-        });
-        return { status: 'ok', data: { name: 'Pack', id: 'i9' } };
-      },
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockResolvedValue(
+      importResult({ instance: { name: 'Pack', id: 'i9' } }),
     );
     (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
@@ -270,19 +279,13 @@ describe('op-queue store', () => {
   });
 
   it('import with only inert loader jars → inert title + one line per inert jar', async () => {
-    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
-      async (...args: unknown[]) => {
-        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
-          phase: 'done',
-          skipped_overrides: [],
-          inert_loader_jars: [
-            { filename: 'a-Fabric.jar', detected_loader: 'Fabric' },
-            { filename: 'b-Fabric.jar', detected_loader: 'Fabric' },
-          ],
-          details: [],
-        });
-        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
-      },
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockResolvedValue(
+      importResult({
+        inert_loader_jars: [
+          { filename: 'a-Fabric.jar', detected_loader: 'Fabric' },
+          { filename: 'b-Fabric.jar', detected_loader: 'Fabric' },
+        ],
+      }),
     );
 
     enqueueImport('Pack', importReq('/tmp/p.mrpack'));
@@ -300,16 +303,11 @@ describe('op-queue store', () => {
   });
 
   it('import with both skipped overrides and inert jars → skipped title covers both, lines list both', async () => {
-    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
-      async (...args: unknown[]) => {
-        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
-          phase: 'done',
-          skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
-          inert_loader_jars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
-          details: [],
-        });
-        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
-      },
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockResolvedValue(
+      importResult({
+        skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
+        inert_loader_jars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
+      }),
     );
 
     enqueueImport('Pack', importReq('/tmp/p.mrpack'));
@@ -369,20 +367,10 @@ describe('op-queue store', () => {
   };
 
   it('enqueueLauncherImport: success pushes action toast and bumps importCompletionTick', async () => {
-    (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockImplementation(
-      async (
-        _f: unknown,
-        _s: unknown,
-        _n: unknown,
-        _mv: unknown,
-        _lo: unknown,
-        _lv: unknown,
-        ch: { onmessage: ((m: unknown) => void) | null },
-      ) => {
-        ch.onmessage?.({ phase: 'done', instance_id: 'inst-new', untracked_mods: 0 });
-        return { status: 'ok', data: mockInstanceData };
-      },
-    );
+    (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { instance: mockInstanceData, untracked_mods: 0 },
+    });
     (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
       data: null,
@@ -399,7 +387,10 @@ describe('op-queue store', () => {
   });
 
   it('enqueueLauncherImport: dedupes same root', async () => {
-    const d = deferred<{ status: 'ok'; data: typeof mockInstanceData }>();
+    const d = deferred<{
+      status: 'ok';
+      data: { instance: typeof mockInstanceData; untracked_mods: number };
+    }>();
     (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
 
     enqueueLauncherImport('Prism Pack', {
@@ -417,7 +408,7 @@ describe('op-queue store', () => {
     // synchronous, but the surviving call's command now fires one microtask
     // after `start()`'s gate resolves.
     await vi.waitFor(() => expect(commands.launcherImportRun).toHaveBeenCalledTimes(1));
-    d.resolve({ status: 'ok', data: mockInstanceData });
+    d.resolve({ status: 'ok', data: { instance: mockInstanceData, untracked_mods: 0 } });
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
   });
 

@@ -209,25 +209,61 @@ pub enum ModpackProgress {
         total: u32,
     },
     Enriching,
-    Done {
-        instance_id: String,
-        /// Overrides skipped during extraction because they exceeded the
-        /// per-file size cap (non-loadable blobs — see `SkippedOverride`).
-        /// Empty in the common case; non-empty drives a non-fatal "N file(s)
-        /// skipped" note on the import-complete toast.
-        skipped_overrides: Vec<SkippedOverride>,
-        /// Installed jars built for a loader family this instance cannot load
-        /// (inert — e.g. a Fabric jar on a Forge instance — see
-        /// `InertLoaderJar`). Empty in the common case; non-empty drives a
-        /// non-fatal "N inert jar(s)" note on the import-complete toast.
-        inert_loader_jars: Vec<InertLoaderJar>,
-        /// One row per file this import touched — what it was, where it came
-        /// from, how big, and what happened to it. Rides this terminal
-        /// message rather than a dedicated event (correlation is free: the
-        /// channel belongs to one invocation); a later task persists it into
-        /// a per-file install report.
-        details: Vec<crate::tasks::TaskDetail>,
-    },
+    /// Terminal phase marker — deliberately **payload-free**.
+    ///
+    /// It used to carry the import's result (skipped overrides, inert jars,
+    /// per-file report rows). That was a real bug, not a style question: a
+    /// channel message is delivered out-of-band from the command's own
+    /// response, and Tauri routes any JSON body at or above
+    /// `MAX_JSON_DIRECT_EXECUTE_THRESHOLD` (8192 bytes, `ipc/channel.rs`)
+    /// through a *second* async IPC round trip that lands after the response
+    /// has already resolved. A 37-file pack serialises to ~10 KB, so the UI
+    /// read its captured local while it was still empty and every install
+    /// report came back "0 files".
+    ///
+    /// The rule this encodes: a task's terminal result travels on the
+    /// command's **return value** (`ModpackImportOutcome`,
+    /// `ModpackUpdateOutcome`); the channel carries progress only. Adding a
+    /// field back here breaks `done_is_a_payload_free_phase_marker`.
+    Done,
+}
+
+/// What `modpack_import` returns: the created instance plus everything the
+/// completion toast and the install report need.
+///
+/// These ride the return value rather than `ModpackProgress::Done` — see that
+/// variant's doc comment for the transport bug that forced the split.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackImportOutcome {
+    pub instance: crate::instances::schema::InstanceWithStatus,
+    /// Overrides skipped during extraction because they exceeded the per-file
+    /// size cap (non-loadable blobs — see `SkippedOverride`). Empty in the
+    /// common case; non-empty drives a non-fatal "N file(s) skipped" note on
+    /// the import-complete toast.
+    pub skipped_overrides: Vec<SkippedOverride>,
+    /// Installed jars built for a loader family this instance cannot load
+    /// (inert — e.g. a Fabric jar on a Forge instance — see `InertLoaderJar`).
+    /// Empty in the common case; non-empty drives a non-fatal "N inert jar(s)"
+    /// note on the import-complete toast.
+    pub inert_loader_jars: Vec<InertLoaderJar>,
+    /// One row per file this import touched — what it was, where it came from,
+    /// how big, and what happened to it. The UI hands these to the task
+    /// registry; the backend separately persists them as an install report.
+    pub details: Vec<crate::tasks::TaskDetail>,
+}
+
+/// What `modpack_apply_update` returns. Same reasoning as
+/// [`ModpackImportOutcome`]; a version bump never touches `overrides/`, so
+/// there is nothing to skip and no `skipped_overrides` field.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackUpdateOutcome {
+    pub instance: crate::instances::schema::InstanceWithStatus,
+    /// The mods dir is re-classified by an update, so a switch that changes
+    /// the loader family reports which bundled jars have stopped loading.
+    pub inert_loader_jars: Vec<InertLoaderJar>,
+    /// Per-file rows for the removals + installs the update performed,
+    /// including per-file failures (this path continues past them).
+    pub details: Vec<crate::tasks::TaskDetail>,
 }
 
 /// Reconciled state of a `PackOrigin.missing_mods` entry against the
@@ -381,27 +417,14 @@ mod tests {
     }
 
     #[test]
-    fn modpack_progress_done_serialises_details() {
-        let done = ModpackProgress::Done {
-            instance_id: "inst-1".into(),
-            skipped_overrides: vec![],
-            inert_loader_jars: vec![],
-            details: vec![crate::tasks::TaskDetail {
-                name: "Sodium".into(),
-                install_path: "mods/sodium.jar".into(),
-                origin: crate::tasks::TaskOrigin::Modrinth,
-                host: Some("cdn.modrinth.com".into()),
-                bytes: Some(123.0),
-                sha1: Some("abc".into()),
-                outcome: crate::tasks::DetailOutcome::Installed {
-                    fetched: crate::tasks::Fetched::Downloaded,
-                    placement: crate::mods::store::Placement::Linked,
-                },
-            }],
-        };
-        let j = serde_json::to_value(&done).unwrap();
-        assert_eq!(j["phase"], "done");
-        assert_eq!(j["details"][0]["name"], "Sodium");
-        assert_eq!(j["details"][0]["origin"], "modrinth");
+    fn done_is_a_payload_free_phase_marker() {
+        // The invariant, not an incidental shape: anything the UI must READ
+        // belongs on the command's return value, because a channel message
+        // over 8192 bytes is delivered through a second async IPC round trip
+        // that lands after the command's response has already resolved (see
+        // `ModpackProgress::Done`'s doc comment). Adding a field here
+        // re-opens that bug, so this test exists to go red when someone does.
+        let j = serde_json::to_value(ModpackProgress::Done).unwrap();
+        assert_eq!(j, serde_json::json!({ "phase": "done" }));
     }
 }

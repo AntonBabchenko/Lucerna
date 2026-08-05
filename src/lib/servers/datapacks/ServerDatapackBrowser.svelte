@@ -425,7 +425,7 @@
       hits={visibleHits}
       layout={browserPrefs.layout}
       isMod={true}
-      placeholderIcon="world"
+      placeholderIcon="datapack"
       {installedFor}
       isCardBusy={(id) => installing.has(id)}
       onInstall={(h) => void install(h)}

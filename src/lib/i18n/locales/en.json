@@ -950,7 +950,7 @@
     "kindMods": "Mods",
     "kindResourcePacks": "Resource packs",
     "kindShaders": "Shaders",
-    "kindDatapacks": "Data packs",
+    "kindDatapacks": "Data packs (Beta)",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
     "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
@@ -1372,7 +1372,7 @@
       "confirmDelete": "Delete backup {timestamp}?"
     },
     "datapacks": {
-      "tab": "Datapacks",
+      "tab": "Datapacks (Beta)",
       "title": "Datapacks",
       "empty": "No datapacks yet",
       "add": "Add datapack",
@@ -2791,7 +2791,7 @@
     },
     "addons": {
       "kindPlugins": "Plugins",
-      "kindDatapacks": "Datapacks",
+      "kindDatapacks": "Datapacks (Beta)",
       "pinnedFacets": "For {core} {mcVersion}",
       "dropzonePlugin": "Drag a plugin .jar here or click to pick a file",
       "dropzoneDatapack": "Drag a datapack .zip here or click to pick a file",
@@ -3076,6 +3076,9 @@
       "delete": "Remove",
       "checkUpdates": "Check for updates",
       "openFolder": "Open folder",
+      "serverOnlyLabel": "Server-only",
+      "serverOnlyTooltip": "Hides mods the platform marks as client-only — minimaps, HUDs, shaders. Turn it off if you are looking for a mod a server-side companion needs, or one Modrinth has labelled wrong.",
+      "serverOnlyUnavailable": "CurseForge does not report whether a mod runs on a server, so this filter is unavailable for that source.",
       "deleteConfirm": "Remove {name}?",
       "note": "Add or remove mods in the server's mods folder.",
       "setAside": "set aside",
