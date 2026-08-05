@@ -2759,7 +2759,6 @@
       "remove": "Удалить датапак",
       "removeConfirm": "Удалить {name} из мира этого сервера?",
       "removeGhostConfirm": "Мир всё ещё ссылается на {name}, но файла нет. Убрать запись?",
-      "updatePartial": "{name} обновлён, но старый файл не удалось удалить — он не совпадает с тем, что установила Lucerna. Удалите его вручную.",
       "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {

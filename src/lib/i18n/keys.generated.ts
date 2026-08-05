@@ -1845,7 +1845,6 @@ export type TranslationKey =
   | 'servers.datapacks.removeConfirm'
   | 'servers.datapacks.removeGhostConfirm'
   | 'servers.datapacks.stateGhost'
-  | 'servers.datapacks.updatePartial'
   | 'servers.delete.confirm'
   | 'servers.delete.description'
   | 'servers.delete.question'

@@ -2759,7 +2759,6 @@
       "remove": "Remove data pack",
       "removeConfirm": "Remove {name} from this server's world?",
       "removeGhostConfirm": "The world still lists {name}, but its file is gone. Clear the entry?",
-      "updatePartial": "{name} was updated, but the old file could not be removed — it doesn't match what Lucerna installed. Remove it by hand.",
       "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {

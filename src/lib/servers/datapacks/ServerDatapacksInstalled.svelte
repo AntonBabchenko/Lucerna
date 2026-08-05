@@ -99,10 +99,11 @@
     }
   }
 
-  // Apply one pending update. An honest partial outcome (`completed: false`)
-  // means the old file was deliberately left on disk because it did not match
-  // what Lucerna installed — surface that and keep the row flagged rather than
-  // clearing its check, so the affordance stays visible until it is resolved.
+  // Apply one pending update. `update_one` checks the old file's identity
+  // before it places the new one, so a foreign old file is refused outright
+  // and an `ok` outcome always carries `completed: true` — there is no partial
+  // state left to render. If that ever changes, the UI has to learn the
+  // partial case again.
   async function updateOne(row: ServerDatapackEntry) {
     const key = rowKey(row);
     const state = updateChecks.get(key);
@@ -121,15 +122,9 @@
         state.latest,
       );
       if (res.status === 'ok') {
-        if (res.data.completed) {
-          const next = new Map(updateChecks);
-          next.delete(key);
-          updateChecks = next;
-        } else {
-          actionError = $t('servers.datapacks.updatePartial', {
-            name: row.record.name ?? row.record.filename,
-          });
-        }
+        const next = new Map(updateChecks);
+        next.delete(key);
+        updateChecks = next;
         await load();
       } else {
         actionError = formatError(res.error);
@@ -144,9 +139,7 @@
   // Apply every pending update in one sequential batch — each update rewrites
   // level.dat, so applies MUST stay serial, never interleaved. A hard failure
   // (res.status === 'error') stops the batch, leaving the remaining rows their
-  // update affordance untouched. A soft partial outcome does not stop the
-  // batch (the pack itself did update — only cleanup is outstanding) and its
-  // check stays in the map instead of being cleared.
+  // update affordance untouched.
   async function updateAll() {
     if (disabled) {
       actionError = $t('servers.mods.stopToManage');
@@ -178,15 +171,9 @@
           actionError = formatError(res.error);
           break;
         }
-        if (res.data.completed) {
-          const next = new Map(updateChecks);
-          next.delete(key);
-          updateChecks = next;
-        } else {
-          actionError = $t('servers.datapacks.updatePartial', {
-            name: row.record.name ?? row.record.filename,
-          });
-        }
+        const next = new Map(updateChecks);
+        next.delete(key);
+        updateChecks = next;
       }
       await load();
     } finally {
