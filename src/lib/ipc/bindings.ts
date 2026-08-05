@@ -4258,6 +4258,13 @@ export type ModSearchQuery_Deserialize = {
 	 *  when `kind == Plugin`. Ignored for every other kind.
 	 */
 	plugin_core?: ServerCore | null,
+	/**
+	 *  Restrict a MOD search to projects the platform does not mark
+	 *  client-only. Modrinth only — CurseForge's search API exposes no
+	 *  client/server facet, so its client ignores this and the UI disables the
+	 *  control for that source. Ignored for every kind except `Mod`.
+	 */
+	server_only?: boolean,
 };
 
 export type ModSearchQuery_Serialize = {
@@ -4274,6 +4281,13 @@ export type ModSearchQuery_Serialize = {
 	 *  when `kind == Plugin`. Ignored for every other kind.
 	 */
 	plugin_core?: ServerCore | null,
+	/**
+	 *  Restrict a MOD search to projects the platform does not mark
+	 *  client-only. Modrinth only — CurseForge's search API exposes no
+	 *  client/server facet, so its client ignores this and the UI disables the
+	 *  control for that source. Ignored for every kind except `Mod`.
+	 */
+	server_only: boolean,
 };
 
 export type ModSort = "relevance" | "downloads" | "updated";
