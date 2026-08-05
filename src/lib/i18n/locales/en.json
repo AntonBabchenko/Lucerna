@@ -435,6 +435,17 @@
     "l10n": {
       "title": "Mod translations",
       "beta": "Beta",
+      "nsFilter": {
+                "placeholder": "Filter mods"
+              },
+              "nsSort": {
+                "label": "Sort mods",
+                "leastCovered": "least translated first",
+                "mostCovered": "most translated first",
+                "name": "by name",
+                "mostKeys": "most keys first",
+                "mine": "by my translations"
+              },
       "find": {
         "placeholder": "Find a line you saw in game — across every mod in this instance",
         "count": "{count} matches",

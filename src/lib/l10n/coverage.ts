@@ -18,10 +18,46 @@ export function coverageTone(percent: number): CoverageTone {
   return 'partial';
 }
 
+/** The orders the sidebar offers. `leastCovered` is the historical default and
+ *  stays it: the work to do floats to the top. */
+export type NamespaceSort = 'leastCovered' | 'mostCovered' | 'name' | 'mostKeys' | 'mine';
+
+export const NAMESPACE_SORTS: NamespaceSort[] = [
+  'leastCovered',
+  'mostCovered',
+  'name',
+  'mostKeys',
+  'mine',
+];
+
 /** Least translated first, then largest first — the work to do floats to the top. */
-export function sortNamespaces(rows: NamespaceCoverage[]): NamespaceCoverage[] {
+export function sortNamespaces(
+  rows: NamespaceCoverage[],
+  order: NamespaceSort = 'leastCovered',
+): NamespaceCoverage[] {
+  const byKeysDesc = (a: NamespaceCoverage, b: NamespaceCoverage) => b.totalKeys - a.totalKeys;
   return [...rows].sort((a, b) => {
-    const d = namespacePercent(a) - namespacePercent(b);
-    return d !== 0 ? d : b.totalKeys - a.totalKeys;
+    switch (order) {
+      case 'name':
+        return a.namespace.localeCompare(b.namespace);
+      case 'mostKeys':
+        return byKeysDesc(a, b) || a.namespace.localeCompare(b.namespace);
+      case 'mostCovered': {
+        const d = namespacePercent(b) - namespacePercent(a);
+        return d !== 0 ? d : byKeysDesc(a, b);
+      }
+      // Deliberately NOT a rearrangement of coverage. Coverage is the SUM of
+      // what the mod's authors did and what the user did, which answers "where
+      // should I work next" and cannot answer "where did I already work" — the
+      // question after a whole-instance pre-fill writes hundreds of strings.
+      case 'mine': {
+        const d = b.overridden - a.overridden;
+        return d !== 0 ? d : a.namespace.localeCompare(b.namespace);
+      }
+      default: {
+        const d = namespacePercent(a) - namespacePercent(b);
+        return d !== 0 ? d : byKeysDesc(a, b);
+      }
+    }
   });
 }

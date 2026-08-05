@@ -438,6 +438,42 @@ describe('LocalizationModal', () => {
     });
   });
 
+  describe('mod list filter and sort', () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ns({ namespace: `mod${String(i).padStart(2, '0')}` }));
+
+    it('offers the filter only once the list is long enough to need it', async () => {
+      mockCoverageOk(coverage({ namespaces: many(5) }));
+      const short = render(LocalizationModal, {
+        props: { open: true, instanceId: 'a', lang: 'en_us' },
+      });
+      await screen.findByTestId('l10n-ns-sort');
+      expect(screen.queryByTestId('l10n-ns-filter')).toBeNull();
+      short.unmount();
+
+      mockCoverageOk(coverage({ namespaces: many(20) }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await screen.findByTestId('l10n-ns-filter');
+    });
+
+    it('keeps the open mod visible even when the filter excludes it', async () => {
+      // Otherwise the key table on the right shows a mod that is not on the
+      // left, which reads as a bug rather than as a filter.
+      mockCoverageOk(coverage({ namespaces: [...many(19), ns({ namespace: 'create' })] }));
+      mockKeysOk();
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const rows = await screen.findAllByTestId('l10n-namespace-row');
+      const create = rows.find((r) => r.textContent?.includes('create'));
+      await fireEvent.click(create as HTMLElement);
+
+      await fireEvent.input(screen.getByTestId('l10n-ns-filter'), { target: { value: 'mod0' } });
+
+      const after = screen.getAllByTestId('l10n-namespace-row');
+      expect(after.some((r) => r.textContent?.includes('create'))).toBe(true);
+    });
+  });
+
   describe('instance-wide search', () => {
     it('swaps the key pane for results once a query is typed, and back when cleared', async () => {
       mockCoverageOk(coverage());

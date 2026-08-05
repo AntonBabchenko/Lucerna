@@ -10,7 +10,14 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import { coverageTone, namespacePercent, sortNamespaces, type CoverageTone } from './coverage';
+  import {
+    NAMESPACE_SORTS,
+    coverageTone,
+    namespacePercent,
+    sortNamespaces,
+    type CoverageTone,
+    type NamespaceSort,
+  } from './coverage';
   import ApplyTargetsDialog from './ApplyTargetsDialog.svelte';
   import KeyTable from './KeyTable.svelte';
   import PrefillDialog from './PrefillDialog.svelte';
@@ -331,6 +338,25 @@
 
   // Rows in the pinned order, with any namespace that appeared after the last
   // full load appended (sorted) rather than dropped.
+  /** Below this many mods the list is scannable and a filter box is only
+   *  clutter; a 400-mod pack is a different animal. Mirrors the threshold the
+   *  share-export dialog uses for the same reason. */
+  const NS_FILTER_THRESHOLD = 12;
+
+  let nsFilter = $state('');
+  let nsSort = $state<NamespaceSort>('leastCovered');
+
+  const showNsFilter = $derived((coverage?.namespaces.length ?? 0) > NS_FILTER_THRESHOLD);
+
+  /** Re-pin the order — and ONLY here. `nsOrder` exists because re-deriving it
+   *  on every refresh made a row sink out of the viewport mid-edit the moment
+   *  its first key was saved. Picking a sort is the one moment the user has
+   *  asked for the list to move. */
+  function pickSort(order: NamespaceSort) {
+    nsSort = order;
+    nsOrder = sortNamespaces(coverage?.namespaces ?? [], order).map((r) => r.namespace);
+  }
+
   const sortedNamespaces = $derived.by(() => {
     if (!coverage) return [];
     const byName = new Map(coverage.namespaces.map((r) => [r.namespace, r]));
@@ -338,8 +364,19 @@
       .map((name) => byName.get(name))
       .filter((r): r is NamespaceCoverage => r !== undefined);
     const seen = new Set(nsOrder);
-    const fresh = sortNamespaces(coverage.namespaces.filter((r) => !seen.has(r.namespace)));
-    return [...pinned, ...fresh];
+    const fresh = sortNamespaces(
+      coverage.namespaces.filter((r) => !seen.has(r.namespace)),
+      nsSort,
+    );
+    const all = [...pinned, ...fresh];
+    const q = nsFilter.trim().toLowerCase();
+    if (q === '') return all;
+    // The open namespace never disappears under the filter: the key table on
+    // the right would then be showing a mod that is not on the left, which
+    // reads as a bug rather than as a filter.
+    return all.filter(
+      (r) => r.namespace.toLowerCase().includes(q) || r.namespace === selectedNamespace,
+    );
   });
   // Totals come from the same rows the sidebar renders, so the header can
   // never disagree with the list under it. `percent` stays the backend's own
@@ -627,6 +664,30 @@
               {$t('instance.l10n.empty')}
             </p>
           {:else}
+            {#if showNsFilter}
+              <input
+                class="mb-1 w-full rounded border px-2 py-1 text-xs"
+                placeholder={$t('instance.l10n.nsFilter.placeholder')}
+                bind:value={nsFilter}
+                data-testid="l10n-ns-filter"
+              />
+            {/if}
+            <div class="mb-1 flex items-center gap-1">
+              <span class="flex-1 truncate text-xs text-muted" data-testid="l10n-ns-sort-current">
+                {$t(`instance.l10n.nsSort.${nsSort}`)}
+              </span>
+              <select
+                class="rounded border bg-transparent px-1 py-0.5 text-xs"
+                aria-label={$t('instance.l10n.nsSort.label')}
+                data-testid="l10n-ns-sort"
+                value={nsSort}
+                onchange={(e) => pickSort(e.currentTarget.value as NamespaceSort)}
+              >
+                {#each NAMESPACE_SORTS as order (order)}
+                  <option value={order}>{$t(`instance.l10n.nsSort.${order}`)}</option>
+                {/each}
+              </select>
+            </div>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>
               {#each sortedNamespaces as row, i (row.namespace)}
