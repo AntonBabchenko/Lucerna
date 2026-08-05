@@ -383,7 +383,8 @@
     onClose={() => (detail = null)}
     loadProject={() => commands.modsProject(d.source, d.project_id)}
     loadVersions={() => commands.modsPluginVersions(d.source, d.project_id, mcVersion, core)}
-    installVersion={(vid) => commands.serverInstallPlugin(serverId, d.source, d.project_id, vid)}
+    installVersion={(v) =>
+      commands.serverInstallPlugin(serverId, d.source, d.project_id, v.version_id)}
     externalOf={(v) => externalOf(d, v)}
     openExternal={openUrl}
     projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}

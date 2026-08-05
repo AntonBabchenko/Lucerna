@@ -451,7 +451,8 @@
           loadProject={() => commands.modsProject(d.source, d.project_id)}
           loadVersions={() =>
             commands.modsVersions(d.source, d.project_id, server.mc_version, loaderKind)}
-          installVersion={(vid) => commands.serverInstallMod(serverId, d.source, d.project_id, vid)}
+          installVersion={(v) =>
+            commands.serverInstallMod(serverId, d.source, d.project_id, v.version_id)}
           externalOf={(v) => externalOf(d, v)}
           openExternal={openUrl}
           projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}

@@ -61,7 +61,15 @@
      *  as `commands.modsProject(source, project_id)` by the parent. */
     loadProject: () => Promise<ProjectResult>;
     loadVersions: () => Promise<VersionsResult>;
-    installVersion: (versionId: string) => Promise<InstallResult>;
+    /** Receives the full chosen version, not just its id: the datapack
+     *  browser's install command needs the whole `ModVersion`, and handing
+     *  back the id alone forced callers to cache the fetched list by
+     *  version_id to look it up again — a cache with no request-sequencing
+     *  guard, so a slow-then-abandoned project's response could land after a
+     *  fast one and overwrite the entry a subsequent install needed. This
+     *  component already has the full object in scope at the call site
+     *  (see `install` below), so it hands it back directly. */
+    installVersion: (v: ModVersion) => Promise<InstallResult>;
     /** Per-version external file URL (e.g. Hangar externalUrl) when the file is
      *  hosted off-platform and must not be downloaded in-app; null otherwise. */
     externalOf: (v: ModVersion) => string | null;
@@ -138,7 +146,7 @@
     installingId = v.version_id;
     error = null;
     try {
-      const res = await installVersion(v.version_id);
+      const res = await installVersion(v);
       if (res.status === 'ok') {
         onInstalled(res.data, versionLabel(v));
         onClose();

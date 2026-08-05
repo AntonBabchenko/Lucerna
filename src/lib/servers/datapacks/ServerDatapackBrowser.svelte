@@ -39,13 +39,12 @@
   //     serverInstallMod/serverInstallPlugin in BOTH directions: it takes the
   //     full ModVersion (not just a version id) and returns a
   //     ServerInstalledRecord (not an InstallMissingReport). ServerContentDetail's
-  //     installVersion/loadVersions props are hard-typed to the mod/plugin
-  //     install envelope, so rather than widen that shared component's
-  //     contract (touching the two OTHER panes that use it), this component
-  //     adapts locally: the detail modal's version fetch caches the list by
-  //     version_id, and install looks the object up there. A datapack install
-  //     has no dependency graph, so { installed: [filename], unresolved: [] }
-  //     is a truthful — not fudged — InstallMissingReport.
+  //     installVersion prop hands back the full chosen ModVersion for exactly
+  //     this reason, so this component's adapter (installDetailVersion) has
+  //     the object in hand with no by-id cache to keep in sync. A datapack
+  //     install has no dependency graph, so `reportOf` below's
+  //     { installed: [filename], unresolved: [] } is a truthful — not fudged
+  //     — InstallMissingReport.
   //   - the installed badge stays the ordinary "Installed" (never "In
   //     library"): that client-only wording exists because a library pack is
   //     inert until placed in a world, but a server has one world and a
@@ -179,6 +178,15 @@
     void reload();
   }
 
+  // A datapack install has no dependency graph — there is nothing to resolve
+  // — so `unresolved: []` is a fact about the install, not a stub standing in
+  // for a report this command doesn't actually produce. Centralised so the
+  // two install paths below (browse-card install and the detail-modal
+  // adapter) build the same honest shape instead of each spelling it out.
+  function reportOf(filename: string): InstallMissingReport {
+    return { installed: [filename], unresolved: [] };
+  }
+
   // Shared success/dependency/unresolved toast block, mirroring ServerModBrowser.
   // A datapack install carries no dependency graph, so `report.unresolved` is
   // always empty in practice — the block is kept as-is so both callers stay
@@ -223,7 +231,7 @@
       }
       const res = await commands.serverInstallDatapackVersion(serverId, newest);
       if (res.status === 'ok') {
-        toastInstalled(card.name, { installed: [res.data.filename], unresolved: [] });
+        toastInstalled(card.name, reportOf(res.data.filename));
         // Flip the just-installed card to its "Installed" state immediately.
         await loadInstalled();
       } else {
@@ -342,33 +350,24 @@
   // These two local types mirror ServerContentDetail's own (private) aliases
   // so the adapter functions below type-check against the same envelope shape
   // without exporting anything from that shared component.
+  //
+  // installVersion now hands back the whole chosen ModVersion (widened on
+  // ServerContentDetail itself), so there is no by-id cache to keep in sync
+  // here — that cache used to have no request-sequencing guard: open project
+  // A (slow), close, open project B (fast), then A's response would land and
+  // overwrite the cache, and a valid install on B would miss the lookup and
+  // fail with a spurious error.
   type VersionsResult = Awaited<ReturnType<typeof commands.modsVersions>>;
   type InstallResult = Awaited<ReturnType<typeof commands.serverInstallMod>>;
 
-  // Populated as a side effect of the SAME fetch ServerContentDetail performs
-  // via loadVersions, so it is never stale while the modal is open — a fresh
-  // loadVersions call (new project, or the modal reopened) always happens
-  // before any install the modal can trigger.
-  let detailVersionsCache = new Map<string, ModVersion>();
-
   async function loadDetailVersions(projectSource: ModSource, projectId: string): Promise<VersionsResult> {
-    const res = await commands.modsDatapackVersions(projectSource, projectId, mcVersion);
-    if (res.status === 'ok') {
-      detailVersionsCache = new Map(res.data.map((v) => [v.version_id, v]));
-    }
-    return res;
+    return commands.modsDatapackVersions(projectSource, projectId, mcVersion);
   }
 
-  async function installDetailVersion(versionId: string): Promise<InstallResult> {
-    const v = detailVersionsCache.get(versionId);
-    if (!v) {
-      // Defensive only — the cache is populated by the same loadVersions call
-      // the modal always makes before offering any version to install.
-      return { status: 'error', error: { kind: 'server_content_stale' } };
-    }
+  async function installDetailVersion(v: ModVersion): Promise<InstallResult> {
     const res = await commands.serverInstallDatapackVersion(serverId, v);
     if (res.status === 'error') return res;
-    return { status: 'ok', data: { installed: [res.data.filename], unresolved: [] } };
+    return { status: 'ok', data: reportOf(res.data.filename) };
   }
 </script>
 
@@ -444,7 +443,7 @@
     onClose={() => (detail = null)}
     loadProject={() => commands.modsProject(d.source, d.project_id)}
     loadVersions={() => loadDetailVersions(d.source, d.project_id)}
-    installVersion={(vid) => installDetailVersion(vid)}
+    installVersion={installDetailVersion}
     externalOf={(v) => externalOf(d, v)}
     openExternal={openUrl}
     projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}
