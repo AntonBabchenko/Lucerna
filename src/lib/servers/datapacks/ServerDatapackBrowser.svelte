@@ -415,7 +415,7 @@
   {#if needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {:else if error}
-    <p class="text-sm text-danger">{error}</p>
+    <p class="text-sm text-danger" role="alert">{error}</p>
   {:else if loading && hits.length === 0}
     <LoadingPanel label={$t('servers.mods.searching')} delayMs={0} />
   {:else if hits.length === 0}
