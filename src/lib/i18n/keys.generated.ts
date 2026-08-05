@@ -420,6 +420,7 @@ export type TranslationKey =
   | 'instance.l10n.apply.toastDeferredLine'
   | 'instance.l10n.apply.toastDeferredTitle'
   | 'instance.l10n.apply.toastFailedTitle'
+  | 'instance.l10n.beta'
   | 'instance.l10n.closeLabel'
   | 'instance.l10n.detailPlaceholder'
   | 'instance.l10n.empty'

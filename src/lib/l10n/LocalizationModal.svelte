@@ -390,6 +390,17 @@
       -->
       <div class="flex min-w-0 items-baseline gap-3">
         <DialogTitle id="l10n-modal-title">{$t('instance.l10n.title')}</DialogTitle>
+        <!--
+          Marked Beta while the feature settles, the same stance the own-server
+          screen takes. Beside the title rather than inside it so screen readers
+          announce the heading without the qualifier swallowed into it.
+        -->
+        <span
+          class="rounded bg-subtle px-1.5 py-0.5 text-xs text-secondary"
+          data-testid="l10n-beta-badge"
+        >
+          {$t('instance.l10n.beta')}
+        </span>
         {#if coverage}
           <span class="shrink-0 text-xs text-muted" data-testid="l10n-summary">
             {$t('instance.l10n.summary', {

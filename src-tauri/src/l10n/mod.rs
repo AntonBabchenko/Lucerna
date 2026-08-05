@@ -13,6 +13,7 @@
 
 pub mod apply;
 pub mod coverage;
+pub mod find;
 pub mod namespace_scan;
 pub mod options_txt;
 pub mod pack;

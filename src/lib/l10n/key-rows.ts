@@ -53,13 +53,22 @@ const NO_STICKY: ReadonlySet<string> = new Set();
 
 function matchesSearch(row: KeyRow, q: string): boolean {
   if (!q) return true;
-  return row.key.toLowerCase().includes(q) || row.sourceEn.toLowerCase().includes(q);
+  return (
+    row.key.toLowerCase().includes(q) ||
+    row.sourceEn.toLowerCase().includes(q) ||
+    (row.overrideValue?.toLowerCase().includes(q) ?? false)
+  );
 }
 
-/** Apply the view, then the search term. Search matches the key or the English
- *  source — the two things a user knows going in — never the translated value
- *  itself: that may be in a script the user can't even read, which is the
- *  entire reason they're translating it.
+/** Apply the view, then the search term. Search matches the key, the English
+ *  source, and the user's own override.
+ *
+ *  The override used to be excluded, on the grounds that the target script may
+ *  be one the user cannot read — which is true of someone translating INTO an
+ *  alphabet they do not know, and false of the far commoner case: someone
+ *  hunting for a phrasing THEY wrote and now want to fix. The old reason does
+ *  not argue against including it, either — a user who cannot read the target
+ *  simply never types it, and loses nothing.
  *
  *  `sticky` holds the keys the user has changed in this sitting. They are
  *  exempt from the VIEW — a row you just translated keeps its place instead of

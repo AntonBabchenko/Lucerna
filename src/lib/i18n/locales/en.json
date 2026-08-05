@@ -434,6 +434,7 @@
     },
     "l10n": {
       "title": "Mod translations",
+      "beta": "Beta",
       "closeLabel": "Close mod translations",
       "languageLabel": "Target language",
       "listRegionLabel": "Mods",

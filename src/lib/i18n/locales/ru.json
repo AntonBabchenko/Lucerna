@@ -434,6 +434,7 @@
     },
     "l10n": {
       "title": "Перевод модов",
+      "beta": "Бета",
       "closeLabel": "Закрыть перевод модов",
       "languageLabel": "Целевой язык",
       "listRegionLabel": "Моды",

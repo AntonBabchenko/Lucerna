@@ -384,6 +384,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // In-game mod localization (translation coverage + override editor):
             commands::l10n_coverage,
             commands::l10n_namespace_keys,
+            commands::l10n_search,
             commands::l10n_set_override,
             commands::l10n_apply,
             // In-game mod localization (AI pre-fill):
