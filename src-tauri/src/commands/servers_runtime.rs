@@ -615,45 +615,54 @@ pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<ServerModEntry
 /// `reconcile_on_list` (sha1-keyed) so identity survives enable/disable renames.
 #[tauri::command]
 #[specta::specta]
-pub fn server_list_mods_enriched(
+pub async fn server_list_mods_enriched(
     app: AppHandle,
     id: String,
 ) -> Result<Vec<ServerModEntryEnriched>> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
-    let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
-    let entries = crate::servers_runtime::installed::reconcile_on_list(&mods)?;
-    Ok(entries
-        .into_iter()
-        .map(|e| {
-            let disabled = !e.enabled;
-            // Current on-disk name: base `filename` + `.disabled` when disabled.
-            // Used both for the quarantine-reason lookup and as `on_disk_filename`
-            // so mutation commands join the real file, not the base name.
-            let on_disk = if disabled {
-                format!("{}.disabled", e.record.filename)
-            } else {
-                e.record.filename.clone()
-            };
-            let reason = if disabled {
-                reasons.get(&on_disk).cloned()
-            } else {
-                None
-            };
-            ServerModEntryEnriched {
-                filename: e.record.filename,
-                on_disk_filename: on_disk,
-                disabled,
-                reason,
-                sha1: e.record.sha1,
-                source: e.record.source,
-                project_id: e.record.project_id,
-                version_id: e.record.version_id,
-                name: e.record.name,
-                version_number: e.record.version_number,
-            }
-        })
-        .collect())
+    // Off the async executor: `reconcile_on_list` does a full byte read + Sha1
+    // of every jar (mirrors `enrich_server_dir` and the update/swap paths).
+    // MUST stay `async` — a synchronous Tauri command runs on the MAIN thread,
+    // and this scan then freezes the whole window for its duration. Enforced by
+    // `tests/structural_no_sync_reconcile.rs`.
+    tokio::task::spawn_blocking(move || -> Result<Vec<ServerModEntryEnriched>> {
+        let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
+        let entries = crate::servers_runtime::installed::reconcile_on_list(&mods)?;
+        Ok(entries
+            .into_iter()
+            .map(|e| {
+                let disabled = !e.enabled;
+                // Current on-disk name: base `filename` + `.disabled` when disabled.
+                // Used both for the quarantine-reason lookup and as `on_disk_filename`
+                // so mutation commands join the real file, not the base name.
+                let on_disk = if disabled {
+                    format!("{}.disabled", e.record.filename)
+                } else {
+                    e.record.filename.clone()
+                };
+                let reason = if disabled {
+                    reasons.get(&on_disk).cloned()
+                } else {
+                    None
+                };
+                ServerModEntryEnriched {
+                    filename: e.record.filename,
+                    on_disk_filename: on_disk,
+                    disabled,
+                    reason,
+                    sha1: e.record.sha1,
+                    source: e.record.source,
+                    project_id: e.record.project_id,
+                    version_id: e.record.version_id,
+                    name: e.record.name,
+                    version_number: e.record.version_number,
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| Error::io("<reconcile>", e))?
 }
 
 /// Pure resolve + tie-break + one-shot gate for a scope of lowercased sha1s.
@@ -3273,37 +3282,45 @@ pub fn server_list_plugins(app: AppHandle, id: String) -> Result<Vec<ServerPlugi
 /// Plugin twin of `server_list_mods_enriched` (no quarantine reason).
 #[tauri::command]
 #[specta::specta]
-pub fn server_list_plugins_enriched(
+pub async fn server_list_plugins_enriched(
     app: AppHandle,
     id: String,
 ) -> Result<Vec<ServerPluginEntryEnriched>> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let dir = crate::paths::server_paths(&base, &id).plugins;
-    let entries = crate::servers_runtime::installed::reconcile_on_list(&dir)?;
-    Ok(entries
-        .into_iter()
-        .map(|e| {
-            let disabled = !e.enabled;
-            // Current on-disk name so mutation commands join the real file, not
-            // the base name (a disabled plugin lives at `<name>.jar.disabled`).
-            let on_disk = if disabled {
-                format!("{}.disabled", e.record.filename)
-            } else {
-                e.record.filename.clone()
-            };
-            ServerPluginEntryEnriched {
-                filename: e.record.filename,
-                on_disk_filename: on_disk,
-                disabled,
-                sha1: e.record.sha1,
-                source: e.record.source,
-                project_id: e.record.project_id,
-                version_id: e.record.version_id,
-                name: e.record.name,
-                version_number: e.record.version_number,
-            }
-        })
-        .collect())
+    // Off the async executor for the same reason as `server_list_mods_enriched`:
+    // a full byte read + Sha1 of every jar, which on a sync command would run on
+    // the MAIN thread and freeze the window. Enforced by
+    // `tests/structural_no_sync_reconcile.rs`.
+    tokio::task::spawn_blocking(move || -> Result<Vec<ServerPluginEntryEnriched>> {
+        let entries = crate::servers_runtime::installed::reconcile_on_list(&dir)?;
+        Ok(entries
+            .into_iter()
+            .map(|e| {
+                let disabled = !e.enabled;
+                // Current on-disk name so mutation commands join the real file, not
+                // the base name (a disabled plugin lives at `<name>.jar.disabled`).
+                let on_disk = if disabled {
+                    format!("{}.disabled", e.record.filename)
+                } else {
+                    e.record.filename.clone()
+                };
+                ServerPluginEntryEnriched {
+                    filename: e.record.filename,
+                    on_disk_filename: on_disk,
+                    disabled,
+                    sha1: e.record.sha1,
+                    source: e.record.source,
+                    project_id: e.record.project_id,
+                    version_id: e.record.version_id,
+                    name: e.record.name,
+                    version_number: e.record.version_number,
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| Error::io("<reconcile>", e))?
 }
 
 /// Install a local plugin `.jar` (chosen via the file picker) into the
