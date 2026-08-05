@@ -270,6 +270,7 @@ export type TranslationKey =
   | 'errors.serverNotRunning'
   | 'errors.serverSpawnFailed'
   | 'errors.serverUploadInProgress'
+  | 'errors.serverWorldNotCreated'
   | 'errors.serversDatParse'
   | 'errors.sftpAuthFailed'
   | 'errors.sftpConnectFailed'

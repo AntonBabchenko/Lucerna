@@ -2117,6 +2117,7 @@
     "serverFileInvalid": "Server file {filename} was rejected: {reason}",
     "serverCoreUnsupported": "Not supported by this server core: {reason}",
     "serverContentStale": "The installed list changed — refresh and try again",
+    "serverWorldNotCreated": "This server's world doesn't exist yet. Start the server once so Minecraft creates it, then you can enable or disable data packs.",
     "serverNameInvalid": "That server name can't be used — it may be empty, too long, or already taken.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host",

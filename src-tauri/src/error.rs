@@ -482,6 +482,14 @@ pub enum Error {
     #[error("installed server content changed — refresh and try again")]
     ServerContentStale,
 
+    /// A datapack toggle was asked for on a server whose world does not exist
+    /// yet (no `level.dat`). Enabled/disabled state lives in `level.dat`, and
+    /// Minecraft writes its own when it generates the world — a stub written
+    /// here would not survive generation, and would hand the generator a file
+    /// claiming a world exists with no version, seed or generator settings.
+    #[error("this server's world has not been created yet — start the server once")]
+    ServerWorldNotCreated,
+
     #[error("Import source is not a .zip file or a folder")]
     ServerImportUnsupportedSource,
 
