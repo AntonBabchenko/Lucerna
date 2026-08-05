@@ -2315,6 +2315,7 @@ export type TranslationKey =
   | 'settings.aiTranslation.clearKey'
   | 'settings.aiTranslation.consentDescription'
   | 'settings.aiTranslation.consentLabel'
+  | 'settings.aiTranslation.gatedNote'
   | 'settings.aiTranslation.keyLabel'
   | 'settings.aiTranslation.keyPlaceholder'
   | 'settings.aiTranslation.keyStatusChecking'

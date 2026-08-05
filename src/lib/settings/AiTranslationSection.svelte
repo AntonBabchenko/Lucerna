@@ -16,6 +16,17 @@
   // feature cannot translate (FTB Quests, quest books, config-driven text) is
   // the thing a user most needs to know BEFORE they spend money on a run, not
   // after.
+  //
+  // `allow_ai_translation` gates the ENTIRE section, not merely the button that
+  // makes the request. Every control below the checkbox — provider, model,
+  // local port, key field, Save / Clear key — describes a request the copy
+  // right above it has just promised will not be sent, so while the permission
+  // is off they are all disabled and one muted line says why. Consent first,
+  // configuration second: a user cannot arrange a provider and file a
+  // credential in the OS keyring and only then decide whether they meant it.
+  // The stored-key STATUS is not a control and stays readable throughout — it
+  // is a local keyring read, and hiding it would tell a returning user nothing
+  // about a key they already have.
   import { onMount } from 'svelte';
   import { commands, type AiProvider, type GeneralSettings } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -236,6 +247,12 @@
     <p class="text-xs text-danger">{saveError}</p>
   {/if}
 
+  {#if !allowed}
+    <p class="text-xs text-muted" data-testid="ai-gated-note">
+      {$t('settings.aiTranslation.gatedNote')}
+    </p>
+  {/if}
+
   <div class="flex flex-col gap-1">
     <span class="text-sm text-primary">{$t('settings.aiTranslation.providerLabel')}</span>
     <Select
@@ -244,6 +261,7 @@
       ariaLabel={$t('settings.aiTranslation.providerLabel')}
       value={provider}
       options={providerOptions}
+      disabled={!allowed}
       onChange={(v) => {
         general.ai_provider = v as AiProvider;
         void save();
@@ -255,11 +273,12 @@
     <span class="text-sm text-primary">{$t('settings.aiTranslation.modelLabel')}</span>
     <input
       type="text"
-      class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono"
+      class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
       placeholder={isLocal
         ? $t('settings.aiTranslation.modelPlaceholderLocal')
         : $t('settings.aiTranslation.modelPlaceholderCloud')}
       value={general.ai_model ?? ''}
+      disabled={!allowed}
       onchange={(e) => {
         general.ai_model = e.currentTarget.value.trim();
         void save();
@@ -280,8 +299,9 @@
         type="number"
         min={MIN_PORT}
         max={MAX_PORT}
-        class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono"
+        class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
         value={general.ai_local_port ?? DEFAULT_LOCAL_PORT}
+        disabled={!allowed}
         onchange={(e) => setPort(e.currentTarget)}
         data-testid="ai-local-port-input"
       />
@@ -313,10 +333,10 @@
         <span class="text-xs text-muted">{$t('settings.aiTranslation.keyLabel')}</span>
         <input
           type="password"
-          class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono"
+          class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
           placeholder={$t('settings.aiTranslation.keyPlaceholder')}
           bind:value={pendingKey}
-          disabled={savingKey}
+          disabled={savingKey || !allowed}
           data-testid="ai-key-input"
         />
       </label>
@@ -330,7 +350,7 @@
           type="button"
           class="btn-primary btn-sm"
           busy={savingKey}
-          disabled={pendingKey.trim() === ''}
+          disabled={!allowed || pendingKey.trim() === ''}
           onclick={saveKey}
           data-testid="ai-key-save"
         >
@@ -341,6 +361,7 @@
             type="button"
             class="btn-secondary btn-sm"
             busy={savingKey}
+            disabled={!allowed}
             onclick={clearKey}
             data-testid="ai-key-clear"
           >

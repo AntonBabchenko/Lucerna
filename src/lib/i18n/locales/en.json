@@ -2418,6 +2418,7 @@
       "consentLabel": "Let Lucerna send mod text to an AI provider",
       "consentDescription": "Off by default. While it is off, no translation request leaves this computer — not even a connection test.",
       "privacyNote": "The English strings from your installed mods are sent to the provider you choose and are subject to that provider's terms. A local model keeps them on this machine.",
+      "gatedNote": "Turn on the permission above to choose a provider, name a model, or store a key.",
       "providerLabel": "Provider",
       "providerAnthropic": "Anthropic",
       "providerGemini": "Google Gemini",
