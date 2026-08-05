@@ -221,6 +221,7 @@ describe('op-queue store', () => {
   const importReq = (path: string) => ({
     path,
     selectedShas: [],
+    displayName: '',
     projectId: null,
     source: null,
     versionId: null,

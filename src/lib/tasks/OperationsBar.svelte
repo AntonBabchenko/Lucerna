@@ -39,7 +39,6 @@
   import TaskReportModal from './TaskReportModal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Icon from '$lib/ui/icons/Icon.svelte';
-  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     onDetails,
@@ -163,17 +162,35 @@
       <div class="flex-1"></div>
     {/if}
 
+    <span class="btn-icon btn-icon-sm" data-testid="operations-bar-indicator" aria-hidden="true">
+      <Icon name={expanded ? 'chevronDown' : 'caret'} size={14} />
+    </span>
+
+    <!-- The disclosure control is the WHOLE strip, not the chevron. It cannot
+         be a wrapping <button>: the strip contains a progressbar and mounts
+         OperationsPanel below, and neither may live inside a button. So the
+         button is stretched over the strip instead — transparent, so the
+         content stays visible through it; paint order captures only the
+         clicks, not the pixels.
+
+         MUST stay before OperationsPanel in DOM order. Both are positioned;
+         the panel carries `z-[var(--z-popover)]` and therefore paints above
+         this overlay, which is what keeps a click inside the open panel from
+         landing here and collapsing it. Move this after the panel and every
+         click in the panel closes it instead — covered by the DOM-order test
+         in tests/tasks/operations-bar.test.ts.
+
+         No `use:tooltip` here: anchored to a full-width strip it would follow
+         the pointer across the entire bar. The accessible name lives on the
+         button itself. -->
     <button
       type="button"
-      class="btn-icon btn-icon-sm"
+      class="absolute inset-0"
       aria-expanded={expanded}
       aria-label={$t('tasks.strip.toggle')}
-      use:tooltip={$t('tasks.strip.toggle')}
       data-testid="operations-bar-toggle"
       onclick={() => (expanded = !expanded)}
-    >
-      <Icon name={expanded ? 'chevronDown' : 'caret'} size={14} />
-    </button>
+    ></button>
 
     {#if expanded}
       <OperationsPanel onClose={() => (expanded = false)} onDetails={handleDetails} />

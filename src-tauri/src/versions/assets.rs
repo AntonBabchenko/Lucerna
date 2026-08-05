@@ -20,7 +20,10 @@ use crate::versions::version_json::AssetIndexRef;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Deserialize;
 
-const ASSET_BASE_URL: &str = "https://resources.download.minecraft.net";
+// `pub(crate)` so the install report derives its assets row's host from THIS
+// constant instead of repeating the literal — a second copy would silently
+// start lying the day this one changes.
+pub(crate) const ASSET_BASE_URL: &str = "https://resources.download.minecraft.net";
 const CONCURRENCY: usize = 8;
 
 #[derive(Debug, Deserialize)]

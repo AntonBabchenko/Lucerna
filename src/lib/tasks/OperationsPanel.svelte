@@ -74,7 +74,9 @@
   {@const kindLabel = $t(KIND_LABEL_KEY[task.kind])}
   {@const phase = phaseLabel($t, task)}
   <li
-    class="flex items-center gap-2 rounded px-2 py-1.5 text-xs"
+    class="relative flex items-center gap-2 rounded px-2 py-1.5 text-xs {task.details !== null
+      ? 'cursor-pointer hover:bg-subtle'
+      : ''}"
     data-testid={`operations-panel-row-${task.id}`}
   >
     {#if task.state === 'running'}
@@ -97,7 +99,7 @@
     {/if}
 
     {#if task.caps.reorderable}
-      <span use:tooltip={$t('ops.moveUp')}>
+      <span class="relative z-10" use:tooltip={$t('ops.moveUp')}>
         <button
           type="button"
           class="btn-icon btn-icon-sm"
@@ -109,7 +111,7 @@
           <Icon name="chevronUp" size={14} />
         </button>
       </span>
-      <span use:tooltip={$t('ops.moveDown')}>
+      <span class="relative z-10" use:tooltip={$t('ops.moveDown')}>
         <button
           type="button"
           class="btn-icon btn-icon-sm"
@@ -126,7 +128,7 @@
     {#if task.caps.cancellable}
       <button
         type="button"
-        class="btn-icon btn-icon-sm btn-icon-danger"
+        class="btn-icon btn-icon-sm btn-icon-danger relative z-10"
         aria-label={$t('ops.cancel')}
         use:tooltip={$t('ops.cancel')}
         data-testid={`operations-panel-cancel-${task.id}`}
@@ -137,14 +139,31 @@
     {/if}
 
     {#if task.details !== null}
+      <span
+        class="relative z-10 text-muted"
+        data-testid={`operations-panel-chevron-${task.id}`}
+        aria-hidden="true"
+      >
+        <Icon name="caret" size={14} />
+      </span>
+      <!-- The report control is the whole row, as a stretched button rather
+           than an onclick on the <li>. The reason is the keyboard: a list item
+           is not focusable and fires no click on Enter/Space, so a handler
+           there would be mouse-only. Pinned by the "keeps the report control
+           keyboard-operable" test.
+
+           Bubbling from the row's own move/cancel buttons is NOT a concern
+           here, and no test claims otherwise: `capsFor` grants those caps only
+           while a task is `queued`, and `details` only exist once it has
+           finished, so no row ever carries both. The `z-10` on those controls
+           is cheap insurance if that ever stops being true, not a guarantee. -->
       <button
         type="button"
-        class="btn-secondary btn-xs"
+        class="absolute inset-0 rounded"
+        aria-label={$t('tasks.panel.details')}
         data-testid={`operations-panel-details-${task.id}`}
         onclick={() => onDetails?.(task)}
-      >
-        {$t('tasks.panel.details')}
-      </button>
+      ></button>
     {/if}
   </li>
 {/snippet}

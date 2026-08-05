@@ -11,8 +11,24 @@ export type ModpackImportRequest = {
   path: string;
   // SHA1s of the optional files the user chose to include.
   selectedShas: string[];
+  // The pack's own name, read from its manifest by the picker. Carried here
+  // because the page — which titles the import task — never sees the
+  // `ModpackSummary` the picker inspected, and had nothing better than the
+  // platform project id to fall back on.
+  displayName: string;
   // Browse-flow hints stamped onto the new instance (null for drag-drop).
   projectId: string | null;
   source: ModSource | null;
   versionId: string | null;
 };
+
+/** Title for a pack-import task. The pack's own name when the picker read
+ *  one, else the archive filename. Deliberately never `projectId`: that is an
+ *  opaque platform code (`1KVo5zza`) the user has never seen, and it used to
+ *  be the FIRST choice — which is the bug this replaces. */
+export function importTitle(request: ModpackImportRequest): string {
+  const name = request.displayName.trim();
+  if (name) return name;
+  const file = request.path.split(/[\\/]/).pop()?.trim();
+  return file || 'modpack';
+}

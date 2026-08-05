@@ -130,7 +130,9 @@ pub async fn install(
                     fv: fv.into(),
                     details: "vanilla version JSON has no downloads field".into(),
                 })?;
-        crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
+        // Discarding the downloaded-vs-cached flag: the Forge installer path
+        // builds no install report.
+        let _ = crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
     }
     crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {}).await?;
     let java_bin = crate::jre::java_executable_path(&vanilla_jre_component, app)?;

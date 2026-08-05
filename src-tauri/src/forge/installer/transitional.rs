@@ -218,7 +218,9 @@ pub async fn install(
                 details: "vanilla version JSON has no downloads field".into(),
             }
         })?;
-        crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
+        // Discarding the downloaded-vs-cached flag: the Forge installer path
+        // builds no install report.
+        let _ = crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
     }
 
     // Ensure JRE is installed BEFORE running processors. The SpecialSource

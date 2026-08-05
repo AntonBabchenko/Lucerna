@@ -3462,7 +3462,8 @@
       "ftb": "FTB",
       "atlauncher": "ATLauncher",
       "archive": "Архив сборки",
-      "local": "Локальный файл"
+      "local": "Локальный файл",
+      "game": "Файлы игры"
     },
     "strip": {
       "count": "{count, plural, one {# операция} few {# операции} many {# операций} other {# операций}}",

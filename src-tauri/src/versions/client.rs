@@ -8,17 +8,21 @@ use crate::versions::version_json::DownloadEntry;
 
 /// Ensure `<versions_dir>/<id>/<id>.jar` exists and matches the
 /// expected SHA-1. Re-downloads only if missing or hash mismatches.
+///
+/// Returns whether bytes were actually fetched, so the install report can tell
+/// a real download from a precheck hit. Callers that build no report ignore it.
 pub async fn ensure_client(
     version_id: &str,
     entry: &DownloadEntry,
     app: &tauri::AppHandle,
-) -> Result<()> {
+) -> Result<bool> {
     let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let dest = dir.join(version_id).join(format!("{version_id}.jar"));
     if file_matches_sha(&dest, &entry.sha1).await {
-        return Ok(());
+        return Ok(false);
     }
-    download_with_sha(app, &entry.url, &dest, &entry.sha1, "client").await
+    download_with_sha(app, &entry.url, &dest, &entry.sha1, "client").await?;
+    Ok(true)
 }
 
 async fn file_matches_sha(path: &std::path::Path, expected_sha_hex: &str) -> bool {

@@ -277,10 +277,14 @@
     if (!summary) return;
     if (dataLocation.fellBack) return;
     const path = (summary as ModpackSummary & { _path: string })._path;
+    // Read before the null below — `summary` is the only place the pack's own
+    // name exists, and the page that titles the task never sees it.
+    const displayName = summary.name;
     summary = null;
     onImport?.({
       path,
       selectedShas,
+      displayName,
       projectId: hintProjectId,
       source: hintSource,
       versionId: hintVersionId,

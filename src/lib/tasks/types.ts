@@ -84,4 +84,5 @@ export const ORIGIN_LABEL_KEY: Record<TaskDetail['origin'], TranslationKey> = {
   atlauncher: 'tasks.origin.atlauncher',
   archive: 'tasks.origin.archive',
   local: 'tasks.origin.local',
+  game: 'tasks.origin.game',
 };
