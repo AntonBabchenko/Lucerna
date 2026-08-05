@@ -165,6 +165,31 @@ pub fn remove_datapack(dir: &Path, filename: &str) -> Result<()> {
     }
 }
 
+/// One row of a server world's datapack list.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
+pub struct ServerDatapackEntry {
+    /// Three provenances, and only the first is persisted: a real sidecar
+    /// row; a row synthesized for a foreign on-disk entry (a hand-dropped
+    /// `.zip` is adopted and hashed by `sidecar::reconcile`, a directory is
+    /// ephemeral); or a row synthesized from a `level.dat` name alone, for a
+    /// ghost whose file is gone. Two of the three carry an empty `sha1` —
+    /// which is why the UI keys rows on the filename.
+    pub record: crate::servers_runtime::installed::ServerInstalledRecord,
+    /// `None` ⟹ `level.dat` exists but could not be read, so enabled-ness is
+    /// genuinely unknown rather than guessed. An ABSENT `level.dat` is NOT
+    /// this case: a world that has never booted reads as two empty lists,
+    /// which is a real answer.
+    pub state: Option<crate::datapacks::WorldPackState>,
+    /// Something is on disk under this name. Independent of `state`, which
+    /// can be `None` for a pack that is plainly present.
+    pub present: bool,
+    /// The on-disk entry is a directory. Minecraft loads folder packs and
+    /// `level.dat` does not distinguish them, so they are listed, toggleable
+    /// and removable — but they carry no sha1 and no provenance, so the UI
+    /// offers them no update or catalog affordance.
+    pub is_folder: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
