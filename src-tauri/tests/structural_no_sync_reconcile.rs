@@ -81,7 +81,10 @@ fn tauri_commands_calling_reconcile_on_list_are_async() {
                 .position(|l| *l == "}")
                 .map(|off| j + off)
                 .unwrap_or(lines.len() - 1);
-            if lines[j..=end].iter().any(|l| l.contains("reconcile_on_list")) {
+            if lines[j..=end]
+                .iter()
+                .any(|l| l.contains("reconcile_on_list"))
+            {
                 violations.push(format!("{}:{}  {}", file.display(), j + 1, lines[j].trim()));
             }
         }
