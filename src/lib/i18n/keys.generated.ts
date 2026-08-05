@@ -957,6 +957,7 @@ export type TranslationKey =
   | 'modpacks.card.downloads'
   | 'modpacks.card.downloadsShort'
   | 'modpacks.card.quickInstall'
+  | 'modpacks.card.quickInstallForMc'
   | 'modpacks.detail.blockedBody'
   | 'modpacks.detail.closeAriaLabel'
   | 'modpacks.detail.closeScrimAriaLabel'

@@ -1181,7 +1181,8 @@
     },
     "card": {
       "byAuthor": "by {author}",
-      "quickInstall": "Install latest version as a new instance",
+      "quickInstall": "Install this pack's newest version as a new instance. Its Minecraft version and loader come from that pack version.",
+      "quickInstallForMc": "Install this pack's newest version for Minecraft {mc} as a new instance.",
       "downloads": "{count, plural, one {# download} other {# downloads}}",
       "downloadsShort": "{count, number} dl",
       "distributionDisabled": "CurseForge download disabled",

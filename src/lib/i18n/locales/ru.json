@@ -1181,7 +1181,8 @@
     },
     "card": {
       "byAuthor": "{author}",
-      "quickInstall": "Установить последнюю версию как новый инстанс",
+      "quickInstall": "Установить самую свежую версию пака как новый инстанс. Версия Minecraft и лоадер — те, что у этой версии пака.",
+      "quickInstallForMc": "Установить самую свежую версию пака для Minecraft {mc} как новый инстанс.",
       "downloads": "{count, plural, one {# скачивание} few {# скачивания} many {# скачиваний} other {# скачивания}}",
       "downloadsShort": "{count, number} скач.",
       "distributionDisabled": "Загрузка через CurseForge отключена",

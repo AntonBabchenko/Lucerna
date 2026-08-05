@@ -19,6 +19,7 @@
     onQuickInstall = null,
     installing = false,
     quickInstallDisabledReason = null,
+    mcFilter = null,
   }: {
     hit: ModpackHit;
     onClick: () => void;
@@ -29,7 +30,19 @@
     // blocks the quick-install action (it creates a new instance) and
     // explains why via the tooltip. See data-root-gating.ts.
     quickInstallDisabledReason?: string | null;
+    // The browse toolbar's active MC filter, forwarded so the quick-install
+    // tooltip can name the Minecraft version the pick is constrained to. The
+    // card has no per-version data of its own — ModpackHit carries only
+    // project-level metadata, and for CurseForge and ATLauncher hits not even
+    // that — so the tooltip states the selection rule, never invented facts.
+    mcFilter?: string | null;
   } = $props();
+
+  const quickInstallLabel = $derived(
+    mcFilter
+      ? $t('modpacks.card.quickInstallForMc', { mc: mcFilter })
+      : $t('modpacks.card.quickInstall'),
+  );
 </script>
 
 {#snippet quickInstallButton()}
@@ -37,9 +50,9 @@
     type="button"
     class="btn-icon btn-icon-sm !text-accent"
     disabled={installing || quickInstallDisabledReason !== null}
-    aria-label={$t('modpacks.card.quickInstall')}
+    aria-label={quickInstallLabel}
     use:tooltip={{
-      text: quickInstallDisabledReason ?? $t('modpacks.card.quickInstall'),
+      text: quickInstallDisabledReason ?? quickInstallLabel,
       describe: false,
     }}
     onclick={(e) => {

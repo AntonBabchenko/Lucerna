@@ -283,6 +283,7 @@
               : null}
             installing={installingIds?.has(hit.project_id) ?? false}
             {quickInstallDisabledReason}
+            mcFilter={modpackBrowseState.mcFilter.trim() || null}
           />
         {/each}
       </div>
@@ -298,6 +299,7 @@
               : null}
             installing={installingIds?.has(hit.project_id) ?? false}
             {quickInstallDisabledReason}
+            mcFilter={modpackBrowseState.mcFilter.trim() || null}
           />
         {/each}
       </div>

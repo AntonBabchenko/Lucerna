@@ -23,6 +23,11 @@ const hit: ModpackHit = {
   author: 'Pack Author',
 };
 
+const QUICK_INSTALL_LABEL =
+  "Install this pack's newest version as a new instance. Its Minecraft version and loader come from that pack version.";
+const QUICK_INSTALL_FILTERED_LABEL =
+  "Install this pack's newest version for Minecraft 1.20.1 as a new instance.";
+
 describe('ModpackCard', () => {
   it('renders title and description', () => {
     const { getByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
@@ -70,12 +75,12 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick: () => {}, onQuickInstall: () => {} },
     });
-    expect(getByLabelText('Install latest version as a new instance')).toBeTruthy();
+    expect(getByLabelText(QUICK_INSTALL_LABEL)).toBeTruthy();
   });
 
   it('has no quick-install button when onQuickInstall is omitted', () => {
     const { queryByLabelText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
-    expect(queryByLabelText('Install latest version as a new instance')).toBeNull();
+    expect(queryByLabelText(QUICK_INSTALL_LABEL)).toBeNull();
   });
 
   it('quick-install click fires onQuickInstall and not the card onClick (grid)', async () => {
@@ -84,7 +89,7 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick, onQuickInstall },
     });
-    await fireEvent.click(getByLabelText('Install latest version as a new instance'));
+    await fireEvent.click(getByLabelText(QUICK_INSTALL_LABEL));
     expect(onQuickInstall).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -95,7 +100,7 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick, onQuickInstall, layout: 'list' },
     });
-    await fireEvent.click(getByLabelText('Install latest version as a new instance'));
+    await fireEvent.click(getByLabelText(QUICK_INSTALL_LABEL));
     expect(onQuickInstall).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -104,9 +109,25 @@ describe('ModpackCard', () => {
     const { getByLabelText } = render(ModpackCard, {
       props: { hit, onClick: () => {}, onQuickInstall: () => {}, installing: true },
     });
-    expect(
-      (getByLabelText('Install latest version as a new instance') as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect((getByLabelText(QUICK_INSTALL_LABEL) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('explains the selection rule in the quick-install tooltip', () => {
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, onQuickInstall: () => {} },
+    });
+    expect(getByLabelText(QUICK_INSTALL_LABEL).getAttribute('aria-label')).toBe(
+      QUICK_INSTALL_LABEL,
+    );
+  });
+
+  // With the browse toolbar's MC filter set, the pick is the newest version
+  // matching *that* filter — the tooltip has to say so, or "latest" is a lie.
+  it('names the active MC filter in the quick-install tooltip', () => {
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, onQuickInstall: () => {}, mcFilter: '1.20.1' },
+    });
+    expect(getByLabelText(QUICK_INSTALL_FILTERED_LABEL)).toBeTruthy();
   });
 });
 
