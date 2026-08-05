@@ -698,6 +698,44 @@
       </details>
     {/if}
 
+    {#if status && (status.pack_completion?.outstanding.length ?? 0) > 0}
+      {@const pending = status.pack_completion?.outstanding ?? []}
+      <details class="mt-2" open data-testid="imported-detail-pending-section">
+        {@render sectionSummary(
+          $t('modpacks.imported.detail.pendingHeading', { count: pending.length }),
+        )}
+        <p class="text-xs text-muted mb-2 pl-4">
+          {$t('modpacks.imported.detail.pendingBody')}
+        </p>
+        <ul class="space-y-1 pl-4">
+          {#each pending as f (f.destination + '|' + f.pattern)}
+            <li
+              class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
+              data-testid="pending-file-row"
+            >
+              <Icon name="info" class="flex-shrink-0" />
+              <span class="truncate flex-1" use:tooltip={{ text: f.pattern, whenOverflowing: true }}
+                >{f.display_name}</span
+              >
+              <span class="text-xs text-muted flex-shrink-0">{f.destination}</span>
+              {#if f.url}
+                {@const url = f.url}
+                <button
+                  type="button"
+                  class="btn-tertiary text-xs flex-shrink-0"
+                  data-testid="pending-file-open"
+                  onclick={() =>
+                    void import('@tauri-apps/plugin-opener').then((opener) => opener.openUrl(url))}
+                >
+                  {$t('modpacks.imported.detail.pendingOpen')}
+                </button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
+
     {#if status && (status.origin.inert_loader_jars?.length ?? 0) > 0}
       {@const inert = status.origin.inert_loader_jars ?? []}
       <details class="mt-2" open data-testid="imported-detail-inert-section">

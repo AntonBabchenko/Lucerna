@@ -56,11 +56,17 @@ function depProjectRefKey(ref: DepProjectRef): string {
 }
 
 /**
- * True when the report contains at least one violation — i.e. there is
- * something that will block or warn on launch.
+ * True when the report contains at least one violation AND the instance is not a
+ * modpack that is still assembling itself.
+ *
+ * A pack shipping a completer mod (see `pack_completion`) starts with genuinely
+ * unmet mandatory dependencies because its remaining files cannot be
+ * redistributed — the pack fetches them on first launch. Blocking there asks the
+ * user to decide something they cannot, and hides the fix behind our own gate.
+ * The moment the last outstanding file lands, blocking returns on its own.
  */
 export function hasBlocking(report: PreflightReport): boolean {
-  return report.violations.length > 0;
+  return report.violations.length > 0 && (report.pack_completion?.outstanding.length ?? 0) === 0;
 }
 
 // ---------------------------------------------------------------------------

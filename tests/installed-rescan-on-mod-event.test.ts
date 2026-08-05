@@ -59,6 +59,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     },
     modUninstalled: { listen: () => Promise.resolve(() => {}) },
+    modsReconciled: { listen: () => Promise.resolve(() => {}) },
     modToggle: {
       listen: (cb: () => void) => {
         listeners.modToggle = cb;

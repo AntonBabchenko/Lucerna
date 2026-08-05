@@ -406,6 +406,9 @@ pub fn compute_status(
         added_count,
         is_modified,
         missing_mods,
+        // Reading the completer's manifest needs the instance directory; this
+        // function is pure, so the command fills it in afterwards.
+        pack_completion: None,
     }
 }
 
