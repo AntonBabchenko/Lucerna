@@ -312,4 +312,55 @@ describe('ServerModBrowser', () => {
     await waitFor(() => expect(screen.queryByLabelText('Remove')).toBeNull());
     expect(screen.queryByText('JEI')).toBeNull();
   });
+
+  it('searches with server_only on by default', async () => {
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({ server_only: true });
+    const cb = screen.getByTestId('server-mod-server-only') as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+  });
+
+  it('unticking server-only refetches from the first page without the flag', async () => {
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+    });
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    mockSearch.mockClear();
+
+    await fireEvent.click(screen.getByTestId('server-mod-server-only'));
+
+    // The search effect debounces 250 ms on every run after the first, so this
+    // must stay a waitFor — a bare assertion races it.
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    expect(mockSearch.mock.calls.at(-1)?.[0]).toMatchObject({
+      server_only: false,
+      offset: 0,
+    });
+  });
+
+  it('disables the server-only toggle for CurseForge', async () => {
+    render(ServerModBrowser, {
+      serverId: 'srv-1',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      onInstalled: vi.fn(),
+      source: 'curseforge',
+    });
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+    const cb = screen.getByTestId('server-mod-server-only') as HTMLInputElement;
+    expect(cb.disabled).toBe(true);
+    // Unchecked, not merely greyed: a ticked box would claim a filter is
+    // applied to results CurseForge returns unfiltered.
+    expect(cb.checked).toBe(false);
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({ server_only: false });
+  });
 });

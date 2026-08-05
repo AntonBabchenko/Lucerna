@@ -266,7 +266,13 @@ impl Default for ModrinthClient {
 #[async_trait]
 impl ModPlatform for ModrinthClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
-        let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader, q.plugin_core);
+        let facets = build_facets(
+            q.kind,
+            q.mc_version.as_deref(),
+            q.loader,
+            q.plugin_core,
+            q.server_only,
+        );
         // Serializing Vec<Vec<String>> cannot fail. Per CLAUDE.md `.unwrap()` rule.
         let facets_json = serde_json::to_string(&facets).unwrap();
         let url = format!(
@@ -792,10 +798,21 @@ fn build_facets(
     mc_version: Option<&str>,
     loader: Option<LoaderKind>,
     plugin_core: Option<crate::servers_runtime::schema::ServerCore>,
+    server_only: bool,
 ) -> Vec<Vec<String>> {
     let mut facets: Vec<Vec<String>> = vec![vec![project_type_facet(kind).into()]];
     if let Some(mc) = mc_version {
         facets.push(vec![format!("versions:{mc}")]);
+    }
+    // Mods only: drop projects Modrinth marks client-only (minimaps, HUDs) from
+    // a server-targeted browse. ONE group — separate facet groups are ANDed, so
+    // listing `required` and `optional` as two groups matches nothing at all
+    // (verified against the live API: 0 hits). `!=unsupported` also keeps
+    // projects whose support is `unknown`, matching
+    // `mod_classify::is_raw_client_only` — no platform signal is not a client
+    // verdict. CurseForge has no equivalent facet; its client ignores the flag.
+    if server_only && matches!(kind, ContentKind::Mod) {
+        facets.push(vec!["server_side!=unsupported".to_string()]);
     }
     match kind {
         // The Java loader facet applies to mods ONLY. Resource packs have no
@@ -856,6 +873,7 @@ mod tests {
             Some("1.20.4"),
             Some(LoaderKind::Fabric),
             None,
+            false,
         );
         assert!(f.contains(&vec!["project_type:mod".to_string()]));
         assert!(f
@@ -868,6 +886,7 @@ mod tests {
             Some("1.20.4"),
             Some(LoaderKind::Fabric),
             None,
+            false,
         );
         assert!(f.contains(&vec!["project_type:resourcepack".to_string()]));
         assert!(!f
@@ -877,7 +896,13 @@ mod tests {
         // Shaders use iris/optifine/canvas categories, NOT the Java loader.
         // Passing `categories:fabric` to a shader search returns almost nothing,
         // so the loader facet must be omitted for shaders (mods only).
-        let f = build_facets(ContentKind::Shader, None, Some(LoaderKind::Fabric), None);
+        let f = build_facets(
+            ContentKind::Shader,
+            None,
+            Some(LoaderKind::Fabric),
+            None,
+            false,
+        );
         assert!(f.contains(&vec!["project_type:shader".to_string()]));
         assert!(!f
             .iter()
@@ -897,6 +922,7 @@ mod tests {
             Some("1.21.4"),
             Some(LoaderKind::Fabric),
             None,
+            false,
         );
         assert!(f.contains(&vec!["project_type:datapack".to_string()]));
         assert!(f.contains(&vec!["versions:1.21.4".to_string()]));
@@ -917,6 +943,7 @@ mod tests {
             Some("1.21.4"),
             None,
             Some(ServerCore::Paper),
+            false,
         );
         assert_eq!(
             f,
@@ -935,6 +962,7 @@ mod tests {
             Some("1.21.4"),
             None,
             Some(ServerCore::Purpur),
+            false,
         );
         assert_eq!(f[2].len(), 4);
         assert!(f[2].contains(&"categories:purpur".to_string()));
@@ -947,6 +975,7 @@ mod tests {
             Some("1.20.1"),
             Some(LoaderKind::Fabric),
             None,
+            false,
         );
         assert_eq!(
             f,
@@ -955,6 +984,65 @@ mod tests {
                 vec!["versions:1.20.1".to_string()],
                 vec!["categories:fabric".to_string()],
             ]
+        );
+    }
+
+    #[test]
+    fn server_only_adds_a_single_server_side_group() {
+        let f = build_facets(
+            ContentKind::Mod,
+            Some("1.20.1"),
+            Some(LoaderKind::Forge),
+            None,
+            true,
+        );
+        // ONE group, not one group per accepted value. Modrinth ANDs separate
+        // groups, so `["server_side:required"],["server_side:optional"]` matches
+        // nothing at all — measured against /v2/search on 2026-08-05: 0 hits,
+        // versus 14 for this single `!=unsupported` group and 23 unfiltered.
+        // `!=unsupported` also keeps projects whose support is `unknown`, which
+        // matches `mod_classify::is_raw_client_only`: no platform signal is not
+        // a client verdict.
+        let groups: Vec<&Vec<String>> = f
+            .iter()
+            .filter(|g| g.iter().any(|s| s.starts_with("server_side")))
+            .collect();
+        assert_eq!(
+            groups.len(),
+            1,
+            "expected exactly one server_side group: {f:?}"
+        );
+        assert_eq!(groups[0], &vec!["server_side!=unsupported".to_string()]);
+    }
+
+    #[test]
+    fn server_only_is_ignored_for_non_mod_kinds() {
+        for kind in [
+            ContentKind::Plugin,
+            ContentKind::Datapack,
+            ContentKind::ResourcePack,
+            ContentKind::Shader,
+        ] {
+            let f = build_facets(kind, Some("1.20.1"), Some(LoaderKind::Fabric), None, true);
+            assert!(
+                !f.iter().flatten().any(|s| s.starts_with("server_side")),
+                "{kind:?} must not carry a server_side facet: {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn server_only_false_leaves_the_facets_unchanged() {
+        let off = build_facets(
+            ContentKind::Mod,
+            Some("1.20.1"),
+            Some(LoaderKind::Forge),
+            None,
+            false,
+        );
+        assert!(
+            !off.iter().flatten().any(|s| s.starts_with("server_side")),
+            "default-off must be byte-identical to today's behaviour: {off:?}"
         );
     }
 
@@ -1057,6 +1145,7 @@ mod tests {
             .await;
         let c = ModrinthClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Modrinth,
             kind: ContentKind::Mod,
             query: "jei".into(),
@@ -1086,6 +1175,7 @@ mod tests {
             .await;
         let c = ModrinthClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Modrinth,
             kind: ContentKind::Mod,
             query: "x".into(),
