@@ -33,13 +33,17 @@
 /// a future reader who deletes the `*.mojang.com` wildcard without
 /// realising piston-* depend on it.
 ///
-/// **Path scope.** The PRINCIPLES.md table lists `api.github.com`
-/// with a path scope (`/repos/AntonBabchenko/Lucerna/releases`).
-/// Our check is host-level only — we accept any path under
-/// `api.github.com`. Path-level allowlisting is deferred until we
-/// actually call GitHub (the self-update path doesn't exist yet in
-/// v0.1.0). Same applies to `api.modrinth.com` / `api.curseforge.com`
-/// — they're listed for future opt-in but no path scope is enforced.
+/// **Path scope.** Matching is host-level: an allowlisted host is
+/// allowed at any path. That is deliberate, not an unfinished job —
+/// every entry here is reached with paths the launcher builds itself
+/// or reads out of that host's own API response (a release asset's
+/// `browser_download_url`, a CDN URL from a version record), so a
+/// path allowlist would have to enumerate whatever those services
+/// return and would break on their next routing change while adding
+/// nothing an attacker could not already do from an allowlisted
+/// host. The PRINCIPLES.md table says the same for `api.github.com`
+/// ("the allowlist matches on host, not path"); keep the two in step
+/// if this ever becomes path-scoped.
 const ALLOWED_PATTERNS: &[&str] = &[
     "*.minecraft.net",
     "*.mojang.com",

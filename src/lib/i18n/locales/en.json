@@ -1975,7 +1975,7 @@
       "servers": {
         "create": {
           "title": "Run your own server",
-          "body": "Spin up a Minecraft server: pick a version and loader, start fresh, or build one from an existing instance. The feature is marked Beta while it settles.",
+          "body": "Spin up a Minecraft server: pick a version and loader, start fresh, or build one from an existing instance.",
           "titleBasic": "Make a server",
           "bodyBasic": "Create your own Minecraft server here. Choose a version and a mod loader, or build one from an instance you already have."
         },
