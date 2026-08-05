@@ -44,6 +44,9 @@
   import ChangelogModal from './ChangelogModal.svelte';
   import { changelogSupported } from './changelog-supported';
   import DatapackWorldPicker from './DatapackWorldPicker.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
+  import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
+  import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
 
   let {
@@ -73,6 +76,45 @@
   );
   let detailFor = $state<string | null>(null); // filename behind the open detail modal
   let pickerFor = $state<DatapackLibraryEntry | null>(null);
+  let vtOpen = $state(false);
+  let vtBusy = $state(false);
+  // Which Vanilla Tweaks packs this library already holds, keyed by pack id.
+  // Derived from the registry rows rather than stored: the registry is the
+  // record of what is installed, so the builder never keeps a selection.
+  const vtInstalled = $derived(
+    installedVtPacks(
+      (view?.entries ?? []).map((e) => ({
+        source: e.pack.source,
+        project_id: e.pack.project_id,
+        version_id: e.pack.version_id,
+      })),
+    ),
+  );
+
+  // Build the selection, install it into the library, then report honestly:
+  // a partly-failed build must not read as a success.
+  async function buildVt(selection: [string, string[]][]) {
+    if (!instanceId) return;
+    vtBusy = true;
+    try {
+      const res = await commands.vtInstallToInstance(instanceId, selection);
+      if (res.status === 'error') {
+        error = formatError(res.error);
+        return;
+      }
+      const failed = res.data.outcomes.filter((o) => !o.installed).length;
+      if (failed > 0) {
+        error = $t('addons.datapacks.vt.someFailed', { count: failed });
+      } else {
+        error = null;
+        vtOpen = false;
+      }
+      await refresh();
+      datapacksChanged.value++;
+    } finally {
+      vtBusy = false;
+    }
+  }
   let removeFor = $state<DatapackLibraryEntry | null>(null);
   let changelogReq = $state<{
     source: ModSource;
@@ -427,6 +469,15 @@
       <Icon name="refresh" class="icon-spin-hover" />
       {$t('addons.installed.checkUpdates')}
     </BusyButton>
+    <button
+      type="button"
+      class="btn-secondary btn-sm"
+      disabled={busy || instanceId === null || mcVersion === null}
+      onclick={() => (vtOpen = true)}
+      data-testid="open-vt-builder"
+    >
+      {$t('addons.datapacks.vt.open')}
+    </button>
   </div>
 
   {#if error}
@@ -668,6 +719,22 @@
         datapacksChanged.value++;
       }}
     />
+  {/if}
+
+  {#if vtOpen && mcVersion}
+    <Modal
+      onClose={() => (vtOpen = false)}
+      ariaLabel={$t('addons.datapacks.vt.title')}
+      panelClass="max-w-2xl w-full"
+      dataTestid="vt-builder-modal"
+    >
+      <VanillaTweaksBuilder
+        {mcVersion}
+        installed={vtInstalled}
+        busy={vtBusy}
+        onBuild={buildVt}
+      />
+    </Modal>
   {/if}
 
   {#if changelogReq}

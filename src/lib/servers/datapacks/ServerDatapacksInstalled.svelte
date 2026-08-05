@@ -11,6 +11,9 @@
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import type { CardAccent } from '$lib/ui/cards/card-status';
+  import Modal from '$lib/ui/Modal.svelte';
+  import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
+  import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import { badgeOf, isUpdatable, rowKey } from './datapack-rows';
 
   // Installed pane for a server world's datapacks (Task 11). Modeled on
@@ -23,14 +26,59 @@
   // this component holds no server-state lookup of its own.
   let {
     serverId,
+    mcVersion,
     disabled = false,
     reloadToken = 0,
-  }: { serverId: string; disabled?: boolean; reloadToken?: number } = $props();
+  }: {
+    serverId: string;
+    /** Needed by the Vanilla Tweaks builder, which publishes per MC family. */
+    mcVersion: string;
+    disabled?: boolean;
+    reloadToken?: number;
+  } = $props();
+
 
   let rows = $state<ServerDatapackEntry[]>([]);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
+
+  let vtOpen = $state(false);
+  let vtBusy = $state(false);
+  // Which Vanilla Tweaks packs this world already holds. Read from the sidecar
+  // rows, so the builder keeps no selection of its own.
+  const vtInstalled = $derived(
+    installedVtPacks(
+      rows.map((r) => ({
+        source: r.record.source,
+        project_id: r.record.project_id,
+        version_id: r.record.version_id,
+      })),
+    ),
+  );
+
+  // Build, install into the world, then report honestly: a partly-failed
+  // build must not read as a success.
+  async function buildVt(selection: [string, string[]][]) {
+    vtBusy = true;
+    try {
+      const res = await commands.vtInstallToServer(serverId, selection);
+      if (res.status === 'error') {
+        actionError = formatError(res.error);
+        return;
+      }
+      const failed = res.data.outcomes.filter((o) => !o.installed).length;
+      if (failed > 0) {
+        actionError = $t('addons.datapacks.vt.someFailed', { count: failed });
+      } else {
+        actionError = null;
+        vtOpen = false;
+      }
+      await load();
+    } finally {
+      vtBusy = false;
+    }
+  }
 
   // Per-pack update-check results, keyed by rowKey (lower-cased filename) so
   // they line up with the row identity — NOT sha1, which two of the three row
@@ -241,7 +289,32 @@
     >
       {$t('mods.installed.updateAll', { count: updatableCount })}
     </BusyButton>
+    <button
+      type="button"
+      class="btn-secondary btn-sm"
+      data-testid="server-open-vt-builder"
+      {disabled}
+      onclick={() => (vtOpen = true)}
+    >
+      {$t('addons.datapacks.vt.open')}
+    </button>
   </div>
+
+  {#if vtOpen}
+    <Modal
+      onClose={() => (vtOpen = false)}
+      ariaLabel={$t('addons.datapacks.vt.title')}
+      panelClass="max-w-2xl w-full"
+      dataTestid="server-vt-builder-modal"
+    >
+      <VanillaTweaksBuilder
+        {mcVersion}
+        installed={vtInstalled}
+        busy={vtBusy}
+        onBuild={buildVt}
+      />
+    </Modal>
+  {/if}
 
   {#if disabled}
     <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
