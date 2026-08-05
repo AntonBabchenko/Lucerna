@@ -48,6 +48,10 @@
     // derives from the shared ModSource union and Record<AvatarTone, _> must
     // be exhaustive.
     hangar: 'bg-gradient-to-br from-rose-400 to-rose-600 text-rose-50',
+    // Vanilla Tweaks builds datapacks, never modpacks, so an instance's
+    // mrpack_source can never be "vanilla_tweaks" either. Same exhaustiveness
+    // reason as Hangar above.
+    vanilla_tweaks: 'bg-gradient-to-br from-lime-400 to-lime-600 text-lime-950',
   };
 </script>
 

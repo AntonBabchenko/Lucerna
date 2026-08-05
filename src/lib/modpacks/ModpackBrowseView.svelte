@@ -73,6 +73,11 @@
     // shared across the mod/modpack/plugin browsers and Record<ModSource, _> must
     // be exhaustive.
     hangar: { needs_api_key: false, supports_server_filter: false, can_export: false },
+    // Vanilla Tweaks is a datapack builder, not a modpack source — it resolves
+    // to UnsupportedModpackSource in modpack_source_for, and SourcePicker never
+    // offers it here. Unreachable, present for the same exhaustiveness reason
+    // as Hangar above.
+    vanilla_tweaks: { needs_api_key: false, supports_server_filter: false, can_export: false },
   };
   let caps = $state<SourceCaps>({
     needs_api_key: false,

@@ -32,6 +32,10 @@
     ftb: 'FTB',
     atlauncher: 'ATLauncher',
     hangar: 'Hangar',
+    // Label only. Vanilla Tweaks is never one of `options` — it is a builder
+    // with its own screen, not a catalogue you browse — but the map is keyed
+    // on the whole union so a new source cannot be forgotten.
+    vanilla_tweaks: 'Vanilla Tweaks',
   };
 
   const options = $derived(

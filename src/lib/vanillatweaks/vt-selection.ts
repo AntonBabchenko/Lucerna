@@ -38,8 +38,10 @@ export function conflictsFor(
   categories: VtCategory[],
   ticked: Set<string>,
 ): string[] {
+  // `incompatible` is optional in the generated type (the Rust field carries
+  // serde's default), and most packs declare nothing.
   const declares = (a: VtPack, b: VtPack) =>
-    a.incompatible.some((n) => n.toLowerCase() === b.name.toLowerCase());
+    (a.incompatible ?? []).some((n) => n.toLowerCase() === b.name.toLowerCase());
   return categories
     .flatMap((c) => c.packs.map((p) => ({ cat: c.category, p })))
     .filter((e) => e.p.name !== pack.name)
