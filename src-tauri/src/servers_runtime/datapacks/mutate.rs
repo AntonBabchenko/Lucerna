@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance};
 use crate::error::{DatapackRejection, Error, Result};
-use crate::servers_runtime::installed::ServerInstalledRecord;
+use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 
 use super::level_dat_lock;
 
@@ -183,7 +183,22 @@ pub async fn install_bytes(
                     row.source == Some(prov.source)
                         && row.project_id.as_deref() == Some(prov.project_id.as_str())
                 });
-            if !same_project {
+            // A crash between this function's own file write and its sidecar
+            // upsert below (disk full, an AV lock on `installed.json`, power
+            // loss) leaves the TARGET bytes on disk under a stale or missing
+            // row — on retry `existing_row` can even be the provenance-less
+            // orphan `sidecar::reconcile` just adopted. That on-disk state is
+            // retry evidence, not a foreign pack: a file whose bytes already
+            // equal the one we are about to write is definitionally not the
+            // thing this check exists to protect, because writing the target
+            // over it is a no-op. Only a file matching NEITHER the recorded
+            // row NOR the incoming target is a genuine third-party pack. Do
+            // not narrow this back to `same_project` alone.
+            let already_written = !meta_dest.is_dir()
+                && installed::sha1_of(&dest)
+                    .map(|existing| existing.eq_ignore_ascii_case(&sha1))
+                    .unwrap_or(false);
+            if !same_project && !already_written {
                 return Err(Error::ModsFilenameConflict {
                     filename: filename.to_string(),
                     existing_sha: existing_row.map(|r| r.sha1).unwrap_or_default(),

@@ -40,9 +40,17 @@ pub async fn update_one(
             .into_iter()
             .find(|r| r.filename.to_lowercase() == old_filename.to_lowercase());
         let disk_sha = installed::sha1_of(&dp_dir.join(old_filename)).unwrap_or_default();
-        let matches = row
-            .as_ref()
-            .is_some_and(|r| r.sha1.eq_ignore_ascii_case(&disk_sha) && !r.sha1.is_empty());
+        // A crash between `install_bytes`'s file write and its sidecar
+        // upsert leaves the on-disk file already holding the TARGET bytes
+        // under a stale row. That is retry evidence, not a hand-replaced
+        // pack: "the file already IS the bytes we are about to write" is
+        // accepted exactly like "the file matches the recorded row". A sha
+        // matching neither stays a reported conflict.
+        let incoming_sha = crate::datapacks::library::sha1_hex(bytes);
+        let matches = disk_sha.eq_ignore_ascii_case(&incoming_sha)
+            || row
+                .as_ref()
+                .is_some_and(|r| r.sha1.eq_ignore_ascii_case(&disk_sha) && !r.sha1.is_empty());
         if !matches {
             return Err(Error::ModsFilenameConflict {
                 filename: old_filename.to_string(),
@@ -141,8 +149,14 @@ pub async fn update_one(
             completed: false,
         });
     }
-    match std::fs::remove_file(&old_path) {
-        Ok(()) => {}
+    // Type-directed, mirroring `mutate::remove`: the identity gate above
+    // means a directory cannot currently reach this line, but this removal
+    // should not depend on a distant gate for its own correctness.
+    match std::fs::metadata(&old_path) {
+        Ok(m) if m.is_dir() => std::fs::remove_dir_all(&old_path)
+            .map_err(|e| Error::io(old_path.display().to_string(), e))?,
+        Ok(_) => std::fs::remove_file(&old_path)
+            .map_err(|e| Error::io(old_path.display().to_string(), e))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(Error::io(old_path.display().to_string(), e)),
     }
@@ -416,6 +430,99 @@ mod tests {
         assert_eq!(
             state_of(td.path(), "vm-2.0.zip"),
             Some(WorldPackState::Disabled)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_crash_between_the_file_write_and_the_row_write_still_converges_on_retry() {
+        // The defect this closes: `install_bytes` writes the file, THEN
+        // upserts the sidecar row. A crash in between (disk full, an AV lock
+        // on `installed.json`, power loss) leaves the on-disk file already
+        // holding the TARGET bytes under the STALE row from the previous
+        // version. Simulate exactly that — bypass `install_bytes` entirely
+        // and write the target bytes straight to the destination through the
+        // same chokepoint it uses — then retry through the public API and
+        // assert it converges instead of reporting a phantom hand-edit.
+        let td = booted_world_with("vm.zip", b"v1").await;
+        crate::mods::store::place_bytes(
+            &td.path().join("datapacks").join("vm.zip"),
+            &datapack_zip(b"v2"),
+        )
+        .await
+        .unwrap();
+
+        let out = update_one(
+            td.path(),
+            "vm.zip",
+            "vm.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.completed);
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("vm.zip")).unwrap(),
+            datapack_zip(b"v2"),
+            "the target bytes must be the final on-disk bytes"
+        );
+        let rows = crate::servers_runtime::installed::load(td.path());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].version_id.as_deref(),
+            Some("v2"),
+            "the sidecar must carry the TARGET's version, not the stale v1 row"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_crash_mid_rename_still_converges_on_retry() {
+        // The rename-branch half of the same defect: a crash between
+        // `install_bytes`'s file write and its sidecar upsert on the NEW-name
+        // slot leaves the target bytes on disk with no row for them. A bare
+        // retry's `sidecar::reconcile` adopts that orphan as a
+        // provenance-less row, and `install_bytes`'s own identity check used
+        // to reject the retry as a foreign pack. Simulate the crash by
+        // writing the new-name file directly, without ever touching the
+        // sidecar, then retry.
+        let td = booted_world_with("vm-1.0.zip", b"v1").await;
+        crate::mods::store::place_bytes(
+            &td.path().join("datapacks").join("vm-2.0.zip"),
+            &datapack_zip(b"v2"),
+        )
+        .await
+        .unwrap();
+
+        let out = update_one(
+            td.path(),
+            "vm-1.0.zip",
+            "vm-2.0.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.completed && out.old_removed);
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("vm-2.0.zip")).unwrap(),
+            datapack_zip(b"v2"),
+            "the target bytes must be the final on-disk bytes"
+        );
+        assert!(
+            !td.path().join("datapacks").join("vm-1.0.zip").exists(),
+            "the old name must still be cleaned up on a converged retry"
+        );
+        let rows = crate::servers_runtime::installed::load(td.path());
+        let new_row = rows
+            .iter()
+            .find(|r| r.filename == "vm-2.0.zip")
+            .expect("the new row must exist after convergence");
+        assert_eq!(
+            new_row.version_id.as_deref(),
+            Some("v2"),
+            "the sidecar must carry the TARGET's version, not None from the orphan adoption"
         );
     }
 }
