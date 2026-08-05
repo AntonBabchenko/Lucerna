@@ -8,7 +8,7 @@
   //
   // Every row carries its namespace, because that is precisely the fact the
   // user came here missing.
-  import { commands, type SearchResult } from '$lib/ipc/bindings';
+  import { commands, type KeyRow, type SearchResult } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import KeyEditRow from './KeyEditRow.svelte';
@@ -35,6 +35,25 @@
   // Monotonic, mirroring LocalizationModal's own guard: a slow answer for a
   // query the user has since retyped must not overwrite a newer one.
   let requestId = 0;
+
+  /** Replace the saved row in place.
+   *
+   *  Without this the hit keeps the row it was FOUND with: after a successful
+   *  save the pill still reads "Missing", the Clear button never appears
+   *  (it renders on `overrideValue !== null`) and Save stays enabled because
+   *  the draft still differs from the stale row — the screen is indistinguish-
+   *  able from a failed write, and the user presses Save again. Re-running the
+   *  search instead would cost a full jar walk and lose their place. */
+  function patch(namespace: string, updated: KeyRow) {
+    if (!result) return;
+    result = {
+      ...result,
+      hits: result.hits.map((h) =>
+        h.namespace === namespace && h.row.key === updated.key ? { ...h, row: updated } : h,
+      ),
+    };
+    onSaved();
+  }
 
   $effect(() => {
     const id = instanceId;
@@ -95,7 +114,14 @@
       {/if}
     </div>
     <ul class="flex flex-col">
-      {#each result.hits as hit (`${hit.namespace}/${hit.row.key}`)}
+      <!--
+        The key carries the LANGUAGE. Without it a language switch leaves the
+        keys unchanged, Svelte reuses the same KeyEditRow instances, and their
+        `draft` — seeded once at creation and never re-synced — still holds the
+        previous language's text. Saving then writes it into the new language's
+        store. That is data corruption, not a glitch.
+      -->
+      {#each result.hits as hit (`${lang}/${hit.namespace}/${hit.row.key}`)}
         <li class="border-b px-4 py-2 last:border-b-0">
           <span
             class="mb-1 inline-block rounded bg-subtle px-1.5 py-0.5 text-xs text-secondary"
@@ -103,7 +129,12 @@
           >
             {hit.namespace}
           </span>
-          <KeyEditRow row={hit.row} namespace={hit.namespace} {lang} onSaved={() => onSaved()} />
+          <KeyEditRow
+            row={hit.row}
+            namespace={hit.namespace}
+            {lang}
+            onSaved={(updated) => patch(hit.namespace, updated)}
+          />
         </li>
       {/each}
     </ul>

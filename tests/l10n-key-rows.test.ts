@@ -434,11 +434,14 @@ describe('one filter axis', () => {
 });
 
 describe('sortRows', () => {
-  const a = row({ key: 'z.first', sourceEn: 'Apple', state: 'ok' });
-  const b = row({ key: 'a.second', sourceEn: 'Zebra', state: 'missing' });
+  // The missing row sorts LAST by key on purpose: if it sorted first anyway,
+  // the missingFirst assertion would pass with the branch deleted — which is
+  // exactly how the first version of this test was vacuous.
+  const a = row({ key: 'a.first', sourceEn: 'Apple', state: 'ok' });
+  const b = row({ key: 'z.second', sourceEn: 'Zebra', state: 'missing' });
 
   it('orders by key by default', () => {
-    expect(sortRows([a, b]).map((r) => r.key)).toEqual(['a.second', 'z.first']);
+    expect(sortRows([b, a]).map((r) => r.key)).toEqual(['a.first', 'z.second']);
   });
 
   it('orders by the English text when asked', () => {
@@ -449,7 +452,7 @@ describe('sortRows', () => {
     // Not a duplicate of the Untranslated chip: the chip HIDES the others,
     // this keeps them in context underneath.
     const out = sortRows([a, b], 'missingFirst');
-    expect(out.map((r) => r.key)).toEqual(['a.second', 'z.first']);
+    expect(out.map((r) => r.key)).toEqual(['z.second', 'a.first']);
     expect(out).toHaveLength(2);
   });
 

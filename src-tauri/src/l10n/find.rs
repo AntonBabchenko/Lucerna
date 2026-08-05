@@ -123,13 +123,35 @@ pub fn rank(query: &str, value: &str) -> Option<Rank> {
     // Nothing literal matched, so try again across the placeholders: the
     // player's copy has real text where the file has `%s`.
     let parts = split_on_placeholders(&v);
-    if parts.len() > 1 && covers_with_gaps(&q, &parts) {
+    if has_real_evidence(&parts) && covers_with_gaps(&q, &parts) {
         // Never better than `Contains`: a match that had to skip over unknown
         // substituted text is weaker evidence than a literal one.
         return Some(Rank::Contains);
     }
     None
 }
+
+/// A gap match is only evidence if the value contributes real literal text.
+///
+/// `"%s"` splits to `["", ""]` and `"%1$s %2$s"` to `["", " ", ""]`. Both have
+/// more than one part, so a naive length check lets `covers_with_gaps` skip
+/// every empty segment and return `true` having compared nothing — the value
+/// then matches EVERY query. Values shaped like this are common in real packs
+/// (`emi_loot.condition.any_of`, `hud.dungeonz.dungeon_countdown`), so this is
+/// not a theoretical case: without the floor, searching anything returns them.
+fn has_real_evidence(parts: &[String]) -> bool {
+    parts.len() > 1
+        && parts
+            .iter()
+            .map(|p| p.trim().chars().count())
+            .sum::<usize>()
+            >= MIN_GAP_EVIDENCE
+}
+
+/// Characters of literal text a placeholder-split value must contribute before
+/// a gap match counts. Two, so a lone separator — a space, a slash, a comma —
+/// cannot stand in for a match.
+const MIN_GAP_EVIDENCE: usize = 2;
 
 /// Whether `query` contains every literal segment of a placeholder-split
 /// value, in order — i.e. the query looks like that value with its gaps filled.
@@ -207,6 +229,34 @@ mod tests {
         // the RENDERED form ranks as a prefix rather than an exact hit. A
         // ranking nuance on a rare input, not a missed match.
         assert_eq!(rank("100%", "100%%"), Some(Rank::Prefix));
+    }
+
+    #[test]
+    fn a_value_made_only_of_placeholders_matches_nothing() {
+        // Found by review against real jars: `emi_loot.condition.any_of` is
+        // literally "%s", and before the evidence floor it matched EVERY query,
+        // scoring the same rank as a genuine hit and outranking real results
+        // from a later-alphabet namespace.
+        assert_eq!(rank("Разрушение блока", "%s"), None);
+        assert_eq!(rank("Разрушение блока", "%1$s"), None);
+        assert_eq!(rank("totally unrelated", "%s%s"), None);
+    }
+
+    #[test]
+    fn a_lone_separator_between_placeholders_is_not_evidence() {
+        // "%1$s %2$s" splits to ["", " ", ""] — a single space, which every
+        // multi-word query contains.
+        assert_eq!(rank("two words", "%1$s %2$s"), None);
+        assert_eq!(rank("Кресло собрано", "%1$s и %2$s"), None);
+    }
+
+    #[test]
+    fn a_placeholder_value_with_real_text_still_matches() {
+        // The floor must not break the case the gap matcher exists for.
+        assert_eq!(
+            rank("Invalid language: ru_ru", "Invalid language: %s"),
+            Some(Rank::Contains)
+        );
     }
 
     #[test]

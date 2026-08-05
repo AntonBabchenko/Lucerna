@@ -192,9 +192,14 @@ pub async fn l10n_search(
     for (namespace, (en, mod_tr)) in &maps {
         let store = crate::l10n::store::load(&store_dir, &lang, namespace);
         for row in crate::l10n::store::namespace_key_rows(&store, en, Some(mod_tr)) {
+            // `mod_value` is the string the player actually READ on screen
+            // whenever the mod ships their language — omitting it made the
+            // command miss the very case its doc comment describes. It was
+            // already loaded, already on the row and already crossing IPC.
             let best = [
                 Some(row.key.as_str()),
                 Some(row.source_en.as_str()),
+                row.mod_value.as_deref(),
                 row.override_value.as_deref(),
             ]
             .into_iter()

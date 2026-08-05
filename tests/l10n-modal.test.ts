@@ -479,7 +479,23 @@ describe('LocalizationModal', () => {
       mockCoverageOk(coverage());
       vi.mocked(commands.l10nSearch).mockResolvedValue({
         status: 'ok',
-        data: { hits: [], disabledMods: 0, truncated: false },
+        data: {
+          hits: [
+            {
+              namespace: 'minersdelight',
+              row: {
+                key: 'minersdelight.container.sticky_basket',
+                sourceEn: 'Sticky Basket',
+                modValue: null,
+                overrideValue: null,
+                state: 'missing',
+                origin: null,
+              },
+            },
+          ],
+          disabledMods: 0,
+          truncated: false,
+        },
         // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
       } as any);
       render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
@@ -488,7 +504,10 @@ describe('LocalizationModal', () => {
       expect(screen.queryByTestId('l10n-find-results')).toBeNull();
 
       await fireEvent.input(input, { target: { value: 'Sticky Basket' } });
-      expect(screen.getByTestId('l10n-find-results')).toBeTruthy();
+      // Assert on a HIT, not on the wrapper div: the first version of this
+      // test checked only `l10n-find-results`, which is an empty container the
+      // feature can be deleted out of while the test stays green.
+      expect(await screen.findByTestId('l10n-find-hit-ns-minersdelight')).toBeTruthy();
 
       await fireEvent.click(screen.getByTestId('l10n-find-clear'));
       expect(screen.queryByTestId('l10n-find-results')).toBeNull();

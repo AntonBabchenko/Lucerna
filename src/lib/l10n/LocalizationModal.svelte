@@ -676,17 +676,17 @@
               <span class="flex-1 truncate text-xs text-muted" data-testid="l10n-ns-sort-current">
                 {$t(`instance.l10n.nsSort.${nsSort}`)}
               </span>
-              <select
-                class="rounded border bg-transparent px-1 py-0.5 text-xs"
-                aria-label={$t('instance.l10n.nsSort.label')}
-                data-testid="l10n-ns-sort"
+              <Select
                 value={nsSort}
-                onchange={(e) => pickSort(e.currentTarget.value as NamespaceSort)}
-              >
-                {#each NAMESPACE_SORTS as order (order)}
-                  <option value={order}>{$t(`instance.l10n.nsSort.${order}`)}</option>
-                {/each}
-              </select>
+                options={NAMESPACE_SORTS.map((order) => ({
+                  value: order,
+                  label: $t(`instance.l10n.nsSort.${order}`),
+                }))}
+                onChange={(v) => pickSort(v as NamespaceSort)}
+                ariaLabel={$t('instance.l10n.nsSort.label')}
+                dataTestid="l10n-ns-sort"
+                class="shrink-0"
+              />
             </div>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <ul class="flex flex-col gap-1" onkeydown={onListKeydown}>

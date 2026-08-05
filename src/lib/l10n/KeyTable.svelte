@@ -41,6 +41,7 @@
     visibleViews,
   } from './key-rows';
   import KeyEditRow from './KeyEditRow.svelte';
+  import Select from '$lib/ui/Select.svelte';
 
   let {
     instanceId,
@@ -361,17 +362,17 @@
       data-testid="l10n-key-search"
       bind:value={search}
     />
-    <select
-      class="ml-2 shrink-0 rounded border bg-transparent px-1 py-0.5 text-xs"
-      aria-label={$t('instance.l10n.keySort.label')}
-      data-testid="l10n-key-sort"
+    <Select
       value={sort}
-      onchange={(e) => (sort = e.currentTarget.value as KeySort)}
-    >
-      {#each KEY_SORTS as order (order)}
-        <option value={order}>{$t(`instance.l10n.keySort.${order}`)}</option>
-      {/each}
-    </select>
+      options={KEY_SORTS.map((order) => ({
+        value: order,
+        label: $t(`instance.l10n.keySort.${order}`),
+      }))}
+      onChange={(v) => (sort = v as KeySort)}
+      ariaLabel={$t('instance.l10n.keySort.label')}
+      dataTestid="l10n-key-sort"
+      class="shrink-0"
+    />
     <div class="flex flex-wrap items-center gap-2">
       <!--
         One group, not two. See KeyView in key-rows.ts for why origin cannot be
