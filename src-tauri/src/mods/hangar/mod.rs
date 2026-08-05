@@ -374,6 +374,7 @@ mod tests {
             .await;
         let c = HangarClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Hangar,
             kind: ContentKind::Plugin,
             query: "luck".into(),
@@ -417,6 +418,7 @@ mod tests {
             .await;
         let c = HangarClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Hangar,
             kind: ContentKind::Plugin,
             query: "x".into(),
@@ -528,6 +530,7 @@ mod tests {
             .await;
         let c = HangarClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Hangar,
             kind: ContentKind::Plugin,
             query: "x".into(),
@@ -582,6 +585,7 @@ mod tests {
             .await;
         let c = HangarClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Hangar,
             kind: ContentKind::Plugin,
             query: "x".into(),
@@ -622,6 +626,7 @@ mod tests {
             .await;
         let c = HangarClient::with_base(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Hangar,
             kind: ContentKind::Plugin,
             query: "x".into(),

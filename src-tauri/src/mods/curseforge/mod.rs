@@ -1067,6 +1067,7 @@ mod tests {
         let s = MockServer::start().await;
         let c = CurseForgeClient::with_base_and_key(s.uri(), None);
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Mod,
             query: "x".into(),
@@ -1097,6 +1098,7 @@ mod tests {
             .await;
         let c = client(s.uri());
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Mod,
             query: "x".into(),
@@ -1169,6 +1171,7 @@ mod tests {
             .mount(&s)
             .await;
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Mod,
             query: "jei".into(),
@@ -1479,6 +1482,7 @@ mod tests {
             .mount(&s)
             .await;
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Mod,
             query: String::new(),
@@ -1515,6 +1519,7 @@ mod tests {
             .mount(&s)
             .await;
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Mod,
             query: String::new(),
@@ -1546,6 +1551,7 @@ mod tests {
             .mount(&s)
             .await;
         let q = ModSearchQuery {
+            server_only: false,
             source: ModSource::Curseforge,
             kind: ContentKind::Shader,
             query: "complementary".into(),

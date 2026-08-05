@@ -170,6 +170,7 @@ pub async fn modrinth_lookup(
         }
     }
     let q = crate::mods::platform::ModSearchQuery {
+        server_only: false,
         source: crate::mods::platform::ModSource::Modrinth,
         kind: crate::mods::platform::ContentKind::Mod,
         query: dep_id.to_string(),
@@ -209,6 +210,7 @@ pub async fn curseforge_lookup(
 ) -> Vec<ModVersion> {
     use crate::mods::platform::ModPlatform;
     let q = crate::mods::platform::ModSearchQuery {
+        server_only: false,
         source: crate::mods::platform::ModSource::Curseforge,
         kind: crate::mods::platform::ContentKind::Mod,
         query: dep_id.to_string(),
