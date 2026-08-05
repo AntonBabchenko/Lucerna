@@ -293,6 +293,16 @@ pub enum PackState {
     /// Pack file exists but options.txt does not list it — the state a
     /// modpack update leaves behind. The UI offers to re-enable.
     PresentNotEnabled,
+    /// Pack file exists and there is no `options.txt` at all: the instance has
+    /// never been launched, so Minecraft has not written one yet.
+    ///
+    /// A separate variant rather than a flavour of `PresentNotEnabled`,
+    /// because the two differ in the only way that matters to the user — the
+    /// remedy. Re-applying fixes a wiped entry; it can do NOTHING here, since
+    /// `update_atomically` returns `Ok(false)` on a missing file and never
+    /// creates one. Collapsing them made the UI offer a button that could not
+    /// succeed, under a message blaming a modpack update that never happened.
+    PresentAwaitingLaunch,
     Enabled,
 }
 
@@ -301,10 +311,17 @@ pub enum PackState {
 /// of the file always wins to `NotApplied` regardless of what a stale
 /// `options.txt` claims — there is nothing to load either way, so reporting
 /// anything else would describe a pack that is not there.
-pub fn pack_state(pack_on_disk: bool, options_txt: &str) -> PackState {
+///
+/// `Option` rather than a string the caller defaulted to empty: "no file" and
+/// "a file that does not list the pack" give `is_pack_enabled` the same answer
+/// and need different remedies, so the distinction has to survive to here.
+pub fn pack_state(pack_on_disk: bool, options_txt: Option<&str>) -> PackState {
     if !pack_on_disk {
         return PackState::NotApplied;
     }
+    let Some(options_txt) = options_txt else {
+        return PackState::PresentAwaitingLaunch;
+    };
     if is_pack_enabled(options_txt) {
         PackState::Enabled
     } else {
@@ -638,18 +655,26 @@ mod tests {
         // Even if options.txt claims it's enabled, no file on disk means
         // there is nothing to load.
         let enabled = with_pack_enabled(SAMPLE, "lucerna-translation-ru_ru.zip", true);
-        assert_eq!(pack_state(false, &enabled), PackState::NotApplied);
+        assert_eq!(pack_state(false, Some(&enabled)), PackState::NotApplied);
     }
 
     #[test]
     fn pack_state_present_not_enabled_when_disk_has_it_but_options_txt_does_not() {
-        assert_eq!(pack_state(true, SAMPLE), PackState::PresentNotEnabled);
+        assert_eq!(pack_state(true, Some(SAMPLE)), PackState::PresentNotEnabled);
+    }
+
+    #[test]
+    fn pack_state_awaiting_launch_when_there_is_no_options_txt_at_all() {
+        // The instance has never been launched, so Minecraft has not written
+        // options.txt yet. This is NOT the modpack-wipe state: re-applying
+        // cannot fix it, because `update_atomically` never creates the file.
+        assert_eq!(pack_state(true, None), PackState::PresentAwaitingLaunch);
     }
 
     #[test]
     fn pack_state_enabled_when_both_agree() {
         let enabled = with_pack_enabled(SAMPLE, "lucerna-translation-ru_ru.zip", true);
-        assert_eq!(pack_state(true, &enabled), PackState::Enabled);
+        assert_eq!(pack_state(true, Some(&enabled)), PackState::Enabled);
     }
 
     // -----------------------------------------------------------------

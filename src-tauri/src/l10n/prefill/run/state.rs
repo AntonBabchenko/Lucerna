@@ -213,6 +213,9 @@ impl RunState {
             self.pass_answers.insert(source_en, value);
         }
         self.summary.rejected += output.rejected;
+        if output.unusable {
+            self.summary.unusable_batches = self.summary.unusable_batches.saturating_add(1);
+        }
         self.summary.prompt_tokens = self
             .summary
             .prompt_tokens
@@ -376,6 +379,29 @@ mod tests {
             namespace: namespace.to_string(),
             key: key.to_string(),
         }
+    }
+
+    // -----------------------------------------------------------------
+    // an unusable batch
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn an_unusable_batch_is_counted_and_writes_nothing() {
+        // The whole point of losing a batch instead of the run: it has to be
+        // REPORTED, or the coverage number silently refuses to move and
+        // nothing on screen says why.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let ctx = test_ctx(dir.path());
+        let mut state = RunState::new(&ctx);
+
+        let mut output = BatchOutput::new(UiRole::Name, 12);
+        output.unusable = true;
+
+        state.absorb(output);
+
+        assert_eq!(state.summary.unusable_batches, 1);
+        assert_eq!(state.summary.written, 0);
+        assert_eq!(state.summary.rejected, 0);
     }
 
     // -----------------------------------------------------------------

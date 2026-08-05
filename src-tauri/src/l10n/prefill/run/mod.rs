@@ -148,7 +148,13 @@ pub async fn run(
     // is the editor's existing, separately-surfaced case and is not a rebuild
     // failure.
     match crate::l10n::apply::rebuild_pack(app, instance_id, lang).await {
-        Ok(_activated) => summary.pack_rebuilt = true,
+        Ok(activated) => {
+            summary.pack_rebuilt = true;
+            // Carried, not discarded: `false` means the pack is on disk and
+            // will not load, which the user has to be told here rather than
+            // discover later from an editor banner.
+            summary.pack_activated = activated;
+        }
         Err(e) => {
             crate::diag!(
                 "[l10n] prefill: pack rebuild failed: {}",

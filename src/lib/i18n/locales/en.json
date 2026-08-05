@@ -495,8 +495,9 @@
         "fromNote": "From: {note}"
       },
       "packDisabled": {
-        "message": "A modpack update turned off your translations. The pack is still here — turn it back on.",
-        "reenableButton": "Re-enable"
+        "message": "Your translations are installed but switched off in this instance. Turning them back on rebuilds them from your saved translations.",
+        "reenableButton": "Rebuild and turn on",
+        "awaitingLaunch": "Your translations are installed. They switch on the first time this instance is launched."
       },
       "prefill": {
         "allButton": "Translate with AI",
@@ -532,6 +533,8 @@
         "glossaryLabel": "Taken from Minecraft's own translation",
         "rejectedLabel": "Rejected by the checker",
         "rejectedNote": "Rejected strings were not written — those keys still show the mod's English.",
+        "unusableBatchesNote": "{count} batches came back in a form we could not read. Their strings were skipped; run this again to retry them.",
+        "packBuiltNotOnNote": "The translations were built but are not switched on in this instance — that happens the first time it is launched.",
         "costLabel": "Tokens used",
         "costValue": "{prompt} in / {completion} out",
         "packFailedTitle": "Saved, but not applied yet",
