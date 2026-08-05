@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    commands,
-    type AssetUpdateState,
-    type ServerDatapackEntry,
-  } from '$lib/ipc/bindings';
+  import { commands, type AssetUpdateState, type ServerDatapackEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -162,8 +158,10 @@
       .filter(
         (
           x,
-        ): x is { row: ServerDatapackEntry; state: Extract<AssetUpdateState, { kind: 'update_available' }> } =>
-          x.state?.kind === 'update_available',
+        ): x is {
+          row: ServerDatapackEntry;
+          state: Extract<AssetUpdateState, { kind: 'update_available' }>;
+        } => x.state?.kind === 'update_available',
       );
     if (targets.length === 0) return;
     actionError = null;
@@ -171,7 +169,11 @@
     try {
       for (const { row, state } of targets) {
         const key = rowKey(row);
-        const res = await commands.serverUpdateDatapackOne(serverId, row.record.filename, state.latest);
+        const res = await commands.serverUpdateDatapackOne(
+          serverId,
+          row.record.filename,
+          state.latest,
+        );
         if (res.status === 'error') {
           actionError = formatError(res.error);
           break;
@@ -238,7 +240,7 @@
       class="btn-secondary btn-sm"
       data-testid="server-datapacks-check-updates"
       busy={checkingUpdates}
-      disabled={disabled}
+      {disabled}
       onclick={() => void checkUpdates()}
     >
       {$t('servers.datapacks.checkUpdates')}
@@ -323,7 +325,7 @@
             <button
               type="button"
               class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
-              disabled={disabled}
+              {disabled}
               onclick={() => void toggle(row)}
               aria-label={row.state === 'enabled'
                 ? $t('servers.datapacks.disable')
@@ -339,7 +341,7 @@
           <button
             type="button"
             class="btn-icon btn-icon-sm btn-icon-danger"
-            disabled={disabled}
+            {disabled}
             onclick={() => {
               actionError = null;
               pendingRemove = row;

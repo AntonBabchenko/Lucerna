@@ -360,7 +360,10 @@
   type VersionsResult = Awaited<ReturnType<typeof commands.modsVersions>>;
   type InstallResult = Awaited<ReturnType<typeof commands.serverInstallMod>>;
 
-  async function loadDetailVersions(projectSource: ModSource, projectId: string): Promise<VersionsResult> {
+  async function loadDetailVersions(
+    projectSource: ModSource,
+    projectId: string,
+  ): Promise<VersionsResult> {
     return commands.modsDatapackVersions(projectSource, projectId, mcVersion);
   }
 
