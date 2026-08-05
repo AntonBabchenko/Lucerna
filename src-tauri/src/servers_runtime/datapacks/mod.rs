@@ -72,30 +72,6 @@ pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
     world_dir(runtime, props_raw).join("datapacks")
 }
 
-/// A datapack ships as a `.zip` with `pack.mcmeta` at its root AND a top-level
-/// `data/` tree. The `pack.mcmeta`-only check this used to do accepted every
-/// resource pack; classification now lives in one place.
-pub fn zip_is_datapack(bytes: &[u8]) -> bool {
-    crate::datapacks::pack_meta::classify(bytes) == crate::datapacks::pack_meta::PackKind::Datapack
-}
-
-/// List datapack archive filenames in `dir` (sorted). A missing dir yields an
-/// empty list. Only `.zip` entries are reported (folder datapacks are left to
-/// the user; the launcher manages the ones it installed).
-pub fn list_datapacks(dir: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.to_ascii_lowercase().ends_with(".zip") {
-                out.push(name);
-            }
-        }
-    }
-    out.sort();
-    out
-}
-
 /// Validate `src_zip` and install it into the world's `datapacks/`, returning
 /// the installed filename. Records a provenance-less sidecar row (so the pack
 /// lists with real state) and writes through temp-then-rename.
@@ -110,23 +86,6 @@ pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String
     let bytes = std::fs::read(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
     mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
     Ok(filename)
-}
-
-/// Remove a datapack archive from `dir` by name. Idempotent (absent → `Ok`).
-/// Rejects unsafe filenames / path escapes.
-pub fn remove_datapack(dir: &Path, filename: &str) -> Result<()> {
-    if !crate::servers_runtime::runtime::is_safe_mod_name(filename) {
-        return Err(Error::io("<datapack>", "invalid filename"));
-    }
-    let path = dir.join(filename);
-    if !path.starts_with(dir) {
-        return Err(Error::io("<datapack>", "path escapes datapacks dir"));
-    }
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(Error::io(path.display().to_string(), e)),
-    }
 }
 
 /// One row of a server world's datapack list.
@@ -243,47 +202,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn zip_is_datapack_accepts_root_pack_mcmeta() {
-        assert!(zip_is_datapack(&datapack_zip()));
-    }
-
-    #[test]
-    fn zip_is_datapack_rejects_non_datapack_zip() {
-        let plain = zip(&[("readme.txt", b"hello")]);
-        assert!(!zip_is_datapack(&plain));
-    }
-
-    #[test]
-    fn zip_is_datapack_rejects_nested_pack_mcmeta() {
-        // pack.mcmeta under a folder is not a loadable datapack zip.
-        let nested = zip(&[("MyPack/pack.mcmeta", b"{}")]);
-        assert!(!zip_is_datapack(&nested));
-    }
-
-    #[test]
-    fn zip_is_datapack_false_on_garbage() {
-        assert!(!zip_is_datapack(b"not a zip"));
-    }
-
-    #[test]
-    fn zip_is_datapack_rejects_a_resource_pack() {
-        // Regression: the shipped check accepted any zip with a root pack.mcmeta,
-        // which every resource pack has.
-        use std::io::Write;
-        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        zw.start_file("pack.mcmeta", opts).unwrap();
-        zw.write_all(br#"{"pack":{"pack_format":34}}"#).unwrap();
-        zw.start_file("assets/minecraft/textures/x.png", opts)
-            .unwrap();
-        zw.write_all(b"\x89PNG").unwrap();
-        let bytes = zw.finish().unwrap().into_inner();
-
-        assert!(!zip_is_datapack(&bytes));
-    }
-
     #[tokio::test]
     async fn install_datapack_writes_validated_zip() {
         let td = tempfile::tempdir().unwrap();
@@ -293,10 +211,11 @@ mod tests {
         let name = install_datapack(&world, &src).await.unwrap();
         assert_eq!(name, "CoolPack.zip");
         assert!(world.join("datapacks").join("CoolPack.zip").exists());
-        assert_eq!(
-            list_datapacks(&world.join("datapacks")),
-            vec!["CoolPack.zip".to_string()]
-        );
+        let names: Vec<String> = listing::entries(&world)
+            .into_iter()
+            .map(|e| e.record.filename)
+            .collect();
+        assert_eq!(names, vec!["CoolPack.zip".to_string()]);
     }
 
     #[tokio::test]
@@ -354,24 +273,5 @@ mod tests {
         std::fs::write(&src, datapack_zip()).unwrap();
         let world = td.path().join("world");
         assert!(install_datapack(&world, &src).await.is_err());
-    }
-
-    #[test]
-    fn remove_datapack_is_idempotent_and_safe() {
-        let td = tempfile::tempdir().unwrap();
-        let dir = td.path();
-        std::fs::write(dir.join("p.zip"), datapack_zip()).unwrap();
-        remove_datapack(dir, "p.zip").unwrap();
-        assert!(!dir.join("p.zip").exists());
-        // absent → Ok
-        remove_datapack(dir, "p.zip").unwrap();
-        // traversal rejected
-        assert!(remove_datapack(dir, "../escape.zip").is_err());
-    }
-
-    #[test]
-    fn list_datapacks_empty_on_missing_dir() {
-        let td = tempfile::tempdir().unwrap();
-        assert!(list_datapacks(&td.path().join("nope")).is_empty());
     }
 }

@@ -1425,19 +1425,58 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Server must be stopped.
 	 */
 	serverInstallLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_local", { id, jarPath })),
-	/**  List the datapack archives installed for a server's world. */
-	serverListDatapacks: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
 	/**
-	 *  Install a datapack `.zip` (chosen via the file picker) into the server's
-	 *  world `datapacks/`. Validates the zip carries a root `pack.mcmeta`. Returns
-	 *  the installed filename. Server must be stopped (live worlds hold files open).
+	 *  Every datapack this server's world knows about, with its real enabled
+	 *  state read from `level.dat`.
+	 */
+	serverListDatapacks: (id: string) => typedError<ServerDatapackEntry[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
+	/**
+	 *  Install a datapack `.zip` chosen from disk. Records a provenance-less
+	 *  sidecar row so the pack lists with real state.
 	 */
 	serverInstallDatapack: (id: string, zipPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_datapack", { id, zipPath })),
 	/**
-	 *  Remove a datapack archive from a server's world `datapacks/`. Idempotent.
-	 *  Server must be stopped.
+	 *  Remove a datapack: the on-disk entry, its `level.dat` name and its sidecar
+	 *  row. Idempotent, and the repair for a `level.dat` entry with no file.
 	 */
 	serverRemoveDatapack: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_remove_datapack", { id, filename })),
+	/**  Enable or disable a datapack in the world's `level.dat`. */
+	serverSetDatapackEnabled: (id: string, filename: string, enabled: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_set_datapack_enabled", { id, filename, enabled })),
+	/**  Download a catalog version into the server's world, recording provenance. */
+	serverInstallDatapackVersion: (id: string, version: ModVersion_Deserialize) => typedError<ServerInstalledRecord, Error>(__TAURI_INVOKE("server_install_datapack_version", { id, version })),
+	/**
+	 *  Check every pack carrying platform identity for a newer version on this
+	 *  server's Minecraft.
+	 * 
+	 *  Mirrors `server_check_mod_updates` in shape, with ONE step deliberately
+	 *  not mirrored: that command opens with `installed::reconcile_on_list`, which
+	 *  on a `datapacks/` dir wipes every sidecar row. The datapack sidecar has its
+	 *  own `.zip`-aware reconcile.
+	 */
+	serverCheckDatapackUpdates: (id: string) => typedError<AssetUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("server_check_datapack_updates", { id })),
+	/**
+	 *  Apply one datapack update.
+	 * 
+	 *  Takes the update claim BEFORE the running gate — the Dekker order
+	 *  `runtime::start` mirrors (claim the start slot, then check this set).
+	 *  Checking the gate first would leave an interleaving where both sides pass
+	 *  before either flag is visible.
+	 */
+	serverUpdateDatapackOne: (id: string, oldFilename: string, target: ModVersion_Deserialize) => typedError<ServerDatapackUpdateOutcome, Error>(__TAURI_INVOKE("server_update_datapack_one", { id, oldFilename, target })),
+	/**
+	 *  Whether a Minecraft version can load data packs at all (they arrived in
+	 *  1.13). `true` for an empty or unparseable version — uncertainty must not
+	 *  hide the feature.
+	 * 
+	 *  Version-keyed rather than id-keyed, unlike its instance twin above. That
+	 *  one reads `instance.json` because the Manage modal changes an instance's
+	 *  Minecraft IN PLACE, so a list row can be stale. A server has no such flow —
+	 *  `mc_version` is written at create/import and no command edits it — and
+	 *  `ServerWithStatus.mc_version` is already on the object the caller holds. So
+	 *  this takes the string, needs no `AppHandle` and no file read, and its
+	 *  answer caches under one key for every server on that version.
+	 */
+	mcVersionSupportsDatapacks: (mcVersion: string) => __TAURI_INVOKE<boolean>("mc_version_supports_datapacks", { mcVersion }),
 	/**
 	 *  List the `.jar` / `.jar.disabled` plugins installed for a server's
 	 *  `runtime/plugins/`. Sorted by filename. Missing dir yields an empty list.
@@ -2848,7 +2887,15 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  A lookup keyed on the installed mod/plugin list missed — the list
  *  changed since the UI fetched it. Refresh and retry.
  */
-{ kind: "server_content_stale" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+{ kind: "server_content_stale" } | 
+/**
+ *  A datapack toggle was asked for on a server whose world does not exist
+ *  yet (no `level.dat`). Enabled/disabled state lives in `level.dat`, and
+ *  Minecraft writes its own when it generates the world — a stub written
+ *  here would not survive generation, and would hand the generator a file
+ *  claiming a world exists with no version, seed or generator settings.
+ */
+{ kind: "server_world_not_created" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Could not establish the SSH/SFTP connection to the user's server. */
@@ -5346,6 +5393,62 @@ export type ServerCreated_Serialize = {
 	quarantined: string[],
 };
 
+/**  One row of a server world's datapack list. */
+export type ServerDatapackEntry = {
+	/**
+	 *  Three provenances, and only the first is persisted: a real sidecar
+	 *  row; a row synthesized for a foreign on-disk entry (a hand-dropped
+	 *  `.zip` is adopted and hashed by `sidecar::reconcile`, a directory is
+	 *  ephemeral); or a row synthesized from a `level.dat` name alone, for a
+	 *  ghost whose file is gone. Two of the three carry an empty `sha1` —
+	 *  which is why the UI keys rows on the filename.
+	 */
+	record: ServerInstalledRecord,
+	/**
+	 *  `None` ⟹ `level.dat` exists but could not be read, so enabled-ness is
+	 *  genuinely unknown rather than guessed. An ABSENT `level.dat` is NOT
+	 *  this case: a world that has never booted reads as two empty lists,
+	 *  which is a real answer.
+	 */
+	state: WorldPackState | null,
+	/**
+	 *  Something is on disk under this name. Independent of `state`, which
+	 *  can be `None` for a pack that is plainly present.
+	 */
+	present: boolean,
+	/**
+	 *  The on-disk entry is a directory. Minecraft loads folder packs and
+	 *  `level.dat` does not distinguish them, so they are listed, toggleable
+	 *  and removable — but they carry no sha1 and no provenance, so the UI
+	 *  offers them no update or catalog affordance.
+	 */
+	is_folder: boolean,
+};
+
+/**  The result of one server datapack update. */
+export type ServerDatapackUpdateOutcome = {
+	/**  The new sidecar row, carrying the target version's provenance. */
+	record: ServerInstalledRecord,
+	/**
+	 *  The enabled state carried across to the new name.
+	 * 
+	 *  `None` for a same-filename refresh: that path deliberately never reads
+	 *  or writes `level.dat`, so it does not KNOW the state — reporting `true`
+	 *  would tell the admin a disabled pack had been switched on. (Exactly why
+	 *  the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
+	 */
+	was_enabled: boolean | null,
+	/**
+	 *  `false` ⟹ the old file was left on disk because its sha1 did not match
+	 *  its sidecar row — a hand-replaced pack this must not delete. `true` for
+	 *  a same-name refresh, where the file was replaced in place and nothing
+	 *  is left behind.
+	 */
+	old_removed: boolean,
+	/**  `false` ⟹ something needs attention; the row is not done. */
+	completed: boolean,
+};
+
 /**
  *  Full diagnosis result for a server log. Returned by the `server_diagnose`
  *  Tauri command and consumed directly by the UI.
@@ -5403,6 +5506,17 @@ export type ServerImportPreview = {
 	world_present: boolean,
 	eula_in_source: boolean,
 	size_bytes: number | null,
+};
+
+export type ServerInstalledRecord = {
+	filename: string,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string | null,
+	version_number: string | null,
+	enrich_attempted?: boolean,
 };
 
 /**  One log file shown to the UI. */

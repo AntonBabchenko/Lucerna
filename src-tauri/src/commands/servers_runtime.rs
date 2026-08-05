@@ -3229,52 +3229,8 @@ pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) 
 
 /// Raw `server.properties` text for a server (empty when absent) — used to
 /// resolve the `level-name` (datapacks live under `runtime/<level>/datapacks/`).
-fn server_props_raw(p: &crate::paths::ServerPaths) -> String {
+pub(super) fn server_props_raw(p: &crate::paths::ServerPaths) -> String {
     std::fs::read_to_string(p.runtime.join("server.properties")).unwrap_or_default()
-}
-
-/// List the datapack archives installed for a server's world.
-#[tauri::command]
-#[specta::specta]
-pub fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<String>> {
-    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
-    Ok(crate::servers_runtime::datapacks::list_datapacks(&dir))
-}
-
-/// Install a datapack `.zip` (chosen via the file picker) into the server's
-/// world `datapacks/`. Validates the zip carries a root `pack.mcmeta`. Returns
-/// the installed filename. Server must be stopped (live worlds hold files open).
-#[tauri::command]
-#[specta::specta]
-pub async fn server_install_datapack(
-    app: AppHandle,
-    id: String,
-    zip_path: String,
-) -> Result<String> {
-    if crate::servers_runtime::runtime::is_running(&id) {
-        return Err(Error::ServerAlreadyRunning { id });
-    }
-    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let world = crate::servers_runtime::datapacks::world_dir(&p.runtime, &server_props_raw(&p));
-    crate::servers_runtime::datapacks::install_datapack(&world, std::path::Path::new(&zip_path))
-        .await
-}
-
-/// Remove a datapack archive from a server's world `datapacks/`. Idempotent.
-/// Server must be stopped.
-#[tauri::command]
-#[specta::specta]
-pub fn server_remove_datapack(app: AppHandle, id: String, filename: String) -> Result<()> {
-    if crate::servers_runtime::runtime::is_running(&id) {
-        return Err(Error::ServerAlreadyRunning { id });
-    }
-    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
-    crate::servers_runtime::datapacks::remove_datapack(&dir, &filename)
 }
 
 /// One entry in `server_list_plugins`. Unlike mods there is no quarantine
