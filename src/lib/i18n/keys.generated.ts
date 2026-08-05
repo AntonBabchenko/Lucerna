@@ -402,6 +402,7 @@ export type TranslationKey =
   | 'instance.l10n.apply.button'
   | 'instance.l10n.apply.reasonTooOld'
   | 'instance.l10n.apply.reasonUnknownFormat'
+  | 'instance.l10n.apply.toastAppliedReloadLine'
   | 'instance.l10n.apply.toastAppliedTitle'
   | 'instance.l10n.apply.toastDeferredLine'
   | 'instance.l10n.apply.toastDeferredTitle'

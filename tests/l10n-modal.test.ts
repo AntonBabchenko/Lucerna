@@ -370,6 +370,25 @@ describe('LocalizationModal', () => {
       await waitFor(() => expect(toastList().some((t) => t.kind === 'success')).toBe(true));
     });
 
+    it('tells a running game how to actually see the change', async () => {
+      // A game that is already open will not show the new pack until its
+      // RESOURCES are reloaded, and the obvious move — switching the game's
+      // language — is precisely what does not work. Without this line a
+      // correct apply reads as a broken one; it cost a live bug report.
+      mockCoverageOk(coverage({ applyGate: 'ready' }));
+      vi.mocked(commands.l10nApply).mockResolvedValue({
+        status: 'ok',
+        data: true,
+        // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+      } as any);
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+      await fireEvent.click(await screen.findByTestId('l10n-apply'));
+
+      await waitFor(() => expect(toastList().some((t) => t.kind === 'success')).toBe(true));
+      const success = toastList().find((t) => t.kind === 'success');
+      expect(success?.lines.join(' ')).toContain('F3+T');
+    });
+
     // `l10nApply` returning `false` means "written, not yet enabled" — not a
     // failure. It must read as neutral information, not success and not error.
     it('shows a neutral info toast — not success, not a warning — when Apply is deferred', async () => {
