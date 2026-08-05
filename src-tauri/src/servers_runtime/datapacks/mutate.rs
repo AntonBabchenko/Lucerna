@@ -84,7 +84,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::datapacks::{level_dat, level_dat_entry, WorldPackState};
+    use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
 
     fn datapack_zip(body: &[u8]) -> Vec<u8> {
