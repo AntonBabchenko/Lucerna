@@ -108,6 +108,7 @@
   } from '$lib/toasts/toasts.svelte';
   import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import { importTitle } from '$lib/modpacks/import-request';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
@@ -1686,8 +1687,7 @@
         importUrlPrefill = null;
         importUrlFromExternal = false;
       }}
-      onImport={(req) =>
-        enqueueImport(req.projectId ?? req.path.split(/[\\/]/).pop() ?? 'modpack', req)}
+      onImport={(req) => enqueueImport(importTitle(req), req)}
       onInstanceCreated={(id) => {
         // Opening an imported pack's instance from the Imported tab: close the
         // modal and land on it.

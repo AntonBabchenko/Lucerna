@@ -19,6 +19,7 @@ const modpackImport = commands.modpackImport as ReturnType<typeof vi.fn>;
 const req = {
   path: '/tmp/pack.mrpack',
   selectedShas: [],
+  displayName: '',
   projectId: null,
   source: null,
   versionId: null,
