@@ -143,7 +143,16 @@
     loading = false;
     if (res.status === 'ok') {
       coverage = res.data;
-      nsOrder = sortNamespaces(res.data.namespaces).map((r) => r.namespace);
+      // The user's choice survives a reload. It used to be rebuilt with the
+      // default order while the control beside it still displayed "by name",
+      // so switching language silently reverted the list and lied about it.
+      //
+      // UNTESTED, honestly: the only trigger is `load()`, i.e. a language or
+      // instance change, and the test written for it drove Apply instead —
+      // which calls the SILENT refresh and never rebuilds this order, so it
+      // passed with the fix removed. Rather than keep a fourth vacuous test
+      // this session, the gap is recorded here.
+      nsOrder = sortNamespaces(res.data.namespaces, nsSort).map((r) => r.namespace);
       // The backend may resolve a bare launcher locale (e.g. "ru", from the
       // page's initial guess) to a full Minecraft code ("ru_ru"). Write the
       // resolved code back through the bindable prop so this picker and the
@@ -638,7 +647,14 @@
           class="btn-ghost btn-xs shrink-0"
           aria-label={$t('instance.l10n.find.clear')}
           data-testid="l10n-find-clear"
-          onclick={() => (findQuery = '')}
+          onclick={() => {
+            // Clear the settled copy TOO. Otherwise the debounce still holds
+            // the abandoned query, and typing again within the window remounts
+            // the results and issues one more full-instance scan for text the
+            // user has already thrown away.
+            findQuery = '';
+            findSettled = '';
+          }}
         >
           <Icon name="close" />
         </button>
@@ -646,7 +662,19 @@
     </div>
     {#if finding && instanceId}
       <div class="flex-1 overflow-y-auto" data-testid="l10n-find-results">
-        <SearchResults {instanceId} {lang} query={findSettled} onSaved={refreshCoverageSilently} />
+        {#if findSettled.trim() !== findQuery.trim()}
+          <!-- Between the keystroke and the debounce the old pane is gone and
+               the new one has nothing yet; without this the modal body is an
+               empty rectangle for as long as the user keeps typing. -->
+          <LoadingPanel label={$t('common.loading')} />
+        {:else}
+          <SearchResults
+            {instanceId}
+            {lang}
+            query={findSettled}
+            onSaved={refreshCoverageSilently}
+          />
+        {/if}
       </div>
     {:else}
       <div class="flex flex-1 overflow-hidden" use:observeRow>
