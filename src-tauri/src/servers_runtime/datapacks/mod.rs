@@ -124,12 +124,17 @@ pub struct ServerDatapackUpdateOutcome {
     /// would tell the admin a disabled pack had been switched on. (Exactly why
     /// the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
     pub was_enabled: Option<bool>,
-    /// `false` ⟹ the old file was left on disk because its sha1 did not match
-    /// its sidecar row — a hand-replaced pack this must not delete. `true` for
-    /// a same-name refresh, where the file was replaced in place and nothing
-    /// is left behind.
+    /// Whether the old file was removed. `update_one` verifies the old file's
+    /// identity against its sidecar row *before* writing anything (a
+    /// hand-replaced or sidecar-unknown old file is refused outright, world
+    /// untouched — see `update_one`'s step (b)), so by the time it returns
+    /// `Ok` the old file has always either been removed or never existed.
+    /// `true` in both branches today. The field stays on the type because a
+    /// caller reading this outcome should not have to know that invariant
+    /// holds — it should be able to check honestly, the same as `completed`.
     pub old_removed: bool,
-    /// `false` ⟹ something needs attention; the row is not done.
+    /// `false` ⟹ something needs attention; the row is not done. `update_one`
+    /// currently never returns `Ok` with this `false` — see `old_removed`.
     pub completed: bool,
 }
 

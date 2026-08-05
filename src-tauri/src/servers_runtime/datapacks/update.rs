@@ -89,7 +89,39 @@ pub async fn update_one(
         }
     }
 
-    // (b) Place the new file and upsert its row IMMEDIATELY. A crash after
+    // (b) Old-file identity, BEFORE anything is written. A present old file
+    // whose sha1 does not match its sidecar row is a hand-replaced or
+    // sidecar-unknown pack — refuse now, with the world completely
+    // untouched. Deferring this check to after level.dat had already
+    // forgotten the old name (as this used to do) left a refused update
+    // with the old pack present-and-unlisted, which the three-case rule
+    // below reads as ENABLED — re-enabling a pack the admin had switched
+    // off, with both the old and new files loading at once. An ABSENT old
+    // file is not a conflict: that is the converge-after-partial-failure
+    // path, and there is nothing to verify or delete.
+    //
+    // The sidecar lookup runs here, while the old file is still on disk, so
+    // `sidecar::reconcile` (`.zip`-aware, prunes a row whose file is gone)
+    // does not prune this row out from under the check.
+    let old_path = dp_dir.join(old_filename);
+    if old_path.exists() {
+        let old_row = sidecar::reconcile(world_dir)
+            .into_iter()
+            .find(|r| r.filename.to_lowercase() == old_filename.to_lowercase());
+        let old_disk_sha = installed::sha1_of(&old_path).unwrap_or_default();
+        let old_is_ours = old_row
+            .as_ref()
+            .is_some_and(|r| !r.sha1.is_empty() && r.sha1.eq_ignore_ascii_case(&old_disk_sha));
+        if !old_is_ours {
+            return Err(Error::ModsFilenameConflict {
+                filename: old_filename.to_string(),
+                existing_sha: old_disk_sha,
+                incoming_sha: old_row.map(|r| r.sha1).unwrap_or_default(),
+            });
+        }
+    }
+
+    // (c) Place the new file and upsert its row IMMEDIATELY. A crash after
     // this leaves both rows, which the `.zip`-aware reconcile prunes when a
     // file vanishes; deferring the row to the end would let a crash strip
     // provenance and make update checking silently inert.
@@ -101,7 +133,7 @@ pub async fn update_one(
 
     let was_enabled = {
         let _guard = level_dat_lock().lock().await;
-        // (c) Read level.dat once. An already-listed NEW entry's state takes
+        // (d) Read level.dat once. An already-listed NEW entry's state takes
         // precedence: a retried migration must not have its state re-derived
         // from a stale old entry and flip a disabled pack on.
         let (mut root, framing) = world_link::read_level_dat_or_empty(world_dir)?;
@@ -130,28 +162,19 @@ pub async fn update_one(
         was_enabled
     };
 
-    // (d) Identity, THEN delete the old file, LAST. A failure at any earlier
-    // step leaves the old file present, so a re-run still finds the work.
-    let old_row = sidecar::reconcile(world_dir)
-        .into_iter()
-        .find(|r| r.filename.to_lowercase() == old_filename.to_lowercase());
-    let old_path = dp_dir.join(old_filename);
-    let old_disk_sha = installed::sha1_of(&old_path).unwrap_or_default();
-    let old_is_ours = old_row
-        .as_ref()
-        .is_some_and(|r| !r.sha1.is_empty() && r.sha1.eq_ignore_ascii_case(&old_disk_sha));
-    if !old_is_ours && old_path.exists() {
-        // A hand-replaced or sidecar-unknown file. Leave it; report honestly.
-        return Ok(ServerDatapackUpdateOutcome {
-            record,
-            was_enabled: Some(was_enabled),
-            old_removed: false,
-            completed: false,
-        });
-    }
-    // Type-directed, mirroring `mutate::remove`: the identity gate above
-    // means a directory cannot currently reach this line, but this removal
-    // should not depend on a distant gate for its own correctness.
+    // (e) Delete the old file, LAST. A failure at any earlier step leaves
+    // the old file present, so a re-run still finds the work. (b)'s identity
+    // gate already proved the old file is either absent or provably ours,
+    // so — unlike before the hoist — there is no longer a way to reach this
+    // point with a foreign file still needing to be left alone; `old_removed`
+    // and `completed` can no longer come back `false` from this branch. A
+    // failure here is a genuine I/O error and propagates via `?`.
+    //
+    // Type-directed, mirroring `mutate::remove`: (b)'s identity gate means a
+    // directory can never reach this line (a directory is never adopted into
+    // the sidecar, so it can never have a matching row and always fails (b)),
+    // but this removal does not depend on that distant gate for its own
+    // correctness.
     match std::fs::metadata(&old_path) {
         Ok(m) if m.is_dir() => std::fs::remove_dir_all(&old_path)
             .map_err(|e| Error::io(old_path.display().to_string(), e))?,
@@ -161,7 +184,7 @@ pub async fn update_one(
         Err(e) => return Err(Error::io(old_path.display().to_string(), e)),
     }
 
-    // (e) Drop the OLD sidecar row last.
+    // (f) Drop the OLD sidecar row last.
     sidecar::forget(world_dir, old_filename)?;
 
     Ok(ServerDatapackUpdateOutcome {
@@ -327,19 +350,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_hand_replaced_old_file_is_left_alone_and_reported() {
-        // Audit #3: the identity check before deleting the old file. The
-        // sidecar row is the witness — the reconcile is filename-keyed and
-        // never rehashes a retained row, so an install-time sha1 survives and
-        // really does detect a replacement.
+    async fn a_refused_rename_leaves_the_old_pack_disabled_and_alone() {
+        // Regression: step (c) used to strip the old name from level.dat before
+        // step (d) discovered it could not delete the old file. That left the
+        // old pack present-and-unlisted — which the three-case rule reads as
+        // ENABLED — so a pack the admin had switched OFF came back on, and both
+        // versions loaded at once.
         let td = booted_world_with("vm-1.0.zip", b"v1").await;
+        crate::servers_runtime::datapacks::mutate::set_enabled(td.path(), "vm-1.0.zip", false)
+            .await
+            .unwrap();
+        // The admin replaced the old file by hand: identity can no longer be proven.
         std::fs::write(
             td.path().join("datapacks").join("vm-1.0.zip"),
-            datapack_zip(b"the admin edited this"),
+            datapack_zip(b"hand edited"),
         )
         .unwrap();
 
-        let out = update_one(
+        let err = update_one(
             td.path(),
             "vm-1.0.zip",
             "vm-2.0.zip",
@@ -347,12 +375,69 @@ mod tests {
             &prov("v2"),
         )
         .await
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+
+        // The world must be exactly as it was.
+        assert_eq!(
+            state_of(td.path(), "vm-1.0.zip"),
+            Some(WorldPackState::Disabled),
+            "the admin's disabled pack must not have been re-enabled"
+        );
+        assert!(
+            !td.path().join("datapacks").join("vm-2.0.zip").exists(),
+            "nothing may be written when the update is refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hand_replaced_old_file_is_left_alone_and_reported() {
+        // Audit #3: the identity check before touching the old file. The
+        // sidecar row is the witness — the reconcile is filename-keyed and
+        // never rehashes a retained row, so an install-time sha1 survives and
+        // really does detect a replacement.
+        //
+        // This used to assert `Ok` with `old_removed: false, completed: false`
+        // — the identity check ran only right before the delete, by which
+        // point level.dat had already forgotten the old name. That pinned the
+        // exact bug `a_refused_rename_leaves_the_old_pack_disabled_and_alone`
+        // regression-tests: a present-and-unlisted old pack reads as ENABLED
+        // by the three-case rule, so the "reported" outcome was actually a
+        // silent re-enable plus a double-load. The check now runs before
+        // anything is written, so this is a hard refusal — updating this
+        // test to expect `Err` is closing the bug, not moving the goalposts
+        // to match it.
+        let td = booted_world_with("vm-1.0.zip", b"v1").await;
+        std::fs::write(
+            td.path().join("datapacks").join("vm-1.0.zip"),
+            datapack_zip(b"the admin edited this"),
+        )
         .unwrap();
 
-        assert!(!out.old_removed && !out.completed);
+        let err = update_one(
+            td.path(),
+            "vm-1.0.zip",
+            "vm-2.0.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
         assert!(
             td.path().join("datapacks").join("vm-1.0.zip").exists(),
             "a pack the admin replaced by hand must never be deleted"
+        );
+        assert!(
+            !td.path().join("datapacks").join("vm-2.0.zip").exists(),
+            "nothing may be written when the update is refused"
         );
     }
 
