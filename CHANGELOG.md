@@ -8,6 +8,12 @@ Development happens continuously on `main`. Versions between `0.1.0` and the fir
 published release were untagged feature milestones; the first packaged public
 release is **0.9.0**.
 
+Each section describes the difference from the previous release, not the
+sequence of commits that produced it. A defect introduced and fixed between two
+releases never reached anyone, so it does not belong under **Fixed** — where the
+behaviour is worth knowing, it is stated as a property of the feature under
+**Added** instead.
+
 ## [Unreleased]
 
 ## [0.22.0] — 2026-08-05
@@ -30,7 +36,13 @@ release is **0.9.0**.
   once applies to every instance with that mod in it. Applying requires
   Minecraft 1.13 or newer — on older versions a mod's own translations take
   priority over any resource pack, so an override there would have no effect.
-  The coverage report still works on those instances.
+  The coverage report still works on those instances, and it counts what you
+  wrote as well as what the mod ships.
+
+  If the game is already running when you apply, press F3+T to reload
+  resources — switching Minecraft's own language is not enough, because it
+  re-reads its language files without re-resolving which resource packs are
+  active. The success message says so.
 
 - **Let a model draft those translations for you.** Off until you switch it on
   in Settings and supply your own API key. Pick Anthropic, Gemini or Groq —
@@ -87,6 +99,8 @@ release is **0.9.0**.
   a time, and either place accepts a pack that is a folder rather than a
   `.zip`, or one that was put there outside the launcher.
 
+  Cloning an instance carries its datapack library along with it.
+
   Datapacks need Minecraft 1.13 or newer — below that the option isn't
   offered. Every datapack entry point is labelled **(Beta)**: the feature is
   new and touches your worlds, so it says so before anyone's world depends
@@ -117,6 +131,11 @@ release is **0.9.0**.
   that no longer exists. Datapacks are changed while the server is stopped,
   the same rule as its mods and plugins. Servers older than Minecraft 1.13
   don't offer it at all.
+
+  Building a client instance from a server brings that server's datapacks
+  across. They land in the new instance's datapack library keeping the
+  identity that lets Lucerna offer updates for them later, and you place them
+  into a world once you have one.
 
 - **One place that shows every long-running job.** Installing a game version,
   installing or updating mods, importing or updating a modpack, verifying an
@@ -166,26 +185,14 @@ release is **0.9.0**.
   code page might not be able to express — which is a class of launch
   failure, not a cosmetic issue. An instance's identity now comes from its
   directory, so you can rename the folder, and desktop shortcuts carry a
-  stable id that a rename does not break.
+  stable id that a rename does not break. A rename Windows refuses — almost
+  always an Explorer window sitting inside the folder — says that, instead of
+  echoing a raw "os error 5".
 
 ### Fixed
 
-- A resource pack could be installed as a datapack on an own-server, and a
-  datapack as a resource pack — both are now told apart by their top-level
-  folder rather than by `pack.mcmeta` alone.
 - World deletion, restore, backup and import are refused while the instance
   is running instead of racing the live game.
-- Cloning an instance now carries its datapack library along with it.
-- Building a client instance from your own server brings that server's
-  datapacks with it. They land in the new instance's datapack library, keeping
-  the identity that lets Lucerna offer updates for them later, and you place
-  them into a world once you have one.
-- The **Details** report after importing a modpack was empty — "0 files" — for
-  every pack of about thirty files or more, even though the import itself had
-  worked. The list is now taken from the finished operation rather than from a
-  progress message that could arrive after it, and shows every file with where
-  it came from and whether it was downloaded or reused. Updating a modpack
-  gets the same per-file report, which it never had.
 - Opening a server's **Add-ons** tab froze the whole window for a couple of
   seconds the first time. The scan that reads and hashes every jar in the
   server's `mods/` folder — 140 jars and 224 MB on a real server — was
@@ -213,26 +220,10 @@ release is **0.9.0**.
 - A desktop shortcut had no icon at all. The `.lnk` was pointed at a path
   that does not exist as a file; shortcuts now carry the instance's own
   picture, rendered at every size Explorer asks for.
-- Renaming an instance's folder while it is open in Explorer failed with a
-  raw "os error 5" naming a folder that did not exist yet. It now says the
-  folder is open in another program and names the right one — and the
-  selection follows the instance instead of the detail pane going blank on
-  success.
-- Applying translations while Minecraft is running left the game showing the
-  old text, and the obvious move — switching the game's language — is exactly
-  the one that does not work, because Minecraft re-reads its language files
-  without re-resolving resource packs. The success message now says to press
-  F3+T, and says outright that changing the language is not enough.
-- The translation coverage figure ignored the translations you wrote
-  yourself, so a mod you had fully translated still read 0%. Your overrides
-  now count. Applying no longer opens a file dialog it had no reason to open.
 - Every modpack card in the Russian interface showed "не число" where the
   download count belongs, and the partial-repair message read "1 файлов".
   Numbers are now handed to the dictionary as numbers, and the Russian
   message carries proper agreement for all four plural forms.
-- In the translation key list, two filters that could contradict each other
-  became one, and a row you were editing no longer vanishes out from under
-  you when a refresh decides it no longer matches.
 - The own-server tour's first step pointed at the wrong control: Start and
   Stop moved to the sidebar when servers became a mode, and the step was
   still spotlighting the panel header. It also promised a Beta marker that
