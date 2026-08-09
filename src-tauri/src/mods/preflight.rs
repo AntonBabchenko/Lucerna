@@ -240,7 +240,9 @@ fn descriptor_rank(
 /// "Strictly better", not "the single best": equal ranks are complementary
 /// rather than alternative (see the Forge-legacy arm above), and a
 /// keep-only-the-top rule would drop half of what a 1.12.2 jar declares.
-fn effective_rank(
+/// `pub(crate)` so `mods::mc_compat` shares this authority rather than
+/// reimplementing it.
+pub(crate) fn effective_rank(
     source: crate::mods::local::DescriptorSource,
     present: &[crate::mods::local::DescriptorSource],
     loader: crate::instances::schema::LoaderKind,
