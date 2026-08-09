@@ -1119,6 +1119,10 @@ mod tests {
                 provided,
                 deps,
                 sources_present,
+                // This fixture builder feeds compatibility tests, not the
+                // platform-lifting behaviour itself — no fixture here needs a
+                // `platform` declaration of its own.
+                platform: vec![],
             },
         }
     }

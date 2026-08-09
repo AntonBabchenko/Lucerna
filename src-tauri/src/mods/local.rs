@@ -123,6 +123,14 @@ pub struct ManifestDeps {
     /// lower-ranked descriptor. `McmodAnnotation` never appears — it is a class
     /// constant pool, not a file, and it is read by a separate pass.
     pub sources_present: Vec<DescriptorSource>,
+    /// The jar's PLATFORM declarations — `minecraft` and the loader ids —
+    /// lifted out of `deps` before the loader/mc filter below. They are not mod
+    /// dependencies (nothing "provides" Minecraft or Forge, so they must never
+    /// enter the dependency graph) but they ARE the jar's statement about what
+    /// it was built against. EVERY field is retained: `range` and `family` to
+    /// evaluate, `source` for `effective_rank`, and `kind` and `side` because
+    /// they decide whether the loader enforces the declaration at all.
+    pub platform: Vec<DeclaredDep>,
 }
 
 impl ManifestDeps {
@@ -386,6 +394,29 @@ const LOADER_DEP_IDS: &[&str] = &[
     "quilt_loader",
     "quilt",
 ];
+
+/// The subset of [`LOADER_DEP_IDS`] whose declared range an instance can
+/// actually be measured against. `fml` and `java` are deliberately absent:
+/// FML's version is the language-provider number rather than the loader
+/// version we store, and `java` would couple this to JRE resolution.
+/// `fabric` is absent because in `fabric.mod.json` that id means the Fabric
+/// API, not the loader. `quilt` is absent because `parse_quilt_manifest`
+/// never emits it: a `quilt.mod.json`'s `depends` entries name the loader
+/// `quilt_loader`, so bare `quilt` is not a dependency id this reader ever
+/// produces.
+const PLATFORM_DEP_IDS: &[&str] = &[
+    "minecraft",
+    "forge",
+    "neoforge",
+    "fabricloader",
+    "fabric-loader",
+    "quilt_loader",
+];
+
+fn is_platform_dep(id: &str) -> bool {
+    let low = id.trim().to_ascii_lowercase();
+    PLATFORM_DEP_IDS.contains(&low.as_str())
+}
 
 fn push_dep(out: &mut Vec<String>, id: String) {
     let trimmed = id.trim();
@@ -684,6 +715,16 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
         out.sources_present.push(DescriptorSource::McmodInfo);
         parse_mcmod_info_providers(&txt, &mut out);
     }
+    // Lift the platform declarations BEFORE the filter. The filter still runs
+    // and still removes them from `deps` — that invariant is what keeps a
+    // phantom "minecraft" node out of the dependency graph — but the
+    // declarations now survive on their own field for `mc_compat`.
+    out.platform = out
+        .deps
+        .iter()
+        .filter(|d| is_platform_dep(&d.dep_id))
+        .cloned()
+        .collect();
     out.deps.retain(|d| !is_loader_or_mc(&d.dep_id));
     Ok(out)
 }
@@ -1881,6 +1922,90 @@ modId=\"b\"
 
         let d = read_jar_manifest_deps(&jar(&[("META-INF/neoforge.mods.toml", broken)])).unwrap();
         assert_eq!(d.deps[0].source, DescriptorSource::NeoForgeToml);
+    }
+
+    #[test]
+    fn platform_declarations_are_lifted_out_of_deps() {
+        let toml = "modLoader=\"javafml\"\nloaderVersion=\"[61,)\"\n\
+                    [[mods]]\nmodId=\"biomesoplenty\"\n\
+                    [[dependencies.biomesoplenty]]\n\
+                    modId=\"forge\"\nmandatory=true\nversionRange=\"[61.0.2,)\"\nside=\"BOTH\"\n\
+                    [[dependencies.biomesoplenty]]\n\
+                    modId=\"terrablender\"\nmandatory=true\nversionRange=\"[21.11.0.0,)\"\nside=\"BOTH\"\n";
+        let jar = jar(&[("META-INF/mods.toml", toml)]);
+        let deps = read_jar_manifest_deps(&jar).expect("jar parses");
+
+        // The mod dependency survives on `deps`.
+        assert!(
+            deps.deps.iter().any(|d| d.dep_id == "terrablender"),
+            "a real mod dependency must stay in deps"
+        );
+        // The platform declaration is lifted, with every field intact.
+        let forge = deps
+            .platform
+            .iter()
+            .find(|d| d.dep_id == "forge")
+            .expect("the forge declaration must be lifted onto `platform`");
+        assert_eq!(forge.range, "[61.0.2,)");
+        assert_eq!(forge.kind, DependencyKind::Required);
+        assert_eq!(forge.side, DepSide::Both);
+        assert_eq!(forge.source, DescriptorSource::ModsToml);
+    }
+
+    #[test]
+    fn platform_ids_never_reach_the_dependency_graph() {
+        // The structural invariant the `retain` at the tail of `read_jar_manifest_deps`
+        // exists to protect. Its job is now split in two, so it needs a test: a
+        // comment is not a guard.
+        let toml = "modLoader=\"javafml\"\nloaderVersion=\"[61,)\"\n\
+                    [[mods]]\nmodId=\"m\"\n\
+                    [[dependencies.m]]\nmodId=\"minecraft\"\nmandatory=true\nversionRange=\"[1.21.11,1.21.12)\"\n\
+                    [[dependencies.m]]\nmodId=\"forge\"\nmandatory=true\nversionRange=\"[61.0.2,)\"\n\
+                    [[dependencies.m]]\nmodId=\"neoforge\"\nmandatory=true\nversionRange=\"[21,)\"\n\
+                    [[dependencies.m]]\nmodId=\"fabricloader\"\nmandatory=true\nversionRange=\"[0.15,)\"\n\
+                    [[dependencies.m]]\nmodId=\"quilt_loader\"\nmandatory=true\nversionRange=\"[0.20,)\"\n\
+                    [[dependencies.m]]\nmodId=\"java\"\nmandatory=true\nversionRange=\"[17,)\"\n\
+                    [[dependencies.m]]\nmodId=\"fml\"\nmandatory=true\nversionRange=\"[1,)\"\n";
+        let jar = jar(&[("META-INF/mods.toml", toml)]);
+        let deps = read_jar_manifest_deps(&jar).expect("jar parses");
+
+        for id in [
+            "minecraft",
+            "forge",
+            "neoforge",
+            "fabricloader",
+            "quilt_loader",
+            "java",
+            "fml",
+        ] {
+            assert!(
+                !deps.deps.iter().any(|d| d.dep_id.eq_ignore_ascii_case(id)),
+                "`{id}` must never appear in ManifestDeps::deps — it is not a mod"
+            );
+        }
+        // `java` and `fml` are dropped entirely, NOT lifted — see
+        // `PLATFORM_DEP_IDS`'s doc comment for why.
+        assert!(!deps.platform.iter().any(|d| d.dep_id == "java"));
+        assert!(!deps.platform.iter().any(|d| d.dep_id == "fml"));
+    }
+
+    #[test]
+    fn fabric_minecraft_dependency_is_lifted_with_its_predicate_family() {
+        let json = r#"{"id":"sodium","version":"0.5.3","depends":{"minecraft":">=1.20.1","fabric-api":">=0.90"}}"#;
+        let jar = jar(&[("fabric.mod.json", json)]);
+        let deps = read_jar_manifest_deps(&jar).expect("jar parses");
+
+        let mc = deps
+            .platform
+            .iter()
+            .find(|d| d.dep_id == "minecraft")
+            .expect("fabric minecraft dependency must be lifted");
+        assert_eq!(mc.range, ">=1.20.1");
+        assert_eq!(mc.family, RangeFamily::FabricPredicate);
+        assert_eq!(mc.source, DescriptorSource::FabricJson);
+        // `fabric-api` is the API, not the loader — it stays a real dependency.
+        assert!(deps.deps.iter().any(|d| d.dep_id == "fabric-api"));
+        assert!(!deps.platform.iter().any(|d| d.dep_id == "fabric-api"));
     }
 
     // ── regex fallback (only reached when a descriptor is not valid TOML) ──
