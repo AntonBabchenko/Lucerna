@@ -36,9 +36,11 @@ pub struct ModCompat {
 
 /// Offline (descriptor-only) compatibility result for one installed mod.
 /// Layer 1 of the proactive scan: derived purely from the jar's embedded
-/// descriptor, no network. Only loader-family mismatch is reported (see the
-/// design's decision 1 — MC-version mismatch is left to the live layer to
-/// avoid false positives on version-range declarations).
+/// descriptor, no network. Carries two independent verdicts: `loader_mismatch`
+/// (a SUSPECT — the live layer may clear it for a platform mod) and
+/// `platform_mismatch` (AUTHORITATIVE — read off the jar's own declared
+/// `minecraft`/loader ranges, see `mc_compat::platform_verdict`; nothing ever
+/// overrides it).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct ModLocalCompat {
     /// SHA-1 of the installed jar — the registry's primary key.
@@ -53,6 +55,15 @@ pub struct ModLocalCompat {
     /// auto-runs a live check on platform suspects; manual jars (false) rely on
     /// the offline `loader_mismatch` verdict.
     pub live_checkable: bool,
+    /// The jar declares a Minecraft or loader range this instance does not
+    /// provide. Unlike `loader_mismatch` this is AUTHORITATIVE — it is read
+    /// off the jar that will actually be launched, so no live confirmation
+    /// applies and a platform "compatible" answer must never clear it.
+    pub platform_mismatch: bool,
+    /// Which axis fired, for the row hint. `None` unless `platform_mismatch`.
+    pub platform_axis: Option<crate::mods::mc_compat::PlatformAxis>,
+    /// The range the jar declared, for the row hint.
+    pub platform_declared: Option<String>,
 }
 
 /// Classify a platform `.versions(...)` result for a target (mc, loader).

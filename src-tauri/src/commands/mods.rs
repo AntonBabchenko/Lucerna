@@ -1898,19 +1898,28 @@ pub async fn check_instance_mod_compat(
     Ok(out)
 }
 
-/// Offline loader-compatibility scan of an instance's installed mods
-/// (Layer 1). Network-free; reads each jar's descriptor. Returns one
-/// `ModLocalCompat` per registered mod.
+/// Offline loader-compatibility + platform scan of an instance's installed
+/// mods (Layer 1). Network-free; reads each jar's descriptor.
+///
+/// Takes only the instance id: the MC version, loader and loader version are
+/// read from the instance record here, not supplied by the caller. A frontend
+/// that can pass a stale or partial platform triple is a frontend that can
+/// make this scan answer about an instance that does not exist.
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_instance_mod_compat(
     app: tauri::AppHandle,
     id: String,
-    mc: String,
-    loader: crate::instances::schema::LoaderKind,
 ) -> crate::error::Result<Vec<crate::mods::compat::ModLocalCompat>> {
     let inst_root = instance_root(&app, &id)?;
-    crate::mods::local::scan_instance(&inst_root, loader, &mc).await
+    let inst = crate::instances::read_instance(&app, &id)?;
+    crate::mods::local::scan_instance(
+        &inst_root,
+        inst.loader,
+        &inst.mc_version,
+        inst.loader_version.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]

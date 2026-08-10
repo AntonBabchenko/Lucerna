@@ -106,7 +106,7 @@ export async function ensureCompatScan(
     entries = [];
   }
   const run = (async () => {
-    const r = await commands.scanInstanceModCompat(instanceId, mcVersion, loader);
+    const r = await commands.scanInstanceModCompat(instanceId);
     if (gen !== generation) return; // superseded by a newer scan
     if (r.status !== 'ok') return; // keep whatever we had
     key = next;

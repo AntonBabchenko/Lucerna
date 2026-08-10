@@ -1283,25 +1283,32 @@ pub fn compat_verdict(
     }
 }
 
-/// Offline loader-family compatibility scan of an instance's installed mods.
-/// Layer 1 of the proactive incompatibility check: judges EVERY mod —
-/// hand-dropped (`source = None`), platform-installed, and pack-bundled — by
-/// reading its descriptor and comparing loader families against the instance.
-/// Pack membership does not guarantee the right family (FCAP: a Forge pack
-/// shipped a pure-Fabric jar the loader silently ignores), so pack mods are
-/// judged too; they are not live-checkable (`eligible_identity` excludes
-/// them), which makes their descriptor verdict final — the same evidence
-/// standard as import-time inert-jar detection. For platform mods the offline
-/// verdict is only a SUSPECT pre-filter — the `live_checkable` flag tells the
-/// frontend to auto-run an authoritative live check on those. Network-free.
-/// A mod whose jar is missing/unreadable, or has no recognised descriptor,
-/// yields `loader_mismatch = false` (conservative — never a false alarm).
-/// `mc` is passed to `compat_verdict` (its signature needs it) but only the
-/// loader outputs are surfaced.
+/// Offline loader-family + platform compatibility scan of an instance's
+/// installed mods. Layer 1 of the proactive incompatibility check: judges
+/// EVERY mod — hand-dropped (`source = None`), platform-installed, and
+/// pack-bundled — by reading its descriptor and comparing loader families
+/// against the instance. Pack membership does not guarantee the right family
+/// (FCAP: a Forge pack shipped a pure-Fabric jar the loader silently
+/// ignores), so pack mods are judged too; they are not live-checkable
+/// (`eligible_identity` excludes them), which makes their descriptor verdict
+/// final — the same evidence standard as import-time inert-jar detection.
+/// For platform mods the offline verdict is only a SUSPECT pre-filter — the
+/// `live_checkable` flag tells the frontend to auto-run an authoritative live
+/// check on those. Network-free. A mod whose jar is missing/unreadable, or
+/// has no recognised descriptor, yields `loader_mismatch = false`
+/// (conservative — never a false alarm).
+///
+/// `platform_mismatch` is a SEPARATE, authoritative verdict from
+/// `loader_mismatch`: it is `mc_compat::platform_verdict` read off the jar
+/// that will actually launch, so — unlike `loader_mismatch` — no live check
+/// ever overrides it. `loader_version` is the instance's own; `None` (a real
+/// import can leave it unset) makes the platform axis go silent rather than
+/// guess, exactly like `platform_verdict` itself.
 pub async fn scan_instance(
     instance_root: &Path,
     instance_loader: LoaderKind,
     mc: &str,
+    loader_version: Option<&str>,
 ) -> Result<Vec<ModLocalCompat>, Error> {
     use crate::mods::updates::eligible_identity;
     let mods = installed::list(instance_root).await?;
@@ -1310,20 +1317,44 @@ pub async fn scan_instance(
     // Once for the whole scan, not per jar: on a Connector profile every Fabric
     // jar's verdict depends on this one fact.
     let connector = connector_installed(&dir, &mods).await;
+    let era = descriptor_era(mc);
     let mut out = Vec::with_capacity(mods.len());
     for m in &mods {
+        // Read the jar bytes ONCE, use them for both verdicts below.
+        let bytes = read_jar_for(&dir, &m.filename).await;
         // Judge loader-family for ALL mods, pack-bundled included — the
         // conservative verdict (descriptor-less / family-inclusive jars never
         // flag) is the false-positive guard, not pack membership.
-        let verdict = read_jar_for(&dir, &m.filename)
-            .await
-            .and_then(|bytes| read_jar_meta(&bytes).ok())
+        let verdict = bytes
+            .as_deref()
+            .and_then(|b| read_jar_meta(b).ok())
             .map(|meta| compat_verdict(&meta, instance_loader, mc, connector));
+        let platform = bytes
+            .as_deref()
+            .and_then(|b| read_jar_manifest_deps(b).ok())
+            .map(|man| {
+                crate::mods::mc_compat::platform_verdict(
+                    &man,
+                    mc,
+                    instance_loader,
+                    loader_version,
+                    era,
+                )
+            });
+        let (platform_mismatch, platform_axis, platform_declared) = match platform {
+            Some(crate::mods::mc_compat::PlatformVerdict::Violated { axis, declared, .. }) => {
+                (true, Some(axis), Some(declared))
+            }
+            _ => (false, None, None),
+        };
         out.push(ModLocalCompat {
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
             detected_loader: verdict.and_then(|v| v.detected_loader),
             live_checkable: eligible_identity(m, pack_origin.as_ref()).is_some(),
+            platform_mismatch,
+            platform_axis,
+            platform_declared,
         });
     }
     Ok(out)
@@ -2571,7 +2602,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2615,7 +2646,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -2644,7 +2675,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1")
+        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -2663,7 +2694,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("META-INF/mods.toml", b"modLoader=\"javafml\"")]);
         fs::write(dir.join("f.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2680,7 +2711,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("data/whatever.txt", b"not a mod")]);
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.21")
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2697,7 +2728,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Vanilla, "1.21")
+        let out = scan_instance(td.path(), LoaderKind::Vanilla, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2714,7 +2745,7 @@ modId=\"evilseagull\"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2738,7 +2769,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2763,7 +2794,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.4")
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2802,7 +2833,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         let m = out
@@ -2890,7 +2921,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("fcap.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "fcap.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -2913,7 +2944,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("ok.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "ok.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1")
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -2935,7 +2966,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "lib.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.1")
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -2944,6 +2975,72 @@ modId=\"evilseagull\"
             .unwrap();
         assert!(!m.loader_mismatch);
         assert!(m.detected_loader.is_none());
+    }
+
+    /// Real `mods.toml` shape for BiomesOPlenty: it declares only
+    /// `forge [61.0.2,)` — no `minecraft` block at all. On a 1.20.1 / Forge
+    /// 47.4.10 instance the loader axis is the only thing that can catch it,
+    /// and it must reach `ModLocalCompat` (see `platform_verdict_repro.rs`,
+    /// the acceptance gate this scan feeds).
+    fn biomesoplenty_mods_toml() -> Vec<u8> {
+        zip_with(&[(
+            "META-INF/mods.toml",
+            br#"modLoader="javafml"
+loaderVersion="[61,)"
+[[mods]]
+    modId="biomesoplenty"
+    version="21.11.0.32"
+
+[[dependencies.biomesoplenty]]
+    modId="forge"
+    mandatory=true
+    versionRange="[61.0.2,)"
+    ordering="NONE"
+    side="BOTH"
+"# as &[u8],
+        )])
+    }
+
+    #[tokio::test]
+    async fn scan_reports_the_platform_axis_for_a_jar_with_no_minecraft_block() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = biomesoplenty_mods_toml();
+        fs::write(dir.join("biomesoplenty.jar"), &bytes)
+            .await
+            .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", Some("47.4.10"))
+            .await
+            .expect("scan succeeds");
+        assert!(
+            out.iter().any(|c| c.platform_mismatch),
+            "the loader-axis verdict must reach ModLocalCompat, got {out:?}"
+        );
+    }
+
+    /// The conservative half of the same fixture: with no known loader
+    /// version the feature must go silent rather than guess.
+    #[tokio::test]
+    async fn scan_platform_mismatch_stays_false_without_a_loader_version() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = biomesoplenty_mods_toml();
+        fs::write(dir.join("biomesoplenty.jar"), &bytes)
+            .await
+            .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+            .await
+            .expect("scan succeeds");
+        assert!(
+            out.iter().all(|c| !c.platform_mismatch),
+            "no loader_version means the feature must stay silent, got {out:?}"
+        );
     }
 
     // ── install_local tests ────────────────────────────────────────────────
