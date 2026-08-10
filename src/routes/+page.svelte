@@ -1564,6 +1564,7 @@
           instanceName={activeInstance?.name ?? null}
           mcVersion={activeInstance?.mc_version ?? null}
           loader={activeInstance?.loader ?? null}
+          loaderVersion={activeInstance?.loader_version ?? null}
           onListChanged={() => {
             void refreshInstances();
           }}

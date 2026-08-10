@@ -1739,12 +1739,18 @@ pub async fn mods_update_one(
     .await
 }
 
-/// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-/// compatibility against the target instance.
+/// Inspect a local mod `.jar`: read its descriptor and judge loader-family and
+/// platform (Minecraft / loader-version range) compatibility against the
+/// target instance.
 ///
 /// Not write-free despite the name: the Connector probe below goes through
 /// `installed::list`, which reconciles the registry against the mods folder and
 /// persists when that changes. No *mod* file is touched.
+///
+/// Reads the instance's loader version off the record — same pattern as
+/// `scan_instance_mod_compat` / `instance_dependency_preflight` — since the
+/// platform axis needs it and a caller-supplied one could go stale or answer
+/// about an instance that no longer exists.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_inspect_local(
@@ -1761,15 +1767,20 @@ pub async fn mods_inspect_local(
                 path: jar_path.clone(),
                 details: format!("{} ({})", e, e.kind()),
             })?;
-    let meta = crate::mods::local::read_jar_meta(&bytes)?;
+    // `inspect_jar` itself is infallible (best-effort, like every other jar
+    // reader in this module) — surface a genuinely unreadable/non-jar file as
+    // an error up front, or it would silently fall through as "no mismatch
+    // detected" and let the user install garbage bytes.
+    crate::mods::local::read_jar_meta(&bytes)?;
     // The drop dialog must make the same judgement the Installed tab does: on a
     // Sinytra Connector profile, warning "this Fabric jar won't load" about a
     // jar Connector will happily remap is the same false alarm, one step earlier.
     let connector = crate::mods::local::instance_has_connector(&root).await;
-    Ok(crate::mods::local::compat_verdict(
-        &meta,
+    Ok(crate::mods::local::inspect_jar(
+        &bytes,
         inst.loader,
         &inst.mc_version,
+        inst.loader_version.as_deref(),
         connector,
     ))
 }

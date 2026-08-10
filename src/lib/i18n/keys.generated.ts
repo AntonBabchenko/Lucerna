@@ -1202,6 +1202,7 @@ export type TranslationKey =
   | 'mods.browse.mismatchDefault'
   | 'mods.browse.mismatchLoader'
   | 'mods.browse.mismatchMc'
+  | 'mods.browse.mismatchPlatformLoader'
   | 'mods.browse.noResults'
   | 'mods.browse.searchAriaLabel'
   | 'mods.browse.searchPlaceholder'

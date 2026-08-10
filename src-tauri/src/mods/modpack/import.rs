@@ -169,10 +169,16 @@ pub(crate) fn with_carried_notes(
 /// to `compat_verdict`; MC-version mismatch is deliberately ignored — it
 /// false-positives on bundled jars). A Vanilla instance has no loader family,
 /// so nothing is ever flagged.
+///
+/// `_instance_mc` is accepted but unused, kept for call-site stability: this
+/// function's own callers (2 command sites + import's internal call) already
+/// have it in hand, and it was never plumbed into `compat_verdict` for a
+/// reason distinct from that function's own MC parameter — the design here
+/// deliberately never judges MC version at all, not merely relocated it.
 pub(crate) fn classify_inert_loader_jars(
     mods_dir: &std::path::Path,
     instance_loader: crate::instances::schema::LoaderKind,
-    instance_mc: &str,
+    _instance_mc: &str,
 ) -> Vec<InertLoaderJar> {
     let Ok(entries) = std::fs::read_dir(mods_dir) else {
         return Vec::new();
@@ -200,8 +206,7 @@ pub(crate) fn classify_inert_loader_jars(
         let Ok(meta) = crate::mods::local::read_jar_meta(&bytes) else {
             continue;
         };
-        let verdict =
-            crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc, connector);
+        let verdict = crate::mods::local::compat_verdict(&meta, instance_loader, connector);
         if verdict.loader_mismatch {
             out.push(InertLoaderJar {
                 filename,
