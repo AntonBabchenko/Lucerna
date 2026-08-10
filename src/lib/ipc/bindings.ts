@@ -6572,7 +6572,16 @@ export type StrandedReason =
  *  The platform query itself failed (network, missing CurseForge key,
  *  project delisted / 404). Distinct from `NoBuildForTarget` on purpose.
  */
-{ kind: "query_failed" };
+{ kind: "query_failed" } | 
+/**
+ *  The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
+ *  but the instance runs an older Forge build), and the platform's build for
+ *  this MC + loader-kind is the SAME jar already installed — so no reinstall
+ *  can fix it. The remedy is raising the instance's loader build, which this
+ *  flow does not do. Surfaced as stranded (disable/remove/keep) instead of a
+ *  no-op "replaceable" reinstall that the post-apply rescan would re-flag.
+ */
+{ kind: "loader_too_old" };
 
 /**  A `Violated` mod with no replacement plan. Carries WHY. */
 export type StrandedRow = {

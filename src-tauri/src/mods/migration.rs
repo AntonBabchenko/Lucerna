@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mods::deps::ProjectKey;
-use crate::mods::mc_compat::PlatformVerdict;
+use crate::mods::mc_compat::{PlatformAxis, PlatformVerdict};
 use crate::mods::platform::{ModSource, ModVersion};
 
 // =========================================================================
@@ -65,6 +65,13 @@ pub enum StrandedReason {
     /// The platform query itself failed (network, missing CurseForge key,
     /// project delisted / 404). Distinct from `NoBuildForTarget` on purpose.
     QueryFailed,
+    /// The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
+    /// but the instance runs an older Forge build), and the platform's build for
+    /// this MC + loader-kind is the SAME jar already installed — so no reinstall
+    /// can fix it. The remedy is raising the instance's loader build, which this
+    /// flow does not do. Surfaced as stranded (disable/remove/keep) instead of a
+    /// no-op "replaceable" reinstall that the post-apply rescan would re-flag.
+    LoaderTooOld,
 }
 
 /// A `Violated` mod with no replacement plan. Carries WHY.
@@ -169,13 +176,34 @@ pub fn build_migration_plan(inputs: Vec<ModMigrationInput>) -> McMigrationPlan {
             // A check that did not run must not read as one that passed —
             // counted separately, never merged into `fits`.
             PlatformVerdict::Unknown => plan.unjudged += 1,
-            PlatformVerdict::Violated { .. } => {
+            PlatformVerdict::Violated { axis, .. } => {
                 let reason = match input.identity {
                     Err(Ineligible::PackOrigin) => Some(StrandedReason::PackOrigin),
                     Err(Ineligible::NoProject) => Some(StrandedReason::NoProjectToAsk),
                     Ok((source, project_id)) => match input.candidate {
                         Some(CandidateQuery::Found(versions)) => {
                             match versions.into_iter().next() {
+                                // A candidate whose file is byte-identical to the
+                                // installed jar is never a fix. The versions query
+                                // filters by MC + loader-KIND only (blind to loader
+                                // VERSION), so a loader-version violation gets back
+                                // the same build already on disk; reinstalling it
+                                // changes nothing and the post-apply rescan re-flags
+                                // it — the "press Fix forever" loop. Strand it with a
+                                // reason that names the real remedy (raise the loader
+                                // build) rather than offer a no-op reinstall. Guarding
+                                // on the file sha keeps the OTHER loader-axis direction
+                                // (instance loader too new, a genuinely newer build
+                                // exists) as a legitimate replacement.
+                                Some(target)
+                                    if target.primary_file.sha1.as_deref()
+                                        == Some(input.sha1.as_str()) =>
+                                {
+                                    Some(match axis {
+                                        PlatformAxis::Loader => StrandedReason::LoaderTooOld,
+                                        PlatformAxis::Minecraft => StrandedReason::NoBuildForTarget,
+                                    })
+                                }
                                 Some(target) => {
                                     plan.replaceable.push(ReplaceableRow {
                                         sha1: input.sha1.clone(),
@@ -482,11 +510,32 @@ mod tests {
         }
     }
 
+    fn version_with_sha(
+        source: ModSource,
+        project_id: &str,
+        version_id: &str,
+        sha: &str,
+    ) -> ModVersion {
+        let mut v = version(source, project_id, version_id);
+        v.primary_file.sha1 = Some(sha.into());
+        v
+    }
+
     fn violated() -> PlatformVerdict {
         PlatformVerdict::Violated {
             axis: PlatformAxis::Minecraft,
             declared: "[1.21,1.22)".into(),
             actual: "1.20.1".into(),
+            source: crate::mods::local::DescriptorSource::ModsToml,
+            family: crate::mods::version_range::RangeFamily::Maven,
+        }
+    }
+
+    fn violated_loader() -> PlatformVerdict {
+        PlatformVerdict::Violated {
+            axis: PlatformAxis::Loader,
+            declared: "[52,)".into(),
+            actual: "47".into(),
             source: crate::mods::local::DescriptorSource::ModsToml,
             family: crate::mods::version_range::RangeFamily::Maven,
         }
@@ -560,6 +609,51 @@ mod tests {
             plan.stranded[0].reason,
             StrandedReason::NoBuildForTarget
         ));
+    }
+
+    #[test]
+    fn loader_axis_violation_whose_only_build_is_the_installed_jar_is_stranded_not_replaceable() {
+        // Xaero's Minimap: declares forge >= 52, instance runs an older Forge.
+        // The MC + loader-KIND query returns the same build already installed
+        // (file sha "aa"), so a reinstall is a no-op that the post-apply rescan
+        // re-flags — the reported "press Fix forever" loop. Must be stranded
+        // (LoaderTooOld), never replaceable.
+        let target = version_with_sha(ModSource::Modrinth, "xaero", "26.4.2", "aa");
+        let plan = build_migration_plan(vec![input(
+            "aa", // installed jar sha == the candidate's file sha
+            "Xaero's Minimap",
+            violated_loader(),
+            Ok((ModSource::Modrinth, "xaero".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        assert!(
+            plan.replaceable.is_empty(),
+            "a same-file reinstall must never be offered as replaceable"
+        );
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::LoaderTooOld
+        ));
+    }
+
+    #[test]
+    fn loader_axis_violation_with_a_genuinely_different_build_stays_replaceable() {
+        // The other loader-axis direction: the instance loader is fine for a
+        // NEWER mod build that differs from what's installed (sha "bb" != "aa").
+        // That IS fixable by replacement, so it must stay replaceable — the
+        // same-file guard must not strand a real update.
+        let target = version_with_sha(ModSource::Modrinth, "mymod", "2.0", "bb");
+        let plan = build_migration_plan(vec![input(
+            "aa",
+            "My Mod",
+            violated_loader(),
+            Ok((ModSource::Modrinth, "mymod".to_string())),
+            Some(CandidateQuery::Found(vec![target.clone()])),
+        )]);
+        assert_eq!(plan.replaceable.len(), 1);
+        assert_eq!(plan.replaceable[0].target, target);
+        assert!(plan.stranded.is_empty());
     }
 
     #[test]

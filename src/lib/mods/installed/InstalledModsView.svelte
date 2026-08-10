@@ -519,6 +519,8 @@
     onChooseVersion={onPreflightChooseVersion}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}
+    onMigrate={() => (migrationDialogOpen = true)}
+    migrateCount={compat.incompatibleCount}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
   />
@@ -587,7 +589,6 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
-          onOpenMigration={() => (migrationDialogOpen = true)}
         />
       {/each}
     </div>

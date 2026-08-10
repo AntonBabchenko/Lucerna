@@ -952,7 +952,6 @@
     },
     "migration": {
       "openBtn": "Fix incompatible mods",
-      "rowFixBtn": "Fix",
       "title": "Migration plan",
       "loading": "Checking installed mods…",
       "retryBtn": "Try again",
@@ -974,10 +973,11 @@
         "noBuildForTarget": "No build has been published yet for this Minecraft version and loader.",
         "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
         "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
-        "queryFailed": "Couldn't check for a replacement — try again later."
+        "queryFailed": "Couldn't check for a replacement — try again later.",
+        "loaderTooOld": "This mod needs a newer loader build than the instance has. Reinstalling won't help — update the instance's loader, then re-check."
       },
       "applyBtn": "Apply",
-      "applyDisabledReason": "Choose disable, remove, or keep for {count, plural, one {# more mod} other {# more mods}} before applying",
+      "applyDisabledReason": "Select at least one change to apply",
       "resultSummary": "{succeeded} of {total} changes applied",
       "outcome": {
         "replaced": "Replaced",

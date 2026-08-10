@@ -253,3 +253,47 @@ describe('PreflightPanel', () => {
     expect(queryAllByRole('button')).toHaveLength(0);
   });
 });
+
+describe('PreflightPanel bulk migrate entry', () => {
+  it('renders a header migrate button and calls onMigrate when count > 0', async () => {
+    const onMigrate = vi.fn();
+    render(PreflightPanel, {
+      props: { report: reportWith(3), onUpdate: () => {}, onMigrate, migrateCount: 3 },
+    });
+    const btn = screen.getByTestId('preflight-migrate-btn');
+    expect(btn.textContent).toContain('Fix incompatible mods');
+    await fireEvent.click(btn);
+    expect(onMigrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the panel (header + button, no rows) when there are incompatibilities but no dep violations', () => {
+    // compat.incompatibleCount is authoritative and can be positive while the
+    // dependency-graph report is empty (a jar's MC range read off metadata, an
+    // MC dep declared as a recommendation). The bulk entry must still appear.
+    const onMigrate = vi.fn();
+    const { getByTestId, queryAllByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [] }, onUpdate: () => {}, onMigrate, migrateCount: 2 },
+    });
+    expect(getByTestId('preflight-panel')).toBeTruthy();
+    expect(getByTestId('preflight-migrate-btn')).toBeTruthy();
+    expect(queryAllByTestId('preflight-row')).toHaveLength(0);
+  });
+
+  it('renders nothing when there are no violations and no incompatibilities', () => {
+    const onMigrate = vi.fn();
+    const { queryByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [] }, onUpdate: () => {}, onMigrate, migrateCount: 0 },
+    });
+    expect(queryByTestId('preflight-panel')).toBeNull();
+    expect(queryByTestId('preflight-migrate-btn')).toBeNull();
+  });
+
+  it('shows no migrate button in launch-gate shape (no onMigrate) even with violations', () => {
+    // The launch gate reuses PreflightPanel without the migration props; its
+    // remediation is its own "Update & launch" batch, not the migration engine.
+    const { queryByTestId } = render(PreflightPanel, {
+      props: { report: reportWith(4), onUpdate: () => {}, showRowActions: false },
+    });
+    expect(queryByTestId('preflight-migrate-btn')).toBeNull();
+  });
+});
