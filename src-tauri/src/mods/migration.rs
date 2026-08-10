@@ -14,7 +14,7 @@
 
 use std::collections::HashSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mods::deps::ProjectKey;
@@ -251,6 +251,199 @@ pub fn fold_new_dependencies(
         }
     }
     out
+}
+
+// =========================================================================
+// Apply — settled user selections over an already-shown plan
+// =========================================================================
+
+/// Disposition the user chose for one [`StrandedRow`]. Deliberately carries
+/// no `Default` impl — the jar behind a stranded row is PROVEN incompatible
+/// (`Violated` verdict, no replacement plan), so there is no safe "the user
+/// didn't say" fallback the way an un-selected `replaceable` row has (leaving
+/// it installed is fine there — it is not proven broken by the plan itself,
+/// only unconfirmed). Every [`StrandedSelection`] carries this as a mandatory
+/// field (no `#[serde(default)]`), so an omitted `disposition` fails
+/// deserialization at the IPC boundary rather than silently landing on
+/// `Keep`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum StrandedDisposition {
+    Disable,
+    Remove,
+    Keep,
+}
+
+/// One `replaceable` row the user approved for replacement. Carries the
+/// EXACT `target` [`McMigrationPlan::replaceable`] showed — see
+/// [`McMigrationSelections`] for why apply never re-derives it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ReplaceSelection {
+    pub old_sha1: String,
+    pub target: ModVersion,
+}
+
+/// One `stranded` row's chosen disposition.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct StrandedSelection {
+    pub sha1: String,
+    pub disposition: StrandedDisposition,
+}
+
+/// The user's full set of decisions over one [`McMigrationPlan`], submitted
+/// to `mods_apply_mc_migration`.
+///
+/// Every field is self-contained: `replace` and `new_dependencies` carry the
+/// full [`ModVersion`] target the plan already resolved, rather than a row
+/// key the apply command would look back up. This is deliberate, not an
+/// oversight:
+///
+/// - The plan already did the network work for these targets —
+///   `ModPlatform::versions` per violated mod and `ModPlatform::resolve_deps`
+///   per replaceable target, both in `mods_plan_mc_migration`. Re-deriving
+///   that inside apply would repeat the work AND risk installing a build
+///   different from the one the user actually reviewed (a newer version
+///   could have been published in between) — breaking the very invariant
+///   this module's doc comment states: "every jar an apply would touch must
+///   appear in the plan before the user accepts anything".
+/// - It structurally forecloses the bug this task exists to fix.
+///   [`resolve_migration_selections`] never reads [`ModVersion::deps`] on any
+///   target — there is no step where a target's OWN declared dependencies
+///   (e.g. BiomesOPlenty mandatorily declaring `terrablender` +
+///   `glitchcore`) could be consulted to silently add installs. Every
+///   install this produces traces back to an explicit field the user (or
+///   `mods_plan_mc_migration`'s prior run) already decided on.
+///
+/// Full array-level completeness for `stranded` (every row the plan showed
+/// has a matching entry here) is intentionally NOT cross-checked against a
+/// plan at apply time, for the same reason: telling a `stranded` row apart
+/// from a `replaceable` one requires the platform query
+/// `mods_plan_mc_migration` already ran, and re-running it here would be
+/// exactly the "fresh resolution at apply time" this design avoids. What IS
+/// enforced: [`StrandedDisposition`] has no default, so any row that DOES
+/// appear in `stranded` carries an explicit choice — never a silently
+/// defaulted one. Presenting one control per stranded row and requiring a
+/// choice before enabling Apply is the UI's job.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct McMigrationSelections {
+    /// `replaceable` rows approved for replacement. A row NOT listed here is
+    /// left exactly as-is — its old, incompatible jar stays installed. That
+    /// is a legitimate choice ("fix this one later"), unlike a stranded
+    /// row's disposition, which has no safe default.
+    pub replace: Vec<ReplaceSelection>,
+    /// `new_dependencies` rows approved for install alongside whichever
+    /// replacement(s) need them.
+    pub new_dependencies: Vec<ModVersion>,
+    /// One entry per `stranded` row the user decided on.
+    pub stranded: Vec<StrandedSelection>,
+}
+
+/// One concrete step [`resolve_migration_selections`] derives from a settled
+/// [`McMigrationSelections`]. The apply command executes these one at a
+/// time — never as one atomic batch — so a single row's failure never
+/// withdraws a sibling row's already-applied change.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MigrationAction {
+    /// Remove `old_sha1`'s jar and install `target` in its place. No
+    /// dependency resolution: the plan already resolved and pruned what this
+    /// replacement needs; anything more is a `new_dependencies` row the user
+    /// separately accepted (or didn't).
+    Replace {
+        old_sha1: String,
+        target: ModVersion,
+    },
+    /// Install a genuinely new jar for a project the instance has none of
+    /// today (an accepted `new_dependencies` row).
+    InstallNewDependency { target: ModVersion },
+    /// Disable a stranded mod's jar in place (`.jar` → `.jar.disabled`).
+    DisableStranded { sha1: String },
+    /// Remove a stranded mod's jar and registry record outright.
+    RemoveStranded { sha1: String },
+    // `Keep` produces no action — see `resolve_migration_selections`.
+}
+
+/// Map a settled [`McMigrationSelections`] to the concrete steps the apply
+/// command must execute. Pure — no I/O, no dependency resolution — so it is
+/// unit-testable without an `AppHandle` or network.
+///
+/// Deliberately never reads `target.deps` on any [`ModVersion`] passed in:
+/// expanding a target's own declared dependencies into extra installs here
+/// would silently reintroduce the exact bug this module exists to fix (see
+/// `replace_never_pulls_in_a_kept_dependency_from_target_deps` below). Every
+/// action this schedules comes from a field the caller already decided on —
+/// `replace` and `new_dependencies` — never inferred from a target's own
+/// metadata.
+pub fn resolve_migration_selections(selections: &McMigrationSelections) -> Vec<MigrationAction> {
+    let mut actions = Vec::with_capacity(
+        selections.replace.len() + selections.new_dependencies.len() + selections.stranded.len(),
+    );
+    for r in &selections.replace {
+        actions.push(MigrationAction::Replace {
+            old_sha1: r.old_sha1.clone(),
+            target: r.target.clone(),
+        });
+    }
+    for dep in &selections.new_dependencies {
+        actions.push(MigrationAction::InstallNewDependency {
+            target: dep.clone(),
+        });
+    }
+    for s in &selections.stranded {
+        match s.disposition {
+            StrandedDisposition::Disable => actions.push(MigrationAction::DisableStranded {
+                sha1: s.sha1.clone(),
+            }),
+            StrandedDisposition::Remove => actions.push(MigrationAction::RemoveStranded {
+                sha1: s.sha1.clone(),
+            }),
+            // Explicit no-op: `Keep` means "leave the jar exactly as it is".
+            // No `_ =>` wildcard above — a future disposition variant must be
+            // handled here explicitly, not silently fall through to a no-op.
+            StrandedDisposition::Keep => {}
+        }
+    }
+    actions
+}
+
+// =========================================================================
+// Apply report
+// =========================================================================
+
+/// What happened when one [`MigrationAction`] was executed.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum McMigrationRowOutcome {
+    Replaced {
+        old_sha1: String,
+        name: String,
+        new_sha1: String,
+    },
+    InstalledDependency {
+        name: String,
+        sha1: String,
+    },
+    Disabled {
+        sha1: String,
+        name: String,
+    },
+    Removed {
+        sha1: String,
+        name: String,
+    },
+    /// The action failed. Every OTHER row's outcome in the same report is
+    /// unaffected — apply never withdraws a sibling row's already-applied
+    /// change because one row failed.
+    Failed {
+        name: String,
+        error: crate::error::Error,
+    },
+}
+
+/// Full result of one `mods_apply_mc_migration` call: what happened to every
+/// action the settled selection produced, success and failure both.
+#[derive(Debug, Clone, Serialize, Type, Default)]
+pub struct McMigrationReport {
+    pub outcomes: Vec<McMigrationRowOutcome>,
 }
 
 #[cfg(test)]
@@ -522,5 +715,178 @@ mod tests {
     #[test]
     fn no_requirements_yields_no_new_dependencies() {
         assert!(fold_new_dependencies(&[], &HashSet::new()).is_empty());
+    }
+
+    // -- resolve_migration_selections ---------------------------------------
+
+    #[test]
+    fn stranded_keep_disposition_produces_no_action() {
+        let selections = McMigrationSelections {
+            replace: vec![],
+            new_dependencies: vec![],
+            stranded: vec![StrandedSelection {
+                sha1: "s1".into(),
+                disposition: StrandedDisposition::Keep,
+            }],
+        };
+        assert!(resolve_migration_selections(&selections).is_empty());
+    }
+
+    #[test]
+    fn stranded_disable_and_remove_dispositions_map_to_their_actions() {
+        let selections = McMigrationSelections {
+            replace: vec![],
+            new_dependencies: vec![],
+            stranded: vec![
+                StrandedSelection {
+                    sha1: "disable-me".into(),
+                    disposition: StrandedDisposition::Disable,
+                },
+                StrandedSelection {
+                    sha1: "remove-me".into(),
+                    disposition: StrandedDisposition::Remove,
+                },
+                StrandedSelection {
+                    sha1: "keep-me".into(),
+                    disposition: StrandedDisposition::Keep,
+                },
+            ],
+        };
+        let actions = resolve_migration_selections(&selections);
+        assert_eq!(actions.len(), 2, "Keep must not produce a third action");
+        assert!(actions.contains(&MigrationAction::DisableStranded {
+            sha1: "disable-me".into()
+        }));
+        assert!(actions.contains(&MigrationAction::RemoveStranded {
+            sha1: "remove-me".into()
+        }));
+    }
+
+    #[test]
+    fn replace_selection_produces_a_replace_action() {
+        let target = version(ModSource::Modrinth, "bop", "v-1201");
+        let selections = McMigrationSelections {
+            replace: vec![ReplaceSelection {
+                old_sha1: "bop-old".into(),
+                target: target.clone(),
+            }],
+            new_dependencies: vec![],
+            stranded: vec![],
+        };
+        let actions = resolve_migration_selections(&selections);
+        assert_eq!(
+            actions,
+            vec![MigrationAction::Replace {
+                old_sha1: "bop-old".into(),
+                target,
+            }]
+        );
+    }
+
+    #[test]
+    fn new_dependency_selection_produces_an_install_action() {
+        let target = version(ModSource::Modrinth, "glitchcore", "g2");
+        let selections = McMigrationSelections {
+            replace: vec![],
+            new_dependencies: vec![target.clone()],
+            stranded: vec![],
+        };
+        let actions = resolve_migration_selections(&selections);
+        assert_eq!(
+            actions,
+            vec![MigrationAction::InstallNewDependency { target }]
+        );
+    }
+
+    /// THE LOAD-BEARING TEST. Reproduces the reported instance's shape:
+    /// BiomesOPlenty is a `replaceable` row the user approved, and its
+    /// chosen `target` — exactly like the real Modrinth listing — declares a
+    /// MANDATORY required dependency on `terrablender` in `ModVersion::deps`.
+    /// TerraBlender's own (separate) stranded row is explicitly set to
+    /// `Keep`, and no `new_dependencies` row for it was accepted.
+    ///
+    /// A per-row `mods_update_one` call would resolve BoP's declared deps
+    /// fresh and install `terrablender` regardless of the user's choice —
+    /// landing a second `terrablender` jar next to the one the user chose to
+    /// keep, which is the exact duplicate-modId FML abort this task exists
+    /// to prevent. The produced action set must contain ONLY the BoP
+    /// replacement — nothing that installs, mentions, or otherwise touches
+    /// terrablender.
+    #[test]
+    fn replace_never_pulls_in_a_kept_dependency_from_target_deps() {
+        use crate::mods::platform::{DepKind, DepProjectRef, ModDepLink};
+
+        let mut bop_target = version(ModSource::Modrinth, "bop", "v-1201");
+        bop_target.deps = vec![ModDepLink {
+            kind: DepKind::Required,
+            project_ref: DepProjectRef::Modrinth {
+                project_id: "terrablender".into(),
+                version_id: None,
+            },
+        }];
+
+        let selections = McMigrationSelections {
+            replace: vec![ReplaceSelection {
+                old_sha1: "bop-old".into(),
+                target: bop_target.clone(),
+            }],
+            new_dependencies: vec![], // nothing accepted for terrablender
+            stranded: vec![StrandedSelection {
+                sha1: "terrablender-old".into(),
+                disposition: StrandedDisposition::Keep,
+            }],
+        };
+
+        let actions = resolve_migration_selections(&selections);
+
+        assert_eq!(
+            actions,
+            vec![MigrationAction::Replace {
+                old_sha1: "bop-old".into(),
+                target: bop_target,
+            }],
+            "expected only the BoP replace action — no terrablender install"
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(
+                a,
+                MigrationAction::InstallNewDependency { target }
+                    if target.project_id == "terrablender"
+            )),
+            "terrablender must never be installed when its stranded row is Keep"
+        );
+    }
+
+    #[test]
+    fn empty_selections_produce_no_actions() {
+        assert!(resolve_migration_selections(&McMigrationSelections::default()).is_empty());
+    }
+
+    #[test]
+    fn per_mod_failure_is_representable_alongside_successes_in_the_report() {
+        // The report type must be able to say "this row succeeded, this row
+        // did not" within the SAME report — never an all-or-nothing shape.
+        let report = McMigrationReport {
+            outcomes: vec![
+                McMigrationRowOutcome::Replaced {
+                    old_sha1: "bop-old".into(),
+                    name: "Biomes O' Plenty".into(),
+                    new_sha1: "bop-new".into(),
+                },
+                McMigrationRowOutcome::Failed {
+                    name: "Glitchcore".into(),
+                    error: crate::error::Error::ModsSha1Unavailable,
+                },
+            ],
+        };
+        assert_eq!(report.outcomes.len(), 2);
+        assert!(matches!(
+            report.outcomes[0],
+            McMigrationRowOutcome::Replaced { .. }
+        ));
+        assert!(matches!(
+            report.outcomes[1],
+            McMigrationRowOutcome::Failed { .. }
+        ));
     }
 }
