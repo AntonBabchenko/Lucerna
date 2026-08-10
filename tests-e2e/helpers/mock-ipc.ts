@@ -174,6 +174,21 @@ export type MockState = {
   picked_directory?: string | null;
   /** plan_data_location_change result; null = command unused by the spec. */
   data_location_plan?: { kind: 'adopt' | 'migrate' | 'already_current'; path: string } | null;
+  /**
+   * `scan_instance_mod_compat` result — the shared offline compat scan
+   * (ModLocalCompat[]). An entry with `platform_mismatch: true` makes the
+   * Installed tab count that mod incompatible, which is what surfaces the
+   * "Fix incompatible mods" migration button. Defaults to empty.
+   */
+  compat_scan?: unknown[];
+  /**
+   * `mods_plan_mc_migration` result (McMigrationPlan). Defaults to an
+   * all-empty plan so the dialog mounts without throwing. Provide one with
+   * replaceable / new_dependencies / stranded rows to drive the migration UI.
+   */
+  migration_plan?: unknown;
+  /** `mods_apply_mc_migration` result (McMigrationReport). Defaults to no outcomes. */
+  migration_report?: unknown;
 };
 
 /**
@@ -265,6 +280,15 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         data_location: { effective: 'C:\\Default\\Data', configured: null, fell_back: false },
         picked_directory: null,
         data_location_plan: null,
+        compat_scan: [],
+        migration_plan: {
+          fits: [],
+          replaceable: [],
+          new_dependencies: [],
+          stranded: [],
+          unjudged: 0,
+        },
+        migration_report: { outcomes: [] },
       };
       const m = { ...defaults, ...s };
 
@@ -339,6 +363,14 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // Reflects installs recorded by mods_install_with_deps (defaults []).
         mods_list_installed: () => m.installed_mods,
         modpack_status: () => null,
+
+        // Mod-compatibility scan + MC-version migration. The scan feeds the
+        // Installed tab's incompatible count (and thus the "Fix incompatible
+        // mods" button); the plan/apply drive the migration dialog. Apply's
+        // args land in __mockIpcCalls so a spec can assert the settled payload.
+        scan_instance_mod_compat: () => m.compat_scan,
+        mods_plan_mc_migration: () => m.migration_plan,
+        mods_apply_mc_migration: () => m.migration_report,
 
         // Mod browser — search + dependency-free fast-path install. Lets an e2e
         // drive the "find a mod → install it → card shows Installed" core flow.

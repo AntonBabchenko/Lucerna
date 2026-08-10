@@ -377,7 +377,19 @@
                   data-testid={`migration-stranded-row-${row.sha1}`}
                 >
                   <div class="text-sm text-primary">{row.name}</div>
-                  <p class="mb-1.5 text-xs text-muted">{$t(reasonKey(row.reason))}</p>
+                  <p class="mb-1.5 text-xs text-muted">
+                    {#if row.reason.kind === 'loader_too_old' && row.reason.built_for_mc}
+                      <!-- A loader-version violation is almost always the jar being
+                           built for a different Minecraft version (the loader is
+                           bumped every MC version). Name the version it declares,
+                           instead of promising a loader update that does not exist. -->
+                      {$t('mods.migration.reason.loaderTooOldFor', {
+                        mc: row.reason.built_for_mc,
+                      })}
+                    {:else}
+                      {$t(reasonKey(row.reason))}
+                    {/if}
+                  </p>
                   <ToggleChipGroup
                     options={dispositionOptions(row)}
                     value={dispositions.get(row.sha1) ?? ''}

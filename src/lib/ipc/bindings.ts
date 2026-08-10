@@ -6577,11 +6577,21 @@ export type StrandedReason =
  *  The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
  *  but the instance runs an older Forge build), and the platform's build for
  *  this MC + loader-kind is the SAME jar already installed — so no reinstall
- *  can fix it. The remedy is raising the instance's loader build, which this
- *  flow does not do. Surfaced as stranded (disable/remove/keep) instead of a
- *  no-op "replaceable" reinstall that the post-apply rescan would re-flag.
+ *  can fix it. A Forge/NeoForge version is bumped every Minecraft version, so
+ *  this is almost always the jar being built for a DIFFERENT Minecraft
+ *  version than the instance runs (its loader is already the newest for its
+ *  MC). The real remedy is changing the instance's Minecraft version, not
+ *  "updating the loader" — surfaced as stranded (disable/remove/keep) with
+ *  the version the jar declares it was built for, when known, so the UI can
+ *  name it instead of promising a loader bump that does not exist.
  */
-{ kind: "loader_too_old" };
+{ kind: "loader_too_old"; 
+/**
+ *  The Minecraft version the jar's descriptor declares it targets
+ *  (its `minecraft` dependency), verbatim, or `None` when it declares
+ *  none. Purely for the message — never re-evaluated.
+ */
+built_for_mc: string | null };
 
 /**  A `Violated` mod with no replacement plan. Carries WHY. */
 export type StrandedRow = {

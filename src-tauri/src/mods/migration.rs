@@ -68,10 +68,19 @@ pub enum StrandedReason {
     /// The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
     /// but the instance runs an older Forge build), and the platform's build for
     /// this MC + loader-kind is the SAME jar already installed — so no reinstall
-    /// can fix it. The remedy is raising the instance's loader build, which this
-    /// flow does not do. Surfaced as stranded (disable/remove/keep) instead of a
-    /// no-op "replaceable" reinstall that the post-apply rescan would re-flag.
-    LoaderTooOld,
+    /// can fix it. A Forge/NeoForge version is bumped every Minecraft version, so
+    /// this is almost always the jar being built for a DIFFERENT Minecraft
+    /// version than the instance runs (its loader is already the newest for its
+    /// MC). The real remedy is changing the instance's Minecraft version, not
+    /// "updating the loader" — surfaced as stranded (disable/remove/keep) with
+    /// the version the jar declares it was built for, when known, so the UI can
+    /// name it instead of promising a loader bump that does not exist.
+    LoaderTooOld {
+        /// The Minecraft version the jar's descriptor declares it targets
+        /// (its `minecraft` dependency), verbatim, or `None` when it declares
+        /// none. Purely for the message — never re-evaluated.
+        built_for_mc: Option<String>,
+    },
 }
 
 /// A `Violated` mod with no replacement plan. Carries WHY.
@@ -162,6 +171,11 @@ pub struct ModMigrationInput {
     /// `Some` only when `verdict` is `Violated` and `identity` is `Ok` — the
     /// command already asked the platform. `None` otherwise (never asked).
     pub candidate: Option<CandidateQuery>,
+    /// The Minecraft version the jar's descriptor declares it targets (its
+    /// `minecraft` dependency range, verbatim), or `None`. Carried only so a
+    /// loader-axis `LoaderTooOld` row can name what the jar was built for; never
+    /// re-evaluated for bucketing.
+    pub declared_mc: Option<String>,
 }
 
 /// Bucket already-computed per-mod inputs into a plan. Pure — no I/O.
@@ -200,7 +214,9 @@ pub fn build_migration_plan(inputs: Vec<ModMigrationInput>) -> McMigrationPlan {
                                         == Some(input.sha1.as_str()) =>
                                 {
                                     Some(match axis {
-                                        PlatformAxis::Loader => StrandedReason::LoaderTooOld,
+                                        PlatformAxis::Loader => StrandedReason::LoaderTooOld {
+                                            built_for_mc: input.declared_mc.clone(),
+                                        },
                                         PlatformAxis::Minecraft => StrandedReason::NoBuildForTarget,
                                     })
                                 }
@@ -554,6 +570,7 @@ mod tests {
             verdict,
             identity,
             candidate,
+            declared_mc: None,
         }
     }
 
@@ -619,21 +636,26 @@ mod tests {
         // re-flags — the reported "press Fix forever" loop. Must be stranded
         // (LoaderTooOld), never replaceable.
         let target = version_with_sha(ModSource::Modrinth, "xaero", "26.4.2", "aa");
-        let plan = build_migration_plan(vec![input(
-            "aa", // installed jar sha == the candidate's file sha
-            "Xaero's Minimap",
-            violated_loader(),
-            Ok((ModSource::Modrinth, "xaero".to_string())),
-            Some(CandidateQuery::Found(vec![target])),
-        )]);
+        let plan = build_migration_plan(vec![ModMigrationInput {
+            sha1: "aa".into(), // installed jar sha == the candidate's file sha
+            name: "Xaero's Minimap".into(),
+            verdict: violated_loader(),
+            identity: Ok((ModSource::Modrinth, "xaero".to_string())),
+            candidate: Some(CandidateQuery::Found(vec![target])),
+            declared_mc: Some("1.21.1".into()),
+        }]);
         assert!(
             plan.replaceable.is_empty(),
             "a same-file reinstall must never be offered as replaceable"
         );
         assert_eq!(plan.stranded.len(), 1);
+        // Stranded as LoaderTooOld, carrying the version the jar was built for so
+        // the UI can say "built for 1.21.1" instead of promising a loader bump.
         assert!(matches!(
             plan.stranded[0].reason,
-            StrandedReason::LoaderTooOld
+            StrandedReason::LoaderTooOld {
+                built_for_mc: Some(ref mc)
+            } if mc == "1.21.1"
         ));
     }
 

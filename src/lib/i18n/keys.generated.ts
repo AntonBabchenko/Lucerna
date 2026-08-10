@@ -1398,6 +1398,7 @@ export type TranslationKey =
   | 'mods.migration.outcome.removed'
   | 'mods.migration.outcome.replaced'
   | 'mods.migration.reason.loaderTooOld'
+  | 'mods.migration.reason.loaderTooOldFor'
   | 'mods.migration.reason.noBuildForTarget'
   | 'mods.migration.reason.noProjectToAsk'
   | 'mods.migration.reason.packOrigin'

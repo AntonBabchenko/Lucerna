@@ -974,7 +974,8 @@
         "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
         "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
         "queryFailed": "Couldn't check for a replacement — try again later.",
-        "loaderTooOld": "This mod needs a newer loader build than the instance has. Reinstalling won't help — update the instance's loader, then re-check."
+        "loaderTooOld": "This mod is built for a different Minecraft version than this instance runs — its loader is already the newest one for your version. Reinstalling won't help; change the instance's Minecraft version to match, or remove the mod.",
+        "loaderTooOldFor": "Built for Minecraft {mc}. This instance runs a different version, and its loader is already the newest one available for it — reinstalling won't help. Change the instance's Minecraft version to match, or remove the mod."
       },
       "applyBtn": "Apply",
       "applyDisabledReason": "Select at least one change to apply",

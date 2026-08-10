@@ -1999,12 +1999,14 @@ pub async fn mods_plan_mc_migration(
     let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
     for m in &installed {
         let bytes = read_installed_jar_bytes(&dir, &m.filename).await;
-        let verdict = bytes
+        let manifest = bytes
             .as_deref()
-            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok())
+            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok());
+        let verdict = manifest
+            .as_ref()
             .map(|man| {
                 crate::mods::mc_compat::platform_verdict(
-                    &man,
+                    man,
                     &mc,
                     loader,
                     loader_version.as_deref(),
@@ -2012,6 +2014,15 @@ pub async fn mods_plan_mc_migration(
                 )
             })
             .unwrap_or(PlatformVerdict::Unknown);
+        // The version the jar itself declares it was built for — its `minecraft`
+        // platform declaration, verbatim. Only for a loader-axis `LoaderTooOld`
+        // message ("built for 1.21.1"); never re-evaluated for bucketing.
+        let declared_mc = manifest.as_ref().and_then(|man| {
+            man.platform
+                .iter()
+                .find(|d| d.dep_id == "minecraft")
+                .map(|d| d.range.clone())
+        });
         let identity = if is_pack_origin_mod(m, pack_origin.as_ref()) {
             Err(Ineligible::PackOrigin)
         } else {
@@ -2023,6 +2034,7 @@ pub async fn mods_plan_mc_migration(
             verdict,
             identity,
             candidate: None,
+            declared_mc,
         });
     }
 
