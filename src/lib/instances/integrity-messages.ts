@@ -65,9 +65,10 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
  * `offlineMismatchCount` uses — one verdict, not two.
  *
  * There is no "unknown" bucket here the way there was for live platform
- * queries: the offline scan is unconditional, every installed mod gets a
- * definite mismatch/fine verdict, so `compatWarningWithUnknown` has no
- * caller left once this replaces `compatSummary`.
+ * queries: the offline scan is unconditional, so every installed mod gets a
+ * definite mismatch/fine verdict. The old `instance.integrity.compatWarningWithUnknown`
+ * string lost its only caller when this replaced `compatSummary`, and was
+ * removed from both locales rather than left orphaned.
  */
 export function compatSummaryFromScan(entries: ModLocalCompat[], total: number): string | null {
   if (entries.length === 0) return null;

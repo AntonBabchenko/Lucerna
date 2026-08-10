@@ -388,7 +388,6 @@ export type TranslationKey =
   | 'instance.integrity.catProfileJson'
   | 'instance.integrity.checkedAt'
   | 'instance.integrity.compatWarning'
-  | 'instance.integrity.compatWarningWithUnknown'
   | 'instance.integrity.countOk'
   | 'instance.integrity.countProblems'
   | 'instance.integrity.heading'
