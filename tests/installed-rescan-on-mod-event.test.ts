@@ -93,7 +93,7 @@ describe('a mod-set change forces a compatibility rescan', () => {
       timeout: 3000,
     });
     // Same key both times — which is exactly why the second call needs `force`.
-    expect(mocks.scanInstanceModCompat).toHaveBeenNthCalledWith(2, 'i', '1.21.1', 'neoforge');
+    expect(mocks.scanInstanceModCompat).toHaveBeenNthCalledWith(2, 'i');
   });
 
   it('rescans after modToggle', async () => {

@@ -23,6 +23,9 @@ const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLoca
   loader_mismatch: mismatch,
   detected_loader: mismatch ? 'Fabric' : null,
   live_checkable: liveCheckable,
+  platform_mismatch: false,
+  platform_axis: null,
+  platform_declared: null,
 });
 
 const ok = (data: ModLocalCompat[]) => ({ status: 'ok' as const, data });

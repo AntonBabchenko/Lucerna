@@ -729,11 +729,15 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	checkInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModCompat[], Error>(__TAURI_INVOKE("check_instance_mod_compat", { id, mc, loader })),
 	/**
-	 *  Offline loader-compatibility scan of an instance's installed mods
-	 *  (Layer 1). Network-free; reads each jar's descriptor. Returns one
-	 *  `ModLocalCompat` per registered mod.
+	 *  Offline loader-compatibility + platform scan of an instance's installed
+	 *  mods (Layer 1). Network-free; reads each jar's descriptor.
+	 * 
+	 *  Takes only the instance id: the MC version, loader and loader version are
+	 *  read from the instance record here, not supplied by the caller. A frontend
+	 *  that can pass a stale or partial platform triple is a frontend that can
+	 *  make this scan answer about an instance that does not exist.
 	 */
-	scanInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModLocalCompat[], Error>(__TAURI_INVOKE("scan_instance_mod_compat", { id, mc, loader })),
+	scanInstanceModCompat: (id: string) => typedError<ModLocalCompat[], Error>(__TAURI_INVOKE("scan_instance_mod_compat", { id })),
 	/**
 	 *  The instance's modpack origin reduced to chip data: the pack name
 	 *  and the SHA-1s of its bundled `mods/` files. `None` for an instance
@@ -801,12 +805,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
-	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-	 *  compatibility against the target instance.
+	 *  Inspect a local mod `.jar`: read its descriptor and judge loader-family and
+	 *  platform (Minecraft / loader-version range) compatibility against the
+	 *  target instance.
 	 * 
 	 *  Not write-free despite the name: the Connector probe below goes through
 	 *  `installed::list`, which reconciles the registry against the mods folder and
 	 *  persists when that changes. No *mod* file is touched.
+	 * 
+	 *  Reads the instance's loader version off the record — same pattern as
+	 *  `scan_instance_mod_compat` / `instance_dependency_preflight` — since the
+	 *  platform axis needs it and a caller-supplied one could go stale or answer
+	 *  about an instance that no longer exists.
 	 */
 	modsInspectLocal: (instanceId: string, jarPath: string) => typedError<CompatVerdict, Error>(__TAURI_INVOKE("mods_inspect_local", { instanceId, jarPath })),
 	/**
@@ -2477,7 +2487,8 @@ export type CloneProgress = {
 
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
- *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
+ *  Crosses the IPC boundary. A jar is "compatible" iff neither
+ *  `loader_mismatch` nor `platform_mismatch` is set.
  */
 export type CompatVerdict = {
 	/**
@@ -2485,14 +2496,26 @@ export type CompatVerdict = {
 	 *  or `None` when the jar has no recognised descriptor.
 	 */
 	detected_loader: string | null,
-	/**  `major.minor` Minecraft version detected in the jar, or `None`. */
-	detected_mc: string | null,
 	/**  The mod's display name from the jar, or `None`. */
 	detected_name: string | null,
-	/**  The jar's loader family is the opposite of the instance's. */
+	/**
+	 *  The jar's loader FAMILY differs from the instance's (a Fabric jar on
+	 *  Forge). Unrelated to the platform axes below.
+	 */
 	loader_mismatch: boolean,
-	/**  The jar's declared MC `major.minor` differs from the instance's. */
-	mc_mismatch: boolean,
+	/**
+	 *  The jar declares a Minecraft or loader version range this instance does
+	 *  not provide.
+	 */
+	platform_mismatch: boolean,
+	/**  Which axis fired. `None` unless `platform_mismatch`. */
+	platform_axis: PlatformAxis | null,
+	/**
+	 *  The declared range, verbatim — this is what the UI interpolates. It
+	 *  replaces the old `detected_mc`, which was `None` for every modern Forge
+	 *  jar because `read_jar_meta` does not parse `mods.toml` content.
+	 */
+	platform_declared: string | null,
 };
 
 export type Confidence = "high" | "medium";
@@ -4246,9 +4269,11 @@ export type ModInstalled = {
 /**
  *  Offline (descriptor-only) compatibility result for one installed mod.
  *  Layer 1 of the proactive scan: derived purely from the jar's embedded
- *  descriptor, no network. Only loader-family mismatch is reported (see the
- *  design's decision 1 — MC-version mismatch is left to the live layer to
- *  avoid false positives on version-range declarations).
+ *  descriptor, no network. Carries two independent verdicts: `loader_mismatch`
+ *  (a SUSPECT — the live layer may clear it for a platform mod) and
+ *  `platform_mismatch` (AUTHORITATIVE — read off the jar's own declared
+ *  `minecraft`/loader ranges, see `mc_compat::platform_verdict`; nothing ever
+ *  overrides it).
  */
 export type ModLocalCompat = {
 	/**  SHA-1 of the installed jar — the registry's primary key. */
@@ -4267,6 +4292,17 @@ export type ModLocalCompat = {
 	 *  the offline `loader_mismatch` verdict.
 	 */
 	live_checkable: boolean,
+	/**
+	 *  The jar declares a Minecraft or loader range this instance does not
+	 *  provide. Unlike `loader_mismatch` this is AUTHORITATIVE — it is read
+	 *  off the jar that will actually be launched, so no live confirmation
+	 *  applies and a platform "compatible" answer must never clear it.
+	 */
+	platform_mismatch: boolean,
+	/**  Which axis fired, for the row hint. `None` unless `platform_mismatch`. */
+	platform_axis: PlatformAxis | null,
+	/**  The range the jar declared, for the row hint. */
+	platform_declared: string | null,
 };
 
 export type ModProject = {
@@ -5134,6 +5170,13 @@ export type PlannedDep_Serialize = {
 	version: ModVersion_Serialize,
 	selection_reason: SelectionReason,
 };
+
+/**
+ *  Which half of the platform a verdict is about. Two unit variants, no
+ *  payload — crosses IPC directly (a later task puts `Option<PlatformAxis>`
+ *  on `ModLocalCompat`).
+ */
+export type PlatformAxis = "minecraft" | "loader";
 
 export type PlaytimeStats = {
 	/**
@@ -6341,7 +6384,12 @@ export type ViolationKind =
  *  A mod declares itself incompatible with the installed version of
  *  another mod. The range is inverted: it names the versions that clash.
  */
-"incompatible_installed";
+"incompatible_installed" | 
+/**
+ *  The jar was built for a Minecraft or loader version this instance does
+ *  not provide.
+ */
+"platform_mismatch";
 
 export type VtCatalogue = {
 	versionName?: string,

@@ -32,9 +32,10 @@ vi.mock('$lib/ipc/bindings', () => ({
       status: 'ok',
       data: {
         loader_mismatch: false,
-        mc_mismatch: false,
+        platform_mismatch: false,
+        platform_axis: null,
+        platform_declared: null,
         detected_loader: null,
-        detected_mc: null,
       },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({

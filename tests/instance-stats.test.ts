@@ -81,7 +81,7 @@ describe('createInstanceStats', () => {
       });
       const s = createInstanceStats();
       await s.refreshIncompatible('i1', [forgeInstance('i1')]);
-      expect(scanInstanceModCompat).toHaveBeenCalledWith('i1', '1.20.1', 'forge');
+      expect(scanInstanceModCompat).toHaveBeenCalledWith('i1');
       expect(s.incompatibleCount).toBe(2);
     });
 
@@ -94,7 +94,7 @@ describe('createInstanceStats', () => {
       scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [compat(false, false)] });
       const s = createInstanceStats();
       await s.refreshIncompatible('i1', [vanillaInstance('i1')]);
-      expect(scanInstanceModCompat).toHaveBeenCalledWith('i1', '1.20.1', 'vanilla');
+      expect(scanInstanceModCompat).toHaveBeenCalledWith('i1');
       expect(s.incompatibleCount).toBe(0);
     });
 
