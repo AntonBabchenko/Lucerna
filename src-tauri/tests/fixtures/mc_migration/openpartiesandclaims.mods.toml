@@ -1,0 +1,40 @@
+modLoader="javafml" #mandatory
+loaderVersion="[61,)" #mandatory
+license="GNU Lesser General Public License v3.0 (LGPL-3.0-only)"
+issueTrackerURL="https://github.com/thexaero/open-parties-and-claims/issues" #optional
+
+[[mods]] #mandatory
+modId="openpartiesandclaims" #mandatory
+version="0.29.3" #mandatory
+displayName="Open Parties and Claims" #mandatory
+#updateJSONURL="https://change.me.example.invalid/updates.json" #optional
+displayURL="https://www.curseforge.com/minecraft/mc-mods/open-parties-and-claims" #optional
+logoFile="openpartiesandclaims.png" #optional
+# credits="Thanks for this example mod goes to Java" #optional
+authors="Xaero96 and other contributors" #optional
+# mandatory
+description="This mod adds the ability to claim and to forceload world chunks, as well as create and manage player parties. It also gives server owners powerful controls over their players' usage of the mod's features.\nThe mod's API allows other mods or plugins to easily interact with the parties and the chunk claims, both on the server and the client side.\nXaero's Minimap mod and World Map mods are recommended in order to fully experience everything that this mod has to offer."
+[[dependencies.openpartiesandclaims]]
+    modId="forge" #mandatory
+    mandatory=true #mandatory
+    versionRange="[61.0.8,)" #mandatory
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.openpartiesandclaims]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="(1.21.10, 26.1.0)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.openpartiesandclaims]]
+    modId="create"
+    mandatory=false
+    versionRange="[6.0.0,)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.openpartiesandclaims]]
+    modId="forgeconfigapiport"
+    mandatory=true
+    versionRange="[21.11.1,)"
+    ordering="NONE"
+    side="BOTH"

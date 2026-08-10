@@ -1,0 +1,43 @@
+modLoader = "javafml" #mandatory
+loaderVersion = "[61,62)" #mandatory This is typically bumped every Minecraft version by Forge. See https://files.minecraftforge.net/ for a list of versions.
+license = "All Rights Reserved" # Review your options at https://choosealicense.com/.
+issueTrackerURL = "https://www.curseforge.com/minecraft/mc-mods/xaeros-minimap/issues"
+[[mods]] #mandatory
+modId = "xaerominimap" #mandatory
+version = "26.4.2" #mandatory
+displayName = "Xaero's Minimap" #mandatory
+#updateJSONURL="https://change.me.example.invalid/updates.json" #optional (see https://mcforge.readthedocs.io/en/latest/gettingstarted/autoupdate/)
+#displayURL="https://change.me.to.your.mods.homepage.example.invalid/" #optional (displayed in the mod UI)
+credits = "" #optional
+authors = "xaero96" #optional
+description = '''The most vanilla-looking minimap for Minecraft.''' #mandatory (Supports multiline text)
+[[dependencies.xaerominimap]] #optional
+modId = "forge" #mandatory
+mandatory = true #mandatory
+versionRange = "[61.0.8,62)" #mandatory
+ordering = "NONE" # The order that this dependency should load in relation to your mod, required to be either 'BEFORE' or 'AFTER' if the dependency is not mandatory
+side = "BOTH" # Side this dependency is applied on - 'BOTH', 'CLIENT' or 'SERVER'
+[[dependencies.xaerominimap]]
+modId = "minecraft"
+mandatory = true
+versionRange = "(1.21.10, 26.1.0)"
+ordering = "NONE"
+side = "BOTH"
+[[dependencies.xaerominimap]]
+modId = "openpartiesandclaims"
+mandatory = false
+versionRange = "[0.27.0,)"
+ordering = "NONE"
+side = "BOTH"
+[[dependencies.xaerominimap]]
+modId = "xaeroworldmap"
+mandatory = false
+versionRange = "[1.44.0,)"
+ordering = "NONE"
+side = "BOTH"
+[[dependencies.xaerobetterpvp]]
+modId = "xaerolib"
+mandatory = true
+versionRange = "[1.0,)"
+ordering = "NONE"
+side = "BOTH"

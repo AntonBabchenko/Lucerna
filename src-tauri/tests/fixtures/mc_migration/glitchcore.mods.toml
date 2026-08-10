@@ -1,0 +1,20 @@
+modLoader="javafml"
+license="All Rights Reserved"
+loaderVersion="[61,)"
+issueTrackerURL="https://github.com/Glitchfiend/GlitchCore/issues"
+displayURL="https://www.curseforge.com/minecraft/mc-mods/glitchcore"
+logoFile="glitchcore_logo.png"
+
+[[mods]]
+    modId="glitchcore"
+    version="21.11.0.4"
+    displayName="GlitchCore"
+	authors="Adubbz"
+    description="A library mod aimed at abstracting mod loaders and providing various utilities for our mods."
+
+[[dependencies.glitchcore]]
+    modId="forge"
+    mandatory=true
+    versionRange="[61.0.2,)"
+    ordering="NONE"
+    side="BOTH"
