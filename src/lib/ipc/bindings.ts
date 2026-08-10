@@ -2039,6 +2039,48 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  ticked.
 	 */
 	l10nOverriddenNamespaces: (lang: string) => typedError<string[], Error>(__TAURI_INVOKE("l10n_overridden_namespaces", { lang })),
+	/**
+	 *  Append one UI error report to `lucerna.log`.
+	 * 
+	 *  Infallible by design: `diag!` swallows its own I/O errors by contract, and
+	 *  the caller fires and forgets, so there is nothing a `Result` could usefully
+	 *  carry.
+	 * 
+	 *  `async` with the write inside `spawn_blocking`: a sync Tauri command runs
+	 *  on the main thread, and `diag::_write` takes a `Mutex` and flushes. Same
+	 *  shape `structural_no_sync_reconcile.rs` documents for every other blocking
+	 *  command body.
+	 */
+	logUiError: (level: UiErrorLevel, signature: string, tag: string, message: string, stack: string | null) => __TAURI_INVOKE<void>("log_ui_error", { level, signature, tag, message, stack }),
+	/**
+	 *  Open the launcher's own log directory (`<app_data>/logs/`).
+	 * 
+	 *  Deliberately NOT routed through [`open_log_folder`]: that command validates
+	 *  its path against `all_instance_log_roots`, which is built by iterating the
+	 *  instance list and is therefore EMPTY on an install with no instances — the
+	 *  exact state a user hitting a startup crash is most likely to be in. This
+	 *  takes no path at all, so there is nothing to validate and nothing to escape.
+	 */
+	openLauncherLogFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_launcher_log_folder")),
+	/**
+	 *  True when a restart would drop the running-process registry. The crash
+	 *  screen renders its "can't restart right now" reason from this rather than
+	 *  attempting the action and showing a failure.
+	 * 
+	 *  Deliberately its own command instead of letting the UI derive the state:
+	 *  the frontend's `running_instances` covers CLIENTS only, while
+	 *  [`any_game_running`] also folds in `server_list().running`. Re-deriving it
+	 *  there would produce a button that stays enabled while a server runs.
+	 */
+	restartBlocked: () => __TAURI_INVOKE<boolean>("restart_blocked"),
+	/**
+	 *  Restart the launcher process. Refuses while a game or server is live, for
+	 *  the same reason `set_data_location` does — the restart tears down the
+	 *  process registry and the launcher would stop tracking the live game.
+	 * 
+	 *  On success this never returns: `app.restart()` ends the process.
+	 */
+	restartLauncher: () => typedError<null, Error>(__TAURI_INVOKE("restart_launcher")),
 };
 
 /** Events */
@@ -6132,6 +6174,13 @@ export type TaskReport = {
 };
 
 export type ThemePreference = "system" | "light" | "dark";
+
+/**
+ *  Severity of a UI report. A closed enum rather than a `String` so an
+ *  unrecognised level is a compile-time non-issue instead of a runtime
+ *  validation question — same shape as `ModsAuthKind` in `error.rs`.
+ */
+export type UiErrorLevel = "error" | "warn";
 
 export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path" | 
 /**
