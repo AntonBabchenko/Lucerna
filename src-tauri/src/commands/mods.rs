@@ -1933,6 +1933,201 @@ pub async fn scan_instance_mod_compat(
     .await
 }
 
+/// Read a mod jar's bytes by base filename, trying the `.disabled` variant
+/// too. Returns `None` if neither exists or the read fails.
+///
+/// Duplicates `mods::local::read_jar_for`'s two-path lookup rather than
+/// reusing it: that helper is a private fn of `local.rs`, and this module's
+/// mandate (Task 10) is scoped to `updates.rs` / `migration.rs` /
+/// `commands/mods.rs` / `lib.rs` — not `local.rs`.
+async fn read_installed_jar_bytes(mods_dir: &std::path::Path, filename: &str) -> Option<Vec<u8>> {
+    if let Ok(b) = tokio::fs::read(mods_dir.join(filename)).await {
+        return Some(b);
+    }
+    tokio::fs::read(mods_dir.join(format!("{filename}.disabled")))
+        .await
+        .ok()
+}
+
+/// Plan a Minecraft-version-change mod migration for `instance_id`: for every
+/// installed mod, judge its jar against the instance's CURRENT platform
+/// (`mc_compat::platform_verdict`, computed fresh here — not read off
+/// `scan_instance`, whose `ModLocalCompat.platform_mismatch` bool already
+/// collapses `Fits` and `Unknown` into the same `false`, which is exactly the
+/// distinction design decision #4 needs to keep). Violated mods with a
+/// [`replaceable_identity`](crate::mods::updates::replaceable_identity) are
+/// asked, bounded-concurrency, for a build at the instance's current MC +
+/// loader; each replaceable target's declared required deps are then asked
+/// for too (same shape again), so anything a later apply would ALSO need to
+/// pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
+/// is visible in the plan before anything is installed. Never applies
+/// anything: this command only reads and queries.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_plan_mc_migration(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::migration::McMigrationPlan> {
+    use crate::mods::deps::ProjectKey;
+    use crate::mods::mc_compat::PlatformVerdict;
+    use crate::mods::migration::{
+        build_migration_plan, fold_new_dependencies, CandidateQuery, Ineligible, ModMigrationInput,
+        TargetRequirement,
+    };
+    use crate::mods::updates::{is_pack_origin_mod, replaceable_identity};
+    use futures_util::stream::{self, StreamExt};
+
+    // Same bound as `check_instance_mod_compat` / `mods_check_updates` —
+    // dozens of simultaneous requests intermittently trip per-IP rate limits.
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+
+    let mc = inst.mc_version.clone();
+    let loader = inst.loader;
+    let loader_version = inst.loader_version.clone();
+    let era = crate::mods::local::descriptor_era(&mc);
+    let dir = crate::mods::installed::mods_dir(&inst_root);
+
+    // 1. Offline per-mod verdict + identity. No network — mirrors what
+    //    `local::scan_instance` does internally to read each jar's platform
+    //    declarations, but keeps the full three-way `PlatformVerdict` instead
+    //    of collapsing it to a bool.
+    let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
+    for m in &installed {
+        let bytes = read_installed_jar_bytes(&dir, &m.filename).await;
+        let verdict = bytes
+            .as_deref()
+            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok())
+            .map(|man| {
+                crate::mods::mc_compat::platform_verdict(
+                    &man,
+                    &mc,
+                    loader,
+                    loader_version.as_deref(),
+                    era,
+                )
+            })
+            .unwrap_or(PlatformVerdict::Unknown);
+        let identity = if is_pack_origin_mod(m, pack_origin.as_ref()) {
+            Err(Ineligible::PackOrigin)
+        } else {
+            replaceable_identity(m, pack_origin.as_ref()).ok_or(Ineligible::NoProject)
+        };
+        inputs.push(ModMigrationInput {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            verdict,
+            identity,
+            candidate: None,
+        });
+    }
+
+    // 2. Bounded-concurrency platform poll: for every VIOLATED mod with an
+    //    identity, ask the platform for builds at the instance's CURRENT
+    //    mc + loader. Same shape as `check_instance_mod_compat`.
+    let queries: Vec<(usize, ModSource, String)> = inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, inp)| match (&inp.verdict, &inp.identity) {
+            (PlatformVerdict::Violated { .. }, Ok((source, project_id))) => {
+                Some((i, *source, project_id.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let results: Vec<(usize, CandidateQuery)> = stream::iter(queries)
+        .map(|(i, source, project_id)| {
+            let mc = mc.clone();
+            async move {
+                let query = match platform_for(source)
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                {
+                    Ok(versions) => CandidateQuery::Found(versions),
+                    Err(_) => CandidateQuery::Failed,
+                };
+                (i, query)
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    for (i, q) in results {
+        inputs[i].candidate = Some(q);
+    }
+
+    // 3. Pure bucketing: fits / replaceable / stranded / unjudged.
+    let mut plan = build_migration_plan(inputs);
+
+    // 4. Replacement closure: for every replaceable row's chosen target,
+    //    resolve its declared required deps ONCE (the same
+    //    `ModPlatform::resolve_deps` call `mods_update_one` itself makes —
+    //    but here only to SHOW what it would pull in, never to install
+    //    anything). A failed resolution degrades to "no extra deps found for
+    //    this target" rather than failing the whole plan — this is a
+    //    best-effort enrichment on top of an already-useful plan, not a
+    //    field the caller can act on by itself.
+    let dep_queries: Vec<(usize, ModVersion)> = plan
+        .replaceable
+        .iter()
+        .enumerate()
+        .map(|(i, row)| (i, row.target.clone()))
+        .collect();
+    let dep_results: Vec<(usize, Vec<ModVersion>)> = stream::iter(dep_queries)
+        .map(|(i, target)| {
+            let mc = mc.clone();
+            async move {
+                let required = match platform_for(target.source)
+                    .resolve_deps(&target, &mc, loader)
+                    .await
+                {
+                    Ok(resolved) => resolved.required.into_iter().map(|r| r.version).collect(),
+                    Err(_) => Vec::new(),
+                };
+                (i, required)
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    let mut required_by_row: Vec<Vec<ModVersion>> = vec![Vec::new(); plan.replaceable.len()];
+    for (i, required) in dep_results {
+        required_by_row[i] = required;
+    }
+    let requirements: Vec<TargetRequirement> = plan
+        .replaceable
+        .iter()
+        .zip(required_by_row)
+        .map(|(row, required)| TargetRequirement {
+            row_name: row.name.clone(),
+            required,
+        })
+        .collect();
+
+    // 5. What the instance already has a jar for, regardless of fit — the
+    //    "post-migration mod set already contains this" test. Mirrors the
+    //    `installed: HashSet<ProjectKey>` construction `mods_install_with_deps`
+    //    / `mods_resolve_install_plan` already use for the same purpose.
+    let already_installed: std::collections::HashSet<ProjectKey> = installed
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
+    plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
+
+    Ok(plan)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_find_orphans(

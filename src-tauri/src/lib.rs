@@ -188,6 +188,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::asset_update_one,
             commands::check_instance_mod_compat,
             commands::scan_instance_mod_compat,
+            commands::mods_plan_mc_migration,
             commands::mods_pack_origin_summary,
             commands::mods_enrich_pack_mods,
             commands::mods_update_one,
