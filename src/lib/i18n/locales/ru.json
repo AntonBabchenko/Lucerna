@@ -842,6 +842,8 @@
       "checkingCompat": "Проверка…",
       "incompatHintLoader": "Этот мод для {detected}; профиль использует {loader}",
       "incompatHintNoRelease": "Нет релиза под {loader} {mc} — отключите или удалите",
+      "incompatHintPlatformMc": "Этот мод требует Minecraft {declared}; профиль использует {mc}",
+      "incompatHintPlatformLoader": "Этот мод требует версию загрузчика {declared}; профиль использует {loaderVersion}",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
       "empty": "В этом профиле пока нет установленных модов.",

@@ -842,6 +842,8 @@
       "checkingCompat": "Checking…",
       "incompatHintLoader": "This mod is for {detected}; the instance uses {loader}",
       "incompatHintNoRelease": "No release for {loader} {mc} — disable or remove it",
+      "incompatHintPlatformMc": "This mod needs Minecraft {declared}; this profile runs {mc}",
+      "incompatHintPlatformLoader": "This mod needs loader version {declared}; this profile runs {loaderVersion}",
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",

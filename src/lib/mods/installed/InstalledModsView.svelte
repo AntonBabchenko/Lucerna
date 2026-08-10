@@ -52,6 +52,7 @@
     instanceId,
     mcVersion,
     loader,
+    loaderVersion = null,
     requestedFilter = null,
     onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
@@ -59,6 +60,10 @@
     instanceId: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // Needed to interpolate a platform-loader-axis mismatch hint ("needs loader
+    // version X, this profile runs Y"); optional because callers that never hit
+    // that hint (tests, other embeddings) should not have to supply it.
+    loaderVersion?: string | null;
     // A status view asked for by a deep-link (Overview → "N incompatible
     // mods"). Applied once, then cleared by the parent so an in-tab click is
     // never hijacked afterwards.
@@ -261,6 +266,16 @@
       return get(t)('mods.installed.incompatHintLoader', {
         detected: h.detected,
         loader: loader ? displayLoader(loader) : '',
+      });
+    if (h.key === 'platformMc')
+      return get(t)('mods.installed.incompatHintPlatformMc', {
+        declared: h.declared,
+        mc: mcVersion ?? '',
+      });
+    if (h.key === 'platformLoader')
+      return get(t)('mods.installed.incompatHintPlatformLoader', {
+        declared: h.declared,
+        loaderVersion: loaderVersion ?? '',
       });
     return get(t)('mods.installed.incompatHintNoRelease', {
       loader: loader ? displayLoader(loader) : '',

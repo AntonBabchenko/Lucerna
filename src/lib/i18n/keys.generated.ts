@@ -1340,6 +1340,8 @@ export type TranslationKey =
   | 'mods.installed.fromModpack'
   | 'mods.installed.incompatHintLoader'
   | 'mods.installed.incompatHintNoRelease'
+  | 'mods.installed.incompatHintPlatformLoader'
+  | 'mods.installed.incompatHintPlatformMc'
   | 'mods.installed.installDepFailed'
   | 'mods.installed.loading'
   | 'mods.installed.manualMod'

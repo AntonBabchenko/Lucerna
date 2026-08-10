@@ -22,7 +22,35 @@ function lc(
   live_checkable: boolean,
   detected_loader: string | null = null,
 ) {
-  return { sha1: sha, loader_mismatch, live_checkable, detected_loader };
+  return {
+    sha1: sha,
+    loader_mismatch,
+    live_checkable,
+    detected_loader,
+    platform_mismatch: false,
+    platform_axis: null,
+    platform_declared: null,
+  };
+}
+
+// A jar whose declared MC/loader range this instance does not provide — read
+// off the file itself, independent of the loader-FAMILY axis and of
+// `live_checkable`.
+function platformMismatch(
+  sha: string,
+  axis: 'minecraft' | 'loader',
+  declared: string,
+  opts: { loader_mismatch?: boolean; live_checkable?: boolean } = {},
+) {
+  return {
+    sha1: sha,
+    loader_mismatch: opts.loader_mismatch ?? false,
+    live_checkable: opts.live_checkable ?? true,
+    detected_loader: null,
+    platform_mismatch: true,
+    platform_axis: axis,
+    platform_declared: declared,
+  };
 }
 function row(sha: string, source: ModSource | null, project_id: string | null) {
   return { installed: { sha1: sha, source, project_id } };
@@ -137,6 +165,72 @@ describe('createCompatCheck two-stage pipeline', () => {
     releaseA({ status: 'ok', data: [] }); // A would resolve to "incompatible"...
     await runA; // ...but A is stale → its write is dropped by the generation guard
     expect(c.incompatibleCount).toBe(0);
+    c.dispose();
+  });
+
+  it('counts a platform mismatch even when the loader family is fine', async () => {
+    // BiomesOPlenty on a downgraded instance: right family, wrong loader version.
+    scanMock.mockResolvedValue({
+      status: 'ok',
+      data: [platformMismatch('bop', 'loader', '[61.0.2,)')],
+    });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21.1',
+      () => 'neoforge',
+      () => [row('bop', 'modrinth', 'bop')],
+    );
+    await c.runOfflineScan();
+    expect(c.incompatibleCount).toBe(1);
+    expect([...c.incompatibleShas]).toEqual(['bop']);
+    c.dispose();
+  });
+
+  it('a live compatible verdict does not clear a platform mismatch', async () => {
+    // The original defect: every one of the six projects publishes a build for
+    // the target MC, so the live check answered "compatible" and the launcher
+    // said nothing. The file on disk is still wrong.
+    scanMock.mockResolvedValue({
+      status: 'ok',
+      data: [platformMismatch('bad-file', 'minecraft', '(1.21.10, 26.1.0)')],
+    });
+    liveMock.mockResolvedValue({
+      status: 'ok',
+      data: [{ sha1: 'bad-file', status: { status: 'compatible' } }],
+    });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21.11',
+      () => 'neoforge',
+      () => [row('bad-file', 'modrinth', 'px')],
+    );
+    await c.runOfflineScan();
+    await c.runLiveCheck();
+    expect([...c.incompatibleShas]).toContain('bad-file');
+    c.dispose();
+  });
+
+  it('a platform mismatch is counted regardless of live_checkable', async () => {
+    // The !live_checkable guard belongs to the loader-FAMILY axis only.
+    scanMock.mockResolvedValue({
+      status: 'ok',
+      data: [
+        platformMismatch('checkable', 'minecraft', '(1.21.10, 26.1.0)', {
+          live_checkable: true,
+        }),
+        platformMismatch('not-checkable', 'minecraft', '(1.21.10, 26.1.0)', {
+          live_checkable: false,
+        }),
+      ],
+    });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21.11',
+      () => 'neoforge',
+      () => [row('checkable', 'modrinth', 'px'), row('not-checkable', 'modrinth', 'py')],
+    );
+    await c.runOfflineScan();
+    expect([...c.incompatibleShas].sort()).toEqual(['checkable', 'not-checkable']);
     c.dispose();
   });
 });
