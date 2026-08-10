@@ -36,6 +36,7 @@
     violationKey,
   } from '$lib/mods/preflight.svelte';
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
+  import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
@@ -327,6 +328,11 @@
     detail = { source, projectId };
   }
 
+  // MigrationPlanDialog: instance-wide, opened from any violated row's "Fix"
+  // button. Not scoped to the row that opened it — the plan judges every
+  // installed mod at once.
+  let migrationDialogOpen = $state(false);
+
   // Cumulative changelog for a pending mod update. The row exposes the button
   // only when an update is available from a supported source; this builds the
   // (installed → target) request from the update-check result.
@@ -581,6 +587,7 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
+          onOpenMigration={() => (migrationDialogOpen = true)}
         />
       {/each}
     </div>
@@ -646,6 +653,23 @@
       {instanceId}
       onClose={() => (findAltViolation = null)}
       onInstalled={onPreflightAltInstalled}
+    />
+  {/if}
+
+  {#if migrationDialogOpen && instanceId}
+    <MigrationPlanDialog
+      {instanceId}
+      onClose={() => (migrationDialogOpen = false)}
+      onApplied={() => {
+        // Same refresh set the explicit uninstall/toggle handlers already
+        // trigger — belt-and-suspenders alongside the mod-installed /
+        // mod-uninstalled / mod-toggle events the apply command re-emits per
+        // action (see the debounced event listeners below).
+        void data.refresh();
+        deps.reloadGraph();
+        preflight.invalidate();
+        void compat.runOfflineScan({ force: true });
+      }}
     />
   {/if}
 

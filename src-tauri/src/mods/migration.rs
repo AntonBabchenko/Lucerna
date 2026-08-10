@@ -110,7 +110,11 @@ pub struct McMigrationPlan {
     pub stranded: Vec<StrandedRow>,
     /// Verdict was `Unknown` — surfaced in the summary, never folded into
     /// `fits`. A check that did not run must not read as a check that passed.
-    pub unjudged: usize,
+    /// `u32` not `usize`: specta forbids exporting BigInt-style types to TS
+    /// (see the same rule applied to every other count field in this
+    /// codebase — `usize`/`u64` counters are cast down, byte sizes go to
+    /// `f64`); a bounded per-instance mod count never approaches `u32::MAX`.
+    pub unjudged: u32,
 }
 
 // =========================================================================

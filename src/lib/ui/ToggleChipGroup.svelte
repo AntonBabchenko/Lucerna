@@ -57,7 +57,7 @@
       type="button"
       role="radio"
       aria-checked={active}
-      tabindex={active ? 0 : -1}
+      tabindex={active || (i === 0 && !options.some((o) => o.value === value)) ? 0 : -1}
       data-testid={option.testId}
       class={toggleChipClass(active, option.tone)}
       onclick={() => onChange(option.value)}

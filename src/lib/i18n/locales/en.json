@@ -950,6 +950,44 @@
       "updateTip": "Updates to the newest version that satisfies this dependency and fits this instance's Minecraft and loader.",
       "chooseVersionTip": "Pick a specific version by hand.",
       "findAlternativeTip": "Search for a replacement mod when no version fits."
+    },
+    "migration": {
+      "openBtn": "Fix incompatible mods",
+      "rowFixBtn": "Fix",
+      "title": "Migration plan",
+      "loading": "Checking installed mods…",
+      "retryBtn": "Try again",
+      "summary": "{fits} mods already fit this configuration · {replaceable} can be re-fetched · {stranded} are stranded",
+      "unjudgedLine": "{count, plural, one {# mod} other {# mods}} couldn't be checked — not counted as fitting",
+      "nothingToDo": "Every installed mod already fits this configuration — nothing to migrate.",
+      "replaceableHeading": "Can be re-fetched ({count})",
+      "replaceableTarget": "New build: {version}",
+      "newDependenciesHeading": "New dependencies needed ({count})",
+      "neededBy": "Needed by {names}",
+      "strandedHeading": "Needs your decision ({count})",
+      "dispositionAriaLabel": "What to do with {name}",
+      "disposition": {
+        "disable": "Disable",
+        "remove": "Remove",
+        "keep": "Keep"
+      },
+      "reason": {
+        "noBuildForTarget": "No build has been published yet for this Minecraft version and loader.",
+        "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
+        "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
+        "queryFailed": "Couldn't check for a replacement — try again later."
+      },
+      "applyBtn": "Apply",
+      "applyDisabledReason": "Choose disable, remove, or keep for {count, plural, one {# more mod} other {# more mods}} before applying",
+      "resultSummary": "{succeeded} of {total} changes applied",
+      "outcome": {
+        "replaced": "Replaced",
+        "installedDependency": "Installed",
+        "disabled": "Disabled",
+        "removed": "Removed",
+        "failedBadge": "Failed"
+      },
+      "doneBtn": "Done"
     }
   },
   "addons": {
