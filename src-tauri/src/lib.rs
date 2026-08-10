@@ -402,6 +402,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::l10n_inspect_bundle,
             commands::l10n_import_bundle,
             commands::l10n_overridden_namespaces,
+            // UI error reporting + the crash screen's actions:
+            commands::log_ui_error,
+            commands::open_launcher_log_folder,
+            commands::restart_blocked,
+            commands::restart_launcher,
         ])
         .events(collect_events![
             network::DownloadProgress,

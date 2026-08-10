@@ -541,6 +541,34 @@ fn run_migration(
     Ok(copied)
 }
 
+/// True when a restart would drop the running-process registry. The crash
+/// screen renders its "can't restart right now" reason from this rather than
+/// attempting the action and showing a failure.
+///
+/// Deliberately its own command instead of letting the UI derive the state:
+/// the frontend's `running_instances` covers CLIENTS only, while
+/// [`any_game_running`] also folds in `server_list().running`. Re-deriving it
+/// there would produce a button that stays enabled while a server runs.
+#[tauri::command]
+#[specta::specta]
+pub async fn restart_blocked(app: AppHandle) -> bool {
+    any_game_running(&app)
+}
+
+/// Restart the launcher process. Refuses while a game or server is live, for
+/// the same reason `set_data_location` does — the restart tears down the
+/// process registry and the launcher would stop tracking the live game.
+///
+/// On success this never returns: `app.restart()` ends the process.
+#[tauri::command]
+#[specta::specta]
+pub async fn restart_launcher(app: AppHandle) -> Result<()> {
+    if any_game_running(&app) {
+        return Err(Error::DataLocationBusy);
+    }
+    app.restart();
+}
+
 #[cfg(test)]
 mod tests {
     use super::classify_adopt;

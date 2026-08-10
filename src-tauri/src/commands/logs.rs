@@ -649,6 +649,28 @@ pub async fn open_log_folder(
     Ok(())
 }
 
+/// Open the launcher's own log directory (`<app_data>/logs/`).
+///
+/// Deliberately NOT routed through [`open_log_folder`]: that command validates
+/// its path against `all_instance_log_roots`, which is built by iterating the
+/// instance list and is therefore EMPTY on an install with no instances — the
+/// exact state a user hitting a startup crash is most likely to be in. This
+/// takes no path at all, so there is nothing to validate and nothing to escape.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_launcher_log_folder(app: tauri::AppHandle) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::paths::app_logs_dir(&app)
+        .map_err(|e| crate::error::Error::io("<app_logs>", e.to_string()))?;
+    // The directory may not exist yet if nothing has been logged.
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), e.to_string()))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
 /// Delete a single log file. `path` must be under some instance's
 /// allowed log roots — anything else is rejected with `Error::Io`. Unlike
 /// auto-retention, this WILL delete `latest.log` / `debug.log` if the user
