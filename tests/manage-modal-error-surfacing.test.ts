@@ -15,7 +15,7 @@ const m = vi.hoisted(() => ({
     .fn()
     .mockResolvedValue({ status: 'ok', data: [{ version: '0.30.0', stable: true }] }),
   listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-  checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+  scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   instanceMemoryBounds: vi.fn().mockResolvedValue({
     min_mb: 1024,
     max_mb: 8192,
@@ -156,14 +156,24 @@ describe('ManageInstancesModal — error surfacing', () => {
   });
 
   it('shows the compat summary in a polite (role=status) region after a loader change', async () => {
-    // A loader switch runs the compat check twice — LoaderPicker fires `onchange`
+    // A loader switch runs the compat scan twice — LoaderPicker fires `onchange`
     // on the click (old version) and again once it auto-resolves the new loader's
-    // version. Use a stable mock (not ...Once) so both checks report the same
-    // incompatibility; otherwise the second (resolved-version) check returns the
+    // version. Use a stable mock (not ...Once) so both scans report the same
+    // mismatch; otherwise the second (resolved-version) scan returns the
     // default empty list and clobbers the summary.
-    m.checkInstanceModCompat.mockResolvedValue({
+    m.scanInstanceModCompat.mockResolvedValue({
       status: 'ok',
-      data: [{ sha1: 'a', name: 'X', status: { status: 'incompatible' } }],
+      data: [
+        {
+          sha1: 'a',
+          loader_mismatch: false,
+          detected_loader: null,
+          live_checkable: true,
+          platform_mismatch: true,
+          platform_axis: 'minecraft',
+          platform_declared: '[1.20,)',
+        },
+      ],
     });
     renderOne({ id: 'inst-forge', name: 'Forge One', loader: 'forge', loader_version: '47.2.0' });
     await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
@@ -175,14 +185,15 @@ describe('ManageInstancesModal — error surfacing', () => {
     expect(summary.closest('[role="alert"]')).toBeNull();
   });
 
-  it('shows a quiet "couldn\'t check" note (role=status) when the compat check fails', async () => {
-    // Stable mock (not ...Once): the loader switch runs the compat check twice, so
-    // both attempts must fail for the "couldn't check" note to stay up — a single
-    // ...Once would let the second (resolved-version) check succeed and clear it.
-    m.checkInstanceModCompat.mockResolvedValue({
-      status: 'error',
-      error: { kind: 'io', path: '/x', details: 'boom' },
-    });
+  it('shows a quiet "couldn\'t check" note (role=status) when the compat scan throws', async () => {
+    // The shared scan (`ensureCompatScan`) absorbs an ordinary backend error
+    // itself — it keeps the previous scan in place and never rethrows, by
+    // design (see compat-scan.svelte.ts). So the only failure the modal can
+    // still observe is a genuine transport-level throw from the IPC call
+    // itself, which is what this simulates. Stable mock (not ...Once): the
+    // loader switch runs the scan twice, so both attempts must fail for the
+    // note to stay up.
+    m.scanInstanceModCompat.mockRejectedValue(new Error('transport failure'));
     renderOne({ id: 'inst-forge', name: 'Forge One', loader: 'forge', loader_version: '47.2.0' });
     await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
 

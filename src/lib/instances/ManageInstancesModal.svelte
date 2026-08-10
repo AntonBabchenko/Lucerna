@@ -7,7 +7,7 @@
     type VersionEntry,
     type Error as IpcError,
     type MemoryBounds,
-    type ModCompat,
+    type ModLocalCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
@@ -18,7 +18,8 @@
   import { shouldFocusField, type ManageFocusField } from '$lib/instances/manage-focus';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
+  import { loaderOutcomeToast, compatSummaryFromScan } from '$lib/instances/integrity-messages';
+  import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
   import { formatHeapLabel } from '$lib/instances/heap';
   import { FALLBACK_MEMORY_BOUNDS, loadMemoryBounds } from '$lib/instances/memory-bounds';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -184,9 +185,16 @@
   });
 
   // Mod-compat summary for the current instance after an MC/loader change.
-  let compatRows = $state<ModCompat[] | null>(null);
-  // Set when a compat check could not be computed (command error / throw) so the
-  // user gets a quiet "couldn't check" note instead of a silent degradation.
+  // Sourced from the shared offline scan (`compat-scan.svelte`), not a
+  // platform query: the platform answers "does this PROJECT have a build for
+  // (mc, loader)?", which every mod in the original bug report could answer
+  // yes to even though the FILE on disk was still the old build.
+  let compatRows = $state<ModLocalCompat[] | null>(null);
+  // Set when the compat scan could not be computed. `ensureCompatScan`
+  // absorbs an ordinary backend error itself (keeps the previous scan in
+  // place, by design — see compat-scan.svelte's doc comment), so this can
+  // only still be reached by a genuine transport-level throw. Rare, but real
+  // enough to keep the quiet "couldn't check" note rather than going silent.
   let compatCheckFailed = $state(false);
   // Reset compat state when the selected instance changes.
   $effect(() => {
@@ -461,17 +469,16 @@
   // summary. The fresh values come straight from the command result.
   async function runModCompatCheck(id: string, mc: string, loader: LoaderKind) {
     try {
-      const r = await commands.checkInstanceModCompat(id, mc, loader);
+      // force: true — the mod set didn't change the scan key, so an unforced
+      // call would be deduplicated away against a scan from before this
+      // MC/loader change.
+      await ensureCompatScan(id, mc, loader, { force: true });
       if (isStale(id)) return;
-      if (r.status === 'ok') {
-        compatRows = r.data;
-        compatCheckFailed = false;
-      } else {
-        // Non-blocking degradation: surface a quiet note rather than a modal error.
-        compatRows = null;
-        compatCheckFailed = true;
-      }
+      compatRows = compatScanEntries();
+      compatCheckFailed = false;
     } catch {
+      // ensureCompatScan absorbs an ordinary backend error and keeps the
+      // previous scan in place; reaching here means the IPC call itself threw.
       if (isStale(id)) return;
       compatRows = null;
       compatCheckFailed = true;
@@ -1015,7 +1022,9 @@
                     tone="warning"
                     live="polite"
                     withIcon
-                    message={compatRows !== null ? compatSummary(compatRows) : null}
+                    message={compatRows !== null
+                      ? compatSummaryFromScan(compatRows, compatRows.length)
+                      : null}
                     class="bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
                   />
                   <StatusMessage
