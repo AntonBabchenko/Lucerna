@@ -1,16 +1,20 @@
-//! Plan a Minecraft-version-change mod migration.
+//! Plan and settle a Minecraft-version-change mod migration.
 //!
 //! When a user changes an instance's MC version / loader, jars built for the
 //! old platform stay in `mods/` and the game dies at pre-load. This module
 //! PLANS remediation — deciding which installed mods can be re-fetched for
-//! the instance's CURRENT platform — but never applies it. Applying is a
-//! later task.
+//! the instance's CURRENT platform — and separately maps the user's settled
+//! decisions over that plan to the concrete steps applying it requires. It
+//! never does the applying itself: no I/O beyond what's needed to unit-test
+//! it lives here.
 //!
-//! [`build_migration_plan`] and [`fold_new_dependencies`] are pure: they take
-//! already-computed [`PlatformVerdict`]s and already-fetched platform
-//! responses, so they are unit-testable with no I/O. The command layer
-//! (`commands::mods::mods_plan_mc_migration`) does the jar reads and network
-//! calls and feeds the results in.
+//! [`build_migration_plan`], [`fold_new_dependencies`], and
+//! [`resolve_migration_selections`] are pure: they take already-computed
+//! [`PlatformVerdict`]s, already-fetched platform responses, or an
+//! already-settled [`McMigrationSelections`], so they are unit-testable with
+//! no I/O. The command layer (`commands::mods::mods_plan_mc_migration` for
+//! planning, `commands::mods::mods_apply_mc_migration` for applying) does the
+//! jar reads, network calls, and filesystem writes and feeds the results in.
 
 use std::collections::HashSet;
 
