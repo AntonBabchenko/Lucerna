@@ -1552,6 +1552,11 @@
           "explanation": "While wearing Create goggles and looking at a mob or other entity, a Create add-on throws an error every frame. The game keeps running, but the log fills up and the goggle overlay flickers.",
           "recommendation": "Lucerna can install a small community fix mod that resolves this. It's a third-party mod, not an official patch — review it before installing."
         },
+        "javafmlLanguageProvider": {
+          "title": "Mods need a newer Forge than this instance runs",
+          "explanation": "Forge tags every mod-loading feature set with a \"language provider\" version (javafml). One or more of your mod jars were built for a newer Forge than this instance is running, so Forge refused to load them during pre-loading. This is the usual symptom of changing an instance's Minecraft/Forge version while jars built for the old version are still sitting in the mods folder.",
+          "recommendation": "Open the Installed tab for this instance — mods that don't match its current Minecraft/Forge version are flagged there, and Lucerna can walk you through migrating or removing them so they match this instance again."
+        },
         "forgeDuplicateMods": {
           "title": "Two copies of the same mod are installed",
           "explanation": "The mod loader found the same mod twice in the mods folder — usually an old version left behind next to a newer one. It refuses to start until you delete one copy.",

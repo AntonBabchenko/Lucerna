@@ -63,6 +63,11 @@ export const DIAGNOSIS_COPY: Record<string, DiagnosisCopyKeys> = {
     explanation: 'logs.diagnosis.patterns.createGoggleOverlayCrash.explanation',
     recommendation: 'logs.diagnosis.patterns.createGoggleOverlayCrash.recommendation',
   },
+  'javafml-language-provider': {
+    title: 'logs.diagnosis.patterns.javafmlLanguageProvider.title',
+    explanation: 'logs.diagnosis.patterns.javafmlLanguageProvider.explanation',
+    recommendation: 'logs.diagnosis.patterns.javafmlLanguageProvider.recommendation',
+  },
   'forge-duplicate-mods': {
     title: 'logs.diagnosis.patterns.forgeDuplicateMods.title',
     explanation: 'logs.diagnosis.patterns.forgeDuplicateMods.explanation',
