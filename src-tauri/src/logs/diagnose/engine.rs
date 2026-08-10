@@ -517,4 +517,27 @@ mod tests {
             LogSource::Game,
         );
     }
+
+    // 11. javafml-language-provider
+
+    #[test]
+    fn pattern_javafml_language_provider_matches_real_fml_preload_crash() {
+        // Verbatim from the reported bug: a client on 1.20.1/Forge 47.4.10 still
+        // carrying 1.21.11-built jars.
+        let content = "[main/ERROR] [ne.mi.fm.lo.LanguageLoadingProvider/LOADING]: Missing language javafml version [61,) wanted by BiomesOPlenty-forge-1.21.11-21.11.0.32.jar, found 47\n\
+                       [Render thread/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase\n\
+                       net.minecraftforge.fml.ModLoadingException: Mod File TerraBlender-forge-1.21.11-21.11.0.0.jar needs language provider javafml:48 or above to load";
+        assert_diag(content, LogSource::Game, "javafml-language-provider");
+    }
+
+    #[test]
+    fn pattern_javafml_language_provider_does_not_match_unrelated_fml_error() {
+        // A different FML ModLoadingException shape — names a Forge version
+        // requirement, not a javafml language-provider one — must NOT match.
+        assert_no_diag(
+            "net.minecraftforge.fml.ModLoadingException: Mod File SomeMod-1.0.0.jar needs \
+             version 47.4.10 or above of Forge to load",
+            LogSource::Game,
+        );
+    }
 }

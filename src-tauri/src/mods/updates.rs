@@ -110,6 +110,32 @@ pub fn eligible_identity(
     }
 }
 
+/// The platform identity a REPLACEMENT search needs: a project to ask about.
+///
+/// Deliberately weaker than [`eligible_identity`], which additionally demands
+/// the installed `version_id` because it was written for update
+/// *classification* — telling an upgrade from a downgrade genuinely needs to
+/// know where you are. "What should this become" does not. Reusing the
+/// stricter predicate would strand mods whose project IS known and whose
+/// target build IS queryable, and it would do so exactly in the wrong-platform
+/// case, because `enrich` drops `version_id` when the matched version's tags
+/// do not fit the instance.
+///
+/// Pack-origin mods return `None` — the pack owns its versions, and changing
+/// them piecemeal is the modpack version-switch flow, not this one.
+pub fn replaceable_identity(
+    installed: &InstalledMod,
+    pack_origin: Option<&PackOrigin>,
+) -> Option<(ModSource, String)> {
+    if is_pack_origin_mod(installed, pack_origin) {
+        return None;
+    }
+    match (installed.source, &installed.project_id) {
+        (Some(source), Some(project_id)) => Some((source, project_id.clone())),
+        _ => None,
+    }
+}
+
 /// Classify an installed resource-pack or shader against the versions the
 /// platform currently lists (caller fetches them, newest-first for the
 /// instance's MC version). Pure. Never returns `CheckFailed`.
@@ -318,6 +344,33 @@ mod tests {
             eligible_identity(&m, None),
             Some((ModSource::Modrinth, "proj".to_string(), "ver".to_string()))
         );
+    }
+
+    // -- replaceable_identity --------------------------------------------
+
+    #[test]
+    fn replaceable_identity_accepts_a_known_project_with_no_installed_version() {
+        // This is the case `eligible_identity` gets wrong: `enrich` drops
+        // `version_id` when the matched version's tags don't fit the
+        // instance, but the project itself is known and queryable.
+        let m = installed_mod("s1", Some(ModSource::Modrinth), Some("proj"), None);
+        assert_eq!(
+            replaceable_identity(&m, None),
+            Some((ModSource::Modrinth, "proj".to_string()))
+        );
+    }
+
+    #[test]
+    fn replaceable_identity_is_none_for_a_pack_origin_mod() {
+        let m = installed_mod("aaa", Some(ModSource::Modrinth), Some("p"), Some("v1"));
+        let po = pack_origin(&[("aaa", "mods/x.jar")]);
+        assert!(replaceable_identity(&m, Some(&po)).is_none());
+    }
+
+    #[test]
+    fn replaceable_identity_is_none_for_a_hand_dropped_jar() {
+        let m = installed_mod("s1", None, None, None);
+        assert!(replaceable_identity(&m, None).is_none());
     }
 
     #[test]

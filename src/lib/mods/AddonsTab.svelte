@@ -278,11 +278,13 @@
     instanceName = null,
     mcVersion,
     loader,
+    loaderVersion = null,
   }: {
     instanceId: string | null;
     instanceName?: string | null;
     mcVersion: string | null;
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
+    loaderVersion?: string | null;
   } = $props();
 
   // Shader-loader detection. The installed-mods lookup runs only while the
@@ -477,9 +479,20 @@
         }),
       );
     }
-    if (v.mc_mismatch && v.detected_mc) {
+    // The platform axis carries its own copy per axis: a loader-VERSION range
+    // violation is not the loader-FAMILY case, and `mismatchLoader` ("this is
+    // a Fabric jar") would read as nonsense for it.
+    if (v.platform_mismatch && v.platform_declared) {
       parts.push(
-        translate('mods.browse.mismatchMc', { detected: v.detected_mc, instance: mcVersion ?? '' }),
+        v.platform_axis === 'minecraft'
+          ? translate('mods.browse.mismatchMc', {
+              detected: v.platform_declared,
+              instance: mcVersion ?? '',
+            })
+          : translate('mods.browse.mismatchPlatformLoader', {
+              detected: v.platform_declared,
+              instance: loaderVersion ?? '',
+            }),
       );
     }
     return parts.join('; ') || translate('mods.browse.mismatchDefault');
@@ -498,7 +511,7 @@
         continue;
       }
       const v = r.data;
-      if (v.loader_mismatch || v.mc_mismatch) {
+      if (v.loader_mismatch || v.platform_mismatch) {
         mismatched.push({ path, filename });
         rows.push({ filename, reason: mismatchReason(v) });
       } else {
@@ -701,6 +714,7 @@
             {instanceId}
             {mcVersion}
             {loader}
+            {loaderVersion}
             {requestedFilter}
             onFilterApplied={() => (requestedFilter = null)}
             onBrowseFor={browseForDependency}

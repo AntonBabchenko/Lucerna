@@ -1,7 +1,8 @@
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
-import type { LoaderKind, LoaderOutcome, ModCompat } from '$lib/ipc/bindings';
+import type { LoaderKind, LoaderOutcome, ModLocalCompat } from '$lib/ipc/bindings';
+import { isOfflineMismatch } from '$lib/mods/compat-scan.svelte';
 
 // ---------------------------------------------------------------------------
 // loaderOutcomeToast
@@ -47,29 +48,33 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
 }
 
 // ---------------------------------------------------------------------------
-// compatSummary
+// compatSummaryFromScan
 // ---------------------------------------------------------------------------
 
 /**
- * Summarise mod-compat results into a single warning string, or null when
- * every mod is compatible (or there are no mods). Pure — no side-effects.
+ * Summarise the offline compat scan into a single warning string, or null
+ * when nothing was scanned or every scanned mod is fine. Pure — no
+ * side-effects.
+ *
+ * This replaces the old `compatSummary(rows: ModCompat[])`, which asked the
+ * platform "does this PROJECT have a build for (mc, loader)?" — a question
+ * every project can answer yes to even when the FILE on disk is a stale
+ * build from before a version change. `entries` comes from the offline scan
+ * (`scanInstanceModCompat` / `ensureCompatScan`), which judges the file
+ * itself, via the same `isOfflineMismatch` predicate the Overview's
+ * `offlineMismatchCount` uses — one verdict, not two.
+ *
+ * There is no "unknown" bucket here the way there was for live platform
+ * queries: the offline scan is unconditional, so every installed mod gets a
+ * definite mismatch/fine verdict. The old `instance.integrity.compatWarningWithUnknown`
+ * string lost its only caller when this replaced `compatSummary`, and was
+ * removed from both locales rather than left orphaned.
  */
-export function compatSummary(rows: ModCompat[]): string | null {
-  if (rows.length === 0) return null;
+export function compatSummaryFromScan(entries: ModLocalCompat[], total: number): string | null {
+  if (entries.length === 0) return null;
 
-  const incompatible = rows.filter((r) => r.status.status === 'incompatible').length;
-  const unknown = rows.filter((r) => r.status.status === 'unknown').length;
-  const total = rows.length;
-
-  if (incompatible === 0 && unknown === 0) return null;
-
-  if (unknown > 0) {
-    return get(t)('instance.integrity.compatWarningWithUnknown', {
-      incompatible,
-      total,
-      unknown,
-    });
-  }
+  const incompatible = entries.filter(isOfflineMismatch).length;
+  if (incompatible === 0) return null;
 
   return get(t)('instance.integrity.compatWarning', { incompatible, total });
 }

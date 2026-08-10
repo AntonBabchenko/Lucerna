@@ -385,7 +385,6 @@
       "loaderUpdated": "{loader} обновлён до {version} для Minecraft {mc}",
       "loaderResetToVanilla": "Нет сборки {loader} для Minecraft {mc} — загрузчик сброшен до Vanilla",
       "compatWarning": "{incompatible} из {total} установленных модов не имеют версии для этой конфигурации. Проверьте во вкладке «Моды».",
-      "compatWarningWithUnknown": "{incompatible} из {total} установленных модов не имеют версии для этой конфигурации · у {unknown} статус не удалось проверить. Проверьте во вкладке «Моды».",
       "heading": "Целостность",
       "subtitle": "Проверить файлы игры этого профиля по контрольным суммам.",
       "verifyBtn": "Проверить",
@@ -722,7 +721,8 @@
       "toastRetry": "Повторить",
       "toastInstalledMod": "Установлен {name}",
       "mismatchLoader": "похоже на мод для {detected}, профиль использует {instance}",
-      "mismatchMc": "предназначен для MC {detected}, профиль использует {instance}",
+      "mismatchMc": "требует Minecraft {detected}, профиль использует {instance}",
+      "mismatchPlatformLoader": "требует версию загрузчика {detected}, профиль использует {instance}",
       "mismatchDefault": "может быть несовместим",
       "toastCouldNotRead": "Не удалось прочитать {filename}",
       "toastInstalled": "{count, plural, one {Установлен # мод} few {Установлено # мода} many {Установлено # модов} other {Установлено # мода}}",
@@ -841,6 +841,8 @@
       "checkingCompat": "Проверка…",
       "incompatHintLoader": "Этот мод для {detected}; профиль использует {loader}",
       "incompatHintNoRelease": "Нет релиза под {loader} {mc} — отключите или удалите",
+      "incompatHintPlatformMc": "Этот мод требует Minecraft {declared}; профиль использует {mc}",
+      "incompatHintPlatformLoader": "Этот мод требует версию загрузчика {declared}; профиль использует {loaderVersion}",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
       "empty": "В этом профиле пока нет установленных модов.",
@@ -947,6 +949,44 @@
       "updateTip": "Обновляет до новейшей версии, которая удовлетворяет зависимость и подходит версии Minecraft и загрузчику профиля.",
       "chooseVersionTip": "Выбрать конкретную версию вручную.",
       "findAlternativeTip": "Искать замену, если подходящей версии нет."
+    },
+    "migration": {
+      "openBtn": "Исправить несовместимые моды",
+      "rowFixBtn": "Исправить",
+      "title": "План миграции",
+      "loading": "Проверка установленных модов…",
+      "retryBtn": "Повторить",
+      "summary": "{fits} модов уже подходят под эту конфигурацию · {replaceable} можно перекачать заново · {stranded} без решения",
+      "unjudgedLine": "{count, plural, one {# мод} few {# мода} many {# модов} other {# мода}} не удалось проверить — не учтены как подходящие",
+      "nothingToDo": "Все установленные моды уже подходят под эту конфигурацию — переносить нечего.",
+      "replaceableHeading": "Можно перекачать заново ({count})",
+      "replaceableTarget": "Новая сборка: {version}",
+      "newDependenciesHeading": "Нужны новые зависимости ({count})",
+      "neededBy": "Требуется для {names}",
+      "strandedHeading": "Требует решения ({count})",
+      "dispositionAriaLabel": "Что сделать с {name}",
+      "disposition": {
+        "disable": "Отключить",
+        "remove": "Удалить",
+        "keep": "Оставить"
+      },
+      "reason": {
+        "noBuildForTarget": "Для этой версии Minecraft и загрузчика пока не опубликована сборка.",
+        "noProjectToAsk": "Этот файл не связан со страницей мода, поэтому его нельзя перекачать автоматически.",
+        "packOrigin": "Этот мод из сборки модов — меняйте его версию через обновление сборки, а не здесь.",
+        "queryFailed": "Не удалось проверить наличие замены — попробуйте позже."
+      },
+      "applyBtn": "Применить",
+      "applyDisabledReason": "Выберите «отключить», «удалить» или «оставить» ещё для {count, plural, one {# мода} few {# модов} many {# модов} other {# модов}}, прежде чем применять",
+      "resultSummary": "{succeeded} из {total} изменений применено",
+      "outcome": {
+        "replaced": "Заменён",
+        "installedDependency": "Установлен",
+        "disabled": "Отключён",
+        "removed": "Удалён",
+        "failedBadge": "Ошибка"
+      },
+      "doneBtn": "Готово"
     }
   },
   "addons": {
@@ -1510,6 +1550,11 @@
           "title": "Очки Create спамят ошибками",
           "explanation": "Когда на вас надеты очки Create и вы смотрите на моба или другую сущность, аддон Create выдаёт ошибку каждый кадр. Игра продолжает работать, но лог забивается, а оверлей очков мерцает.",
           "recommendation": "Lucerna может установить небольшой community-мод, который это чинит. Это сторонний мод, не официальный патч — ознакомьтесь перед установкой."
+        },
+        "javafmlLanguageProvider": {
+          "title": "Модам нужен более новый Forge, чем у профиля",
+          "explanation": "Forge помечает каждый набор функций загрузки модов версией «языкового провайдера» (javafml). Один или несколько jar-файлов модов собраны под более новый Forge, чем запущен в этом профиле, поэтому Forge отказался загружать их на этапе pre-loading. Обычно это случается после смены версии Minecraft/Forge профиля, когда в папке mods остаются jar-файлы под старую версию.",
+          "recommendation": "Откройте вкладку «Установленные» для этого профиля — моды, не соответствующие текущей версии Minecraft/Forge, отмечены там, и Lucerna проведёт вас через миграцию или удаление, чтобы они снова совпали с профилем."
         },
         "forgeDuplicateMods": {
           "title": "Установлены две копии одного мода",

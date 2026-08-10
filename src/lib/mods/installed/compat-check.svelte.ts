@@ -4,7 +4,11 @@ import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelt
 
 // Tooltip hint descriptor. The component maps these to i18n strings (it owns the
 // instance loader/mc for interpolation).
-export type CompatHint = { key: 'loader'; detected: string } | { key: 'noRelease' };
+export type CompatHint =
+  | { key: 'loader'; detected: string }
+  | { key: 'noRelease' }
+  | { key: 'platformMc'; declared: string }
+  | { key: 'platformLoader'; declared: string };
 
 type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
 // Minimal row shape the composable needs to live-query a platform suspect.
@@ -13,13 +17,20 @@ type CompatRow = {
 };
 
 // Owns proactive compatibility state as a two-stage AUTO pipeline:
-//   1. offline scan (network-free) flags loader-family SUSPECTS;
-//   2. for platform suspects (live_checkable), auto-query the platform to confirm.
-// A mod is flagged iff the live verdict is `incompatible`, OR it is a manual
-// suspect (loader_mismatch && !live_checkable) with no compatible live verdict.
-// Live `compatible` clears; live failure/`unknown` never flags (transient errors
-// must not read as incompatible). Auto-confirm is bounded to suspects, sequential
-// (gentle on Modrinth rate limits), and cached per session by sha.
+//   1. offline scan (network-free) flags loader-family SUSPECTS and reads the
+//      platform-range verdict (`platform_mismatch`) straight off the jar;
+//   2. for loader-family suspects (live_checkable), auto-query the platform to
+//      confirm.
+// A mod is flagged iff `platform_mismatch` is set (unconditional — read off the
+// file that will actually be launched, never cleared by a live verdict), OR the
+// live verdict is `incompatible`, OR it is a manual loader-family suspect
+// (loader_mismatch && !live_checkable) with no compatible live verdict. Live
+// `compatible` clears a loader-family suspicion but never a `platform_mismatch`
+// — the live check answers "does the PROJECT have a build for this MC+loader",
+// not "is the FILE on disk that build". Live failure/`unknown` never flags
+// (transient errors must not read as incompatible). Auto-confirm is bounded to
+// suspects, sequential (gentle on Modrinth rate limits), and cached per session
+// by sha.
 export function createCompatCheck(
   getInstanceId: () => string | null,
   getMcVersion: () => string | null,
@@ -49,6 +60,13 @@ export function createCompatCheck(
     // stale `live` entry for a since-uninstalled mod must not inflate the count.
     for (const [sha, v] of live) if (v === 'incompatible' && offline.has(sha)) out.add(sha);
     for (const [sha, lc] of offline) {
+      // Authoritative and unconditional — deliberately NOT cleared by a live
+      // `compatible`, which answers about the PROJECT rather than the FILE.
+      // That conflation is the defect this whole feature exists to fix: every
+      // one of the six projects in the original bug published a build for the
+      // target MC, so the live check said "compatible" while the file on disk
+      // was still wrong.
+      if (lc.platform_mismatch) out.add(sha);
       // Manual suspect: offline verdict stands (no platform identity to verify).
       if (lc.loader_mismatch && !lc.live_checkable) out.add(sha);
     }
@@ -57,8 +75,17 @@ export function createCompatCheck(
   const incompatibleCount = $derived(incompatibleShas.size);
 
   function hintFor(sha1: string): CompatHint | null {
-    if (live.get(sha1) === 'incompatible') return { key: 'noRelease' };
+    // Platform-range verdict is read off the jar itself — no live confirmation
+    // needed, and it is the more specific explanation, so it takes priority
+    // over both the loader-family suspect and any live verdict.
     const lc = offline.get(sha1);
+    if (lc?.platform_mismatch) {
+      const declared = lc.platform_declared ?? '?';
+      return lc.platform_axis === 'minecraft'
+        ? { key: 'platformMc', declared }
+        : { key: 'platformLoader', declared };
+    }
+    if (live.get(sha1) === 'incompatible') return { key: 'noRelease' };
     if (lc?.loader_mismatch && !lc.live_checkable)
       return { key: 'loader', detected: lc.detected_loader ?? '?' };
     return null;

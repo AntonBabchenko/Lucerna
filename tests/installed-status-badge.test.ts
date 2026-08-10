@@ -51,6 +51,7 @@ const base = () => ({
   onSelectChange() {},
   onInstallDep() {},
   onJump() {},
+  onOpenMigration() {},
 });
 
 describe('status badge priority', () => {

@@ -729,11 +729,59 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	checkInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModCompat[], Error>(__TAURI_INVOKE("check_instance_mod_compat", { id, mc, loader })),
 	/**
-	 *  Offline loader-compatibility scan of an instance's installed mods
-	 *  (Layer 1). Network-free; reads each jar's descriptor. Returns one
-	 *  `ModLocalCompat` per registered mod.
+	 *  Offline loader-compatibility + platform scan of an instance's installed
+	 *  mods (Layer 1). Network-free; reads each jar's descriptor.
+	 * 
+	 *  Takes only the instance id: the MC version, loader and loader version are
+	 *  read from the instance record here, not supplied by the caller. A frontend
+	 *  that can pass a stale or partial platform triple is a frontend that can
+	 *  make this scan answer about an instance that does not exist.
 	 */
-	scanInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModLocalCompat[], Error>(__TAURI_INVOKE("scan_instance_mod_compat", { id, mc, loader })),
+	scanInstanceModCompat: (id: string) => typedError<ModLocalCompat[], Error>(__TAURI_INVOKE("scan_instance_mod_compat", { id })),
+	/**
+	 *  Plan a Minecraft-version-change mod migration for `instance_id`: for every
+	 *  installed mod, judge its jar against the instance's CURRENT platform
+	 *  (`mc_compat::platform_verdict`, computed fresh here — not read off
+	 *  `scan_instance`, whose `ModLocalCompat.platform_mismatch` bool already
+	 *  collapses `Fits` and `Unknown` into the same `false`, which is exactly the
+	 *  distinction design decision #4 needs to keep). Violated mods with a
+	 *  [`replaceable_identity`](crate::mods::updates::replaceable_identity) are
+	 *  asked, bounded-concurrency, for a build at the instance's current MC +
+	 *  loader; each replaceable target's declared required deps are then asked
+	 *  for too (same shape again), so anything a later apply would ALSO need to
+	 *  pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
+	 *  is visible in the plan before anything is installed. Never applies
+	 *  anything: this command only reads and queries.
+	 */
+	modsPlanMcMigration: (instanceId: string) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId })),
+	/**
+	 *  Apply a Minecraft-version-change mod migration the user has already
+	 *  reviewed via `mods_plan_mc_migration` and settled into `selections`.
+	 * 
+	 *  Never calls `mods_update_one`: that command resolves `target`'s ENTIRE
+	 *  required-dependency set fresh via `ModPlatform::resolve_deps` and installs
+	 *  it unpruned against whatever is already on disk — the exact anti-pattern
+	 *  that manufactures a duplicate-modId FML crash on a version-change
+	 *  migration (BiomesOPlenty mandatorily requiring `terrablender` +
+	 *  `glitchcore`; see the `mods::migration` module doc). This command drives
+	 *  [`crate::mods::install::update_one`] with an EMPTY required-deps list —
+	 *  the plan already resolved and pruned what each replacement needs — and
+	 *  [`crate::mods::install::install_one`] directly, never `resolve_deps`
+	 *  again.
+	 * 
+	 *  Every action [`crate::mods::migration::resolve_migration_selections`]
+	 *  produces runs independently, in sequence — never as one atomic batch —
+	 *  so one row's failure is recorded in its own
+	 *  [`crate::mods::migration::McMigrationRowOutcome::Failed`] and every other
+	 *  row's already-applied change stands. Emits the same
+	 *  `mod-install-progress` / `mod-installed` / `mod-uninstalled` /
+	 *  `mod-toggle` / `mod-install-failed` events the single-mod commands already
+	 *  emit. For the install-type rows only, persists ONE aggregate
+	 *  `.lucerna/reports/<taskId>.json` via [`crate::reports::mint_and_record`] —
+	 *  the same task registry [`mods_install_with_deps`] uses for its own
+	 *  multi-file installs — rather than growing a private progress surface.
+	 */
+	modsApplyMcMigration: (instanceId: string, selections: McMigrationSelections_Deserialize) => typedError<McMigrationReport, Error>(__TAURI_INVOKE("mods_apply_mc_migration", { instanceId, selections })),
 	/**
 	 *  The instance's modpack origin reduced to chip data: the pack name
 	 *  and the SHA-1s of its bundled `mods/` files. `None` for an instance
@@ -801,12 +849,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
-	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-	 *  compatibility against the target instance.
+	 *  Inspect a local mod `.jar`: read its descriptor and judge loader-family and
+	 *  platform (Minecraft / loader-version range) compatibility against the
+	 *  target instance.
 	 * 
 	 *  Not write-free despite the name: the Connector probe below goes through
 	 *  `installed::list`, which reconciles the registry against the mods folder and
 	 *  persists when that changes. No *mod* file is touched.
+	 * 
+	 *  Reads the instance's loader version off the record — same pattern as
+	 *  `scan_instance_mod_compat` / `instance_dependency_preflight` — since the
+	 *  platform axis needs it and a caller-supplied one could go stale or answer
+	 *  about an instance that no longer exists.
 	 */
 	modsInspectLocal: (instanceId: string, jarPath: string) => typedError<CompatVerdict, Error>(__TAURI_INVOKE("mods_inspect_local", { instanceId, jarPath })),
 	/**
@@ -2519,7 +2573,8 @@ export type CloneProgress = {
 
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
- *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
+ *  Crosses the IPC boundary. A jar is "compatible" iff neither
+ *  `loader_mismatch` nor `platform_mismatch` is set.
  */
 export type CompatVerdict = {
 	/**
@@ -2527,14 +2582,26 @@ export type CompatVerdict = {
 	 *  or `None` when the jar has no recognised descriptor.
 	 */
 	detected_loader: string | null,
-	/**  `major.minor` Minecraft version detected in the jar, or `None`. */
-	detected_mc: string | null,
 	/**  The mod's display name from the jar, or `None`. */
 	detected_name: string | null,
-	/**  The jar's loader family is the opposite of the instance's. */
+	/**
+	 *  The jar's loader FAMILY differs from the instance's (a Fabric jar on
+	 *  Forge). Unrelated to the platform axes below.
+	 */
 	loader_mismatch: boolean,
-	/**  The jar's declared MC `major.minor` differs from the instance's. */
-	mc_mismatch: boolean,
+	/**
+	 *  The jar declares a Minecraft or loader version range this instance does
+	 *  not provide.
+	 */
+	platform_mismatch: boolean,
+	/**  Which axis fired. `None` unless `platform_mismatch`. */
+	platform_axis: PlatformAxis | null,
+	/**
+	 *  The declared range, verbatim — this is what the UI interpolates. It
+	 *  replaces the old `detected_mc`, which was `None` for every modern Forge
+	 *  jar because `read_jar_meta` does not parse `mods.toml` content.
+	 */
+	platform_declared: string | null,
 };
 
 export type Confidence = "high" | "medium";
@@ -3228,6 +3295,15 @@ export type Fetched = "downloaded" | "cached";
  *  not yet known (server.properties not generated).
  */
 export type FirewallState = "allowed" | "needs_rule" | "unknown" | "not_applicable";
+
+/**
+ *  An installed mod whose current jar already fits the instance's platform.
+ *  Nothing to do.
+ */
+export type FitsRow = {
+	sha1: string,
+	name: string,
+};
 
 /**
  *  Normalized foreign instance — the contract between readers and the
@@ -4109,6 +4185,229 @@ export type McChangeReport = {
 	loader_outcome: LoaderOutcome,
 };
 
+export type McMigrationPlan = McMigrationPlan_Serialize | McMigrationPlan_Deserialize;
+
+export type McMigrationPlan_Deserialize = {
+	/**  Nothing to do — the installed file already fits. */
+	fits: FitsRow[],
+	/**
+	 *  Violated, a project to ask, and the platform lists a build for the
+	 *  instance's current MC + loader. Carries the target so the UI can name it.
+	 */
+	replaceable: ReplaceableRow_Deserialize[],
+	/**
+	 *  Projects a chosen target's required-dependency set needs that the
+	 *  instance has no jar for at all today. See [`NewDependencyRow`].
+	 */
+	new_dependencies: NewDependencyRow_Deserialize[],
+	/**
+	 *  Violated with no replacement: no build for the target, no project to
+	 *  query (hand-dropped), pack-origin, or the query itself failed. Each
+	 *  row carries WHY.
+	 */
+	stranded: StrandedRow[],
+	/**
+	 *  Verdict was `Unknown` — surfaced in the summary, never folded into
+	 *  `fits`. A check that did not run must not read as a check that passed.
+	 *  `u32` not `usize`: specta forbids exporting BigInt-style types to TS
+	 *  (see the same rule applied to every other count field in this
+	 *  codebase — `usize`/`u64` counters are cast down, byte sizes go to
+	 *  `f64`); a bounded per-instance mod count never approaches `u32::MAX`.
+	 */
+	unjudged: number,
+};
+
+export type McMigrationPlan_Serialize = {
+	/**  Nothing to do — the installed file already fits. */
+	fits: FitsRow[],
+	/**
+	 *  Violated, a project to ask, and the platform lists a build for the
+	 *  instance's current MC + loader. Carries the target so the UI can name it.
+	 */
+	replaceable: ReplaceableRow_Serialize[],
+	/**
+	 *  Projects a chosen target's required-dependency set needs that the
+	 *  instance has no jar for at all today. See [`NewDependencyRow`].
+	 */
+	new_dependencies: NewDependencyRow_Serialize[],
+	/**
+	 *  Violated with no replacement: no build for the target, no project to
+	 *  query (hand-dropped), pack-origin, or the query itself failed. Each
+	 *  row carries WHY.
+	 */
+	stranded: StrandedRow[],
+	/**
+	 *  Verdict was `Unknown` — surfaced in the summary, never folded into
+	 *  `fits`. A check that did not run must not read as a check that passed.
+	 *  `u32` not `usize`: specta forbids exporting BigInt-style types to TS
+	 *  (see the same rule applied to every other count field in this
+	 *  codebase — `usize`/`u64` counters are cast down, byte sizes go to
+	 *  `f64`); a bounded per-instance mod count never approaches `u32::MAX`.
+	 */
+	unjudged: number,
+};
+
+/**
+ *  Full result of one `mods_apply_mc_migration` call: what happened to every
+ *  action the settled selection produced, success and failure both.
+ */
+export type McMigrationReport = {
+	outcomes: McMigrationRowOutcome[],
+};
+
+/**  What happened when one [`MigrationAction`] was executed. */
+export type McMigrationRowOutcome = { kind: "replaced"; old_sha1: string; name: string; new_sha1: string } | { kind: "installed_dependency"; name: string; sha1: string } | { kind: "disabled"; sha1: string; name: string } | { kind: "removed"; sha1: string; name: string } | 
+/**
+ *  The action failed. Every OTHER row's outcome in the same report is
+ *  unaffected — apply never withdraws a sibling row's already-applied
+ *  change because one row failed.
+ */
+{ kind: "failed"; name: string; error: Error };
+
+/**
+ *  The user's full set of decisions over one [`McMigrationPlan`], submitted
+ *  to `mods_apply_mc_migration`.
+ * 
+ *  Every field is self-contained: `replace` and `new_dependencies` carry the
+ *  full [`ModVersion`] target the plan already resolved, rather than a row
+ *  key the apply command would look back up. This is deliberate, not an
+ *  oversight:
+ * 
+ *  - The plan already did the network work for these targets —
+ *    `ModPlatform::versions` per violated mod and `ModPlatform::resolve_deps`
+ *    per replaceable target, both in `mods_plan_mc_migration`. Re-deriving
+ *    that inside apply would repeat the work AND risk installing a build
+ *    different from the one the user actually reviewed (a newer version
+ *    could have been published in between) — breaking the very invariant
+ *    this module's doc comment states: "every jar an apply would touch must
+ *    appear in the plan before the user accepts anything".
+ *  - It structurally forecloses the bug this task exists to fix.
+ *    [`resolve_migration_selections`] never reads [`ModVersion::deps`] on any
+ *    target — there is no step where a target's OWN declared dependencies
+ *    (e.g. BiomesOPlenty mandatorily declaring `terrablender` +
+ *    `glitchcore`) could be consulted to silently add installs. Every
+ *    install this produces traces back to an explicit field the user (or
+ *    `mods_plan_mc_migration`'s prior run) already decided on.
+ * 
+ *  Full array-level completeness for `stranded` (every row the plan showed
+ *  has a matching entry here) is intentionally NOT cross-checked against a
+ *  plan at apply time, for the same reason: telling a `stranded` row apart
+ *  from a `replaceable` one requires the platform query
+ *  `mods_plan_mc_migration` already ran, and re-running it here would be
+ *  exactly the "fresh resolution at apply time" this design avoids. What IS
+ *  enforced: [`StrandedDisposition`] has no default, so any row that DOES
+ *  appear in `stranded` carries an explicit choice — never a silently
+ *  defaulted one. Presenting one control per stranded row and requiring a
+ *  choice before enabling Apply is the UI's job.
+ */
+export type McMigrationSelections = McMigrationSelections_Serialize | McMigrationSelections_Deserialize;
+
+/**
+ *  The user's full set of decisions over one [`McMigrationPlan`], submitted
+ *  to `mods_apply_mc_migration`.
+ * 
+ *  Every field is self-contained: `replace` and `new_dependencies` carry the
+ *  full [`ModVersion`] target the plan already resolved, rather than a row
+ *  key the apply command would look back up. This is deliberate, not an
+ *  oversight:
+ * 
+ *  - The plan already did the network work for these targets —
+ *    `ModPlatform::versions` per violated mod and `ModPlatform::resolve_deps`
+ *    per replaceable target, both in `mods_plan_mc_migration`. Re-deriving
+ *    that inside apply would repeat the work AND risk installing a build
+ *    different from the one the user actually reviewed (a newer version
+ *    could have been published in between) — breaking the very invariant
+ *    this module's doc comment states: "every jar an apply would touch must
+ *    appear in the plan before the user accepts anything".
+ *  - It structurally forecloses the bug this task exists to fix.
+ *    [`resolve_migration_selections`] never reads [`ModVersion::deps`] on any
+ *    target — there is no step where a target's OWN declared dependencies
+ *    (e.g. BiomesOPlenty mandatorily declaring `terrablender` +
+ *    `glitchcore`) could be consulted to silently add installs. Every
+ *    install this produces traces back to an explicit field the user (or
+ *    `mods_plan_mc_migration`'s prior run) already decided on.
+ * 
+ *  Full array-level completeness for `stranded` (every row the plan showed
+ *  has a matching entry here) is intentionally NOT cross-checked against a
+ *  plan at apply time, for the same reason: telling a `stranded` row apart
+ *  from a `replaceable` one requires the platform query
+ *  `mods_plan_mc_migration` already ran, and re-running it here would be
+ *  exactly the "fresh resolution at apply time" this design avoids. What IS
+ *  enforced: [`StrandedDisposition`] has no default, so any row that DOES
+ *  appear in `stranded` carries an explicit choice — never a silently
+ *  defaulted one. Presenting one control per stranded row and requiring a
+ *  choice before enabling Apply is the UI's job.
+ */
+export type McMigrationSelections_Deserialize = {
+	/**
+	 *  `replaceable` rows approved for replacement. A row NOT listed here is
+	 *  left exactly as-is — its old, incompatible jar stays installed. That
+	 *  is a legitimate choice ("fix this one later"), unlike a stranded
+	 *  row's disposition, which has no safe default.
+	 */
+	replace: ReplaceSelection_Deserialize[],
+	/**
+	 *  `new_dependencies` rows approved for install alongside whichever
+	 *  replacement(s) need them.
+	 */
+	new_dependencies: ModVersion_Deserialize[],
+	/**  One entry per `stranded` row the user decided on. */
+	stranded: StrandedSelection[],
+};
+
+/**
+ *  The user's full set of decisions over one [`McMigrationPlan`], submitted
+ *  to `mods_apply_mc_migration`.
+ * 
+ *  Every field is self-contained: `replace` and `new_dependencies` carry the
+ *  full [`ModVersion`] target the plan already resolved, rather than a row
+ *  key the apply command would look back up. This is deliberate, not an
+ *  oversight:
+ * 
+ *  - The plan already did the network work for these targets —
+ *    `ModPlatform::versions` per violated mod and `ModPlatform::resolve_deps`
+ *    per replaceable target, both in `mods_plan_mc_migration`. Re-deriving
+ *    that inside apply would repeat the work AND risk installing a build
+ *    different from the one the user actually reviewed (a newer version
+ *    could have been published in between) — breaking the very invariant
+ *    this module's doc comment states: "every jar an apply would touch must
+ *    appear in the plan before the user accepts anything".
+ *  - It structurally forecloses the bug this task exists to fix.
+ *    [`resolve_migration_selections`] never reads [`ModVersion::deps`] on any
+ *    target — there is no step where a target's OWN declared dependencies
+ *    (e.g. BiomesOPlenty mandatorily declaring `terrablender` +
+ *    `glitchcore`) could be consulted to silently add installs. Every
+ *    install this produces traces back to an explicit field the user (or
+ *    `mods_plan_mc_migration`'s prior run) already decided on.
+ * 
+ *  Full array-level completeness for `stranded` (every row the plan showed
+ *  has a matching entry here) is intentionally NOT cross-checked against a
+ *  plan at apply time, for the same reason: telling a `stranded` row apart
+ *  from a `replaceable` one requires the platform query
+ *  `mods_plan_mc_migration` already ran, and re-running it here would be
+ *  exactly the "fresh resolution at apply time" this design avoids. What IS
+ *  enforced: [`StrandedDisposition`] has no default, so any row that DOES
+ *  appear in `stranded` carries an explicit choice — never a silently
+ *  defaulted one. Presenting one control per stranded row and requiring a
+ *  choice before enabling Apply is the UI's job.
+ */
+export type McMigrationSelections_Serialize = {
+	/**
+	 *  `replaceable` rows approved for replacement. A row NOT listed here is
+	 *  left exactly as-is — its old, incompatible jar stays installed. That
+	 *  is a legitimate choice ("fix this one later"), unlike a stranded
+	 *  row's disposition, which has no safe default.
+	 */
+	replace: ReplaceSelection_Serialize[],
+	/**
+	 *  `new_dependencies` rows approved for install alongside whichever
+	 *  replacement(s) need them.
+	 */
+	new_dependencies: ModVersion_Serialize[],
+	/**  One entry per `stranded` row the user decided on. */
+	stranded: StrandedSelection[],
+};
+
 /**
  *  Adaptive memory bounds for the per-instance heap slider, derived from total
  *  physical RAM. All MB values; `u32` (RAM-in-MB fits) to avoid the specta
@@ -4288,9 +4587,11 @@ export type ModInstalled = {
 /**
  *  Offline (descriptor-only) compatibility result for one installed mod.
  *  Layer 1 of the proactive scan: derived purely from the jar's embedded
- *  descriptor, no network. Only loader-family mismatch is reported (see the
- *  design's decision 1 — MC-version mismatch is left to the live layer to
- *  avoid false positives on version-range declarations).
+ *  descriptor, no network. Carries two independent verdicts: `loader_mismatch`
+ *  (a SUSPECT — the live layer may clear it for a platform mod) and
+ *  `platform_mismatch` (AUTHORITATIVE — read off the jar's own declared
+ *  `minecraft`/loader ranges, see `mc_compat::platform_verdict`; nothing ever
+ *  overrides it).
  */
 export type ModLocalCompat = {
 	/**  SHA-1 of the installed jar — the registry's primary key. */
@@ -4309,6 +4610,17 @@ export type ModLocalCompat = {
 	 *  the offline `loader_mismatch` verdict.
 	 */
 	live_checkable: boolean,
+	/**
+	 *  The jar declares a Minecraft or loader range this instance does not
+	 *  provide. Unlike `loader_mismatch` this is AUTHORITATIVE — it is read
+	 *  off the jar that will actually be launched, so no live confirmation
+	 *  applies and a platform "compatible" answer must never clear it.
+	 */
+	platform_mismatch: boolean,
+	/**  Which axis fired, for the row hint. `None` unless `platform_mismatch`. */
+	platform_axis: PlatformAxis | null,
+	/**  The range the jar declared, for the row hint. */
+	platform_declared: string | null,
 };
 
 export type ModProject = {
@@ -4900,6 +5212,63 @@ export type NamespaceCoverage = {
 	overridden: number,
 };
 
+/**
+ *  A project a chosen target's required-dependency set needs, for which the
+ *  instance has NO installed jar at all today — fitting, violated, or
+ *  otherwise. A genuinely new addition the migration would pull in.
+ * 
+ *  This is how the plan avoids the bug that motivated it: BiomesOPlenty
+ *  mandatorily requires `terrablender` and `glitchcore`. If a target the plan
+ *  wants to install needs a project the instance simply doesn't have a jar
+ *  for, that need must be visible here BEFORE the user accepts anything —
+ *  every jar an apply would touch must appear in the plan.
+ */
+export type NewDependencyRow = NewDependencyRow_Serialize | NewDependencyRow_Deserialize;
+
+/**
+ *  A project a chosen target's required-dependency set needs, for which the
+ *  instance has NO installed jar at all today — fitting, violated, or
+ *  otherwise. A genuinely new addition the migration would pull in.
+ * 
+ *  This is how the plan avoids the bug that motivated it: BiomesOPlenty
+ *  mandatorily requires `terrablender` and `glitchcore`. If a target the plan
+ *  wants to install needs a project the instance simply doesn't have a jar
+ *  for, that need must be visible here BEFORE the user accepts anything —
+ *  every jar an apply would touch must appear in the plan.
+ */
+export type NewDependencyRow_Deserialize = {
+	source: ModSource,
+	project_id: string,
+	target: ModVersion_Deserialize,
+	/**
+	 *  Display names of the replaceable rows whose chosen target requires
+	 *  this project.
+	 */
+	needed_by: string[],
+};
+
+/**
+ *  A project a chosen target's required-dependency set needs, for which the
+ *  instance has NO installed jar at all today — fitting, violated, or
+ *  otherwise. A genuinely new addition the migration would pull in.
+ * 
+ *  This is how the plan avoids the bug that motivated it: BiomesOPlenty
+ *  mandatorily requires `terrablender` and `glitchcore`. If a target the plan
+ *  wants to install needs a project the instance simply doesn't have a jar
+ *  for, that need must be visible here BEFORE the user accepts anything —
+ *  every jar an apply would touch must appear in the plan.
+ */
+export type NewDependencyRow_Serialize = {
+	source: ModSource,
+	project_id: string,
+	target: ModVersion_Serialize,
+	/**
+	 *  Display names of the replaceable rows whose chosen target requires
+	 *  this project.
+	 */
+	needed_by: string[],
+};
+
 /**  Why a pack instance cannot be update-checked (structural, not transient). */
 export type NotCheckableReason = 
 /**  Manually-created instance — never had a modpack source. */
@@ -5177,6 +5546,13 @@ export type PlannedDep_Serialize = {
 	selection_reason: SelectionReason,
 };
 
+/**
+ *  Which half of the platform a verdict is about. Two unit variants, no
+ *  payload — crosses IPC directly (a later task puts `Option<PlatformAxis>`
+ *  on `ModLocalCompat`).
+ */
+export type PlatformAxis = "minecraft" | "loader";
+
 export type PlaytimeStats = {
 	/**
 	 *  f64 not u64 — specta-typescript forbids BigInt-style exports.
@@ -5424,6 +5800,66 @@ version_label: string | null;
  *  version / no CF key / distribution disabled) ⇒ UI shows a project link.
  */
 install: VersionRef | null };
+
+/**
+ *  One `replaceable` row the user approved for replacement. Carries the
+ *  EXACT `target` [`McMigrationPlan::replaceable`] showed — see
+ *  [`McMigrationSelections`] for why apply never re-derives it.
+ */
+export type ReplaceSelection = ReplaceSelection_Serialize | ReplaceSelection_Deserialize;
+
+/**
+ *  One `replaceable` row the user approved for replacement. Carries the
+ *  EXACT `target` [`McMigrationPlan::replaceable`] showed — see
+ *  [`McMigrationSelections`] for why apply never re-derives it.
+ */
+export type ReplaceSelection_Deserialize = {
+	old_sha1: string,
+	target: ModVersion_Deserialize,
+};
+
+/**
+ *  One `replaceable` row the user approved for replacement. Carries the
+ *  EXACT `target` [`McMigrationPlan::replaceable`] showed — see
+ *  [`McMigrationSelections`] for why apply never re-derives it.
+ */
+export type ReplaceSelection_Serialize = {
+	old_sha1: string,
+	target: ModVersion_Serialize,
+};
+
+/**
+ *  A `Violated` mod with a project to ask and a build the platform lists for
+ *  the instance's CURRENT MC + loader. `target` is what remediation would
+ *  install in place of `sha1`.
+ */
+export type ReplaceableRow = ReplaceableRow_Serialize | ReplaceableRow_Deserialize;
+
+/**
+ *  A `Violated` mod with a project to ask and a build the platform lists for
+ *  the instance's CURRENT MC + loader. `target` is what remediation would
+ *  install in place of `sha1`.
+ */
+export type ReplaceableRow_Deserialize = {
+	sha1: string,
+	name: string,
+	source: ModSource,
+	project_id: string,
+	target: ModVersion_Deserialize,
+};
+
+/**
+ *  A `Violated` mod with a project to ask and a build the platform lists for
+ *  the instance's CURRENT MC + loader. `target` is what remediation would
+ *  install in place of `sha1`.
+ */
+export type ReplaceableRow_Serialize = {
+	sha1: string,
+	name: string,
+	source: ModSource,
+	project_id: string,
+	target: ModVersion_Serialize,
+};
 
 export type ResolveTier = { tier: "exact"; candidate: ResolvedCandidate } | { tier: "fuzzy"; candidates: ResolvedCandidate[] } | { tier: "unresolved" };
 
@@ -6102,6 +6538,55 @@ export type SourceCaps = {
 	can_export: boolean,
 };
 
+/**
+ *  Disposition the user chose for one [`StrandedRow`]. Deliberately carries
+ *  no `Default` impl — the jar behind a stranded row is PROVEN incompatible
+ *  (`Violated` verdict, no replacement plan), so there is no safe "the user
+ *  didn't say" fallback the way an un-selected `replaceable` row has (leaving
+ *  it installed is fine there — it is not proven broken by the plan itself,
+ *  only unconfirmed). Every [`StrandedSelection`] carries this as a mandatory
+ *  field (no `#[serde(default)]`), so an omitted `disposition` fails
+ *  deserialization at the IPC boundary rather than silently landing on
+ *  `Keep`.
+ */
+export type StrandedDisposition = "disable" | "remove" | "keep";
+
+/**
+ *  Why a `Violated` mod has no replacement plan. The UI shows different copy
+ *  for each — a failed query must never be read as "no build exists".
+ */
+export type StrandedReason = 
+/**
+ *  The platform was asked for the instance's current MC + loader and
+ *  returned no build.
+ */
+{ kind: "no_build_for_target" } | 
+/**  No project to ask — a hand-dropped jar with no platform identity. */
+{ kind: "no_project_to_ask" } | 
+/**
+ *  The pack owns this mod's versions; changing it piecemeal is the
+ *  modpack version-switch flow, not this one.
+ */
+{ kind: "pack_origin" } | 
+/**
+ *  The platform query itself failed (network, missing CurseForge key,
+ *  project delisted / 404). Distinct from `NoBuildForTarget` on purpose.
+ */
+{ kind: "query_failed" };
+
+/**  A `Violated` mod with no replacement plan. Carries WHY. */
+export type StrandedRow = {
+	sha1: string,
+	name: string,
+	reason: StrandedReason,
+};
+
+/**  One `stranded` row's chosen disposition. */
+export type StrandedSelection = {
+	sha1: string,
+	disposition: StrandedDisposition,
+};
+
 /**  One file's provenance and outcome — a row in a per-file install report. */
 export type TaskDetail = {
 	name: string,
@@ -6390,7 +6875,12 @@ export type ViolationKind =
  *  A mod declares itself incompatible with the installed version of
  *  another mod. The range is inverted: it names the versions that clash.
  */
-"incompatible_installed";
+"incompatible_installed" | 
+/**
+ *  The jar was built for a Minecraft or loader version this instance does
+ *  not provide.
+ */
+"platform_mismatch";
 
 export type VtCatalogue = {
 	versionName?: string,

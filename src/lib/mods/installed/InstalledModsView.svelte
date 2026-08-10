@@ -36,6 +36,7 @@
     violationKey,
   } from '$lib/mods/preflight.svelte';
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
+  import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
@@ -52,6 +53,7 @@
     instanceId,
     mcVersion,
     loader,
+    loaderVersion = null,
     requestedFilter = null,
     onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
@@ -59,6 +61,10 @@
     instanceId: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // Needed to interpolate a platform-loader-axis mismatch hint ("needs loader
+    // version X, this profile runs Y"); optional because callers that never hit
+    // that hint (tests, other embeddings) should not have to supply it.
+    loaderVersion?: string | null;
     // A status view asked for by a deep-link (Overview → "N incompatible
     // mods"). Applied once, then cleared by the parent so an in-tab click is
     // never hijacked afterwards.
@@ -262,6 +268,16 @@
         detected: h.detected,
         loader: loader ? displayLoader(loader) : '',
       });
+    if (h.key === 'platformMc')
+      return get(t)('mods.installed.incompatHintPlatformMc', {
+        declared: h.declared,
+        mc: mcVersion ?? '',
+      });
+    if (h.key === 'platformLoader')
+      return get(t)('mods.installed.incompatHintPlatformLoader', {
+        declared: h.declared,
+        loaderVersion: loaderVersion ?? '',
+      });
     return get(t)('mods.installed.incompatHintNoRelease', {
       loader: loader ? displayLoader(loader) : '',
       mc: mcVersion ?? '',
@@ -311,6 +327,11 @@
   function openDetailMod(source: ModSource, projectId: string) {
     detail = { source, projectId };
   }
+
+  // MigrationPlanDialog: instance-wide, opened from any violated row's "Fix"
+  // button. Not scoped to the row that opened it — the plan judges every
+  // installed mod at once.
+  let migrationDialogOpen = $state(false);
 
   // Cumulative changelog for a pending mod update. The row exposes the button
   // only when an update is available from a supported source; this builds the
@@ -566,6 +587,7 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
+          onOpenMigration={() => (migrationDialogOpen = true)}
         />
       {/each}
     </div>
@@ -631,6 +653,23 @@
       {instanceId}
       onClose={() => (findAltViolation = null)}
       onInstalled={onPreflightAltInstalled}
+    />
+  {/if}
+
+  {#if migrationDialogOpen && instanceId}
+    <MigrationPlanDialog
+      {instanceId}
+      onClose={() => (migrationDialogOpen = false)}
+      onApplied={() => {
+        // Same refresh set the explicit uninstall/toggle handlers already
+        // trigger — belt-and-suspenders alongside the mod-installed /
+        // mod-uninstalled / mod-toggle events the apply command re-emits per
+        // action (see the debounced event listeners below).
+        void data.refresh();
+        deps.reloadGraph();
+        preflight.invalidate();
+        void compat.runOfflineScan({ force: true });
+      }}
     />
   {/if}
 

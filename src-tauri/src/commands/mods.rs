@@ -1739,12 +1739,18 @@ pub async fn mods_update_one(
     .await
 }
 
-/// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
-/// compatibility against the target instance.
+/// Inspect a local mod `.jar`: read its descriptor and judge loader-family and
+/// platform (Minecraft / loader-version range) compatibility against the
+/// target instance.
 ///
 /// Not write-free despite the name: the Connector probe below goes through
 /// `installed::list`, which reconciles the registry against the mods folder and
 /// persists when that changes. No *mod* file is touched.
+///
+/// Reads the instance's loader version off the record — same pattern as
+/// `scan_instance_mod_compat` / `instance_dependency_preflight` — since the
+/// platform axis needs it and a caller-supplied one could go stale or answer
+/// about an instance that no longer exists.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_inspect_local(
@@ -1761,15 +1767,20 @@ pub async fn mods_inspect_local(
                 path: jar_path.clone(),
                 details: format!("{} ({})", e, e.kind()),
             })?;
-    let meta = crate::mods::local::read_jar_meta(&bytes)?;
+    // `inspect_jar` itself is infallible (best-effort, like every other jar
+    // reader in this module) — surface a genuinely unreadable/non-jar file as
+    // an error up front, or it would silently fall through as "no mismatch
+    // detected" and let the user install garbage bytes.
+    crate::mods::local::read_jar_meta(&bytes)?;
     // The drop dialog must make the same judgement the Installed tab does: on a
     // Sinytra Connector profile, warning "this Fabric jar won't load" about a
     // jar Connector will happily remap is the same false alarm, one step earlier.
     let connector = crate::mods::local::instance_has_connector(&root).await;
-    Ok(crate::mods::local::compat_verdict(
-        &meta,
+    Ok(crate::mods::local::inspect_jar(
+        &bytes,
         inst.loader,
         &inst.mc_version,
+        inst.loader_version.as_deref(),
         connector,
     ))
 }
@@ -1898,19 +1909,551 @@ pub async fn check_instance_mod_compat(
     Ok(out)
 }
 
-/// Offline loader-compatibility scan of an instance's installed mods
-/// (Layer 1). Network-free; reads each jar's descriptor. Returns one
-/// `ModLocalCompat` per registered mod.
+/// Offline loader-compatibility + platform scan of an instance's installed
+/// mods (Layer 1). Network-free; reads each jar's descriptor.
+///
+/// Takes only the instance id: the MC version, loader and loader version are
+/// read from the instance record here, not supplied by the caller. A frontend
+/// that can pass a stale or partial platform triple is a frontend that can
+/// make this scan answer about an instance that does not exist.
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_instance_mod_compat(
     app: tauri::AppHandle,
     id: String,
-    mc: String,
-    loader: crate::instances::schema::LoaderKind,
 ) -> crate::error::Result<Vec<crate::mods::compat::ModLocalCompat>> {
     let inst_root = instance_root(&app, &id)?;
-    crate::mods::local::scan_instance(&inst_root, loader, &mc).await
+    let inst = crate::instances::read_instance(&app, &id)?;
+    crate::mods::local::scan_instance(
+        &inst_root,
+        inst.loader,
+        &inst.mc_version,
+        inst.loader_version.as_deref(),
+    )
+    .await
+}
+
+/// Read a mod jar's bytes by base filename, trying the `.disabled` variant
+/// too. Returns `None` if neither exists or the read fails.
+///
+/// Duplicates `mods::local::read_jar_for`'s two-path lookup rather than
+/// reusing it: that helper is a private fn of `local.rs`, and this module's
+/// mandate (Task 10) is scoped to `updates.rs` / `migration.rs` /
+/// `commands/mods.rs` / `lib.rs` — not `local.rs`.
+async fn read_installed_jar_bytes(mods_dir: &std::path::Path, filename: &str) -> Option<Vec<u8>> {
+    if let Ok(b) = tokio::fs::read(mods_dir.join(filename)).await {
+        return Some(b);
+    }
+    tokio::fs::read(mods_dir.join(format!("{filename}.disabled")))
+        .await
+        .ok()
+}
+
+/// Plan a Minecraft-version-change mod migration for `instance_id`: for every
+/// installed mod, judge its jar against the instance's CURRENT platform
+/// (`mc_compat::platform_verdict`, computed fresh here — not read off
+/// `scan_instance`, whose `ModLocalCompat.platform_mismatch` bool already
+/// collapses `Fits` and `Unknown` into the same `false`, which is exactly the
+/// distinction design decision #4 needs to keep). Violated mods with a
+/// [`replaceable_identity`](crate::mods::updates::replaceable_identity) are
+/// asked, bounded-concurrency, for a build at the instance's current MC +
+/// loader; each replaceable target's declared required deps are then asked
+/// for too (same shape again), so anything a later apply would ALSO need to
+/// pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
+/// is visible in the plan before anything is installed. Never applies
+/// anything: this command only reads and queries.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_plan_mc_migration(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::migration::McMigrationPlan> {
+    use crate::mods::deps::ProjectKey;
+    use crate::mods::mc_compat::PlatformVerdict;
+    use crate::mods::migration::{
+        build_migration_plan, fold_new_dependencies, CandidateQuery, Ineligible, ModMigrationInput,
+        TargetRequirement,
+    };
+    use crate::mods::updates::{is_pack_origin_mod, replaceable_identity};
+    use futures_util::stream::{self, StreamExt};
+
+    // Same bound as `check_instance_mod_compat` / `mods_check_updates` —
+    // dozens of simultaneous requests intermittently trip per-IP rate limits.
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+
+    let mc = inst.mc_version.clone();
+    let loader = inst.loader;
+    let loader_version = inst.loader_version.clone();
+    let era = crate::mods::local::descriptor_era(&mc);
+    let dir = crate::mods::installed::mods_dir(&inst_root);
+
+    // 1. Offline per-mod verdict + identity. No network — mirrors what
+    //    `local::scan_instance` does internally to read each jar's platform
+    //    declarations, but keeps the full three-way `PlatformVerdict` instead
+    //    of collapsing it to a bool.
+    let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
+    for m in &installed {
+        let bytes = read_installed_jar_bytes(&dir, &m.filename).await;
+        let verdict = bytes
+            .as_deref()
+            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok())
+            .map(|man| {
+                crate::mods::mc_compat::platform_verdict(
+                    &man,
+                    &mc,
+                    loader,
+                    loader_version.as_deref(),
+                    era,
+                )
+            })
+            .unwrap_or(PlatformVerdict::Unknown);
+        let identity = if is_pack_origin_mod(m, pack_origin.as_ref()) {
+            Err(Ineligible::PackOrigin)
+        } else {
+            replaceable_identity(m, pack_origin.as_ref()).ok_or(Ineligible::NoProject)
+        };
+        inputs.push(ModMigrationInput {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            verdict,
+            identity,
+            candidate: None,
+        });
+    }
+
+    // 2. Bounded-concurrency platform poll: for every VIOLATED mod with an
+    //    identity, ask the platform for builds at the instance's CURRENT
+    //    mc + loader. Same shape as `check_instance_mod_compat`.
+    let queries: Vec<(usize, ModSource, String)> = inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, inp)| match (&inp.verdict, &inp.identity) {
+            (PlatformVerdict::Violated { .. }, Ok((source, project_id))) => {
+                Some((i, *source, project_id.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let results: Vec<(usize, CandidateQuery)> = stream::iter(queries)
+        .map(|(i, source, project_id)| {
+            let mc = mc.clone();
+            async move {
+                let query = match platform_for(source)
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                {
+                    Ok(versions) => CandidateQuery::Found(versions),
+                    Err(_) => CandidateQuery::Failed,
+                };
+                (i, query)
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    for (i, q) in results {
+        inputs[i].candidate = Some(q);
+    }
+
+    // 3. Pure bucketing: fits / replaceable / stranded / unjudged.
+    let mut plan = build_migration_plan(inputs);
+
+    // 4. Replacement closure: for every replaceable row's chosen target,
+    //    resolve its declared required deps ONCE (the same
+    //    `ModPlatform::resolve_deps` call `mods_update_one` itself makes —
+    //    but here only to SHOW what it would pull in, never to install
+    //    anything). A failed resolution degrades to "no extra deps found for
+    //    this target" rather than failing the whole plan — this is a
+    //    best-effort enrichment on top of an already-useful plan, not a
+    //    field the caller can act on by itself.
+    let dep_queries: Vec<(usize, ModVersion)> = plan
+        .replaceable
+        .iter()
+        .enumerate()
+        .map(|(i, row)| (i, row.target.clone()))
+        .collect();
+    let dep_results: Vec<(usize, Vec<ModVersion>)> = stream::iter(dep_queries)
+        .map(|(i, target)| {
+            let mc = mc.clone();
+            async move {
+                let required = match platform_for(target.source)
+                    .resolve_deps(&target, &mc, loader)
+                    .await
+                {
+                    Ok(resolved) => resolved.required.into_iter().map(|r| r.version).collect(),
+                    Err(_) => Vec::new(),
+                };
+                (i, required)
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    let mut required_by_row: Vec<Vec<ModVersion>> = vec![Vec::new(); plan.replaceable.len()];
+    for (i, required) in dep_results {
+        required_by_row[i] = required;
+    }
+    let requirements: Vec<TargetRequirement> = plan
+        .replaceable
+        .iter()
+        .zip(required_by_row)
+        .map(|(row, required)| TargetRequirement {
+            row_name: row.name.clone(),
+            required,
+        })
+        .collect();
+
+    // 5. What the instance already has a jar for, regardless of fit — the
+    //    "post-migration mod set already contains this" test. Mirrors the
+    //    `installed: HashSet<ProjectKey>` construction `mods_install_with_deps`
+    //    / `mods_resolve_install_plan` already use for the same purpose.
+    let already_installed: std::collections::HashSet<ProjectKey> = installed
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
+    plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
+
+    Ok(plan)
+}
+
+/// Per-action progress closure for `mods_apply_mc_migration`, tagged with
+/// `project_id` so the UI routes the bar to the right row — the same shape
+/// `mods_update_one` / `mods_install_with_deps` already build inline, factored
+/// out here because this command builds one per action instead of once per
+/// command call.
+fn migration_progress_fn(
+    app: tauri::AppHandle,
+    instance_id: String,
+    project_id: String,
+    count: std::sync::Arc<crate::mods::install::ProgressCount>,
+) -> crate::mods::install::ProgressFn {
+    Box::new(move |phase, done, total| {
+        let (current, item_total) = count.snapshot();
+        let payload = match phase {
+            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
+                instance_id: instance_id.clone(),
+                project_id: project_id.clone(),
+                bytes_done: done as f64,
+                bytes_total: total.map(|t| t as f64),
+                current,
+                total: item_total,
+            },
+            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                instance_id: instance_id.clone(),
+                project_id: project_id.clone(),
+                bytes_done: done as f64,
+                current,
+                total: item_total,
+            },
+            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                instance_id: instance_id.clone(),
+                project_id: project_id.clone(),
+                current,
+                total: item_total,
+            },
+        };
+        let _ = payload.emit(&app);
+    })
+}
+
+/// Build one [`crate::tasks::TaskDetail`] row for an install-type migration
+/// action. Mirrors [`mod_install_details`]'s outcome-mapping byte-for-byte
+/// (`placement: None` → `Unchanged`, never a false `Installed`) — cannot
+/// reuse that helper directly: it zips a whole `install_seq` against a whole
+/// `installed_all` from one atomic batch, and migration actions apply one at
+/// a time, each with its own independent target/outcome pair.
+fn migration_task_detail(
+    target: &ModVersion,
+    inst: &crate::mods::install::Installed,
+) -> crate::tasks::TaskDetail {
+    let outcome = match inst.placement {
+        Some(placement) => crate::tasks::DetailOutcome::Installed {
+            fetched: inst.fetched,
+            placement,
+        },
+        None => crate::tasks::DetailOutcome::Unchanged,
+    };
+    crate::tasks::TaskDetail {
+        name: target.name.clone(),
+        install_path: format!("mods/{}", inst.filename),
+        origin: target.source.into(),
+        host: crate::network::request::host_of(&target.primary_file.url),
+        bytes: Some(target.primary_file.size),
+        sha1: {
+            let s = inst.sha1.trim();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        },
+        outcome,
+    }
+}
+
+/// Apply a Minecraft-version-change mod migration the user has already
+/// reviewed via `mods_plan_mc_migration` and settled into `selections`.
+///
+/// Never calls `mods_update_one`: that command resolves `target`'s ENTIRE
+/// required-dependency set fresh via `ModPlatform::resolve_deps` and installs
+/// it unpruned against whatever is already on disk — the exact anti-pattern
+/// that manufactures a duplicate-modId FML crash on a version-change
+/// migration (BiomesOPlenty mandatorily requiring `terrablender` +
+/// `glitchcore`; see the `mods::migration` module doc). This command drives
+/// [`crate::mods::install::update_one`] with an EMPTY required-deps list —
+/// the plan already resolved and pruned what each replacement needs — and
+/// [`crate::mods::install::install_one`] directly, never `resolve_deps`
+/// again.
+///
+/// Every action [`crate::mods::migration::resolve_migration_selections`]
+/// produces runs independently, in sequence — never as one atomic batch —
+/// so one row's failure is recorded in its own
+/// [`crate::mods::migration::McMigrationRowOutcome::Failed`] and every other
+/// row's already-applied change stands. Emits the same
+/// `mod-install-progress` / `mod-installed` / `mod-uninstalled` /
+/// `mod-toggle` / `mod-install-failed` events the single-mod commands already
+/// emit. For the install-type rows only, persists ONE aggregate
+/// `.lucerna/reports/<taskId>.json` via [`crate::reports::mint_and_record`] —
+/// the same task registry [`mods_install_with_deps`] uses for its own
+/// multi-file installs — rather than growing a private progress surface.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_apply_mc_migration(
+    app: tauri::AppHandle,
+    instance_id: String,
+    selections: crate::mods::migration::McMigrationSelections,
+) -> crate::error::Result<crate::mods::migration::McMigrationReport> {
+    use crate::mods::migration::{
+        resolve_migration_selections, McMigrationReport, McMigrationRowOutcome, MigrationAction,
+    };
+
+    // Same guard, same error variant, as `change_instance_mc`: touching
+    // `mods/` while the game (or a version change) is running races the live
+    // process.
+    if crate::launch::spawn::is_running(&instance_id) {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+
+    let actions = resolve_migration_selections(&selections);
+
+    let mut outcomes: Vec<McMigrationRowOutcome> = Vec::with_capacity(actions.len());
+    // Per-file provenance/outcome rows for the install-type actions only —
+    // disable/remove have no "install" shape to report through `reports`
+    // (mirrors `mods_disable` / `mods_uninstall`, which journal but never
+    // mint a report either).
+    let mut details: Vec<crate::tasks::TaskDetail> = Vec::new();
+    // Journal writes for install-type rows are deferred until the report id
+    // is minted below, so every one of them can carry `.with_report_id(...)`.
+    let mut pending_journal: Vec<crate::journal::JournalEvent> = Vec::new();
+
+    for action in actions {
+        match action {
+            MigrationAction::Replace { old_sha1, target } => {
+                let previous = mod_identity(&inst_root, &old_sha1).await;
+                let target_project_id = target.project_id.clone();
+                let target_name = target.name.clone();
+                let target_version = target.version_number.clone();
+                let target_for_detail = target.clone();
+
+                let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+                let prog = migration_progress_fn(
+                    app.clone(),
+                    instance_id.clone(),
+                    target_project_id.clone(),
+                    count.clone(),
+                );
+
+                match crate::mods::install::update_one(
+                    &dd,
+                    &inst_root,
+                    &old_sha1,
+                    target,
+                    Vec::new(),
+                    &prog,
+                    &count,
+                )
+                .await
+                {
+                    Ok(outcome) => {
+                        let _ = ModUninstalled {
+                            instance_id: instance_id.clone(),
+                            sha1: outcome.removed_sha1.clone(),
+                        }
+                        .emit(&app);
+                        let _ = ModInstalled {
+                            instance_id: instance_id.clone(),
+                            sha1: outcome.primary.sha1.clone(),
+                            filename: outcome.primary.filename.clone(),
+                            name: outcome.primary.name.clone(),
+                        }
+                        .emit(&app);
+                        pending_journal.push(crate::journal::content_versioned(
+                            crate::journal::ContentAction::ModUpdated,
+                            outcome.primary.name.clone(),
+                            previous.and_then(|(_, v)| v),
+                            Some(target_version),
+                        ));
+                        details.push(migration_task_detail(&target_for_detail, &outcome.primary));
+                        outcomes.push(McMigrationRowOutcome::Replaced {
+                            old_sha1: outcome.removed_sha1,
+                            name: outcome.primary.name,
+                            new_sha1: outcome.primary.sha1,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = ModInstallFailed {
+                            instance_id: instance_id.clone(),
+                            project_id: target_project_id,
+                            error: e.clone(),
+                        }
+                        .emit(&app);
+                        outcomes.push(McMigrationRowOutcome::Failed {
+                            name: target_name,
+                            error: e,
+                        });
+                    }
+                }
+            }
+            MigrationAction::InstallNewDependency { target } => {
+                let target_project_id = target.project_id.clone();
+                let target_name = target.name.clone();
+                let target_for_detail = target.clone();
+
+                let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+                // `install_one` never touches `count` itself (only
+                // `update_one` / `install_batch` do, in their own item
+                // loops) — stamp "1 of 1" up front so this action's ticks
+                // read a sane current/total instead of 0/0.
+                count.total.store(1, std::sync::atomic::Ordering::Relaxed);
+                count.current.store(1, std::sync::atomic::Ordering::Relaxed);
+                let prog = migration_progress_fn(
+                    app.clone(),
+                    instance_id.clone(),
+                    target_project_id.clone(),
+                    count.clone(),
+                );
+
+                match crate::mods::install::install_one(&dd, &inst_root, target, &prog).await {
+                    Ok(inst) => {
+                        let _ = ModInstalled {
+                            instance_id: instance_id.clone(),
+                            sha1: inst.sha1.clone(),
+                            filename: inst.filename.clone(),
+                            name: inst.name.clone(),
+                        }
+                        .emit(&app);
+                        pending_journal.push(crate::journal::content(
+                            crate::journal::ContentAction::ModInstalled,
+                            inst.name.clone(),
+                        ));
+                        details.push(migration_task_detail(&target_for_detail, &inst));
+                        outcomes.push(McMigrationRowOutcome::InstalledDependency {
+                            name: inst.name,
+                            sha1: inst.sha1,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = ModInstallFailed {
+                            instance_id: instance_id.clone(),
+                            project_id: target_project_id,
+                            error: e.clone(),
+                        }
+                        .emit(&app);
+                        outcomes.push(McMigrationRowOutcome::Failed {
+                            name: target_name,
+                            error: e,
+                        });
+                    }
+                }
+            }
+            MigrationAction::DisableStranded { sha1 } => {
+                let identity = mod_identity(&inst_root, &sha1).await;
+                let name = identity
+                    .as_ref()
+                    .map(|(n, _)| n.clone())
+                    .unwrap_or_else(|| sha1.clone());
+                match crate::mods::install::disable(&inst_root, &sha1).await {
+                    Ok(()) => {
+                        if let Some((n, v)) = identity {
+                            crate::journal::record(
+                                &inst_root,
+                                crate::journal::content_versioned(
+                                    crate::journal::ContentAction::ModDisabled,
+                                    n,
+                                    v,
+                                    None,
+                                ),
+                            );
+                        }
+                        let _ = ModToggle {
+                            instance_id: instance_id.clone(),
+                            sha1: sha1.clone(),
+                            enabled: false,
+                        }
+                        .emit(&app);
+                        outcomes.push(McMigrationRowOutcome::Disabled { sha1, name });
+                    }
+                    Err(e) => outcomes.push(McMigrationRowOutcome::Failed { name, error: e }),
+                }
+            }
+            MigrationAction::RemoveStranded { sha1 } => {
+                let identity = mod_identity(&inst_root, &sha1).await;
+                let name = identity
+                    .as_ref()
+                    .map(|(n, _)| n.clone())
+                    .unwrap_or_else(|| sha1.clone());
+                match crate::mods::install::uninstall(&inst_root, &sha1).await {
+                    Ok(()) => {
+                        if let Some((n, v)) = identity {
+                            crate::journal::record(
+                                &inst_root,
+                                crate::journal::content_versioned(
+                                    crate::journal::ContentAction::ModRemoved,
+                                    n,
+                                    v,
+                                    None,
+                                ),
+                            );
+                        }
+                        let _ = ModUninstalled {
+                            instance_id: instance_id.clone(),
+                            sha1: sha1.clone(),
+                        }
+                        .emit(&app);
+                        outcomes.push(McMigrationRowOutcome::Removed { sha1, name });
+                    }
+                    Err(e) => outcomes.push(McMigrationRowOutcome::Failed { name, error: e }),
+                }
+            }
+        }
+    }
+
+    // Register with the operations/task registry — one aggregate report
+    // covering every install-type row this apply touched — instead of
+    // growing a private progress surface. Mirrors `mods_install_with_deps`.
+    if !details.is_empty() {
+        let task_id = crate::reports::mint_and_record(&inst_root, details);
+        for event in pending_journal {
+            crate::journal::record(&inst_root, event.with_report_id(task_id.clone()));
+        }
+    }
+
+    Ok(McMigrationReport { outcomes })
 }
 
 #[tauri::command]
@@ -2449,8 +2992,13 @@ pub async fn instance_dependency_preflight(
     // The MC version decides which descriptor the loader opens — Forge 1.12.2
     // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
     let inst = crate::instances::read_instance(&app, &instance_id)?;
-    crate::mods::preflight::dependency_preflight_for_root(&root, inst.loader, &inst.mc_version)
-        .await
+    crate::mods::preflight::dependency_preflight_for_root(
+        &root,
+        inst.loader,
+        &inst.mc_version,
+        inst.loader_version.as_deref(),
+    )
+    .await
 }
 
 #[cfg(test)]

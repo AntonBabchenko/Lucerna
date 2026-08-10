@@ -23,6 +23,9 @@ const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLoca
   loader_mismatch: mismatch,
   detected_loader: mismatch ? 'Fabric' : null,
   live_checkable: liveCheckable,
+  platform_mismatch: false,
+  platform_axis: null,
+  platform_declared: null,
 });
 
 const ok = (data: ModLocalCompat[]) => ({ status: 'ok' as const, data });
@@ -136,6 +139,44 @@ describe('compat-scan store', () => {
     );
     await ensureCompatScan('i1', '1.21.1', 'neoforge');
     expect(offlineMismatchCount()).toBe(1);
+  });
+
+  it('counts a platform mismatch even when the loader family is fine', async () => {
+    // BiomesOPlenty on a downgraded instance: right family, wrong loader version.
+    mocks.scanInstanceModCompat.mockResolvedValue(
+      ok([
+        {
+          ...entry('bop', false, true),
+          platform_mismatch: true,
+          platform_axis: 'loader',
+          platform_declared: '[61.0.2,)',
+        },
+      ]),
+    );
+    await ensureCompatScan('i1', '1.21.1', 'neoforge');
+    expect(offlineMismatchCount()).toBe(1);
+  });
+
+  it('a platform mismatch is counted regardless of live_checkable', async () => {
+    // The !live_checkable guard belongs to the loader-FAMILY axis only.
+    mocks.scanInstanceModCompat.mockResolvedValue(
+      ok([
+        {
+          ...entry('checkable', false, true),
+          platform_mismatch: true,
+          platform_axis: 'minecraft',
+          platform_declared: '(1.21.10, 26.1.0)',
+        },
+        {
+          ...entry('not-checkable', false, false),
+          platform_mismatch: true,
+          platform_axis: 'minecraft',
+          platform_declared: '(1.21.10, 26.1.0)',
+        },
+      ]),
+    );
+    await ensureCompatScan('i1', '1.21.1', 'neoforge');
+    expect(offlineMismatchCount()).toBe(2);
   });
 
   it('clears when there is no instance', async () => {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { locale } from '$lib/i18n';
-import { compatSummary, loaderOutcomeToast } from '$lib/instances/integrity-messages';
-import type { LoaderOutcome, ModCompat } from '$lib/ipc/bindings';
+import { compatSummaryFromScan, loaderOutcomeToast } from '$lib/instances/integrity-messages';
+import type { LoaderOutcome, ModLocalCompat } from '$lib/ipc/bindings';
 
 // The functions under test call get(t) at invocation time. Pin to 'en'
 // so assertions on English text hold regardless of the runner's OS locale.
@@ -73,71 +73,77 @@ describe('loaderOutcomeToast', () => {
 });
 
 // ---------------------------------------------------------------------------
-// compatSummary
+// compatSummaryFromScan
 // ---------------------------------------------------------------------------
 
-function makeCompat(status: ModCompat['status']): ModCompat {
-  return { sha1: 'abc', name: 'TestMod', status };
+function makeLocalCompat(sha1: string, overrides: Partial<ModLocalCompat> = {}): ModLocalCompat {
+  return {
+    sha1,
+    loader_mismatch: false,
+    detected_loader: null,
+    live_checkable: true,
+    platform_mismatch: false,
+    platform_axis: null,
+    platform_declared: null,
+    ...overrides,
+  };
 }
 
-describe('compatSummary', () => {
-  it('returns null for empty array', () => {
-    expect(compatSummary([])).toBeNull();
+describe('compatSummaryFromScan', () => {
+  it('returns null for an empty scan', () => {
+    expect(compatSummaryFromScan([], 0)).toBeNull();
   });
 
-  it('returns null when all mods are compatible', () => {
-    const rows: ModCompat[] = [
-      makeCompat({ status: 'compatible', available_version: '1.0' }),
-      makeCompat({ status: 'compatible', available_version: null }),
-    ];
-    expect(compatSummary(rows)).toBeNull();
+  it('returns null for a fully-clean scan', () => {
+    const scan: ModLocalCompat[] = Array.from({ length: 15 }, (_, i) =>
+      makeLocalCompat(`clean-${i}`),
+    );
+    expect(compatSummaryFromScan(scan, 15)).toBeNull();
   });
 
-  it('returns a string with correct incompatible count when some are incompatible', () => {
-    const rows: ModCompat[] = [
-      makeCompat({ status: 'compatible', available_version: '1.0' }),
-      makeCompat({ status: 'incompatible' }),
-      makeCompat({ status: 'incompatible' }),
-    ];
-    const result = compatSummary(rows);
+  it('reports the stale jars after a version change instead of zero', () => {
+    // The reported defect: six 1.21.11 jars in a 1.20.1 instance. Every one of
+    // those six PROJECTS publishes a 1.20.1 build, so the old platform-query
+    // summary computed "0 of 15" and rendered nothing. The offline scan judges
+    // the FILE, so it must report six.
+    const stale = Array.from({ length: 6 }, (_, i) =>
+      makeLocalCompat(`stale-${i}`, {
+        platform_mismatch: true,
+        loader_mismatch: false,
+        live_checkable: true,
+        platform_axis: 'loader',
+        platform_declared: '[61.0.2,)',
+      }),
+    );
+    const clean = Array.from({ length: 9 }, (_, i) => makeLocalCompat(`clean-${i}`));
+    const scan = [...stale, ...clean];
+
+    const result = compatSummaryFromScan(scan, 15);
     expect(result).not.toBeNull();
-    expect(result).toContain('2 of 3');
+    expect(result).toContain('6 of 15');
   });
 
-  it('does not include unknown suffix when unknown count is 0', () => {
-    const rows: ModCompat[] = [
-      makeCompat({ status: 'incompatible' }),
-      makeCompat({ status: 'compatible', available_version: '2.0' }),
+  it('counts an unconfirmed loader-family suspect the same way the Overview does', () => {
+    const scan: ModLocalCompat[] = [
+      makeLocalCompat('manual-suspect', { loader_mismatch: true, live_checkable: false }),
+      makeLocalCompat('fine'),
     ];
-    const result = compatSummary(rows);
-    expect(result).not.toBeNull();
-    expect(result).not.toContain("couldn't be checked");
+    expect(compatSummaryFromScan(scan, 2)).toContain('1 of 2');
   });
 
-  it('includes unknown suffix when unknown count > 0', () => {
-    const rows: ModCompat[] = [
-      makeCompat({ status: 'incompatible' }),
-      makeCompat({ status: 'unknown' }),
-      makeCompat({ status: 'compatible', available_version: '1.0' }),
+  it('does not count a loader-family suspect that still needs a live check', () => {
+    // Mirrors offlineMismatchCount's contract: a multi-loader jar awaiting
+    // live confirmation is not flagged from the offline scan alone.
+    const scan: ModLocalCompat[] = [
+      makeLocalCompat('suspect', { loader_mismatch: true, live_checkable: true }),
     ];
-    const result = compatSummary(rows);
-    expect(result).not.toBeNull();
-    expect(result).toContain("1 couldn't be checked");
-  });
-
-  it('counts only unknowns (no incompatible) as worth surfacing', () => {
-    const rows: ModCompat[] = [
-      makeCompat({ status: 'unknown' }),
-      makeCompat({ status: 'compatible', available_version: '1.0' }),
-    ];
-    const result = compatSummary(rows);
-    // 0 incompatible but 1 unknown — still show warning (user should know)
-    expect(result).not.toBeNull();
-    expect(result).toContain("couldn't be checked");
+    expect(compatSummaryFromScan(scan, 1)).toBeNull();
   });
 
   it('mentions review in mods tab', () => {
-    const rows: ModCompat[] = [makeCompat({ status: 'incompatible' })];
-    expect(compatSummary(rows)).toContain('Mods tab');
+    const scan: ModLocalCompat[] = [
+      makeLocalCompat('a', { platform_mismatch: true, platform_axis: 'minecraft' }),
+    ];
+    expect(compatSummaryFromScan(scan, 1)).toContain('Mods tab');
   });
 });

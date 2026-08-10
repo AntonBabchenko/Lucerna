@@ -385,7 +385,6 @@
       "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
       "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
       "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
-      "compatWarningWithUnknown": "{incompatible} of {total} installed mods have no version for this configuration · {unknown} couldn't be checked. Review in the Mods tab.",
       "heading": "Integrity",
       "subtitle": "Verify the instance's game files against their checksums.",
       "verifyBtn": "Verify",
@@ -722,7 +721,8 @@
       "toastRetry": "Retry",
       "toastInstalledMod": "Installed {name}",
       "mismatchLoader": "looks like a {detected} mod, instance is {instance}",
-      "mismatchMc": "targets MC {detected}, instance is {instance}",
+      "mismatchMc": "needs Minecraft {detected}, this profile runs {instance}",
+      "mismatchPlatformLoader": "needs loader version {detected}, this profile runs {instance}",
       "mismatchDefault": "may not be compatible",
       "toastCouldNotRead": "Could not read {filename}",
       "toastInstalled": "{count, plural, one {Installed # mod} other {Installed # mods}}",
@@ -841,6 +841,8 @@
       "checkingCompat": "Checking…",
       "incompatHintLoader": "This mod is for {detected}; the instance uses {loader}",
       "incompatHintNoRelease": "No release for {loader} {mc} — disable or remove it",
+      "incompatHintPlatformMc": "This mod needs Minecraft {declared}; this profile runs {mc}",
+      "incompatHintPlatformLoader": "This mod needs loader version {declared}; this profile runs {loaderVersion}",
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",
@@ -947,6 +949,44 @@
       "updateTip": "Updates to the newest version that satisfies this dependency and fits this instance's Minecraft and loader.",
       "chooseVersionTip": "Pick a specific version by hand.",
       "findAlternativeTip": "Search for a replacement mod when no version fits."
+    },
+    "migration": {
+      "openBtn": "Fix incompatible mods",
+      "rowFixBtn": "Fix",
+      "title": "Migration plan",
+      "loading": "Checking installed mods…",
+      "retryBtn": "Try again",
+      "summary": "{fits} mods already fit this configuration · {replaceable} can be re-fetched · {stranded} are stranded",
+      "unjudgedLine": "{count, plural, one {# mod} other {# mods}} couldn't be checked — not counted as fitting",
+      "nothingToDo": "Every installed mod already fits this configuration — nothing to migrate.",
+      "replaceableHeading": "Can be re-fetched ({count})",
+      "replaceableTarget": "New build: {version}",
+      "newDependenciesHeading": "New dependencies needed ({count})",
+      "neededBy": "Needed by {names}",
+      "strandedHeading": "Needs your decision ({count})",
+      "dispositionAriaLabel": "What to do with {name}",
+      "disposition": {
+        "disable": "Disable",
+        "remove": "Remove",
+        "keep": "Keep"
+      },
+      "reason": {
+        "noBuildForTarget": "No build has been published yet for this Minecraft version and loader.",
+        "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
+        "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
+        "queryFailed": "Couldn't check for a replacement — try again later."
+      },
+      "applyBtn": "Apply",
+      "applyDisabledReason": "Choose disable, remove, or keep for {count, plural, one {# more mod} other {# more mods}} before applying",
+      "resultSummary": "{succeeded} of {total} changes applied",
+      "outcome": {
+        "replaced": "Replaced",
+        "installedDependency": "Installed",
+        "disabled": "Disabled",
+        "removed": "Removed",
+        "failedBadge": "Failed"
+      },
+      "doneBtn": "Done"
     }
   },
   "addons": {
@@ -1510,6 +1550,11 @@
           "title": "Create goggles are spamming errors",
           "explanation": "While wearing Create goggles and looking at a mob or other entity, a Create add-on throws an error every frame. The game keeps running, but the log fills up and the goggle overlay flickers.",
           "recommendation": "Lucerna can install a small community fix mod that resolves this. It's a third-party mod, not an official patch — review it before installing."
+        },
+        "javafmlLanguageProvider": {
+          "title": "Mods need a newer Forge than this instance runs",
+          "explanation": "Forge tags every mod-loading feature set with a \"language provider\" version (javafml). One or more of your mod jars were built for a newer Forge than this instance is running, so Forge refused to load them during pre-loading. This is the usual symptom of changing an instance's Minecraft/Forge version while jars built for the old version are still sitting in the mods folder.",
+          "recommendation": "Open the Installed tab for this instance — mods that don't match its current Minecraft/Forge version are flagged there, and Lucerna can walk you through migrating or removing them so they match this instance again."
         },
         "forgeDuplicateMods": {
           "title": "Two copies of the same mod are installed",

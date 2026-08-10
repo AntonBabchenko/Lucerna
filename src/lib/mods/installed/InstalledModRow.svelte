@@ -46,6 +46,7 @@
     onSelectChange,
     onInstallDep,
     onJump,
+    onOpenMigration,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -81,6 +82,11 @@
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
+    // Opens the instance-wide MigrationPlanDialog. Only rendered next to a
+    // violated row's badge — the plan itself is not scoped to one mod (the
+    // backend judges every installed mod at once), but this is the row that
+    // told the user something was wrong, so it is where they act on it.
+    onOpenMigration: () => void;
   } = $props();
 
   // One expand control summarises both directions of the dependency relation:
@@ -187,6 +193,14 @@
               {$t('mods.installed.badgeIncompatible')}
             </StatusBadge>
           </span>
+          <button
+            type="button"
+            class="btn-tertiary"
+            data-testid="row-open-migration-btn"
+            onclick={onOpenMigration}
+          >
+            {$t('mods.migration.rowFixBtn')}
+          </button>
         {/if}
         {#if authorClaims.length > 0}
           <!-- Neutral register on purpose: not `danger`, not `warning`. Nothing

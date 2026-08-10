@@ -300,6 +300,7 @@ pub async fn build_repair_plan(
                 &inst_root,
                 instance.loader,
                 &instance.mc_version,
+                instance.loader_version.as_deref(),
             )
             .await
             .unwrap_or_default();

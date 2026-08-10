@@ -123,6 +123,17 @@ static CLIENT_EXTRA_MODS_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
+// Forge's FML tags every mod-loading feature set with a "language provider"
+// version (javafml). A mod built for a newer Forge fails pre-loading with
+// either shape below — most often seen right after downgrading an instance's
+// Minecraft/Forge version while old mod jars are still sitting in `mods/`:
+//   "Missing language javafml version [61,) wanted by <jar>, found 47"
+//   "... needs language provider javafml:48 or above to load"
+static JAVAFML_LANGUAGE_PROVIDER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"Missing language javafml version|needs language provider javafml")
+        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+});
+
 // --- The knowledge base --------------------------------------------
 
 // NOTE: the inline annotator (annotate.rs) scans this table too and MUST side-filter it.
@@ -284,6 +295,23 @@ pub const PATTERNS: &[Pattern] = &[
         source_hint: SourceHint::GameLog,
         side: Side::Client,
     },
+    Pattern {
+        id: "javafml-language-provider",
+        matcher: Matcher::Regex(&JAVAFML_LANGUAGE_PROVIDER_RE),
+        title: "Mods need a newer Forge than this instance runs",
+        explanation:
+            "Forge tags every mod-loading feature set with a \"language provider\" version \
+             (javafml). One or more of your mod jars were built for a newer Forge than this \
+             instance is running, so Forge refused to load them during pre-loading. This is the \
+             usual symptom of changing an instance's Minecraft/Forge version while jars built \
+             for the old version are still sitting in the mods folder.",
+        recommendation:
+            "Open the Installed tab for this instance — mods that don't match its current \
+             Minecraft/Forge version are flagged there, and Lucerna can walk you through \
+             migrating or removing them so they match this instance again.",
+        source_hint: SourceHint::Any,
+        side: Side::Client,
+    },
 ];
 
 #[cfg(test)]
@@ -336,9 +364,10 @@ mod tests {
     }
 
     #[test]
-    fn ships_exactly_ten_patterns() {
+    fn ships_exactly_eleven_patterns() {
         // 9 → 10 for `create-goggle-overlay-crash` (first fix-mod-backed pattern).
-        assert_eq!(PATTERNS.len(), 10);
+        // 10 → 11 for `javafml-language-provider` (FML pre-load language-provider refusal).
+        assert_eq!(PATTERNS.len(), 11);
     }
 
     #[test]

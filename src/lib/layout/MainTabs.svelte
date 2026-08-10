@@ -14,6 +14,7 @@
     instanceName = null,
     mcVersion = null,
     loader = null,
+    loaderVersion = null,
     onListChanged = () => {},
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
@@ -24,6 +25,7 @@
     instanceName?: string | null;
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
+    loaderVersion?: string | null;
     onListChanged?: () => void;
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
@@ -166,7 +168,7 @@
         {@render overview()}
       {/if}
     {:else if active === 'mod_browser'}
-      <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
+      <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} {loaderVersion} />
     {:else if active === 'worlds'}
       <WorldsTab
         {instanceId}

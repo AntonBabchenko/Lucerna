@@ -7,7 +7,7 @@
     type VersionEntry,
     type Error as IpcError,
     type MemoryBounds,
-    type ModCompat,
+    type ModLocalCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
@@ -18,7 +18,9 @@
   import { shouldFocusField, type ManageFocusField } from '$lib/instances/manage-focus';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
+  import { loaderOutcomeToast, compatSummaryFromScan } from '$lib/instances/integrity-messages';
+  import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
+  import MigrationPlanDialog from '$lib/mods/MigrationPlanDialog.svelte';
   import { formatHeapLabel } from '$lib/instances/heap';
   import { FALLBACK_MEMORY_BOUNDS, loadMemoryBounds } from '$lib/instances/memory-bounds';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -184,10 +186,26 @@
   });
 
   // Mod-compat summary for the current instance after an MC/loader change.
-  let compatRows = $state<ModCompat[] | null>(null);
-  // Set when a compat check could not be computed (command error / throw) so the
-  // user gets a quiet "couldn't check" note instead of a silent degradation.
+  // Sourced from the shared offline scan (`compat-scan.svelte`), not a
+  // platform query: the platform answers "does this PROJECT have a build for
+  // (mc, loader)?", which every mod in the original bug report could answer
+  // yes to even though the FILE on disk was still the old build.
+  let compatRows = $state<ModLocalCompat[] | null>(null);
+  // Set when the compat scan could not be computed. `ensureCompatScan`
+  // absorbs an ordinary backend error itself (keeps the previous scan in
+  // place, by design — see compat-scan.svelte's doc comment), so this can
+  // only still be reached by a genuine transport-level throw. Rare, but real
+  // enough to keep the quiet "couldn't check" note rather than going silent.
   let compatCheckFailed = $state(false);
+  // Derived once so the StatusMessage and the "fix" entry point below it
+  // agree on exactly when there is something to review — computing
+  // `compatSummaryFromScan` twice risked the two drifting apart.
+  let compatWarningText = $derived(
+    compatRows !== null ? compatSummaryFromScan(compatRows, compatRows.length) : null,
+  );
+  // Opens MigrationPlanDialog for `selected`. The compat summary above tells
+  // the user something is wrong; this is where they act on it.
+  let migrationDialogOpen = $state(false);
   // Reset compat state when the selected instance changes.
   $effect(() => {
     void selectedId;
@@ -461,17 +479,16 @@
   // summary. The fresh values come straight from the command result.
   async function runModCompatCheck(id: string, mc: string, loader: LoaderKind) {
     try {
-      const r = await commands.checkInstanceModCompat(id, mc, loader);
+      // force: true — the mod set didn't change the scan key, so an unforced
+      // call would be deduplicated away against a scan from before this
+      // MC/loader change.
+      await ensureCompatScan(id, mc, loader, { force: true });
       if (isStale(id)) return;
-      if (r.status === 'ok') {
-        compatRows = r.data;
-        compatCheckFailed = false;
-      } else {
-        // Non-blocking degradation: surface a quiet note rather than a modal error.
-        compatRows = null;
-        compatCheckFailed = true;
-      }
+      compatRows = compatScanEntries();
+      compatCheckFailed = false;
     } catch {
+      // ensureCompatScan absorbs an ordinary backend error and keeps the
+      // previous scan in place; reaching here means the IPC call itself threw.
       if (isStale(id)) return;
       compatRows = null;
       compatCheckFailed = true;
@@ -1015,9 +1032,21 @@
                     tone="warning"
                     live="polite"
                     withIcon
-                    message={compatRows !== null ? compatSummary(compatRows) : null}
+                    message={compatWarningText}
                     class="bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
                   />
+                  {#if compatWarningText}
+                    <div class="flex justify-end mb-1">
+                      <button
+                        type="button"
+                        class="btn-tertiary btn-xs"
+                        data-testid="open-migration-plan-btn"
+                        onclick={() => (migrationDialogOpen = true)}
+                      >
+                        {$t('mods.migration.openBtn')}
+                      </button>
+                    </div>
+                  {/if}
                   <StatusMessage
                     tone="info"
                     live="polite"
@@ -1354,5 +1383,17 @@
         </button>
       </div>
     </Modal>
+  {/if}
+
+  {#if migrationDialogOpen && selected}
+    <MigrationPlanDialog
+      instanceId={selected.id}
+      onClose={() => (migrationDialogOpen = false)}
+      onApplied={() => {
+        // Refresh the compat scan so the summary above reflects what the
+        // migration just fixed, rather than showing stale pre-fix counts.
+        void runModCompatCheck(selected!.id, selected!.mc_version, selected!.loader);
+      }}
+    />
   {/if}
 {/if}

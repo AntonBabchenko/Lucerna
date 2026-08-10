@@ -52,14 +52,34 @@ export function compatScanEntries(): ModLocalCompat[] {
 }
 
 /**
- * Mods whose loader family mismatches the instance AND that cannot be checked
- * against a platform — the offline-decidable verdicts. This is the Overview's
- * count: a platform suspect is excluded because confirming it needs a network
- * call the Overview does not make, and counting the raw suspicion would flag
- * multi-loader jars that are perfectly fine.
+ * Whether a single scanned mod will not load, on either offline-decidable
+ * axis — the file-level verdict that both `offlineMismatchCount` (the
+ * Overview) and `compatSummaryFromScan` (the post-version-change summary in
+ * the Manage modal) report on. Exported so both call the same predicate
+ * instead of each re-deriving it: two answers to this one question is
+ * exactly the defect this shared scan exists to eliminate.
+ *
+ * - `platform_mismatch` is read straight off the jar's declared MC/loader
+ *   range against what the instance provides. It needs no `live_checkable`
+ *   guard and no live confirmation — the range violation is a property of
+ *   the file that will actually be launched, not a suspicion about the
+ *   project. No platform answer can overrule it.
+ * - `loader_mismatch` keeps its `!live_checkable` guard: a multi-loader jar
+ *   needs live confirmation before it is called incompatible, and offline
+ *   consumers must not make that network call — counting the raw suspicion
+ *   here would flag multi-loader jars that are perfectly fine.
+ */
+export function isOfflineMismatch(entry: ModLocalCompat): boolean {
+  return entry.platform_mismatch || (entry.loader_mismatch && !entry.live_checkable);
+}
+
+/**
+ * Mods that will not load, on either offline-decidable axis. This is the
+ * Overview's count — every jar counted here can be decided from the file
+ * alone, with no network call. See `isOfflineMismatch` for the predicate.
  */
 export function offlineMismatchCount(): number {
-  return entries.filter((e) => e.loader_mismatch && !e.live_checkable).length;
+  return entries.filter(isOfflineMismatch).length;
 }
 
 /**
@@ -106,7 +126,7 @@ export async function ensureCompatScan(
     entries = [];
   }
   const run = (async () => {
-    const r = await commands.scanInstanceModCompat(instanceId, mcVersion, loader);
+    const r = await commands.scanInstanceModCompat(instanceId);
     if (gen !== generation) return; // superseded by a newer scan
     if (r.status !== 'ok') return; // keep whatever we had
     key = next;
