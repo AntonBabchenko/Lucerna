@@ -96,7 +96,31 @@ pub fn name_matches(dep_id: &str, slug: Option<&str>, name: &str) -> bool {
             return true;
         }
     }
-    norm(name).contains(&needle)
+    if norm(name).contains(&needle) {
+        return true;
+    }
+
+    // Also compare with separators REMOVED, not just normalized. `norm` keeps
+    // them as `_`, so a separator-less loader id can never be a substring of a
+    // hyphenated slug. The download-time `jar_provides` gate remains the final
+    // arbiter, so this only broadens candidate DISCOVERY — it cannot install a
+    // wrong jar (resolver-kernel design, 2026-06-22, R1).
+    fn squash(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_lowercase())
+            .collect()
+    }
+    let squashed_needle = squash(dep_id);
+    if squashed_needle.is_empty() {
+        return false;
+    }
+    if let Some(s) = slug {
+        if squash(s).contains(&squashed_needle) {
+            return true;
+        }
+    }
+    squash(name).contains(&squashed_needle)
 }
 
 #[cfg(test)]
@@ -205,5 +229,46 @@ mod tests {
             "Fungal Infection:Spore"
         ));
         assert!(!name_matches("   ", Some("anything"), "Anything"));
+    }
+
+    // --- Separator-stripped comparison (Task 14) ------------------------
+    //
+    // Forge mod-ids are conventionally separator-less (`forgeconfigapiport`)
+    // while platform slugs are hyphenated (`forge-config-api-port`). The
+    // normalized-contains check alone can never accept that pair: `norm`
+    // keeps separators as `_`, so the separator-less needle is never a
+    // substring of the underscored slug.
+
+    #[test]
+    fn name_matches_separator_less_id_against_hyphenated_slug_and_display_name() {
+        assert!(name_matches(
+            "forgeconfigapiport",
+            Some("forge-config-api-port"),
+            "Forge Config API Port"
+        ));
+    }
+
+    #[test]
+    fn name_matches_still_honors_the_resolver_kernel_r1_case() {
+        // The original R1 recovery (loader id `spore` → published slug
+        // `fungal-infection-spore`) must keep working once the separator-
+        // stripped comparison is added alongside the normalized one.
+        assert!(name_matches(
+            "spore",
+            Some("fungal-infection-spore"),
+            "Fungal Infection: Spore"
+        ));
+    }
+
+    #[test]
+    fn name_matches_unrelated_id_still_rejected_across_hyphenated_slugs() {
+        // `jei` must not spuriously match the (unrelated) forgeconfigapiport
+        // slug/name cluster once separator-stripped comparison is added —
+        // the id shares no substring with either squashed form.
+        assert!(!name_matches(
+            "jei",
+            Some("forge-config-api-port"),
+            "Forge Config API Port"
+        ));
     }
 }
