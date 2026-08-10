@@ -74,6 +74,8 @@ pub use server_datapacks::*;
 pub use vanillatweaks::*;
 mod l10n;
 pub use l10n::*;
+mod diag_ui;
+pub use diag_ui::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)
