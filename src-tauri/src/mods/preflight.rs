@@ -160,6 +160,23 @@ pub enum Violation {
         installed: String,
         family: crate::mods::version_range::RangeFamily,
     },
+    /// The jar declares a platform — a Minecraft or loader version range — this
+    /// instance does not provide. The loader refuses such a jar outright; this
+    /// is the `ModLoadingException` this whole feature exists to prevent.
+    PlatformMismatch {
+        dependent_sha1: String,
+        dependent_name: String,
+        /// `"minecraft"` for the MC axis; the loader's CANONICAL id for the
+        /// loader axis — normalized, not necessarily the descriptor's own
+        /// spelling. `mc_compat::actual_for` accepts both `fabricloader` and
+        /// `fabric-loader`, and either is reported here as `fabricloader`.
+        /// Label only: nothing downstream matches this back to a declaration.
+        dep_id: String,
+        needed: String,
+        /// What the instance provides on that axis.
+        installed: String,
+        family: crate::mods::version_range::RangeFamily,
+    },
 }
 
 /// Where a descriptor sits in the order this instance's loader reads files.
@@ -264,6 +281,8 @@ pub fn resolve(
     index: &ProviderIndex,
     loader: crate::instances::schema::LoaderKind,
     era: crate::mods::local::DescriptorEra,
+    instance_mc: &str,
+    loader_version: Option<&str>,
 ) -> Vec<Violation> {
     let mut out = Vec::new();
     for m in mods {
@@ -340,8 +359,53 @@ pub fn resolve(
             };
             out.push(violation);
         }
+
+        // The platform axes. The enforcement rules live in `mc_compat`, which
+        // reuses this function's own (side, effective_rank, kind, satisfaction)
+        // chain, so there is exactly one implementation of them.
+        if let crate::mods::mc_compat::PlatformVerdict::Violated {
+            axis,
+            declared,
+            actual,
+            family,
+            ..
+        } = crate::mods::mc_compat::platform_verdict(
+            &m.manifest,
+            instance_mc,
+            loader,
+            loader_version,
+            era,
+        ) {
+            out.push(Violation::PlatformMismatch {
+                dependent_sha1: m.sha1.clone(),
+                dependent_name: m.name.clone(),
+                dep_id: match axis {
+                    crate::mods::mc_compat::PlatformAxis::Minecraft => "minecraft".to_string(),
+                    crate::mods::mc_compat::PlatformAxis::Loader => loader_dep_id(loader),
+                },
+                needed: declared,
+                installed: actual,
+                family,
+            });
+        }
     }
     out
+}
+
+/// The dependency id a loader is declared under. Used only to label a platform
+/// violation for the UI — the verdict itself is decided in `mc_compat`.
+fn loader_dep_id(loader: crate::instances::schema::LoaderKind) -> String {
+    use crate::instances::schema::LoaderKind as L;
+    match loader {
+        L::Forge => "forge",
+        L::NeoForge => "neoforge",
+        L::Fabric => "fabricloader",
+        L::Quilt => "quilt_loader",
+        // Vanilla loads no mods, so `mc_compat` never returns a loader-axis
+        // verdict here; the arm exists to keep the match exhaustive.
+        L::Vanilla => "minecraft",
+    }
+    .to_string()
 }
 
 // ── IPC types & testable command core ─────────────────────────────────────
@@ -361,6 +425,9 @@ pub enum ViolationKind {
     /// A mod declares itself incompatible with the installed version of
     /// another mod. The range is inverted: it names the versions that clash.
     IncompatibleInstalled,
+    /// The jar was built for a Minecraft or loader version this instance does
+    /// not provide.
+    PlatformMismatch,
 }
 
 /// One resolved dependency violation, enriched with enough context for the
@@ -535,6 +602,28 @@ fn enrich(
             provider_owner,
             provider_sha1_map,
         ),
+        Violation::PlatformMismatch {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+            family,
+        } => DepViolation {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            dep_display_name: None,
+            kind: ViolationKind::PlatformMismatch,
+            installed_version: Some(installed),
+            needed_desc: crate::mods::range_describe::describe(&needed, family),
+            needed,
+            // Not remediated through the dependency-update path: there is no
+            // "provider" to update, the instance itself is the wrong platform.
+            provider_project: None,
+            provider_sha1: None,
+            family: Some(family),
+        },
     }
 }
 
@@ -578,6 +667,7 @@ pub async fn dependency_preflight_for_root(
     root: &std::path::Path,
     loader: crate::instances::schema::LoaderKind,
     mc: &str,
+    loader_version: Option<&str>,
 ) -> crate::error::Result<PreflightReport> {
     use crate::mods::local::{
         descriptor_era, read_jar_embedded_providers, read_jar_legacy_deps, read_jar_manifest_deps,
@@ -671,7 +761,7 @@ pub async fn dependency_preflight_for_root(
     }
 
     let index = ProviderIndex::build(&parsed, &jij, loader, era);
-    let raw = resolve(&parsed, &index, loader, era);
+    let raw = resolve(&parsed, &index, loader, era, mc, loader_version);
     let violations = raw
         .into_iter()
         .map(|v| enrich(v, &provider_owner, &provider_sha1))
@@ -873,13 +963,21 @@ mod tests {
         )];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, E::Modern);
         assert!(
-            resolve(&mods, &index, LoaderKind::NeoForge, E::Modern).is_empty(),
+            resolve(
+                &mods,
+                &index,
+                LoaderKind::NeoForge,
+                E::Modern,
+                "1.20.1",
+                None
+            )
+            .is_empty(),
             "mods.toml is shadowed by neoforge.mods.toml in this jar"
         );
 
         // The very same jar on MinecraftForge: mods.toml is what the loader
         // reads, so the dependency IS enforced.
-        let forge = resolve(&mods, &index, LoaderKind::Forge, E::Modern);
+        let forge = resolve(&mods, &index, LoaderKind::Forge, E::Modern, "1.20.1", None);
         assert_eq!(forge.len(), 1, "{forge:?}");
     }
 
@@ -930,7 +1028,15 @@ mod tests {
         let mods = vec![ap.clone(), create_new];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
-            resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty(),
+            resolve(
+                &mods,
+                &index,
+                LoaderKind::NeoForge,
+                DescriptorEra::Modern,
+                "1.20.1",
+                None
+            )
+            .is_empty(),
             "6.0.10 is outside (,6.0.9] — the incompatibility does not apply"
         );
 
@@ -939,7 +1045,7 @@ mod tests {
         let index =
             ProviderIndex::build(&clashing, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
-            resolve(&clashing, &index, LoaderKind::NeoForge, DescriptorEra::Modern).as_slice(),
+            resolve(&clashing, &index, LoaderKind::NeoForge, DescriptorEra::Modern, "1.20.1", None).as_slice(),
             [Violation::IncompatibleInstalled { dep_id, .. }] if dep_id == "create"
         ));
     }
@@ -957,7 +1063,15 @@ mod tests {
             )],
         )];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::NeoForge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
     }
 
     #[test]
@@ -977,7 +1091,15 @@ mod tests {
         let absent = vec![declaring.clone()];
         let index = ProviderIndex::build(&absent, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
-            resolve(&absent, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty(),
+            resolve(
+                &absent,
+                &index,
+                LoaderKind::NeoForge,
+                DescriptorEra::Modern,
+                "1.20.1",
+                None
+            )
+            .is_empty(),
             "an absent optional dependency is not a problem"
         );
 
@@ -985,7 +1107,7 @@ mod tests {
         let index =
             ProviderIndex::build(&present, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
-            resolve(&present, &index, LoaderKind::NeoForge, DescriptorEra::Modern).as_slice(),
+            resolve(&present, &index, LoaderKind::NeoForge, DescriptorEra::Modern, "1.20.1", None).as_slice(),
             [Violation::OptionalOutOfRange { dep_id, .. }] if dep_id == "curios"
         ));
     }
@@ -1007,7 +1129,15 @@ mod tests {
             modz("b", vec![prov("create", "6.0.5")], vec![]),
         ];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::NeoForge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
     }
 
     #[test]
@@ -1023,7 +1153,15 @@ mod tests {
             modz("b", vec![prov("farmersdelight", "1.3.2")], vec![]),
         ];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        assert!(resolve(&mods, &index, LoaderKind::NeoForge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::NeoForge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
     }
 
     #[test]
@@ -1040,13 +1178,27 @@ mod tests {
         )];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         // Forge instance: only the Maven dep is a real violation.
-        let forge = resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern);
+        let forge = resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None,
+        );
         assert_eq!(forge.len(), 1);
         assert!(
             matches!(&forge[0], Violation::MissingRequired { dep_id, .. } if dep_id == "create")
         );
         // Fabric instance: only the fabric dep is real.
-        let fabric = resolve(&mods, &index, LoaderKind::Fabric, DescriptorEra::Modern);
+        let fabric = resolve(
+            &mods,
+            &index,
+            LoaderKind::Fabric,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None,
+        );
         assert_eq!(fabric.len(), 1);
         assert!(
             matches!(&fabric[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
@@ -1063,7 +1215,14 @@ mod tests {
             vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
         )];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        let quilt = resolve(&mods, &index, LoaderKind::Quilt, DescriptorEra::Modern);
+        let quilt = resolve(
+            &mods,
+            &index,
+            LoaderKind::Quilt,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None,
+        );
         assert_eq!(quilt.len(), 1);
         assert!(
             matches!(&quilt[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
@@ -1149,7 +1308,14 @@ mod tests {
         let core = modz("b", vec![prov("sophisticatedcore", "1.3.50.2005")], vec![]);
         let mods = vec![backpacks, core];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        let v = resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern);
+        let v = resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None,
+        );
         assert_eq!(v.len(), 1);
         assert!(
             matches!(&v[0], Violation::VersionOutOfRange { dep_id, installed, .. }
@@ -1166,7 +1332,14 @@ mod tests {
         )];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(matches!(
-            resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern)[0],
+            resolve(
+                &mods,
+                &index,
+                LoaderKind::Forge,
+                DescriptorEra::Modern,
+                "1.20.1",
+                None
+            )[0],
             Violation::MissingRequired { .. }
         ));
     }
@@ -1184,7 +1357,15 @@ mod tests {
             LoaderKind::NeoForge,
             DescriptorEra::Modern,
         );
-        assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
         // present via JIJ, version unknown => silent
     }
 
@@ -1194,7 +1375,15 @@ mod tests {
         d.side = DepSide::Server;
         let mods = vec![modz("a", vec![prov("x", "1")], vec![d])];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
     }
 
     #[test]
@@ -1208,7 +1397,15 @@ mod tests {
             modz("b", vec![prov("sophisticatedcore", "1.3.55")], vec![]),
         ];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
-        assert!(resolve(&mods, &index, LoaderKind::Forge, DescriptorEra::Modern).is_empty());
+        assert!(resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None
+        )
+        .is_empty());
     }
 
     /// FTB and ATLauncher sources have no per-mod browser; `dep_project_ref`
@@ -1338,7 +1535,7 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1")
+        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         assert!(
@@ -1361,7 +1558,15 @@ mod tests {
         ];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
-            resolve(&mods, &index, LoaderKind::Fabric, DescriptorEra::Modern).is_empty(),
+            resolve(
+                &mods,
+                &index,
+                LoaderKind::Fabric,
+                DescriptorEra::Modern,
+                "1.20.1",
+                None
+            )
+            .is_empty(),
             "fabric-api must match fabric_api"
         );
     }
@@ -1380,7 +1585,15 @@ mod tests {
         ];
         let index = ProviderIndex::build(&mods, &[], LoaderKind::NeoForge, DescriptorEra::Modern);
         assert!(
-            resolve(&mods, &index, LoaderKind::Fabric, DescriptorEra::Modern).is_empty(),
+            resolve(
+                &mods,
+                &index,
+                LoaderKind::Fabric,
+                DescriptorEra::Modern,
+                "1.20.1",
+                None
+            )
+            .is_empty(),
             "fabric-api satisfied by forgified_fabric_api via alias"
         );
     }
@@ -1452,6 +1665,83 @@ mod tests {
         assert_eq!(dv.provider_sha1, None);
     }
 
+    /// A required `platform` declaration (a `minecraft` or loader-id range),
+    /// as opposed to `dep`/`dep_of`, which build ordinary dependency-graph
+    /// declarations.
+    fn platform_dep(id: &str, range: &str) -> DeclaredDep {
+        DeclaredDep {
+            dep_id: id.into(),
+            range: range.into(),
+            kind: DependencyKind::Required,
+            side: DepSide::Both,
+            family: RangeFamily::Maven,
+            source: DescriptorSource::ModsToml,
+        }
+    }
+
+    fn parsed_mod_with_platform(sha: &str, name: &str, platform: Vec<DeclaredDep>) -> ParsedMod {
+        ParsedMod {
+            sha1: sha.into(),
+            name: name.into(),
+            manifest: ManifestDeps {
+                provided: vec![],
+                deps: vec![],
+                sources_present: vec![DescriptorSource::ModsToml],
+                platform,
+            },
+        }
+    }
+
+    #[test]
+    fn a_platform_violation_is_reported_and_blocking() {
+        // BiomesOPlenty declares no `minecraft` block — only `forge [61.0.2,)`.
+        // The instance runs Forge 47.4.10, so the loader axis is the only thing
+        // that can catch it.
+        let mods = vec![parsed_mod_with_platform(
+            "aa",
+            "BiomesOPlenty",
+            vec![platform_dep("forge", "[61.0.2,)")],
+        )];
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::Forge, DescriptorEra::Modern);
+        let out = resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            Some("47.4.10"),
+        );
+        assert!(
+            out.iter()
+                .any(|v| matches!(v, Violation::PlatformMismatch { .. })),
+            "a forge range the instance cannot satisfy must produce a violation, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn a_platform_violation_is_not_produced_without_a_loader_version() {
+        // `raw_minecraft.rs:49` writes `loader_version: None` on a real import.
+        // The loader axis must go silent there, never wrong.
+        let mods = vec![parsed_mod_with_platform(
+            "aa",
+            "BiomesOPlenty",
+            vec![platform_dep("forge", "[61.0.2,)")],
+        )];
+        let index = ProviderIndex::build(&mods, &[], LoaderKind::Forge, DescriptorEra::Modern);
+        let out = resolve(
+            &mods,
+            &index,
+            LoaderKind::Forge,
+            DescriptorEra::Modern,
+            "1.20.1",
+            None,
+        );
+        assert!(
+            out.is_empty(),
+            "no loader version means no loader-axis verdict, got {out:?}"
+        );
+    }
+
     #[tokio::test]
     async fn missing_fabric_api_still_flags_submodule_dependency() {
         use crate::mods::installed::{add, mods_dir};
@@ -1472,7 +1762,7 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1")
+        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         assert_eq!(report.violations.len(), 1, "{:?}", report.violations);

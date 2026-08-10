@@ -2449,8 +2449,13 @@ pub async fn instance_dependency_preflight(
     // The MC version decides which descriptor the loader opens — Forge 1.12.2
     // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
     let inst = crate::instances::read_instance(&app, &instance_id)?;
-    crate::mods::preflight::dependency_preflight_for_root(&root, inst.loader, &inst.mc_version)
-        .await
+    crate::mods::preflight::dependency_preflight_for_root(
+        &root,
+        inst.loader,
+        &inst.mc_version,
+        inst.loader_version.as_deref(),
+    )
+    .await
 }
 
 #[cfg(test)]

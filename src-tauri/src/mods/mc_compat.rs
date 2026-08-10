@@ -16,7 +16,7 @@
 use crate::instances::schema::LoaderKind;
 use crate::mods::local::{DepSide, DependencyKind, DescriptorEra, DescriptorSource, ManifestDeps};
 use crate::mods::preflight::effective_rank;
-use crate::mods::version_range::{satisfies, Satisfaction};
+use crate::mods::version_range::{satisfies, RangeFamily, Satisfaction};
 
 /// Which half of the platform a verdict is about. Two unit variants, no
 /// payload — crosses IPC directly (a later task puts `Option<PlatformAxis>`
@@ -48,6 +48,11 @@ pub enum PlatformVerdict {
         /// What the instance actually provides on that axis.
         actual: String,
         source: DescriptorSource,
+        /// The declaration's own range grammar (Maven / Fabric / Quilt) — the
+        /// verdict carries no other source of truth for it, so a consumer that
+        /// needs to render `declared` (`range_describe::describe`) must not
+        /// assume Maven just because most fired declarations are.
+        family: RangeFamily,
     },
     /// No admitted declaration reached a decided outcome. Covers both
     /// "nothing was declared" and "something was declared and admitted but
@@ -163,6 +168,7 @@ pub fn platform_verdict(
                 declared: d.range.clone(),
                 actual: actual.to_string(),
                 source: d.source,
+                family: d.family,
             };
             // The first admitted, firing declaration on an axis supplies the
             // reported `declared`/`actual` strings. That choice is arbitrary:
@@ -368,6 +374,43 @@ mod tests {
                 DescriptorEra::Modern
             ),
             PlatformVerdict::Unknown
+        );
+    }
+
+    /// The verdict must report the declaration's OWN family, not assume Maven.
+    /// A Fabric mod built for 1.21 sitting in a 1.20.1 instance declares
+    /// `"minecraft": ">=1.21"` in `fabric.mod.json` — a `FabricPredicate`, not
+    /// Maven bracket notation. A consumer that hardcoded `RangeFamily::Maven`
+    /// here would feed `>=1.21` to a Maven-grammar renderer and produce
+    /// nonsense for the user, defeating this feature's whole purpose.
+    #[test]
+    fn a_fabric_predicate_violation_carries_its_own_family() {
+        let m = manifest(
+            vec![dep(
+                "minecraft",
+                ">=1.21",
+                DescriptorSource::FabricJson,
+                RangeFamily::FabricPredicate,
+            )],
+            vec![DescriptorSource::FabricJson],
+        );
+        let v = platform_verdict(
+            &m,
+            "1.20.1",
+            LoaderKind::Fabric,
+            Some("0.15.11"),
+            DescriptorEra::Modern,
+        );
+        assert!(
+            matches!(
+                v,
+                PlatformVerdict::Violated {
+                    axis: PlatformAxis::Minecraft,
+                    family: RangeFamily::FabricPredicate,
+                    ..
+                }
+            ),
+            "{v:?}"
         );
     }
 
