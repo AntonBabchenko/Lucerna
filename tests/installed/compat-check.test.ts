@@ -14,7 +14,10 @@ vi.mock('$lib/ipc/bindings', () => ({
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
 
 import { invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
-import { createCompatCheck } from '$lib/mods/installed/compat-check.svelte';
+import {
+  __resetLiveVerdictsForTests,
+  createCompatCheck,
+} from '$lib/mods/installed/compat-check.svelte';
 
 function lc(
   sha: string,
@@ -64,6 +67,7 @@ describe('createCompatCheck two-stage pipeline', () => {
     // The offline scan is an app-wide store shared with the Overview, so it
     // outlives a single composable — reset it like any other module singleton.
     invalidateCompatScan();
+    __resetLiveVerdictsForTests();
   });
 
   it('manual suspect is flagged from the offline verdict (loader hint)', async () => {
