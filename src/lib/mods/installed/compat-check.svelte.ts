@@ -36,10 +36,24 @@ function verdictKey(id: string, mc: string, loader: LoaderKind, sha1: string): s
   return `${id}|${mc}|${loader}|${sha1}`;
 }
 
+// Monotonic run id. Every scan / live-check captures the value at entry and
+// bumps it; any later run supersedes earlier ones. Because the live-confirm
+// loop awaits up to 25 sequential network calls (seconds), a superseding run
+// can start mid-loop — without this guard the stale run would keep writing.
+// MODULE-level on purpose, like the store it protects: a composable disposed
+// by a remount leaves its loop running (dispose() cannot cancel an await), and
+// with a per-composable counter that orphan's late writes would pass its own
+// guard and overwrite verdicts the successor just paid for (review finding on
+// this PR: a late `unknown` could silently unflag a real incompatible).
+// Sharing the counter makes ANY newer run — same composable or its
+// replacement — supersede the orphan.
+let generation = 0;
+
 /** Test-only: the store is deliberately module-level (it must survive
  * remounts), so unit tests reset it between cases. */
 export function __resetLiveVerdictsForTests(): void {
   liveVerdicts = new Map();
+  generation++;
 }
 
 // Owns proactive compatibility state as a two-stage AUTO pipeline:
@@ -73,15 +87,6 @@ export function createCompatCheck(
   const offline = $derived(new Map(compatScanEntries().map((x) => [x.sha1, x])));
   let checking = $state(false);
   let error = $state<string | null>(null);
-
-  // Monotonic run id. Every scan / live-check captures the value at entry and
-  // bumps it; any later run supersedes earlier ones. Because the live-confirm
-  // loop awaits up to 25 sequential network calls (seconds), an instance switch
-  // can land mid-loop — without this guard a stale run would write a verdict
-  // computed against the previous instance's loader/mc into the new instance's
-  // `live` map (wrong chip + inflated `Incompatible (N)` count). Mirrors the
-  // project's generation-token composable pattern.
-  let generation = 0;
 
   const incompatibleShas = $derived.by(() => {
     const out = new Set<string>();
