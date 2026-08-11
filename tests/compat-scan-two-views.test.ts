@@ -19,7 +19,10 @@ import {
   invalidateCompatScan,
   offlineMismatchCount,
 } from '$lib/mods/compat-scan.svelte';
-import { createCompatCheck } from '$lib/mods/installed/compat-check.svelte';
+import {
+  __resetLiveVerdictsForTests,
+  createCompatCheck,
+} from '$lib/mods/installed/compat-check.svelte';
 
 const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLocalCompat => ({
   sha1,
@@ -49,6 +52,7 @@ describe('the Overview and the Installed tab over one shared scan', () => {
     mocks.checkInstanceModCompat.mockReset();
     mocks.modsVersions.mockReset();
     invalidateCompatScan();
+    __resetLiveVerdictsForTests();
   });
 
   it('keeps the two views distinct: offline-only for the Overview, plus live for Installed', async () => {

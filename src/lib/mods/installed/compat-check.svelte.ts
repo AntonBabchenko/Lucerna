@@ -1,4 +1,4 @@
-import { commands, type LoaderKind, type ModLocalCompat, type ModSource } from '$lib/ipc/bindings';
+import { commands, type LoaderKind, type ModSource } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
 
@@ -16,6 +16,32 @@ type CompatRow = {
   installed: { sha1: string; source: ModSource | null; project_id: string | null };
 };
 
+// Live verdicts, held once for the whole app and keyed by the FULL platform
+// triple each was computed against — `(instanceId, mc, loader, sha1)`.
+//
+// Module-level so a verdict survives the Installed tab unmounting (observed
+// live 2026-08-11: Обзор → back wiped the manual check's result and the chip
+// read «всё в порядке»). Triple-keyed so a verdict can never outlive the
+// platform it answered for: an entry written under mc 1.21 simply does not
+// exist for the same sha under 1.20.1 (the stale-carryover half of audit #9 —
+// four perfect 1.20.1 builds stayed flagged with 1.21 verdicts), and a
+// hardlink-shared sha on another instance never inflates this one's chip.
+// Invalidation is by key construction — there is no imperative clear to
+// forget, and none on a momentary null instance id.
+let liveVerdicts = $state<Map<string, LiveVerdict>>(new Map());
+
+// `|` cannot occur in an instance id (a directory name), version string, loader kind or sha —
+// an unambiguous join.
+function verdictKey(id: string, mc: string, loader: LoaderKind, sha1: string): string {
+  return `${id}|${mc}|${loader}|${sha1}`;
+}
+
+/** Test-only: the store is deliberately module-level (it must survive
+ * remounts), so unit tests reset it between cases. */
+export function __resetLiveVerdictsForTests(): void {
+  liveVerdicts = new Map();
+}
+
 // Owns proactive compatibility state as a two-stage AUTO pipeline:
 //   1. offline scan (network-free) flags loader-family SUSPECTS and reads the
 //      platform-range verdict (`platform_mismatch`) straight off the jar;
@@ -29,8 +55,9 @@ type CompatRow = {
 // — the live check answers "does the PROJECT have a build for this MC+loader",
 // not "is the FILE on disk that build". Live failure/`unknown` never flags
 // (transient errors must not read as incompatible). Auto-confirm is bounded to
-// suspects, sequential (gentle on Modrinth rate limits), and cached per session
-// by sha.
+// suspects, sequential (gentle on Modrinth rate limits), and cached in the
+// module-level store per (instance, mc, loader, sha) — surviving remounts,
+// expiring with the platform.
 export function createCompatCheck(
   getInstanceId: () => string | null,
   getMcVersion: () => string | null,
@@ -39,9 +66,11 @@ export function createCompatCheck(
 ) {
   // The offline half is NOT owned here — it is the app-wide scan, shared with
   // the Overview indicator. Keeping a private copy is what let the two
-  // surfaces disagree about the same instance.
+  // surfaces disagree about the same instance. The live half lives in the
+  // module-level `liveVerdicts` (see above) for the same reason, plus a
+  // lifecycle one: verdicts must survive this composable's unmount and die
+  // with the platform triple they were computed for.
   const offline = $derived(new Map(compatScanEntries().map((x) => [x.sha1, x])));
-  let live = $state<Map<string, LiveVerdict>>(new Map());
   let checking = $state(false);
   let error = $state<string | null>(null);
 
@@ -56,9 +85,13 @@ export function createCompatCheck(
 
   const incompatibleShas = $derived.by(() => {
     const out = new Set<string>();
-    // Only count live verdicts for mods still present in the current scan — a
-    // stale `live` entry for a since-uninstalled mod must not inflate the count.
-    for (const [sha, v] of live) if (v === 'incompatible' && offline.has(sha)) out.add(sha);
+    const id = getInstanceId();
+    const mc = getMcVersion();
+    const loader = getLoader();
+    // Iterating the SCAN (not the live store) means only mods still installed
+    // can count, and looking live verdicts up by the full platform key means a
+    // verdict computed for another instance or a previous mc/loader simply
+    // does not exist here.
     for (const [sha, lc] of offline) {
       // Authoritative and unconditional — deliberately NOT cleared by a live
       // `compatible`, which answers about the PROJECT rather than the FILE.
@@ -69,6 +102,13 @@ export function createCompatCheck(
       if (lc.platform_mismatch) out.add(sha);
       // Manual suspect: offline verdict stands (no platform identity to verify).
       if (lc.loader_mismatch && !lc.live_checkable) out.add(sha);
+      if (
+        id &&
+        loader &&
+        mc != null &&
+        liveVerdicts.get(verdictKey(id, mc, loader, sha)) === 'incompatible'
+      )
+        out.add(sha);
     }
     return out;
   });
@@ -85,7 +125,16 @@ export function createCompatCheck(
         ? { key: 'platformMc', declared }
         : { key: 'platformLoader', declared };
     }
-    if (live.get(sha1) === 'incompatible') return { key: 'noRelease' };
+    const id = getInstanceId();
+    const mc = getMcVersion();
+    const loader = getLoader();
+    if (
+      id &&
+      loader &&
+      mc != null &&
+      liveVerdicts.get(verdictKey(id, mc, loader, sha1)) === 'incompatible'
+    )
+      return { key: 'noRelease' };
     if (lc?.loader_mismatch && !lc.live_checkable)
       return { key: 'loader', detected: lc.detected_loader ?? '?' };
     return null;
@@ -109,8 +158,17 @@ export function createCompatCheck(
     const mc = getMcVersion();
     if (!id || !loader || mc == null) return;
     const rows = getRows();
+    // "Already decided" is judged for THIS platform triple — a verdict from
+    // the previous mc/loader does not pin the suspect (audit #10: the old
+    // sha-keyed check let a suspect stay "compatible" across the exact
+    // version change the feature protects against).
     const suspects = [...offline.values()]
-      .filter((lc) => lc.loader_mismatch && lc.live_checkable && !live.has(lc.sha1))
+      .filter(
+        (lc) =>
+          lc.loader_mismatch &&
+          lc.live_checkable &&
+          !liveVerdicts.has(verdictKey(id, mc, loader, lc.sha1)),
+      )
       .slice(0, AUTO_CONFIRM_CAP);
     for (const s of suspects) {
       const row = rows.find((r) => r.installed.sha1 === s.sha1);
@@ -124,9 +182,11 @@ export function createCompatCheck(
       if (gen !== generation) return; // superseded by a newer scan — drop the write
       const verdict: LiveVerdict =
         r.status === 'error' ? 'unknown' : r.data.length > 0 ? 'compatible' : 'incompatible';
-      const next = new Map(live);
-      next.set(s.sha1, verdict);
-      live = next;
+      const next = new Map(liveVerdicts);
+      // Keyed by the values THIS query was made with — even a write that loses
+      // a race lands under its own platform triple, never the new one's.
+      next.set(verdictKey(id, mc, loader, s.sha1), verdict);
+      liveVerdicts = next;
     }
   }
 
@@ -137,7 +197,10 @@ export function createCompatCheck(
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) {
-      if (gen === generation) live = new Map();
+      // No live-store wipe here: verdicts are keyed by platform triple, so a
+      // momentary null id (remount flush) cannot make them count for anything
+      // — clearing them only destroyed paid-for answers (observed live:
+      // Обзор → back read «всё в порядке» after a manual check found 4).
       await ensureCompatScan(id, mc, loader);
       return;
     }
@@ -169,9 +232,10 @@ export function createCompatCheck(
       error = formatError(r.error);
       return;
     }
-    const next = new Map(live);
-    for (const c of r.data) next.set(c.sha1, c.status.status as LiveVerdict);
-    live = next;
+    const next = new Map(liveVerdicts);
+    for (const c of r.data)
+      next.set(verdictKey(id, mc, loader, c.sha1), c.status.status as LiveVerdict);
+    liveVerdicts = next;
   }
 
   // NOTE: the pipeline is driven by the consuming component (InstalledModsView),
