@@ -1369,7 +1369,11 @@ pub async fn scan_instance(
     let connector = connector_installed(&dir, &mods).await;
     let era = descriptor_era(mc);
     let mut out = Vec::with_capacity(mods.len());
-    for m in &mods {
+    // Disabled mods are out of scope for every detector (locked decision,
+    // 2026-08-03): the loader never opens a `.disabled` jar, so a verdict on it
+    // is noise the user already resolved. Filtering at the scan source means the
+    // chip, the Overview count and the row badges all inherit the exclusion.
+    for m in mods.iter().filter(|m| m.enabled) {
         // Read the jar bytes ONCE, use them for both verdicts below.
         let bytes = read_jar_for(&dir, &m.filename).await;
         // Judge loader-family for ALL mods, pack-bundled included — the
@@ -2963,6 +2967,45 @@ modId=\"evilseagull\"
         assert!(
             m.live_checkable,
             "platform mod must be marked live-checkable"
+        );
+    }
+
+    /// Locked decision 3 (2026-08-03): disabled mods are out of scope for every
+    /// detector. The filter lives HERE, at the scan source, so the chip, the
+    /// Overview count and the row badges all inherit it — observed live
+    /// (2026-08-11): a mod disabled through the migration dialog kept its
+    /// «Несовместим» badge and chip slot until a manual re-check.
+    #[tokio::test]
+    async fn scan_skips_disabled_mods() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        // Two wrong-family (pure-Fabric) jars on a Forge instance — both would
+        // flag; only the enabled one may appear in the scan at all.
+        let enabled_bytes = zip_with(&[("fabric.mod.json", br#"{"id":"en","name":"En"}"#)]);
+        let disabled_bytes = zip_with(&[("fabric.mod.json", br#"{"id":"dis","name":"Dis"}"#)]);
+        fs::write(dir.join("enabled.jar"), &enabled_bytes)
+            .await
+            .unwrap();
+        fs::write(dir.join("disabled.jar.disabled"), &disabled_bytes)
+            .await
+            .unwrap();
+        let enabled_sha = hex::encode(Sha1::digest(&enabled_bytes));
+        let disabled_sha = hex::encode(Sha1::digest(&disabled_bytes));
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+            .await
+            .unwrap();
+        assert!(
+            out.iter()
+                .any(|m| m.sha1.eq_ignore_ascii_case(&enabled_sha)),
+            "enabled jar must be scanned"
+        );
+        assert!(
+            !out.iter()
+                .any(|m| m.sha1.eq_ignore_ascii_case(&disabled_sha)),
+            "disabled jar must not produce a scan entry"
         );
     }
 

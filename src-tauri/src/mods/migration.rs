@@ -168,8 +168,10 @@ pub struct ModMigrationInput {
     /// `Ok` mirrors `replaceable_identity`'s `Some`; `Err` distinguishes WHY
     /// it was `None` (pack-origin vs no project at all).
     pub identity: Result<(ModSource, String), Ineligible>,
-    /// `Some` only when `verdict` is `Violated` and `identity` is `Ok` — the
-    /// command already asked the platform. `None` otherwise (never asked).
+    /// `Some` when the command asked the platform about this mod: a
+    /// replacement query for `Violated` + identified mods, or an existence
+    /// probe (option A) for `Fits`/`Unknown` + identified mods. `None` when
+    /// there was no identity to ask about.
     pub candidate: Option<CandidateQuery>,
     /// The Minecraft version the jar's descriptor declares it targets (its
     /// `minecraft` dependency range, verbatim), or `None`. Carried only so a
@@ -183,13 +185,42 @@ pub fn build_migration_plan(inputs: Vec<ModMigrationInput>) -> McMigrationPlan {
     let mut plan = McMigrationPlan::default();
     for input in inputs {
         match input.verdict {
-            PlatformVerdict::Fits => plan.fits.push(FitsRow {
-                sha1: input.sha1,
-                name: input.name,
-            }),
+            // Option A (2026-08-10 spec): the file fitting is not the whole
+            // story — when the PROJECT publishes no build at all for the
+            // instance's platform, the live check calls the mod incompatible,
+            // and filing it under "fits" here is exactly the 7↔3 gap (the Fix
+            // button opened «переносить нечего» for four flagged mods). A
+            // definitive empty answer strands it; a FAILED probe (or no probe)
+            // must never relabel a fit mod — flaky network reads as fit.
+            PlatformVerdict::Fits => match input.candidate {
+                Some(CandidateQuery::Found(ref v)) if v.is_empty() => {
+                    plan.stranded.push(StrandedRow {
+                        sha1: input.sha1,
+                        name: input.name,
+                        reason: StrandedReason::NoBuildForTarget,
+                    });
+                }
+                _ => plan.fits.push(FitsRow {
+                    sha1: input.sha1,
+                    name: input.name,
+                }),
+            },
             // A check that did not run must not read as one that passed —
-            // counted separately, never merged into `fits`.
-            PlatformVerdict::Unknown => plan.unjudged += 1,
+            // counted separately, never merged into `fits`. But a definitive
+            // "the project has no build for this platform" IS a judgement,
+            // regardless of the unreadable descriptor — strand it so the user
+            // can act (same routing as the Fits arm above). Builds merely
+            // existing does not judge the FILE, so that stays unjudged.
+            PlatformVerdict::Unknown => match input.candidate {
+                Some(CandidateQuery::Found(ref v)) if v.is_empty() => {
+                    plan.stranded.push(StrandedRow {
+                        sha1: input.sha1,
+                        name: input.name,
+                        reason: StrandedReason::NoBuildForTarget,
+                    });
+                }
+                _ => plan.unjudged += 1,
+            },
             PlatformVerdict::Violated { axis, .. } => {
                 let reason = match input.identity {
                     Err(Ineligible::PackOrigin) => Some(StrandedReason::PackOrigin),
@@ -590,6 +621,95 @@ mod tests {
         assert!(plan.replaceable.is_empty());
         assert!(plan.stranded.is_empty());
         assert_eq!(plan.unjudged, 0);
+    }
+
+    // -- option A (2026-08-10 live-availability spec, approved 2026-08-11):
+    // a mod whose FILE fits but whose PROJECT publishes no build for the
+    // instance's platform is the live check's «Несовместим» — the plan must
+    // route it to stranded (NoBuildForTarget), never file it under "fits".
+    // This is the 7↔3 gap: the chip counted these four while the plan called
+    // them "already fit" and the Fix button opened «переносить нечего».
+
+    #[test]
+    fn fits_with_no_published_build_is_stranded() {
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Architectury API",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "arch".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert!(plan.fits.is_empty(), "no-build mod must not read as fit");
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn fits_with_published_builds_stays_fits() {
+        let target = version(ModSource::Modrinth, "cloth", "v-x");
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Cloth Config",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "cloth".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        assert_eq!(plan.fits.len(), 1);
+        assert!(plan.stranded.is_empty());
+    }
+
+    #[test]
+    fn fits_with_failed_probe_stays_fits() {
+        // Spec clause: QueryFailed stays distinct so a flaky probe never
+        // relabels a fit mod as unavailable.
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Rate Limited Fit Mod",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "rl".to_string())),
+            Some(CandidateQuery::Failed),
+        )]);
+        assert_eq!(plan.fits.len(), 1);
+        assert!(plan.stranded.is_empty());
+    }
+
+    #[test]
+    fn unknown_with_no_published_build_is_stranded() {
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Undeclared No-Build Mod",
+            PlatformVerdict::Unknown,
+            Ok((ModSource::Modrinth, "und".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert_eq!(
+            plan.unjudged, 0,
+            "a definitive no-build answer IS a judgement"
+        );
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn unknown_with_published_builds_stays_unjudged() {
+        let target = version(ModSource::Modrinth, "und", "v-x");
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Undeclared Mod With Builds",
+            PlatformVerdict::Unknown,
+            Ok((ModSource::Modrinth, "und".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        // Builds existing does not judge the FILE — stays unjudged, never fits.
+        assert_eq!(plan.unjudged, 1);
+        assert!(plan.fits.is_empty());
+        assert!(plan.stranded.is_empty());
     }
 
     #[test]
