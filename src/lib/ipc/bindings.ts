@@ -750,8 +750,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  loader; each replaceable target's declared required deps are then asked
 	 *  for too (same shape again), so anything a later apply would ALSO need to
 	 *  pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
-	 *  is visible in the plan before anything is installed. Never applies
-	 *  anything: this command only reads and queries.
+	 *  is visible in the plan before anything is installed. Fits/Unknown mods
+	 *  with an identity additionally get an EXISTENCE probe through the shared
+	 *  version cache (option A, 2026-08-10 spec): a project publishing no build
+	 *  for this platform strands the mod instead of filing it under "fits", which
+	 *  is what kept the plan's count below the chip's. Never applies anything:
+	 *  this command only reads and queries.
 	 */
 	modsPlanMcMigration: (instanceId: string) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId })),
 	/**
