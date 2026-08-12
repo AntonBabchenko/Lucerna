@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { TranslationKey } from '$lib/i18n/keys.generated';
+import en from '$lib/i18n/locales/en.json';
+import ru from '$lib/i18n/locales/ru.json';
 import { normalize, searchSettings } from '$lib/settings/search';
 import type { SettingsSearchEntry } from '$lib/settings/search-index';
+import { SETTINGS_ENTRIES } from '$lib/settings/search-index';
 
 const ENTRIES: SettingsSearchEntry[] = [
   { anchor: 'game.gpu', tab: 'game', labelKey: 'L.gpu' as never, keywordsKey: 'K.gpu' as never },
@@ -62,5 +66,39 @@ describe('searchSettings', () => {
 
   it('returns [] when nothing matches', () => {
     expect(searchSettings('zzzz', ENTRIES, t as never)).toEqual([]);
+  });
+});
+
+function localeT(dict: unknown): (key: TranslationKey) => string {
+  return (key) =>
+    String(
+      key.split('.').reduce<unknown>((o, part) => {
+        if (o && typeof o === 'object') return (o as Record<string, unknown>)[part];
+        return undefined;
+      }, dict) ?? '',
+    );
+}
+
+describe('searchSettings over the real registry + locales', () => {
+  const enT = localeT(en);
+  const ruT = localeT(ru);
+  const first = (query: string, t: (key: TranslationKey) => string) =>
+    searchSettings(query, SETTINGS_ENTRIES, t)[0]?.anchor;
+
+  it('routes common EN queries to the right top result', () => {
+    expect(first('gpu', enT)).toBe('game.gpu');
+    expect(first('language', enT)).toBe('appearance.language');
+    expect(first('data', enT)).toBe('storage.dataLocation');
+  });
+
+  it('ranks the label match above a buried keyword substring for "mod"', () => {
+    expect(first('mod', enT)).toBe('storage.modMetadataCache');
+    expect(first('мод', ruT)).toBe('storage.modMetadataCache');
+  });
+
+  it('routes Russian queries by their own-language labels/synonyms', () => {
+    expect(first('тема', ruT)).toBe('appearance.theme');
+    expect(first('язык', ruT)).toBe('appearance.language');
+    expect(first('видеокарта', ruT)).toBe('game.gpu');
   });
 });
