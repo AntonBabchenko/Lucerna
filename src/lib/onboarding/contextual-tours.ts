@@ -82,7 +82,10 @@ export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   worlds: 'dc5908db',
   servers: '3294c410',
   serverManage: '68b63f2f',
-  addons: '7f3a6661',
+  // Moved by the datapackLibrary copy rewrite (1.13 hedge + the corrected
+  // help-icon pointer). No further bump: v2 has not shipped, so its own copy
+  // fix rides inside it.
+  addons: '22268355',
   serverAddons: '5c634610',
   l10n: '49ee796e',
   overview: 'bbc47533',

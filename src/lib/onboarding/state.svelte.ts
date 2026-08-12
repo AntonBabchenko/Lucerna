@@ -21,7 +21,12 @@ export const TOUR_VERSION = '0.6.0';
 // tests/tour-fingerprint.test.ts from fingerprintSteps + the locale, so this
 // module stays locale-free). Sits beside TOUR_VERSION so a steps edit OR a
 // copy-only rewrite forces the bump question in the diff.
-export const MAIN_STEPS_FINGERPRINT = '5209629c';
+// Moved by the chooser and importModpacks Settings-pointer corrections. NOT
+// bumping TOUR_VERSION for them: both are pointer fixes to copy the user has
+// already read once, and re-showing the whole 8-step onboarding to every
+// existing user over two corrected section names is disproportionate
+// (precedent #372).
+export const MAIN_STEPS_FINGERPRINT = '241983bd';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;
