@@ -129,16 +129,21 @@ describe('compat-scan store', () => {
     expect(offlineMismatchCount()).toBe(0);
   });
 
-  it('counts only offline-decidable mismatches', async () => {
+  it('counts every family mismatch offline, live-checkable or not (spec D5)', async () => {
+    // The family verdict is offline-authoritative: multi-loader jars and
+    // Connector setups never flag inside `scan_instance`, so a flagged entry
+    // is a foreign FILE the loader will silently skip — regardless of whether
+    // the project could be live-queried. The old `!live_checkable` exclusion
+    // is what kept a Forge→Fabric switch silent on every surface.
     mocks.scanInstanceModCompat.mockResolvedValue(
       ok([
-        entry('manual-mismatch', true, false), // counted
-        entry('platform-suspect', true, true), // needs a live check the Overview must not make
+        entry('manual-mismatch', true, false),
+        entry('identified-mismatch', true, true),
         entry('fine', false, false),
       ]),
     );
     await ensureCompatScan('i1', '1.21.1', 'neoforge');
-    expect(offlineMismatchCount()).toBe(1);
+    expect(offlineMismatchCount()).toBe(2);
   });
 
   it('counts a platform mismatch even when the loader family is fine', async () => {

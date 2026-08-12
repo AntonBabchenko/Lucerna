@@ -178,12 +178,68 @@ pub struct ModMigrationInput {
     /// loader-axis `LoaderTooOld` row can name what the jar was built for; never
     /// re-evaluated for bucketing.
     pub declared_mc: Option<String>,
+    /// The jar's descriptor families do not include the instance's loader
+    /// family (a Forge jar on a Fabric instance) — the same Connector-aware
+    /// verdict `scan_instance` computes. The loader silently skips such a jar
+    /// (spec D5: a Forge→Fabric switch left ten dead jars with every surface
+    /// silent), so a family-mismatched mod is routed by THIS flag first,
+    /// regardless of its platform-range verdict.
+    pub family_mismatch: bool,
 }
 
 /// Bucket already-computed per-mod inputs into a plan. Pure — no I/O.
 pub fn build_migration_plan(inputs: Vec<ModMigrationInput>) -> McMigrationPlan {
     let mut plan = McMigrationPlan::default();
     for input in inputs {
+        // Spec D5: the loader-FAMILY axis routes FIRST. A foreign-family jar
+        // typically reads platform-Fits (its foreign loader range is "not
+        // applicable" here), yet the loader will silently skip the file — so
+        // the platform verdict must not get the chance to file it under
+        // "fits". Same shape as the Violated arm: a different-sha build for
+        // the CURRENT loader is a replacement (перекачать под новый лоадер);
+        // no build strands it; a hand-drop gets disable/remove via
+        // NoProjectToAsk (this is also what gives audit #4's wrong-loader
+        // hand-drops their actions instead of an unactionable `unjudged`).
+        if input.family_mismatch {
+            let reason = match input.identity {
+                Err(Ineligible::PackOrigin) => Some(StrandedReason::PackOrigin),
+                Err(Ineligible::NoProject) => Some(StrandedReason::NoProjectToAsk),
+                Ok((source, project_id)) => match input.candidate {
+                    Some(CandidateQuery::Found(versions)) => {
+                        match versions.into_iter().next() {
+                            // Same-file guard, as in the Violated arm: a
+                            // reinstall of the byte-identical jar fixes nothing.
+                            Some(target)
+                                if target.primary_file.sha1.as_deref()
+                                    == Some(input.sha1.as_str()) =>
+                            {
+                                Some(StrandedReason::NoBuildForTarget)
+                            }
+                            Some(target) => {
+                                plan.replaceable.push(ReplaceableRow {
+                                    sha1: input.sha1.clone(),
+                                    name: input.name.clone(),
+                                    source,
+                                    project_id,
+                                    target,
+                                });
+                                None
+                            }
+                            None => Some(StrandedReason::NoBuildForTarget),
+                        }
+                    }
+                    Some(CandidateQuery::Failed) | None => Some(StrandedReason::QueryFailed),
+                },
+            };
+            if let Some(reason) = reason {
+                plan.stranded.push(StrandedRow {
+                    sha1: input.sha1,
+                    name: input.name,
+                    reason,
+                });
+            }
+            continue;
+        }
         match input.verdict {
             // Option A (2026-08-10 spec): the file fitting is not the whole
             // story — when the PROJECT publishes no build at all for the
@@ -602,7 +658,108 @@ mod tests {
             identity,
             candidate,
             declared_mc: None,
+            family_mismatch: false,
         }
+    }
+
+    fn family_input(
+        sha1: &str,
+        name: &str,
+        identity: Result<(ModSource, String), Ineligible>,
+        candidate: Option<CandidateQuery>,
+    ) -> ModMigrationInput {
+        // A family-mismatched jar typically reads platform-Fits (its foreign
+        // loader range is "not applicable" on this instance) — which is
+        // exactly why bucketing must consult the family flag FIRST.
+        ModMigrationInput {
+            family_mismatch: true,
+            ..input(sha1, name, PlatformVerdict::Fits, identity, candidate)
+        }
+    }
+
+    // -- spec D5: the loader-family axis joins the plan ---------------------
+
+    #[test]
+    fn family_mismatch_with_a_build_for_the_current_loader_is_replaceable() {
+        let target = version_with_sha(ModSource::Modrinth, "jei", "fabric-build", "bb");
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "JEI (forge jar on fabric)",
+            Ok((ModSource::Modrinth, "jei".to_string())),
+            Some(CandidateQuery::Found(vec![target.clone()])),
+        )]);
+        assert!(
+            plan.fits.is_empty(),
+            "a dead foreign-family jar must never read as fit"
+        );
+        assert_eq!(plan.replaceable.len(), 1);
+        assert_eq!(plan.replaceable[0].target, target);
+    }
+
+    #[test]
+    fn family_mismatch_with_no_build_is_stranded_no_build() {
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Forge-only mod",
+            Ok((ModSource::Modrinth, "fo".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_with_failed_query_is_stranded_query_failed() {
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Rate Limited",
+            Ok((ModSource::Modrinth, "rl".to_string())),
+            Some(CandidateQuery::Failed),
+        )]);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::QueryFailed
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_hand_drop_is_stranded_with_actions_not_unjudged() {
+        // Audit #4: the wrong-loader hand-drop used to land in `unjudged`
+        // («переносить нечего» while the chip counted it). Stranded rows carry
+        // disable/remove/keep — the actions such a jar actually needs.
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "sodium-fabric.jar on forge",
+            Err(Ineligible::NoProject),
+            None,
+        )]);
+        assert_eq!(plan.unjudged, 0);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoProjectToAsk
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_same_file_candidate_is_stranded_not_a_noop_reinstall() {
+        let target = version_with_sha(ModSource::Modrinth, "x", "same", "aa");
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Same file",
+            Ok((ModSource::Modrinth, "x".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        assert!(plan.replaceable.is_empty());
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
     }
 
     // -- build_migration_plan ---------------------------------------------
@@ -763,6 +920,7 @@ mod tests {
             identity: Ok((ModSource::Modrinth, "xaero".to_string())),
             candidate: Some(CandidateQuery::Found(vec![target])),
             declared_mc: Some("1.21.1".into()),
+            family_mismatch: false,
         }]);
         assert!(
             plan.replaceable.is_empty(),

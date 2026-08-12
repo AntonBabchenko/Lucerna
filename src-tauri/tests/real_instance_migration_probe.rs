@@ -220,6 +220,9 @@ fn real_xaero_loader_violation_routes_to_loader_too_old() {
         identity: Ok((ModSource::Modrinth, "xaero-minimap".into())),
         candidate: Some(CandidateQuery::Found(vec![same_build])),
         declared_mc: declared_mc.clone(),
+        // The real jar is a Forge build judged on its own Forge instance —
+        // the family axis is clean; this probe exercises the loader-VERSION arm.
+        family_mismatch: false,
     }]);
 
     println!(

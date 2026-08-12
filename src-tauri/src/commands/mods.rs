@@ -2013,6 +2013,9 @@ pub async fn mods_plan_mc_migration(
     let loader_version = inst.loader_version.clone();
     let era = crate::mods::local::descriptor_era(&mc);
     let dir = crate::mods::installed::mods_dir(&inst_root);
+    // Once for the whole plan, exactly like `scan_instance`: the family
+    // verdict below is Connector-aware (spec D5).
+    let connector = crate::mods::local::connector_installed(&dir, &installed).await;
 
     // 1. Offline per-mod verdict + identity. No network — mirrors what
     //    `local::scan_instance` does internally to read each jar's platform
@@ -2050,6 +2053,17 @@ pub async fn mods_plan_mc_migration(
         } else {
             replaceable_identity(m, pack_origin.as_ref()).ok_or(Ineligible::NoProject)
         };
+        // The same Connector-aware family verdict `scan_instance` computes —
+        // a Forge jar on a Fabric instance is silently skipped by the loader,
+        // and the plan must route it by THAT fact, not by its (inapplicable)
+        // platform ranges. Spec D5.
+        let family_mismatch = bytes
+            .as_deref()
+            .and_then(|b| crate::mods::local::read_jar_meta(b).ok())
+            .map(|meta| {
+                crate::mods::local::compat_verdict(&meta, loader, connector).loader_mismatch
+            })
+            .unwrap_or(false);
         inputs.push(ModMigrationInput {
             sha1: m.sha1.clone(),
             name: m.name.clone(),
@@ -2057,6 +2071,7 @@ pub async fn mods_plan_mc_migration(
             identity,
             candidate: None,
             declared_mc,
+            family_mismatch,
         });
     }
 

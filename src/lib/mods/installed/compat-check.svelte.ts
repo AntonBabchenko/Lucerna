@@ -185,8 +185,11 @@ export function createCompatCheck(
       // target MC, so the live check said "compatible" while the file on disk
       // was still wrong.
       if (lc.platform_mismatch) out.add(sha);
-      // Manual suspect: offline verdict stands (no platform identity to verify).
-      if (lc.loader_mismatch && !lc.live_checkable) out.add(sha);
+      // Family mismatch is offline-authoritative (spec D5): the scan already
+      // excludes multi-loader jars and Connector setups, so a live
+      // project-level `compatible` has nothing legitimate left to clear —
+      // the FILE is still foreign and the loader will skip it silently.
+      if (lc.loader_mismatch) out.add(sha);
       if (
         id &&
         loader &&
@@ -210,6 +213,9 @@ export function createCompatCheck(
         ? { key: 'platformMc', declared }
         : { key: 'platformLoader', declared };
     }
+    // Family mismatch beats the live hint: «собран под Fabric» names the
+    // actual problem with the FILE, which «нет сборки» would misdescribe.
+    if (lc?.loader_mismatch) return { key: 'loader', detected: lc.detected_loader ?? '?' };
     const id = getInstanceId();
     const mc = getMcVersion();
     const loader = getLoader();
@@ -220,8 +226,6 @@ export function createCompatCheck(
       liveVerdicts.get(verdictKey(id, mc, loader, sha1)) === 'incompatible'
     )
       return { key: 'noRelease' };
-    if (lc?.loader_mismatch && !lc.live_checkable)
-      return { key: 'loader', detected: lc.detected_loader ?? '?' };
     return null;
   }
 

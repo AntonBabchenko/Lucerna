@@ -54,9 +54,10 @@ describe('the Overview and the Installed tab over one shared scan', () => {
     __resetLiveVerdictsForTests();
   });
 
-  it('offline primitive vs the chip union: live verdicts extend, never replace', async () => {
-    // `manual` is decidable offline. `suspect` needs the platform — which the
-    // auto pass now asks — and the platform has no build for this loader.
+  it('family mismatches are offline-authoritative; the live check cannot shrink the count', async () => {
+    // Both foreign-family jars flag offline (spec D5) — even though the live
+    // check says `suspect`'s project publishes builds for this platform, the
+    // FILE on disk is still foreign and the loader will skip it.
     mocks.scanInstanceModCompat.mockResolvedValue({
       status: 'ok',
       data: [
@@ -67,13 +68,13 @@ describe('the Overview and the Installed tab over one shared scan', () => {
     });
     mocks.checkInstanceModCompat.mockResolvedValue({
       status: 'ok',
-      data: [{ sha1: 'suspect', name: 'suspect', status: { status: 'incompatible' } }],
+      data: [{ sha1: 'suspect', name: 'suspect', status: { status: 'compatible' } }],
     });
 
     const compat = check();
     await compat.runOfflineScan();
 
-    expect(offlineMismatchCount()).toBe(1); // the network-free primitive
+    expect(offlineMismatchCount()).toBe(2); // the network-free primitive counts both
     expect([...compat.incompatibleShas].sort()).toEqual(['manual', 'suspect']);
   });
 

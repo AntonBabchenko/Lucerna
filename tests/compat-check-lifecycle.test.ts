@@ -24,10 +24,15 @@ import {
   createCompatCheck,
 } from '$lib/mods/installed/compat-check.svelte';
 
+// A live-checkable mod with NO offline suspicion — the live-only class
+// (permissive file range, project may publish nothing for the platform).
+// Only the keyed live store can flag it, which is exactly what these
+// lifecycle tests exercise. (A family mismatch is offline-authoritative
+// since spec D5 and would mask the live half entirely.)
 const suspect = (sha1: string): ModLocalCompat => ({
   sha1,
-  loader_mismatch: true,
-  detected_loader: 'Fabric',
+  loader_mismatch: false,
+  detected_loader: null,
   live_checkable: true,
   platform_mismatch: false,
   platform_axis: null,

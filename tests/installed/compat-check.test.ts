@@ -91,24 +91,29 @@ describe('createCompatCheck two-stage pipeline', () => {
     c.dispose();
   });
 
-  it('platform suspect auto-confirmed compatible -> NOT flagged', async () => {
-    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Fabric')] });
+  it('family suspect stays flagged even when the project publishes builds (spec D5)', async () => {
+    // The Forge→Fabric silence: every project had fabric builds, so the live
+    // «compatible» cleared the suspicion while FabricLoader skipped the ten
+    // still-forge FILES on disk. Live enriches; it never clears the family axis
+    // (multi-loader jars and Connector setups never flag in the scan at all).
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Forge')] });
     liveMock.mockResolvedValue({ status: 'ok', data: [verdict('a', 'compatible')] });
     const c = check();
     await c.runOfflineScan();
-    expect(c.incompatibleCount).toBe(0);
-    expect(c.hintFor('a')).toBeNull();
+    expect([...c.incompatibleShas]).toEqual(['a']);
+    expect(c.hintFor('a')).toEqual({ key: 'loader', detected: 'Forge' });
     expect(liveMock).toHaveBeenCalledWith('i', '1.21', 'forge');
     c.dispose();
   });
 
-  it('platform suspect auto-confirmed incompatible -> flagged (noRelease)', async () => {
+  it('family suspect with no builds either stays flagged with the loader hint', async () => {
     scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Forge')] });
     liveMock.mockResolvedValue({ status: 'ok', data: [verdict('a', 'incompatible')] });
     const c = check();
     await c.runOfflineScan();
     expect([...c.incompatibleShas]).toEqual(['a']);
-    expect(c.hintFor('a')).toEqual({ key: 'noRelease' });
+    // The family hint names the FILE's problem; «нет сборки» would misdescribe it.
+    expect(c.hintFor('a')).toEqual({ key: 'loader', detected: 'Forge' });
     c.dispose();
   });
 
@@ -126,13 +131,15 @@ describe('createCompatCheck two-stage pipeline', () => {
     c.dispose();
   });
 
-  it('a command-level failure flags nothing and is retried on the next run', async () => {
-    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Forge')] });
+  it('a command-level failure adds no live verdicts and is retried on the next run', async () => {
+    // A live-checkable mod with NO family suspicion: only the live check can
+    // flag it, so a failed command must flag nothing — and stay undecided so
+    // the next pipeline run asks again.
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', false, true)] });
     liveMock.mockResolvedValueOnce({ status: 'error', error: 'HTTP 429' });
     const c = check();
     await c.runOfflineScan();
     expect(c.incompatibleCount).toBe(0);
-    // Still undecided → the next pipeline run asks again (and succeeds).
     liveMock.mockResolvedValueOnce({ status: 'ok', data: [verdict('a', 'incompatible')] });
     await c.runOfflineScan();
     expect(c.incompatibleCount).toBe(1);
