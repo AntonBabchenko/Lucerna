@@ -6,7 +6,11 @@
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
+  import { tourState } from '$lib/onboarding/state.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
   import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -340,6 +344,7 @@
             type="button"
             class="card-zone px-3.5 pb-2 flex justify-between gap-3 text-sm"
             data-testid="overview-localization"
+            data-tour-ctx="overview-l10n"
             onclick={onOpenLocalization}
           >
             <span>{$t('page.overview.localization', { lang: l10nLang })}</span>
@@ -507,3 +512,21 @@
     <p class="text-sm text-muted">{$t('page.overview.noInstanceSelected')}</p>
   {/if}
 </div>
+
+{#if activeInstance && serversUi.mode === 'client' && !tourState.active && installedStats.total > 0}
+  <!-- REACTIVE !tourState.active gate, unlike every other tour host: Overview
+       is the default tab, mounted at startup racing initOnboarding, so the
+       mount-time deferral alone cannot sequence this tour after the main one.
+       With the reactive gate the block unmounts while the main tour runs (no
+       burn — ContextualTour's destroy guard skips markSeen when the main tour
+       is active) and remounts fresh when it finishes, which is what makes
+       "overview fires after the main tour" true. The mode gate matters too:
+       in servers mode this panel is class:hidden, and a tour activating
+       inside display:none would set data-ctx-tour-active invisibly and be
+       burned unseen by the first Escape. The last two conjuncts are the
+       anchor's own render conditions: with no instance selected, or none of
+       its mods installed, the localization row is not in the DOM, and an
+       anchorless step degrades to a full-screen dim with a centred popover
+       about a row the user cannot see — then burns itself on "Got it". -->
+  <ContextualTour id="overview" steps={OVERVIEW_STEPS} />
+{/if}

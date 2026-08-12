@@ -1,13 +1,30 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
+import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
+import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
+import { serversUi } from '$lib/servers/servers-ui.svelte';
 
 beforeEach(() => {
   attentionCollapse.reset();
+  // Every render below inherits `installedStats.total: 18`, so the localization
+  // row — and the one-step contextual tour anchored on it — would otherwise open
+  // over all ~30 of them. Seed it seen; the few tests that exercise the tour
+  // clear storage themselves.
+  markSeen('overview');
+});
+
+// Both are module-level singletons shared by every test in this file, and the
+// tour tests below write to them — reset unconditionally so a failure mid-test
+// can't leak "the main tour is up" or "we're in servers mode" into a neighbour.
+afterEach(() => {
+  tourState.active = false;
+  serversUi.setMode('client');
 });
 
 const noErrors = {
@@ -408,5 +425,72 @@ describe('OverviewTab version-error Reload', () => {
       },
     });
     expect(screen.getByRole('button', { name: 'Reload' }).hasAttribute('disabled')).toBe(true);
+  });
+});
+
+// Overview is the DEFAULT main tab, so unlike every other contextual-tour host
+// it is already mounted at startup, racing initOnboarding's two awaited IPC
+// round-trips. ContextualTour's own deferral is mount-time only, so a plain
+// unconditional mount here would either open on top of the main tour or defer
+// once and stay inert until the user happened to switch tabs away and back.
+// Hence the REACTIVE gate — and hence these tests, which pin each of its
+// conjuncts to the failure it exists to prevent.
+describe('OverviewTab contextual tour', () => {
+  it('overview tour waits out the main tour, then fires on its completion', async () => {
+    localStorage.clear(); // this test needs the tour unseen
+    tourState.active = true;
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    tourState.active = false;
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+    expect(hasSeen('overview')).toBe(false); // fired, not yet finished
+  });
+
+  // In servers mode the whole client panel is class:hidden (display:none), not
+  // {#if}-removed — so a tour activating in here would paint nothing, set
+  // body[data-ctx-tour-active] (swallowing every Modal's Escape), and be burned
+  // unseen by the first Escape the user pressed to close something else.
+  it('does not fire in servers mode, where the client panel is display:none', async () => {
+    localStorage.clear();
+    serversUi.setMode('servers');
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+  });
+
+  // Same gate the localization row itself renders under: no mods, no row, so
+  // nothing for the single step to anchor on.
+  it('does not fire when the instance has no mods, so the row is absent', async () => {
+    localStorage.clear();
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: { total: 0, enabled: 0, disabled: 0 },
+      },
+    });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+  });
+
+  // installedStats and activeInstance are separate signals fed by an async
+  // refresh, so "no instance selected" can be on screen for a flush while the
+  // previous instance's count is still ≥ 1 — and the placeholder branch renders
+  // no localization row at all. Without this conjunct the tour would open a
+  // full-screen dim and a centred popover about a row that isn't there, then
+  // burn itself on "Got it".
+  it('does not fire with no instance selected, where the row is absent', async () => {
+    localStorage.clear();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: null } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
   });
 });
