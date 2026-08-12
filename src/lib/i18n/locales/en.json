@@ -2110,7 +2110,7 @@
         },
         "search": {
           "title": "Find a line from the game",
-          "body": "Saw an untranslated line in game and don't know which mod owns it? Type it here. Lucerna searches every mod in this instance, matching the text the way the game formats it.",
+          "body": "Saw an untranslated line in the game and don't know which mod owns it? Type it here. Lucerna searches every mod in this instance, matching the text the way the game formats it.",
           "titleBasic": "Find a line you saw",
           "bodyBasic": "Saw an untranslated line in the game? Type it here and Lucerna finds which mod it belongs to."
         },
