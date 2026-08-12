@@ -20,15 +20,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Backend seam: the library view fetches its rows and the running-instance
 // state on mount, and subscribes to the process events. An empty library is
 // enough — the toolbar (and therefore the explainer) renders regardless.
-const { datapacksListLibrary, runningInstances, spawnListen, exitListen } = vi.hoisted(() => ({
-  datapacksListLibrary: vi.fn(),
-  runningInstances: vi.fn(),
-  spawnListen: vi.fn(),
-  exitListen: vi.fn(),
-}));
+const { datapacksListLibrary, runningInstances, serverListDatapacks, spawnListen, exitListen } =
+  vi.hoisted(() => ({
+    datapacksListLibrary: vi.fn(),
+    runningInstances: vi.fn(),
+    serverListDatapacks: vi.fn(),
+    spawnListen: vi.fn(),
+    exitListen: vi.fn(),
+  }));
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { datapacksListLibrary, runningInstances },
+  commands: { datapacksListLibrary, runningInstances, serverListDatapacks },
   events: {
     processSpawned: { listen: spawnListen },
     processExited: { listen: exitListen },
@@ -37,12 +39,14 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import InstalledDatapacksView from '$lib/mods/InstalledDatapacksView.svelte';
 import { explanationState } from '$lib/onboarding/explanation-level.svelte';
+import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
 
 const TRIGGER = /what are data packs\?/i;
 
 beforeEach(() => {
   datapacksListLibrary.mockResolvedValue({ status: 'ok', data: { entries: [] } });
   runningInstances.mockResolvedValue([]);
+  serverListDatapacks.mockResolvedValue({ status: 'ok', data: [] });
   spawnListen.mockResolvedValue(() => {});
   exitListen.mockResolvedValue(() => {});
 });
@@ -103,6 +107,19 @@ describe('datapack concept help — instance library surface', () => {
     // The Advanced phrasing must be gone, not merely accompanied — otherwise a
     // broken explainKey mapping would still pass the assertion above.
     expect(paragraphs[0].textContent).not.toContain('loot tables');
+  });
+});
+
+// PRESENCE on the server surface — a different claim from the copy assertions
+// above, and one nothing else makes: ServerAddonsTab is the only thing that
+// renders ServerDatapacksInstalled, and tests/server-addons-tab.test.ts stubs
+// it out with a no-op component. So the pane is mounted directly here.
+// (The per-world surface is pinned in tests/world-datapacks.test.ts, which
+// already renders WorldDatapacks.)
+describe('datapack concept help — server surface', () => {
+  it('renders the help trigger in the server datapack toolbar', async () => {
+    render(ServerDatapacksInstalled, { props: { serverId: 'srv-1', mcVersion: '1.20.4' } });
+    expect(await screen.findByRole('button', { name: TRIGGER })).toBeTruthy();
   });
 });
 

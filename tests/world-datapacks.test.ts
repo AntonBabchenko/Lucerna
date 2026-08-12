@@ -39,6 +39,18 @@ function makePack(over: Partial<WorldDatapack> = {}): WorldDatapack {
   };
 }
 
+// The explainer is the shared DatapackConceptHelp component; its copy and
+// explanation-level behaviour are asserted once, in
+// tests/datapack-concept-help.test.ts. What this pins is PRESENCE on this
+// surface — a different claim from copy, and one nothing else covers: deleting
+// the tag from WorldDatapacks.svelte is otherwise invisible to every suite.
+describe('WorldDatapacks — datapack concept explainer', () => {
+  it('renders the "What are data packs?" help trigger beside the panel title', async () => {
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByRole('button', { name: /what are data packs\?/i })).toBeTruthy();
+  });
+});
+
 describe('WorldDatapacks — empty state', () => {
   it('shows "No datapacks yet" with text-muted when the world has no packs', async () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
