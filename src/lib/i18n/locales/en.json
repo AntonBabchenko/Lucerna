@@ -2354,7 +2354,7 @@
         "integrations": {
           "curseforgeKey": "curseforge api key token",
           "urlScheme": "url scheme protocol deep link handler",
-          "aiTranslation": "ai translation translate provider model"
+          "aiTranslation": "ai translation translate provider model api key token gemini anthropic openai groq"
         },
         "storage": {
           "cache": "cache clear temporary storage",

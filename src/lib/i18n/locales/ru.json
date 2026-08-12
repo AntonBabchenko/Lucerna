@@ -2354,7 +2354,7 @@
         "integrations": {
           "curseforgeKey": "curseforge апи ключ токен",
           "urlScheme": "ссылка протокол схема обработчик",
-          "aiTranslation": "ии перевод перевести провайдер модель"
+          "aiTranslation": "ии перевод перевести провайдер модель апи ключ токен gemini anthropic openai groq"
         },
         "storage": {
           "cache": "кэш очистить временные хранилище",
