@@ -348,6 +348,26 @@ pub enum Error {
     #[error("Could not resolve a free name for '{folder_name}' after trying 99 suffixes")]
     WorldNameUnresolvable { folder_name: String },
 
+    /// A restore failed AND the rollback could not put the world back. The world
+    /// is intact in a dot-prefixed sibling directory that every listing filters
+    /// out (`pathsafe::validate_segment` rejects a leading dot), so the launcher
+    /// cannot see it and the user must be told where it is.
+    ///
+    /// `recovered_at` is that directory's NAME — a bare segment, never a full
+    /// path. The variant is classified `clean`, meaning its copy is fully
+    /// translated with these fields interpolated; a user's filesystem path
+    /// pasted into a translated sentence is precisely what choosing a typed
+    /// variant over `Io` was meant to avoid.
+    ///
+    /// The cause of the underlying failure is NOT carried here — it goes to the
+    /// log, and the copy points there. Both causes are logged: the swap-in
+    /// failure and the rollback failure.
+    #[error("World '{world_folder}' could not be moved back after a failed restore; it is at {recovered_at}")]
+    WorldRestoreStranded {
+        world_folder: String,
+        recovered_at: String,
+    },
+
     #[error("Screenshot '{filename}' not found in instance {instance_id}")]
     ScreenshotNotFound {
         instance_id: String,
@@ -1333,5 +1353,20 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "l10n_lang_invalid");
         assert_eq!(v["lang"], "../../evil");
+    }
+
+    #[test]
+    fn world_restore_stranded_serializes_with_its_tag_and_fields() {
+        let e = Error::WorldRestoreStranded {
+            world_folder: "My World".into(),
+            recovered_at: ".tmp-restoring-My World-0".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "world_restore_stranded");
+        assert_eq!(v["world_folder"], "My World");
+        // A bare segment, never a path: this string is interpolated into a fully
+        // translated sentence, and a filesystem path inside one is what the
+        // typed variant exists to avoid.
+        assert_eq!(v["recovered_at"], ".tmp-restoring-My World-0");
     }
 }

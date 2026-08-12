@@ -68,7 +68,8 @@ async fn end_to_end_backup_then_restore_replace_round_trip() {
     // World is back to the pre-mutation state.
     assert_eq!(fs::read(world_dir.join("level.dat")).unwrap(), b"\x01\x02");
 
-    // Pre-restore zip captured the mutation.
+    // Pre-restore zip captured the mutation. On the success path the snapshot
+    // IS written — it is only skipped when the backup never verified.
     let pre: Vec<_> = fs::read_dir(&backups_dir)
         .unwrap()
         .filter_map(|e| e.ok())
@@ -76,6 +77,20 @@ async fn end_to_end_backup_then_restore_replace_round_trip() {
         .filter(|n| n.starts_with("pre-restore-"))
         .collect();
     assert_eq!(pre.len(), 1);
+
+    // The reorder's guarantee, asserted where a caller would see it: a restore
+    // leaves neither a staging directory nor a parked world behind. Both are
+    // dot-prefixed, so no launcher listing would ever show them.
+    let leftovers: Vec<_> = fs::read_dir(&saves_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| n.starts_with(".tmp-"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "restore left staging behind: {leftovers:?}"
+    );
 }
 
 #[tokio::test]

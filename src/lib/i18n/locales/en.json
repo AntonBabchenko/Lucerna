@@ -2183,6 +2183,7 @@
     "worldInUse": "World \"{folderName}\" is currently in use — quit Minecraft and try again",
     "worldPathInvalid": "Invalid name \"{name}\": {reason}",
     "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
+    "worldRestoreStranded": "Restore failed and \"{worldFolder}\" couldn't be moved back automatically. Your world is safe in the \"{recoveredAt}\" folder inside saves. See Logs for the cause.",
     "screenshotNotFound": "Screenshot \"{filename}\" not found in this instance",
     "screenshotPathInvalid": "Invalid screenshot name \"{name}\": {reason}",
     "backupNotFound": "Backup \"{filename}\" not found",
