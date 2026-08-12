@@ -1,18 +1,16 @@
 <script lang="ts">
-  // Always-visible (?) explainer next to the Sidebar "Instance" section header.
-  // Safety net for users who skipped the tour or upgraded from v0.4.x with
-  // existing instances. Thin wrapper over the shared HelpPopover; the copy is a
-  // tightened standalone variant of the tour's step-1 welcome text (deliberately
-  // not shared with steps.ts — the popover wants one concise sentence).
-  import HelpPopover from '$lib/ui/HelpPopover.svelte';
-  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
-  import { explainKey } from '$lib/onboarding/explanation-keys';
-  import { t } from '$lib/i18n';
+  // The instance concept explainer, next to the Sidebar "Instance" section
+  // header. Safety net for users who skipped the tour or upgraded from v0.4.x
+  // with existing instances. The copy is a tightened standalone variant of the
+  // tour's step-1 welcome text (deliberately not shared with steps.ts — this
+  // wants one concise sentence, hence the single `body` leaf and the narrower
+  // 260px width its multi-paragraph siblings do not use).
+  //
+  // Misnomer kept on purpose: this is a click-toggle popover, not a tooltip
+  // (docs/DESIGN.md §8 distinguishes the two). Renaming it touches the Sidebar
+  // call site and two test suites owned elsewhere, so it is left for a pass that
+  // owns those files.
+  import ConceptHelp from '$lib/onboarding/ConceptHelp.svelte';
 </script>
 
-<HelpPopover
-  paragraphs={[$t(explainKey('onboarding.instanceConcept.body', explanationState.level))]}
-  triggerAriaLabel={$t('onboarding.instanceConcept.triggerAriaLabel')}
-  triggerTitle={$t('onboarding.instanceConcept.triggerTitle')}
-  closeAriaLabel={$t('onboarding.instanceConcept.closeAriaLabel')}
-/>
+<ConceptHelp namespace="onboarding.instanceConcept" paragraphKeys={['body']} width={260} />
