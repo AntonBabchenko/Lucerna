@@ -29,12 +29,29 @@
   // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
   // blocking variant could trap the user behind a mispositioned popover and
   // intercepted legitimate clicks, so we only coordinate Escape here.
+  // Set-and-teardown (not if/else): this effect runs on EVERY instance, and it
+  // is created before onMount's effect, so an if/else `removeAttribute` branch
+  // would strip another tour's flag from <body> the moment a deferred (never
+  // active) instance mounts — defeating the ctx-vs-ctx mount guard below. Only
+  // touch the attribute when this instance owns it; the teardown also runs on
+  // destroy, so a mid-tour unmount can't leave a stale flag behind.
   $effect(() => {
     if (active) {
       document.body.setAttribute('data-ctx-tour-active', 'true');
-    } else {
-      document.body.removeAttribute('data-ctx-tour-active');
+      return () => {
+        document.body.removeAttribute('data-ctx-tour-active');
+      };
     }
+  });
+
+  // Yield to the main tour. Replay (Settings → Help) and a TOUR_VERSION-bump
+  // re-show activate the main tour while a contextual popover can be up; two
+  // live overlays freeze this one (body[data-tour-active] kills its pointer
+  // events) and both window handlers answer one Escape. Deactivate WITHOUT
+  // marking seen — replay just reset the flag, and the tour re-fires on the
+  // next visit to its surface.
+  $effect(() => {
+    if (active && tourState.active) active = false;
   });
 
   onMount(() => {
@@ -44,6 +61,11 @@
     // contextual popover. Defer — the surface stays un-toured this visit and
     // re-fires next time (the "seen" flag is only set on finish).
     if (tourState.active) return;
+    // Another contextual tour is on screen (cross-surface chaining: e.g. the
+    // overview step's own CTA opens the translations modal, which hosts the
+    // l10n tour). Same deferral as the main-tour case — this surface stays
+    // un-toured this visit and re-fires on its next mount.
+    if (document.body.hasAttribute('data-ctx-tour-active')) return;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -58,11 +80,17 @@
   });
 
   onDestroy(() => {
-    document.body.removeAttribute('data-ctx-tour-active');
-    // If the host (modal/tab) unmounts mid-tour, treat it as a soft-skip so the
-    // tour doesn't silently re-fire on every subsequent open. finish() already
-    // clears `active`, so this only fires on an un-finished dismissal.
-    if (active) markSeen(id);
+    // No removeAttribute here: the attribute effect's teardown handles it on
+    // destroy, and only for the instance that set it — an unconditional
+    // removal would strip the flag of a still-active tour when a DEFERRED
+    // instance's host unmounts.
+    // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
+    // open — UNLESS the main tour's own activation tore the host down
+    // (replay/startup call setMode('client') and set tourState.active in one
+    // flush; a destroyed component's pending effects are discarded, so the
+    // yield effect above can never run on that path). A tour suppressed that
+    // way was just reset by replay and must stay armed.
+    if (active && !tourState.active) markSeen(id);
   });
 
   $effect(() => {
