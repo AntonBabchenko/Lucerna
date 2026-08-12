@@ -171,7 +171,17 @@ async fn migrate_one(
                 });
             }
         }
-        Err(_) => {}
+        // Absent is a fact; any other error is ignorance. `materialize` replaces
+        // its destination unconditionally, so reading "could not stat" as "the
+        // slot is free" would let it overwrite a file we never identified.
+        // Mirrors the discrimination at the removal site below.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dest.display().to_string(),
+                details: e.to_string(),
+            })
+        }
     }
 
     materialize(src, &dest, LinkPolicy::LinkIfPossible)

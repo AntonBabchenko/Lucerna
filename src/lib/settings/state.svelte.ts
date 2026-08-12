@@ -1,5 +1,6 @@
 import type { ContentKind, ModSource } from '$lib/ipc/bindings';
 import type { Granularity, SortDir } from '$lib/screenshots/screenshots-view';
+import type { SettingsAnchor } from './search-index';
 
 // Cross-component state for opening the Settings modal at a specific tab.
 //
@@ -21,6 +22,13 @@ export type SettingsTab =
 export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
   value: null,
 });
+
+// Which settings control the Settings modal should scroll to and flash. Set by
+// the in-modal search when the user picks a result; consumed by SettingsField
+// (which wraps each searchable control) via the fieldFlash action. Mirrors the
+// manage-focus.ts + focusField flow used by ManageInstancesModal. `null` = no
+// pending jump.
+export const settingsSearchFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
 
 // Tick that increments whenever the CurseForge API key changes (saved
 // or cleared). Watchers that gate UI on the key's existence — e.g.

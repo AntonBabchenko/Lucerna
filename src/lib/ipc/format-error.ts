@@ -154,6 +154,11 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   world_in_use: 'clean',
   world_path_invalid: 'clean',
   world_name_unresolvable: 'clean',
+  // `clean`, not `opaque`: the whole value of this variant is a fully
+  // translated sentence carrying both fields. An opaque rendering would
+  // truncate a raw English tail, which is what choosing a typed variant over
+  // `io` was meant to avoid.
+  world_restore_stranded: 'clean',
   screenshot_not_found: 'clean',
   screenshot_path_invalid: 'clean',
   backup_not_found: 'clean',
@@ -553,6 +558,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldPathInvalid', { name: e.name, reason: e.reason });
     case 'world_name_unresolvable':
       return translate('errors.worldNameUnresolvable', { folderName: e.folder_name });
+    case 'world_restore_stranded':
+      return translate('errors.worldRestoreStranded', {
+        worldFolder: e.world_folder,
+        recoveredAt: e.recovered_at,
+      });
     case 'screenshot_not_found':
       return translate('errors.screenshotNotFound', { filename: e.filename });
     case 'screenshot_path_invalid':

@@ -356,6 +356,11 @@ describe('formatError', () => {
       world_in_use: { kind: 'world_in_use', folder_name: 'world' },
       world_path_invalid: { kind: 'world_path_invalid', name: 'world', reason: 'bad' },
       world_name_unresolvable: { kind: 'world_name_unresolvable', folder_name: 'world' },
+      world_restore_stranded: {
+        kind: 'world_restore_stranded',
+        world_folder: 'World1',
+        recovered_at: '.tmp-restoring-World1-0',
+      },
       screenshot_not_found: {
         kind: 'screenshot_not_found',
         instance_id: 'i1',
