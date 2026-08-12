@@ -112,6 +112,8 @@
     pushWarning,
   } from '$lib/toasts/toasts.svelte';
   import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
+  import { checkWhatsNew } from '$lib/changelog/whats-new.svelte';
+  import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { importTitle } from '$lib/modpacks/import-request';
   import { dataLocation } from '$lib/settings/data-location.svelte';
@@ -945,6 +947,11 @@
       initSidebarButtons(settingsResult.data.general.hidden_sidebar_buttons ?? []);
       modpackSweepEnabled = settingsResult.data.general.check_updates_on_startup ?? true;
       sweepModpackUpdates();
+      // Post-update "What's new": if the running version differs from the last
+      // one the user saw, offer the changelog. Independent of the update-check
+      // setting — it's fully offline (embedded changelog, no network).
+      // Fire-and-forget; never gate core init on it.
+      void checkWhatsNew(settingsResult.data.changelog_seen_version ?? null);
     }
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it
@@ -1862,6 +1869,7 @@
   {/if}
 </main>
 <ToastHost />
+<WhatsNewModal />
 <MicrosoftSigningInModal
   open={msSigningIn}
   onCancel={() => {
