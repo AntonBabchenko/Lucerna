@@ -385,6 +385,7 @@
       "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
       "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
       "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
+      "vanillaModsWarning": "No mod loader selected — {count} installed mods will not load. Pick a loader in profile management.",
       "heading": "Integrity",
       "subtitle": "Verify the instance's game files against their checksums.",
       "verifyBtn": "Verify",
@@ -504,8 +505,6 @@
         "emptyTitle": "Nothing to export yet",
         "emptyBody": "You have not translated anything into this language, so there is nothing of yours to share. Translate a few strings first, then come back here.",
         "selectedCount": "{selected} of {total} selected",
-        "selectAll": "Select all",
-        "clearAll": "Clear",
         "searchPlaceholder": "Search mods…",
         "exportHint": "As a plain resource pack the file targets Minecraft {version}; on other versions, import it through Lucerna instead.",
         "noteLabel": "Label / author (optional)",
@@ -660,8 +659,6 @@
       "nameLabel": "Instance name",
       "importBtn": "Import",
       "back": "Back",
-      "selectAll": "Select all",
-      "deselectAll": "Deselect all",
       "imported": "Imported {name}",
       "failed": "Launcher import failed",
       "progress": "Importing {name}…",
@@ -846,7 +843,6 @@
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",
-      "selectAll": "Select all",
       "selectedCount": "{count} selected",
       "bulkClear": "Clear",
       "bulkUpdateTitle": "Run \"Check for updates\" first; only mods with a pending update can be updated",
@@ -952,7 +948,6 @@
     },
     "migration": {
       "openBtn": "Fix incompatible mods",
-      "rowFixBtn": "Fix",
       "title": "Migration plan",
       "loading": "Checking installed mods…",
       "retryBtn": "Try again",
@@ -974,10 +969,12 @@
         "noBuildForTarget": "No build has been published yet for this Minecraft version and loader.",
         "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
         "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
-        "queryFailed": "Couldn't check for a replacement — try again later."
+        "queryFailed": "Couldn't check for a replacement — try again later.",
+        "loaderTooOld": "This mod is built for a different Minecraft version than this instance runs — its loader is already the newest one for your version. Reinstalling won't help; change the instance's Minecraft version to match, or remove the mod.",
+        "loaderTooOldFor": "Built for Minecraft {mc}. This instance runs a different version, and its loader is already the newest one available for it — reinstalling won't help. Change the instance's Minecraft version to match, or remove the mod."
       },
       "applyBtn": "Apply",
-      "applyDisabledReason": "Choose disable, remove, or keep for {count, plural, one {# more mod} other {# more mods}} before applying",
+      "applyDisabledReason": "Select at least one change to apply",
       "resultSummary": "{succeeded} of {total} changes applied",
       "outcome": {
         "replaced": "Replaced",
@@ -1119,8 +1116,6 @@
         "groupOther": "Other",
         "groupHeader": "{label} ({count} · {size})",
         "groupHeaderNoSize": "{label} ({count})",
-        "selectAll": "Select all",
-        "deselectAll": "Deselect all",
         "selectionCount": "{selected} of {total} selected",
         "requiredBadge": "Required",
         "optionalBadge": "Optional",
@@ -3534,5 +3529,8 @@
       "emptyFiltered": "No files match this filter.",
       "copyReport": "Copy report"
     }
+  },
+  "ui": {
+    "selectAll": "Select all"
   }
 }

@@ -111,19 +111,98 @@ describe('MigrationPlanDialog', () => {
     );
   });
 
-  it('keeps Apply disabled — with a visible reason — until every stranded row has a disposition, then enables it', async () => {
+  it('enables Apply the moment anything is selected, without forcing a stranded choice', async () => {
+    // A user who only wants the top-section reinstall must not be blocked by
+    // the stranded section. Apply is gated on "something is selected", not on
+    // "every stranded row decided" — an undecided stranded mod is simply left
+    // in place (see the keep-as-is apply test below).
     modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
     renderDialog();
 
     await waitFor(() => expect(screen.getByTestId('migration-apply-btn')).toBeTruthy());
     const applyBtn = screen.getByTestId('migration-apply-btn') as HTMLButtonElement;
+    // Nothing selected yet — there is genuinely nothing to apply.
     expect(applyBtn.disabled).toBe(true);
-    expect(screen.getByTestId('migration-apply-disabled-reason').textContent).toMatch(/choose/i);
+    expect(screen.getByTestId('migration-apply-disabled-reason').textContent).toMatch(/select/i);
 
-    await fireEvent.click(screen.getByTestId('migration-disposition-keep-s1'));
+    // Check only the top-section reinstall; the stranded row stays untouched.
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Biomes O Plenty' }));
 
     expect(applyBtn.disabled).toBe(false);
     expect(screen.getByTestId('migration-apply-disabled-reason').textContent).toBe('');
+  });
+
+  it('select-all checks every replaceable row and clears them again', async () => {
+    // Maintainer request during the Forge→Fabric smoke: ten replaceable rows
+    // and no way to take them all at once.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-replace-select-all')).toBeTruthy());
+    const master = screen.getByTestId('migration-replace-select-all') as HTMLInputElement;
+    const applyBtn = screen.getByTestId('migration-apply-btn') as HTMLButtonElement;
+    const row = screen.getByRole('checkbox', { name: 'Biomes O Plenty' }) as HTMLInputElement;
+
+    await fireEvent.click(master);
+    expect(row.checked).toBe(true);
+    expect(applyBtn.disabled).toBe(false);
+
+    await fireEvent.click(master);
+    expect(row.checked).toBe(false);
+    expect(applyBtn.disabled).toBe(true);
+  });
+
+  it('applies the checked reinstall and keeps every undecided stranded mod as-is', async () => {
+    // The user reinstalls the top-section mod and never touches the stranded
+    // section. Its rows must be sent as `keep` (a no-op that leaves the jar in
+    // place) — never dropped from the payload, and never defaulted to a
+    // destructive disable/remove. Checking BoP also auto-includes its mandatory
+    // TerraBlender dependency (see the coupling test below), so it rides along.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    modsApplyMcMigration.mockResolvedValue({ status: 'ok', data: { outcomes: [] } });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-apply-btn')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Biomes O Plenty' }));
+    await fireEvent.click(screen.getByTestId('migration-apply-btn'));
+
+    await waitFor(() => expect(modsApplyMcMigration).toHaveBeenCalledTimes(1));
+    expect(modsApplyMcMigration).toHaveBeenCalledWith('inst-1', {
+      replace: [{ old_sha1: 'r1', target: PLAN.replaceable[0]?.target }],
+      new_dependencies: [PLAN.new_dependencies[0]?.target],
+      stranded: [{ sha1: 's1', disposition: 'keep' }],
+    });
+  });
+
+  it('auto-includes and locks a mandatory new-dependency when its dependent replace is checked', async () => {
+    // A checked replace must never be applied without the mandatory dependency
+    // the plan itself surfaced for its target: reinstalling BoP without
+    // TerraBlender reintroduces the exact pre-load crash the migration exists to
+    // prevent, while the report shows "Replaced ✓". So a dep whose `needed_by`
+    // includes a checked replace is force-included and its checkbox locked.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    modsApplyMcMigration.mockResolvedValue({ status: 'ok', data: { outcomes: [] } });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-apply-btn')).toBeTruthy());
+    const depCb = () =>
+      screen
+        .getByTestId('migration-new-dep-row-modrinth:terrablender')
+        .querySelector('input[type="checkbox"]') as HTMLInputElement;
+
+    // Before checking BoP the dep is optional (unchecked, editable).
+    expect(depCb().checked).toBe(false);
+    expect(depCb().disabled).toBe(false);
+
+    // Checking BoP forces the dependency on and locks it.
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Biomes O Plenty' }));
+    expect(depCb().checked).toBe(true);
+    expect(depCb().disabled).toBe(true);
+
+    // Unchecking BoP releases the dependency back to optional/unchecked.
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Biomes O Plenty' }));
+    expect(depCb().checked).toBe(false);
+    expect(depCb().disabled).toBe(false);
   });
 
   it('sends only checked replaceable/new-dependency rows, plus every stranded row with its chosen disposition', async () => {

@@ -1863,7 +1863,15 @@ pub async fn check_instance_mod_compat(
     const CHECK_UPDATES_CONCURRENCY: usize = 6;
 
     let inst_root = instance_root(&app, &id)?;
-    let installed = crate::mods::installed::list(&inst_root).await?;
+    // Disabled mods are out of scope for every detector (locked decision,
+    // 2026-08-03) — the loader never opens them, so their projects are not
+    // worth a platform round-trip and their verdicts would only re-light
+    // alarms the user already resolved by disabling.
+    let installed: Vec<_> = crate::mods::installed::list(&inst_root)
+        .await?
+        .into_iter()
+        .filter(|m| m.enabled)
+        .collect();
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
     // Every mod starts Unknown; the bounded poll below overwrites the ones
@@ -1960,8 +1968,12 @@ async fn read_installed_jar_bytes(mods_dir: &std::path::Path, filename: &str) ->
 /// loader; each replaceable target's declared required deps are then asked
 /// for too (same shape again), so anything a later apply would ALSO need to
 /// pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
-/// is visible in the plan before anything is installed. Never applies
-/// anything: this command only reads and queries.
+/// is visible in the plan before anything is installed. Fits/Unknown mods
+/// with an identity additionally get an EXISTENCE probe through the shared
+/// version cache (option A, 2026-08-10 spec): a project publishing no build
+/// for this platform strands the mod instead of filing it under "fits", which
+/// is what kept the plan's count below the chip's. Never applies anything:
+/// this command only reads and queries.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_plan_mc_migration(
@@ -1983,7 +1995,17 @@ pub async fn mods_plan_mc_migration(
 
     let inst_root = instance_root(&app, &instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
-    let installed = crate::mods::installed::list(&inst_root).await?;
+    // Disabled mods are out of scope (locked decision, 2026-08-03): they are
+    // neither judged nor offered for replacement — observed live (2026-08-11),
+    // the plan re-offered «Отключить» for a mod the user had already disabled
+    // through this very dialog. To migrate a disabled mod, re-enable it first.
+    // This also keeps the plan's counts consistent with the chip, which reads
+    // the (enabled-only) offline scan.
+    let installed: Vec<_> = crate::mods::installed::list(&inst_root)
+        .await?
+        .into_iter()
+        .filter(|m| m.enabled)
+        .collect();
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
     let mc = inst.mc_version.clone();
@@ -1991,6 +2013,9 @@ pub async fn mods_plan_mc_migration(
     let loader_version = inst.loader_version.clone();
     let era = crate::mods::local::descriptor_era(&mc);
     let dir = crate::mods::installed::mods_dir(&inst_root);
+    // Once for the whole plan, exactly like `scan_instance`: the family
+    // verdict below is Connector-aware (spec D5).
+    let connector = crate::mods::local::connector_installed(&dir, &installed).await;
 
     // 1. Offline per-mod verdict + identity. No network — mirrors what
     //    `local::scan_instance` does internally to read each jar's platform
@@ -1999,12 +2024,14 @@ pub async fn mods_plan_mc_migration(
     let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
     for m in &installed {
         let bytes = read_installed_jar_bytes(&dir, &m.filename).await;
-        let verdict = bytes
+        let manifest = bytes
             .as_deref()
-            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok())
+            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok());
+        let verdict = manifest
+            .as_ref()
             .map(|man| {
                 crate::mods::mc_compat::platform_verdict(
-                    &man,
+                    man,
                     &mc,
                     loader,
                     loader_version.as_deref(),
@@ -2012,17 +2039,39 @@ pub async fn mods_plan_mc_migration(
                 )
             })
             .unwrap_or(PlatformVerdict::Unknown);
+        // The version the jar itself declares it was built for — its `minecraft`
+        // platform declaration, verbatim. Only for a loader-axis `LoaderTooOld`
+        // message ("built for 1.21.1"); never re-evaluated for bucketing.
+        let declared_mc = manifest.as_ref().and_then(|man| {
+            man.platform
+                .iter()
+                .find(|d| d.dep_id == "minecraft")
+                .map(|d| d.range.clone())
+        });
         let identity = if is_pack_origin_mod(m, pack_origin.as_ref()) {
             Err(Ineligible::PackOrigin)
         } else {
             replaceable_identity(m, pack_origin.as_ref()).ok_or(Ineligible::NoProject)
         };
+        // The same Connector-aware family verdict `scan_instance` computes —
+        // a Forge jar on a Fabric instance is silently skipped by the loader,
+        // and the plan must route it by THAT fact, not by its (inapplicable)
+        // platform ranges. Spec D5.
+        let family_mismatch = bytes
+            .as_deref()
+            .and_then(|b| crate::mods::local::read_jar_meta(b).ok())
+            .map(|meta| {
+                crate::mods::local::compat_verdict(&meta, loader, &mc, connector).loader_mismatch
+            })
+            .unwrap_or(false);
         inputs.push(ModMigrationInput {
             sha1: m.sha1.clone(),
             name: m.name.clone(),
             verdict,
             identity,
             candidate: None,
+            declared_mc,
+            family_mismatch,
         });
     }
 
@@ -2058,6 +2107,48 @@ pub async fn mods_plan_mc_migration(
         .collect()
         .await;
     for (i, q) in results {
+        inputs[i].candidate = Some(q);
+    }
+
+    // 2b. Existence probes for FITS/UNKNOWN mods that still have a platform
+    //     identity (option A of the 2026-08-10 live-availability spec): a jar
+    //     with a permissive declared range is offline-Fits yet the project may
+    //     publish NO build for this platform at all — the live check's
+    //     «Несовместим», which the plan used to file under "already fit"
+    //     (the 7↔3 gap). Deliberately via `cached_versions` — the SAME cache
+    //     and question as the chip's live check — so the two surfaces cannot
+    //     disagree even when the cache is stale. Violated mods above keep the
+    //     uncached query: their result picks a concrete replacement target.
+    let probes: Vec<(usize, ModSource, String)> = inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, inp)| match (&inp.verdict, &inp.identity) {
+            (PlatformVerdict::Fits | PlatformVerdict::Unknown, Ok((source, project_id))) => {
+                Some((i, *source, project_id.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let probe_results: Vec<(usize, CandidateQuery)> =
+        stream::iter(probes)
+            .map(|(i, source, project_id)| {
+                let mc = mc.clone();
+                async move {
+                    let platform = platform_for(source);
+                    let query =
+                        match cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
+                            .await
+                        {
+                            Ok(versions) => CandidateQuery::Found(versions),
+                            Err(_) => CandidateQuery::Failed,
+                        };
+                    (i, query)
+                }
+            })
+            .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+            .collect()
+            .await;
+    for (i, q) in probe_results {
         inputs[i].candidate = Some(q);
     }
 

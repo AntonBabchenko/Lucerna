@@ -117,7 +117,8 @@ describe('ShareExportDialog', () => {
     await fireEvent.click(screen.getByTestId('share-export-select-all'));
     expect(screen.getByTestId('share-export-count').dataset.selected).toBe('2');
 
-    await fireEvent.click(screen.getByTestId('share-export-clear'));
+    // Unified select-all is a tri-state checkbox: unchecking IS the clear.
+    await fireEvent.click(screen.getByTestId('share-export-select-all'));
     expect(screen.getByTestId('share-export-count').dataset.selected).toBe('0');
     expect((screen.getByTestId('share-export-run') as HTMLButtonElement).disabled).toBe(true);
   });

@@ -1,14 +1,15 @@
 /**
- * Two surfaces, one scan. The Overview must stay network-free (offline-decidable
- * mismatches only); the Installed tab folds its live platform verdicts on top.
- * Sharing the scan must not collapse them into the same number.
+ * Two surfaces, one scan — and since spec D4, one COUNT. The offline scan
+ * stays the network-free primitive (`offlineMismatchCount` — the Manage
+ * summary and the offline fallback read it); the Installed chip and the
+ * Overview row both show the union of offline mismatches and the keyed live
+ * verdicts, so they can no longer disagree (locked C6).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   scanInstanceModCompat: vi.fn(),
   checkInstanceModCompat: vi.fn(),
-  modsVersions: vi.fn(),
 }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: mocks }));
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
@@ -19,7 +20,12 @@ import {
   invalidateCompatScan,
   offlineMismatchCount,
 } from '$lib/mods/compat-scan.svelte';
-import { createCompatCheck } from '$lib/mods/installed/compat-check.svelte';
+import {
+  __resetLiveVerdictsForTests,
+  createCompatCheck,
+  ensureLiveCompat,
+  knownIncompatibleCount,
+} from '$lib/mods/installed/compat-check.svelte';
 
 const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLocalCompat => ({
   sha1,
@@ -31,15 +37,11 @@ const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLoca
   platform_declared: null,
 });
 
-const rows = (...shas: string[]) =>
-  shas.map((sha1) => ({ installed: { sha1, source: 'modrinth' as const, project_id: 'p' } }));
-
-function check(rs: ReturnType<typeof rows>) {
+function check() {
   return createCompatCheck(
     () => 'i1',
     () => '1.21.1',
     () => 'neoforge',
-    () => rs,
   );
 }
 
@@ -47,13 +49,15 @@ describe('the Overview and the Installed tab over one shared scan', () => {
   beforeEach(() => {
     mocks.scanInstanceModCompat.mockReset();
     mocks.checkInstanceModCompat.mockReset();
-    mocks.modsVersions.mockReset();
+    mocks.checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
     invalidateCompatScan();
+    __resetLiveVerdictsForTests();
   });
 
-  it('keeps the two views distinct: offline-only for the Overview, plus live for Installed', async () => {
-    // `manual` is decidable offline. `suspect` needs the platform, which only
-    // the Installed tab asks — and the platform has no build for this loader.
+  it('family mismatches are offline-authoritative; the live check cannot shrink the count', async () => {
+    // Both foreign-family jars flag offline (spec D5) — even though the live
+    // check says `suspect`'s project publishes builds for this platform, the
+    // FILE on disk is still foreign and the loader will skip it.
     mocks.scanInstanceModCompat.mockResolvedValue({
       status: 'ok',
       data: [
@@ -62,13 +66,15 @@ describe('the Overview and the Installed tab over one shared scan', () => {
         entry('fine', false, false),
       ],
     });
-    mocks.modsVersions.mockResolvedValue({ status: 'ok', data: [] });
+    mocks.checkInstanceModCompat.mockResolvedValue({
+      status: 'ok',
+      data: [{ sha1: 'suspect', name: 'suspect', status: { status: 'compatible' } }],
+    });
 
-    const rs = rows('manual', 'suspect', 'fine');
-    const compat = check(rs);
+    const compat = check();
     await compat.runOfflineScan();
 
-    expect(offlineMismatchCount()).toBe(1); // Overview — no network verdict folded in
+    expect(offlineMismatchCount()).toBe(2); // the network-free primitive counts both
     expect([...compat.incompatibleShas].sort()).toEqual(['manual', 'suspect']);
   });
 
@@ -85,7 +91,7 @@ describe('the Overview and the Installed tab over one shared scan', () => {
     expect(offlineMismatchCount()).toBe(2);
 
     // …and the Installed tab mounting later sees the same two without rescanning.
-    const compat = check(rows('a', 'b'));
+    const compat = check();
     expect(compat.incompatibleCount).toBe(2);
     expect(mocks.scanInstanceModCompat).toHaveBeenCalledTimes(1);
   });
@@ -98,7 +104,7 @@ describe('the Overview and the Installed tab over one shared scan', () => {
       status: 'ok',
       data: [entry('a', false, false)],
     });
-    const compat = check(rows('a'));
+    const compat = check();
     await compat.runOfflineScan();
     expect(compat.incompatibleCount).toBe(0);
 
@@ -107,10 +113,34 @@ describe('the Overview and the Installed tab over one shared scan', () => {
       status: 'ok',
       data: [entry('a', true, false)],
     });
-    mocks.checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
     await compat.runLiveCheck();
 
     expect(compat.incompatibleCount).toBe(1);
     expect(compat.hintFor('a')).toEqual({ key: 'loader', detected: 'Fabric' });
+  });
+
+  it('the Overview union matches the chip once live verdicts land (spec D4)', async () => {
+    // A live-only incompatible: permissive file range (no offline mismatch),
+    // but the project publishes no build for this platform. Before D4 the
+    // Overview stayed silent about it forever (observed live 2026-08-11: chip
+    // said 4, Обзор said nothing).
+    mocks.scanInstanceModCompat.mockResolvedValue({
+      status: 'ok',
+      data: [entry('live-only', false, true)],
+    });
+    mocks.checkInstanceModCompat.mockResolvedValue({
+      status: 'ok',
+      data: [{ sha1: 'live-only', name: 'live-only', status: { status: 'incompatible' } }],
+    });
+
+    await ensureCompatScan('i1', '1.21.1', 'neoforge');
+    // Pure read before the ensure: falls back to the offline count.
+    expect(knownIncompatibleCount('i1', '1.21.1', 'neoforge')).toBe(0);
+
+    await ensureLiveCompat('i1', '1.21.1', 'neoforge');
+    expect(offlineMismatchCount()).toBe(0); // the primitive stays offline-only
+    expect(knownIncompatibleCount('i1', '1.21.1', 'neoforge')).toBe(1); // the Overview row
+    const compat = check();
+    expect(compat.incompatibleCount).toBe(1); // …and the chip agrees
   });
 });

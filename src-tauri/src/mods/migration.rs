@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mods::deps::ProjectKey;
-use crate::mods::mc_compat::PlatformVerdict;
+use crate::mods::mc_compat::{PlatformAxis, PlatformVerdict};
 use crate::mods::platform::{ModSource, ModVersion};
 
 // =========================================================================
@@ -65,6 +65,22 @@ pub enum StrandedReason {
     /// The platform query itself failed (network, missing CurseForge key,
     /// project delisted / 404). Distinct from `NoBuildForTarget` on purpose.
     QueryFailed,
+    /// The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
+    /// but the instance runs an older Forge build), and the platform's build for
+    /// this MC + loader-kind is the SAME jar already installed — so no reinstall
+    /// can fix it. A Forge/NeoForge version is bumped every Minecraft version, so
+    /// this is almost always the jar being built for a DIFFERENT Minecraft
+    /// version than the instance runs (its loader is already the newest for its
+    /// MC). The real remedy is changing the instance's Minecraft version, not
+    /// "updating the loader" — surfaced as stranded (disable/remove/keep) with
+    /// the version the jar declares it was built for, when known, so the UI can
+    /// name it instead of promising a loader bump that does not exist.
+    LoaderTooOld {
+        /// The Minecraft version the jar's descriptor declares it targets
+        /// (its `minecraft` dependency), verbatim, or `None` when it declares
+        /// none. Purely for the message — never re-evaluated.
+        built_for_mc: Option<String>,
+    },
 }
 
 /// A `Violated` mod with no replacement plan. Carries WHY.
@@ -152,30 +168,145 @@ pub struct ModMigrationInput {
     /// `Ok` mirrors `replaceable_identity`'s `Some`; `Err` distinguishes WHY
     /// it was `None` (pack-origin vs no project at all).
     pub identity: Result<(ModSource, String), Ineligible>,
-    /// `Some` only when `verdict` is `Violated` and `identity` is `Ok` — the
-    /// command already asked the platform. `None` otherwise (never asked).
+    /// `Some` when the command asked the platform about this mod: a
+    /// replacement query for `Violated` + identified mods, or an existence
+    /// probe (option A) for `Fits`/`Unknown` + identified mods. `None` when
+    /// there was no identity to ask about.
     pub candidate: Option<CandidateQuery>,
+    /// The Minecraft version the jar's descriptor declares it targets (its
+    /// `minecraft` dependency range, verbatim), or `None`. Carried only so a
+    /// loader-axis `LoaderTooOld` row can name what the jar was built for; never
+    /// re-evaluated for bucketing.
+    pub declared_mc: Option<String>,
+    /// The jar's descriptor families do not include the instance's loader
+    /// family (a Forge jar on a Fabric instance) — the same Connector-aware
+    /// verdict `scan_instance` computes. The loader silently skips such a jar
+    /// (spec D5: a Forge→Fabric switch left ten dead jars with every surface
+    /// silent), so a family-mismatched mod is routed by THIS flag first,
+    /// regardless of its platform-range verdict.
+    pub family_mismatch: bool,
 }
 
 /// Bucket already-computed per-mod inputs into a plan. Pure — no I/O.
 pub fn build_migration_plan(inputs: Vec<ModMigrationInput>) -> McMigrationPlan {
     let mut plan = McMigrationPlan::default();
     for input in inputs {
+        // Spec D5: the loader-FAMILY axis routes FIRST. A foreign-family jar
+        // typically reads platform-Fits (its foreign loader range is "not
+        // applicable" here), yet the loader will silently skip the file — so
+        // the platform verdict must not get the chance to file it under
+        // "fits". Same shape as the Violated arm: a different-sha build for
+        // the CURRENT loader is a replacement (перекачать под новый лоадер);
+        // no build strands it; a hand-drop gets disable/remove via
+        // NoProjectToAsk (this is also what gives audit #4's wrong-loader
+        // hand-drops their actions instead of an unactionable `unjudged`).
+        if input.family_mismatch {
+            let reason = match input.identity {
+                Err(Ineligible::PackOrigin) => Some(StrandedReason::PackOrigin),
+                Err(Ineligible::NoProject) => Some(StrandedReason::NoProjectToAsk),
+                Ok((source, project_id)) => match input.candidate {
+                    Some(CandidateQuery::Found(versions)) => {
+                        match versions.into_iter().next() {
+                            // Same-file guard, as in the Violated arm: a
+                            // reinstall of the byte-identical jar fixes nothing.
+                            Some(target)
+                                if target.primary_file.sha1.as_deref()
+                                    == Some(input.sha1.as_str()) =>
+                            {
+                                Some(StrandedReason::NoBuildForTarget)
+                            }
+                            Some(target) => {
+                                plan.replaceable.push(ReplaceableRow {
+                                    sha1: input.sha1.clone(),
+                                    name: input.name.clone(),
+                                    source,
+                                    project_id,
+                                    target,
+                                });
+                                None
+                            }
+                            None => Some(StrandedReason::NoBuildForTarget),
+                        }
+                    }
+                    Some(CandidateQuery::Failed) | None => Some(StrandedReason::QueryFailed),
+                },
+            };
+            if let Some(reason) = reason {
+                plan.stranded.push(StrandedRow {
+                    sha1: input.sha1,
+                    name: input.name,
+                    reason,
+                });
+            }
+            continue;
+        }
         match input.verdict {
-            PlatformVerdict::Fits => plan.fits.push(FitsRow {
-                sha1: input.sha1,
-                name: input.name,
-            }),
+            // Option A (2026-08-10 spec): the file fitting is not the whole
+            // story — when the PROJECT publishes no build at all for the
+            // instance's platform, the live check calls the mod incompatible,
+            // and filing it under "fits" here is exactly the 7↔3 gap (the Fix
+            // button opened «переносить нечего» for four flagged mods). A
+            // definitive empty answer strands it; a FAILED probe (or no probe)
+            // must never relabel a fit mod — flaky network reads as fit.
+            PlatformVerdict::Fits => match input.candidate {
+                Some(CandidateQuery::Found(ref v)) if v.is_empty() => {
+                    plan.stranded.push(StrandedRow {
+                        sha1: input.sha1,
+                        name: input.name,
+                        reason: StrandedReason::NoBuildForTarget,
+                    });
+                }
+                _ => plan.fits.push(FitsRow {
+                    sha1: input.sha1,
+                    name: input.name,
+                }),
+            },
             // A check that did not run must not read as one that passed —
-            // counted separately, never merged into `fits`.
-            PlatformVerdict::Unknown => plan.unjudged += 1,
-            PlatformVerdict::Violated { .. } => {
+            // counted separately, never merged into `fits`. But a definitive
+            // "the project has no build for this platform" IS a judgement,
+            // regardless of the unreadable descriptor — strand it so the user
+            // can act (same routing as the Fits arm above). Builds merely
+            // existing does not judge the FILE, so that stays unjudged.
+            PlatformVerdict::Unknown => match input.candidate {
+                Some(CandidateQuery::Found(ref v)) if v.is_empty() => {
+                    plan.stranded.push(StrandedRow {
+                        sha1: input.sha1,
+                        name: input.name,
+                        reason: StrandedReason::NoBuildForTarget,
+                    });
+                }
+                _ => plan.unjudged += 1,
+            },
+            PlatformVerdict::Violated { axis, .. } => {
                 let reason = match input.identity {
                     Err(Ineligible::PackOrigin) => Some(StrandedReason::PackOrigin),
                     Err(Ineligible::NoProject) => Some(StrandedReason::NoProjectToAsk),
                     Ok((source, project_id)) => match input.candidate {
                         Some(CandidateQuery::Found(versions)) => {
                             match versions.into_iter().next() {
+                                // A candidate whose file is byte-identical to the
+                                // installed jar is never a fix. The versions query
+                                // filters by MC + loader-KIND only (blind to loader
+                                // VERSION), so a loader-version violation gets back
+                                // the same build already on disk; reinstalling it
+                                // changes nothing and the post-apply rescan re-flags
+                                // it — the "press Fix forever" loop. Strand it with a
+                                // reason that names the real remedy (raise the loader
+                                // build) rather than offer a no-op reinstall. Guarding
+                                // on the file sha keeps the OTHER loader-axis direction
+                                // (instance loader too new, a genuinely newer build
+                                // exists) as a legitimate replacement.
+                                Some(target)
+                                    if target.primary_file.sha1.as_deref()
+                                        == Some(input.sha1.as_str()) =>
+                                {
+                                    Some(match axis {
+                                        PlatformAxis::Loader => StrandedReason::LoaderTooOld {
+                                            built_for_mc: input.declared_mc.clone(),
+                                        },
+                                        PlatformAxis::Minecraft => StrandedReason::NoBuildForTarget,
+                                    })
+                                }
                                 Some(target) => {
                                     plan.replaceable.push(ReplaceableRow {
                                         sha1: input.sha1.clone(),
@@ -482,11 +613,32 @@ mod tests {
         }
     }
 
+    fn version_with_sha(
+        source: ModSource,
+        project_id: &str,
+        version_id: &str,
+        sha: &str,
+    ) -> ModVersion {
+        let mut v = version(source, project_id, version_id);
+        v.primary_file.sha1 = Some(sha.into());
+        v
+    }
+
     fn violated() -> PlatformVerdict {
         PlatformVerdict::Violated {
             axis: PlatformAxis::Minecraft,
             declared: "[1.21,1.22)".into(),
             actual: "1.20.1".into(),
+            source: crate::mods::local::DescriptorSource::ModsToml,
+            family: crate::mods::version_range::RangeFamily::Maven,
+        }
+    }
+
+    fn violated_loader() -> PlatformVerdict {
+        PlatformVerdict::Violated {
+            axis: PlatformAxis::Loader,
+            declared: "[52,)".into(),
+            actual: "47".into(),
             source: crate::mods::local::DescriptorSource::ModsToml,
             family: crate::mods::version_range::RangeFamily::Maven,
         }
@@ -505,7 +657,109 @@ mod tests {
             verdict,
             identity,
             candidate,
+            declared_mc: None,
+            family_mismatch: false,
         }
+    }
+
+    fn family_input(
+        sha1: &str,
+        name: &str,
+        identity: Result<(ModSource, String), Ineligible>,
+        candidate: Option<CandidateQuery>,
+    ) -> ModMigrationInput {
+        // A family-mismatched jar typically reads platform-Fits (its foreign
+        // loader range is "not applicable" on this instance) — which is
+        // exactly why bucketing must consult the family flag FIRST.
+        ModMigrationInput {
+            family_mismatch: true,
+            ..input(sha1, name, PlatformVerdict::Fits, identity, candidate)
+        }
+    }
+
+    // -- spec D5: the loader-family axis joins the plan ---------------------
+
+    #[test]
+    fn family_mismatch_with_a_build_for_the_current_loader_is_replaceable() {
+        let target = version_with_sha(ModSource::Modrinth, "jei", "fabric-build", "bb");
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "JEI (forge jar on fabric)",
+            Ok((ModSource::Modrinth, "jei".to_string())),
+            Some(CandidateQuery::Found(vec![target.clone()])),
+        )]);
+        assert!(
+            plan.fits.is_empty(),
+            "a dead foreign-family jar must never read as fit"
+        );
+        assert_eq!(plan.replaceable.len(), 1);
+        assert_eq!(plan.replaceable[0].target, target);
+    }
+
+    #[test]
+    fn family_mismatch_with_no_build_is_stranded_no_build() {
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Forge-only mod",
+            Ok((ModSource::Modrinth, "fo".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_with_failed_query_is_stranded_query_failed() {
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Rate Limited",
+            Ok((ModSource::Modrinth, "rl".to_string())),
+            Some(CandidateQuery::Failed),
+        )]);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::QueryFailed
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_hand_drop_is_stranded_with_actions_not_unjudged() {
+        // Audit #4: the wrong-loader hand-drop used to land in `unjudged`
+        // («переносить нечего» while the chip counted it). Stranded rows carry
+        // disable/remove/keep — the actions such a jar actually needs.
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "sodium-fabric.jar on forge",
+            Err(Ineligible::NoProject),
+            None,
+        )]);
+        assert_eq!(plan.unjudged, 0);
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoProjectToAsk
+        ));
+    }
+
+    #[test]
+    fn family_mismatch_same_file_candidate_is_stranded_not_a_noop_reinstall() {
+        let target = version_with_sha(ModSource::Modrinth, "x", "same", "aa");
+        let plan = build_migration_plan(vec![family_input(
+            "aa",
+            "Same file",
+            Ok((ModSource::Modrinth, "x".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        assert!(plan.replaceable.is_empty());
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
     }
 
     // -- build_migration_plan ---------------------------------------------
@@ -524,6 +778,95 @@ mod tests {
         assert!(plan.replaceable.is_empty());
         assert!(plan.stranded.is_empty());
         assert_eq!(plan.unjudged, 0);
+    }
+
+    // -- option A (2026-08-10 live-availability spec, approved 2026-08-11):
+    // a mod whose FILE fits but whose PROJECT publishes no build for the
+    // instance's platform is the live check's «Несовместим» — the plan must
+    // route it to stranded (NoBuildForTarget), never file it under "fits".
+    // This is the 7↔3 gap: the chip counted these four while the plan called
+    // them "already fit" and the Fix button opened «переносить нечего».
+
+    #[test]
+    fn fits_with_no_published_build_is_stranded() {
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Architectury API",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "arch".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert!(plan.fits.is_empty(), "no-build mod must not read as fit");
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn fits_with_published_builds_stays_fits() {
+        let target = version(ModSource::Modrinth, "cloth", "v-x");
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Cloth Config",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "cloth".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        assert_eq!(plan.fits.len(), 1);
+        assert!(plan.stranded.is_empty());
+    }
+
+    #[test]
+    fn fits_with_failed_probe_stays_fits() {
+        // Spec clause: QueryFailed stays distinct so a flaky probe never
+        // relabels a fit mod as unavailable.
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Rate Limited Fit Mod",
+            PlatformVerdict::Fits,
+            Ok((ModSource::Modrinth, "rl".to_string())),
+            Some(CandidateQuery::Failed),
+        )]);
+        assert_eq!(plan.fits.len(), 1);
+        assert!(plan.stranded.is_empty());
+    }
+
+    #[test]
+    fn unknown_with_no_published_build_is_stranded() {
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Undeclared No-Build Mod",
+            PlatformVerdict::Unknown,
+            Ok((ModSource::Modrinth, "und".to_string())),
+            Some(CandidateQuery::Found(vec![])),
+        )]);
+        assert_eq!(
+            plan.unjudged, 0,
+            "a definitive no-build answer IS a judgement"
+        );
+        assert_eq!(plan.stranded.len(), 1);
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::NoBuildForTarget
+        ));
+    }
+
+    #[test]
+    fn unknown_with_published_builds_stays_unjudged() {
+        let target = version(ModSource::Modrinth, "und", "v-x");
+        let plan = build_migration_plan(vec![input(
+            "s1",
+            "Undeclared Mod With Builds",
+            PlatformVerdict::Unknown,
+            Ok((ModSource::Modrinth, "und".to_string())),
+            Some(CandidateQuery::Found(vec![target])),
+        )]);
+        // Builds existing does not judge the FILE — stays unjudged, never fits.
+        assert_eq!(plan.unjudged, 1);
+        assert!(plan.fits.is_empty());
+        assert!(plan.stranded.is_empty());
     }
 
     #[test]
@@ -560,6 +903,57 @@ mod tests {
             plan.stranded[0].reason,
             StrandedReason::NoBuildForTarget
         ));
+    }
+
+    #[test]
+    fn loader_axis_violation_whose_only_build_is_the_installed_jar_is_stranded_not_replaceable() {
+        // Xaero's Minimap: declares forge >= 52, instance runs an older Forge.
+        // The MC + loader-KIND query returns the same build already installed
+        // (file sha "aa"), so a reinstall is a no-op that the post-apply rescan
+        // re-flags — the reported "press Fix forever" loop. Must be stranded
+        // (LoaderTooOld), never replaceable.
+        let target = version_with_sha(ModSource::Modrinth, "xaero", "26.4.2", "aa");
+        let plan = build_migration_plan(vec![ModMigrationInput {
+            sha1: "aa".into(), // installed jar sha == the candidate's file sha
+            name: "Xaero's Minimap".into(),
+            verdict: violated_loader(),
+            identity: Ok((ModSource::Modrinth, "xaero".to_string())),
+            candidate: Some(CandidateQuery::Found(vec![target])),
+            declared_mc: Some("1.21.1".into()),
+            family_mismatch: false,
+        }]);
+        assert!(
+            plan.replaceable.is_empty(),
+            "a same-file reinstall must never be offered as replaceable"
+        );
+        assert_eq!(plan.stranded.len(), 1);
+        // Stranded as LoaderTooOld, carrying the version the jar was built for so
+        // the UI can say "built for 1.21.1" instead of promising a loader bump.
+        assert!(matches!(
+            plan.stranded[0].reason,
+            StrandedReason::LoaderTooOld {
+                built_for_mc: Some(ref mc)
+            } if mc == "1.21.1"
+        ));
+    }
+
+    #[test]
+    fn loader_axis_violation_with_a_genuinely_different_build_stays_replaceable() {
+        // The other loader-axis direction: the instance loader is fine for a
+        // NEWER mod build that differs from what's installed (sha "bb" != "aa").
+        // That IS fixable by replacement, so it must stay replaceable — the
+        // same-file guard must not strand a real update.
+        let target = version_with_sha(ModSource::Modrinth, "mymod", "2.0", "bb");
+        let plan = build_migration_plan(vec![input(
+            "aa",
+            "My Mod",
+            violated_loader(),
+            Ok((ModSource::Modrinth, "mymod".to_string())),
+            Some(CandidateQuery::Found(vec![target.clone()])),
+        )]);
+        assert_eq!(plan.replaceable.len(), 1);
+        assert_eq!(plan.replaceable[0].target, target);
+        assert!(plan.stranded.is_empty());
     }
 
     #[test]

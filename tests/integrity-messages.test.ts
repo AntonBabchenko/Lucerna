@@ -131,13 +131,35 @@ describe('compatSummaryFromScan', () => {
     expect(compatSummaryFromScan(scan, 2)).toContain('1 of 2');
   });
 
-  it('does not count a loader-family suspect that still needs a live check', () => {
-    // Mirrors offlineMismatchCount's contract: a multi-loader jar awaiting
-    // live confirmation is not flagged from the offline scan alone.
+  it('counts a live-checkable family mismatch too (spec D5)', () => {
+    // Mirrors isOfflineMismatch's contract: the family verdict is
+    // offline-authoritative (multi-loader jars and Connector setups never
+    // flag inside the scan), so the Manage summary names a foreign-family
+    // jar regardless of live-checkability - the silence after a loader
+    // switch was exactly this exclusion.
     const scan: ModLocalCompat[] = [
       makeLocalCompat('suspect', { loader_mismatch: true, live_checkable: true }),
     ];
-    expect(compatSummaryFromScan(scan, 1)).toBeNull();
+    expect(compatSummaryFromScan(scan, 1)).not.toBeNull();
+  });
+
+  it('vanilla with enabled mods warns as an instance-level condition (spec D9)', () => {
+    // Per-jar verdicts correctly never flag on Vanilla (no family to
+    // mismatch), yet Vanilla loads NO mods — the summary must say so itself.
+    const scan: ModLocalCompat[] = [makeLocalCompat('a', {}), makeLocalCompat('b', {})];
+    const text = compatSummaryFromScan(scan, 2, 'vanilla');
+    expect(text).not.toBeNull();
+    expect(text).toContain('2');
+    expect(text).toMatch(/loader/i);
+  });
+
+  it('vanilla with no mods stays silent', () => {
+    expect(compatSummaryFromScan([], 0, 'vanilla')).toBeNull();
+  });
+
+  it('a modded loader is unaffected by the loader parameter', () => {
+    const scan: ModLocalCompat[] = [makeLocalCompat('a', {})];
+    expect(compatSummaryFromScan(scan, 1, 'forge')).toBeNull();
   });
 
   it('mentions review in mods tab', () => {

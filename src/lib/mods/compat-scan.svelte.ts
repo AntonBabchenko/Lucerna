@@ -64,13 +64,16 @@ export function compatScanEntries(): ModLocalCompat[] {
  *   guard and no live confirmation — the range violation is a property of
  *   the file that will actually be launched, not a suspicion about the
  *   project. No platform answer can overrule it.
- * - `loader_mismatch` keeps its `!live_checkable` guard: a multi-loader jar
- *   needs live confirmation before it is called incompatible, and offline
- *   consumers must not make that network call — counting the raw suspicion
- *   here would flag multi-loader jars that are perfectly fine.
+ * - `loader_mismatch` is offline-authoritative too (spec D5). The false
+ *   positives the old `!live_checkable` guard existed for are excluded INSIDE
+ *   `scan_instance`: a family-inclusive (multi-loader) jar never flags, and
+ *   `connector_installed` clears Fabric-on-Forge under Sinytra Connector. The
+ *   project-level live «compatible» must not clear a foreign-family FILE —
+ *   that clearing is exactly what kept a Forge→Fabric switch silent while
+ *   FabricLoader skipped ten dead jars.
  */
 export function isOfflineMismatch(entry: ModLocalCompat): boolean {
-  return entry.platform_mismatch || (entry.loader_mismatch && !entry.live_checkable);
+  return entry.platform_mismatch || entry.loader_mismatch;
 }
 
 /**

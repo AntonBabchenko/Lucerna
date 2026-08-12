@@ -12,11 +12,13 @@
 import {
   commands,
   type InstanceWithStatus,
+  type LoaderKind,
   type MissingModStatus,
   type PlaytimeStats,
 } from '$lib/ipc/bindings';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
-import { ensureCompatScan, offlineMismatchCount } from '$lib/mods/compat-scan.svelte';
+import { ensureCompatScan } from '$lib/mods/compat-scan.svelte';
+import { ensureLiveCompat, knownIncompatibleCount } from '$lib/mods/installed/compat-check.svelte';
 
 export type InstalledStats = { total: number; enabled: number; disabled: number };
 
@@ -50,6 +52,14 @@ export function createInstanceStats() {
   let statsSeq = 0;
   let playtimeSeq = 0;
   let packSeq = 0;
+
+  // The platform triple the last `refreshIncompatible` ran for — the count
+  // getter needs it to look up live verdicts in the shared keyed store.
+  let compatTriple = $state<{
+    id: string | null;
+    mc: string | null;
+    loader: LoaderKind | null;
+  } | null>(null);
 
   // Lightweight installed-mods stats for the Overview pane. Re-fetched on
   // instance change and whenever the launcher emits an install / uninstall /
@@ -94,7 +104,18 @@ export function createInstanceStats() {
   ) {
     const inst = id ? instances.find((i) => i.id === id) : null;
     // An empty `mc_version` is "not configured yet", not a version to scan for.
-    await ensureCompatScan(inst?.id ?? null, inst?.mc_version || null, inst?.loader ?? null, opts);
+    const triple = {
+      id: inst?.id ?? null,
+      mc: inst?.mc_version || null,
+      loader: inst?.loader ?? null,
+    };
+    compatTriple = triple;
+    await ensureCompatScan(triple.id, triple.mc, triple.loader, opts);
+    // Fire-and-forget: the Overview must not BLOCK on the network (spec D4).
+    // The count getter is a pure store read; it updates reactively when the
+    // verdicts land. Offline this decides everything `unknown` — no flags,
+    // no retry hammer.
+    void ensureLiveCompat(triple.id, triple.mc, triple.loader);
   }
 
   // Per-instance playtime stats — refreshed on instance switch and after every
@@ -135,16 +156,17 @@ export function createInstanceStats() {
     get installedStats() {
       return installedStats;
     },
-    // Read straight off the shared scan store at call time, so it can never be
-    // a STALE copy of a scan the Installed tab has already replaced. The two
-    // numbers can still legitimately differ — the chip folds in live platform
-    // verdicts that the Overview deliberately never requests — what became
-    // unrepresentable is the two surfaces disagreeing about the SAME scan.
-    // Counts ONLY offline-decidable mismatches (`!live_checkable`): confirming
-    // a platform suspect needs a network call the Overview must not make, and
-    // counting the raw suspicion would flag multi-loader jars that are fine.
+    // Read straight off the SHARED stores at call time (offline scan + keyed
+    // live verdicts), so it can never be a stale copy and, since spec D4, it
+    // is the SAME union the Installed chip shows — the Overview and the chip
+    // can no longer disagree (locked C6). Still a pure read: the network work
+    // happens in `refreshIncompatible`'s fire-and-forget ensure, never here.
     get incompatibleCount() {
-      return offlineMismatchCount();
+      return knownIncompatibleCount(
+        compatTriple?.id ?? null,
+        compatTriple?.mc ?? null,
+        compatTriple?.loader ?? null,
+      );
     },
     get playtime() {
       return playtime;

@@ -7,7 +7,6 @@
     type VersionEntry,
     type Error as IpcError,
     type MemoryBounds,
-    type ModLocalCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
@@ -190,7 +189,15 @@
   // platform query: the platform answers "does this PROJECT have a build for
   // (mc, loader)?", which every mod in the original bug report could answer
   // yes to even though the FILE on disk was still the old build.
-  let compatRows = $state<ModLocalCompat[] | null>(null);
+  // A mc/loader change happened for the selected instance — show whatever the
+  // SHARED scan store currently says. Deliberately NOT a snapshot of
+  // `compatScanEntries()` (spec D6): with rapid loader switching, whichever
+  // superseded flow resumed last wrote its stale copy — often the empty
+  // mid-flight store — and the warning froze into silence for every
+  // subsequent click. Reading through makes a late-landing scan fill the
+  // summary in reactively and turns dropped writes harmless, the same
+  // read-through precedent instance-stats already follows (#332).
+  let compatChecked = $state(false);
   // Set when the compat scan could not be computed. `ensureCompatScan`
   // absorbs an ordinary backend error itself (keeps the previous scan in
   // place, by design — see compat-scan.svelte's doc comment), so this can
@@ -201,7 +208,13 @@
   // agree on exactly when there is something to review — computing
   // `compatSummaryFromScan` twice risked the two drifting apart.
   let compatWarningText = $derived(
-    compatRows !== null ? compatSummaryFromScan(compatRows, compatRows.length) : null,
+    compatChecked
+      ? compatSummaryFromScan(
+          compatScanEntries(),
+          compatScanEntries().length,
+          selected?.loader ?? null,
+        )
+      : null,
   );
   // Opens MigrationPlanDialog for `selected`. The compat summary above tells
   // the user something is wrong; this is where they act on it.
@@ -209,7 +222,7 @@
   // Reset compat state when the selected instance changes.
   $effect(() => {
     void selectedId;
-    compatRows = null;
+    compatChecked = false;
     compatCheckFailed = false;
     savedField = null;
   });
@@ -481,35 +494,85 @@
     try {
       // force: true — the mod set didn't change the scan key, so an unforced
       // call would be deduplicated away against a scan from before this
-      // MC/loader change.
+      // MC/loader change. No row copy here (spec D6): the summary derives
+      // from the shared store, so whichever concurrent change's scan lands
+      // LAST is what the user reads, regardless of which flow resumes last.
       await ensureCompatScan(id, mc, loader, { force: true });
       if (isStale(id)) return;
-      compatRows = compatScanEntries();
+      compatChecked = true;
       compatCheckFailed = false;
     } catch {
       // ensureCompatScan absorbs an ordinary backend error and keeps the
       // previous scan in place; reaching here means the IPC call itself threw.
       if (isStale(id)) return;
-      compatRows = null;
+      compatChecked = false;
       compatCheckFailed = true;
+    }
+  }
+
+  // ── last-click-wins config changes (spec D8) ────────────────────────────
+  // Rapid loader clicks used to fire CONCURRENT setInstanceLoader commands
+  // (each resolves a recommended build — seconds of network); completions
+  // trickled back in arbitrary order for a while after the user stopped
+  // clicking, every onChanged() re-rendered the picker to that command's
+  // result — «загрузчики сами переключаются» — and the final on-disk loader
+  // was whichever command happened to LAND last, not the last click.
+  //
+  // A toggle wants LAST-CLICK-WINS, not a replay of every intermediate
+  // click: `cfgNext` holds only the newest queued change (older queued ones
+  // are simply discarded — the cancellation the maintainer asked for), one
+  // command is in flight at a time, and a command that got overtaken by a
+  // newer click is silenced entirely — no onChanged, no rescan, no toast,
+  // no error — because whatever it did is being overwritten right now. The
+  // backend command itself cannot be aborted mid-write; muting its side
+  // effects is the cancellable half.
+  let cfgInFlight = false;
+  let cfgNext: (() => Promise<void>) | null = null;
+
+  // True while a NEWER change is queued behind the currently running one —
+  // the running command reads this after its await to know it was overtaken.
+  const cfgSuperseded = () => cfgNext !== null;
+
+  async function enqueueCfgChange(run: () => Promise<void>): Promise<void> {
+    cfgNext = run;
+    if (cfgInFlight) return;
+    cfgInFlight = true;
+    try {
+      while (cfgNext) {
+        const current = cfgNext;
+        cfgNext = null;
+        try {
+          await current();
+        } catch {
+          // Each entry surfaces its own errors; swallowing here only keeps a
+          // rejected entry from wedging the loop for the change behind it.
+        }
+      }
+    } finally {
+      cfgInFlight = false;
     }
   }
 
   // `id` is captured by the caller before any await so a mid-flight selection
   // switch can't redirect this change's side effects onto another instance.
   async function applyMcChange(id: string, mc: string) {
-    const result = await commands.changeInstanceMc(id, mc);
-    if (isStale(id)) return;
-    if (result.status === 'ok') {
-      const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
-      if (toast?.kind === 'success') pushSuccess(toast.text);
-      else if (toast?.kind === 'warning') pushWarning(toast.text);
-      onChanged();
-      const fresh = result.data.instance;
-      await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
-    } else {
-      modalError = ipcErrorMessage(result.error);
-    }
+    await enqueueCfgChange(async () => {
+      const result = await commands.changeInstanceMc(id, mc);
+      // Overtaken by a newer click while awaiting: whatever this change did
+      // is being overwritten right now — every side effect would only flap
+      // the UI toward a state the user already clicked away from.
+      if (isStale(id) || cfgSuperseded()) return;
+      if (result.status === 'ok') {
+        const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
+        if (toast?.kind === 'success') pushSuccess(toast.text);
+        else if (toast?.kind === 'warning') pushWarning(toast.text);
+        onChanged();
+        const fresh = result.data.instance;
+        await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
+      } else {
+        modalError = ipcErrorMessage(result.error);
+      }
+    });
   }
 
   async function setMc(mc: string) {
@@ -522,14 +585,17 @@
   }
 
   async function applyLoaderChange(id: string, kind: LoaderKind, version: string | null) {
-    const result = await commands.setInstanceLoader(id, kind, version);
-    if (isStale(id)) return;
-    if (result.status === 'ok') {
-      onChanged();
-      await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
-    } else {
-      modalError = ipcErrorMessage(result.error);
-    }
+    await enqueueCfgChange(async () => {
+      const result = await commands.setInstanceLoader(id, kind, version);
+      // See applyMcChange: an overtaken change is silenced entirely.
+      if (isStale(id) || cfgSuperseded()) return;
+      if (result.status === 'ok') {
+        onChanged();
+        await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
+      } else {
+        modalError = ipcErrorMessage(result.error);
+      }
+    });
   }
 
   async function commitLoader(kind: LoaderKind, version: string | null) {

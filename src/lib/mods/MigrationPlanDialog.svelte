@@ -31,6 +31,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -73,6 +74,44 @@
     return `${row.source}:${row.project_id}`;
   }
 
+  // A new-dependency is MANDATORY once the user checks a replace that needs it:
+  // a dependency's `needed_by` carries the display names of the replaceable rows
+  // whose target requires it. Reinstalling a mod WITHOUT the dependency the plan
+  // surfaced for its target re-creates the exact pre-load crash this feature
+  // exists to prevent (BiomesOPlenty mandatorily needs TerraBlender), while the
+  // report would still read "Replaced". So such a dependency is force-included
+  // and its checkbox locked for as long as the dependent replace stays checked;
+  // it reverts to an optional, editable row the moment that replace is unchecked.
+  const checkedReplaceNames = $derived(
+    new Set((plan?.replaceable ?? []).filter((r) => replaceChecked.has(r.sha1)).map((r) => r.name)),
+  );
+
+  // Master checkbox over the replaceable section (maintainer request during the
+  // Forge→Fabric smoke: ten rows, no way to take them all at once). Checking it
+  // checks every replace row — the mandatory new-dependency rows then follow
+  // through the existing needed_by force-include; unchecking releases them.
+  const allReplaceChecked = $derived(
+    (plan?.replaceable.length ?? 0) > 0 &&
+      (plan?.replaceable ?? []).every((r) => replaceChecked.has(r.sha1)),
+  );
+  const someReplaceChecked = $derived(
+    (plan?.replaceable ?? []).some((r) => replaceChecked.has(r.sha1)),
+  );
+  function toggleAllReplace(checkAll: boolean) {
+    if (!plan) return;
+    if (checkAll) {
+      for (const r of plan.replaceable) replaceChecked.add(r.sha1);
+    } else {
+      for (const r of plan.replaceable) replaceChecked.delete(r.sha1);
+    }
+  }
+  function depRequiredByReplace(row: NewDependencyRow_Serialize): boolean {
+    return row.needed_by.some((n) => checkedReplaceNames.has(n));
+  }
+  function depIncluded(row: NewDependencyRow_Serialize): boolean {
+    return depChecked.has(depKey(row)) || depRequiredByReplace(row);
+  }
+
   async function loadPlan() {
     phase = 'loading';
     loadError = null;
@@ -91,12 +130,17 @@
 
   onMount(() => void loadPlan());
 
-  const undecidedStranded = $derived(
-    plan ? plan.stranded.filter((row) => !dispositions.has(row.sha1)).length : 0,
+  // Apply is gated on "the user selected at least one thing to do", NOT on
+  // "every stranded row is decided". Someone who only wants a top-section
+  // reinstall must not be forced to rule on mods they are deferring: an
+  // undecided stranded row is applied as `keep` (see `apply()`), a no-op that
+  // leaves the jar in place — so nothing is decided for them and no data is
+  // touched. Deferred mods stay flagged incompatible by the post-apply compat
+  // re-scan (`onApplied`), so a partial apply never reads as "all fixed".
+  const hasSelection = $derived(
+    replaceChecked.size > 0 || depChecked.size > 0 || dispositions.size > 0,
   );
-  // Design decision #4: the backend cannot enforce stranded completeness
-  // without re-running the plan, so the UI gate is the only one that exists.
-  const canApply = $derived(plan !== null && undecidedStranded === 0);
+  const canApply = $derived(plan !== null && hasSelection);
   const nothingToDo = $derived(
     plan !== null &&
       plan.replaceable.length === 0 &&
@@ -116,6 +160,8 @@
         return 'mods.migration.reason.packOrigin' as const;
       case 'query_failed':
         return 'mods.migration.reason.queryFailed' as const;
+      case 'loader_too_old':
+        return 'mods.migration.reason.loaderTooOld' as const;
     }
   }
 
@@ -174,13 +220,14 @@
         .filter((row) => replaceChecked.has(row.sha1))
         .map((row) => ({ old_sha1: row.sha1, target: row.target })),
       new_dependencies: plan.new_dependencies
-        .filter((row) => depChecked.has(depKey(row)))
+        .filter((row) => depIncluded(row))
         .map((row) => row.target),
       stranded: plan.stranded.map((row) => ({
         sha1: row.sha1,
-        // Non-null: `canApply` already required every stranded row to have
-        // an entry before this function could run.
-        disposition: dispositions.get(row.sha1)!,
+        // Undecided rows are kept — a no-op that leaves the jar in place. The
+        // user deferred them; never drop a stranded row from the payload, and
+        // never default it to a destructive disable/remove.
+        disposition: dispositions.get(row.sha1) ?? 'keep',
       })),
     };
     const res = await commands.modsApplyMcMigration(instanceId, selections);
@@ -264,9 +311,17 @@
       {:else}
         {#if plan.replaceable.length > 0}
           <section class="mb-4" data-testid="migration-replaceable-section">
-            <h3 class="mb-2 text-xs uppercase tracking-wide text-muted">
-              {$t('mods.migration.replaceableHeading', { count: plan.replaceable.length })}
-            </h3>
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <h3 class="text-xs uppercase tracking-wide text-muted">
+                {$t('mods.migration.replaceableHeading', { count: plan.replaceable.length })}
+              </h3>
+              <SelectAllCheckbox
+                allSelected={allReplaceChecked}
+                indeterminate={someReplaceChecked && !allReplaceChecked}
+                onToggle={toggleAllReplace}
+                testid="migration-replace-select-all"
+              />
+            </div>
             <ul class="space-y-1">
               {#each plan.replaceable as row (row.sha1)}
                 <li
@@ -316,7 +371,8 @@
                   <input
                     type="checkbox"
                     class="mt-0.5"
-                    checked={depChecked.has(depKey(row))}
+                    checked={depIncluded(row)}
+                    disabled={depRequiredByReplace(row)}
                     onchange={(e) => {
                       if ((e.currentTarget as HTMLInputElement).checked) {
                         depChecked.add(depKey(row));
@@ -350,7 +406,19 @@
                   data-testid={`migration-stranded-row-${row.sha1}`}
                 >
                   <div class="text-sm text-primary">{row.name}</div>
-                  <p class="mb-1.5 text-xs text-muted">{$t(reasonKey(row.reason))}</p>
+                  <p class="mb-1.5 text-xs text-muted">
+                    {#if row.reason.kind === 'loader_too_old' && row.reason.built_for_mc}
+                      <!-- A loader-version violation is almost always the jar being
+                           built for a different Minecraft version (the loader is
+                           bumped every MC version). Name the version it declares,
+                           instead of promising a loader update that does not exist. -->
+                      {$t('mods.migration.reason.loaderTooOldFor', {
+                        mc: row.reason.built_for_mc,
+                      })}
+                    {:else}
+                      {$t(reasonKey(row.reason))}
+                    {/if}
+                  </p>
                   <ToggleChipGroup
                     options={dispositionOptions(row)}
                     value={dispositions.get(row.sha1) ?? ''}
@@ -375,7 +443,7 @@
   <footer class="shrink-0 flex items-center justify-between gap-2 border-t p-3">
     {#if phase === 'plan' && plan && !nothingToDo}
       <p class="text-xs text-muted" data-testid="migration-apply-disabled-reason">
-        {!canApply ? $t('mods.migration.applyDisabledReason', { count: undecidedStranded }) : ''}
+        {!canApply ? $t('mods.migration.applyDisabledReason') : ''}
       </p>
     {:else}
       <span></span>
@@ -397,9 +465,7 @@
         {#if !nothingToDo}
           <span
             use:tooltip={{
-              text: !canApply
-                ? $t('mods.migration.applyDisabledReason', { count: undecidedStranded })
-                : '',
+              text: !canApply ? $t('mods.migration.applyDisabledReason') : '',
               describe: false,
             }}
           >

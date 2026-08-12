@@ -80,7 +80,6 @@
     () => instanceId,
     () => mcVersion,
     () => loader,
-    () => data.rows,
   );
   // Declared before `filters` because `hasIssue` reads it: the pre-flight is the
   // ONLY source of "this mod is a problem". The graph reports what the platform
@@ -91,6 +90,10 @@
   const preflightShas = $derived(
     new Set((preflight.report?.violations ?? []).map((v) => v.dependent_sha1)),
   );
+  // Enabled mods on a Vanilla instance are dead weight (spec D9) — drives
+  // the instance-level banner above the list.
+  const enabledModsCount = $derived(data.rows.filter((r) => r.installed.enabled).length);
+
   const filters = createInstalledFilters(
     () => data.rows,
     (r) => ({
@@ -512,6 +515,18 @@
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {/if}
 
+  {#if loader === 'vanilla' && enabledModsCount > 0}
+    <!-- Instance-level condition, not a per-jar verdict (spec D9): Vanilla
+         has no family for compat_verdict to mismatch, yet it loads NO mods
+         at all. No fix button — the fix is picking a loader in Manage. -->
+    <div
+      class="rounded-lg border border-warning-text bg-warning-bg px-3 py-2 text-sm text-warning-text mb-2"
+      data-testid="vanilla-mods-banner"
+    >
+      {$t('instance.integrity.vanillaModsWarning', { count: enabledModsCount })}
+    </div>
+  {/if}
+
   <PreflightPanel
     report={preflight.report}
     onUpdate={onPreflightUpdate}
@@ -519,6 +534,8 @@
     onChooseVersion={onPreflightChooseVersion}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}
+    onMigrate={() => (migrationDialogOpen = true)}
+    migrateCount={compat.incompatibleCount}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
   />
@@ -587,7 +604,6 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
-          onOpenMigration={() => (migrationDialogOpen = true)}
         />
       {/each}
     </div>

@@ -46,7 +46,6 @@
     onSelectChange,
     onInstallDep,
     onJump,
-    onOpenMigration,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -82,11 +81,6 @@
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
-    // Opens the instance-wide MigrationPlanDialog. Only rendered next to a
-    // violated row's badge — the plan itself is not scoped to one mod (the
-    // backend judges every installed mod at once), but this is the row that
-    // told the user something was wrong, so it is where they act on it.
-    onOpenMigration: () => void;
   } = $props();
 
   // One expand control summarises both directions of the dependency relation:
@@ -188,19 +182,15 @@
     {#if summary || incompatibleTitle || showChangelog || authorClaims.length > 0}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if incompatibleTitle}
+          <!-- Badge only: the remediation entry is the single instance-wide
+               "Fix incompatible mods" button in the compat panel header. A
+               per-row button here opened that same unscoped dialog, so N of
+               them were N identical controls posing as a per-mod action. -->
           <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
             <StatusBadge variant="warning" icon="warning">
               {$t('mods.installed.badgeIncompatible')}
             </StatusBadge>
           </span>
-          <button
-            type="button"
-            class="btn-tertiary"
-            data-testid="row-open-migration-btn"
-            onclick={onOpenMigration}
-          >
-            {$t('mods.migration.rowFixBtn')}
-          </button>
         {/if}
         {#if authorClaims.length > 0}
           <!-- Neutral register on purpose: not `danger`, not `warning`. Nothing

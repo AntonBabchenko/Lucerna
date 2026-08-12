@@ -750,8 +750,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  loader; each replaceable target's declared required deps are then asked
 	 *  for too (same shape again), so anything a later apply would ALSO need to
 	 *  pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
-	 *  is visible in the plan before anything is installed. Never applies
-	 *  anything: this command only reads and queries.
+	 *  is visible in the plan before anything is installed. Fits/Unknown mods
+	 *  with an identity additionally get an EXISTENCE probe through the shared
+	 *  version cache (option A, 2026-08-10 spec): a project publishing no build
+	 *  for this platform strands the mod instead of filing it under "fits", which
+	 *  is what kept the plan's count below the chip's. Never applies anything:
+	 *  this command only reads and queries.
 	 */
 	modsPlanMcMigration: (instanceId: string) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId })),
 	/**
@@ -6572,7 +6576,26 @@ export type StrandedReason =
  *  The platform query itself failed (network, missing CurseForge key,
  *  project delisted / 404). Distinct from `NoBuildForTarget` on purpose.
  */
-{ kind: "query_failed" };
+{ kind: "query_failed" } | 
+/**
+ *  The jar is violated on the LOADER-version axis (e.g. it needs Forge 52+
+ *  but the instance runs an older Forge build), and the platform's build for
+ *  this MC + loader-kind is the SAME jar already installed — so no reinstall
+ *  can fix it. A Forge/NeoForge version is bumped every Minecraft version, so
+ *  this is almost always the jar being built for a DIFFERENT Minecraft
+ *  version than the instance runs (its loader is already the newest for its
+ *  MC). The real remedy is changing the instance's Minecraft version, not
+ *  "updating the loader" — surfaced as stranded (disable/remove/keep) with
+ *  the version the jar declares it was built for, when known, so the UI can
+ *  name it instead of promising a loader bump that does not exist.
+ */
+{ kind: "loader_too_old"; 
+/**
+ *  The Minecraft version the jar's descriptor declares it targets
+ *  (its `minecraft` dependency), verbatim, or `None` when it declares
+ *  none. Purely for the message — never re-evaluated.
+ */
+built_for_mc: string | null };
 
 /**  A `Violated` mod with no replacement plan. Carries WHY. */
 export type StrandedRow = {

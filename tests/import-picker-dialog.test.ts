@@ -403,16 +403,16 @@ describe('ImportPickerDialog selection', () => {
     expect(onConfirm).toHaveBeenCalledWith(['abc', 'def', 'rpsha']);
   });
 
-  it('header toggle deselects all then reselects all', async () => {
-    const { getByText } = render(ImportPickerDialog, {
+  it('the select-all checkbox deselects everything then restores it', async () => {
+    const { getByText, getByTestId } = render(ImportPickerDialog, {
       props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
     });
-    // Default = all selected → control offers "Deselect all".
-    await fireEvent.click(getByText('Deselect all'));
+    // Default = all selected → the unified checkbox is checked; unchecking clears.
+    await fireEvent.click(getByTestId('picker-select-all'));
     const installBtn = getByText(/Install 0 selected/) as HTMLButtonElement;
     expect(installBtn.disabled).toBe(true);
-    // Now offers "Select all" → restores everything.
-    await fireEvent.click(getByText('Select all'));
+    // Checking again restores everything.
+    await fireEvent.click(getByTestId('picker-select-all'));
     expect(getByText(/Install 2 selected/)).toBeTruthy();
   });
 
