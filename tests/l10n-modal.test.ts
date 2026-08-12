@@ -953,6 +953,11 @@ describe('LocalizationModal', () => {
 
       expect(await screen.findByTestId('contextual-tour-popover')).toBeTruthy();
       expect(screen.queryAllByTestId('contextual-tour-popover')).toHaveLength(1);
+      // Fired, and NOT already finished. `markSeen` alone does not take the
+      // popover off screen — only `finish()` also clears `active` — so without
+      // this the case above would still pass for a tour that opened and burned
+      // itself in the same flush. The symmetric guard to test 1's.
+      expect(hasSeen('l10n')).toBe(false);
 
       // Every step's anchor has to resolve. A missing one is not an error:
       // ContextualTour silently falls back to a centred, spotlight-less
@@ -981,9 +986,10 @@ describe('LocalizationModal', () => {
       const popover = document.getElementById(trigger.getAttribute('aria-controls') as string);
       const paragraphs = [...(popover as HTMLElement).querySelectorAll('p')];
       expect(paragraphs).toHaveLength(4);
-      // Verbatim substring of the real EN onboarding.l10nConcept.p1, and one
-      // the Basic sibling does not contain — so a broken explainKey mapping
-      // fails here instead of shipping the wrong register.
+      // Verbatim substring of the real EN onboarding.l10nConcept.p1. It is
+      // also absent from the `p1Basic` sibling, which is what makes the single
+      // assertion discriminate the two registers — but that absence is a fact
+      // about the locale data, not something asserted here.
       expect(paragraphs[0].textContent).toContain('lets you override any string');
     });
   });

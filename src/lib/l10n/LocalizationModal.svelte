@@ -515,8 +515,19 @@
           screen IS, which belongs with the title, and it must stay reachable on
           a zero-mod instance — where the first-open tour deliberately does not
           fire and this is the only explanation left.
+
+          The wrapper is the alignment fix, and it lives HERE rather than in
+          HelpPopover: how a child sits in a row is the row's concern, and the
+          shared primitive is used on five other surfaces that all lay their
+          rows out with `items-center` and need no opinion from it. This group
+          is the one exception — it is `items-baseline`, so the title, badge and
+          summary share a baseline — and HelpPopover's trigger is an svg-only
+          button. Tailwind preflight makes that svg `display: block`, so the
+          button has no in-flow line box and synthesizes its baseline from the
+          bottom margin edge: the glyph's BOTTOM would pin to the title's
+          baseline and sit high. `self-center` opts this one item out.
         -->
-        <L10nConceptHelp />
+        <span class="inline-flex self-center"><L10nConceptHelp /></span>
         {#if coverage}
           <span class="shrink-0 text-xs text-muted" data-testid="l10n-summary">
             {$t('instance.l10n.summary', {
