@@ -24,6 +24,7 @@
     searchAriaLabel,
     searchPlaceholder,
     searchTestid,
+    value = '',
     sort,
     sortOptions,
     sortTestid,
@@ -46,6 +47,16 @@
     searchAriaLabel: string;
     searchPlaceholder: string;
     searchTestid?: string;
+    // The current query, owned by the parent. Supplied so a query set
+    // PROGRAMMATICALLY is visible: the compat panel hands a missing dependency
+    // over to Browse and seeds the search with its mod-id. Without this the
+    // request goes out while the box stays blank, and "nothing found" under an
+    // empty field reads as a broken search rather than an honest miss.
+    //
+    // One-way, not `bind:` — the parent sets its own state synchronously in
+    // `onSearchInput` before any debounce, so typing never lags and the caret
+    // never jumps.
+    value?: string;
     sort: string;
     sortOptions: SortOption[];
     sortTestid?: string;
@@ -86,6 +97,7 @@
     aria-label={searchAriaLabel}
     placeholder={searchPlaceholder}
     data-testid={searchTestid}
+    {value}
     oninput={(e) => onSearchInput(e.currentTarget.value)}
   />
 

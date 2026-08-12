@@ -231,6 +231,7 @@
   class="pt-2 sticky top-0 z-10 bg-surface border-b border-border-subtle"
 >
   <BrowseFilterBar
+    value={query}
     searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
     searchPlaceholder={modpackBrowseState.source === 'curseforge'
       ? $t('modpacks.browse.searchPlaceholderCurseForge')

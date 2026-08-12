@@ -90,4 +90,29 @@ describe('BrowseFilterBar (inline facets)', () => {
     await fireEvent.click(restore);
     expect(onRestore).toHaveBeenCalled();
   });
+
+  // The search box was uncontrolled: it had `oninput` but no `value`, and the
+  // component exposed no prop for it. A query set programmatically — the
+  // missing-dependency hand-off from the compat panel seeds one — ran against
+  // the server while the visible field stayed blank, so the user read
+  // "nothing found" under an empty box as a broken search.
+  it('renders the supplied value in the search box', () => {
+    render(BrowseFilterBar, { props: { ...base, value: 'forgeconfigapiport' } });
+    const input = screen.getByLabelText('Search mods') as HTMLInputElement;
+    expect(input.value).toBe('forgeconfigapiport');
+  });
+
+  it('leaves the search box empty when no value is supplied', () => {
+    render(BrowseFilterBar, { props: { ...base } });
+    const input = screen.getByLabelText('Search mods') as HTMLInputElement;
+    expect(input.value).toBe('');
+  });
+
+  it('reflects a value change from the parent', async () => {
+    const { rerender } = render(BrowseFilterBar, { props: { ...base, value: '' } });
+    const input = screen.getByLabelText('Search mods') as HTMLInputElement;
+    expect(input.value).toBe('');
+    await rerender({ ...base, value: 'balm' });
+    expect(input.value).toBe('balm');
+  });
 });
