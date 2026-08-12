@@ -39,9 +39,17 @@
   const PADDING = 6;
 
   // True only for the instance that took the module-level claim. Deliberately
-  // not `$state` — nothing renders from it. Two hosts could carry the SAME tour
-  // id (only one of them ever activates), so matching on the id alone would let
-  // the deferred one release the winner's claim; this flag proves ownership.
+  // not `$state` — nothing renders from it.
+  //
+  // Belt-and-braces, and honestly labelled as such: no test pins it, because
+  // the case it guards is unreachable today. It makes release once-per-
+  // activation, so the finish()-then-teardown pair cannot clear a claim some
+  // OTHER instance of the same id took in between. Today nothing can claim in
+  // that window — finish() marks the id seen (blocking a same-id mount) and the
+  // yield path implies tourState.active (blocking any mount) — and a deferred
+  // instance never reaches releaseClaim at all, since all three call sites
+  // require `active`. Keep the flag if you add a release path; it is the reason
+  // an id-keyed release stays safe.
   let claimed = false;
 
   // Give the screen back. Idempotent, so every "active went false" path can
@@ -132,10 +140,19 @@
     // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
     // open — UNLESS the main tour's own activation tore the host down
     // (replay/startup call setMode('client') and set tourState.active in one
-    // flush; a destroyed component's pending effects are discarded, so the
-    // yield effect above can never run on that path). A tour suppressed that
-    // way was just reset by replay and must stay armed.
-    if (active && !tourState.active) markSeen(id);
+    // flush). Two Svelte facts dictate the shape of this check:
+    //   1. the yield effect above cannot cover it — a destroyed component's
+    //      pending $effects are discarded, so it never runs on that path;
+    //   2. reading state HERE would lie. Svelte serves destroy-phase reads
+    //      from `old_values`, i.e. the value from BEFORE the batch that
+    //      destroyed us (`if (is_destroying_effect && old_values.has(signal))`
+    //      in svelte/src/internal/client/runtime.js), so `tourState.active`
+    //      reads false precisely when the main tour just switched it on.
+    // One microtask lands after the batch, where both reads are honest. A tour
+    // suppressed by replay was just reset by it and must stay armed.
+    queueMicrotask(() => {
+      if (active && !tourState.active) markSeen(id);
+    });
   });
 
   $effect(() => {

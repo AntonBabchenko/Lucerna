@@ -12,6 +12,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ContextualTour from '../src/lib/onboarding/ContextualTour.svelte';
 import { hasSeen, MANAGE_STEPS } from '../src/lib/onboarding/contextual-tours';
 import { tourState } from '../src/lib/onboarding/state.svelte';
+import TourInReactiveHost from './fixtures/TourInReactiveHost.svelte';
 import TwoContextualTours from './fixtures/TwoContextualTours.svelte';
 
 describe('ContextualTour interplay with the main tour', () => {
@@ -34,14 +35,38 @@ describe('ContextualTour interplay with the main tour', () => {
     expect(hasSeen('manage')).toBe(false);
   });
 
-  it('unmount while the main tour is active does NOT mark seen (replay burn)', async () => {
+  it('host torn down by the main tour activating does NOT mark seen (replay burn)', async () => {
+    // The replay path: `replayTour()` calls setMode('client') and sets
+    // tourState.active in ONE block, so the host unmounts in the same flush.
+    // The fixture's {#if} is a block effect, which runs before user effects —
+    // the tour is destroyed with its yield effect still pending, so onDestroy
+    // sees `active === true` and only `!tourState.active` keeps it from
+    // burning the flag replay just reset. See the fixture header for why an
+    // imperative unmount() cannot reproduce this.
+    render(TourInReactiveHost);
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+
+    tourState.active = true;
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    // onDestroy defers its decision one microtask (destroy-phase state reads
+    // are stale), so settle the queue before reading the flag.
+    await tick();
+    expect(hasSeen('manage')).toBe(false);
+  });
+
+  it('unmount after the yield already drained does NOT mark seen', async () => {
+    // Weaker sibling of the test above, and deliberately so: testing-library's
+    // unmount() is flushSync(...), so the pending yield runs FIRST and clears
+    // `active` before the destroy. This pins the yield-then-unmount sequence
+    // only — it does NOT exercise onDestroy's !tourState.active guard (with
+    // `active` already false, both guard variants agree).
     const { unmount } = render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     await tick();
-    // Simulate replay: the flush that activates the main tour also tears the
-    // host down (setMode('client') unmounts servers-mode hosts). The yield
-    // effect never runs on a destroyed component; only onDestroy sees it.
     tourState.active = true;
     unmount();
+    await tick();
     expect(hasSeen('manage')).toBe(false);
   });
 
@@ -49,6 +74,7 @@ describe('ContextualTour interplay with the main tour', () => {
     const { unmount } = render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     await tick();
     unmount();
+    await tick();
     expect(hasSeen('manage')).toBe(true);
   });
 
