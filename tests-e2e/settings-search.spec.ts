@@ -58,3 +58,19 @@ test('empty results show the no-results row; Escape clears the query', async ({ 
   // Back to the section tablist.
   await expect(dialog.getByRole('tab', { name: 'Appearance' })).toBeVisible();
 });
+
+test('search jumps across sections and hides the tablist while searching', async ({ page }) => {
+  const dialog = await openSettings(page);
+  const input = dialog.getByTestId('settings-search-input');
+
+  // Default section is Appearance; "startup" targets updates.startupCheck in Updates.
+  await input.fill('startup');
+  // Model A: a non-empty query hides the 7-section tablist.
+  await expect(dialog.getByRole('tab', { name: 'Appearance' })).toHaveCount(0);
+  await expect(dialog.locator('[data-search-result="updates.startupCheck"]')).toBeVisible();
+
+  await input.press('Enter');
+  const target = dialog.locator('[data-search-anchor="updates.startupCheck"]');
+  await expect(target).toBeVisible();
+  await expect(target).toHaveClass(/field-flash/);
+});
