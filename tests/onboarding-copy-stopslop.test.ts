@@ -38,4 +38,9 @@ describe('onboarding copy — stop-slop guards', () => {
       .map(([k]) => k);
     expect(offenders).toEqual([]);
   });
+
+  it('uses straight apostrophes in EN onboarding strings (no U+2019)', () => {
+    const offenders = enOnboarding.filter(([, v]) => v.includes('’')).map(([k]) => k);
+    expect(offenders).toEqual([]);
+  });
 });

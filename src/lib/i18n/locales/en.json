@@ -1948,7 +1948,7 @@
           "title": "Search with navigation",
           "body": "Type to search the open file. Counter shows N of M matches; Enter / Shift+Enter step through them, Esc clears. Active match is highlighted in blue.",
           "titleBasic": "Search the log",
-          "bodyBasic": "Type to search the open file. It shows which match you’re on (like 3 of 12); Enter and Shift+Enter jump between matches, Esc clears the search. The current match is highlighted in blue."
+          "bodyBasic": "Type to search the open file. It shows which match you're on (like 3 of 12); Enter and Shift+Enter jump between matches, Esc clears the search. The current match is highlighted in blue."
         },
         "shareMcloGs": {
           "title": "Share to mclo.gs",
@@ -1960,7 +1960,7 @@
           "title": "Crash reports get a structured view",
           "body": "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
           "titleBasic": "A clearer view of crashes",
-          "bodyBasic": "When you open a crash report, Lucerna splits it into sections you can open and close (like Head, Affected level, System Details, and Mods). Turn on Raw view in the toolbar if you’d rather read the plain text."
+          "bodyBasic": "When you open a crash report, Lucerna splits it into sections you can open and close (like Head, Affected level, System Details, and Mods). Turn on Raw view in the toolbar if you'd rather read the plain text."
         },
         "diagnosis": {
           "title": "Automatic crash diagnosis",
