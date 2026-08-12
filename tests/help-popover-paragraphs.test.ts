@@ -41,15 +41,24 @@ describe('HelpPopover paragraphs variant', () => {
     expect(ps[1].textContent).toBe('Same text.');
   });
 
-  it('still renders the single-body variant', async () => {
+  // The one-sentence helper is not a separate template branch any more — it is
+  // a single-element array. This pins that it still renders exactly one <p>,
+  // carrying the close-button clearance (`pr-6`) the old `body` branch had.
+  it('renders a single paragraph, with the close-button clearance on the <p>', async () => {
     render(HelpPopover, {
       props: {
-        body: 'Only body.',
+        paragraphs: ['Only body.'],
         triggerAriaLabel: 'What is this?',
         closeAriaLabel: 'Close help',
       },
     });
     await fireEvent.click(screen.getByRole('button', { name: 'What is this?' }));
-    expect(screen.getByText('Only body.')).toBeTruthy();
+    const pop = document.getElementById(
+      screen.getByRole('button', { name: 'What is this?' }).getAttribute('aria-controls') ?? '',
+    );
+    const ps = pop?.querySelectorAll('p') ?? [];
+    expect(ps.length).toBe(1);
+    expect(ps[0].textContent).toBe('Only body.');
+    expect(ps[0].className).toContain('pr-6');
   });
 });

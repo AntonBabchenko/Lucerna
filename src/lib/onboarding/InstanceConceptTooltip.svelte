@@ -11,7 +11,7 @@
 </script>
 
 <HelpPopover
-  body={$t(explainKey('onboarding.instanceConcept.body', explanationState.level))}
+  paragraphs={[$t(explainKey('onboarding.instanceConcept.body', explanationState.level))]}
   triggerAriaLabel={$t('onboarding.instanceConcept.triggerAriaLabel')}
   triggerTitle={$t('onboarding.instanceConcept.triggerTitle')}
   closeAriaLabel={$t('onboarding.instanceConcept.closeAriaLabel')}

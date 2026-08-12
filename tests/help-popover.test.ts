@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import HelpPopover from '$lib/ui/HelpPopover.svelte';
 
 const props = {
-  body: 'Explains the thing in one sentence.',
+  paragraphs: ['Explains the thing in one sentence.'],
   triggerAriaLabel: 'What is this?',
   closeAriaLabel: 'Close tooltip',
 };
