@@ -78,6 +78,91 @@ pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
     Some(world.to_string())
 }
 
+/// Outcome of the two-rename window. Every variant says exactly where the
+/// user's world is — that is the whole point of the type.
+#[derive(Debug)]
+pub(crate) enum SwapOutcome {
+    /// The extract is in place; the old world has been removed.
+    Ok,
+    /// The live world could not be moved aside. Nothing changed.
+    NotStarted(std::io::Error),
+    /// The extract could not be moved in, and the world was put back.
+    RolledBack(std::io::Error),
+    /// The extract could not be moved in AND the world could not be put back.
+    /// `at` is the BARE DIRECTORY NAME holding the world, never a full path:
+    /// it reaches the user inside a fully translated sentence, and a filesystem
+    /// path pasted into one is exactly what the typed variant exists to avoid.
+    Stranded {
+        at: String,
+        cause: std::io::Error,
+        rollback_cause: std::io::Error,
+    },
+}
+
+/// The entire destructive window of a Replace restore: move the live world
+/// aside, move the verified extract into its place, roll back if that fails.
+///
+/// `rename` is injected rather than called directly so a test can fail one
+/// specific move. No filesystem trick fails the *second* rename deterministically
+/// on Windows, Linux AND macOS — all three of which must run this — and an
+/// environment-variable seam is worse than useless here: `test_seam::resolve`
+/// falls through to `std::env::var` in production, where forcing these failures
+/// IS the data loss this function exists to prevent. The file already
+/// establishes this shape: `restore_backup_at_saves` exists solely because it
+/// takes its paths as arguments instead of reaching for an `AppHandle`.
+///
+/// Note what is deliberately absent: the old code ran
+/// `let _ = remove_dir_all(&world_path)` before the rollback rename. Under this
+/// ordering `world_path` was just vacated by the first rename and the only
+/// statement that could recreate it is the one that just failed — so there is
+/// nothing to remove, and removing blindly would delete whatever else happened
+/// to appear there.
+pub(crate) fn swap_in_place(
+    world_path: &std::path::Path,
+    tmp_path: &std::path::Path,
+    inner: &std::path::Path,
+    rename: &dyn Fn(&std::path::Path, &std::path::Path) -> std::io::Result<()>,
+) -> SwapOutcome {
+    if let Err(e) = rename(world_path, tmp_path) {
+        return SwapOutcome::NotStarted(e);
+    }
+    let cause = match rename(inner, world_path) {
+        Ok(()) => {
+            // Best-effort: the live world is healthy, so a surviving tmp dir is
+            // clutter rather than a failure. Logged because the user pays for it
+            // in disk space until they find it, and nothing else ever will.
+            if let Err(e) = std::fs::remove_dir_all(tmp_path) {
+                crate::diag!("restore: leftover tmp dir {}: {e}", tmp_path.display());
+            }
+            return SwapOutcome::Ok;
+        }
+        Err(e) => e,
+    };
+    match rename(tmp_path, world_path) {
+        Ok(()) => {
+            crate::diag!(
+                "restore: swap-in failed ({cause}); world rolled back to {}",
+                world_path.display()
+            );
+            SwapOutcome::RolledBack(cause)
+        }
+        Err(rollback_cause) => {
+            crate::diag!(
+                "restore: swap-in failed ({cause}) AND rollback failed ({rollback_cause}); world stranded at {}",
+                tmp_path.display()
+            );
+            SwapOutcome::Stranded {
+                at: tmp_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                cause,
+                rollback_cause,
+            }
+        }
+    }
+}
+
 /// Public entrypoint. Resolves paths from the AppHandle then
 /// delegates to `restore_backup_at_saves`.
 pub async fn restore_backup(
@@ -311,7 +396,7 @@ mod tests {
     use super::*;
     use crate::worlds::zip as wzip;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
     fn make_world_with_files(
@@ -331,6 +416,95 @@ mod tests {
             fs::write(&p, *bytes).unwrap();
         }
         (td, saves, backups)
+    }
+
+    /// A rename that fails on the given 1-based call numbers and otherwise
+    /// delegates to the real one. This is the entire test seam — an argument,
+    /// not a process-global override that production would also honour.
+    fn failing_rename(
+        fail_on: &'static [usize],
+    ) -> impl Fn(&Path, &Path) -> std::io::Result<()> {
+        let calls = std::cell::Cell::new(0usize);
+        move |from: &Path, to: &Path| {
+            calls.set(calls.get() + 1);
+            if fail_on.contains(&calls.get()) {
+                return Err(std::io::Error::other("forced rename failure"));
+            }
+            std::fs::rename(from, to)
+        }
+    }
+
+    /// `saves/W` holding a marker, plus a staged extract at `<stage>/W` holding
+    /// a different one, so every assertion can tell which tree ended up where.
+    fn make_swap_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+        let td = tempdir().unwrap();
+        let saves = td.path().join("saves");
+        let world = saves.join("W");
+        fs::create_dir_all(&world).unwrap();
+        fs::write(world.join("marker.txt"), b"original").unwrap();
+        let s = claim_stage(&saves, "W").unwrap();
+        let inner = s.stage.join("W");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(inner.join("marker.txt"), b"restored").unwrap();
+        (td, world, s.tmp, inner)
+    }
+
+    #[test]
+    fn swap_in_place_replaces_the_world_and_leaves_no_tmp() {
+        let (_td, world, tmp, inner) = make_swap_fixture();
+        let out = swap_in_place(&world, &tmp, &inner, &|a, b| std::fs::rename(a, b));
+        assert!(matches!(out, SwapOutcome::Ok), "got {out:?}");
+        assert_eq!(fs::read(world.join("marker.txt")).unwrap(), b"restored");
+        assert!(!tmp.exists(), "tmp must be gone on success");
+    }
+
+    #[test]
+    fn swap_in_place_reports_not_started_when_the_world_cannot_move() {
+        let (_td, world, tmp, inner) = make_swap_fixture();
+        let out = swap_in_place(&world, &tmp, &inner, &failing_rename(&[1]));
+        assert!(matches!(out, SwapOutcome::NotStarted(_)), "got {out:?}");
+        assert_eq!(
+            fs::read(world.join("marker.txt")).unwrap(),
+            b"original",
+            "nothing may move when the first rename fails"
+        );
+    }
+
+    #[test]
+    fn swap_in_place_rolls_back_when_the_swap_in_fails() {
+        let (_td, world, tmp, inner) = make_swap_fixture();
+        let out = swap_in_place(&world, &tmp, &inner, &failing_rename(&[2]));
+        assert!(matches!(out, SwapOutcome::RolledBack(_)), "got {out:?}");
+        assert_eq!(
+            fs::read(world.join("marker.txt")).unwrap(),
+            b"original",
+            "the original world must be back in place"
+        );
+        assert!(!tmp.exists(), "the rollback consumed the tmp dir");
+    }
+
+    #[test]
+    fn swap_in_place_reports_stranded_when_the_rollback_also_fails() {
+        let (_td, world, tmp, inner) = make_swap_fixture();
+        let out = swap_in_place(&world, &tmp, &inner, &failing_rename(&[2, 3]));
+        let SwapOutcome::Stranded { at, .. } = out else {
+            panic!("expected Stranded, got {out:?}");
+        };
+        assert_eq!(at, tmp.file_name().unwrap().to_string_lossy());
+        assert!(
+            !at.contains(std::path::MAIN_SEPARATOR),
+            "`at` must be a bare segment, never a path: {at}"
+        );
+        assert!(tmp.is_dir(), "the world's bytes must still be at `at`");
+        assert_eq!(
+            fs::read(tmp.join("marker.txt")).unwrap(),
+            b"original",
+            "`at` must hold the ORIGINAL world, not the extract"
+        );
+        assert!(
+            !world.exists(),
+            "saves/W really is gone - that is the state being reported"
+        );
     }
 
     #[test]
