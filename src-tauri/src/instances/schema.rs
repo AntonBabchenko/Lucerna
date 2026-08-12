@@ -184,6 +184,12 @@ pub struct AppFile {
     /// newer release clears the suppression naturally (version differs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_dismissed_version: Option<String>,
+    /// The latest app version whose post-update "What's new" changelog the
+    /// user has already been shown. Suppresses re-prompting for that same
+    /// version; a newer release differs and prompts again. Mirrors
+    /// `update_dismissed_version`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changelog_seen_version: Option<String>,
 }
 
 impl Default for AppFile {
@@ -193,6 +199,7 @@ impl Default for AppFile {
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
             update_dismissed_version: None,
+            changelog_seen_version: None,
         }
     }
 }
@@ -1021,6 +1028,15 @@ mod tests {
         let s = serde_json::to_string(&f).unwrap();
         let back: AppFile = serde_json::from_str(&s).unwrap();
         assert_eq!(back.update_dismissed_version, Some("0.9.1".into()));
+    }
+
+    #[test]
+    fn app_json_roundtrips_changelog_seen_version() {
+        let mut f = AppFile::default();
+        f.changelog_seen_version = Some("0.23.0".into());
+        let s = serde_json::to_string(&f).unwrap();
+        let back: AppFile = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.changelog_seen_version, Some("0.23.0".into()));
     }
 
     fn sample_integrity() -> crate::verify::IntegrityStatus {

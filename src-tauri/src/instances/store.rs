@@ -201,6 +201,7 @@ mod tests {
             },
             general: crate::instances::schema::GeneralSettings::default(),
             update_dismissed_version: None,
+            changelog_seen_version: None,
         };
         write_app_json(&path, &value).unwrap();
         let back = read_app_json(&path).unwrap();
@@ -279,6 +280,7 @@ mod tests {
             },
             general: crate::instances::schema::GeneralSettings::default(),
             update_dismissed_version: None,
+            changelog_seen_version: None,
         };
         write_app_json(&path, &initial).unwrap();
         // Simulate set_active_instance's read-modify-write.
