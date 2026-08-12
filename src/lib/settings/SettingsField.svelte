@@ -13,7 +13,10 @@
 
 <div
   data-search-anchor={anchor}
-  use:fieldFlash={{ active: settingsSearchFocus.value === anchor, focus: shouldFocusAnchor(anchor) }}
+  use:fieldFlash={{
+    active: settingsSearchFocus.value === anchor,
+    focus: shouldFocusAnchor(anchor),
+  }}
 >
   {@render children()}
 </div>

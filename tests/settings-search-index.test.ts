@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { shouldFocusAnchor } from '$lib/settings/search-index';
+import en from '$lib/i18n/locales/en.json';
+import ru from '$lib/i18n/locales/ru.json';
+import { SETTINGS_ENTRIES, SETTINGS_SEARCH, shouldFocusAnchor } from '$lib/settings/search-index';
 
 describe('shouldFocusAnchor', () => {
   it('does not grab focus for a select-style anchor', () => {
@@ -10,10 +12,6 @@ describe('shouldFocusAnchor', () => {
     expect(shouldFocusAnchor('game.tray')).toBe(false);
   });
 });
-
-import { SETTINGS_ENTRIES, SETTINGS_SEARCH } from '$lib/settings/search-index';
-import en from '$lib/i18n/locales/en.json';
-import ru from '$lib/i18n/locales/ru.json';
 
 function resolve(dict: unknown, key: string): unknown {
   return key.split('.').reduce<unknown>((o, part) => {

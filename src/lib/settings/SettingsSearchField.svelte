@@ -88,10 +88,7 @@
     {:else}
       {#each results as entry, i (entry.anchor)}
         {#if i === 0 || results[i - 1].tab !== entry.tab}
-          <li
-            role="presentation"
-            class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-muted"
-          >
+          <li role="presentation" class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-muted">
             {$t(`settings.sections.${entry.tab}` as TranslationKey)}
           </li>
         {/if}

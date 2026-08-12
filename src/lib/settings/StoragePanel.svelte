@@ -329,8 +329,7 @@
           data-testid="log-retention-toggle"
         />
         <span class="flex-1">
-          <span class="text-sm text-primary"
-            >{$t('settings.general.logRetention.enableLabel')}</span
+          <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span
           >
           <span class="block text-xs text-muted">
             {$t('settings.general.logRetention.enableDescription')}
