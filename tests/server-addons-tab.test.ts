@@ -248,10 +248,20 @@ describe('ServerAddonsTab', () => {
 
   it('mounts the tour once the gate resolves with kinds present', async () => {
     localStorage.clear();
-    await seed([makeServer('t2', false, 'fabric')]);
+    // The mc version MUST be one nothing else in this file has touched — do not
+    // "tidy" it back to the makeServer default of '1.21'. By the time this test
+    // runs, '1.21' is warm in the module-level `supportsDatapacksCache`, so
+    // `gateResolved` would flip true through the CACHE-HIT branch alone and the
+    // IPC-return `gateResolved = true` would be left completely unpinned:
+    // delete that line and the file still passes. An uncached version forces
+    // the gate through the async IPC path, which is the one that matters — it
+    // is the session's FIRST visit to a server on this version, exactly the
+    // case the whole first-visit guard exists for.
+    await seed([makeServer('t2', false, 'fabric', '1.20.4')]);
     render(ServerAddonsTab, { serverId: 't2' });
-    await tick();
-    await tick();
-    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+    // waitFor, not a fixed tick count: the mount is gated behind the IPC
+    // promise, the effect re-flush, and ContextualTour's own onMount, so the
+    // exact number of flushes is an implementation detail worth not pinning.
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
   });
 });
