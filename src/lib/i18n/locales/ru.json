@@ -2613,6 +2613,11 @@
       "downloading": "Загрузка обновления…",
       "verifyFailed": "Не удалось проверить обновление"
     },
+    "whatsNew": {
+      "toast": "Обновлено до {version} — что нового",
+      "actionLabel": "Что нового",
+      "title": "Что нового в Lucerna {version}"
+    },
     "crash": {
       "banner": "Minecraft аварийно завершился.",
       "viewReport": "Просмотр отчёта о сбое",

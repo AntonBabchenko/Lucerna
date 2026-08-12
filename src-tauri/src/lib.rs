@@ -240,6 +240,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::update_check,
             commands::update_install,
             commands::update_dismiss,
+            // Post-update "What's new":
+            commands::app_version,
+            commands::changelog_mark_seen,
             // Own server (Plan 1: vanilla create / list / delete):
             commands::server_create,
             commands::server_list,
