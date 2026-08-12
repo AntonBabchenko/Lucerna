@@ -93,6 +93,23 @@ describe('ContextualTour interplay with the main tour', () => {
     expect(hasSeen('logs')).toBe(false);
   });
 
+  it('a DEFERRED tour is not burned when its host unmounts', async () => {
+    // The `active` conjunct in the destroy check is load-bearing: a tour that
+    // never showed (another tour held the claim) must stay armed for its next
+    // mount, or "defer now, re-fire later" silently becomes "defer now, never
+    // again". Note tourState.active is false throughout, so the main-tour half
+    // of the check cannot cover this — only `active` can.
+    const { unmount } = render(TwoContextualTours);
+    await tick();
+    expect(screen.queryAllByTestId('contextual-tour-popover')).toHaveLength(1);
+
+    unmount();
+    await tick();
+    // The one that showed is soft-skipped; the one that deferred is untouched.
+    expect(hasSeen('manage')).toBe(true);
+    expect(hasSeen('logs')).toBe(false);
+  });
+
   it('defers when another contextual tour is on screen', async () => {
     document.body.setAttribute('data-ctx-tour-active', 'true');
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
