@@ -69,6 +69,13 @@ pub(crate) fn claim_stage(saves: &std::path::Path, world_folder: &str) -> Result
 /// Recover the world folder name from a `.tmp-restoring-<world>-<n>` directory
 /// name. `None` for anything that is not one of ours — including a staging
 /// directory, which holds extracted backup bytes rather than a world.
+///
+/// Unused in production until the follow-up PR surfaces stranded worlds in the
+/// UI. It lives here, now, because it is the *reader* for the naming decision
+/// `claim_stage` makes: embedding the world folder is only justified if it can
+/// be read back, and the round-trip test below is what proves it. Splitting the
+/// two across PRs would leave the decision unpinned in this one.
+#[allow(dead_code)]
 pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
     let rest = dir_name.strip_prefix(TMP_RESTORING_PREFIX)?;
     let (world, n) = rest.rsplit_once('-')?;
@@ -92,11 +99,12 @@ pub(crate) enum SwapOutcome {
     /// `at` is the BARE DIRECTORY NAME holding the world, never a full path:
     /// it reaches the user inside a fully translated sentence, and a filesystem
     /// path pasted into one is exactly what the typed variant exists to avoid.
-    Stranded {
-        at: String,
-        cause: std::io::Error,
-        rollback_cause: std::io::Error,
-    },
+    ///
+    /// Neither cause travels in this variant. Both are `diag!`-logged at the
+    /// point of failure, where the full context still exists, and the user-facing
+    /// copy points at Logs. Carrying them here as well would be a second copy
+    /// nobody reads.
+    Stranded { at: String },
 }
 
 /// The entire destructive window of a Replace restore: move the live world
@@ -156,8 +164,6 @@ pub(crate) fn swap_in_place(
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                cause,
-                rollback_cause,
             }
         }
     }
@@ -304,16 +310,21 @@ async fn restore_replace(
     }
 
     // 6-7. The destructive window: two adjacent renames plus the rollback.
-    let outcome = swap_in_place(&world_path, &staged.tmp, &inner, &|a, b| std::fs::rename(a, b));
+    let outcome = swap_in_place(&world_path, &staged.tmp, &inner, &|a, b| {
+        std::fs::rename(a, b)
+    });
     drop_stage(&staged.stage);
 
     match outcome {
         SwapOutcome::Ok => Ok(RestoredWorld {
             final_folder_name: world_folder.into(),
         }),
-        SwapOutcome::NotStarted(e) => {
-            Err(map_move_aside_error(&world_path, &staged.tmp, world_folder, e))
-        }
+        SwapOutcome::NotStarted(e) => Err(map_move_aside_error(
+            &world_path,
+            &staged.tmp,
+            world_folder,
+            e,
+        )),
         SwapOutcome::RolledBack(e) => Err(Error::io(world_path.display().to_string(), e)),
         SwapOutcome::Stranded { at, .. } => Err(Error::WorldRestoreStranded {
             world_folder: world_folder.into(),
@@ -451,9 +462,7 @@ mod tests {
     /// A rename that fails on the given 1-based call numbers and otherwise
     /// delegates to the real one. This is the entire test seam — an argument,
     /// not a process-global override that production would also honour.
-    fn failing_rename(
-        fail_on: &'static [usize],
-    ) -> impl Fn(&Path, &Path) -> std::io::Result<()> {
+    fn failing_rename(fail_on: &'static [usize]) -> impl Fn(&Path, &Path) -> std::io::Result<()> {
         let calls = std::cell::Cell::new(0usize);
         move |from: &Path, to: &Path| {
             calls.set(calls.get() + 1);
@@ -551,7 +560,10 @@ mod tests {
             s.stage
         );
         assert!(s.tmp.ends_with(".tmp-restoring-W-1"), "got {:?}", s.tmp);
-        assert!(s.stage.is_dir(), "the stage must be created, not just named");
+        assert!(
+            s.stage.is_dir(),
+            "the stage must be created, not just named"
+        );
         assert!(
             saves.join(".tmp-restore-stage-W-0").is_dir(),
             "an existing candidate must never be deleted"
