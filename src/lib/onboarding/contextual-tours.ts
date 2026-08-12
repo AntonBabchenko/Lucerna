@@ -43,33 +43,49 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   overview: 'v1', // added 2026-08-12 — points at the localization row on the instance Overview
 };
 
-// FNV-1a 32-bit over the JSON of the FULL step objects (kind and disclaimerKey
-// participate — a chooser/disclaimer edit is a material step change too).
-// Recorded values live right here so any steps edit forces a diff beside the
-// version map and the "does this need a bump?" question gets asked (the #294
-// miss). tests/tour-fingerprint.test.ts recomputes and prints the new value on
-// mismatch.
-export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
-  const json = JSON.stringify(steps);
+// FNV-1a 32-bit. `Math.imul` is load-bearing: a plain `h * 16777619` silently
+// loses precision past 2^53 and collapses the avalanche.
+export function fnv1a(s: string): string {
   let h = 0x811c9dc5;
-  for (let i = 0; i < json.length; i++) {
-    h ^= json.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16).padStart(8, '0');
 }
 
+/** Pure STRUCTURAL hash of the step objects — kind and disclaimerKey
+ *  participate, since a chooser/disclaimer edit is a material step change too.
+ *  Deliberately locale-free: production code must not import locale JSON. The
+ *  copy-aware composition lives in tests/tour-fingerprint.test.ts. */
+export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
+  return fnv1a(JSON.stringify(steps));
+}
+
+// ── The bump contract ────────────────────────────────────────────────────
+// The recorded values below hash the step STRUCTURE *and the EN copy those
+// title/body keys resolve to* (including the `*Basic` siblings) — the test
+// composes the two; this module stays locale-free. So a copy-only rewrite
+// moves the fingerprint just as a re-anchor does, and both force a diff
+// beside the version map above, where the "does this need a bump?" question
+// gets asked. That is the #294 miss: it was a re-anchor PLUS a copy rewrite,
+// and a structure-only hash would have caught only half of it. (Proof this
+// matters: the worlds v3→v4 bump in this very commit is justified ENTIRELY by
+// an en.json edit — WORLDS_STEPS itself is byte-identical.)
+// EN only, on purpose: RU is Weblate's territory and a translation sync must
+// never redden CI. tests/tour-fingerprint.test.ts recomputes and prints the
+// new value on mismatch.
 export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
-  manage: '797d4f7f',
-  logs: '08499e92',
-  modpacks: '31786820',
-  worlds: '17315acc',
-  servers: '88a55cc7',
-  serverManage: '189b9426',
-  addons: '68ef3e7c',
-  serverAddons: '0b8f24b5',
-  l10n: 'e10b491b',
-  overview: '34bc85b6',
+  manage: '7d162c77',
+  logs: 'a4eac54b',
+  modpacks: '6bc0324e',
+  worlds: 'dc5908db',
+  servers: '3294c410',
+  serverManage: '68b63f2f',
+  addons: '7f3a6661',
+  serverAddons: '5c634610',
+  l10n: '49ee796e',
+  overview: 'bbc47533',
 };
 
 export function storageKey(id: ContextualTourId): string {

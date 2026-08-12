@@ -17,9 +17,11 @@ import { STEPS } from './steps';
 // completed the old tour would never see the new onboarding. Bumping re-shows
 // the improved tour once to existing users.
 export const TOUR_VERSION = '0.6.0';
-// Fingerprint of STEPS (see fingerprintSteps in contextual-tours.ts). Sits
-// beside TOUR_VERSION so a steps edit forces the bump question in the diff.
-export const MAIN_STEPS_FINGERPRINT = '5431ef06';
+// Fingerprint of STEPS and the EN copy their keys resolve to (composed in
+// tests/tour-fingerprint.test.ts from fingerprintSteps + the locale, so this
+// module stays locale-free). Sits beside TOUR_VERSION so a steps edit OR a
+// copy-only rewrite forces the bump question in the diff.
+export const MAIN_STEPS_FINGERPRINT = '5209629c';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;

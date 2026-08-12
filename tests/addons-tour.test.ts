@@ -11,11 +11,17 @@ describe('add-ons tab tour (ADDONS_STEPS)', () => {
     // body only exists once that kind is selected. Precedent: the logs tour
     // anchors three separate steps to `logs-sidebar`. Do not "fix" the
     // duplicate — deleting it silently drops a step from the tour.
-    expect(ADDONS_STEPS.map((s) => s.targetSelector)).toEqual([
-      '[data-tour-ctx="addons-kind-switch"]',
-      '[data-tour-ctx="addons-kind-switch"]',
-      '[data-tour-ctx="addons-subtabs"]',
-      '[data-tour-ctx="addons-dropzone"]',
+    //
+    // titleKey is pinned alongside the selector: on selectors alone, swapping
+    // the two kind-switch steps produces an identical array and passes.
+    expect(ADDONS_STEPS.map((s) => [s.titleKey, s.targetSelector])).toEqual([
+      ['onboarding.contextual.addons.kindSwitch.title', '[data-tour-ctx="addons-kind-switch"]'],
+      [
+        'onboarding.contextual.addons.datapackLibrary.title',
+        '[data-tour-ctx="addons-kind-switch"]',
+      ],
+      ['onboarding.contextual.addons.subtabs.title', '[data-tour-ctx="addons-subtabs"]'],
+      ['onboarding.contextual.addons.dropzone.title', '[data-tour-ctx="addons-dropzone"]'],
     ]);
   });
 
