@@ -2064,9 +2064,9 @@
       "addons": {
         "kindSwitch": {
           "title": "Mods, resource packs, shaders, data packs",
-          "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta). Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
+          "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta), which appear on Minecraft 1.13 or newer. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
           "titleBasic": "Pick what to add",
-          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, shaders, or data packs. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
+          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Data packs join the row on Minecraft 1.13 and newer. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
         },
         "datapackLibrary": {
           "title": "Data packs live in worlds",
@@ -2116,9 +2116,9 @@
         },
         "actions": {
           "title": "Apply, translate, share",
-          "body": "Apply builds a resource pack from your edits and enables it for this instance. Translate with AI fills the gaps once you allow AI translation in Settings, under Integrations. Export and Import share your translations as a file.",
+          "body": "Apply builds a resource pack from your edits and enables it for this instance. Translate with AI fills the gaps once you allow AI translation and store your own API key in Settings, under Integrations. Export and Import share your translations as a file.",
           "titleBasic": "Turn it on and share",
-          "bodyBasic": "Apply packs your translations so the game can use them. Translate with AI can fill the gaps for you after you allow it in Settings. Export and Import let you share translations with friends."
+          "bodyBasic": "Apply packs your translations so the game can use them. Translate with AI can fill the gaps once you allow it in Settings and add your own key there. Export and Import let you share translations with friends."
         }
       },
       "overview": {
