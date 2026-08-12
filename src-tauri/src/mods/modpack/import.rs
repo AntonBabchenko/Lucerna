@@ -170,15 +170,15 @@ pub(crate) fn with_carried_notes(
 /// false-positives on bundled jars). A Vanilla instance has no loader family,
 /// so nothing is ever flagged.
 ///
-/// `_instance_mc` is accepted but unused, kept for call-site stability: this
-/// function's own callers (2 command sites + import's internal call) already
-/// have it in hand, and it was never plumbed into `compat_verdict` for a
-/// reason distinct from that function's own MC parameter — the design here
-/// deliberately never judges MC version at all, not merely relocated it.
+/// `instance_mc` feeds compat_verdict's per-loader descriptor acceptance
+/// (spec D7): NeoForge opens Forge's `mods.toml` only in the 1.20.1–1.20.4
+/// era, so whether a forge-toml jar is inert on a NeoForge instance depends
+/// on the Minecraft version. This function still never judges the MC version
+/// AXIS itself — the parameter only disambiguates the loader's own reader.
 pub(crate) fn classify_inert_loader_jars(
     mods_dir: &std::path::Path,
     instance_loader: crate::instances::schema::LoaderKind,
-    _instance_mc: &str,
+    instance_mc: &str,
 ) -> Vec<InertLoaderJar> {
     let Ok(entries) = std::fs::read_dir(mods_dir) else {
         return Vec::new();
@@ -206,7 +206,8 @@ pub(crate) fn classify_inert_loader_jars(
         let Ok(meta) = crate::mods::local::read_jar_meta(&bytes) else {
             continue;
         };
-        let verdict = crate::mods::local::compat_verdict(&meta, instance_loader, connector);
+        let verdict =
+            crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc, connector);
         if verdict.loader_mismatch {
             out.push(InertLoaderJar {
                 filename,

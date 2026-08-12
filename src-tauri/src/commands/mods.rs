@@ -2061,7 +2061,7 @@ pub async fn mods_plan_mc_migration(
             .as_deref()
             .and_then(|b| crate::mods::local::read_jar_meta(b).ok())
             .map(|meta| {
-                crate::mods::local::compat_verdict(&meta, loader, connector).loader_mismatch
+                crate::mods::local::compat_verdict(&meta, loader, &mc, connector).loader_mismatch
             })
             .unwrap_or(false);
         inputs.push(ModMigrationInput {
