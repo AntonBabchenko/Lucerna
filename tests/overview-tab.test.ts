@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
-import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
+import { hasSeen, markSeen, OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
@@ -440,6 +440,21 @@ describe('OverviewTab version-error Reload', () => {
 // Hence the REACTIVE gate — and hence these tests, which pin each of its
 // conjuncts to the failure it exists to prevent.
 describe('OverviewTab contextual tour', () => {
+  // The step names its anchor by selector, and ContextualTour.updateRect()
+  // degrades a missing one SILENTLY: no spotlight, and a centred popover
+  // describing a row that is nowhere on screen. Nothing else in the suite would
+  // notice — the tour still mounts and still reads "Got it".
+  it('renders the DOM anchor the tour step points at', () => {
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    const selectors = OVERVIEW_STEPS.map((s) => s.targetSelector).filter(
+      (s): s is string => typeof s === 'string',
+    );
+    expect(selectors).toHaveLength(OVERVIEW_STEPS.length);
+    for (const sel of selectors) {
+      expect(document.querySelector(sel), sel).not.toBeNull();
+    }
+  });
+
   it('overview tour waits out the main tour, then fires on its completion', async () => {
     localStorage.clear(); // this test needs the tour unseen
     tourState.active = true;

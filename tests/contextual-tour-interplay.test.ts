@@ -110,6 +110,26 @@ describe('ContextualTour interplay with the main tour', () => {
     expect(hasSeen('logs')).toBe(false);
   });
 
+  it('a yielded tour ignores Escape instead of burning itself', async () => {
+    // The window keydown handler is NOT inside the {#if active} block — it
+    // stays registered after the tour yields to the main tour, which is the
+    // whole reason the handler early-returns on !active. Without that return,
+    // the Escape the user pressed for the MAIN tour also reaches this one and
+    // runs finish(), marking a tour seen that the user never got to see (the
+    // yield deliberately leaves it armed for its next visit).
+    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+
+    tourState.active = true;
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
+    expect(hasSeen('manage')).toBe(false);
+  });
+
   it('defers when another contextual tour is on screen', async () => {
     document.body.setAttribute('data-ctx-tour-active', 'true');
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });

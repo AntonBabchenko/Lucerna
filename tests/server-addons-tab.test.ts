@@ -63,7 +63,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn().mockResolvedValue(null),
 }));
 
-import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
+import { hasSeen, markSeen, SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
 import { isPresent } from '$lib/onboarding/tour-presence';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
@@ -119,6 +119,26 @@ describe('ServerAddonsTab', () => {
     mcVersionSupportsDatapacks.mockResolvedValue(true);
     droppedServerContent.value = null;
     serverAddonsKind.value = null;
+  });
+
+  // The other end of the pair tests/server-addons-tour.test.ts pins: that file
+  // fixes the step SELECTORS, this one proves the rendered tab actually carries
+  // the anchors they name. Neither claim survives alone — a renamed or deleted
+  // `data-tour-ctx` attribute leaves the step list untouched, and
+  // ContextualTour.updateRect() degrades a missing anchor SILENTLY into a
+  // centred, spotlight-less popover describing something the user cannot see.
+  it('renders the DOM anchor every tour step points at', async () => {
+    await seed([makeServer('a', false, 'fabric')]);
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
+    const selectors = SERVER_ADDONS_STEPS.map((s) => s.targetSelector).filter(
+      (s): s is string => typeof s === 'string',
+    );
+    // Every step is anchored — a selector-less step would otherwise be
+    // silently skipped by the loop below.
+    expect(selectors).toHaveLength(SERVER_ADDONS_STEPS.length);
+    for (const sel of selectors) {
+      expect(document.querySelector(sel), sel).not.toBeNull();
+    }
   });
 
   it('fabric server offers Mods + Datapacks kinds', async () => {
