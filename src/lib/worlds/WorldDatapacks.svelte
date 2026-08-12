@@ -3,7 +3,11 @@
   import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { pushInfo } from '$lib/toasts/toasts.svelte';
+  import HelpPopover from '$lib/ui/HelpPopover.svelte';
+  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
+  import { explainKey } from '$lib/onboarding/explanation-keys';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -37,6 +41,16 @@
     const key = disabledKey;
     return key === null ? null : $t(key);
   });
+
+  // "What are data packs?" — the shared four-paragraph concept explainer, also
+  // shown on the instance library and the server pane. explainKey swaps in the
+  // `*Basic` sibling at the Basic detail level; the cast mirrors explainKey's
+  // own contract (a parity test pins every pN/pNBasic pair in both locales).
+  const datapackConceptParas = $derived(
+    ['p1', 'p2', 'p3', 'p4'].map((p) =>
+      $t(explainKey(`onboarding.datapackConcept.${p}` as TranslationKey, explanationState.level)),
+    ),
+  );
 
   async function reload() {
     // Capture the world this load is for; a rapid world switch mid-fetch must
@@ -214,7 +228,16 @@
 
 <div class="flex flex-col gap-2" data-testid="world-datapacks">
   <div class="flex items-center justify-between gap-2">
-    <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
+    <div class="flex items-center gap-1">
+      <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
+      <HelpPopover
+        paragraphs={datapackConceptParas}
+        width={320}
+        triggerAriaLabel={$t('onboarding.datapackConcept.triggerAriaLabel')}
+        triggerTitle={$t('onboarding.datapackConcept.triggerTitle')}
+        closeAriaLabel={$t('onboarding.datapackConcept.closeAriaLabel')}
+      />
+    </div>
     <div class="flex items-center gap-2">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span

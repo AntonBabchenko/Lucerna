@@ -2,7 +2,11 @@
   import { commands, type AssetUpdateState, type ServerDatapackEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import HelpPopover from '$lib/ui/HelpPopover.svelte';
+  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
+  import { explainKey } from '$lib/onboarding/explanation-keys';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
@@ -36,6 +40,17 @@
     disabled?: boolean;
     reloadToken?: number;
   } = $props();
+
+  // "What are data packs?" — the shared four-paragraph concept explainer, also
+  // shown on the instance library and the per-world pane. explainKey swaps in
+  // the `*Basic` sibling at the Basic detail level; the cast mirrors
+  // explainKey's own contract (a parity test pins every pN/pNBasic pair in
+  // both locales).
+  const datapackConceptParas = $derived(
+    ['p1', 'p2', 'p3', 'p4'].map((p) =>
+      $t(explainKey(`onboarding.datapackConcept.${p}` as TranslationKey, explanationState.level)),
+    ),
+  );
 
   let rows = $state<ServerDatapackEntry[]>([]);
   let loading = $state(false);
@@ -270,6 +285,13 @@
 
 <div class="flex flex-col gap-3" data-testid="server-datapacks-installed">
   <div class="flex flex-wrap items-center gap-2">
+    <HelpPopover
+      paragraphs={datapackConceptParas}
+      width={320}
+      triggerAriaLabel={$t('onboarding.datapackConcept.triggerAriaLabel')}
+      triggerTitle={$t('onboarding.datapackConcept.triggerTitle')}
+      closeAriaLabel={$t('onboarding.datapackConcept.closeAriaLabel')}
+    />
     <BusyButton
       class="btn-secondary btn-sm"
       data-testid="server-datapacks-check-updates"
