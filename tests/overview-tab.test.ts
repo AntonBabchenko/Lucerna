@@ -12,10 +12,14 @@ import { serversUi } from '$lib/servers/servers-ui.svelte';
 
 beforeEach(() => {
   attentionCollapse.reset();
-  // Every render below inherits `installedStats.total: 18`, so the localization
-  // row — and the one-step contextual tour anchored on it — would otherwise open
-  // over all ~30 of them. Seed it seen; the few tests that exercise the tour
-  // clear storage themselves.
+  // Hygiene, not a load-bearing fix: every render below inherits
+  // `installedStats.total: 18`, so the localization row — and the one-step tour
+  // anchored on it — is mountable in all ~30 of them. Nothing collides with the
+  // stray popover today (removing this line still leaves the file green, since
+  // the first render simply burns the tour for the rest of it), but the three
+  // tour tests below call `localStorage.clear()`, and there is no global
+  // localStorage reset in tests/vitest.setup.ts. Re-seeding per test is what
+  // keeps the file order-independent under `--sequence.shuffle`.
   markSeen('overview');
 });
 
@@ -478,6 +482,11 @@ describe('OverviewTab contextual tour', () => {
     await tick();
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    // Absence alone is too weak a claim: a regression that mounted the block
+    // and immediately unmounted it would burn the tour PERMANENTLY via
+    // ContextualTour's onDestroy microtask, while the query above still read
+    // null. "Suppressed" has to mean "still armed for its next chance".
+    expect(hasSeen('overview')).toBe(false);
   });
 
   // installedStats and activeInstance are separate signals fed by an async
@@ -492,5 +501,6 @@ describe('OverviewTab contextual tour', () => {
     await tick();
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false); // suppressed, not burned — see above
   });
 });
