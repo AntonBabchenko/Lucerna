@@ -1174,6 +1174,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	updateDismiss: (version: string) => typedError<null, Error>(__TAURI_INVOKE("update_dismiss", { version })),
 	/**
+	 *  The running launcher version (compile-time `CARGO_PKG_VERSION`), the same
+	 *  source the updater and the CHANGELOG headings use. Infallible.
+	 */
+	appVersion: () => __TAURI_INVOKE<string>("app_version"),
+	/**
+	 *  Persist that the user has been shown the post-update changelog for
+	 *  `version`, so the "What's new" prompt is not shown again for it.
+	 */
+	changelogMarkSeen: (version: string) => typedError<null, Error>(__TAURI_INVOKE("changelog_mark_seen", { version })),
+	/**
 	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 	 *  записать `server.json` + `eula.txt`.
 	 */
@@ -2256,6 +2266,13 @@ export type AppFile_Deserialize = {
 	 *  newer release clears the suppression naturally (version differs).
 	 */
 	update_dismissed_version?: string | null,
+	/**
+	 *  The latest app version whose post-update "What's new" changelog the
+	 *  user has already been shown. Suppresses re-prompting for that same
+	 *  version; a newer release differs and prompts again. Mirrors
+	 *  `update_dismissed_version`.
+	 */
+	changelog_seen_version?: string | null,
 };
 
 export type AppFile_Serialize = {
@@ -2268,6 +2285,13 @@ export type AppFile_Serialize = {
 	 *  newer release clears the suppression naturally (version differs).
 	 */
 	update_dismissed_version?: string | null,
+	/**
+	 *  The latest app version whose post-update "What's new" changelog the
+	 *  user has already been shown. Suppresses re-prompting for that same
+	 *  version; a newer release differs and prompts again. Mirrors
+	 *  `update_dismissed_version`.
+	 */
+	changelog_seen_version?: string | null,
 };
 
 /**
