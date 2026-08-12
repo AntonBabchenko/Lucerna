@@ -33,7 +33,7 @@
 //     backup size text-muted
 //     inline "Restore" icon — data-testid="backup-restore-btn" btn-icon btn-icon-sm
 //     inline "Delete backup" icon — data-testid="backup-delete-btn" btn-icon-danger
-//     "Open backups folder ↗" button — btn-tertiary
+//     "Open backups folder" button — btn-secondary, and present in every state
 //     empty state — "No backups yet." text-muted
 //     error state — text-danger class
 //     loading state — text-muted (class-string integrity)
@@ -50,6 +50,7 @@
 //     warning body text has text-secondary class
 //     error block uses text-danger
 
+import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backup, World } from '$lib/ipc/bindings';
@@ -66,6 +67,11 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteWorld: vi.fn(),
     openSavesFolder: vi.fn(),
     openBackupsFolder: vi.fn(),
+    // WorldsTab queries these alongside the world list — they surface what a
+    // failed restore left behind, which no other listing can see.
+    listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    recoverStrandedWorld: vi.fn(),
     // WorldDetailDialog's Datapacks tab mounts WorldDatapacks, which fires
     // datapacksListForWorld on mount (and on any test that switches tabs, since
     // TabBar activation follows focus) — resolved so it never throws even in
@@ -518,8 +524,8 @@ describe('WorldDetailDialog (Backups tab) — inline backup action icons', () =>
 // the Backups tab body has no close affordance of its own. That pin had no
 // equivalent to move to, so it is dropped rather than re-anchored.
 
-describe('WorldDetailDialog (Backups tab) — "Open backups folder ↗" is btn-tertiary', () => {
-  it('"Open backups folder ↗" button is btn-tertiary when backups are present', async () => {
+describe('WorldDetailDialog (Backups tab) — "Open backups folder"', () => {
+  it('is btn-secondary, the DESIGN.md variant for an open-folder button', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listBackups).mockResolvedValueOnce({
       status: 'ok',
@@ -534,7 +540,29 @@ describe('WorldDetailDialog (Backups tab) — "Open backups folder ↗" is btn-t
       },
     });
     const btn = await screen.findByRole('button', { name: /open backups folder/i });
-    expect(btn).toHaveBtnVariant('tertiary');
+    // DESIGN.md:139 — open-folder is icon+label .btn-secondary with a leading
+    // folderOpen icon. This button and its WorldsTab twin were the codebase's
+    // only btn-tertiary + trailing-icon instances; DESIGN.md:5 requires the code
+    // and the doc to agree in the same PR, and the code is what moved.
+    expect(btn).toHaveBtnVariant('secondary');
+  });
+
+  it('is present even when the world has no backups yet', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [] });
+    render(WorldDetailDialog, {
+      props: {
+        instanceId: 'inst-1',
+        world: makeWorld(),
+        onClose: () => {},
+        onChanged: () => {},
+      },
+    });
+    // It used to render only inside the list branch, so it was missing while
+    // loading, on error, and on an empty list — the last being the case
+    // open_backups_folder documents itself for ("so the user can navigate even
+    // before the first backup exists").
+    expect(await screen.findByRole('button', { name: /open backups folder/i })).toBeTruthy();
   });
 });
 
@@ -747,4 +775,32 @@ describe('DeleteWorldDialog — error block uses text-danger', () => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+// ── WorldsTab — the recovery section for what a failed restore left behind ────
+//
+// Placement is the behaviour under test, not decoration. WorldsTab's {#if} chain
+// is exclusive and its last arm is `worlds.length === 0`, so a section rendered
+// inside it would be invisible on an instance whose only world got stranded —
+// exactly the case the section exists for. These pin it OUTSIDE the chain, and
+// pin the empty-state copy to stay silent when there IS something to recover.
+
+describe('WorldsTab — recovery section placement', () => {
+  const src = readFileSync('src/lib/worlds/WorldsTab.svelte', 'utf8');
+
+  it('mounts OrphanedSection after the exclusive if-chain, not inside it', () => {
+    const chainEnd = src.lastIndexOf('{/if}');
+    const mount = src.indexOf('<OrphanedSection');
+    expect(mount).toBeGreaterThan(-1);
+    expect(chainEnd).toBeGreaterThan(-1);
+    // The mount must sit past the chain's own closing tag. If someone moves it
+    // inside a branch later, this is what says why that is wrong.
+    expect(src.slice(0, mount)).toContain('{:else if worlds.length === 0');
+  });
+
+  it('suppresses the "no worlds yet" copy when something is recoverable', () => {
+    expect(src).toContain(
+      '{:else if worlds.length === 0 && orphans.length === 0 && stranded.length === 0}',
+    );
+  });
 });

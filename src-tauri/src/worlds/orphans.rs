@@ -214,7 +214,10 @@ mod tests {
         let recovered = recover_stranded_at(&saves, ".tmp-restoring-W-0").unwrap();
 
         assert_eq!(recovered, "W");
-        assert_eq!(fs::read(saves.join("W").join("marker.txt")).unwrap(), b"mine");
+        assert_eq!(
+            fs::read(saves.join("W").join("marker.txt")).unwrap(),
+            b"mine"
+        );
         assert!(!dir.exists());
     }
 

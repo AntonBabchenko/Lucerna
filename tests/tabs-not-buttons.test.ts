@@ -40,6 +40,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // WorldsTab (mounted by MainTabs)
     listWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // WorldsTab queries these alongside the world list; without them the
+    // component rejects and vitest reports unhandled errors even though the
+    // assertions still pass.
+    listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    recoverStrandedWorld: vi.fn(),
     // ModpacksTab / ModpackBrowseView
     modpackSearch: vi.fn().mockResolvedValue({
       status: 'ok',

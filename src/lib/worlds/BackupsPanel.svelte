@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { commands, type Backup, type World } from '$lib/ipc/bindings';
+  import { commands, type Backup, type RestoreMode } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
   import { t, locale } from '$lib/i18n';
@@ -17,16 +17,25 @@
   // Modal supplies the title and the close affordance. Owns all backup
   // state/actions itself so the caller stays a thin shell.
 
+  // Takes the folder NAME, not a `World`: it only ever needed `folder_name`, and
+  // a backup set whose world is gone has no `World` to pass. That is what lets
+  // the orphaned-backups section mount this panel unchanged.
   let {
     instanceId,
-    world,
+    worldFolder,
     onClose,
     onChanged,
+    lockedMode,
+    modeNote,
   }: {
     instanceId: string;
-    world: World;
+    worldFolder: string;
     onClose: () => void;
     onChanged: () => void;
+    /// When set, the restore dialog offers no choice — Replace calls
+    /// `world_dir_at` and would fail `WorldNotFound` for an orphaned set.
+    lockedMode?: RestoreMode;
+    modeNote?: string;
   } = $props();
 
   let backups = $state<Backup[]>([]);
@@ -41,7 +50,7 @@
   async function reload() {
     loading = true;
     error = null;
-    const r = await commands.listBackups(instanceId, world.folder_name);
+    const r = await commands.listBackups(instanceId, worldFolder);
     loading = false;
     if (r.status === 'ok') backups = r.data;
     else error = formatError(r.error);
@@ -53,7 +62,7 @@
     const b = deleteFor;
     if (!b) return;
     deleteFor = null;
-    const r = await commands.deleteBackup(instanceId, world.folder_name, b.filename);
+    const r = await commands.deleteBackup(instanceId, worldFolder, b.filename);
     if (r.status === 'ok') {
       onChanged();
       await reload();
@@ -65,7 +74,7 @@
   async function onBackupNow() {
     backingUp = true;
     error = null;
-    const r = await commands.backupWorld(instanceId, world.folder_name);
+    const r = await commands.backupWorld(instanceId, worldFolder);
     backingUp = false;
     if (r.status === 'ok') {
       onChanged();
@@ -76,7 +85,7 @@
   }
 
   async function onOpenBackupsFolder() {
-    const r = await commands.openBackupsFolder(instanceId, world.folder_name);
+    const r = await commands.openBackupsFolder(instanceId, worldFolder);
     if (r.status !== 'ok') error = formatError(r.error);
   }
 
@@ -95,7 +104,21 @@
   const totalSize = $derived(backups.reduce((a, b) => a + (b.size_bytes ?? 0), 0));
 </script>
 
+<!-- The folder button lives here, above the state branches, not inside the
+     list branch. It used to render only when a list was shown, so it was
+     missing while loading, on error, and — most importantly — when there are
+     no backups yet, which is the case `open_backups_folder` was written for
+     ("so the user can navigate even before the first backup exists"). -->
 <div class="flex items-center justify-end gap-2 mb-3">
+  <button
+    type="button"
+    class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+    data-testid="backups-open-folder-btn"
+    onclick={() => void onOpenBackupsFolder()}
+  >
+    <Icon name="folderOpen" size={14} />
+    {$t('worlds.backups.openBackupsFolder')}
+  </button>
   <BusyButton
     type="button"
     class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
@@ -150,23 +173,17 @@
       </li>
     {/each}
   </ul>
-  <div class="text-xs text-muted mb-3 flex justify-between">
+  <div class="text-xs text-muted mb-3">
     <span>{$t('worlds.backups.total', { size: formatSize($t, totalSize) })}</span>
-    <button
-      type="button"
-      class="btn-tertiary inline-flex items-center gap-1"
-      onclick={() => void onOpenBackupsFolder()}
-    >
-      {$t('worlds.backups.openBackupsFolder')}
-      <Icon name="folderOpen" size={14} />
-    </button>
   </div>
 {/if}
 
 {#if restoreFor}
   <RestoreBackupDialog
     {instanceId}
-    worldFolder={world.folder_name}
+    {worldFolder}
+    {lockedMode}
+    {modeNote}
     backup={restoreFor}
     onClose={() => (restoreFor = null)}
     onRestored={() => {

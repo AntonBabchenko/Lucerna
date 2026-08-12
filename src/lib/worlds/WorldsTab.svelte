@@ -7,6 +7,8 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import WorldDetailDialog from '$lib/worlds/WorldDetailDialog.svelte';
+  import OrphanedSection from '$lib/worlds/OrphanedSection.svelte';
+  import type { OrphanedBackupSet, StrandedWorld } from '$lib/ipc/bindings';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -38,10 +40,28 @@
   let loading = $state(false);
   let detailFor = $state<World | null>(null);
   let deleteFor = $state<World | null>(null);
+  // What a failed restore can leave behind. Both are invisible to listWorlds —
+  // their names start with a dot, which validate_segment rejects — so they need
+  // their own queries. Failures here are non-fatal: they leave the recovery
+  // section hidden rather than breaking the world list.
+  let orphans = $state<OrphanedBackupSet[]>([]);
+  let stranded = $state<StrandedWorld[]>([]);
+
+  async function reloadRecoverable(reqId: string) {
+    const [o, s] = await Promise.all([
+      commands.listOrphanedBackupWorlds(reqId),
+      commands.listStrandedWorlds(reqId),
+    ]);
+    if (instanceId !== reqId) return;
+    orphans = o.status === 'ok' ? o.data : [];
+    stranded = s.status === 'ok' ? s.data : [];
+  }
 
   async function reload() {
     if (!instanceId) {
       worlds = [];
+      orphans = [];
+      stranded = [];
       return;
     }
     // Capture the instance this load is for; a rapid instance switch mid-fetch
@@ -57,6 +77,7 @@
     } else {
       listError = formatError(r.error);
     }
+    await reloadRecoverable(reqId);
   }
 
   $effect(() => {
@@ -185,8 +206,14 @@
     <LoadingPanel label={$t('worlds.tab.loading')} />
   {:else if listError}
     <p class="text-sm text-danger">{listError}</p>
-  {:else if worlds.length === 0}
+  {:else if worlds.length === 0 && orphans.length === 0 && stranded.length === 0}
     <p class="text-sm text-muted">{$t('worlds.tab.empty')}</p>
+  {:else if worlds.length === 0}
+    <!-- Nothing playable, but something recoverable: render no list and no
+         empty-state copy. "Play Minecraft to create one" directly above
+         "Interrupted restore" would be an odd thing to read when the user's
+         world is sitting one click away. The recovery section below the chain
+         carries this case. -->
   {:else}
     <ul
       class="border border-border-subtle rounded divide-y divide-border-subtle"
@@ -286,6 +313,22 @@
         </li>
       {/each}
     </ul>
+  {/if}
+
+  <!-- AFTER the exclusive chain above, on purpose. Placed inside its {:else}
+       this would never render when worlds.length === 0 — i.e. on the instance
+       whose only world was the one that got stranded, the exact case it exists
+       for. -->
+  {#if instanceId}
+    <OrphanedSection
+      {instanceId}
+      {orphans}
+      {stranded}
+      onChanged={() => {
+        void reload();
+        onListChanged();
+      }}
+    />
   {/if}
 
   <!-- Tour fires only once worlds exist — most steps point at the

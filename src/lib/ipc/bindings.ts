@@ -263,6 +263,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  suffixed for AsCopy).
 	 */
 	restoreBackup: (instanceId: string, worldFolderName: string, backupFilename: string, mode: RestoreMode) => typedError<RestoredWorld, Error>(__TAURI_INVOKE("restore_backup", { instanceId, worldFolderName, backupFilename, mode })),
+	/**
+	 *  Backup sets whose world is gone from `saves/`.
+	 * 
+	 *  Async on purpose: a sync `#[tauri::command]` doing `read_dir` plus per-entry
+	 *  `metadata` across `backups/*\/` runs on the main thread and freezes the
+	 *  window, and `tauri-specta` renders sync and async identically — so a bindings
+	 *  diff would not catch the mistake.
+	 */
+	listOrphanedBackupWorlds: (instanceId: string) => typedError<OrphanedBackupSet[], Error>(__TAURI_INVOKE("list_orphaned_backup_worlds", { instanceId })),
+	/**  Worlds a restore could not put back. Invisible to every other listing. */
+	listStrandedWorlds: (instanceId: string) => typedError<StrandedWorld[], Error>(__TAURI_INVOKE("list_stranded_worlds", { instanceId })),
+	/**  Rename a stranded world back into place. Returns the recovered folder name. */
+	recoverStrandedWorld: (instanceId: string, dirName: string) => typedError<string, Error>(__TAURI_INVOKE("recover_stranded_world", { instanceId, dirName })),
 	/**  Delete a single backup zip. */
 	deleteBackup: (instanceId: string, worldFolderName: string, backupFilename: string) => typedError<null, Error>(__TAURI_INVOKE("delete_backup", { instanceId, worldFolderName, backupFilename })),
 	/**  Delete a world folder AND its backups subdir (cascade). */
@@ -3057,7 +3070,16 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  log, and the copy points there. Both causes are logged: the swap-in
  *  failure and the rollback failure.
  */
-{ kind: "world_restore_stranded"; world_folder: string; recovered_at: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+{ kind: "world_restore_stranded"; world_folder: string; recovered_at: string } | 
+/**
+ *  Putting a stranded world back would overwrite a world that already holds
+ *  its name. Refused: losing the live world to recover an older copy of it
+ *  is a worse loss than the one being repaired.
+ * 
+ *  Typed rather than folded into `WorldPathInvalid`, whose `reason` is
+ *  interpolated raw and would therefore reach a Russian user in English.
+ */
+{ kind: "world_recover_target_occupied"; world_folder: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Attempt to build/start a server without an accepted EULA. */
@@ -5437,6 +5459,14 @@ export type OrphanRef = {
 	project_id: string,
 };
 
+/**  A backup directory with no matching world. */
+export type OrphanedBackupSet = {
+	world_folder: string,
+	backup_count: number,
+	/**  Milliseconds since the epoch. `f64` because specta has no `u64`. */
+	newest_unix_ms: number | null,
+};
+
 export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
 
 export type PackCompletion = {
@@ -6649,6 +6679,14 @@ export type StrandedRow = {
 export type StrandedSelection = {
 	sha1: string,
 	disposition: StrandedDisposition,
+};
+
+/**  A world left behind by a restore that could not put it back. */
+export type StrandedWorld = {
+	/**  The on-disk directory name, e.g. `.tmp-restoring-My World-0`. */
+	dir_name: string,
+	/**  The name it should be restored to. */
+	world_folder: string,
 };
 
 /**  One file's provenance and outcome — a row in a per-file install report. */
