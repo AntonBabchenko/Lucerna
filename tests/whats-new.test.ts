@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
-import { checkWhatsNew, whatsNewState } from '$lib/changelog/whats-new.svelte';
 import type { Changelog } from '$lib/changelog/types';
+import { checkWhatsNew, whatsNewState } from '$lib/changelog/whats-new.svelte';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 
 function v(version: string): Changelog[number] {
   return {

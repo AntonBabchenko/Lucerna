@@ -10,8 +10,8 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
 import { dismiss, pushActionToast } from '$lib/toasts/toasts.svelte';
-import { CHANGELOG } from './source';
 import { changelogSince, hasRenderableEntry } from './since';
+import { CHANGELOG } from './source';
 import type { Changelog, ChangelogVersion } from './types';
 
 /** Non-null `entries` means the modal is open, showing these versions. */
