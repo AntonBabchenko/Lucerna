@@ -36,6 +36,7 @@
   let active = $state<SettingsTab>('appearance');
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
   let searching = $state(false);
+  let announce = $state('');
 
   // Jump to a searched setting: clear any prior flash, switch to the owning
   // section, wait for that panel to mount, then point the rune at the anchor so
@@ -46,6 +47,7 @@
     active = entry.tab;
     await tick();
     settingsSearchFocus.value = entry.anchor;
+    announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
   }
 
   function onTablistKeydown(e: KeyboardEvent) {
@@ -70,6 +72,7 @@
   function close() {
     settingsSearchFocus.value = null;
     settingsOpen.value = null;
+    searching = false;
   }
 </script>
 
@@ -85,6 +88,7 @@
       </h2>
       <CloseButton onClick={close} ariaLabel={$t('settings.closeLabel')} />
     </header>
+    <div class="sr-only" role="status" aria-live="polite">{announce}</div>
     <div class="flex flex-1 min-h-0">
       <div class="w-44 shrink-0 border-r flex flex-col min-h-0">
         <SettingsSearchField bind:searching onselect={selectResult} />

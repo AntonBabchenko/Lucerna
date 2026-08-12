@@ -30,6 +30,10 @@
     activeIndex = 0;
   });
 
+  $effect(() => {
+    if (activeIndex > results.length - 1) activeIndex = 0;
+  });
+
   const optionId = (i: number): string => `settings-search-opt-${i}`;
 
   function onKeydown(e: KeyboardEvent) {
@@ -83,6 +87,7 @@
   <ul
     id="settings-search-results"
     role="listbox"
+    aria-label={$t('settings.search.label')}
     class="p-2 flex flex-col gap-0.5 overflow-y-auto"
     data-testid="settings-search-results"
   >

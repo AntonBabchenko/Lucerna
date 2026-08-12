@@ -170,5 +170,12 @@
         </div>
       </div>
     </SettingsField>
+  {:else}
+    <SettingsField anchor="game.gpu">
+      <div class="flex flex-col gap-1">
+        <h3 class="font-medium text-sm text-primary">{$t('settings.general.gpu.title')}</h3>
+        <span class="text-xs text-muted">{$t('settings.general.gpu.unavailable')}</span>
+      </div>
+    </SettingsField>
   {/if}
 </section>

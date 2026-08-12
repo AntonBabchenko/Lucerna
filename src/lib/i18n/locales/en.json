@@ -2301,6 +2301,7 @@
       "label": "Search settings",
       "placeholder": "Search settings…",
       "noResults": "Nothing found",
+      "jumpedTo": "Opened setting:",
       "labels": {
         "appearance": {
           "theme": "Theme",
@@ -2453,7 +2454,8 @@
         "high": "High performance",
         "power": "Power saving",
         "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
-        "appliedToast": "Applied GPU preference to the new Java runtime: {name}"
+        "appliedToast": "Applied GPU preference to the new Java runtime: {name}",
+        "unavailable": "GPU selection isn't available on this system."
       },
       "logRetention": {
         "title": "Log retention",
