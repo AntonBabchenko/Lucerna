@@ -64,6 +64,7 @@ import { commands } from '$lib/ipc/bindings';
 // never resolves under this vitest setup.
 import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
 import PrefillDialog from '$lib/l10n/PrefillDialog.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 function ns(over: Partial<NamespaceCoverage> = {}): NamespaceCoverage {
   return { namespace: 'create', totalKeys: 10, fromMod: 5, overridden: 0, ...over };
@@ -133,6 +134,10 @@ function dialogProps(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   locale.set('en');
   channels.length = 0;
+  // The trigger cases below render the FULL LocalizationModal, which hosts the
+  // `l10n` contextual tour. It auto-fires on first open, so seed it seen — a
+  // live spotlight would sit over the very buttons these tests click.
+  markSeen('l10n');
 });
 
 afterEach(() => {
