@@ -39,14 +39,7 @@ const STATE_CHANGING: &[&str] = &["fs::rename(", "fs::write("];
 /// `structural_no_inplace_mods_write.rs` uses — would also disable rule A for
 /// the entire file including its test module, and the PR that fixes this line
 /// rewrites the whole surrounding function under that shield.
-const ALLOWLIST: &[(&str, &str, &str)] = &[(
-    "worlds/restore.rs",
-    "let _ = std::fs::rename(&tmp_path, &world_path);",
-    "The restore rollback swallow — the defect this whole rule was written to catch, \
-         tracked by docs/superpowers/specs/2026-08-12-world-restore-rollback-design.md. The \
-         follow-up PR rewrites this block and MUST delete this entry; \
-         `allowlist_entries_still_match` below turns red if it does not.",
-)];
+const ALLOWLIST: &[(&str, &str, &str)] = &[];
 
 /// True for an UNGUARDED `Err(<pat>) => {}` / `=> {},` / `=> ()` / `=> (),` —
 /// an error arm whose body does nothing. A comment inside the block makes it
