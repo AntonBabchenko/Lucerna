@@ -59,12 +59,17 @@
     <span class="absolute left-2 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
       <Icon name="search" size={14} />
     </span>
+    <!-- Combobox pattern: a text input that owns keyboard control of the results
+         listbox via aria-activedescendant (the option rows are never focused
+         themselves), so role="combobox" — not the input's implicit searchbox. -->
     <input
-      type="search"
-      role="searchbox"
+      type="text"
+      role="combobox"
       class="w-full text-sm border rounded pl-7 pr-2 py-1.5"
       aria-label={$t('settings.search.label')}
-      aria-controls="settings-search-results"
+      aria-expanded={searching}
+      aria-controls={searching ? 'settings-search-results' : undefined}
+      aria-autocomplete="list"
       aria-activedescendant={searching && results.length > 0 ? optionId(activeIndex) : undefined}
       placeholder={$t('settings.search.placeholder')}
       bind:value={query}
@@ -92,6 +97,9 @@
             {$t(`settings.sections.${entry.tab}` as TranslationKey)}
           </li>
         {/if}
+        <!-- Keyboard is delegated to the combobox input (aria-activedescendant),
+             so these option rows are pointer-only by design. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
         <li
           id={optionId(i)}
           role="option"
