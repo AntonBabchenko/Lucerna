@@ -2534,6 +2534,11 @@
       "downloading": "Downloading update…",
       "verifyFailed": "Couldn't verify the update"
     },
+    "whatsNew": {
+      "toast": "Updated to {version} — see what's new",
+      "actionLabel": "What's new",
+      "title": "What's new in Lucerna {version}"
+    },
     "crash": {
       "banner": "Minecraft crashed.",
       "viewReport": "View crash report",
