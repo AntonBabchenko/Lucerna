@@ -2063,7 +2063,7 @@
       },
       "addons": {
         "kindSwitch": {
-          "title": "Mods, resource packs, shaders, data packs",
+          "title": "What you're adding",
           "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta), which appear on Minecraft 1.13 or newer. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
           "titleBasic": "Pick what to add",
           "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Data packs join the row on Minecraft 1.13 and newer. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
