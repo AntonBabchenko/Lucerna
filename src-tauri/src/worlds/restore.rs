@@ -217,117 +217,147 @@ async fn restore_replace(
     world_folder: &str,
 ) -> Result<RestoredWorld> {
     let world_path = world_dir_at(saves, world_folder)?;
+    let corrupt = |details: String| Error::BackupCorrupt {
+        filename: backup_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .into(),
+        details,
+    };
 
-    // 1. Auto-pre-restore zip BEFORE any destructive step. Failure
-    //    here aborts cleanly — original world untouched.
-    let pre_restore_name = format!("pre-restore-{}.zip", Utc::now().format("%Y-%m-%dT%H-%M-%S"));
-    let pre_restore_path = backups_dir.join(&pre_restore_name);
-    let world_clone = world_path.clone();
-    let pre_clone = pre_restore_path.clone();
-    let world_folder_owned = world_folder.to_string();
-    tokio::task::spawn_blocking(move || {
-        wzip::zip_dir(&world_clone, &pre_clone, &world_folder_owned)
-    })
-    .await
-    .map_err(|e| Error::io(pre_restore_path.display().to_string(), format!("join: {e}")))??;
+    // 1. Claim a staging dir and reserve the name that will park the live world.
+    let staged = claim_stage(saves, world_folder)?;
 
-    // 2. Rename world to .tmp-restoring-<random>. Atomic on same vol.
-    let tmp_suffix: String = (0..8)
-        .map(|_| {
-            let n = (Utc::now().timestamp_nanos_opt().unwrap_or(0) as u32) % 16;
-            // n % 16 is always a valid base-16 digit. Per CLAUDE.md `.unwrap()` rule.
-            std::char::from_digit(n, 16).unwrap()
-        })
-        .collect();
-    let tmp_path = saves.join(format!(".tmp-restoring-{tmp_suffix}"));
-    std::fs::rename(&world_path, &tmp_path).map_err(|e| {
-        // A running Minecraft holds the world's lock file open — surface the
-        // friendly typed WorldInUse instead of a raw IO error. Windows:
-        // sharing violation (32) / lock violation (33) / access denied (5).
-        if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
-            Error::WorldInUse {
-                folder_name: world_folder.to_string(),
-            }
-        } else {
-            Error::io(world_path.display().to_string(), e)
-        }
-    })?;
+    // 2-4. Extract and verify BEFORE anything destructive happens. Every exit
+    //      from here to the swap drops the stage and leaves the world untouched
+    //      — a corrupt or foreign backup, by far the most likely failure, no
+    //      longer moves the user's world at all, and no longer costs a
+    //      world-sized snapshot before it is discovered.
+    let verified = async {
+        let backup_clone = backup_path.to_path_buf();
+        let stage_clone = staged.stage.clone();
+        // spawn_blocking has TWO results: the join and the extraction itself.
+        // Both route through this one `?` chain so neither can skip the cleanup
+        // below — `restore_as_copy` gets this wrong and leaks its staging dir on
+        // a join error.
+        tokio::task::spawn_blocking(move || wzip::extract_zip(&backup_clone, &stage_clone))
+            .await
+            .map_err(|e| Error::io(staged.stage.display().to_string(), format!("join: {e}")))??;
 
-    // 3. Extract the backup into a SEPARATE staging dir, verify it contains
-    //    exactly the expected `<world_folder>/` root, then rename that inner
-    //    folder over world_path. Mirrors restore_as_copy: a backup whose root
-    //    doesn't match must ERROR (and roll back) — never silently leave an
-    //    empty world. The old flow extracted straight into saves/ and guarded
-    //    with `!world_path.is_dir()`, which was dead because create_dir_all
-    //    had just created it, so a mismatched-root backup produced an EMPTY
-    //    world instead of an error.
-    let stage_path = saves.join(format!(".tmp-restore-stage-{tmp_suffix}"));
-    let result = (|| -> Result<()> {
-        let _ = std::fs::remove_dir_all(&stage_path); // stale from earlier failure
-        std::fs::create_dir_all(&stage_path)
-            .map_err(|e| Error::io(stage_path.display().to_string(), e))?;
-        // The zip's root is named after the world (put there by
-        // backup_world / zip_dir). Extract into staging, then verify the
-        // expected root is present and is the ONLY top-level entry.
-        wzip::extract_zip(backup_path, &stage_path)?;
-        let inner = stage_path.join(world_folder);
+        // The zip's root is named after the world (put there by backup_world /
+        // zip_dir). Verify the expected root is present and is the ONLY
+        // top-level entry — a mismatched root must ERROR, never silently leave
+        // an empty world.
+        let inner = staged.stage.join(world_folder);
         if !inner.is_dir() {
-            return Err(Error::BackupCorrupt {
-                filename: backup_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .into(),
-                details: format!("extract did not produce expected folder '{world_folder}/'"),
-            });
+            return Err(corrupt(format!(
+                "extract did not produce expected folder '{world_folder}/'"
+            )));
         }
-        // Reject a backup whose staging dir carries extra top-level roots — a
-        // sign of a malformed/foreign archive; we would otherwise drop them.
         let want = std::ffi::OsStr::new(world_folder);
-        let extra = std::fs::read_dir(&stage_path)
-            .map_err(|e| Error::io(stage_path.display().to_string(), e))?
+        let extra = std::fs::read_dir(&staged.stage)
+            .map_err(|e| Error::io(staged.stage.display().to_string(), e))?
             .flatten()
             .find(|e| e.file_name() != want);
         if let Some(extra) = extra {
-            return Err(Error::BackupCorrupt {
-                filename: backup_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .into(),
-                details: format!(
-                    "backup has unexpected root '{}' (expected only '{world_folder}/')",
-                    extra.file_name().to_string_lossy()
-                ),
-            });
+            return Err(corrupt(format!(
+                "backup has unexpected root '{}' (expected only '{world_folder}/')",
+                extra.file_name().to_string_lossy()
+            )));
         }
-        // Move the verified inner folder into place at saves/<world_folder>.
-        std::fs::rename(&inner, &world_path)
-            .map_err(|e| Error::io(world_path.display().to_string(), e))?;
-        Ok(())
-    })();
+        Ok(inner)
+    }
+    .await;
 
-    // The staging dir is scratch: drop it either way.
-    let _ = std::fs::remove_dir_all(&stage_path);
-
-    match result {
-        Ok(()) => {
-            // 4. Drop the tmp. Best-effort: if remove_dir_all errors,
-            //    log but don't fail the restore — the live world is
-            //    healthy; the tmp dir is cosmetic clutter.
-            let _ = std::fs::remove_dir_all(&tmp_path);
-            Ok(RestoredWorld {
-                final_folder_name: world_folder.into(),
-            })
-        }
+    let inner = match verified {
+        Ok(i) => i,
         Err(e) => {
-            // Roll back: nuke whatever the move left at world_path, put the
-            // original back, bubble the original error.
-            let _ = std::fs::remove_dir_all(&world_path);
-            let _ = std::fs::rename(&tmp_path, &world_path);
-            Err(e)
+            drop_stage(&staged.stage);
+            return Err(e);
+        }
+    };
+
+    // 5. Snapshot the live world, now that the backup is known good.
+    //    `pick_unused_filename` because `zip_dir` opens its destination with
+    //    `File::create`, which truncates: two restores of the same world in the
+    //    same wall-clock second used to destroy the first snapshot — the very
+    //    artefact the recovery story rests on.
+    let (_, pre_path) = crate::worlds::backup::pick_unused_filename(
+        backups_dir,
+        &format!("pre-restore-{}", Utc::now().format("%Y-%m-%dT%H-%M-%S")),
+    )?;
+    let world_clone = world_path.clone();
+    let pre_clone = pre_path.clone();
+    let world_folder_owned = world_folder.to_string();
+    let snapshot = tokio::task::spawn_blocking(move || {
+        wzip::zip_dir(&world_clone, &pre_clone, &world_folder_owned)
+    })
+    .await
+    .map_err(|e| Error::io(pre_path.display().to_string(), format!("join: {e}")));
+    match snapshot {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) | Err(e) => {
+            drop_stage(&staged.stage);
+            return Err(e);
         }
     }
+
+    // 6-7. The destructive window: two adjacent renames plus the rollback.
+    let outcome = swap_in_place(&world_path, &staged.tmp, &inner, &|a, b| std::fs::rename(a, b));
+    drop_stage(&staged.stage);
+
+    match outcome {
+        SwapOutcome::Ok => Ok(RestoredWorld {
+            final_folder_name: world_folder.into(),
+        }),
+        SwapOutcome::NotStarted(e) => {
+            Err(map_move_aside_error(&world_path, &staged.tmp, world_folder, e))
+        }
+        SwapOutcome::RolledBack(e) => Err(Error::io(world_path.display().to_string(), e)),
+        SwapOutcome::Stranded { at, .. } => Err(Error::WorldRestoreStranded {
+            world_folder: world_folder.into(),
+            recovered_at: at,
+        }),
+    }
+}
+
+/// Drop a staging directory. Best-effort by nature — it holds only extracted
+/// bytes we can always re-extract — but never silently: a stage that survives is
+/// a world-sized directory no launcher listing will ever show, because
+/// `validate_segment` rejects its leading dot.
+fn drop_stage(stage: &std::path::Path) {
+    if let Err(e) = std::fs::remove_dir_all(stage) {
+        crate::diag!("restore: leftover staging dir {}: {e}", stage.display());
+    }
+}
+
+/// Map a failure to move the live world aside.
+///
+/// A running Minecraft holds the world's lock file open, which Windows reports
+/// as access denied (5) / sharing violation (32) / lock violation (33). But an
+/// EXISTING destination directory is *also* reported as 5 — `MoveFileExW`
+/// ignores `MOVEFILE_REPLACE_EXISTING` when the destination is a directory — so
+/// mapping 5 straight to `WorldInUse` would tell a user with Minecraft closed to
+/// quit Minecraft, permanently and falsely. Check the destination first.
+fn map_move_aside_error(
+    world_path: &std::path::Path,
+    tmp_path: &std::path::Path,
+    world_folder: &str,
+    e: std::io::Error,
+) -> Error {
+    if tmp_path.try_exists().unwrap_or(true) {
+        return Error::io(
+            tmp_path.display().to_string(),
+            format!("staging name was taken between reservation and use: {e}"),
+        );
+    }
+    if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+        return Error::WorldInUse {
+            folder_name: world_folder.to_string(),
+        };
+    }
+    Error::io(world_path.display().to_string(), e)
 }
 
 async fn restore_as_copy(
@@ -571,8 +601,31 @@ mod tests {
         assert_eq!(world_folder_of_tmp_dir(".tmp-restoring--0"), None);
     }
 
+    /// Collect `pre-restore-*.zip` names in a backups dir.
+    fn pre_restore_zips(backups_dir: &Path) -> Vec<String> {
+        fs::read_dir(backups_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let n = e.ok()?.file_name().into_string().ok()?;
+                n.starts_with("pre-restore-").then_some(n)
+            })
+            .collect()
+    }
+
+    /// Collect leftover staging / parked-world directories in a saves dir.
+    fn staging_leftovers(saves: &Path) -> Vec<String> {
+        fs::read_dir(saves)
+            .unwrap()
+            .filter_map(|e| {
+                let n = e.ok()?.file_name().into_string().ok()?;
+                (n.starts_with(".tmp-restore-stage-") || n.starts_with(".tmp-restoring-"))
+                    .then_some(n)
+            })
+            .collect()
+    }
+
     #[tokio::test]
-    async fn restore_replace_rolls_back_on_extract_failure() {
+    async fn restore_replace_rejects_a_corrupt_backup_without_moving_the_world() {
         // World "W" with marker file inside.
         let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
 
@@ -586,28 +639,22 @@ mod tests {
             "expected BackupCorrupt, got: {r:?}"
         );
 
-        // Critical assertion: the ORIGINAL world is still intact.
+        // The world never moved — not "was rolled back", never moved.
         let marker = saves.join("W").join("marker.txt");
-        assert!(marker.is_file(), "world rollback failed");
+        assert!(marker.is_file(), "the world must not have moved at all");
         assert_eq!(fs::read(&marker).unwrap(), b"original");
 
-        // And the auto-pre-restore zip was created (safety net visible).
-        let pre_restore: Vec<_> = fs::read_dir(&backups_dir)
-            .unwrap()
-            .filter_map(|e| {
-                let n = e.ok()?.file_name().into_string().ok()?;
-                if n.starts_with("pre-restore-") {
-                    Some(n)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert_eq!(
-            pre_restore.len(),
-            1,
-            "expected exactly one pre-restore zip, found {pre_restore:?}"
+        // And no snapshot was written. The pre-restore zip is taken only once
+        // the backup is known good, so the most likely failure - an unreadable
+        // backup - costs nothing. Before the reorder this was exactly 1.
+        let pre_restore = pre_restore_zips(&backups_dir);
+        assert!(
+            pre_restore.is_empty(),
+            "no snapshot should be written for a backup that never verified, found {pre_restore:?}"
         );
+
+        let leftovers = staging_leftovers(&saves);
+        assert!(leftovers.is_empty(), "leftovers: {leftovers:?}");
     }
 
     #[tokio::test]
@@ -642,7 +689,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn restore_replace_errors_on_mismatched_root_and_preserves_world() {
+    async fn restore_replace_rejects_a_mismatched_root_without_moving_the_world() {
         // A backup whose zip root is NOT the world folder must ERROR and leave
         // the original world intact — never silently empty it.
         let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
@@ -658,19 +705,19 @@ mod tests {
             matches!(r, Err(Error::BackupCorrupt { .. })),
             "mismatched root must error, got: {r:?}"
         );
-        // Original world preserved by rollback.
+        // The world never moved — verification happens before anything
+        // destructive, so there is no rollback to depend on.
         let marker = saves.join("W").join("marker.txt");
-        assert!(marker.is_file(), "world must be rolled back intact");
+        assert!(marker.is_file(), "the world must not have moved at all");
         assert_eq!(fs::read(&marker).unwrap(), b"original");
-        // No leftover staging dirs in saves/.
-        let leftovers: Vec<_> = fs::read_dir(&saves)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let n = e.file_name().to_string_lossy().to_string();
-                n.starts_with(".tmp-restore-stage-") || n.starts_with(".tmp-restoring-")
-            })
-            .collect();
+
+        let pre_restore = pre_restore_zips(&backups_dir);
+        assert!(
+            pre_restore.is_empty(),
+            "a backup that never verified must not cost a snapshot, found {pre_restore:?}"
+        );
+
+        let leftovers = staging_leftovers(&saves);
         assert!(leftovers.is_empty(), "staging dirs must be cleaned up");
     }
 
