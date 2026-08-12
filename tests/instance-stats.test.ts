@@ -1,19 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledMod, InstanceWithStatus, MissingModStatus } from '$lib/ipc/bindings';
 
-const { modsListInstalled, scanInstanceModCompat, getPlaytime, modpackStatus } = vi.hoisted(() => ({
+const {
+  modsListInstalled,
+  scanInstanceModCompat,
+  checkInstanceModCompat,
+  getPlaytime,
+  modpackStatus,
+} = vi.hoisted(() => ({
   modsListInstalled: vi.fn(),
   scanInstanceModCompat: vi.fn(),
+  checkInstanceModCompat: vi.fn(),
   getPlaytime: vi.fn(),
   modpackStatus: vi.fn(),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { modsListInstalled, scanInstanceModCompat, getPlaytime, modpackStatus },
+  commands: {
+    modsListInstalled,
+    scanInstanceModCompat,
+    checkInstanceModCompat,
+    getPlaytime,
+    modpackStatus,
+  },
 }));
 
 import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
 import { ensureCompatScan, invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
+import { __resetLiveVerdictsForTests } from '$lib/mods/installed/compat-check.svelte';
 
 // Minimal typed stubs — the composable only touches the named fields.
 const mod = (enabled: boolean): InstalledMod => ({ enabled }) as unknown as InstalledMod;
@@ -36,6 +50,10 @@ describe('createInstanceStats', () => {
     // without this, a test reusing an earlier test's (instance, mc, loader) key
     // is deduplicated away and asserts against the previous test's entries.
     invalidateCompatScan();
+    __resetLiveVerdictsForTests();
+    // The fire-and-forget live ensure needs an answer; deciding nothing is
+    // the neutral default. Cases that care override it.
+    checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
   });
 
   describe('refreshInstalledStats', () => {
@@ -72,17 +90,20 @@ describe('createInstanceStats', () => {
   });
 
   describe('refreshIncompatible', () => {
-    it('counts only loader-mismatched, non-live-checkable jars', async () => {
+    it('counts every family mismatch, live-checkable or not (spec D5)', async () => {
+      // The family verdict is offline-authoritative: `scan_instance` already
+      // excludes multi-loader jars and Connector setups, so every flagged
+      // entry is a foreign FILE the loader will silently skip. The old
+      // `!live_checkable` exclusion kept a Forge→Fabric switch invisible on
+      // the Overview.
       scanInstanceModCompat.mockResolvedValue({
         status: 'ok',
-        // counts: mismatch+!checkable (yes), mismatch+checkable (no — platform
-        // suspect, needs live confirm), no-mismatch (no).
         data: [compat(true, false), compat(true, false), compat(true, true), compat(false, false)],
       });
       const s = createInstanceStats();
       await s.refreshIncompatible('i1', [forgeInstance('i1')]);
       expect(scanInstanceModCompat).toHaveBeenCalledWith('i1');
-      expect(s.incompatibleCount).toBe(2);
+      expect(s.incompatibleCount).toBe(3);
     });
 
     it('scans a vanilla instance too, and gets 0 by computation', async () => {

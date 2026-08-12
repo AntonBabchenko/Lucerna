@@ -131,13 +131,16 @@ describe('compatSummaryFromScan', () => {
     expect(compatSummaryFromScan(scan, 2)).toContain('1 of 2');
   });
 
-  it('does not count a loader-family suspect that still needs a live check', () => {
-    // Mirrors offlineMismatchCount's contract: a multi-loader jar awaiting
-    // live confirmation is not flagged from the offline scan alone.
+  it('counts a live-checkable family mismatch too (spec D5)', () => {
+    // Mirrors isOfflineMismatch's contract: the family verdict is
+    // offline-authoritative (multi-loader jars and Connector setups never
+    // flag inside the scan), so the Manage summary names a foreign-family
+    // jar regardless of live-checkability - the silence after a loader
+    // switch was exactly this exclusion.
     const scan: ModLocalCompat[] = [
       makeLocalCompat('suspect', { loader_mismatch: true, live_checkable: true }),
     ];
-    expect(compatSummaryFromScan(scan, 1)).toBeNull();
+    expect(compatSummaryFromScan(scan, 1)).not.toBeNull();
   });
 
   it('mentions review in mods tab', () => {
