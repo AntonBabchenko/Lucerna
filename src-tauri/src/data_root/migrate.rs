@@ -28,7 +28,13 @@ fn dir_size_depth(root: &Path, depth: u32) -> u64 {
             match std::fs::symlink_metadata(&p) {
                 Ok(m) if m.file_type().is_dir() => total += dir_size_depth(&p, depth + 1),
                 Ok(m) => total += m.len(),
-                Err(_) => {}
+                Err(_) => {
+                    // An entry we cannot stat contributes 0. This is an
+                    // ESTIMATE: it feeds the storage-panel display and the
+                    // relocation progress denominator, never a free-space
+                    // gate, so under-counting costs a progress bar that
+                    // finishes early — not a wrong decision.
+                }
             }
         }
     }

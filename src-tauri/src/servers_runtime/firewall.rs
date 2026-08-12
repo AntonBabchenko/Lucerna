@@ -66,6 +66,8 @@ fn write_ports(root: &Path, ports: &[u16]) {
         return;
     }
     if let Ok(json) = serde_json::to_string(ports) {
+        // Advisory record only: the sidecar is read to offer firewall help, and
+        // its absence just means no help is offered. Never fails the caller.
         let _ = std::fs::write(firewall_sidecar(root), json);
     }
 }

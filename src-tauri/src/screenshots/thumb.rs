@@ -86,6 +86,8 @@ pub fn render_data_url(app: &tauri::AppHandle, path: &Path, tier: Tier) -> Resul
             img
         };
         let jpeg = encode_jpeg(&resized, quality)?;
+        // Best-effort thumbnail cache: the encoded bytes are used regardless, so
+        // a failed write only means this thumbnail is re-encoded on next view.
         let _ = std::fs::write(&cache_path, &jpeg);
         jpeg
     };
