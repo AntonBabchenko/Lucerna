@@ -1,17 +1,3 @@
-<script module lang="ts">
-  // Which contextual tour currently owns the screen, shared across every
-  // instance of this component. The <body> attribute below cannot serve as the
-  // claim: it is written by an $effect that runs AFTER onMount set `active`, so
-  // two tours mounting in the SAME flush (sibling hosts, or a modal whose tour
-  // opens alongside a tab's) would both read an empty <body> and both activate
-  // — two dims, and one Escape answered by both window handlers. This claim is
-  // taken synchronously, in onMount, at the moment `active` is set.
-  //
-  // The DOM attribute stays: `Modal.svelte` and `trap-focus.ts` read it, and
-  // module state is invisible to them.
-  let activeTourId: string | null = null;
-</script>
-
 <script lang="ts">
   // One-shot tour overlay for a single surface. Mount inside the
   // host modal/popover/tab. Auto-fires on first visit, then
@@ -24,6 +10,7 @@
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
   import { tourState } from './state.svelte';
+  import { claimPresence, releasePresence } from './tour-presence';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -38,56 +25,18 @@
   const MARGIN = 16;
   const PADDING = 6;
 
-  // True only for the instance that took the module-level claim. Deliberately
-  // not `$state` — nothing renders from it.
+  // The claim is taken in onMount (below) and given back HERE, on this effect's
+  // teardown — the one place every "the tour ended" path passes through:
+  // finish() and the yield effect both clear `active`, and an unmount mid-tour
+  // runs the teardown too. Svelte runs a teardown at most once per run, which
+  // is what makes the release exactly-once-per-activation.
   //
-  // Belt-and-braces, and honestly labelled as such: no test pins it, because
-  // the case it guards is unreachable today. It makes release once-per-
-  // activation, so the finish()-then-teardown pair cannot clear a claim some
-  // OTHER instance of the same id took in between. Today nothing can claim in
-  // that window — finish() marks the id seen (blocking a same-id mount) and the
-  // yield path implies tourState.active (blocking any mount) — and a deferred
-  // instance never reaches releaseClaim at all, since all three call sites
-  // require `active`. Keep the flag if you add a release path; it is the reason
-  // an id-keyed release stays safe.
-  let claimed = false;
-
-  // Give the screen back. Idempotent, so every "active went false" path can
-  // call it: finish, the yield to the main tour, and the effect teardown that
-  // also covers an unmount mid-tour.
-  function releaseClaim() {
-    if (!claimed) return;
-    claimed = false;
-    if (activeTourId === id) activeTourId = null;
-  }
-
-  // While a contextual tour is on screen, flag the body so the host Modal knows
-  // to route Escape to the tour instead of closing itself. The tour is
-  // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
-  // blocking variant could trap the user behind a mispositioned popover and
-  // intercepted legitimate clicks, so we only coordinate Escape here.
-  // Set-and-teardown (not if/else): this effect runs on EVERY instance, and it
-  // is created before onMount's effect, so an if/else `removeAttribute` branch
-  // would strip another tour's flag from <body> the moment a deferred (never
-  // active) instance mounts — defeating the ctx-vs-ctx mount guard below. Only
-  // touch the attribute when this instance owns it.
-  //
-  // The teardown is load-bearing and coupled to onDestroy: it is the ONLY
-  // reason `onDestroy` can safely omit `removeAttribute` (Svelte runs effect
-  // teardowns on destroy too, and only for the instance whose effect ran). The
-  // two edits fail independently — restore either half alone and the flag is
-  // either stripped from an active tour or left stale after an unmount, so
-  // change them together or not at all.
+  // Set-and-teardown, NOT if/else: this effect runs on every instance,
+  // including one that deferred and never activated, and an `else` branch would
+  // release a claim this instance never took — defeating the ctx-vs-ctx guard
+  // in onMount. A deferred instance registers no teardown at all.
   $effect(() => {
-    if (active) {
-      document.body.setAttribute('data-ctx-tour-active', 'true');
-      return () => {
-        document.body.removeAttribute('data-ctx-tour-active');
-        // Same reasoning for the module-level claim: this covers the unmount
-        // path, where neither finish() nor the yield effect can run.
-        releaseClaim();
-      };
-    }
+    if (active) return () => releasePresence(id);
   });
 
   // Yield to the main tour. Replay (Settings → Help) and a TOUR_VERSION-bump
@@ -97,10 +46,7 @@
   // marking seen — replay just reset the flag, and the tour re-fires on the
   // next visit to its surface.
   $effect(() => {
-    if (active && tourState.active) {
-      active = false;
-      releaseClaim();
-    }
+    if (active && tourState.active) active = false;
   });
 
   onMount(() => {
@@ -110,15 +56,13 @@
     // contextual popover. Defer — the surface stays un-toured this visit and
     // re-fires next time (the "seen" flag is only set on finish).
     if (tourState.active) return;
-    // Another contextual tour is on screen (cross-surface chaining: e.g. the
-    // overview step's own CTA opens the translations modal, which hosts the
-    // l10n tour). Same deferral as the main-tour case — this surface stays
-    // un-toured this visit and re-fires on its next mount. Both sources are
-    // checked: the module claim catches a sibling that activated in this same
-    // flush, the attribute catches one whose effect has already painted it.
-    if (activeTourId !== null || document.body.hasAttribute('data-ctx-tour-active')) return;
-    activeTourId = id;
-    claimed = true;
+    // Take the screen, or defer if another contextual tour already holds it
+    // (cross-surface chaining: e.g. the overview step's own CTA opens the
+    // translations modal, which hosts the l10n tour). Same deferral as the
+    // main-tour case — this surface stays un-toured this visit and re-fires on
+    // its next mount. See tour-presence.ts for why the claim must be
+    // synchronous here rather than inferred from the <body> flag.
+    if (!claimPresence(id)) return;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -133,10 +77,11 @@
   });
 
   onDestroy(() => {
-    // No removeAttribute here: the attribute effect's teardown handles it on
-    // destroy, and only for the instance that set it — an unconditional
-    // removal would strip the flag of a still-active tour when a DEFERRED
-    // instance's host unmounts.
+    // Nothing to release here: the effect above hands the screen back on
+    // destroy (Svelte runs effect teardowns then too), and only for the
+    // instance that actually claimed it. This callback decides one thing —
+    // whether the id is burned.
+    //
     // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
     // open — UNLESS the main tour's own activation tore the host down
     // (replay/startup call setMode('client') and set tourState.active in one
@@ -203,7 +148,6 @@
   function finish() {
     markSeen(id);
     active = false;
-    releaseClaim();
   }
   function onKeydown(e: KeyboardEvent) {
     if (!active) return;
