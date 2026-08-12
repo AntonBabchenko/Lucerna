@@ -401,7 +401,7 @@ pub async fn modpack_restore_file(
             &mc_version,
             loader,
         );
-        crate::mods::install::install_one(&dd, &inst_root, mv, &prog).await?;
+        crate::mods::install::install_one(&dd, &inst_root, mv, None, &prog).await?;
     } else {
         crate::mods::install::install_asset(
             &dd,
@@ -818,7 +818,8 @@ async fn apply_update_diff(
         if f.install_path.starts_with("mods/") {
             let mv =
                 crate::mods::modpack::import::modpack_file_to_mod_version(f, game_version, loader);
-            match crate::mods::install::install_one(dd, inst_root, mv, install_progress).await {
+            match crate::mods::install::install_one(dd, inst_root, mv, None, install_progress).await
+            {
                 Ok(installed) => {
                     let outcome = match installed.placement {
                         Some(placement) => DetailOutcome::Installed {

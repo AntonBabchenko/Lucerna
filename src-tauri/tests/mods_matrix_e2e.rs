@@ -312,7 +312,7 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
             }
         };
         let primary_vid = primary.version_id.clone();
-        if let Err(e) = install_one(&data_dir, &instance_root, primary, &progress).await {
+        if let Err(e) = install_one(&data_dir, &instance_root, primary, None, &progress).await {
             report.outcomes.push(ModOutcome::Failed {
                 project_id: pid,
                 error: format!("install primary: {e:?}"),
@@ -334,7 +334,7 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
                 });
                 continue;
             }
-            match install_one(&data_dir, &instance_root, dep.version, &progress).await {
+            match install_one(&data_dir, &instance_root, dep.version, None, &progress).await {
                 Ok(_) => dep_count += 1,
                 Err(e) => {
                     dep_failed = Some((dep_pid, format!("install dep of {pid}: {e:?}")));

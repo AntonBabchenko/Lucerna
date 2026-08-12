@@ -851,7 +851,7 @@ async fn install_selected_files(
 
         if file.install_path.starts_with("mods/") {
             let mv = modpack_file_to_mod_version(file, game_version, loader);
-            match install_one(data_dir, instance_root, mv, install_progress).await {
+            match install_one(data_dir, instance_root, mv, None, install_progress).await {
                 Ok(installed) => {
                     // `placement: None` is install_one's idempotent-skip
                     // branch (destination already byte-identical, no store

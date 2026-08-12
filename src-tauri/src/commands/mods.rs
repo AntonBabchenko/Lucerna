@@ -79,6 +79,54 @@ fn mod_metadata_ttl_days(app: &tauri::AppHandle) -> crate::error::Result<u32> {
         .mod_metadata_ttl_days)
 }
 
+/// Project titles for a set of versions, keyed by `(source, project_id)`.
+///
+/// Used at install time so the registry records the mod name rather than
+/// `ModVersion.name` (the platform VERSION title). Goes through the shared
+/// summary cache, so a warm cache costs nothing and a cold one costs the same
+/// batched request the Installed list would make moments later. Never fails:
+/// an unresolved id is absent from the map and its row falls back to today's
+/// behaviour until `installed::backfill_display_names` repairs it.
+async fn project_titles_for(
+    app: &tauri::AppHandle,
+    versions: &[crate::mods::platform::ModVersion],
+) -> std::collections::HashMap<(ModSource, String), String> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(path) = crate::paths::mods_cache_file(app) else {
+        return out;
+    };
+    let Ok(ttl) = mod_metadata_ttl_days(app) else {
+        return out;
+    };
+    let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
+        std::collections::HashMap::new();
+    for v in versions {
+        let ids = by_source.entry(v.source).or_default();
+        if !ids.contains(&v.project_id) {
+            ids.push(v.project_id.clone());
+        }
+    }
+    for (source, ids) in by_source {
+        let platform = platform_for(source);
+        let summaries = crate::mods::summary_cache::get_many(
+            &path,
+            source,
+            &ids,
+            ttl,
+            false,
+            move |want: Vec<String>| async move {
+                let refs: Vec<&str> = want.iter().map(String::as_str).collect();
+                platform.summaries(&refs).await
+            },
+        )
+        .await;
+        for s in summaries {
+            out.insert((source, s.project_id.clone()), s.name);
+        }
+    }
+    out
+}
+
 /// Batch-fetch project summaries (name / slug / icon) for the installed list.
 /// Serves fresh entries from the shared disk cache and batch-fetches the
 /// missing/stale set in one request via `ModPlatform::summaries`, collapsing
@@ -490,10 +538,17 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
+    // Project titles for the whole sequence, so every jar — primary AND its
+    // dependencies — is recorded under its mod name instead of the platform
+    // version title. Cache-first through `summary_cache`; ids it cannot resolve
+    // are simply absent and fall back, then get repaired by the backfill.
+    let titles = project_titles_for(&app, &install_seq).await;
+
     let installed_all = match crate::mods::install_batch::install_batch(
         &dd,
         &inst_root,
         &install_seq,
+        &titles,
         &prog,
         &count,
     )
@@ -2439,7 +2494,8 @@ pub async fn mods_apply_mc_migration(
                     count.clone(),
                 );
 
-                match crate::mods::install::install_one(&dd, &inst_root, target, &prog).await {
+                match crate::mods::install::install_one(&dd, &inst_root, target, None, &prog).await
+                {
                     Ok(inst) => {
                         let _ = ModInstalled {
                             instance_id: instance_id.clone(),
@@ -2760,7 +2816,7 @@ pub async fn mods_install_missing_required(
     // `candidate` is consumed by `install_one`; keep its version for the journal
     // so this path's rows carry the same detail as every other platform install.
     let candidate_version = candidate.version_number.clone();
-    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
+    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, None, &nop).await?;
     crate::journal::record(
         &inst_root,
         crate::journal::content_versioned(

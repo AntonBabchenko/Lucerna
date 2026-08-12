@@ -45,10 +45,18 @@ pub struct BatchFailure {
 /// (`install_seq`) is assembled by the caller. Phase 1 below (cache warm) is
 /// what advances `current`, one item at a time; phase 2 (commit) does not —
 /// see its comment for why.
+///
+/// `titles` maps `(source, project_id)` to the PROJECT title, so each item is
+/// recorded under its mod name rather than `ModVersion.name` (the platform
+/// VERSION title). Resolved once by the caller for the whole sequence, which is
+/// why dependencies get real names too and not just the primary. An id absent
+/// from the map falls back to today's behaviour and is repaired later by
+/// `installed::backfill_display_names`.
 pub async fn install_batch(
     data_dir: &Path,
     instance_root: &Path,
     items: &[ModVersion],
+    titles: &std::collections::HashMap<(crate::mods::platform::ModSource, String), String>,
     progress: &ProgressFn,
     count: &ProgressCount,
 ) -> Result<Vec<Installed>, BatchFailure> {
@@ -115,7 +123,8 @@ pub async fn install_batch(
     // view, which is the exact bug this design avoids.
     let mut done: Vec<Installed> = Vec::new();
     for (i, v) in items.iter().enumerate() {
-        match install::install_one(data_dir, instance_root, v.clone(), progress).await {
+        let title = titles.get(&(v.source, v.project_id.clone())).cloned();
+        match install::install_one(data_dir, instance_root, v.clone(), title, progress).await {
             Ok(inst) => done.push(inst),
             Err(error) => {
                 rollback(instance_root, &items[..=i], &pre_files, &pre_shas).await;
@@ -289,6 +298,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -331,6 +341,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -375,6 +386,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -452,9 +464,15 @@ mod tests {
             "pre.jar",
             "p-pre",
         );
-        install::install_one(td_data.path(), td_inst.path(), pre.clone(), &nop_progress())
-            .await
-            .unwrap();
+        install::install_one(
+            td_data.path(),
+            td_inst.path(),
+            pre.clone(),
+            None,
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
         // Conflict trap for the second item.
         let dir = installed::mods_dir(td_inst.path());
         tokio::fs::write(dir.join("con.jar"), b"con-preexisting")
@@ -468,6 +486,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -509,6 +528,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -561,6 +581,7 @@ mod tests {
             td_data.path(),
             td_inst.path(),
             &items,
+            &Default::default(),
             &nop_progress(),
             &ProgressCount::default(),
         )
@@ -609,9 +630,16 @@ mod tests {
                 .push((phase, current, total));
         });
 
-        let done = install_batch(td_data.path(), td_inst.path(), &items, &progress, &count)
-            .await
-            .unwrap();
+        let done = install_batch(
+            td_data.path(),
+            td_inst.path(),
+            &items,
+            &Default::default(),
+            &progress,
+            &count,
+        )
+        .await
+        .unwrap();
         assert_eq!(done.len(), 2);
 
         let ticks = ticks.lock().unwrap();

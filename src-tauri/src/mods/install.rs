@@ -263,14 +263,27 @@ pub(crate) fn guard_version(v: &ModVersion) -> Result<String, Error> {
     }
 }
 
+/// Install one resolved version into an instance and record it in the registry.
+///
+/// `display_name` is the **project** title, when the caller could resolve one.
+/// `ModVersion.name` is not it: on Modrinth that field is the version title
+/// ("b0.25.8"), on CurseForge the file display name. Recording it made the
+/// compat panel, the install toast and the migration plan all print a version
+/// string where a mod name belongs.
+///
+/// `None` keeps the historical behaviour — correct for a local jar, which has
+/// no project — and `installed::backfill_display_names` repairs any platform
+/// row that arrives this way once the summary cache is warm.
 pub async fn install_one(
     data_dir: &Path,
     instance_root: &Path,
     version: ModVersion,
+    display_name: Option<String>,
     progress: &ProgressFn,
 ) -> Result<Installed, Error> {
     // Guards FIRST — before any network or filesystem I/O.
     let sha_lower = guard_version(&version)?;
+    let record_name = display_name.unwrap_or_else(|| version.name.clone());
 
     let fetch = fetch_to_cache(
         data_dir,
@@ -354,7 +367,7 @@ pub async fn install_one(
             source: Some(version.source),
             project_id: Some(version.project_id.clone()),
             version_id: Some(version.version_id.clone()),
-            name: version.name.clone(),
+            name: record_name.clone(),
             version_number: Some(version.version_number.clone()),
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
@@ -378,7 +391,7 @@ pub async fn install_one(
     Ok(Installed {
         sha1: sha_lower,
         filename: version.primary_file.filename,
-        name: version.name,
+        name: record_name,
         placement,
         // Only locally honest: `install_batch` warms the cache in its own
         // phase 1 before `install_one` runs in phase 2, so within a batch
@@ -780,10 +793,10 @@ pub async fn update_one(
     // reads `current == total` — a second 1..N pass here would make the
     // counter run backwards from the UI's point of view.
     uninstall(instance_root, old_sha1).await?;
-    let primary = install_one(data_dir, instance_root, target, progress).await?;
+    let primary = install_one(data_dir, instance_root, target, None, progress).await?;
     let mut deps = Vec::new();
     for d in required_deps {
-        deps.push(install_one(data_dir, instance_root, d, progress).await?);
+        deps.push(install_one(data_dir, instance_root, d, None, progress).await?);
     }
 
     // install_one always lands a mod enabled — restore a disabled state.
@@ -928,7 +941,7 @@ mod tests {
             3,
             "../../evil.jar",
         );
-        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        let err = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap_err();
         assert!(
@@ -961,7 +974,7 @@ mod tests {
         );
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let installed = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        let installed = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap();
         assert_eq!(installed.sha1, sha);
@@ -990,7 +1003,7 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // First install: a real store call was made — the destination did not
         // exist, so `materialize` ran and hardlinked the cached bytes in.
-        let first = install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+        let first = install_one(td_data.path(), td_inst.path(), v(), None, &nop_progress())
             .await
             .unwrap();
         assert_eq!(
@@ -1001,13 +1014,84 @@ mod tests {
         // Second install: the destination already holds byte-identical content,
         // so install_one falls through the idempotent branch and calls no store
         // function at all. Reporting `Linked` here would be a lie.
-        let second = install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+        let second = install_one(td_data.path(), td_inst.path(), v(), None, &nop_progress())
             .await
             .unwrap();
         assert_eq!(
             second.placement, None,
             "idempotent re-install must not claim a store operation that never happened"
         );
+    }
+
+    /// `ModVersion.name` is the platform VERSION title (Modrinth) or FILE
+    /// display name (CurseForge) — "b0.25.8", not "Open Parties and Claims".
+    /// Recording it made every surface that reads the registry print a version
+    /// string where the user expects a mod name. The caller now supplies the
+    /// project title.
+    #[tokio::test]
+    async fn install_one_records_the_supplied_display_name() {
+        let s = MockServer::start().await;
+        let payload = b"opac";
+        let sha = hex::encode(Sha1::digest(payload));
+        Mock::given(method("GET"))
+            .and(path("/opac.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let v = fake_version(format!("{}/opac.jar", s.uri()), sha, 4, "opac.jar");
+        assert_eq!(v.name, "Mod", "fixture sanity: the version title differs");
+
+        let installed = install_one(
+            td_data.path(),
+            td_inst.path(),
+            v,
+            Some("Open Parties and Claims".to_string()),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(installed.name, "Open Parties and Claims");
+
+        let rows = crate::mods::installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].name, "Open Parties and Claims",
+            "the registry must hold the project title, not the version title"
+        );
+    }
+
+    /// `None` must preserve the historical behaviour byte for byte: a local jar
+    /// has no project title, and the lazy backfill — not a guess here — repairs
+    /// platform rows that arrive this way.
+    #[tokio::test]
+    async fn install_one_falls_back_to_the_version_title_without_a_display_name() {
+        let s = MockServer::start().await;
+        let payload = b"plain";
+        let sha = hex::encode(Sha1::digest(payload));
+        Mock::given(method("GET"))
+            .and(path("/plain.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let v = fake_version(format!("{}/plain.jar", s.uri()), sha, 5, "plain.jar");
+        let expected = v.name.clone();
+        let installed = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
+            .await
+            .unwrap();
+        assert_eq!(installed.name, expected);
+
+        let rows = crate::mods::installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(rows[0].name, expected);
     }
 
     #[tokio::test]
@@ -1035,7 +1119,7 @@ mod tests {
         );
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        let err = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap_err();
         assert!(matches!(err, Error::ModsInstancePath { .. }), "got {err:?}");
@@ -1060,7 +1144,7 @@ mod tests {
         let v = fake_version(format!("{}/z.jar", s.uri()), sha, 6, "z.jar");
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        let err = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap_err();
         assert!(
@@ -1075,7 +1159,7 @@ mod tests {
         let td_inst = TempDir::new().unwrap();
         let mut v = fake_version("https://example/x.jar".into(), "a".into(), 0, "x.jar");
         v.primary_file.distribution_allowed = false;
-        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        let err = install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap_err();
         matches!(err, Error::ModsDistributionDisabled { .. });
@@ -1096,7 +1180,7 @@ mod tests {
         let v = fake_version(format!("{}/d.jar", s.uri()), sha.clone(), 2, "d.jar");
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap();
         disable(td_inst.path(), &sha).await.unwrap();
@@ -1322,7 +1406,7 @@ mod tests {
         let v = fake_version(format!("{}/u.jar", s.uri()), sha.clone(), 2, "u.jar");
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+        install_one(td_data.path(), td_inst.path(), v, None, &nop_progress())
             .await
             .unwrap();
         uninstall(td_inst.path(), &sha).await.unwrap();
@@ -1358,7 +1442,7 @@ mod tests {
         );
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        install_one(td_data.path(), td_inst.path(), v1, &nop_progress())
+        install_one(td_data.path(), td_inst.path(), v1, None, &nop_progress())
             .await
             .unwrap();
         let v2 = fake_version(
@@ -1417,6 +1501,7 @@ mod tests {
                 v1b.len() as u64,
                 "d1.jar",
             ),
+            None,
             &nop_progress(),
         )
         .await
@@ -1472,6 +1557,7 @@ mod tests {
                 v1b.len() as u64,
                 "k1.jar",
             ),
+            None,
             &nop_progress(),
         )
         .await
@@ -1533,6 +1619,7 @@ mod tests {
                 oldb.len() as u64,
                 "old.jar",
             ),
+            None,
             &nop_progress(),
         )
         .await
@@ -1607,6 +1694,7 @@ mod tests {
                 oldb.len() as u64,
                 "t-old.jar",
             ),
+            None,
             &nop_progress(),
         )
         .await
@@ -2174,10 +2262,10 @@ mod tests {
             )
         };
 
-        install_one(td_data.path(), a.path(), v(), &nop_progress())
+        install_one(td_data.path(), a.path(), v(), None, &nop_progress())
             .await
             .unwrap();
-        install_one(td_data.path(), b.path(), v(), &nop_progress())
+        install_one(td_data.path(), b.path(), v(), None, &nop_progress())
             .await
             .unwrap();
 
@@ -2208,10 +2296,10 @@ mod tests {
                 "s.jar",
             )
         };
-        install_one(td_data.path(), a.path(), v(), &nop_progress())
+        install_one(td_data.path(), a.path(), v(), None, &nop_progress())
             .await
             .unwrap();
-        install_one(td_data.path(), b.path(), v(), &nop_progress())
+        install_one(td_data.path(), b.path(), v(), None, &nop_progress())
             .await
             .unwrap();
 
@@ -2248,10 +2336,10 @@ mod tests {
                 "s.jar",
             )
         };
-        install_one(td_data.path(), a.path(), v(), &nop_progress())
+        install_one(td_data.path(), a.path(), v(), None, &nop_progress())
             .await
             .unwrap();
-        install_one(td_data.path(), b.path(), v(), &nop_progress())
+        install_one(td_data.path(), b.path(), v(), None, &nop_progress())
             .await
             .unwrap();
 
@@ -2297,10 +2385,10 @@ mod tests {
                 "s.jar",
             )
         };
-        install_one(td_data.path(), a.path(), shared(), &nop_progress())
+        install_one(td_data.path(), a.path(), shared(), None, &nop_progress())
             .await
             .unwrap();
-        install_one(td_data.path(), b.path(), shared(), &nop_progress())
+        install_one(td_data.path(), b.path(), shared(), None, &nop_progress())
             .await
             .unwrap();
 
@@ -2310,7 +2398,7 @@ mod tests {
             new.len() as u64,
             "s.jar",
         );
-        let err = install_one(td_data.path(), a.path(), clashing, &nop_progress())
+        let err = install_one(td_data.path(), a.path(), clashing, None, &nop_progress())
             .await
             .unwrap_err();
 
