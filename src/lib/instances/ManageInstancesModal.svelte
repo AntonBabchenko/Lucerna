@@ -504,57 +504,65 @@
     }
   }
 
-  // ── serialized config changes (spec D8) ─────────────────────────────────
+  // ── last-click-wins config changes (spec D8) ────────────────────────────
   // Rapid loader clicks used to fire CONCURRENT setInstanceLoader commands
   // (each resolves a recommended build — seconds of network); completions
   // trickled back in arbitrary order for a while after the user stopped
   // clicking, every onChanged() re-rendered the picker to that command's
   // result — «загрузчики сами переключаются» — and the final on-disk loader
-  // was whichever command happened to LAND last, not the last click. One
-  // promise chain applies changes strictly in click order; the forced compat
-  // rescan runs once, when the queue drains.
-  let cfgChain: Promise<void> = Promise.resolve();
-  let cfgQueued = 0;
+  // was whichever command happened to LAND last, not the last click.
+  //
+  // A toggle wants LAST-CLICK-WINS, not a replay of every intermediate
+  // click: `cfgNext` holds only the newest queued change (older queued ones
+  // are simply discarded — the cancellation the maintainer asked for), one
+  // command is in flight at a time, and a command that got overtaken by a
+  // newer click is silenced entirely — no onChanged, no rescan, no toast,
+  // no error — because whatever it did is being overwritten right now. The
+  // backend command itself cannot be aborted mid-write; muting its side
+  // effects is the cancellable half.
+  let cfgInFlight = false;
+  let cfgNext: (() => Promise<void>) | null = null;
 
-  function enqueueCfgChange(run: () => Promise<void>): Promise<void> {
-    cfgQueued += 1;
-    const next = cfgChain.then(async () => {
-      try {
-        await run();
-      } catch {
-        // Each entry surfaces its own errors (modalError / compatCheckFailed);
-        // swallowing here only keeps a rejected entry from wedging the chain
-        // for every change queued behind it.
-      } finally {
-        cfgQueued -= 1;
+  // True while a NEWER change is queued behind the currently running one —
+  // the running command reads this after its await to know it was overtaken.
+  const cfgSuperseded = () => cfgNext !== null;
+
+  async function enqueueCfgChange(run: () => Promise<void>): Promise<void> {
+    cfgNext = run;
+    if (cfgInFlight) return;
+    cfgInFlight = true;
+    try {
+      while (cfgNext) {
+        const current = cfgNext;
+        cfgNext = null;
+        try {
+          await current();
+        } catch {
+          // Each entry surfaces its own errors; swallowing here only keeps a
+          // rejected entry from wedging the loop for the change behind it.
+        }
       }
-    });
-    cfgChain = next;
-    return next;
+    } finally {
+      cfgInFlight = false;
+    }
   }
-
-  // Inside a chain entry `cfgQueued` still counts the entry itself, so
-  // "nothing queued behind me" reads as exactly 1.
-  const chainDrained = () => cfgQueued === 1;
 
   // `id` is captured by the caller before any await so a mid-flight selection
   // switch can't redirect this change's side effects onto another instance.
   async function applyMcChange(id: string, mc: string) {
     await enqueueCfgChange(async () => {
       const result = await commands.changeInstanceMc(id, mc);
-      if (isStale(id)) return;
+      // Overtaken by a newer click while awaiting: whatever this change did
+      // is being overwritten right now — every side effect would only flap
+      // the UI toward a state the user already clicked away from.
+      if (isStale(id) || cfgSuperseded()) return;
       if (result.status === 'ok') {
         const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
         if (toast?.kind === 'success') pushSuccess(toast.text);
         else if (toast?.kind === 'warning') pushWarning(toast.text);
         onChanged();
         const fresh = result.data.instance;
-        // Trailing entry only: scanning between queued changes pays a full
-        // jar sweep per click just to flash a verdict the next change
-        // immediately invalidates.
-        if (chainDrained()) {
-          await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
-        }
+        await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
       } else {
         modalError = ipcErrorMessage(result.error);
       }
@@ -573,12 +581,11 @@
   async function applyLoaderChange(id: string, kind: LoaderKind, version: string | null) {
     await enqueueCfgChange(async () => {
       const result = await commands.setInstanceLoader(id, kind, version);
-      if (isStale(id)) return;
+      // See applyMcChange: an overtaken change is silenced entirely.
+      if (isStale(id) || cfgSuperseded()) return;
       if (result.status === 'ok') {
         onChanged();
-        if (chainDrained()) {
-          await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
-        }
+        await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
       } else {
         modalError = ipcErrorMessage(result.error);
       }

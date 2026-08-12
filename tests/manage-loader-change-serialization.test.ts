@@ -109,9 +109,9 @@ describe('ManageInstancesModal — loader changes are serialized (spec D8)', () 
     invalidateCompatScan();
   });
 
-  it('a second rapid loader click waits for the first command and the rescan runs once', async () => {
+  it('the last click wins: overtaken commands are silenced, queued older ones discarded', async () => {
     const inst = makeInstance();
-    // Both commands hang until we release them — the rapid-click window.
+    // Commands hang until we release them — the rapid-click window.
     const release: Array<(v: unknown) => void> = [];
     m.setInstanceLoader.mockImplementation(
       () =>
@@ -119,6 +119,7 @@ describe('ManageInstancesModal — loader changes are serialized (spec D8)', () 
           release.push(res);
         }),
     );
+    const onChanged = vi.fn();
 
     render(ManageInstancesModal, {
       props: {
@@ -126,7 +127,7 @@ describe('ManageInstancesModal — loader changes are serialized (spec D8)', () 
         instances: [inst],
         activeInstance: inst,
         versions: [version],
-        onChanged: () => {},
+        onChanged,
       },
     });
     await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
@@ -135,35 +136,27 @@ describe('ManageInstancesModal — loader changes are serialized (spec D8)', () 
     await fireEvent.click(screen.getByRole('button', { name: 'Fabric' }));
     await waitFor(() => expect(m.setInstanceLoader).toHaveBeenCalledTimes(1));
     await fireEvent.click(screen.getByRole('button', { name: 'Quilt' }));
-    // A macrotask drain: the second change must be QUEUED, not in flight.
+    // A macrotask drain: the newer change must be QUEUED, not in flight.
     await new Promise((r) => setTimeout(r, 0));
     expect(m.setInstanceLoader).toHaveBeenCalledTimes(1);
 
-    // Drain the chain one command at a time. The picker may emit more than
-    // one commit per click (kind change + version resolve), so instead of
-    // pinning exact call slots we assert the serialization invariant: at any
-    // moment at most ONE command is unresolved, and the final applied kind
-    // is the LAST loader the user clicked.
-    let released = 0;
-    for (let guard = 0; guard < 10; guard++) {
-      if (released < m.setInstanceLoader.mock.calls.length) {
-        expect(m.setInstanceLoader.mock.calls.length - released).toBe(1);
-        const kind = m.setInstanceLoader.mock.calls[released][1] as string;
-        release[released](okResult(kind));
-        released++;
-      }
-      await new Promise((r) => setTimeout(r, 0));
-      await new Promise((r) => setTimeout(r, 0));
-      if (
-        released === m.setInstanceLoader.mock.calls.length &&
-        m.scanInstanceModCompat.mock.calls.length > 0
-      )
-        break;
-    }
-    expect(m.setInstanceLoader.mock.calls.at(-1)?.[1]).toBe('quilt');
+    // The Fabric command lands — but it was overtaken, so it is silenced:
+    // no onChanged (no picker flap toward a state the user clicked away
+    // from), no rescan. The queued Quilt change starts immediately.
+    release[0](okResult('fabric'));
+    await waitFor(() => expect(m.setInstanceLoader).toHaveBeenCalledTimes(2));
+    expect(m.setInstanceLoader.mock.calls[1][1]).toBe('quilt');
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(m.scanInstanceModCompat).not.toHaveBeenCalled();
 
-    // The chain drained → exactly ONE forced compat rescan (scanning between
-    // queued clicks would flash verdicts the next change invalidates).
+    // The final (last-clicked) change lands → exactly one onChanged and one
+    // forced rescan. Any intermediate queued changes were discarded, so no
+    // further commands run.
+    release[1](okResult('quilt'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(m.setInstanceLoader).toHaveBeenCalledTimes(2);
     expect(m.scanInstanceModCompat).toHaveBeenCalledTimes(1);
   });
 });
