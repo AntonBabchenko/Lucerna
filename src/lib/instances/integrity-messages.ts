@@ -70,8 +70,22 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
  * string lost its only caller when this replaced `compatSummary`, and was
  * removed from both locales rather than left orphaned.
  */
-export function compatSummaryFromScan(entries: ModLocalCompat[], total: number): string | null {
+export function compatSummaryFromScan(
+  entries: ModLocalCompat[],
+  total: number,
+  loader?: LoaderKind | null,
+): string | null {
   if (entries.length === 0) return null;
+
+  // Vanilla is an instance-level condition, not a per-jar verdict: with no
+  // loader at all, EVERY installed mod is dead weight — but `compat_verdict`
+  // correctly never flags on Vanilla (there is no family to mismatch), so
+  // without this branch a switch-to-Vanilla with mods installed was
+  // completely silent (spec D9). `entries` holds only enabled mods (the
+  // scan skips disabled ones), so its length IS the affected count.
+  if (loader === 'vanilla') {
+    return get(t)('instance.integrity.vanillaModsWarning', { count: entries.length });
+  }
 
   const incompatible = entries.filter(isOfflineMismatch).length;
   if (incompatible === 0) return null;

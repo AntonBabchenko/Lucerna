@@ -409,6 +409,7 @@ export type TranslationKey =
   | 'instance.integrity.toastRepaired'
   | 'instance.integrity.toastVerifyOk'
   | 'instance.integrity.toastVerifyProblems'
+  | 'instance.integrity.vanillaModsWarning'
   | 'instance.integrity.verifyBtn'
   | 'instance.integrity.verifying'
   | 'instance.l10n.apply.button'

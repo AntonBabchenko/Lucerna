@@ -385,6 +385,7 @@
       "loaderUpdated": "{loader} обновлён до {version} для Minecraft {mc}",
       "loaderResetToVanilla": "Нет сборки {loader} для Minecraft {mc} — загрузчик сброшен до Vanilla",
       "compatWarning": "{incompatible} из {total} установленных модов не имеют версии для этой конфигурации. Проверьте во вкладке «Моды».",
+      "vanillaModsWarning": "Загрузчик не выбран — {count} установленных модов не будут загружаться. Выберите загрузчик в управлении профилем.",
       "heading": "Целостность",
       "subtitle": "Проверить файлы игры этого профиля по контрольным суммам.",
       "verifyBtn": "Проверить",

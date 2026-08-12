@@ -385,6 +385,7 @@
       "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
       "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
       "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
+      "vanillaModsWarning": "No mod loader selected — {count} installed mods will not load. Pick a loader in profile management.",
       "heading": "Integrity",
       "subtitle": "Verify the instance's game files against their checksums.",
       "verifyBtn": "Verify",

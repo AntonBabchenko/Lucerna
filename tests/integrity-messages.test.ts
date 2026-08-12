@@ -143,6 +143,25 @@ describe('compatSummaryFromScan', () => {
     expect(compatSummaryFromScan(scan, 1)).not.toBeNull();
   });
 
+  it('vanilla with enabled mods warns as an instance-level condition (spec D9)', () => {
+    // Per-jar verdicts correctly never flag on Vanilla (no family to
+    // mismatch), yet Vanilla loads NO mods — the summary must say so itself.
+    const scan: ModLocalCompat[] = [makeLocalCompat('a', {}), makeLocalCompat('b', {})];
+    const text = compatSummaryFromScan(scan, 2, 'vanilla');
+    expect(text).not.toBeNull();
+    expect(text).toContain('2');
+    expect(text).toMatch(/loader/i);
+  });
+
+  it('vanilla with no mods stays silent', () => {
+    expect(compatSummaryFromScan([], 0, 'vanilla')).toBeNull();
+  });
+
+  it('a modded loader is unaffected by the loader parameter', () => {
+    const scan: ModLocalCompat[] = [makeLocalCompat('a', {})];
+    expect(compatSummaryFromScan(scan, 1, 'forge')).toBeNull();
+  });
+
   it('mentions review in mods tab', () => {
     const scan: ModLocalCompat[] = [
       makeLocalCompat('a', { platform_mismatch: true, platform_axis: 'minecraft' }),

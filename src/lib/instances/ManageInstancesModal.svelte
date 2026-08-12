@@ -208,7 +208,13 @@
   // agree on exactly when there is something to review — computing
   // `compatSummaryFromScan` twice risked the two drifting apart.
   let compatWarningText = $derived(
-    compatChecked ? compatSummaryFromScan(compatScanEntries(), compatScanEntries().length) : null,
+    compatChecked
+      ? compatSummaryFromScan(
+          compatScanEntries(),
+          compatScanEntries().length,
+          selected?.loader ?? null,
+        )
+      : null,
   );
   // Opens MigrationPlanDialog for `selected`. The compat summary above tells
   // the user something is wrong; this is where they act on it.

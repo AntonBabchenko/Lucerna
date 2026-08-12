@@ -318,6 +318,20 @@
             >
           </button>
         {/if}
+        {#if activeInstance?.loader === 'vanilla' && installedStats.enabled > 0}
+          <!-- Instance-level condition (spec D9): Vanilla loads no mods at
+               all, and per-jar verdicts correctly stay silent on it — so the
+               card says it outright. Click-through to the Installed tab,
+               which carries the same banner. -->
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 text-left text-sm text-warning-text"
+            data-testid="overview-vanilla-mods-warning"
+            onclick={() => onNavInstalled()}
+          >
+            {$t('instance.integrity.vanillaModsWarning', { count: installedStats.enabled })}
+          </button>
+        {/if}
         <!-- Translation coverage. A third card-zone row rather than a fourth
              Overview card: localization is a property of the mods, and this
              card is already a stack of zones. -->
