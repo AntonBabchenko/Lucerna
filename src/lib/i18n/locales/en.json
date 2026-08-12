@@ -1899,7 +1899,7 @@
       },
       "importModpacks": {
         "title": "Import modpacks",
-        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key (Settings → CurseForge). Each import lands in its own new instance and leaves your existing ones alone.",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key; add one in Settings, under Integrations. Each import lands in its own new instance and leaves your existing ones alone.",
         "titleBasic": "Add modpacks",
         "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance and leaves your other instances alone."
       }
@@ -2070,9 +2070,9 @@
         },
         "datapackLibrary": {
           "title": "Data packs live in worlds",
-          "body": "Installing a data pack puts it into this instance's library first. From the library you place it into any of your worlds, and an update reaches every world that uses the pack. The question mark on the Data packs view has the full story.",
+          "body": "Data packs join the row on Minecraft 1.13 or newer. Installing one puts it into this instance's library first. From the library you place it into any of your worlds, and an update reaches every world that uses the pack. Pick Data packs, then Installed, and the question mark there has the full story.",
           "titleBasic": "Data packs live in worlds",
-          "bodyBasic": "A data pack changes the game's rules and content, like recipes or loot. Installing one puts it in this instance's library; from there you add it to the worlds you choose. The small question mark nearby explains more."
+          "bodyBasic": "A data pack changes the game's rules and content, like recipes or loot. It joins this row on Minecraft 1.13 and newer. Installing one puts it in this instance's library; from there you add it to the worlds you choose. Pick Data packs, then Installed, to read more."
         },
         "subtabs": {
           "title": "Browse and Installed",
@@ -2152,8 +2152,8 @@
       "p1Basic": "Data packs change parts of the game itself, like recipes, loot, and achievements. The game reads them on its own from Minecraft 1.13 on.",
       "p2": "Unlike a mod, a data pack is not code. It needs no mod loader, and it lives in a world rather than in the instance: each world enables or disables its packs on its own.",
       "p2Basic": "A data pack is not a mod: it needs no mod system, and it belongs to a world, not to the whole instance. Every world picks its own packs.",
-      "p3": "Installing a pack puts it into this instance's library. From the library you place it into worlds; updating a pack updates every world that uses it, and removing it can sweep it from all of them. On a server, packs live in the server's world and are changed while the server is stopped. Vanilla Tweaks, the pack builder, is available right in the library.",
-      "p3Basic": "When you install a pack, it goes into a library first. From there you add it to the worlds you choose; updates reach every world that uses it. On a server, packs sit in the server's world and are changed while the server is off. Vanilla Tweaks, a pack builder, is right here too.",
+      "p3": "In an instance, installing a pack puts it into that instance's library. From the library you place it into worlds; updating a pack updates every world that uses it, and removing it can sweep it from all of them. On a server, packs live in the server's world and are changed while the server is stopped. Vanilla Tweaks, the pack builder, is available right in the library.",
+      "p3Basic": "In an instance, a pack you install goes into a library first. From there you add it to the worlds you choose; updates reach every world that uses it. On a server, packs sit in the server's world and are changed while the server is off. Vanilla Tweaks, a pack builder, sits in the library too.",
       "p4": "Data packs are marked Beta: the feature is complete and guarded, but newer than the rest of the launcher, and details may still change.",
       "p4Basic": "The Beta tag means this part of the launcher is newer than the rest, so small things about it may still change."
     },
@@ -2172,7 +2172,7 @@
     },
     "chooser": {
       "title": "How much detail would you like?",
-      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings → General.",
+      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings, under Help.",
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
