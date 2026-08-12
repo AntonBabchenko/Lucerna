@@ -8,11 +8,7 @@ import type { SettingsSearchEntry } from './search-index';
  *  "café"/"cafe" match. NFD splits ё into е + combining diaeresis; the range
  *  ̀-ͯ drops the mark. */
 export function normalize(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .trim();
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
 /**
