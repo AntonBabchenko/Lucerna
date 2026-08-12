@@ -240,3 +240,83 @@ fn allowlist_entries_still_match() {
         stale.join("\n"),
     );
 }
+
+/// The matchers, pinned directly.
+///
+/// The scan above only proves what the tree happens to contain today. These pin
+/// the decisions the tree does not exercise — the spellings nobody has written
+/// yet, and the two forms that must NOT be flagged. Written after the first real
+/// run reported 21 sites, 13 of them accusing correct code.
+#[cfg(test)]
+mod matchers {
+    use super::*;
+
+    #[test]
+    fn an_empty_err_arm_matches_every_spelling() {
+        assert!(is_empty_err_arm("Err(_) => {}"));
+        assert!(is_empty_err_arm("    Err(_e) => {}"));
+        assert!(is_empty_err_arm("Err(..) => {},"));
+        assert!(is_empty_err_arm("Err(_) => (),"));
+    }
+
+    #[test]
+    fn a_match_guard_is_discrimination_and_must_not_be_flagged() {
+        assert!(!is_empty_err_arm(
+            "Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}"
+        ));
+    }
+
+    #[test]
+    fn a_comment_inside_the_block_is_the_escape_hatch() {
+        assert!(!is_empty_err_arm(
+            "Err(_) => { /* deliberate, and here is why */ }"
+        ));
+    }
+
+    #[test]
+    fn discards_cover_both_spellings_and_all_three_qualifications() {
+        assert!(discards_state_change("let _ = std::fs::rename(&a, &b);"));
+        assert!(discards_state_change(
+            "let _ = tokio::fs::write(&a, b).await;"
+        ));
+        assert!(discards_state_change("fs::write(&a, b).ok();"));
+        // Removals are out of scope by design, and a handled Result is not a discard.
+        assert!(!discards_state_change("let _ = std::fs::remove_file(&a);"));
+        assert!(!discards_state_change("std::fs::rename(&a, &b)?;"));
+    }
+
+    #[test]
+    fn a_justification_must_sit_at_the_discard() {
+        assert!(is_justified(
+            &["// why", "let _ = std::fs::write(a, b);"],
+            1
+        ));
+        assert!(is_justified(&["let _ = std::fs::write(a, b); // why"], 0));
+        assert!(is_justified(
+            &["// why", "", "let _ = std::fs::write(a, b);"],
+            2
+        ));
+
+        // The restore-rollback shape. The comment describes WHAT the block does,
+        // and sits two lines above the discard — under the original 8-line
+        // lookback this excused the defect the whole rule was written to catch.
+        let rollback = [
+            "// Roll back: put the original back, bubble the original error.",
+            "let _ = std::fs::remove_dir_all(&world_path);",
+            "let _ = std::fs::rename(&tmp_path, &world_path);",
+        ];
+        assert!(!is_justified(&rollback, 2));
+    }
+
+    #[test]
+    fn an_unqualified_import_of_a_primitive_is_itself_a_violation() {
+        assert!(imports_a_primitive_unqualified("use std::fs::rename;"));
+        assert!(imports_a_primitive_unqualified(
+            "use tokio::fs::{self, write};"
+        ));
+        assert!(!imports_a_primitive_unqualified("use std::fs;"));
+        assert!(!imports_a_primitive_unqualified(
+            "use std::fs::remove_file;"
+        ));
+    }
+}
