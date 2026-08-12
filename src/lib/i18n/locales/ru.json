@@ -2183,6 +2183,7 @@
     "worldInUse": "Мир «{folderName}» сейчас используется — закройте Minecraft и повторите",
     "worldPathInvalid": "Недопустимое имя «{name}»: {reason}",
     "worldNameUnresolvable": "Не удалось подобрать свободное имя для «{folderName}» — слишком много похожих копий",
+    "worldRestoreStranded": "Восстановление не удалось, и мир «{worldFolder}» не удалось вернуть на место автоматически. Данные целы — они в папке «{recoveredAt}» внутри saves. Причина — в «Логах».",
     "screenshotNotFound": "Скриншот «{filename}» не найден в этом профиле",
     "screenshotPathInvalid": "Недопустимое имя скриншота «{name}»: {reason}",
     "backupNotFound": "Резервная копия «{filename}» не найдена",

@@ -306,6 +306,7 @@ export type TranslationKey =
   | 'errors.worldNameUnresolvable'
   | 'errors.worldNotFound'
   | 'errors.worldPathInvalid'
+  | 'errors.worldRestoreStranded'
   | 'format.duration.hoursMinutes'
   | 'format.duration.lessThanMinute'
   | 'format.duration.minutes'
