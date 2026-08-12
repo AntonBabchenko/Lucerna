@@ -14,6 +14,7 @@
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import SettingsField from './SettingsField.svelte';
 
   let gpuCap = $state<GpuCapability | null>(null);
   const gpuOptions = $derived<{ value: GpuPreference; label: string }[]>(
@@ -86,82 +87,88 @@
 </script>
 
 <section class="flex flex-col gap-6">
-  <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">{$t('settings.general.playing.title')}</h3>
-    {#if loadError}
-      <p class="text-xs text-danger">{loadError}</p>
-    {/if}
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        checked={general.hide_to_tray_during_game}
-        onchange={(e) => {
-          general.hide_to_tray_during_game = e.currentTarget.checked;
-          void save();
-        }}
-        data-testid="tray-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.playing.trayLabel')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.playing.trayDescription')}
+  <SettingsField anchor="game.tray">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.playing.title')}</h3>
+      {#if loadError}
+        <p class="text-xs text-danger">{loadError}</p>
+      {/if}
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          checked={general.hide_to_tray_during_game}
+          onchange={(e) => {
+            general.hide_to_tray_during_game = e.currentTarget.checked;
+            void save();
+          }}
+          data-testid="tray-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.playing.trayLabel')}</span>
+          <span class="block text-xs text-muted">
+            {$t('settings.general.playing.trayDescription')}
+          </span>
         </span>
-      </span>
-    </label>
-    {#if saveError}
-      <p class="text-xs text-danger">{saveError}</p>
-    {/if}
-  </div>
+      </label>
+      {#if saveError}
+        <p class="text-xs text-danger">{saveError}</p>
+      {/if}
+    </div>
+  </SettingsField>
 
   <!-- The consent gate for the whole server-status feature. Default off, and
        the IP-exposure consequence is stated right here rather than left for the
        user to infer — this is the one place they decide. -->
-  <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">{$t('settings.general.serverPing.title')}</h3>
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        checked={general.allow_server_ping}
-        onchange={(e) => {
-          general.allow_server_ping = e.currentTarget.checked;
-          void save();
-        }}
-        data-testid="server-ping-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.serverPing.label')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.serverPing.description')}
+  <SettingsField anchor="game.serverPing">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.serverPing.title')}</h3>
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          checked={general.allow_server_ping}
+          onchange={(e) => {
+            general.allow_server_ping = e.currentTarget.checked;
+            void save();
+          }}
+          data-testid="server-ping-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.serverPing.label')}</span>
+          <span class="block text-xs text-muted">
+            {$t('settings.general.serverPing.description')}
+          </span>
+          <span class="block text-xs text-warning-text">
+            {$t('settings.general.serverPing.privacy')}
+          </span>
         </span>
-        <span class="block text-xs text-warning-text">
-          {$t('settings.general.serverPing.privacy')}
-        </span>
-      </span>
-    </label>
-  </div>
+      </label>
+    </div>
+  </SettingsField>
 
   {#if gpuLoading}
     <LoadingPanel label={$t('common.loading')} size="sm" />
   {:else if gpuCap?.kind === 'available'}
-    <div class="flex flex-col gap-3">
-      <h3 class="font-medium text-sm text-primary">{$t('settings.general.gpu.title')}</h3>
-      <div class="flex flex-col gap-1">
-        <span class="text-sm text-primary">{$t('settings.general.gpu.label')}</span>
-        <Select
-          class="text-sm"
-          dataTestid="gpu-select"
-          ariaLabel={$t('settings.general.gpu.label')}
-          value={general.gpu_preference ?? null}
-          options={gpuOptions}
-          onChange={(v) => {
-            general.gpu_preference = v as GpuPreference;
-            void save();
-          }}
-        />
-        <span class="text-xs text-muted">{$t('settings.general.gpu.note')}</span>
+    <SettingsField anchor="game.gpu">
+      <div class="flex flex-col gap-3">
+        <h3 class="font-medium text-sm text-primary">{$t('settings.general.gpu.title')}</h3>
+        <div class="flex flex-col gap-1">
+          <span class="text-sm text-primary">{$t('settings.general.gpu.label')}</span>
+          <Select
+            class="text-sm"
+            dataTestid="gpu-select"
+            ariaLabel={$t('settings.general.gpu.label')}
+            value={general.gpu_preference ?? null}
+            options={gpuOptions}
+            onChange={(v) => {
+              general.gpu_preference = v as GpuPreference;
+              void save();
+            }}
+          />
+          <span class="text-xs text-muted">{$t('settings.general.gpu.note')}</span>
+        </div>
       </div>
-    </div>
+    </SettingsField>
   {/if}
 </section>

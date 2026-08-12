@@ -32,6 +32,7 @@
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
   import DataLocationProgressDialog from '$lib/settings/DataLocationProgressDialog.svelte';
+  import SettingsField from './SettingsField.svelte';
 
   let bytes = $state<number | null>(null);
   let clearing = $state(false);
@@ -283,189 +284,201 @@
 </script>
 
 <div>
-  <div class="text-sm mb-2">
-    {$t('settings.storage.cacheLabel')}
-    <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
-  </div>
-  <p class="text-xs text-muted mb-3">
-    {$t('settings.storage.cacheDescription')}
-  </p>
-
-  {#if error}
-    <div
-      class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2"
-      role="alert"
-    >
-      {error}
+  <SettingsField anchor="storage.cache">
+    <div class="text-sm mb-2">
+      {$t('settings.storage.cacheLabel')}
+      <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
     </div>
-  {/if}
-  <BusyButton
-    type="button"
-    class="btn-secondary btn-sm"
-    busy={clearing}
-    disabled={bytes === 0 || bytes === null}
-    onclick={clear}
-  >
-    {$t('settings.storage.clearBtn')}
-  </BusyButton>
+    <p class="text-xs text-muted mb-3">
+      {$t('settings.storage.cacheDescription')}
+    </p>
 
-  <div class="flex flex-col gap-3 border-t mt-4 pt-4">
-    <h3 class="font-medium text-sm text-primary">{$t('settings.general.logRetention.title')}</h3>
-    {#if retentionError}
-      <p class="text-xs text-danger">{retentionError}</p>
-    {/if}
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        bind:checked={retention.enabled}
-        onchange={() => void saveRetentionTracked()}
-        data-testid="log-retention-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.logRetention.enableDescription')}
-        </span>
-      </span>
-    </label>
-    <div class="flex flex-wrap items-end gap-4 pl-6">
-      {#if retentionSaving}
-        <div class="flex items-center text-xs text-secondary">
-          <Spinner size="sm" />
-        </div>
-      {/if}
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-primary">{$t('settings.general.logRetention.keepLabel')}</span>
-        <input
-          type="number"
-          min="0"
-          class="border rounded px-2 py-1 text-sm w-28"
-          bind:value={retention.max_files}
-          disabled={!retention.enabled}
-          onchange={() => void saveRetentionTracked()}
-          data-testid="log-retention-max-files"
-        />
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-primary">{$t('settings.general.logRetention.sizeLabel')}</span>
-        <input
-          type="number"
-          min="1"
-          class="border rounded px-2 py-1 text-sm w-28"
-          bind:value={retention.max_total_mb}
-          disabled={!retention.enabled}
-          onchange={() => void saveRetentionTracked()}
-          data-testid="log-retention-max-mb"
-        />
-      </label>
-    </div>
-  </div>
-
-  <div class="flex flex-col gap-3 border-t mt-4 pt-4">
-    <h3 class="font-medium text-sm text-primary">
-      {$t('settings.general.modMetadataCache.title')}
-    </h3>
-    <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
-    {#if ttlError}
-      <p class="text-xs text-danger">{ttlError}</p>
-    {/if}
-    <div class="flex flex-wrap items-end gap-4">
-      {#if ttlSaving}
-        <div class="flex items-center text-xs text-secondary">
-          <Spinner size="sm" />
-        </div>
-      {/if}
-      <label class="flex flex-col gap-1">
-        <span class="text-xs text-primary">
-          {$t('settings.general.modMetadataCache.ttlLabel')}
-        </span>
-        <input
-          type="number"
-          min="0"
-          step="1"
-          class="border rounded px-2 py-1 text-sm w-28"
-          bind:value={modTtlDays}
-          onchange={() => void saveTtlTracked()}
-          data-testid="mod-metadata-ttl-days"
-        />
-      </label>
-    </div>
-    <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.ttlHint')}</p>
-  </div>
-
-  <div class="flex flex-col gap-3 border-t mt-4 pt-4">
-    <h3 class="font-medium text-sm text-primary">
-      {$t('settings.storage.dataLocation.heading')}
-    </h3>
-    <p class="text-xs text-muted">{$t('settings.storage.dataLocation.description')}</p>
-
-    {#if dataLocation.error}
-      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-        {dataLocation.error}
-      </div>
-    {/if}
-    {#if migrationError}
-      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-        {migrationError}
-      </div>
-    {/if}
-
-    {#if dataLocation.status?.fell_back}
+    {#if error}
       <div
-        class="rounded-xl border border-warning-text bg-warning-bg p-3 text-sm text-warning-text"
+        class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2"
         role="alert"
       >
-        {$t('settings.storage.dataLocation.fallbackNotice', {
-          path: dataLocation.status.configured ?? '',
-        })}
+        {error}
       </div>
     {/if}
+    <BusyButton
+      type="button"
+      class="btn-secondary btn-sm"
+      busy={clearing}
+      disabled={bytes === 0 || bytes === null}
+      onclick={clear}
+    >
+      {$t('settings.storage.clearBtn')}
+    </BusyButton>
+  </SettingsField>
 
-    {#if dataLocation.status}
-      <div class="text-sm">
-        <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
-        <span class="font-mono text-xs selectable ml-1">{dataLocation.status.effective}</span>
-      </div>
-      <div class="text-sm flex items-center gap-1">
-        <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
-        {#if dataRootSize === null && !dataRootSizeError}
-          <Spinner size="sm" class="text-muted" />
-        {:else}
-          <span class="font-medium ml-1"
-            >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
+  <SettingsField anchor="storage.logRetention">
+    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
+      <h3 class="font-medium text-sm text-primary">
+        {$t('settings.general.logRetention.title')}
+      </h3>
+      {#if retentionError}
+        <p class="text-xs text-danger">{retentionError}</p>
+      {/if}
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          bind:checked={retention.enabled}
+          onchange={() => void saveRetentionTracked()}
+          data-testid="log-retention-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary"
+            >{$t('settings.general.logRetention.enableLabel')}</span
           >
+          <span class="block text-xs text-muted">
+            {$t('settings.general.logRetention.enableDescription')}
+          </span>
+        </span>
+      </label>
+      <div class="flex flex-wrap items-end gap-4 pl-6">
+        {#if retentionSaving}
+          <div class="flex items-center text-xs text-secondary">
+            <Spinner size="sm" />
+          </div>
         {/if}
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-primary">{$t('settings.general.logRetention.keepLabel')}</span>
+          <input
+            type="number"
+            min="0"
+            class="border rounded px-2 py-1 text-sm w-28"
+            bind:value={retention.max_files}
+            disabled={!retention.enabled}
+            onchange={() => void saveRetentionTracked()}
+            data-testid="log-retention-max-files"
+          />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-primary">{$t('settings.general.logRetention.sizeLabel')}</span>
+          <input
+            type="number"
+            min="1"
+            class="border rounded px-2 py-1 text-sm w-28"
+            bind:value={retention.max_total_mb}
+            disabled={!retention.enabled}
+            onchange={() => void saveRetentionTracked()}
+            data-testid="log-retention-max-mb"
+          />
+        </label>
       </div>
-      {#if dataRootSizeError}
+    </div>
+  </SettingsField>
+
+  <SettingsField anchor="storage.modMetadataCache">
+    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
+      <h3 class="font-medium text-sm text-primary">
+        {$t('settings.general.modMetadataCache.title')}
+      </h3>
+      <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
+      {#if ttlError}
+        <p class="text-xs text-danger">{ttlError}</p>
+      {/if}
+      <div class="flex flex-wrap items-end gap-4">
+        {#if ttlSaving}
+          <div class="flex items-center text-xs text-secondary">
+            <Spinner size="sm" />
+          </div>
+        {/if}
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-primary">
+            {$t('settings.general.modMetadataCache.ttlLabel')}
+          </span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            class="border rounded px-2 py-1 text-sm w-28"
+            bind:value={modTtlDays}
+            onchange={() => void saveTtlTracked()}
+            data-testid="mod-metadata-ttl-days"
+          />
+        </label>
+      </div>
+      <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.ttlHint')}</p>
+    </div>
+  </SettingsField>
+
+  <SettingsField anchor="storage.dataLocation">
+    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
+      <h3 class="font-medium text-sm text-primary">
+        {$t('settings.storage.dataLocation.heading')}
+      </h3>
+      <p class="text-xs text-muted">{$t('settings.storage.dataLocation.description')}</p>
+
+      {#if dataLocation.error}
         <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-          {dataRootSizeError}
+          {dataLocation.error}
         </div>
       {/if}
-    {:else}
-      <p class="text-xs text-muted">…</p>
-    {/if}
-
-    <div class="flex gap-2">
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        disabled={planning || dataLocation.status?.fell_back}
-        onclick={() => void pickLocation()}
-      >
-        {$t('settings.storage.dataLocation.changeBtn')}
-      </button>
-      {#if dataLocation.status?.configured}
-        <!-- Deliberately NOT disabled while fell_back: a reset in that state
-             is pointer-only (the redirect is removed, nothing is copied) and
-             is the ONLY in-app recovery from a configured folder that will
-             never come back. -->
-        <button type="button" class="btn-secondary btn-sm" onclick={requestReset}>
-          {$t('settings.storage.dataLocation.resetBtn')}
-        </button>
+      {#if migrationError}
+        <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
+          {migrationError}
+        </div>
       {/if}
+
+      {#if dataLocation.status?.fell_back}
+        <div
+          class="rounded-xl border border-warning-text bg-warning-bg p-3 text-sm text-warning-text"
+          role="alert"
+        >
+          {$t('settings.storage.dataLocation.fallbackNotice', {
+            path: dataLocation.status.configured ?? '',
+          })}
+        </div>
+      {/if}
+
+      {#if dataLocation.status}
+        <div class="text-sm">
+          <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
+          <span class="font-mono text-xs selectable ml-1">{dataLocation.status.effective}</span>
+        </div>
+        <div class="text-sm flex items-center gap-1">
+          <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
+          {#if dataRootSize === null && !dataRootSizeError}
+            <Spinner size="sm" class="text-muted" />
+          {:else}
+            <span class="font-medium ml-1"
+              >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
+            >
+          {/if}
+        </div>
+        {#if dataRootSizeError}
+          <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
+            {dataRootSizeError}
+          </div>
+        {/if}
+      {:else}
+        <p class="text-xs text-muted">…</p>
+      {/if}
+
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          disabled={planning || dataLocation.status?.fell_back}
+          onclick={() => void pickLocation()}
+        >
+          {$t('settings.storage.dataLocation.changeBtn')}
+        </button>
+        {#if dataLocation.status?.configured}
+          <!-- Deliberately NOT disabled while fell_back: a reset in that state
+               is pointer-only (the redirect is removed, nothing is copied) and
+               is the ONLY in-app recovery from a configured folder that will
+               never come back. -->
+          <button type="button" class="btn-secondary btn-sm" onclick={requestReset}>
+            {$t('settings.storage.dataLocation.resetBtn')}
+          </button>
+        {/if}
+      </div>
     </div>
-  </div>
+  </SettingsField>
 </div>
 
 {#if pendingTarget !== null && (!migrating || pendingIsAdopt)}

@@ -8,6 +8,7 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
+  import SettingsField from './SettingsField.svelte';
 
   const version = pkg.version;
 
@@ -22,18 +23,20 @@
   <h3 class="text-base font-semibold text-primary">{$t('settings.about.title')}</h3>
   <p class="font-medium text-primary">Lucerna v{version}</p>
   <p class="text-secondary">{$t('settings.about.disclaimer')}</p>
-  <p>
-    <button
-      type="button"
-      class="btn-link inline-flex items-center gap-1"
-      use:tooltip={REPO_URL}
-      aria-label={$t('settings.about.openRepoLabel', { url: REPO_URL })}
-      onclick={openRepo}
-    >
-      {$t('settings.about.viewOnGitHub')}
-      <Icon name="externalLink" size={14} />
-    </button>
-  </p>
+  <SettingsField anchor="about.repo">
+    <p>
+      <button
+        type="button"
+        class="btn-link inline-flex items-center gap-1"
+        use:tooltip={REPO_URL}
+        aria-label={$t('settings.about.openRepoLabel', { url: REPO_URL })}
+        onclick={openRepo}
+      >
+        {$t('settings.about.viewOnGitHub')}
+        <Icon name="externalLink" size={14} />
+      </button>
+    </p>
+  </SettingsField>
   <p class="text-xs text-muted">
     {$t('settings.about.license')}
   </p>
