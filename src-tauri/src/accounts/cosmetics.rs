@@ -78,6 +78,8 @@ async fn fetch_or_cache_cape(dir: &std::path::Path, url: &str) -> Option<String>
         return None;
     }
     let _ = std::fs::create_dir_all(dir);
+    // Best-effort disk cache: the bytes just fetched are returned either way, so
+    // a failed write costs one re-fetch next session, never a wrong cape.
     let _ = std::fs::write(&file, &resp.body);
     Some(b64(&resp.body))
 }

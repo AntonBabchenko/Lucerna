@@ -43,6 +43,10 @@ fn seed_server_properties(runtime: &Path, name: &str) {
     if !motd.is_empty() {
         props.set("motd", motd);
     }
+    // Best-effort seed: every reader of the port falls back to the same
+    // DEFAULT_SERVER_PORT when the file is absent, so a failed write costs the
+    // chosen MOTD — not the port, connectivity, or firewall help. Minecraft
+    // writes a full server.properties on first boot regardless.
     let _ = std::fs::write(&path, props.serialize());
 }
 

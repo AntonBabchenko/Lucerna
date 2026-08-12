@@ -22,7 +22,7 @@ Every feature follows this sequence:
 2. `writing-plans` skill — produces a plan at `docs/superpowers/plans/YYYY-MM-DD-<topic>-plan.md`.
 3. `test-driven-development` skill — required for core logic (authentication, version resolution, manifest verification, launch pipeline). Pragmatic for UI: test behavior the user can name, not pixel polish.
 4. `verification-before-completion` skill — run the dev build, exercise the feature, confirm before claiming done.
-5. `requesting-code-review` skill (or `code-reviewer` subagent) — before merge.
+5. `requesting-code-review` skill (or `code-reviewer` subagent) — before merge. Check every fallback the change introduces or touches against **Fallback discipline** below.
 6. Commit and push.
 
 No "small fix" exception. A bugfix is still a feature in this sense — it still gets a spec and a plan, however short.
@@ -86,6 +86,17 @@ docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, T
 
 Persistent project memory lives outside the repository, in the agent's local profile — it is not tracked here.
 
+## Fallback discipline
+
+A fallback is a second path taken when the first is unavailable. Good ones are invisible and safe; bad ones invent a confident answer out of ignorance. Every fallback must answer yes to all four:
+
+1. **Direction** — when the check could not be performed, does it resolve to the restrictive answer?
+2. **Discrimination** — does it tell "absent" apart from "could not tell"? (`Path::exists()` does not — it reports `false` for any stat failure.)
+3. **Honesty** — does what the user sees describe what actually happened?
+4. **Recovery path** — if it runs because something already failed, is its own result checked?
+
+Question 4 is the one that bites: a swallowed error on a rollback or cleanup is where the user's data is in flight. `structural_no_blind_err_swallow.rs` enforces only part of this — a swallowed *removal* on a recovery path, and a promised-but-missing log, are invisible to it. The rest is review's job.
+
 ## Forbidden patterns (grep-able quick reference)
 
 These distill the principles from `docs/PRINCIPLES.md` and `docs/SECURITY.md` into stop-words. If a PR would introduce any of these, the answer is no:
@@ -100,3 +111,5 @@ These distill the principles from `docs/PRINCIPLES.md` and `docs/SECURITY.md` in
 - Any HTTP client construction outside the `network::` module (caught by `src-tauri/tests/structural_no_raw_http.rs`).
 - Any subprocess spawn outside the `process::` module (caught by `src-tauri/tests/structural_no_raw_spawn.rs`).
 - Any write into an instance's or world's content directories outside the `mods::store` chokepoint — instance mod jars and world datapack links are hardlinks to one shared physical file, so an in-place write (including `fs::copy`, which truncates its destination) corrupts every instance or world using it (caught by `src-tauri/tests/structural_no_inplace_mods_write.rs`, which scans `src/mods/`, `src/datapacks/`, and `src/worlds/`).
+- An `Err` arm whose block is empty. Add a match guard naming the error you mean (`Err(e) if e.kind() == NotFound => {}` is fine — that is discrimination), or put the reason **inside** the block (caught by `src-tauri/tests/structural_no_blind_err_swallow.rs`).
+- Discarding the result of a filesystem `rename` or `write` — via `let _ =` or `.ok()` — without a justification comment. Same rule as `unwrap()`: a discarded rename means the move may not have happened and nobody will know (same guard).

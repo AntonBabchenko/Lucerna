@@ -9,6 +9,9 @@ const FILE: &str = "last-exit";
 /// Persist the process exit `code` under `<runtime>/last-exit`. Best-effort.
 pub fn write(runtime: &Path, code: i32) {
     let _ = std::fs::create_dir_all(runtime);
+    // Best-effort: `read` already treats an absent file as "no recorded exit",
+    // which is exactly what a failed write leaves behind — a missing badge, not
+    // a wrong one.
     let _ = std::fs::write(runtime.join(FILE), code.to_string());
 }
 
