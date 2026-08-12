@@ -504,8 +504,6 @@
         "emptyTitle": "Экспортировать пока нечего",
         "emptyBody": "Вы ещё ничего не перевели на этот язык, так что делиться нечем. Переведите несколько строк и возвращайтесь сюда.",
         "selectedCount": "Выбрано {selected} из {total}",
-        "selectAll": "Выбрать все",
-        "clearAll": "Снять все",
         "searchPlaceholder": "Поиск модов…",
         "exportHint": "Как обычный ресурспак файл рассчитан на Minecraft {version}; на других версиях импортируйте его через Lucerna.",
         "noteLabel": "Подпись или автор (необязательно)",
@@ -660,8 +658,6 @@
       "nameLabel": "Имя профиля",
       "importBtn": "Импортировать",
       "back": "Назад",
-      "selectAll": "Выбрать все",
-      "deselectAll": "Снять выбор",
       "imported": "Импортировано: {name}",
       "failed": "Ошибка импорта из лаунчера",
       "progress": "Импорт «{name}»…",
@@ -846,7 +842,6 @@
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
       "empty": "В этом профиле пока нет установленных модов.",
-      "selectAll": "Выбрать все",
       "selectedCount": "Выбрано: {count}",
       "bulkClear": "Снять выделение",
       "bulkUpdateTitle": "Сначала запустите «Проверить обновления»; обновить можно только моды с ожидающим обновлением",
@@ -1120,8 +1115,6 @@
         "groupOther": "Прочее",
         "groupHeader": "{label} ({count} · {size})",
         "groupHeaderNoSize": "{label} ({count})",
-        "selectAll": "Выбрать всё",
-        "deselectAll": "Снять всё",
         "selectionCount": "Выбрано {selected} из {total}",
         "requiredBadge": "обязательный",
         "optionalBadge": "необязательный",
@@ -3561,5 +3554,8 @@
       "emptyFiltered": "Нет файлов, соответствующих фильтру.",
       "copyReport": "Копировать отчёт"
     }
+  },
+  "ui": {
+    "selectAll": "Выбрать все"
   }
 }

@@ -13,6 +13,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon, type IconName } from '$lib/ui/icons';
@@ -437,14 +438,12 @@
           <span class="text-sm font-medium text-secondary"
             >{$t('instances.import.contentLabel')}</span
           >
-          <button
-            type="button"
-            class="btn-tertiary text-xs"
-            onclick={toggleAll}
-            data-testid="toggle-all-btn"
-          >
-            {allSelected ? $t('instances.import.deselectAll') : $t('instances.import.selectAll')}
-          </button>
+          <SelectAllCheckbox
+            {allSelected}
+            indeterminate={selected.size > 0 && !allSelected}
+            onToggle={() => toggleAll()}
+            testid="toggle-all-btn"
+          />
         </div>
 
         {#if availableCategories.length === 0}

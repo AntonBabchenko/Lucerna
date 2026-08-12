@@ -31,6 +31,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -84,6 +85,26 @@
   const checkedReplaceNames = $derived(
     new Set((plan?.replaceable ?? []).filter((r) => replaceChecked.has(r.sha1)).map((r) => r.name)),
   );
+
+  // Master checkbox over the replaceable section (maintainer request during the
+  // Forge→Fabric smoke: ten rows, no way to take them all at once). Checking it
+  // checks every replace row — the mandatory new-dependency rows then follow
+  // through the existing needed_by force-include; unchecking releases them.
+  const allReplaceChecked = $derived(
+    (plan?.replaceable.length ?? 0) > 0 &&
+      (plan?.replaceable ?? []).every((r) => replaceChecked.has(r.sha1)),
+  );
+  const someReplaceChecked = $derived(
+    (plan?.replaceable ?? []).some((r) => replaceChecked.has(r.sha1)),
+  );
+  function toggleAllReplace(checkAll: boolean) {
+    if (!plan) return;
+    if (checkAll) {
+      for (const r of plan.replaceable) replaceChecked.add(r.sha1);
+    } else {
+      for (const r of plan.replaceable) replaceChecked.delete(r.sha1);
+    }
+  }
   function depRequiredByReplace(row: NewDependencyRow_Serialize): boolean {
     return row.needed_by.some((n) => checkedReplaceNames.has(n));
   }
@@ -290,9 +311,17 @@
       {:else}
         {#if plan.replaceable.length > 0}
           <section class="mb-4" data-testid="migration-replaceable-section">
-            <h3 class="mb-2 text-xs uppercase tracking-wide text-muted">
-              {$t('mods.migration.replaceableHeading', { count: plan.replaceable.length })}
-            </h3>
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <h3 class="text-xs uppercase tracking-wide text-muted">
+                {$t('mods.migration.replaceableHeading', { count: plan.replaceable.length })}
+              </h3>
+              <SelectAllCheckbox
+                allSelected={allReplaceChecked}
+                indeterminate={someReplaceChecked && !allReplaceChecked}
+                onToggle={toggleAllReplace}
+                testid="migration-replace-select-all"
+              />
+            </div>
             <ul class="space-y-1">
               {#each plan.replaceable as row (row.sha1)}
                 <li

@@ -132,6 +132,26 @@ describe('MigrationPlanDialog', () => {
     expect(screen.getByTestId('migration-apply-disabled-reason').textContent).toBe('');
   });
 
+  it('select-all checks every replaceable row and clears them again', async () => {
+    // Maintainer request during the Forge→Fabric smoke: ten replaceable rows
+    // and no way to take them all at once.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-replace-select-all')).toBeTruthy());
+    const master = screen.getByTestId('migration-replace-select-all') as HTMLInputElement;
+    const applyBtn = screen.getByTestId('migration-apply-btn') as HTMLButtonElement;
+    const row = screen.getByRole('checkbox', { name: 'Biomes O Plenty' }) as HTMLInputElement;
+
+    await fireEvent.click(master);
+    expect(row.checked).toBe(true);
+    expect(applyBtn.disabled).toBe(false);
+
+    await fireEvent.click(master);
+    expect(row.checked).toBe(false);
+    expect(applyBtn.disabled).toBe(true);
+  });
+
   it('applies the checked reinstall and keeps every undecided stranded mod as-is', async () => {
     // The user reinstalls the top-section mod and never touches the stranded
     // section. Its rows must be sent as `keep` (a no-op that leaves the jar in

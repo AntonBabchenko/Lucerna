@@ -25,6 +25,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import DialogTitle from '$lib/ui/DialogTitle.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
@@ -70,6 +71,11 @@
   });
 
   const selected = $derived(namespaces.filter((ns) => checked[ns]));
+  // Select-all is scoped to the VISIBLE (filtered) rows, matching what
+  // `setVisible` mutates — with a search active, «выбрать все» takes the
+  // matches, not the whole list.
+  const allVisibleSelected = $derived(visible.length > 0 && visible.every((ns) => checked[ns]));
+  const someVisibleSelected = $derived(visible.some((ns) => checked[ns]));
 
   /** Bulk actions act on what the user can see. Ticking rows hidden behind a
    *  filter would be a change they cannot audit. */
@@ -169,24 +175,12 @@
           total: namespaces.length,
         })}
       </span>
-      <span class="flex gap-1">
-        <button
-          type="button"
-          class="btn-ghost btn-xs"
-          data-testid="share-export-select-all"
-          onclick={() => setVisible(true)}
-        >
-          {$t('instance.l10n.share.selectAll')}
-        </button>
-        <button
-          type="button"
-          class="btn-ghost btn-xs"
-          data-testid="share-export-clear"
-          onclick={() => setVisible(false)}
-        >
-          {$t('instance.l10n.share.clearAll')}
-        </button>
-      </span>
+      <SelectAllCheckbox
+        allSelected={allVisibleSelected}
+        indeterminate={someVisibleSelected && !allVisibleSelected}
+        onToggle={(checkAll) => setVisible(checkAll)}
+        testid="share-export-select-all"
+      />
     </div>
 
     <div class="flex max-h-80 flex-col gap-1 overflow-y-auto">

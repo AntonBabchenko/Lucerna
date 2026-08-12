@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import type { BulkAction } from '$lib/mods/installed/installed-selection.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import { tooltip } from '$lib/ui/tooltip';
 
   let {
@@ -36,13 +37,11 @@
 </script>
 
 <div class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-subtle/40 text-sm">
-  <input
-    type="checkbox"
-    class="flex-shrink-0"
-    aria-label={$t('mods.installed.selectAll')}
-    checked={allSelected}
+  <SelectAllCheckbox
+    {allSelected}
     {indeterminate}
-    onchange={(e) => onToggleAll((e.currentTarget as HTMLInputElement).checked)}
+    onToggle={onToggleAll}
+    testid="bulk-select-all"
   />
   {#if selectedCount > 0}
     <span class="font-medium text-accent"

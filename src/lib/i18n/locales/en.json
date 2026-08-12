@@ -504,8 +504,6 @@
         "emptyTitle": "Nothing to export yet",
         "emptyBody": "You have not translated anything into this language, so there is nothing of yours to share. Translate a few strings first, then come back here.",
         "selectedCount": "{selected} of {total} selected",
-        "selectAll": "Select all",
-        "clearAll": "Clear",
         "searchPlaceholder": "Search mods…",
         "exportHint": "As a plain resource pack the file targets Minecraft {version}; on other versions, import it through Lucerna instead.",
         "noteLabel": "Label / author (optional)",
@@ -660,8 +658,6 @@
       "nameLabel": "Instance name",
       "importBtn": "Import",
       "back": "Back",
-      "selectAll": "Select all",
-      "deselectAll": "Deselect all",
       "imported": "Imported {name}",
       "failed": "Launcher import failed",
       "progress": "Importing {name}…",
@@ -846,7 +842,6 @@
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",
-      "selectAll": "Select all",
       "selectedCount": "{count} selected",
       "bulkClear": "Clear",
       "bulkUpdateTitle": "Run \"Check for updates\" first; only mods with a pending update can be updated",
@@ -1120,8 +1115,6 @@
         "groupOther": "Other",
         "groupHeader": "{label} ({count} · {size})",
         "groupHeaderNoSize": "{label} ({count})",
-        "selectAll": "Select all",
-        "deselectAll": "Deselect all",
         "selectionCount": "{selected} of {total} selected",
         "requiredBadge": "Required",
         "optionalBadge": "Optional",
@@ -3535,5 +3528,8 @@
       "emptyFiltered": "No files match this filter.",
       "copyReport": "Copy report"
     }
+  },
+  "ui": {
+    "selectAll": "Select all"
   }
 }

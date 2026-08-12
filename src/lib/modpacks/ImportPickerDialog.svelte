@@ -3,6 +3,7 @@
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
+  import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import { Icon } from '$lib/ui/icons';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
@@ -200,11 +201,12 @@
         total: allShas.length,
       })}</span
     >
-    <button type="button" class="btn-tertiary text-xs" onclick={toggleAll}>
-      {allSelected
-        ? $t('modpacks.import.picker.deselectAll')
-        : $t('modpacks.import.picker.selectAll')}
-    </button>
+    <SelectAllCheckbox
+      {allSelected}
+      indeterminate={selectedShas.length > 0 && !allSelected}
+      onToggle={() => toggleAll()}
+      testid="picker-select-all"
+    />
   </div>
 
   <div class="flex-1 overflow-y-auto p-4 space-y-2">
