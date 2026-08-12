@@ -41,7 +41,12 @@
   // Browse/Installed sub-tabs, shared by all three kinds including datapacks.
   // The tab-level dropzone (visible in both sub-views, client parity) owns
   // ALL local-file installs.
-  let { serverId }: { serverId: string } = $props();
+  //
+  // `visible` mirrors the prop ServersPanel itself takes from +page.svelte:
+  // the whole servers panel stays MOUNTED (class:hidden) while the launcher is
+  // in client mode, so the tour at the bottom of this file must be gated on it
+  // — see the comment there.
+  let { serverId, visible }: { serverId: string; visible: boolean } = $props();
 
   const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
   const running = $derived(server?.running ?? false);
@@ -319,7 +324,14 @@
 <!-- Both steps anchor inside the {:else} branch above, so the tour may only
      mount once the branch is settled: `gateResolved` keeps it off the
      optimistic frame (see the gate effect), and `kinds.length` keeps it off the
-     empty state, whose markup carries neither anchor. -->
-{#if gateResolved && kinds.length > 0}
+     empty state, whose markup carries neither anchor.
+     `visible` is the same rule ServersPanel applies to its own two tours: the
+     servers panel stays mounted (display:none) in client mode, so without it a
+     tour could fire — or keep running — with nothing on screen. Both halves
+     matter, because the gate is REACTIVE: a mode switch while the tour is up
+     unmounts it here, and ContextualTour's teardown hands the screen back
+     (module claim + body flag together). Left active off-screen it would
+     silently swallow every modal's Escape and every later tour's mount. -->
+{#if visible && gateResolved && kinds.length > 0}
   <ContextualTour id="serverAddons" steps={SERVER_ADDONS_STEPS} />
 {/if}

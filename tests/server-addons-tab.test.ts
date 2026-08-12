@@ -64,6 +64,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }));
 
 import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
+import { isPresent } from '$lib/onboarding/tour-presence';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
@@ -122,19 +123,19 @@ describe('ServerAddonsTab', () => {
 
   it('fabric server offers Mods + Datapacks kinds', async () => {
     await seed([makeServer('a', false, 'fabric')]);
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     const tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Mods', 'Datapacks (Beta)']);
   });
 
   it('paper server offers Plugins + Datapacks; vanilla offers Datapacks only (both with sub-tabs)', async () => {
     await seed([makeServer('a', false, 'paper')]);
-    const r = render(ServerAddonsTab, { serverId: 'a' });
+    const r = render(ServerAddonsTab, { serverId: 'a', visible: true });
     let tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Plugins', 'Datapacks (Beta)']);
     r.unmount();
     await seed([makeServer('b', false, 'vanilla')]);
-    render(ServerAddonsTab, { serverId: 'b' });
+    render(ServerAddonsTab, { serverId: 'b', visible: true });
     tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Datapacks (Beta)']);
     // The datapack kind now gets the same Browse/Installed sub-tab row as
@@ -148,7 +149,7 @@ describe('ServerAddonsTab', () => {
     // datapack is gated off too.
     mcVersionSupportsDatapacks.mockResolvedValue(false);
     await seed([makeServer('c', false, 'vanilla', '1.12.2')]);
-    render(ServerAddonsTab, { serverId: 'c' });
+    render(ServerAddonsTab, { serverId: 'c', visible: true });
     await waitFor(() => expect(screen.queryByTestId('server-addons-no-kinds')).not.toBeNull());
     expect(screen.queryByTestId('server-addons-kind-switch')).toBeNull();
     expect(screen.queryByTestId('server-addons-subtabs')).toBeNull();
@@ -157,7 +158,7 @@ describe('ServerAddonsTab', () => {
 
   it('kind switch resets the sub-view to browse (Datapacks included)', async () => {
     await seed([makeServer('a', false, 'fabric')]);
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     const kindSwitch = () => within(screen.getByTestId('server-addons-kind-switch'));
     const subTabs = () => within(screen.getByTestId('server-addons-subtabs'));
 
@@ -191,7 +192,7 @@ describe('ServerAddonsTab', () => {
   it('a dropped payload for the active kind installs and clears the rune', async () => {
     await seed([makeServer('a', false, 'fabric')]);
     serverInstallLocal.mockResolvedValue({ status: 'ok', data: 'x.jar' });
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     droppedServerContent.value = { kind: 'mod', paths: ['C:/x.jar'] };
     await waitFor(() => expect(serverInstallLocal).toHaveBeenCalledWith('a', 'C:/x.jar'));
     expect(droppedServerContent.value).toBeNull();
@@ -199,7 +200,7 @@ describe('ServerAddonsTab', () => {
 
   it('a dropped payload for a DIFFERENT kind is left for its own pane', async () => {
     await seed([makeServer('a', false, 'fabric')]); // active kind = mod
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     droppedServerContent.value = { kind: 'datapack', paths: ['C:/pack.zip'] };
     await new Promise((r) => setTimeout(r, 50));
     expect(serverInstallDatapack).not.toHaveBeenCalled();
@@ -225,7 +226,7 @@ describe('ServerAddonsTab', () => {
       }),
     );
     await seed([makeServer('t1', false, 'vanilla', '1.9')]);
-    render(ServerAddonsTab, { serverId: 't1' });
+    render(ServerAddonsTab, { serverId: 't1', visible: true });
     await tick();
 
     // Gate pending: `supportsDatapacks` is optimistically true, so kinds is
@@ -258,10 +259,54 @@ describe('ServerAddonsTab', () => {
     // is the session's FIRST visit to a server on this version, exactly the
     // case the whole first-visit guard exists for.
     await seed([makeServer('t2', false, 'fabric', '1.20.4')]);
-    render(ServerAddonsTab, { serverId: 't2' });
+    render(ServerAddonsTab, { serverId: 't2', visible: true });
     // waitFor, not a fixed tick count: the mount is gated behind the IPC
     // promise, the effect re-flush, and ContextualTour's own onMount, so the
     // exact number of flushes is an implementation detail worth not pinning.
     await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+  });
+
+  // The servers panel is display:none — not unmounted — while the launcher is
+  // in client mode, so a tour firing in here would paint nothing, hold the
+  // contextual-tour claim (suppressing every later tour) and set the body flag
+  // that swallows every modal's Escape. `visible` is the same gate ServersPanel
+  // applies to its own two tours; this tab needs it because nothing else in its
+  // mount conditions knows which mode is on screen.
+  it('does not mount the tour while the panel is hidden, and still mounts it once shown', async () => {
+    localStorage.clear();
+    // A version untouched by every other test in this file: a cached gate
+    // answer would resolve synchronously and hide the async path this exercises.
+    await seed([makeServer('t3', false, 'fabric', '1.20.5')]);
+    const { rerender } = render(ServerAddonsTab, { serverId: 't3', visible: false });
+    // Let the gate IPC and every dependent effect settle: `gateResolved` and
+    // `kinds` are both satisfied here, so `visible` is the ONLY thing keeping
+    // the tour off screen.
+    await waitFor(() => expect(screen.queryByTestId('server-addons-kind-switch')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
+    // Suppressed, not burned: switching to servers mode must still get the tour.
+    expect(hasSeen('serverAddons')).toBe(false);
+
+    await rerender({ serverId: 't3', visible: true });
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+  });
+
+  it('hands the screen back when the panel is hidden mid-tour', async () => {
+    localStorage.clear();
+    await seed([makeServer('t4', false, 'fabric', '1.20.6')]);
+    const { rerender } = render(ServerAddonsTab, { serverId: 't4', visible: true });
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(true);
+
+    // The mode switch stays clickable under the tour (its dim is
+    // pointer-events:none), so this is a reachable sequence — and the tour must
+    // not survive it. Both halves of the presence claim have to go: the body
+    // flag (Escape routing, focus traps) AND the module-level claim, which has
+    // no reset path and would suppress every later contextual tour.
+    await rerender({ serverId: 't4', visible: false });
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
+    expect(isPresent()).toBe(false);
   });
 });
