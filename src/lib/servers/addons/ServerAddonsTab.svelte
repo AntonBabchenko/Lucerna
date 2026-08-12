@@ -29,6 +29,8 @@
   import ServerPluginBrowser from '$lib/servers/plugins/ServerPluginBrowser.svelte';
   import ServerDatapackBrowser from '$lib/servers/datapacks/ServerDatapackBrowser.svelte';
   import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
   import ServerModsInstalled from './ServerModsInstalled.svelte';
   import ServerPluginsInstalled from './ServerPluginsInstalled.svelte';
   import { kindsFor } from './addon-kinds';
@@ -55,15 +57,24 @@
   // pre-1.13 server would render the Datapacks tab for one frame on every
   // visit before the IPC answer lands and yanks it.
   let supportsDatapacks = $state(true);
+  // Whether the gate ANSWER has landed (cache hit or IPC return) for the
+  // current mc version. The tour mount at the bottom of this file must wait for
+  // it: the optimistic `true` default makes `kinds` transiently non-empty on a
+  // pre-1.13 vanilla server's first visit, and a tour that mounts on that one
+  // frame is unmount-burned the moment the real answer empties `kinds`.
+  let gateResolved = $state(false);
   $effect(() => {
     const mc = server?.mc_version ?? '';
-    supportsDatapacks = supportsDatapacksCache.get(mc) ?? true;
+    const cached = supportsDatapacksCache.get(mc);
+    supportsDatapacks = cached ?? true;
+    gateResolved = cached !== undefined;
     void (async () => {
       const v = await commands.mcVersionSupportsDatapacks(mc);
       // The user can switch servers while this is in flight.
       if ((server?.mc_version ?? '') !== mc) return;
       supportsDatapacksCache.set(mc, v);
       supportsDatapacks = v;
+      gateResolved = true;
     })();
   });
 
@@ -304,3 +315,11 @@
     {/if}
   {/if}
 </div>
+
+<!-- Both steps anchor inside the {:else} branch above, so the tour may only
+     mount once the branch is settled: `gateResolved` keeps it off the
+     optimistic frame (see the gate effect), and `kinds.length` keeps it off the
+     empty state, whose markup carries neither anchor. -->
+{#if gateResolved && kinds.length > 0}
+  <ContextualTour id="serverAddons" steps={SERVER_ADDONS_STEPS} />
+{/if}

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore, ServerWithStatus_Serialize } from '$lib/ipc/bindings';
@@ -62,6 +63,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn().mockResolvedValue(null),
 }));
 
+import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
@@ -101,6 +103,11 @@ async function seed(data: ServerWithStatus_Serialize[]) {
 describe('ServerAddonsTab', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
+    // The tab hosts the `serverAddons` contextual tour, which auto-fires on
+    // first visit. Seed it seen so its popover (and the Escape/focus handling
+    // that comes with it) cannot disturb the assertions below. The two tour
+    // tests at the bottom clear localStorage to opt back in.
+    markSeen('serverAddons');
     serverInstallLocal.mockReset();
     serverInstallPluginLocal.mockReset();
     serverInstallDatapack.mockReset();
@@ -198,5 +205,53 @@ describe('ServerAddonsTab', () => {
     expect(serverInstallDatapack).not.toHaveBeenCalled();
     // The payload stays for the pane that owns the kind.
     expect(droppedServerContent.value).toEqual({ kind: 'datapack', paths: ['C:/pack.zip'] });
+  });
+
+  it('does not mount the tour before the datapack gate answer lands (pre-1.13 vanilla burn)', async () => {
+    // Unlike every other test here, this one needs the tour UNSEEN.
+    localStorage.clear();
+    // '1.9' is a version no other test in this file uses, and that matters:
+    // `supportsDatapacksCache` in ServerAddonsTab is module-level and survives
+    // between tests in the same file. A version some earlier test already
+    // answered for would make the gate resolve synchronously from cache, and
+    // there would be no pending window left for this test to hold open.
+    let resolveGate!: (v: boolean) => void;
+    // Deliberately NOT `mockReturnValueOnce`: were the gate effect ever to run
+    // twice, beforeEach's `mockResolvedValue(true)` fallback would answer the
+    // second call and quietly close the very window under test.
+    mcVersionSupportsDatapacks.mockReturnValue(
+      new Promise<boolean>((res) => {
+        resolveGate = res;
+      }),
+    );
+    await seed([makeServer('t1', false, 'vanilla', '1.9')]);
+    render(ServerAddonsTab, { serverId: 't1' });
+    await tick();
+
+    // Gate pending: `supportsDatapacks` is optimistically true, so kinds is
+    // ['datapack'] and both tour anchors ARE on screen — the tour would have
+    // something to point at. It must still not fire: when the real answer
+    // (false) lands, kinds empties, the host block unmounts, and
+    // ContextualTour's destroy path marks the tour seen. Burned forever, on
+    // exactly the server where it should never have appeared.
+    expect(screen.queryByTestId('server-addons-kind-switch')).not.toBeNull();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    resolveGate(false);
+    await tick();
+    await tick();
+
+    expect(screen.queryByTestId('server-addons-no-kinds')).not.toBeNull();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('serverAddons')).toBe(false);
+  });
+
+  it('mounts the tour once the gate resolves with kinds present', async () => {
+    localStorage.clear();
+    await seed([makeServer('t2', false, 'fabric')]);
+    render(ServerAddonsTab, { serverId: 't2' });
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
   });
 });

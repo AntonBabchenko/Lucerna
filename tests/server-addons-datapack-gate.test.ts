@@ -1,5 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 import { kindsFor } from '$lib/servers/addons/addon-kinds';
+
+// The Add-ons tab hosts the `serverAddons` contextual tour. Nothing here
+// renders it today (these are pure `kindsFor` assertions), but the seed keeps
+// the file safe to grow into a rendering test without a tour popover suddenly
+// sitting on top of the assertions.
+beforeEach(() => markSeen('serverAddons'));
 
 describe('kindsFor', () => {
   test('a 1.21 fabric server offers mods and datapacks', () => {
