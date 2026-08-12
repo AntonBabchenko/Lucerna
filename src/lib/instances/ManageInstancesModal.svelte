@@ -7,7 +7,6 @@
     type VersionEntry,
     type Error as IpcError,
     type MemoryBounds,
-    type ModLocalCompat,
   } from '$lib/ipc/bindings';
   import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
@@ -190,7 +189,15 @@
   // platform query: the platform answers "does this PROJECT have a build for
   // (mc, loader)?", which every mod in the original bug report could answer
   // yes to even though the FILE on disk was still the old build.
-  let compatRows = $state<ModLocalCompat[] | null>(null);
+  // A mc/loader change happened for the selected instance — show whatever the
+  // SHARED scan store currently says. Deliberately NOT a snapshot of
+  // `compatScanEntries()` (spec D6): with rapid loader switching, whichever
+  // superseded flow resumed last wrote its stale copy — often the empty
+  // mid-flight store — and the warning froze into silence for every
+  // subsequent click. Reading through makes a late-landing scan fill the
+  // summary in reactively and turns dropped writes harmless, the same
+  // read-through precedent instance-stats already follows (#332).
+  let compatChecked = $state(false);
   // Set when the compat scan could not be computed. `ensureCompatScan`
   // absorbs an ordinary backend error itself (keeps the previous scan in
   // place, by design — see compat-scan.svelte's doc comment), so this can
@@ -201,7 +208,7 @@
   // agree on exactly when there is something to review — computing
   // `compatSummaryFromScan` twice risked the two drifting apart.
   let compatWarningText = $derived(
-    compatRows !== null ? compatSummaryFromScan(compatRows, compatRows.length) : null,
+    compatChecked ? compatSummaryFromScan(compatScanEntries(), compatScanEntries().length) : null,
   );
   // Opens MigrationPlanDialog for `selected`. The compat summary above tells
   // the user something is wrong; this is where they act on it.
@@ -209,7 +216,7 @@
   // Reset compat state when the selected instance changes.
   $effect(() => {
     void selectedId;
-    compatRows = null;
+    compatChecked = false;
     compatCheckFailed = false;
     savedField = null;
   });
@@ -481,16 +488,18 @@
     try {
       // force: true — the mod set didn't change the scan key, so an unforced
       // call would be deduplicated away against a scan from before this
-      // MC/loader change.
+      // MC/loader change. No row copy here (spec D6): the summary derives
+      // from the shared store, so whichever concurrent change's scan lands
+      // LAST is what the user reads, regardless of which flow resumes last.
       await ensureCompatScan(id, mc, loader, { force: true });
       if (isStale(id)) return;
-      compatRows = compatScanEntries();
+      compatChecked = true;
       compatCheckFailed = false;
     } catch {
       // ensureCompatScan absorbs an ordinary backend error and keeps the
       // previous scan in place; reaching here means the IPC call itself threw.
       if (isStale(id)) return;
-      compatRows = null;
+      compatChecked = false;
       compatCheckFailed = true;
     }
   }
