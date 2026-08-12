@@ -16,13 +16,17 @@
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
 
   let {
-    body,
+    body = undefined,
+    paragraphs = undefined,
     triggerAriaLabel,
     triggerTitle = undefined,
     closeAriaLabel,
     width = 260,
   }: {
-    body: string;
+    /** Single-paragraph help text. Provide exactly one of `body` / `paragraphs`. */
+    body?: string | undefined;
+    /** Multi-paragraph help text (concept popovers). */
+    paragraphs?: string[] | undefined;
     triggerAriaLabel: string;
     triggerTitle?: string | undefined;
     closeAriaLabel: string;
@@ -103,7 +107,15 @@
       <div class="absolute top-1 right-1">
         <CloseButton onClick={() => (open = false)} ariaLabel={closeAriaLabel} />
       </div>
-      <p class="text-xs text-secondary leading-snug pr-6">{body}</p>
+      {#if paragraphs}
+        <div class="space-y-2 pr-6">
+          {#each paragraphs as para (para)}
+            <p class="text-xs text-secondary leading-snug">{para}</p>
+          {/each}
+        </div>
+      {:else}
+        <p class="text-xs text-secondary leading-snug pr-6">{body}</p>
+      {/if}
     </div>
   {/if}
 </div>
