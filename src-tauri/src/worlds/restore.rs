@@ -6,6 +6,78 @@ use crate::worlds::{
 };
 use chrono::Utc;
 
+/// Prefix of the directory that holds the LIVE world while a Replace restore
+/// swaps the extract into its place.
+///
+/// The world folder is embedded in the name — `.tmp-restoring-<world>-<n>` — so
+/// a directory left behind by a restore that could not put the world back can be
+/// recognised and offered for recovery. Without it the bytes would be
+/// unattributable. A sidecar file would have been the obvious alternative and is
+/// the wrong one: writing into a world's own tree is what
+/// `structural_no_inplace_mods_write` exists to stop.
+pub(crate) const TMP_RESTORING_PREFIX: &str = ".tmp-restoring-";
+const STAGE_PREFIX: &str = ".tmp-restore-stage-";
+
+/// How many `-<n>` candidates to try before giving up. Reaching this means ~64
+/// leaked directories under one `saves/`, i.e. something is deeply wrong.
+const MAX_STAGE_CANDIDATES: usize = 64;
+
+/// A claimed staging directory, plus the name reserved to park the live world.
+pub(crate) struct Stage {
+    /// Created and owned by this call.
+    pub stage: std::path::PathBuf,
+    /// Reserved by name only — consumed later by a rename.
+    pub tmp: std::path::PathBuf,
+}
+
+/// Claim a staging directory and reserve the matching name for the live world.
+///
+/// The stage is claimed with `create_dir`, NOT `create_dir_all`: a colliding name
+/// fails `AlreadyExists`, which is this loop's "try the next candidate". That is
+/// atomic. `create_dir_all` *succeeds* on an existing directory, so two
+/// concurrent restores would extract into one stage and the extra-root check
+/// would then accuse both users' perfectly good backups of having an unexpected
+/// root.
+///
+/// The tmp name can only be probed, because a rename consumes it four steps
+/// later. `try_exists` is used rather than `exists` because `exists()` reports
+/// `false` for ANY stat failure — reading "could not tell" as "free", in the
+/// permissive direction. That race is narrowed, not closed; closing it needs a
+/// lock held over `saves/` for the whole operation.
+///
+/// Nothing here ever deletes a candidate. A `.tmp-restoring-*` may be a previous
+/// run's stranded world — the user's only copy.
+pub(crate) fn claim_stage(saves: &std::path::Path, world_folder: &str) -> Result<Stage> {
+    for n in 0..MAX_STAGE_CANDIDATES {
+        let stage = saves.join(format!("{STAGE_PREFIX}{world_folder}-{n}"));
+        let tmp = saves.join(format!("{TMP_RESTORING_PREFIX}{world_folder}-{n}"));
+        if tmp.try_exists().unwrap_or(true) {
+            continue;
+        }
+        match std::fs::create_dir(&stage) {
+            Ok(()) => return Ok(Stage { stage, tmp }),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(Error::io(stage.display().to_string(), e)),
+        }
+    }
+    Err(Error::io(
+        saves.display().to_string(),
+        format!("could not allocate a staging name after {MAX_STAGE_CANDIDATES} attempts"),
+    ))
+}
+
+/// Recover the world folder name from a `.tmp-restoring-<world>-<n>` directory
+/// name. `None` for anything that is not one of ours — including a staging
+/// directory, which holds extracted backup bytes rather than a world.
+pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
+    let rest = dir_name.strip_prefix(TMP_RESTORING_PREFIX)?;
+    let (world, n) = rest.rsplit_once('-')?;
+    if world.is_empty() || n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(world.to_string())
+}
+
 /// Public entrypoint. Resolves paths from the AppHandle then
 /// delegates to `restore_backup_at_saves`.
 pub async fn restore_backup(
@@ -259,6 +331,70 @@ mod tests {
             fs::write(&p, *bytes).unwrap();
         }
         (td, saves, backups)
+    }
+
+    #[test]
+    fn claim_stage_skips_taken_candidates() {
+        let td = tempdir().unwrap();
+        let saves = td.path().to_path_buf();
+        fs::create_dir_all(saves.join(".tmp-restore-stage-W-0")).unwrap();
+
+        let s = claim_stage(&saves, "W").unwrap();
+
+        assert!(
+            s.stage.ends_with(".tmp-restore-stage-W-1"),
+            "got {:?}",
+            s.stage
+        );
+        assert!(s.tmp.ends_with(".tmp-restoring-W-1"), "got {:?}", s.tmp);
+        assert!(s.stage.is_dir(), "the stage must be created, not just named");
+        assert!(
+            saves.join(".tmp-restore-stage-W-0").is_dir(),
+            "an existing candidate must never be deleted"
+        );
+    }
+
+    #[test]
+    fn claim_stage_skips_a_candidate_whose_tmp_name_is_taken() {
+        let td = tempdir().unwrap();
+        let saves = td.path().to_path_buf();
+        // A stranded world from an earlier run occupies the tmp name for n=0.
+        fs::create_dir_all(saves.join(".tmp-restoring-W-0")).unwrap();
+
+        let s = claim_stage(&saves, "W").unwrap();
+
+        assert!(s.tmp.ends_with(".tmp-restoring-W-1"), "got {:?}", s.tmp);
+        assert!(
+            saves.join(".tmp-restoring-W-0").is_dir(),
+            "a stranded world must never be deleted to free its name"
+        );
+    }
+
+    #[test]
+    fn claim_stage_gives_up_when_every_candidate_is_taken() {
+        let td = tempdir().unwrap();
+        let saves = td.path().to_path_buf();
+        for n in 0..MAX_STAGE_CANDIDATES {
+            fs::create_dir_all(saves.join(format!(".tmp-restore-stage-W-{n}"))).unwrap();
+        }
+        assert!(matches!(claim_stage(&saves, "W"), Err(Error::Io { .. })));
+    }
+
+    #[test]
+    fn tmp_dir_name_round_trips_the_world_folder() {
+        let td = tempdir().unwrap();
+        let saves = td.path().to_path_buf();
+        let s = claim_stage(&saves, "My-World").unwrap();
+        let name = s.tmp.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(world_folder_of_tmp_dir(&name).as_deref(), Some("My-World"));
+    }
+
+    #[test]
+    fn world_folder_of_tmp_dir_rejects_names_that_are_not_ours() {
+        assert_eq!(world_folder_of_tmp_dir("Survival"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-restore-stage-W-0"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-restoring-W"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-restoring--0"), None);
     }
 
     #[tokio::test]
