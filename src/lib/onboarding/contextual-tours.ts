@@ -1,6 +1,6 @@
 // src/lib/onboarding/contextual-tours.ts
 //
-// Per-surface one-shot tours (Manage / Logs / Modpacks / Worlds).
+// Per-surface one-shot tours — see ContextualTourId for the full list.
 // Each runs once on first open of its host surface, then sets a
 // localStorage key so it never reappears. Independent of the main
 // onboarding tour in state.svelte.ts.
@@ -18,7 +18,10 @@ export type ContextualTourId =
   | 'worlds'
   | 'servers'
   | 'serverManage'
-  | 'addons';
+  | 'addons'
+  | 'serverAddons'
+  | 'l10n'
+  | 'overview';
 
 const STORAGE_KEY_PREFIX = 'ftl.tour.';
 const STORAGE_KEY_SUFFIX = '.done';
@@ -31,10 +34,42 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
   logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
   modpacks: 'v1',
-  worlds: 'v3', // bumped 2026-06-23 — added the import-a-world step
+  worlds: 'v4', // bumped 2026-08-12 — the row now opens the Backups | Datapacks dialog
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
   serverManage: 'v3', // bumped 2026-07-31 — step 1 re-anchored to the sidebar Start/Stop
-  addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
+  addons: 'v2', // bumped 2026-08-12 — 4th kind (datapacks) + new library step; subtabs copy corrected
+  serverAddons: 'v1', // added 2026-08-12 — server Add-ons tab: kinds + drag-and-drop install
+  l10n: 'v1', // added 2026-08-12 — mod-localization surface: coverage, find-string, actions
+  overview: 'v1', // added 2026-08-12 — points at the localization row on the instance Overview
+};
+
+// FNV-1a 32-bit over the JSON of the FULL step objects (kind and disclaimerKey
+// participate — a chooser/disclaimer edit is a material step change too).
+// Recorded values live right here so any steps edit forces a diff beside the
+// version map and the "does this need a bump?" question gets asked (the #294
+// miss). tests/tour-fingerprint.test.ts recomputes and prints the new value on
+// mismatch.
+export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
+  const json = JSON.stringify(steps);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < json.length; i++) {
+    h ^= json.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
+  manage: '797d4f7f',
+  logs: '08499e92',
+  modpacks: '31786820',
+  worlds: '17315acc',
+  servers: '88a55cc7',
+  serverManage: '189b9426',
+  addons: '68ef3e7c',
+  serverAddons: '0b8f24b5',
+  l10n: 'e10b491b',
+  overview: '34bc85b6',
 };
 
 export function storageKey(id: ContextualTourId): string {
@@ -246,6 +281,15 @@ export const ADDONS_STEPS: ReadonlyArray<TourStep> = [
     anchor: 'below',
   },
   {
+    // Rides the same anchor as kindSwitch (precedent: three logs steps anchor
+    // logs-sidebar) — the datapack tab body only exists once that kind is
+    // selected, and the switch is the stable element the concept hangs off.
+    titleKey: 'onboarding.contextual.addons.datapackLibrary.title',
+    bodyKey: 'onboarding.contextual.addons.datapackLibrary.body',
+    targetSelector: '[data-tour-ctx="addons-kind-switch"]',
+    anchor: 'below',
+  },
+  {
     titleKey: 'onboarding.contextual.addons.subtabs.title',
     bodyKey: 'onboarding.contextual.addons.subtabs.body',
     targetSelector: '[data-tour-ctx="addons-subtabs"]',
@@ -259,6 +303,64 @@ export const ADDONS_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
+// Server Add-ons tab (ServerAddonsTab). Mounted gated on the datapack-gate
+// answer having LANDED and the kind list being non-empty — the optimistic
+// default would otherwise burn this tour on a pre-1.13 vanilla server's first
+// visit, where the kind switch it anchors renders with nothing to switch to.
+export const SERVER_ADDONS_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.serverAddons.kindSwitch.title',
+    bodyKey: 'onboarding.contextual.serverAddons.kindSwitch.body',
+    targetSelector: '[data-tour-ctx="server-addons-kind-switch"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverAddons.dropzone.title',
+    bodyKey: 'onboarding.contextual.serverAddons.dropzone.body',
+    targetSelector: '[data-tour-ctx="server-addons-dropzone"]',
+    anchor: 'below',
+  },
+];
+
+// Mod-localization surface. Mounted gated on the coverage fetch resolving
+// non-empty, so a zero-mod instance (reachable via Manage → Translations)
+// never burns the tour over the empty state — its first step anchors the
+// coverage list, which is exactly what an empty result does not render.
+export const L10N_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.l10n.coverage.title',
+    bodyKey: 'onboarding.contextual.l10n.coverage.body',
+    targetSelector: '[data-tour-ctx="l10n-coverage"]',
+    anchor: 'right',
+  },
+  {
+    titleKey: 'onboarding.contextual.l10n.search.title',
+    bodyKey: 'onboarding.contextual.l10n.search.body',
+    targetSelector: '[data-tour-ctx="l10n-search"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.l10n.actions.title',
+    bodyKey: 'onboarding.contextual.l10n.actions.body',
+    targetSelector: '[data-tour-ctx="l10n-actions"]',
+    anchor: 'below',
+  },
+];
+
+// Instance Overview — one step pointing at the localization row, the entry
+// point to the l10n surface. The host mount is REACTIVE on `!tourState.active`
+// (unlike every other host, which mounts once): Overview is the default tab,
+// so it is already mounted at startup racing initOnboarding, and a one-shot
+// mount check would either fire under the main tour or be lost entirely.
+export const OVERVIEW_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.overview.l10nRow.title',
+    bodyKey: 'onboarding.contextual.overview.l10nRow.body',
+    targetSelector: '[data-tour-ctx="overview-l10n"]',
+    anchor: 'below',
+  },
+];
+
 export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   manage: MANAGE_STEPS,
   logs: LOGS_STEPS,
@@ -267,6 +369,9 @@ export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   servers: SERVERS_STEPS,
   serverManage: SERVER_MANAGE_STEPS,
   addons: ADDONS_STEPS,
+  serverAddons: SERVER_ADDONS_STEPS,
+  l10n: L10N_STEPS,
+  overview: OVERVIEW_STEPS,
 };
 
 // Single source for iterating every contextual tour — derived from
@@ -276,9 +381,8 @@ export const ALL_CONTEXTUAL_TOUR_IDS = Object.keys(STEPS_BY_ID) as ContextualTou
 
 // Clear the "seen" flag for every contextual tour so each re-fires on the
 // next visit to its surface. The Settings "Replay onboarding" action calls
-// this; without it, replay restarts only the main tour and leaves the
-// per-surface tours (Manage / Logs / Modpacks / Worlds / Servers / server
-// detail) suppressed forever.
+// this; without it, replay restarts only the main tour and leaves every
+// per-surface tour (see ContextualTourId) suppressed forever.
 export function resetAllContextualTours(): void {
   for (const id of ALL_CONTEXTUAL_TOUR_IDS) {
     try {
