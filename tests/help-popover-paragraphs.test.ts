@@ -22,6 +22,25 @@ describe('HelpPopover paragraphs variant', () => {
     expect(ps[2].textContent).toBe('Third paragraph.');
   });
 
+  it('renders duplicate paragraph text without crashing (index-keyed each)', async () => {
+    render(HelpPopover, {
+      props: {
+        paragraphs: ['Same text.', 'Same text.'],
+        triggerAriaLabel: 'What is this?',
+        closeAriaLabel: 'Close help',
+      },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'What is this?' }));
+    const pop = document.getElementById(
+      screen.getByRole('button', { name: 'What is this?' }).getAttribute('aria-controls') ?? '',
+    );
+    expect(pop).not.toBeNull();
+    const ps = pop?.querySelectorAll('p') ?? [];
+    expect(ps.length).toBe(2);
+    expect(ps[0].textContent).toBe('Same text.');
+    expect(ps[1].textContent).toBe('Same text.');
+  });
+
   it('still renders the single-body variant', async () => {
     render(HelpPopover, {
       props: {

@@ -109,7 +109,9 @@
       </div>
       {#if paragraphs}
         <div class="space-y-2 pr-6">
-          {#each paragraphs as para (para)}
+          <!-- Index-keyed: paragraphs are ordered static text, and a text key
+               throws Svelte's each_key_duplicate when two paragraphs match. -->
+          {#each paragraphs as para, i (i)}
             <p class="text-xs text-secondary leading-snug">{para}</p>
           {/each}
         </div>
