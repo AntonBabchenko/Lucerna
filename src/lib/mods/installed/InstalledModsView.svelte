@@ -80,7 +80,6 @@
     () => instanceId,
     () => mcVersion,
     () => loader,
-    () => data.rows,
   );
   // Declared before `filters` because `hasIssue` reads it: the pre-flight is the
   // ONLY source of "this mod is a problem". The graph reports what the platform

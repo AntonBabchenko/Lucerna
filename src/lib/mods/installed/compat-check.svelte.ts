@@ -1,6 +1,11 @@
-import { commands, type LoaderKind, type ModSource } from '$lib/ipc/bindings';
+import { commands, type LoaderKind } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
+import {
+  compatScanEntries,
+  ensureCompatScan,
+  isOfflineMismatch,
+  offlineMismatchCount,
+} from '$lib/mods/compat-scan.svelte';
 
 // Tooltip hint descriptor. The component maps these to i18n strings (it owns the
 // instance loader/mc for interpolation).
@@ -11,10 +16,6 @@ export type CompatHint =
   | { key: 'platformLoader'; declared: string };
 
 type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
-// Minimal row shape the composable needs to live-query a platform suspect.
-type CompatRow = {
-  installed: { sha1: string; source: ModSource | null; project_id: string | null };
-};
 
 // Live verdicts, held once for the whole app and keyed by the FULL platform
 // triple each was computed against — `(instanceId, mc, loader, sha1)`.
@@ -53,14 +54,95 @@ let generation = 0;
  * remounts), so unit tests reset it between cases. */
 export function __resetLiveVerdictsForTests(): void {
   liveVerdicts = new Map();
+  liveInFlight = null;
   generation++;
+}
+
+// One in-flight full check per platform triple: both surfaces (the Overview's
+// refresh and the Installed tab's pipeline) ensure on the same triggers, and
+// joining the running command beats issuing a duplicate N-mod query burst.
+let liveInFlight: { key: string; promise: Promise<void> } | null = null;
+
+/**
+ * Ensure every platform mod of the current offline scan has a live verdict
+ * under this exact (instance, mc, loader) — the same full check the manual
+ * «Проверить совместимость» button runs (concurrency-bounded and version-
+ * cache-backed in the backend), executed at most once per triple: once every
+ * checkable mod is decided this is a pure store read. This is what makes
+ * live-only incompatibles (permissive file range, but the project publishes
+ * no build for the platform) surface on tab open and on the Overview instead
+ * of only after the button (maintainer request, 2026-08-12).
+ *
+ * Fire-and-forget safe WITHOUT a generation token: results are written under
+ * the triple they were queried FOR, so a call that outlives an instance
+ * switch lands its verdicts under the OLD triple, invisible to the new one.
+ *
+ * Offline behaviour: the backend maps per-mod query failures to `unknown`,
+ * which never flags AND marks the triple decided — no retry hammer while the
+ * network is down; the manual button (force) re-decides once it is back.
+ */
+export async function ensureLiveCompat(
+  id: string | null,
+  mc: string | null,
+  loader: LoaderKind | null,
+): Promise<void> {
+  if (!id || !loader || mc == null) return;
+  const undecided = compatScanEntries().some(
+    (lc) => lc.live_checkable && !liveVerdicts.has(verdictKey(id, mc, loader, lc.sha1)),
+  );
+  if (!undecided) return;
+  const key = `${id}|${mc}|${loader}`;
+  if (liveInFlight?.key === key) return liveInFlight.promise;
+  const run = (async () => {
+    const r = await commands.checkInstanceModCompat(id, mc, loader);
+    // Command-level failure: stay undecided so the next ensure retries.
+    if (r.status !== 'ok') return;
+    const next = new Map(liveVerdicts);
+    for (const c of r.data)
+      next.set(verdictKey(id, mc, loader, c.sha1), c.status.status as LiveVerdict);
+    liveVerdicts = next;
+  })();
+  liveInFlight = { key, promise: run };
+  try {
+    await run;
+  } finally {
+    // Only clear our own entry — a newer ensure may have replaced it.
+    if (liveInFlight?.promise === run) liveInFlight = null;
+  }
+}
+
+/**
+ * The union count the headline surfaces show: offline-decidable mismatches
+ * plus live «no build for this platform» verdicts already in the store. A
+ * PURE READ — the Overview renders it instantly and never blocks on the
+ * network; pair with a fire-and-forget `ensureLiveCompat` to fill the live
+ * half (the count is reactive, so the row updates when verdicts land).
+ * Falls back to the plain offline count while the triple is unknown.
+ */
+export function knownIncompatibleCount(
+  id: string | null,
+  mc: string | null,
+  loader: LoaderKind | null,
+): number {
+  if (!id || !loader || mc == null) return offlineMismatchCount();
+  let n = 0;
+  for (const lc of compatScanEntries()) {
+    if (
+      isOfflineMismatch(lc) ||
+      liveVerdicts.get(verdictKey(id, mc, loader, lc.sha1)) === 'incompatible'
+    )
+      n++;
+  }
+  return n;
 }
 
 // Owns proactive compatibility state as a two-stage AUTO pipeline:
 //   1. offline scan (network-free) flags loader-family SUSPECTS and reads the
 //      platform-range verdict (`platform_mismatch`) straight off the jar;
-//   2. for loader-family suspects (live_checkable), auto-query the platform to
-//      confirm.
+//   2. `ensureLiveCompat` — the SAME full platform check the manual button
+//      runs, once per (instance, mc, loader): live-only incompatibles show up
+//      on tab open, and the button can never reveal mods the auto pass did
+//      not already know about.
 // A mod is flagged iff `platform_mismatch` is set (unconditional — read off the
 // file that will actually be launched, never cleared by a live verdict), OR the
 // live verdict is `incompatible`, OR it is a manual loader-family suspect
@@ -68,15 +150,13 @@ export function __resetLiveVerdictsForTests(): void {
 // `compatible` clears a loader-family suspicion but never a `platform_mismatch`
 // — the live check answers "does the PROJECT have a build for this MC+loader",
 // not "is the FILE on disk that build". Live failure/`unknown` never flags
-// (transient errors must not read as incompatible). Auto-confirm is bounded to
-// suspects, sequential (gentle on Modrinth rate limits), and cached in the
+// (transient errors must not read as incompatible). Verdicts live in the
 // module-level store per (instance, mc, loader, sha) — surviving remounts,
 // expiring with the platform.
 export function createCompatCheck(
   getInstanceId: () => string | null,
   getMcVersion: () => string | null,
   getLoader: () => LoaderKind | null,
-  getRows: () => CompatRow[],
 ) {
   // The offline half is NOT owned here — it is the app-wide scan, shared with
   // the Overview indicator. Keeping a private copy is what let the two
@@ -145,57 +225,11 @@ export function createCompatCheck(
     return null;
   }
 
-  // Cap on how many platform suspects we auto-query in one pass. The offline
-  // pre-filter already makes suspects rare (a multi-loader jar that includes the
-  // instance's family is not a suspect), so this only guards a pathological
-  // instance from firing a burst of Modrinth requests on tab open (we have hit
-  // Modrinth's 429 rate limit before). Suspects beyond the cap simply stay
-  // unconfirmed → unflagged (safe; the manual "Check compatibility" button does
-  // the full pass on demand).
-  const AUTO_CONFIRM_CAP = 25;
-
-  // Stage 2: auto-confirm platform suspects via the platform. Sequential (gentle
-  // on the rate limit), capped, and skips shas already decided this session.
-  // `gen` is its parent run's id; the loop bails the moment a newer run starts.
-  async function autoConfirmSuspects(gen: number) {
-    const id = getInstanceId();
-    const loader = getLoader();
-    const mc = getMcVersion();
-    if (!id || !loader || mc == null) return;
-    const rows = getRows();
-    // "Already decided" is judged for THIS platform triple — a verdict from
-    // the previous mc/loader does not pin the suspect (audit #10: the old
-    // sha-keyed check let a suspect stay "compatible" across the exact
-    // version change the feature protects against).
-    const suspects = [...offline.values()]
-      .filter(
-        (lc) =>
-          lc.loader_mismatch &&
-          lc.live_checkable &&
-          !liveVerdicts.has(verdictKey(id, mc, loader, lc.sha1)),
-      )
-      .slice(0, AUTO_CONFIRM_CAP);
-    for (const s of suspects) {
-      const row = rows.find((r) => r.installed.sha1 === s.sha1);
-      if (!row?.installed.source || !row?.installed.project_id) continue;
-      const r = await commands.modsVersions(
-        row.installed.source,
-        row.installed.project_id,
-        mc,
-        loader,
-      );
-      if (gen !== generation) return; // superseded by a newer scan — drop the write
-      const verdict: LiveVerdict =
-        r.status === 'error' ? 'unknown' : r.data.length > 0 ? 'compatible' : 'incompatible';
-      const next = new Map(liveVerdicts);
-      // Keyed by the values THIS query was made with — even a write that loses
-      // a race lands under its own platform triple, never the new one's.
-      next.set(verdictKey(id, mc, loader, s.sha1), verdict);
-      liveVerdicts = next;
-    }
-  }
-
-  // Stage 1: offline scan (shared store), then auto-confirm.
+  // Stage 1: offline scan (shared store), then the once-per-triple full
+  // live check. "Already decided" is judged per platform triple — a verdict
+  // from the previous mc/loader never pins a mod (audit #10: the old
+  // sha-keyed check let a suspect stay "compatible" across the exact version
+  // change the feature protects against).
   async function runOfflineScan(opts: { force?: boolean } = {}) {
     const gen = ++generation;
     const id = getInstanceId();
@@ -211,7 +245,7 @@ export function createCompatCheck(
     }
     await ensureCompatScan(id, mc, loader, opts);
     if (gen !== generation) return; // superseded mid-scan
-    await autoConfirmSuspects(gen);
+    await ensureLiveCompat(id, mc, loader);
   }
 
   // Manual "Check compatibility" button — FULL re-check: the offline scan is
