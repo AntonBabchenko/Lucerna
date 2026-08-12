@@ -28,10 +28,7 @@
   import { datapacksChanged } from '$lib/settings/state.svelte';
   import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
   import { t } from '$lib/i18n';
-  import type { TranslationKey } from '$lib/i18n/keys.generated';
-  import HelpPopover from '$lib/ui/HelpPopover.svelte';
-  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
-  import { explainKey } from '$lib/onboarding/explanation-keys';
+  import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
   import { SvelteSet } from 'svelte/reactivity';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -62,18 +59,6 @@
     mcVersion?: string | null;
     loader?: LoaderKind | null;
   } = $props();
-
-  // "What are data packs?" — the same four-paragraph concept explainer shown on
-  // all three datapack surfaces (this library, WorldDatapacks, and the server
-  // pane), so a user meets the concept wherever they first land. Each paragraph
-  // goes through explainKey, which swaps in the `*Basic` sibling at the Basic
-  // detail level; the cast mirrors explainKey's own contract (a parity test
-  // pins every pN/pNBasic pair in both locales).
-  const datapackConceptParas = $derived(
-    ['p1', 'p2', 'p3', 'p4'].map((p) =>
-      $t(explainKey(`onboarding.datapackConcept.${p}` as TranslationKey, explanationState.level)),
-    ),
-  );
 
   let view = $state<DatapackLibraryView | null>(null);
   let loading = $state(false);
@@ -455,28 +440,23 @@
 
 <div class="p-3" data-testid="installed-datapacks">
   <div class="flex items-center justify-end gap-2 mb-2">
-    <!-- `mr-auto` lives here and NOWHERE else in this row: it is what pins the
-         left slot, and the gate note below (which used to own it) now simply
-         follows the popover. Two `mr-auto` siblings would fight over the free
-         space and push the note off the left edge. -->
-    <span class="mr-auto inline-flex items-center">
-      <HelpPopover
-        paragraphs={datapackConceptParas}
-        width={320}
-        triggerAriaLabel={$t('onboarding.datapackConcept.triggerAriaLabel')}
-        triggerTitle={$t('onboarding.datapackConcept.triggerTitle')}
-        closeAriaLabel={$t('onboarding.datapackConcept.closeAriaLabel')}
-      />
-    </span>
-    {#if disabledKey !== null && !busy}
-      <!-- Why every mutation below is disabled: the game owns level.dat while
-           it runs, and the backend refuses datapack writes for the duration.
-           One visible line beats six tooltips on unfocusable disabled
-           buttons. -->
-      <p class="text-xs text-warning-text" data-testid="datapacks-gate-note">
-        {$t(disabledKey)}
-      </p>
-    {/if}
+    <!-- The row is `justify-end`, so exactly ONE child may carry `mr-auto` —
+         it is what pins the left slot. The explainer and the gate note share
+         this always-rendered wrapper rather than claiming it in turn: the note
+         alone used to own it, and moving `mr-auto` onto the (?) instead would
+         have shunted the note across the row to sit against the buttons. -->
+    <div class="mr-auto flex items-center gap-2 min-w-0">
+      <DatapackConceptHelp />
+      {#if disabledKey !== null && !busy}
+        <!-- Why every mutation below is disabled: the game owns level.dat while
+             it runs, and the backend refuses datapack writes for the duration.
+             One visible line beats six tooltips on unfocusable disabled
+             buttons. -->
+        <p class="text-xs text-warning-text" data-testid="datapacks-gate-note">
+          {$t(disabledKey)}
+        </p>
+      {/if}
+    </div>
     {#if updateCount > 0}
       <BusyButton
         type="button"

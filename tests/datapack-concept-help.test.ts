@@ -3,15 +3,16 @@
 //
 // tests/help-popover-paragraphs.test.ts already covers HelpPopover's own
 // multi-paragraph rendering with synthetic strings. This file covers the
-// WIRING instead: that a real datapack surface passes the four
+// WIRING instead: that DatapackConceptHelp passes the four
 // `onboarding.datapackConcept.pN` keys, in order, through explainKey — so a
 // wrong key, a dropped paragraph, or a missing explanation-level swap fails
 // here rather than only in front of a user. The expected fragments below are
 // verbatim substrings of the real EN values in src/lib/i18n/locales/en.json.
 //
-// The popover is placed identically on WorldDatapacks and
-// ServerDatapacksInstalled; those two surfaces share this component and these
-// keys, so they are not re-asserted per surface.
+// WorldDatapacks and ServerDatapacksInstalled render the very same
+// DatapackConceptHelp component, so the copy assertions are not repeated per
+// surface. The left-slot test at the bottom is the exception: that layout is
+// specific to this toolbar.
 
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -105,20 +106,23 @@ describe('datapack concept help — instance library surface', () => {
   });
 });
 
-// The toolbar row is `justify-end`, so exactly one child may carry `mr-auto`.
-// It is now the explainer wrapper (always rendered); the gate note, which used
-// to own it, must not also claim the free space.
+// The toolbar row is `justify-end`, so exactly one child may carry `mr-auto` —
+// it is what pins the left slot. The explainer and the gate note share one
+// always-rendered wrapper that owns it: were `mr-auto` moved onto the (?)
+// alone, the note would lose the left slot and slide across to the buttons.
 describe('datapack concept help — toolbar left slot', () => {
-  it('pins the explainer left and leaves the gate note without its own mr-auto', async () => {
+  it('pins the explainer and the gate note together in the single left slot', async () => {
     runningInstances.mockResolvedValue([{ instance_id: 'inst-1' }]);
     render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
     const trigger = await screen.findByRole('button', { name: TRIGGER });
     const row = screen.getByTestId('installed-datapacks').firstElementChild as HTMLElement;
-    const wrapper = trigger.closest('span.mr-auto');
-    expect(wrapper).not.toBeNull();
-    expect(wrapper?.parentElement).toBe(row);
-    // The running instance gates every mutation, so the note is on screen.
+    const leftSlot = trigger.closest('div.mr-auto');
+    expect(leftSlot).not.toBeNull();
+    expect(leftSlot?.parentElement).toBe(row);
+    // The running instance gates every mutation, so the note is on screen —
+    // inside that same wrapper, not stranded next to the buttons.
     const note = await screen.findByTestId('datapacks-gate-note');
+    expect(note.parentElement).toBe(leftSlot);
     expect(note.className).not.toContain('mr-auto');
     expect(row.querySelectorAll('.mr-auto')).toHaveLength(1);
   });
