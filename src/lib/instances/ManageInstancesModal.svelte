@@ -504,21 +504,61 @@
     }
   }
 
+  // ── serialized config changes (spec D8) ─────────────────────────────────
+  // Rapid loader clicks used to fire CONCURRENT setInstanceLoader commands
+  // (each resolves a recommended build — seconds of network); completions
+  // trickled back in arbitrary order for a while after the user stopped
+  // clicking, every onChanged() re-rendered the picker to that command's
+  // result — «загрузчики сами переключаются» — and the final on-disk loader
+  // was whichever command happened to LAND last, not the last click. One
+  // promise chain applies changes strictly in click order; the forced compat
+  // rescan runs once, when the queue drains.
+  let cfgChain: Promise<void> = Promise.resolve();
+  let cfgQueued = 0;
+
+  function enqueueCfgChange(run: () => Promise<void>): Promise<void> {
+    cfgQueued += 1;
+    const next = cfgChain.then(async () => {
+      try {
+        await run();
+      } catch {
+        // Each entry surfaces its own errors (modalError / compatCheckFailed);
+        // swallowing here only keeps a rejected entry from wedging the chain
+        // for every change queued behind it.
+      } finally {
+        cfgQueued -= 1;
+      }
+    });
+    cfgChain = next;
+    return next;
+  }
+
+  // Inside a chain entry `cfgQueued` still counts the entry itself, so
+  // "nothing queued behind me" reads as exactly 1.
+  const chainDrained = () => cfgQueued === 1;
+
   // `id` is captured by the caller before any await so a mid-flight selection
   // switch can't redirect this change's side effects onto another instance.
   async function applyMcChange(id: string, mc: string) {
-    const result = await commands.changeInstanceMc(id, mc);
-    if (isStale(id)) return;
-    if (result.status === 'ok') {
-      const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
-      if (toast?.kind === 'success') pushSuccess(toast.text);
-      else if (toast?.kind === 'warning') pushWarning(toast.text);
-      onChanged();
-      const fresh = result.data.instance;
-      await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
-    } else {
-      modalError = ipcErrorMessage(result.error);
-    }
+    await enqueueCfgChange(async () => {
+      const result = await commands.changeInstanceMc(id, mc);
+      if (isStale(id)) return;
+      if (result.status === 'ok') {
+        const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
+        if (toast?.kind === 'success') pushSuccess(toast.text);
+        else if (toast?.kind === 'warning') pushWarning(toast.text);
+        onChanged();
+        const fresh = result.data.instance;
+        // Trailing entry only: scanning between queued changes pays a full
+        // jar sweep per click just to flash a verdict the next change
+        // immediately invalidates.
+        if (chainDrained()) {
+          await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
+        }
+      } else {
+        modalError = ipcErrorMessage(result.error);
+      }
+    });
   }
 
   async function setMc(mc: string) {
@@ -531,14 +571,18 @@
   }
 
   async function applyLoaderChange(id: string, kind: LoaderKind, version: string | null) {
-    const result = await commands.setInstanceLoader(id, kind, version);
-    if (isStale(id)) return;
-    if (result.status === 'ok') {
-      onChanged();
-      await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
-    } else {
-      modalError = ipcErrorMessage(result.error);
-    }
+    await enqueueCfgChange(async () => {
+      const result = await commands.setInstanceLoader(id, kind, version);
+      if (isStale(id)) return;
+      if (result.status === 'ok') {
+        onChanged();
+        if (chainDrained()) {
+          await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
+        }
+      } else {
+        modalError = ipcErrorMessage(result.error);
+      }
+    });
   }
 
   async function commitLoader(kind: LoaderKind, version: string | null) {
