@@ -1,3 +1,17 @@
+<script module lang="ts">
+  // Which contextual tour currently owns the screen, shared across every
+  // instance of this component. The <body> attribute below cannot serve as the
+  // claim: it is written by an $effect that runs AFTER onMount set `active`, so
+  // two tours mounting in the SAME flush (sibling hosts, or a modal whose tour
+  // opens alongside a tab's) would both read an empty <body> and both activate
+  // — two dims, and one Escape answered by both window handlers. This claim is
+  // taken synchronously, in onMount, at the moment `active` is set.
+  //
+  // The DOM attribute stays: `Modal.svelte` and `trap-focus.ts` read it, and
+  // module state is invisible to them.
+  let activeTourId: string | null = null;
+</script>
+
 <script lang="ts">
   // One-shot tour overlay for a single surface. Mount inside the
   // host modal/popover/tab. Auto-fires on first visit, then
@@ -24,6 +38,21 @@
   const MARGIN = 16;
   const PADDING = 6;
 
+  // True only for the instance that took the module-level claim. Deliberately
+  // not `$state` — nothing renders from it. Two hosts could carry the SAME tour
+  // id (only one of them ever activates), so matching on the id alone would let
+  // the deferred one release the winner's claim; this flag proves ownership.
+  let claimed = false;
+
+  // Give the screen back. Idempotent, so every "active went false" path can
+  // call it: finish, the yield to the main tour, and the effect teardown that
+  // also covers an unmount mid-tour.
+  function releaseClaim() {
+    if (!claimed) return;
+    claimed = false;
+    if (activeTourId === id) activeTourId = null;
+  }
+
   // While a contextual tour is on screen, flag the body so the host Modal knows
   // to route Escape to the tour instead of closing itself. The tour is
   // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
@@ -33,13 +62,22 @@
   // is created before onMount's effect, so an if/else `removeAttribute` branch
   // would strip another tour's flag from <body> the moment a deferred (never
   // active) instance mounts — defeating the ctx-vs-ctx mount guard below. Only
-  // touch the attribute when this instance owns it; the teardown also runs on
-  // destroy, so a mid-tour unmount can't leave a stale flag behind.
+  // touch the attribute when this instance owns it.
+  //
+  // The teardown is load-bearing and coupled to onDestroy: it is the ONLY
+  // reason `onDestroy` can safely omit `removeAttribute` (Svelte runs effect
+  // teardowns on destroy too, and only for the instance whose effect ran). The
+  // two edits fail independently — restore either half alone and the flag is
+  // either stripped from an active tour or left stale after an unmount, so
+  // change them together or not at all.
   $effect(() => {
     if (active) {
       document.body.setAttribute('data-ctx-tour-active', 'true');
       return () => {
         document.body.removeAttribute('data-ctx-tour-active');
+        // Same reasoning for the module-level claim: this covers the unmount
+        // path, where neither finish() nor the yield effect can run.
+        releaseClaim();
       };
     }
   });
@@ -51,7 +89,10 @@
   // marking seen — replay just reset the flag, and the tour re-fires on the
   // next visit to its surface.
   $effect(() => {
-    if (active && tourState.active) active = false;
+    if (active && tourState.active) {
+      active = false;
+      releaseClaim();
+    }
   });
 
   onMount(() => {
@@ -64,8 +105,12 @@
     // Another contextual tour is on screen (cross-surface chaining: e.g. the
     // overview step's own CTA opens the translations modal, which hosts the
     // l10n tour). Same deferral as the main-tour case — this surface stays
-    // un-toured this visit and re-fires on its next mount.
-    if (document.body.hasAttribute('data-ctx-tour-active')) return;
+    // un-toured this visit and re-fires on its next mount. Both sources are
+    // checked: the module claim catches a sibling that activated in this same
+    // flush, the attribute catches one whose effect has already painted it.
+    if (activeTourId !== null || document.body.hasAttribute('data-ctx-tour-active')) return;
+    activeTourId = id;
+    claimed = true;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -141,6 +186,7 @@
   function finish() {
     markSeen(id);
     active = false;
+    releaseClaim();
   }
   function onKeydown(e: KeyboardEvent) {
     if (!active) return;

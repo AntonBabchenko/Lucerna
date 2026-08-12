@@ -12,6 +12,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ContextualTour from '../src/lib/onboarding/ContextualTour.svelte';
 import { hasSeen, MANAGE_STEPS } from '../src/lib/onboarding/contextual-tours';
 import { tourState } from '../src/lib/onboarding/state.svelte';
+import TwoContextualTours from './fixtures/TwoContextualTours.svelte';
 
 describe('ContextualTour interplay with the main tour', () => {
   beforeEach(() => {
@@ -49,6 +50,21 @@ describe('ContextualTour interplay with the main tour', () => {
     await tick();
     unmount();
     expect(hasSeen('manage')).toBe(true);
+  });
+
+  it('two tours mounting in the SAME flush cannot both activate', async () => {
+    // The DOM flag is written by an $effect that runs AFTER onMount set `active`,
+    // so a guard reading only <body> is blind to a sibling that activated in the
+    // same flush: both popovers open, both dim, and one Escape closes both. The
+    // claim must be taken synchronously at the moment `active` is set.
+    // Two separate render() calls each flush on their own and so CANNOT
+    // reproduce this — the fixture mounts both tours as children of one
+    // component, which is a single flush.
+    render(TwoContextualTours);
+    await tick();
+    expect(screen.queryAllByTestId('contextual-tour-popover')).toHaveLength(1);
+    // The loser deferred rather than being consumed: it re-fires next mount.
+    expect(hasSeen('logs')).toBe(false);
   });
 
   it('defers when another contextual tour is on screen', async () => {
