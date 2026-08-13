@@ -138,6 +138,11 @@
   // spinner on the row; `deadEnd` flips it to the no-satisfying affordances
   // (open mod page / find alternative). The picker + find-alternative dialogs
   // are driven by the *Violation holders below.
+  let preflightBusy = $state(new SvelteSet<string>());
+  let preflightDeadEnd = $state(new SvelteSet<string>());
+  let pickerViolation = $state<DepViolation | null>(null);
+  let findAltViolation = $state<DepViolation | null>(null);
+
   // Human names for the missing dependencies in the current report, keyed by
   // dep_id. Resolved once per report through the platform metadata of the mod
   // that declared each dependency; anything unresolved simply stays absent and
@@ -179,11 +184,6 @@
         });
     });
   });
-
-  let preflightBusy = $state(new SvelteSet<string>());
-  let preflightDeadEnd = $state(new SvelteSet<string>());
-  let pickerViolation = $state<DepViolation | null>(null);
-  let findAltViolation = $state<DepViolation | null>(null);
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
