@@ -10,7 +10,7 @@
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
   import { tourState } from './state.svelte';
-  import { claimPresence, releasePresence } from './tour-presence';
+  import { claimPresence, releasePresence, screenOwnedElsewhere } from './tour-presence';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -83,9 +83,12 @@
     // whether the id is burned.
     //
     // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
-    // open — UNLESS the main tour's own activation tore the host down
-    // (replay/startup call setMode('client') and set tourState.active in one
-    // flush). Two Svelte facts dictate the shape of this check:
+    // open — UNLESS another surface's arrival tore the host down, which is a
+    // suppression and not a dismissal (the main tour's own activation, where
+    // replay/startup call setMode('client') and set tourState.active in one
+    // flush; or the post-update changelog dialog, which the `overview` host
+    // yields to). `screenOwnedElsewhere()` owns that list.
+    // Two Svelte facts dictate the shape of this check:
     //   1. the yield effect above cannot cover it — a destroyed component's
     //      pending $effects are discarded, so it never runs on that path;
     //   2. reading state HERE would lie. Svelte serves destroy-phase reads
@@ -96,7 +99,7 @@
     // One microtask lands after the batch, where both reads are honest. A tour
     // suppressed by replay was just reset by it and must stay armed.
     queueMicrotask(() => {
-      if (active && !tourState.active) markSeen(id);
+      if (active && !screenOwnedElsewhere()) markSeen(id);
     });
   });
 

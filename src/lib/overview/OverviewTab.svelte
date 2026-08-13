@@ -8,7 +8,7 @@
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
-  import { tourState } from '$lib/onboarding/state.svelte';
+  import { screenOwnedElsewhere } from '$lib/onboarding/tour-presence';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
@@ -513,14 +513,16 @@
   {/if}
 </div>
 
-{#if activeInstance && serversUi.mode === 'client' && !tourState.active && installedStats.total > 0}
-  <!-- REACTIVE !tourState.active gate, unlike every other tour host: Overview
-       is the default tab, mounted at startup racing initOnboarding, so the
-       mount-time deferral alone cannot sequence this tour after the main one.
-       With the reactive gate the block unmounts while the main tour runs (no
-       burn — ContextualTour's destroy guard skips markSeen when the main tour
-       is active) and remounts fresh when it finishes, which is what makes
-       "overview fires after the main tour" true. The mode gate matters too:
+{#if activeInstance && serversUi.mode === 'client' && !screenOwnedElsewhere() && installedStats.total > 0}
+  <!-- REACTIVE !screenOwnedElsewhere() gate, unlike every other tour host:
+       Overview is the default tab, mounted at startup racing initOnboarding,
+       so the mount-time deferral alone cannot sequence this tour after the
+       main one. With the reactive gate the block unmounts while the main tour
+       (or the post-update changelog dialog, which arrives at the same startup
+       moment and would otherwise be painted under this tour's dim) owns the
+       screen — no burn, because ContextualTour's destroy guard consults the
+       same predicate — and remounts fresh when it is free again, which is what
+       makes "overview fires after the main tour" true. The mode gate matters too:
        in servers mode this panel is class:hidden, and a tour activating
        inside display:none would set data-ctx-tour-active invisibly and be
        burned unseen by the first Escape. The last two conjuncts are the

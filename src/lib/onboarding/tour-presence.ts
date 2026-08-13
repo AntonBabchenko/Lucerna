@@ -18,11 +18,38 @@
 // every later contextual tour (there is no other reset path), and a stale
 // attribute swallows every modal's Escape and every modal's focus trap.
 
+import { whatsNewState } from '$lib/changelog/whats-new.svelte';
 import type { ContextualTourId } from './contextual-tours';
+import { tourState } from './state.svelte';
 
 const ATTR = 'data-ctx-tour-active';
 
 let activeTourId: ContextualTourId | null = null;
+
+/**
+ * Whether a surface OTHER than a contextual tour owns the screen right now —
+ * the main onboarding tour, or the post-update changelog dialog.
+ *
+ * Two callers, and the second is the one that is easy to forget:
+ *   - a host's mount gate, so a passive hint never opens on top of either. The
+ *     changelog matters because it and the `overview` tour both arrive at
+ *     startup on the default tab, and the dialog is `--z-modal: 50` against the
+ *     contextual dim's `--z-tour: 100`: a tour left running paints its scrim
+ *     over the changelog the user just clicked to read, and `Modal` hands their
+ *     first Escape to the tour instead of closing the dialog.
+ *   - ContextualTour's destroy guard. Yielding is implemented by the gate
+ *     dropping the block, which routes through the same onDestroy whose job is
+ *     to burn a tour whose host went away. Without this check, reading the
+ *     changelog once would burn the tour for every future launch. Suppressed
+ *     is not dismissed.
+ *
+ * Read it from a template (reactive: it reads `$state` during render) or from a
+ * microtask after the destroying batch (honest: past Svelte's `old_values`).
+ * Reading it inside a destroy phase would lie — see ContextualTour's onDestroy.
+ */
+export function screenOwnedElsewhere(): boolean {
+  return tourState.active || whatsNewState.entries !== null;
+}
 
 /** Whether any contextual tour currently owns the screen. */
 export function isPresent(): boolean {

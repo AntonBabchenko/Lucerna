@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
+import { whatsNewState } from '$lib/changelog/whats-new.svelte';
 import { hasSeen, markSeen, OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
@@ -29,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   tourState.active = false;
   serversUi.setMode('client');
+  whatsNewState.entries = null;
 });
 
 const noErrors = {
@@ -517,5 +519,46 @@ describe('OverviewTab contextual tour', () => {
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
     expect(hasSeen('overview')).toBe(false); // suppressed, not burned — see above
+  });
+
+  // The post-update changelog offer (checkWhatsNew) and this tour both fire at
+  // startup on the default tab, and the dialog it opens is z-50 against the
+  // contextual dim's z-100 — so a tour left running paints its scrim OVER the
+  // changelog the user just asked to read, and Modal routes their first Escape
+  // to the tour instead of closing the dialog. The user clicked for the
+  // changelog; the passive hint yields to it.
+  it('does not fire while the changelog dialog is open', async () => {
+    localStorage.clear();
+    whatsNewState.entries = [{ version: '0.23.0', added: ['x'] }] as never;
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+  });
+
+  // The half that is easy to get wrong. Yielding is implemented by the reactive
+  // gate dropping the block, which routes through ContextualTour's onDestroy —
+  // whose whole job is to burn a tour whose host went away. Burning here would
+  // mean the user reads the changelog once and NEVER sees this tour, on any
+  // later launch. Suppressed must keep meaning "still armed".
+  it('is not burned when the changelog opens mid-tour, and fires again after it closes', async () => {
+    localStorage.clear();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+
+    whatsNewState.entries = [{ version: '0.23.0', added: ['x'] }] as never;
+    await tick();
+    await tick();
+    await new Promise((r) => queueMicrotask(() => r(null))); // past onDestroy's microtask
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+
+    whatsNewState.entries = null;
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
   });
 });
