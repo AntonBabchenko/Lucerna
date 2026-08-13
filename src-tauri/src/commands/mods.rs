@@ -79,6 +79,39 @@ fn mod_metadata_ttl_days(app: &tauri::AppHandle) -> crate::error::Result<u32> {
         .mod_metadata_ttl_days)
 }
 
+/// Offline display-name repair for one instance's registry.
+///
+/// Shared by the two commands that surface `InstalledMod.name`, and it must run
+/// for BOTH. Wiring it only into the installed-list command would leave the
+/// compatibility panel printing the old version string until the Installed tab
+/// had been opened at least once — which is exactly the first paint this whole
+/// change exists to fix.
+///
+/// Cache-only by construction: `get_many_cached` takes no fetcher, so this
+/// cannot add a network round to a path that includes the launch gate.
+async fn backfill_display_names(
+    app: &tauri::AppHandle,
+    inst_root: &std::path::Path,
+) -> crate::error::Result<()> {
+    let path = crate::paths::mods_cache_file(app)
+        .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
+    crate::mods::installed::backfill_display_names(inst_root, |wanted| async move {
+        let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
+            std::collections::HashMap::new();
+        for (source, pid) in wanted {
+            by_source.entry(source).or_default().push(pid);
+        }
+        let mut out = std::collections::HashMap::new();
+        for (source, ids) in by_source {
+            for s in crate::mods::summary_cache::get_many_cached(&path, source, &ids) {
+                out.insert((source, s.project_id.clone()), s.name);
+            }
+        }
+        out
+    })
+    .await
+}
+
 /// Project titles for a set of versions, keyed by `(source, project_id)`.
 ///
 /// Used at install time so the registry records the mod name rather than
@@ -1426,6 +1459,10 @@ pub async fn mods_list_installed(
     instance_id: String,
 ) -> crate::error::Result<Vec<InstalledMod>> {
     let inst_root = instance_root(&app, &instance_id)?;
+    // Best-effort: a failed name repair must never fail the listing.
+    if let Err(e) = backfill_display_names(&app, &inst_root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
     // The ONLY caller of the taking form. Every other command uses `list` and
     // leaves the marker standing, so an external change cannot be swallowed by
     // whichever background listing happened to run first.
@@ -3136,6 +3173,12 @@ pub async fn instance_dependency_preflight(
     instance_id: String,
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
+    // AA-1: the panel this report feeds names the requiring mod, so the repair
+    // has to have run before the report is built — not merely before the
+    // Installed list renders. Best-effort; a failure never blocks pre-flight.
+    if let Err(e) = backfill_display_names(&app, &root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
     // The MC version decides which descriptor the loader opens — Forge 1.12.2
     // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
     let inst = crate::instances::read_instance(&app, &instance_id)?;
