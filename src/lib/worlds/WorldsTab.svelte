@@ -69,6 +69,11 @@
     const reqId = instanceId;
     loading = true;
     listError = null;
+    // Clear here, not only in the no-instance branch: otherwise instance A's
+    // "Interrupted restore" row stays on screen for the whole of instance B's
+    // load, and a click in that window sends A's directory name with B's id.
+    orphans = [];
+    stranded = [];
     const r = await commands.listWorlds(reqId);
     if (instanceId !== reqId) return;
     loading = false;

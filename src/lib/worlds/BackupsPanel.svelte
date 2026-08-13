@@ -27,6 +27,7 @@
     onChanged,
     lockedMode,
     modeNote,
+    canBackup,
   }: {
     instanceId: string;
     worldFolder: string;
@@ -36,7 +37,13 @@
     /// `world_dir_at` and would fail `WorldNotFound` for an orphaned set.
     lockedMode?: RestoreMode;
     modeNote?: string;
+    /// False for a backup set whose world is gone: `backup_world` resolves the
+    /// world directory first and would fail `WorldNotFound` every time. Same
+    /// reasoning as `lockedMode` — an action that cannot succeed is not offered.
+    canBackup?: boolean;
   } = $props();
+
+  const showBackupNow = $derived(canBackup !== false);
 
   let backups = $state<Backup[]>([]);
   let error = $state<string | null>(null);
@@ -119,16 +126,18 @@
     <Icon name="folderOpen" size={14} />
     {$t('worlds.backups.openBackupsFolder')}
   </button>
-  <BusyButton
-    type="button"
-    class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
-    data-testid="backups-create-btn"
-    busy={backingUp}
-    onclick={() => void onBackupNow()}
-  >
-    <Icon name="archive" size={14} />
-    {$t('worlds.backups.backupNow')}
-  </BusyButton>
+  {#if showBackupNow}
+    <BusyButton
+      type="button"
+      class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+      data-testid="backups-create-btn"
+      busy={backingUp}
+      onclick={() => void onBackupNow()}
+    >
+      <Icon name="archive" size={14} />
+      {$t('worlds.backups.backupNow')}
+    </BusyButton>
+  {/if}
 </div>
 {#if loading}
   <LoadingPanel label={$t('worlds.backups.loading')} />

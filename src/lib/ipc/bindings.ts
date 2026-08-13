@@ -6681,12 +6681,29 @@ export type StrandedSelection = {
 	disposition: StrandedDisposition,
 };
 
-/**  A world left behind by a restore that could not put it back. */
+/**
+ *  A world-sized directory parked by a restore.
+ * 
+ *  The name alone does NOT say the restore failed. The success path's cleanup is
+ *  best-effort (`swap_in_place` logs and carries on), and process death between
+ *  the second rename and that cleanup leaves the same name behind — in which
+ *  case `saves/<world_folder>` holds the RESTORED world and this directory holds
+ *  the pre-restore one. `target_occupied` is what tells the two apart, and the
+ *  UI must branch on it: telling a user their restore "didn't finish" when it
+ *  did, and offering to put the old copy back over the new one, is worse than
+ *  showing nothing.
+ */
 export type StrandedWorld = {
 	/**  The on-disk directory name, e.g. `.tmp-restoring-My World-0`. */
 	dir_name: string,
-	/**  The name it should be restored to. */
+	/**  The name it came from. */
 	world_folder: string,
+	/**
+	 *  `saves/<world_folder>` exists. The restore finished; this is a leftover
+	 *  copy of the world as it was BEFORE it, and putting it back would
+	 *  overwrite the result the user asked for.
+	 */
+	target_occupied: boolean,
 };
 
 /**  One file's provenance and outcome — a row in a per-file install report. */

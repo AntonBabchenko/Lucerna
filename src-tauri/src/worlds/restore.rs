@@ -70,12 +70,9 @@ pub(crate) fn claim_stage(saves: &std::path::Path, world_folder: &str) -> Result
 /// name. `None` for anything that is not one of ours — including a staging
 /// directory, which holds extracted backup bytes rather than a world.
 ///
-/// Unused in production until the follow-up PR surfaces stranded worlds in the
-/// UI. It lives here, now, because it is the *reader* for the naming decision
-/// `claim_stage` makes: embedding the world folder is only justified if it can
-/// be read back, and the round-trip test below is what proves it. Splitting the
-/// two across PRs would leave the decision unpinned in this one.
-#[allow(dead_code)]
+/// This is the *reader* for the naming decision `claim_stage` makes: embedding
+/// the world folder is only justified if it can be read back. `worlds::orphans`
+/// is the consumer.
 pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
     let rest = dir_name.strip_prefix(TMP_RESTORING_PREFIX)?;
     let (world, n) = rest.rsplit_once('-')?;

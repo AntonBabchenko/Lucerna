@@ -58,7 +58,12 @@ pub(crate) fn pick_unused_filename(
             format!("{base}.{i}.zip")
         };
         let p = backups_dir.join(&filename);
-        if !p.exists() {
+        // `try_exists`, not `exists`: `exists()` answers false for ANY stat
+        // failure, so a transient error would report an occupied name as free —
+        // and `zip_dir` opens its destination with `File::create`, which
+        // truncates. That is a user's backup gone. Unread ⇒ occupied is the
+        // restrictive direction (CLAUDE.md, Fallback discipline, question 1).
+        if !p.try_exists().unwrap_or(true) {
             return Ok((filename, p));
         }
     }

@@ -50,7 +50,6 @@
 //     warning body text has text-secondary class
 //     error block uses text-danger
 
-import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backup, World } from '$lib/ipc/bindings';
@@ -785,22 +784,41 @@ afterEach(() => {
 // exactly the case the section exists for. These pin it OUTSIDE the chain, and
 // pin the empty-state copy to stay silent when there IS something to recover.
 
-describe('WorldsTab — recovery section placement', () => {
-  const src = readFileSync('src/lib/worlds/WorldsTab.svelte', 'utf8');
+describe('WorldsTab — recovery section survives an empty world list', () => {
+  it('renders the stranded row, and not the empty-state copy, when the only world is parked', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listWorlds).mockResolvedValueOnce({ status: 'ok', data: [] });
+    vi.mocked(commands.listStrandedWorlds).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        { dir_name: '.tmp-restoring-My World-0', world_folder: 'My World', target_occupied: false },
+      ],
+    });
 
-  it('mounts OrphanedSection after the exclusive if-chain, not inside it', () => {
-    const chainEnd = src.lastIndexOf('{/if}');
-    const mount = src.indexOf('<OrphanedSection');
-    expect(mount).toBeGreaterThan(-1);
-    expect(chainEnd).toBeGreaterThan(-1);
-    // The mount must sit past the chain's own closing tag. If someone moves it
-    // inside a branch later, this is what says why that is wrong.
-    expect(src.slice(0, mount)).toContain('{:else if worlds.length === 0');
+    render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
+
+    // This is the whole point of mounting the section outside the exclusive
+    // {#if} chain: inside it, `worlds.length === 0` would win and the user whose
+    // only world just got parked would see "No worlds yet" and nothing else.
+    // A source-text assertion could be dodged by moving markup; this cannot.
+    expect(await screen.findByTestId('stranded-recover-btn')).toBeTruthy();
+    expect(screen.queryByText(/No worlds yet/i)).toBeNull();
   });
 
-  it('suppresses the "no worlds yet" copy when something is recoverable', () => {
-    expect(src).toContain(
-      '{:else if worlds.length === 0 && orphans.length === 0 && stranded.length === 0}',
-    );
+  it('does not offer to put a world back when its name is already taken', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listWorlds).mockResolvedValueOnce({ status: 'ok', data: [] });
+    vi.mocked(commands.listStrandedWorlds).mockResolvedValueOnce({
+      status: 'ok',
+      data: [{ dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true }],
+    });
+
+    render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
+
+    // target_occupied means the restore FINISHED and saves/W holds its result.
+    // Offering "Put the world back" would overwrite that with the older copy,
+    // and the refusal the user would hit reads "rename or remove it first".
+    expect(await screen.findByTestId('leftover-open-folder-btn')).toBeTruthy();
+    expect(screen.queryByTestId('stranded-recover-btn')).toBeNull();
   });
 });

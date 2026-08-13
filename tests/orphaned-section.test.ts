@@ -17,6 +17,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteBackup: vi.fn(),
     restoreBackup: vi.fn(),
     openBackupsFolder: vi.fn(),
+    openSavesFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -25,7 +26,9 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import OrphanedSection from '$lib/worlds/OrphanedSection.svelte';
 
-const STRANDED = [{ dir_name: '.tmp-restoring-My World-0', world_folder: 'My World' }];
+const STRANDED = [
+  { dir_name: '.tmp-restoring-My World-0', world_folder: 'My World', target_occupied: false },
+];
 const ORPHANS = [{ world_folder: 'Gone', backup_count: 2, newest_unix_ms: 1_700_000_000_000 }];
 
 afterEach(() => {
@@ -94,6 +97,21 @@ describe('OrphanedSection — a world a rollback could not put back', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent ?? '').not.toBe('');
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrphanedSection — a leftover from a restore that finished', () => {
+  const LEFTOVER = [{ dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true }];
+
+  it('offers no way to put it back, because saves/W is the restored world', async () => {
+    renderSection({ stranded: LEFTOVER });
+
+    // The dangerous version of this feature says "your restore didn't finish,
+    // put the world back" about a restore that finished — and the refusal the
+    // user then hits tells them to delete the world they just restored.
+    expect(await screen.findByTestId('leftover-open-folder-btn')).toBeTruthy();
+    expect(screen.queryByTestId('stranded-recover-btn')).toBeNull();
+    expect(screen.queryByTestId('stranded-section')).toBeNull();
   });
 });
 

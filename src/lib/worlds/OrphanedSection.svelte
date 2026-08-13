@@ -2,9 +2,10 @@
   import { commands, type OrphanedBackupSet, type StrandedWorld } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import BackupsPanel from '$lib/worlds/BackupsPanel.svelte';
 
   // The two artefacts a failed restore can leave behind, and the only place in
@@ -33,6 +34,20 @@
   let recovering = $state<string | null>(null);
   let error = $state<string | null>(null);
 
+  // A `.tmp-restoring-*` directory does NOT mean the restore failed. The success
+  // path's cleanup is best-effort, so one survives a restore that finished — and
+  // then `saves/<world>` holds the RESTORED world while the parked directory
+  // holds the pre-restore one. Telling that user their restore "didn't finish",
+  // and offering to put the old copy back over the new one, would be actively
+  // harmful: the refusal they would hit reads "rename or remove it first".
+  const unfinished = $derived(stranded.filter((s) => !s.target_occupied));
+  const leftovers = $derived(stranded.filter((s) => s.target_occupied));
+
+  async function openSaves() {
+    const r = await commands.openSavesFolder(instanceId);
+    if (r.status !== 'ok') error = formatError(r.error);
+  }
+
   async function recover(s: StrandedWorld) {
     recovering = s.dir_name;
     error = null;
@@ -51,13 +66,13 @@
   <p class="text-sm text-danger mt-4" role="alert">{error}</p>
 {/if}
 
-{#if stranded.length > 0}
+{#if unfinished.length > 0}
   <section class="mt-6" aria-labelledby="worlds-stranded-title" data-testid="stranded-section">
     <h3 id="worlds-stranded-title" class="text-sm font-semibold text-primary mb-1">
       {$t('worlds.stranded.title')}
     </h3>
     <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
-      {#each stranded as s (s.dir_name)}
+      {#each unfinished as s (s.dir_name)}
         <li class="flex items-center justify-between gap-3 px-3 py-2">
           <p class="text-sm text-secondary min-w-0">
             {$t('worlds.stranded.description', { worldFolder: s.world_folder })}
@@ -77,6 +92,34 @@
   </section>
 {/if}
 
+{#if leftovers.length > 0}
+  <section class="mt-6" aria-labelledby="worlds-leftover-title" data-testid="leftover-section">
+    <h3 id="worlds-leftover-title" class="text-sm font-semibold text-primary mb-1">
+      {$t('worlds.stranded.leftoverTitle')}
+    </h3>
+    <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
+      {#each leftovers as s (s.dir_name)}
+        <li class="flex items-center justify-between gap-3 px-3 py-2">
+          <p class="text-sm text-secondary min-w-0">
+            {$t('worlds.stranded.leftoverDescription', { worldFolder: s.world_folder })}
+          </p>
+          <!-- No "put it back": the world it would overwrite is the one the user
+               asked for. Deleting is theirs to do, in their own file manager. -->
+          <button
+            type="button"
+            class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+            data-testid="leftover-open-folder-btn"
+            onclick={() => void openSaves()}
+          >
+            <Icon name="folderOpen" size={14} />
+            {$t('worlds.stranded.openFolderBtn')}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
+
 {#if orphans.length > 0}
   <section class="mt-6" aria-labelledby="worlds-orphaned-title" data-testid="orphaned-section">
     <h3 id="worlds-orphaned-title" class="text-sm font-semibold text-primary mb-1">
@@ -90,6 +133,9 @@
             <div class="text-sm font-medium truncate">{o.world_folder}</div>
             <div class="text-xs text-muted">
               {$t('worlds.tab.backupCountAriaLabel', { count: o.backup_count })}
+              {#if o.newest_unix_ms}
+                · {new Date(o.newest_unix_ms).toLocaleDateString($locale ?? undefined)}
+              {/if}
             </div>
           </div>
           <button
@@ -122,6 +168,7 @@
       {instanceId}
       worldFolder={openFor}
       lockedMode="as_copy"
+      canBackup={false}
       modeNote={$t('worlds.orphaned.asCopyNote')}
       onClose={() => (openFor = null)}
       onChanged={() => {

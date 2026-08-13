@@ -1419,7 +1419,10 @@
       "title": "Interrupted restore",
       "description": "A restore of \"{worldFolder}\" didn't finish. The world's files are safe and can be put back.",
       "recoverBtn": "Put the world back",
-      "toastRecovered": "Recovered {world}"
+      "toastRecovered": "Recovered {world}",
+      "leftoverTitle": "Leftover copy from a restore",
+      "leftoverDescription": "A restore of \"{worldFolder}\" finished, and a copy of the world as it was beforehand is still on disk. Your current world is the restored one — nothing is missing. Delete the folder when you no longer need the older copy.",
+      "openFolderBtn": "Open saves folder"
     },
     "datapacks": {
       "tab": "Datapacks (Beta)",

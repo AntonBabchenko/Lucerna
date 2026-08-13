@@ -26,13 +26,26 @@ pub struct OrphanedBackupSet {
     pub newest_unix_ms: f64,
 }
 
-/// A world left behind by a restore that could not put it back.
+/// A world-sized directory parked by a restore.
+///
+/// The name alone does NOT say the restore failed. The success path's cleanup is
+/// best-effort (`swap_in_place` logs and carries on), and process death between
+/// the second rename and that cleanup leaves the same name behind — in which
+/// case `saves/<world_folder>` holds the RESTORED world and this directory holds
+/// the pre-restore one. `target_occupied` is what tells the two apart, and the
+/// UI must branch on it: telling a user their restore "didn't finish" when it
+/// did, and offering to put the old copy back over the new one, is worse than
+/// showing nothing.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct StrandedWorld {
     /// The on-disk directory name, e.g. `.tmp-restoring-My World-0`.
     pub dir_name: String,
-    /// The name it should be restored to.
+    /// The name it came from.
     pub world_folder: String,
+    /// `saves/<world_folder>` exists. The restore finished; this is a leftover
+    /// copy of the world as it was BEFORE it, and putting it back would
+    /// overwrite the result the user asked for.
+    pub target_occupied: bool,
 }
 
 /// Backup sets under `backups` with no matching directory under `saves`.
@@ -41,6 +54,16 @@ pub struct StrandedWorld {
 /// same names at its own boundary, so a row built from one would be a dead
 /// button. Empty directories are skipped too — there is nothing to offer.
 pub fn orphaned_backup_sets_at(saves: &Path, backups: &Path) -> Vec<OrphanedBackupSet> {
+    // A stranded world has no `saves/<world>`, and `restore_replace` always
+    // writes a pre-restore snapshot into `backups/<world>` — so without this its
+    // backup set ALSO qualifies as orphaned, and the user would see
+    // "Interrupted restore … the files are safe" directly above "these backups
+    // belong to worlds that are no longer in this instance" about the same
+    // world. The stranded section owns those; this one must not re-list them.
+    let parked: std::collections::HashSet<String> = stranded_worlds_at(saves)
+        .into_iter()
+        .map(|s| s.world_folder)
+        .collect();
     let Ok(entries) = std::fs::read_dir(backups) else {
         return Vec::new();
     };
@@ -50,7 +73,11 @@ pub fn orphaned_backup_sets_at(saves: &Path, backups: &Path) -> Vec<OrphanedBack
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if wfs::validate_segment(&name).is_err() || saves.join(&name).is_dir() {
+        // `try_exists`, not `is_dir`: `is_dir()` answers false for any stat
+        // failure, which would file a live-but-unreadable world's backups under
+        // "backups without a world".
+        let world_present = saves.join(&name).try_exists().unwrap_or(true);
+        if wfs::validate_segment(&name).is_err() || world_present || parked.contains(&name) {
             continue;
         }
         let Ok(zips) = std::fs::read_dir(entry.path()) else {
@@ -95,13 +122,18 @@ pub fn stranded_worlds_at(saves: &Path) -> Vec<StrandedWorld> {
     };
     let mut out: Vec<StrandedWorld> = entries
         .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        // Keep the entry when `file_type()` fails: dropping it would hide a
+        // parked world from the only surface in the app that can recover it.
+        // `world_folder_of_tmp_dir` is the real filter.
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(true))
         .filter_map(|e| {
             let dir_name = e.file_name().to_string_lossy().into_owned();
             let world_folder = world_folder_of_tmp_dir(&dir_name)?;
+            let target_occupied = saves.join(&world_folder).try_exists().unwrap_or(true);
             Some(StrandedWorld {
                 dir_name,
                 world_folder,
+                target_occupied,
             })
         })
         .collect();
@@ -202,6 +234,49 @@ mod tests {
         );
         assert_eq!(got[0].world_folder, "My World");
         assert_eq!(got[0].dir_name, ".tmp-restoring-My World-0");
+        assert!(!got[0].target_occupied, "saves/My World does not exist");
+    }
+
+    #[test]
+    fn a_leftover_from_a_successful_restore_is_marked_occupied() {
+        let (_td, saves, _backups) = fixture();
+        // The success path's cleanup is best-effort. When it fails, saves/W
+        // holds the RESTORED world and the parked dir holds the pre-restore one
+        // — the opposite of an interrupted restore, and putting it back would
+        // overwrite what the user asked for.
+        fs::create_dir_all(saves.join(".tmp-restoring-W-0")).unwrap();
+        fs::create_dir_all(saves.join("W")).unwrap();
+
+        let got = stranded_worlds_at(&saves);
+
+        assert_eq!(got.len(), 1);
+        assert!(
+            got[0].target_occupied,
+            "must not be reported as an unfinished restore"
+        );
+    }
+
+    #[test]
+    fn a_stranded_world_does_not_also_appear_as_an_orphaned_backup_set() {
+        let (_td, saves, backups) = fixture();
+        // Exactly the state the feature exists for: W parked, saves/W gone, and
+        // restore_replace's snapshot sitting in backups/W.
+        fs::create_dir_all(saves.join(".tmp-restoring-W-0")).unwrap();
+        fs::create_dir_all(backups.join("W")).unwrap();
+        fs::write(
+            backups
+                .join("W")
+                .join("pre-restore-2026-01-01T00-00-00.zip"),
+            b"z",
+        )
+        .unwrap();
+
+        assert_eq!(stranded_worlds_at(&saves).len(), 1);
+        assert!(
+            orphaned_backup_sets_at(&saves, &backups).is_empty(),
+            "the stranded section already owns this world; two sections \
+             describing it with contradictory sentences is worse than one"
+        );
     }
 
     #[test]
@@ -243,5 +318,17 @@ mod tests {
         assert!(recover_stranded_at(&saves, "Normal").is_err());
         assert!(recover_stranded_at(&saves, "../escape").is_err());
         assert!(recover_stranded_at(&saves, ".tmp-restore-stage-W-0").is_err());
+    }
+
+    #[test]
+    fn recover_rejects_a_traversal_smuggled_through_the_prefix() {
+        let (_td, saves, _backups) = fixture();
+        // `dir_name` is command input, not something only our own UI produces.
+        // This one PARSES — the prefix and the trailing -0 are both right — so
+        // only the validate_segment gate stands between it and a rename
+        // destination outside saves/. Delete that line and this test fails;
+        // the three names above are all rejected earlier and would not notice.
+        assert!(recover_stranded_at(&saves, ".tmp-restoring-../evil-0").is_err());
+        assert!(!saves.parent().unwrap().join("evil").exists());
     }
 }
