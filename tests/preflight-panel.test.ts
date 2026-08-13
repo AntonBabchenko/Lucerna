@@ -292,4 +292,52 @@ describe('PreflightPanel bulk migrate entry', () => {
     });
     expect(queryByTestId('preflight-migrate-btn')).toBeNull();
   });
+
+  // A player cannot act on `forgeconfigapiport`. The Installed tab resolves the
+  // project name and hands it down as an overlay keyed by dep_id.
+  it('renders the resolved dependency name when the overlay supplies one', () => {
+    const { getByTestId } = render(PreflightPanel, {
+      props: {
+        report: reportWith(1),
+        onUpdate: () => {},
+        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+      },
+    });
+    const row = getByTestId('preflight-row');
+    expect(row.textContent).toContain('Forge Config API Port');
+    expect(row.textContent).not.toContain('dep-0');
+  });
+
+  it('names the dependency in the install button too, not just the sentence', () => {
+    const { getByRole } = render(PreflightPanel, {
+      props: {
+        report: reportWith(1),
+        onUpdate: () => {},
+        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+      },
+    });
+    expect(getByRole('button', { name: /Forge Config API Port/ })).toBeTruthy();
+  });
+
+  // The launch gate passes no overlay on purpose: resolving a name costs a
+  // network round, and nothing may sit between the user and Play.
+  it('falls back to the raw dep id with no overlay — the launch-gate case', () => {
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: reportWith(1), onUpdate: () => {}, showRowActions: false },
+    });
+    expect(getByTestId('preflight-row').textContent).toContain('dep-0');
+  });
+
+  it('falls back per row, so one unresolved id does not hide the others', () => {
+    const { getAllByTestId } = render(PreflightPanel, {
+      props: {
+        report: reportWith(2),
+        onUpdate: () => {},
+        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+      },
+    });
+    const rows = getAllByTestId('preflight-row');
+    expect(rows[0]!.textContent).toContain('Forge Config API Port');
+    expect(rows[1]!.textContent).toContain('dep-1');
+  });
 });

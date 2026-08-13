@@ -144,9 +144,17 @@ describe('PreflightPanel', () => {
     expect(queryByTestId('preflight-panel')).toBeNull();
   });
 
+  // The dep's human name used to ride on the violation itself
+  // (`dep_display_name`), a field the backend never populated. It now arrives
+  // as an overlay the Installed tab resolves and passes down; the row's job —
+  // naming both sides in words — is unchanged, which is what this asserts.
   it('renders one row for a version_out_of_range violation with the dependent name and dep name', () => {
     const { getByTestId, getAllByTestId } = render(PreflightPanel, {
-      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+      props: {
+        report: { violations: [outOfRangeViolation] },
+        onUpdate: () => {},
+        depNames: new Map([['sophisticatedcore', 'Sophisticated Core']]),
+      },
     });
     expect(getByTestId('preflight-panel')).toBeTruthy();
     const rows = getAllByTestId('preflight-row');
@@ -154,6 +162,13 @@ describe('PreflightPanel', () => {
     const rowText = rows[0].textContent ?? '';
     expect(rowText).toContain('Sophisticated Backpacks');
     expect(rowText).toContain('Sophisticated Core');
+  });
+
+  it('shows the raw dep id when no overlay is supplied — the launch-gate case', () => {
+    const { getAllByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+    });
+    expect(getAllByTestId('preflight-row')[0].textContent).toContain('sophisticatedcore');
   });
 
   it('renders one row for a missing_required violation with the dependent name and dep id', () => {
