@@ -129,6 +129,7 @@ The commitments above are not honour-system rules; most are enforced by tests in
 | `structural_loopback_confined.rs` | No call into the `127.0.0.1` seam (`network::loopback`) outside `l10n::prefill` (Part A commitment 5) |
 | `structural_no_sync_reconcile.rs` | A `#[tauri::command]` that runs the mods/plugins reconcile scan must be `async` — a synchronous command runs on the main thread and freezes the window for the length of the scan |
 | `structural_no_inplace_mods_write.rs` | No raw file write under `src/mods/`, `src/datapacks/`, or `src/worlds/` outside `mods::store` (instance side) and `mods::cache` (store side). Instance mod jars and world datapack links are hardlinks to one shared physical file, so an in-place write — `fs::copy` included, since it opens the destination with truncate — corrupts every instance or world sharing it. Only write-to-temp-then-rename is safe. |
+| `structural_no_blind_err_swallow.rs` | No `Err` arm with an empty body (unless it carries a match guard naming the error, which is the discrimination this asks for), and no discarded `Result` from an fs `rename`/`write` without a justification comment. Removals are excluded — see the module doc. Enforces the mechanically-checkable part of principle B.7's last two bullets; a swallowed *removal* on a recovery path and a promised-but-missing log remain review's job. |
 | `structural_platform_chokepoint.rs` | OS-specific behaviour stays behind the `platform::` seam rather than leaking `#[cfg(windows)]` across the codebase |
 | `structural_no_env_mutation.rs` | No `std::env::set_var` in production code — env overrides go through `test_seam` (this is what removed the need for single-threaded test runs) |
 | `structural_installer_branding.rs` | The NSIS installer keeps Lucerna branding assets wired up |
@@ -171,6 +172,8 @@ These guards constrain *where* code may do a thing. They cannot verify that this
    - `thiserror` for typed errors in library modules.
    - `anyhow` in application / main code.
    - No `.unwrap()` in production code unless paired with a comment proving the case is unreachable.
+   - A fallback answers "could not check" restrictively, and never collapses "absent" into "could not tell". (`Path::exists()` collapses them by design — it reports `false` for any stat failure. Use `try_exists()`, or claim the name atomically.)
+   - A rename or write on a recovery path — rollback, cleanup, or any step that runs because something already failed — is never discarded silently.
 
 8. **Comments explain WHY.** Names explain WHAT. Comments explain non-obvious constraints, invariants, or workarounds. No `// added for issue #123`. No `// removed feature X` markers — deleted code is gone; commit history records why.
 

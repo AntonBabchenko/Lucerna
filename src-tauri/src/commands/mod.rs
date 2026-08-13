@@ -50,6 +50,8 @@ mod settings;
 pub use settings::*;
 mod update;
 pub use update::*;
+mod changelog;
+pub use changelog::*;
 mod window;
 pub use window::*;
 mod servers_runtime;

@@ -2183,6 +2183,7 @@
     "worldInUse": "World \"{folderName}\" is currently in use — quit Minecraft and try again",
     "worldPathInvalid": "Invalid name \"{name}\": {reason}",
     "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
+    "worldRestoreStranded": "Restore failed and \"{worldFolder}\" couldn't be moved back automatically. Your world is safe in the \"{recoveredAt}\" folder inside saves. See Logs for the cause.",
     "screenshotNotFound": "Screenshot \"{filename}\" not found in this instance",
     "screenshotPathInvalid": "Invalid screenshot name \"{name}\": {reason}",
     "backupNotFound": "Backup \"{filename}\" not found",
@@ -2297,6 +2298,84 @@
       "help": "Help",
       "about": "About"
     },
+    "search": {
+      "label": "Search settings",
+      "placeholder": "Search settings…",
+      "noResults": "Nothing found",
+      "jumpedTo": "Opened setting:",
+      "labels": {
+        "appearance": {
+          "theme": "Theme",
+          "language": "Interface language",
+          "rainbowIcons": "Rainbow icon animation",
+          "iconZoom": "Icon hover zoom",
+          "sidebarButtons": "Sidebar buttons"
+        },
+        "game": {
+          "tray": "Hide to tray while playing",
+          "serverPing": "Server status ping",
+          "gpu": "Preferred GPU"
+        },
+        "integrations": {
+          "curseforgeKey": "CurseForge API key",
+          "urlScheme": "URL scheme handler",
+          "aiTranslation": "AI translation"
+        },
+        "storage": {
+          "cache": "Clear cache",
+          "logRetention": "Log retention",
+          "modMetadataCache": "Mod metadata cache",
+          "dataLocation": "Data location"
+        },
+        "updates": {
+          "startupCheck": "Check for updates on startup",
+          "changelog": "What's new"
+        },
+        "help": {
+          "tipsLevel": "Tips level",
+          "replayTours": "Replay tours"
+        },
+        "about": {
+          "repo": "Source code on GitHub"
+        }
+      },
+      "keywords": {
+        "appearance": {
+          "theme": "theme dark light system appearance",
+          "language": "language locale english russian interface",
+          "rainbowIcons": "rainbow icon animation color",
+          "iconZoom": "icon zoom hover magnify",
+          "sidebarButtons": "sidebar buttons hide navigation"
+        },
+        "game": {
+          "tray": "tray minimize hide playing background",
+          "serverPing": "server ping status online players",
+          "gpu": "gpu graphics video performance discrete"
+        },
+        "integrations": {
+          "curseforgeKey": "curseforge api key token",
+          "urlScheme": "url scheme protocol deep link handler",
+          "aiTranslation": "ai translation translate provider model api key token gemini anthropic openai groq"
+        },
+        "storage": {
+          "cache": "cache clear temporary storage",
+          "logRetention": "log retention keep size files",
+          "modMetadataCache": "mod metadata cache ttl refresh",
+          "dataLocation": "data location folder path move disk"
+        },
+        "updates": {
+          "startupCheck": "update startup check automatic",
+          "changelog": "changelog whats new version release"
+        },
+        "help": {
+          "tipsLevel": "tips help level basic advanced",
+          "replayTours": "tour onboarding replay guide walkthrough"
+        },
+        "about": {
+          "repo": "github repository source repo about version"
+        }
+      }
+    },
     "general": {
       "appearance": {
         "language": "Language",
@@ -2376,7 +2455,8 @@
         "high": "High performance",
         "power": "Power saving",
         "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
-        "appliedToast": "Applied GPU preference to the new Java runtime: {name}"
+        "appliedToast": "Applied GPU preference to the new Java runtime: {name}",
+        "unavailable": "GPU selection isn't available on this system."
       },
       "logRetention": {
         "title": "Log retention",
@@ -2533,6 +2613,11 @@
       "currentVersion": "You're on {version}.",
       "downloading": "Downloading update…",
       "verifyFailed": "Couldn't verify the update"
+    },
+    "whatsNew": {
+      "toast": "Updated to {version} — see what's new",
+      "actionLabel": "What's new",
+      "title": "What's new in Lucerna {version}"
     },
     "crash": {
       "banner": "Minecraft crashed.",

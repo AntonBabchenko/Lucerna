@@ -47,7 +47,10 @@ pub async fn backup_world(
 /// Try `<base>.zip`, then `<base>.2.zip`, …, up to `<base>.99.zip`.
 /// Returns the chosen (filename, full_path) or
 /// `WorldNameUnresolvable` if all 99 are taken.
-fn pick_unused_filename(backups_dir: &std::path::Path, base: &str) -> Result<(String, PathBuf)> {
+pub(crate) fn pick_unused_filename(
+    backups_dir: &std::path::Path,
+    base: &str,
+) -> Result<(String, PathBuf)> {
     for i in 1..=99 {
         let filename = if i == 1 {
             format!("{base}.zip")

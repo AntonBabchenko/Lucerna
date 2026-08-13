@@ -4,6 +4,7 @@
   // is a vertical WAI-ARIA tablist with roving tabindex (ArrowUp/Down +
   // Home/End). Deep-links arrive via the shared `settingsOpen` rune:
   // `settingsOpen.value = { tab }` snaps to that section.
+  import { tick } from 'svelte';
   import AppearancePanel from './AppearancePanel.svelte';
   import GamePanel from './GamePanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
@@ -13,7 +14,10 @@
   import UpdatesPanel from './UpdatesPanel.svelte';
   import HelpPanel from './HelpPanel.svelte';
   import AboutPanel from './AboutPanel.svelte';
-  import { settingsOpen, type SettingsTab } from './state.svelte';
+  import SettingsSearchField from './SettingsSearchField.svelte';
+  import SettingsField from './SettingsField.svelte';
+  import { settingsOpen, settingsSearchFocus, type SettingsTab } from './state.svelte';
+  import type { SettingsSearchEntry } from './search-index';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -31,6 +35,20 @@
 
   let active = $state<SettingsTab>('appearance');
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
+  let searching = $state(false);
+  let announce = $state('');
+
+  // Jump to a searched setting: clear any prior flash, switch to the owning
+  // section, wait for that panel to mount, then point the rune at the anchor so
+  // its SettingsField flashes. The null→anchor edge re-fires even when the same
+  // result is picked twice.
+  async function selectResult(entry: SettingsSearchEntry) {
+    settingsSearchFocus.value = null;
+    active = entry.tab;
+    await tick();
+    settingsSearchFocus.value = entry.anchor;
+    announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
+  }
 
   function onTablistKeydown(e: KeyboardEvent) {
     const current = SECTIONS.findIndex((s) => s.id === active);
@@ -52,7 +70,9 @@
   });
 
   function close() {
+    settingsSearchFocus.value = null;
     settingsOpen.value = null;
+    searching = false;
   }
 </script>
 
@@ -68,35 +88,41 @@
       </h2>
       <CloseButton onClick={close} ariaLabel={$t('settings.closeLabel')} />
     </header>
+    <div class="sr-only" role="status" aria-live="polite">{announce}</div>
     <div class="flex flex-1 min-h-0">
-      <!-- Vertical tablist: the roving-tabindex tabs inside hold focus, so
-             the list takes no tabindex; the keydown handler routes arrows. -->
-      <!-- svelte-ignore a11y_interactive_supports_focus -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        role="tablist"
-        aria-orientation="vertical"
-        class="w-44 shrink-0 border-r p-2 flex flex-col gap-0.5 overflow-y-auto"
-        onkeydown={onTablistKeydown}
-      >
-        {#each SECTIONS as s, i (s.id)}
-          <button
-            bind:this={tabEls[i]}
-            type="button"
-            role="tab"
-            aria-selected={active === s.id}
-            tabindex={active === s.id ? 0 : -1}
-            class="text-left px-3 py-1.5 text-sm rounded border-l-2"
-            class:border-accent={active === s.id}
-            class:text-primary={active === s.id}
-            class:font-medium={active === s.id}
-            class:border-transparent={active !== s.id}
-            class:text-muted={active !== s.id}
-            onclick={() => (active = s.id)}
+      <div class="w-44 shrink-0 border-r flex flex-col min-h-0">
+        <SettingsSearchField bind:searching onselect={selectResult} />
+        {#if !searching}
+          <!-- Vertical tablist: the roving-tabindex tabs inside hold focus, so
+                 the list takes no tabindex; the keydown handler routes arrows. -->
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div
+            role="tablist"
+            aria-orientation="vertical"
+            class="p-2 flex flex-col gap-0.5 overflow-y-auto"
+            onkeydown={onTablistKeydown}
           >
-            {$t(s.labelKey)}
-          </button>
-        {/each}
+            {#each SECTIONS as s, i (s.id)}
+              <button
+                bind:this={tabEls[i]}
+                type="button"
+                role="tab"
+                aria-selected={active === s.id}
+                tabindex={active === s.id ? 0 : -1}
+                class="text-left px-3 py-1.5 text-sm rounded border-l-2"
+                class:border-accent={active === s.id}
+                class:text-primary={active === s.id}
+                class:font-medium={active === s.id}
+                class:border-transparent={active !== s.id}
+                class:text-muted={active !== s.id}
+                onclick={() => (active = s.id)}
+              >
+                {$t(s.labelKey)}
+              </button>
+            {/each}
+          </div>
+        {/if}
       </div>
       <div class="flex-1 overflow-y-auto p-4">
         {#if active === 'appearance'}
@@ -105,12 +131,18 @@
           <GamePanel />
         {:else if active === 'integrations'}
           <div class="flex flex-col gap-6">
-            <CurseForgeKeyForm />
+            <SettingsField anchor="integrations.curseforgeKey">
+              <CurseForgeKeyForm />
+            </SettingsField>
             <div class="border-t pt-4">
-              <UrlSchemeSection />
+              <SettingsField anchor="integrations.urlScheme">
+                <UrlSchemeSection />
+              </SettingsField>
             </div>
             <div class="border-t pt-4">
-              <AiTranslationSection />
+              <SettingsField anchor="integrations.aiTranslation">
+                <AiTranslationSection />
+              </SettingsField>
             </div>
           </div>
         {:else if active === 'storage'}

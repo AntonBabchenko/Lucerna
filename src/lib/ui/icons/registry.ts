@@ -54,6 +54,7 @@ import {
   RefreshCw,
   RotateCcw,
   ScrollText,
+  Search,
   Server,
   Settings,
   Shirt,
@@ -98,6 +99,7 @@ export const ICONS = {
   minus: Minus,
   list: List,
   grid: LayoutGrid,
+  search: Search, // 🔍 magnifying-glass glyph (settings search field)
   // Second pass — non-indicator icons.
   package: Package, // modpack placeholder avatars + "from modpack" chips
   externalLink: ExternalLink, // opens an external site (e.g. OptiFine hint)

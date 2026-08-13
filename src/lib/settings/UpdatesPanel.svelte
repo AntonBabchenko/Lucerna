@@ -12,6 +12,7 @@
   import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { CHANGELOG } from '$lib/changelog/source';
+  import SettingsField from './SettingsField.svelte';
 
   let general = $state<GeneralSettings>({
     hide_to_tray_during_game: false,
@@ -83,21 +84,23 @@
     {#if loadError}
       <p class="text-xs text-danger">{loadError}</p>
     {/if}
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        bind:checked={general.check_updates_on_startup}
-        onchange={() => void save()}
-        data-testid="updates-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.updates.startupLabel')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.updates.startupDescription')}
+    <SettingsField anchor="updates.startupCheck">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          bind:checked={general.check_updates_on_startup}
+          onchange={() => void save()}
+          data-testid="updates-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.updates.startupLabel')}</span>
+          <span class="block text-xs text-muted">
+            {$t('settings.general.updates.startupDescription')}
+          </span>
         </span>
-      </span>
-    </label>
+      </label>
+    </SettingsField>
     {#if saveError}
       <p class="text-xs text-danger">{saveError}</p>
     {/if}
@@ -149,8 +152,10 @@
     </div>
   </div>
 
-  <div class="flex flex-col gap-3 border-t pt-4">
-    <h3 class="font-medium text-sm text-primary">{$t('settings.changelog.title')}</h3>
-    <ChangelogPanel entries={CHANGELOG} />
-  </div>
+  <SettingsField anchor="updates.changelog">
+    <div class="flex flex-col gap-3 border-t pt-4">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.changelog.title')}</h3>
+      <ChangelogPanel entries={CHANGELOG} />
+    </div>
+  </SettingsField>
 </section>

@@ -110,6 +110,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
             update_dismissed_version: None,
+            changelog_seen_version: None,
         },
     )?;
     // Seed committed — disarm the rollback guard (if any) so the reserved
