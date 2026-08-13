@@ -2935,17 +2935,27 @@ pub async fn mods_install_missing_required(
         Some(requiring) => resolve_dep_project(&app, requiring, &dep_id, &mc_version, loader).await,
         None => None,
     };
+    // The project title rides along with the candidate: this path already knows
+    // the dependency's real name, and dropping it would make the toast for
+    // "Install Forge Config API Port" read "Installed v20.6.1-1.20.6-Forge" —
+    // the very defect this change exists to remove.
+    let mut resolved_title: Option<String> = None;
     let from_declared: Option<(ModVersion, crate::mods::platform::SelectionReason)> = match via_deps
     {
         Some(p) => {
             let plat = platform_for(p.source);
-            plat.versions(&p.project_id, Some(&mc_version), Some(loader))
+            let picked = plat
+                .versions(&p.project_id, Some(&mc_version), Some(loader))
                 .await
                 .ok()
                 .and_then(|v| v.into_iter().next())
                 // Newest compatible build: this path carries no author pin
                 // and no declared range (a bare id has neither).
-                .map(|v| (v, crate::mods::platform::SelectionReason::NewestNoPin))
+                .map(|v| (v, crate::mods::platform::SelectionReason::NewestNoPin));
+            if picked.is_some() {
+                resolved_title = Some(p.name);
+            }
+            picked
         }
         None => None,
     };
@@ -3020,7 +3030,8 @@ pub async fn mods_install_missing_required(
     // `candidate` is consumed by `install_one`; keep its version for the journal
     // so this path's rows carry the same detail as every other platform install.
     let candidate_version = candidate.version_number.clone();
-    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, None, &nop).await?;
+    let inst =
+        crate::mods::install::install_one(&dd, &inst_root, candidate, resolved_title, &nop).await?;
     crate::journal::record(
         &inst_root,
         crate::journal::content_versioned(
