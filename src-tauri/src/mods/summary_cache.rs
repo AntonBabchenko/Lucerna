@@ -117,6 +117,28 @@ fn save(path: &Path, map: &HashMap<(ModSource, String), StoredEntry>) -> std::io
 /// forever at `ttl_days == 0`, which is a supported setting. Only the
 /// dependency graph passes `true`; every other caller passes `false` and
 /// re-fetches nothing.
+/// Cache-only lookup: whatever is already on disk for `(source, id)`, nothing
+/// else. Ids with no entry are simply absent from the result.
+///
+/// Takes **no fetch closure** on purpose, rather than reusing [`get_many`] with
+/// a closure the caller promises never to invoke. The display-name backfill
+/// must be provably offline, and an accessor that *cannot* reach the network is
+/// something a reviewer can verify from the signature alone.
+///
+/// TTL is ignored, also on purpose: a project title does not rot, and a
+/// best-effort repair must never trigger the re-fetch that staleness implies.
+/// Refreshing entries stays the job of the callers that already do it.
+pub fn get_many_cached(path: &Path, source: ModSource, ids: &[String]) -> Vec<ModSummary> {
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let _g = DISK_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let map = load(path);
+    ids.iter()
+        .filter_map(|id| map.get(&(source, id.clone())).map(|e| e.summary.clone()))
+        .collect()
+}
+
 pub async fn get_many<F, Fut>(
     path: &Path,
     source: ModSource,
@@ -535,5 +557,52 @@ mod tests {
         .await;
         assert_eq!(out.len(), 1);
         assert_eq!(calls.lock().unwrap().len(), 1, "CF id 42 is a distinct key");
+    }
+
+    /// The display-name backfill must be provably offline. This accessor takes
+    /// no fetch closure at all, so "it cannot reach the network" is visible in
+    /// the signature rather than promised in a comment.
+    #[test]
+    fn get_many_cached_returns_hits_and_skips_misses() {
+        let td = tempdir().unwrap();
+        let path = td.path().join("mods-cache.json");
+        seed(&path, ModSource::Modrinth, "aaa", Utc::now());
+
+        let got = get_many_cached(
+            &path,
+            ModSource::Modrinth,
+            &["aaa".to_string(), "missing".to_string()],
+        );
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].project_id, "aaa");
+        assert_eq!(got[0].name, "Name aaa");
+    }
+
+    /// A stale entry is still returned: a project title does not rot, and a
+    /// best-effort backfill must never trigger the re-fetch that TTL implies.
+    #[test]
+    fn get_many_cached_ignores_ttl() {
+        let td = tempdir().unwrap();
+        let path = td.path().join("mods-cache.json");
+        seed(
+            &path,
+            ModSource::Modrinth,
+            "old",
+            Utc::now() - Duration::days(3650),
+        );
+
+        let got = get_many_cached(&path, ModSource::Modrinth, &["old".to_string()]);
+        assert_eq!(got.len(), 1, "an ancient entry is still the mod's name");
+    }
+
+    #[test]
+    fn get_many_cached_on_an_absent_file_is_empty_not_an_error() {
+        let td = tempdir().unwrap();
+        let got = get_many_cached(
+            &td.path().join("nope.json"),
+            ModSource::Modrinth,
+            &["aaa".to_string()],
+        );
+        assert!(got.is_empty());
     }
 }

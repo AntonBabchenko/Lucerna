@@ -1186,6 +1186,7 @@
     <BrowseFilterBar
       searchAriaLabel={$t('mods.browse.searchAriaLabel')}
       searchPlaceholder={$t('mods.browse.searchPlaceholder')}
+      value={query}
       {sort}
       sortOptions={[
         { value: 'downloads', label: $t('mods.browse.sortDownloads') },

@@ -191,14 +191,21 @@ export async function remediatePickedVersion(
 
 /**
  * Resolve + install a missing required dependency by its loader mod-id.
+ *
+ * `dependentSha1` identifies the mod that DECLARED the dependency. The backend
+ * reads that mod's platform metadata first, which names the dependency's
+ * project outright, and only then falls back to guessing a slug from the bare
+ * id — a guess that fails outright for a slammed id like `forgeconfigapiport`.
+ *
  * Fail-safe: any IPC error degrades to an `open_search` outcome so the caller
  * always has an actionable next step (never throws).
  */
 export async function installMissing(
   instanceId: string,
+  dependentSha1: string,
   depId: string,
 ): Promise<InstallMissingOutcome> {
-  const res = await commands.modsInstallMissingRequired(instanceId, depId);
+  const res = await commands.modsInstallMissingRequired(instanceId, dependentSha1, depId);
   if (res.status === 'ok') return res.data;
   return { kind: 'open_search', query: depId };
 }

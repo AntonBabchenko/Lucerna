@@ -79,6 +79,87 @@ fn mod_metadata_ttl_days(app: &tauri::AppHandle) -> crate::error::Result<u32> {
         .mod_metadata_ttl_days)
 }
 
+/// Offline display-name repair for one instance's registry.
+///
+/// Shared by the two commands that surface `InstalledMod.name`, and it must run
+/// for BOTH. Wiring it only into the installed-list command would leave the
+/// compatibility panel printing the old version string until the Installed tab
+/// had been opened at least once — which is exactly the first paint this whole
+/// change exists to fix.
+///
+/// Cache-only by construction: `get_many_cached` takes no fetcher, so this
+/// cannot add a network round to a path that includes the launch gate.
+async fn backfill_display_names(
+    app: &tauri::AppHandle,
+    inst_root: &std::path::Path,
+) -> crate::error::Result<()> {
+    let path = crate::paths::mods_cache_file(app)
+        .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
+    crate::mods::installed::backfill_display_names(inst_root, |wanted| async move {
+        let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
+            std::collections::HashMap::new();
+        for (source, pid) in wanted {
+            by_source.entry(source).or_default().push(pid);
+        }
+        let mut out = std::collections::HashMap::new();
+        for (source, ids) in by_source {
+            for s in crate::mods::summary_cache::get_many_cached(&path, source, &ids) {
+                out.insert((source, s.project_id.clone()), s.name);
+            }
+        }
+        out
+    })
+    .await
+}
+
+/// Project titles for a set of versions, keyed by `(source, project_id)`.
+///
+/// Used at install time so the registry records the mod name rather than
+/// `ModVersion.name` (the platform VERSION title). Goes through the shared
+/// summary cache, so a warm cache costs nothing and a cold one costs the same
+/// batched request the Installed list would make moments later. Never fails:
+/// an unresolved id is absent from the map and its row falls back to today's
+/// behaviour until `installed::backfill_display_names` repairs it.
+async fn project_titles_for(
+    app: &tauri::AppHandle,
+    versions: &[crate::mods::platform::ModVersion],
+) -> std::collections::HashMap<(ModSource, String), String> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(path) = crate::paths::mods_cache_file(app) else {
+        return out;
+    };
+    let Ok(ttl) = mod_metadata_ttl_days(app) else {
+        return out;
+    };
+    let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
+        std::collections::HashMap::new();
+    for v in versions {
+        let ids = by_source.entry(v.source).or_default();
+        if !ids.contains(&v.project_id) {
+            ids.push(v.project_id.clone());
+        }
+    }
+    for (source, ids) in by_source {
+        let platform = platform_for(source);
+        let summaries = crate::mods::summary_cache::get_many(
+            &path,
+            source,
+            &ids,
+            ttl,
+            false,
+            move |want: Vec<String>| async move {
+                let refs: Vec<&str> = want.iter().map(String::as_str).collect();
+                platform.summaries(&refs).await
+            },
+        )
+        .await;
+        for s in summaries {
+            out.insert((source, s.project_id.clone()), s.name);
+        }
+    }
+    out
+}
+
 /// Batch-fetch project summaries (name / slug / icon) for the installed list.
 /// Serves fresh entries from the shared disk cache and batch-fetches the
 /// missing/stale set in one request via `ModPlatform::summaries`, collapsing
@@ -490,10 +571,17 @@ pub async fn mods_install_with_deps(
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
+    // Project titles for the whole sequence, so every jar — primary AND its
+    // dependencies — is recorded under its mod name instead of the platform
+    // version title. Cache-first through `summary_cache`; ids it cannot resolve
+    // are simply absent and fall back, then get repaired by the backfill.
+    let titles = project_titles_for(&app, &install_seq).await;
+
     let installed_all = match crate::mods::install_batch::install_batch(
         &dd,
         &inst_root,
         &install_seq,
+        &titles,
         &prog,
         &count,
     )
@@ -1371,6 +1459,10 @@ pub async fn mods_list_installed(
     instance_id: String,
 ) -> crate::error::Result<Vec<InstalledMod>> {
     let inst_root = instance_root(&app, &instance_id)?;
+    // Best-effort: a failed name repair must never fail the listing.
+    if let Err(e) = backfill_display_names(&app, &inst_root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
     // The ONLY caller of the taking form. Every other command uses `list` and
     // leaves the marker standing, so an external change cannot be swallowed by
     // whichever background listing happened to run first.
@@ -2439,7 +2531,8 @@ pub async fn mods_apply_mc_migration(
                     count.clone(),
                 );
 
-                match crate::mods::install::install_one(&dd, &inst_root, target, &prog).await {
+                match crate::mods::install::install_one(&dd, &inst_root, target, None, &prog).await
+                {
                     Ok(inst) => {
                         let _ = ModInstalled {
                             instance_id: instance_id.clone(),
@@ -2679,18 +2772,150 @@ fn dedup_extra_candidates(
         .collect()
 }
 
+/// One question, asked in two places: which project provides this loader id?
+///
+/// Tries the requiring mod's declared platform dependencies first — for an
+/// identified mod the platform states the dependency's project id outright, so
+/// there is nothing to guess. Returns `None` when that is unavailable, and the
+/// caller falls through to the slug/search path.
+///
+/// Shared by the panel's LABEL and its Install BUTTON on purpose: the panel
+/// must never name a project the button would then refuse to install.
+async fn resolve_dep_project(
+    app: &tauri::AppHandle,
+    requiring: &crate::mods::platform::InstalledMod,
+    dep_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> Option<crate::mods::dep_project::DepProject> {
+    let cache_path = crate::paths::mods_cache_file(app).ok()?;
+    let ttl = mod_metadata_ttl_days(app).ok()?;
+    let mc_owned = mc.to_string();
+    crate::mods::dep_project::resolve_via_requiring_mod(
+        requiring,
+        dep_id,
+        |source, project_id, version_id| async move {
+            // The instance's own facets, so this shares `version_cache` with
+            // every other lookup for the same mod. The exact installed build is
+            // preferred; when it is absent from that list — a stale jar the
+            // instance no longer matches — the newest compatible build answers
+            // instead. Both declare the same dependency IDS, which is all this
+            // is read for; the version itself is never installed from here.
+            let versions =
+                match crate::mods::version_cache::get(source, &project_id, &mc_owned, loader) {
+                    Some(v) => v,
+                    None => {
+                        let plat = platform_for(source);
+                        let v = plat
+                            .versions(&project_id, Some(&mc_owned), Some(loader))
+                            .await
+                            .ok()?;
+                        crate::mods::version_cache::put(
+                            source,
+                            &project_id,
+                            &mc_owned,
+                            loader,
+                            v.clone(),
+                        );
+                        v
+                    }
+                };
+            versions
+                .iter()
+                .find(|v| v.version_id == version_id)
+                .or_else(|| versions.first())
+                .cloned()
+        },
+        |source, ids| async move {
+            let plat = platform_for(source);
+            crate::mods::summary_cache::get_many(
+                &cache_path,
+                source,
+                &ids,
+                ttl,
+                false,
+                move |want: Vec<String>| async move {
+                    let refs: Vec<&str> = want.iter().map(String::as_str).collect();
+                    plat.summaries(&refs).await
+                },
+            )
+            .await
+        },
+    )
+    .await
+}
+
+/// One missing dependency to put a name to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepNameQuery {
+    /// SHA-1 of the mod that declared the dependency — the entry point to the
+    /// platform metadata that names it.
+    pub dependent_sha1: String,
+    /// The bare loader mod-id, e.g. `forgeconfigapiport`.
+    pub dep_id: String,
+}
+
+/// A dependency id and the project name it resolved to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepNameResolved {
+    pub dep_id: String,
+    pub name: String,
+}
+
+/// Human names for missing dependencies, for the compatibility panel's label.
+///
+/// Called ONLY from the Installed tab. The launch gate deliberately does not
+/// call it: nothing may sit between the user and the Play button, so the gate
+/// renders the raw loader id. That asymmetry is the design, not an omission.
+///
+/// Best-effort per id — anything unresolved is simply absent from the result
+/// and the panel falls back to the id. Never invents a name: resolution goes
+/// through the strict matcher, because unlike the install path there is no
+/// downloaded jar here to check a guess against.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_resolve_dep_names(
+    app: tauri::AppHandle,
+    instance_id: String,
+    queries: Vec<DepNameQuery>,
+) -> crate::error::Result<Vec<DepNameResolved>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let mut out: Vec<DepNameResolved> = Vec::new();
+    for q in queries {
+        if out.iter().any(|r| r.dep_id == q.dep_id) {
+            continue; // two mods can want the same dependency
+        }
+        let Some(requiring) = installed.iter().find(|m| m.sha1 == q.dependent_sha1) else {
+            continue;
+        };
+        if let Some(p) = resolve_dep_project(&app, requiring, &q.dep_id, &mc_version, loader).await
+        {
+            out.push(DepNameResolved {
+                dep_id: q.dep_id,
+                name: p.name,
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// One-click install of a missing required dependency identified only by its
-/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
-/// fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
-/// actually provides that id, then installs it. No manifest range context on
-/// this bare-id path → `range = None`. On any resolution/verification miss
-/// returns `OpenSearch` so the UI can offer a pre-filled search instead of
-/// guessing.
+/// loader mod-id (e.g. `balm`). Tries the requiring mod's declared platform
+/// dependencies first (exact project id, no guessing), then falls back to the
+/// historical path: Modrinth-slug-first + name-search — now also querying the
+/// word-segmented form of a slammed id — then CF, the latter loader/MC-
+/// decoupled. Either way the downloaded jar is verified to actually provide
+/// that id before it is installed. No manifest range context on this bare-id
+/// path → `range = None`. On any resolution/verification miss returns
+/// `OpenSearch` so the UI can offer a pre-filled search instead of guessing.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_install_missing_required(
     app: tauri::AppHandle,
     instance_id: String,
+    dependent_sha1: String,
     dep_id: String,
 ) -> crate::error::Result<crate::mods::platform::InstallMissingOutcome> {
     use crate::mods::dep_resolve::{jar_provides, DepResolution};
@@ -2700,33 +2925,78 @@ pub async fn mods_install_missing_required(
     let dd = data_dir(&app)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    // Concrete clients; `CurseForgeClient::new()` resolves the key internally.
-    let mr = crate::mods::modrinth::ModrinthClient::new();
-    let cf = crate::mods::curseforge::CurseForgeClient::new();
-    let resolution = crate::mods::dep_resolve::resolve_missing_dep(
-        &dep_id,
-        None,
-        |id| {
-            let mr = &mr;
-            let mc = mc_version.clone();
-            async move { Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await) }
-        },
-        |id| {
-            let cf = &cf;
-            let mc = mc_version.clone();
-            async move {
-                Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
+    // Step 1 — the requiring mod's declared platform dependencies. For an
+    // identified mod the platform states the dependency's project id outright,
+    // which beats guessing a slug from a slammed loader id. The measured case:
+    // searching `forgeconfigapiport` returns nothing under this instance's
+    // facets, while the requiring mod's own metadata names `ohNO6lps` directly.
+    let installed_now = crate::mods::installed::list(&inst_root).await?;
+    let via_deps = match installed_now.iter().find(|m| m.sha1 == dependent_sha1) {
+        Some(requiring) => resolve_dep_project(&app, requiring, &dep_id, &mc_version, loader).await,
+        None => None,
+    };
+    // The project title rides along with the candidate: this path already knows
+    // the dependency's real name, and dropping it would make the toast for
+    // "Install Forge Config API Port" read "Installed v20.6.1-1.20.6-Forge" —
+    // the very defect this change exists to remove.
+    let mut resolved_title: Option<String> = None;
+    let from_declared: Option<(ModVersion, crate::mods::platform::SelectionReason)> = match via_deps
+    {
+        Some(p) => {
+            let plat = platform_for(p.source);
+            let picked = plat
+                .versions(&p.project_id, Some(&mc_version), Some(loader))
+                .await
+                .ok()
+                .and_then(|v| v.into_iter().next())
+                // Newest compatible build: this path carries no author pin
+                // and no declared range (a bare id has neither).
+                .map(|v| (v, crate::mods::platform::SelectionReason::NewestNoPin));
+            if picked.is_some() {
+                resolved_title = Some(p.name);
             }
-        },
-    )
-    .await;
-    let DepResolution::Resolved {
-        candidate,
-        needed_id,
-        selection_reason,
-    } = resolution
-    else {
-        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+            picked
+        }
+        None => None,
+    };
+
+    // Step 2 — the historical path, when the requiring mod is unidentified or
+    // its metadata does not name the dependency.
+    let (candidate, needed_id, selection_reason) = match from_declared {
+        Some((candidate, reason)) => (candidate, dep_id.clone(), reason),
+        None => {
+            // Concrete clients; `CurseForgeClient::new()` resolves the key internally.
+            let mr = crate::mods::modrinth::ModrinthClient::new();
+            let cf = crate::mods::curseforge::CurseForgeClient::new();
+            let resolution = crate::mods::dep_resolve::resolve_missing_dep(
+                &dep_id,
+                None,
+                |id| {
+                    let mr = &mr;
+                    let mc = mc_version.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await)
+                    }
+                },
+                |id| {
+                    let cf = &cf;
+                    let mc = mc_version.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
+                    }
+                },
+            )
+            .await;
+            let DepResolution::Resolved {
+                candidate,
+                needed_id,
+                selection_reason,
+            } = resolution
+            else {
+                return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+            };
+            (candidate, needed_id, selection_reason)
+        }
     };
     crate::diag!(
         "dep_resolve: {dep_id} -> {} ({selection_reason:?})",
@@ -2760,7 +3030,8 @@ pub async fn mods_install_missing_required(
     // `candidate` is consumed by `install_one`; keep its version for the journal
     // so this path's rows carry the same detail as every other platform install.
     let candidate_version = candidate.version_number.clone();
-    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
+    let inst =
+        crate::mods::install::install_one(&dd, &inst_root, candidate, resolved_title, &nop).await?;
     crate::journal::record(
         &inst_root,
         crate::journal::content_versioned(
@@ -3080,6 +3351,12 @@ pub async fn instance_dependency_preflight(
     instance_id: String,
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
+    // AA-1: the panel this report feeds names the requiring mod, so the repair
+    // has to have run before the report is built — not merely before the
+    // Installed list renders. Best-effort; a failure never blocks pre-flight.
+    if let Err(e) = backfill_display_names(&app, &root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
     // The MC version decides which descriptor the loader opens — Forge 1.12.2
     // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
     let inst = crate::instances::read_instance(&app, &instance_id)?;

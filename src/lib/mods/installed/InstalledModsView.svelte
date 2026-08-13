@@ -13,7 +13,7 @@
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
@@ -38,7 +38,7 @@
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
   import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
-  import { SvelteSet } from 'svelte/reactivity';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -143,6 +143,48 @@
   let pickerViolation = $state<DepViolation | null>(null);
   let findAltViolation = $state<DepViolation | null>(null);
 
+  // Human names for the missing dependencies in the current report, keyed by
+  // dep_id. Resolved once per report through the platform metadata of the mod
+  // that declared each dependency; anything unresolved simply stays absent and
+  // the panel falls back to the raw loader id.
+  //
+  // Installed-tab only. The launch gate renders the same panel without this
+  // map, because resolving costs a network round and nothing may sit between
+  // the user and the Play button.
+  let depNames = $state(new SvelteMap<string, string>());
+
+  $effect(() => {
+    const report = preflight.report;
+    const id = instanceId;
+    if (!report || !id) return;
+    const queries = report.violations
+      .filter((v) => v.kind === 'missing_required')
+      .map((v) => ({ dependent_sha1: v.dependent_sha1, dep_id: v.dep_id }));
+    if (queries.length === 0) return;
+    // untrack so writing `depNames` below cannot re-trigger this effect.
+    untrack(() => {
+      void commands
+        .modsResolveDepNames(id, queries)
+        .then((res) => {
+          if (res.status !== 'ok' || instanceId !== id) return;
+          const next = new SvelteMap<string, string>();
+          for (const r of res.data) next.set(r.dep_id, r.name);
+          depNames = next;
+        })
+        .catch(() => {
+          // Deliberately silent, and it satisfies the four fallback questions:
+          // it resolves to the RESTRICTIVE answer (no overlay → the raw loader
+          // id, never a guessed name); what the user sees — an id — honestly
+          // describes what we know; and it is enrichment, not a recovery path,
+          // so there is no failed operation whose own result goes unchecked.
+          // The one thing it cannot do is tell "nothing resolved" from "the
+          // call never landed", and it does not need to: both mean we have no
+          // name to show. The Result envelope already carries command errors;
+          // this only stops a transport-level rejection escaping an $effect.
+        });
+    });
+  });
+
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
   // dead-end could otherwise bleed onto a same-named dep in another instance.
@@ -175,7 +217,7 @@
         preflightDeadEnd.delete(key);
         pushSuccess(
           get(t)('mods.preflight.installedVersion', {
-            dep: v.dep_display_name ?? v.dep_id,
+            dep: depNames.get(v.dep_id) ?? v.dep_id,
             version: result.installedVersion ?? '',
           }),
         );
@@ -221,7 +263,7 @@
       pickerViolation = null;
       pushSuccess(
         get(t)('mods.preflight.installedVersion', {
-          dep: v.dep_display_name ?? v.dep_id,
+          dep: depNames.get(v.dep_id) ?? v.dep_id,
           version: r.installedVersion ?? '',
         }),
       );
@@ -238,7 +280,7 @@
   // it switches to Browse with the search pre-filled.
   const onInstallMissingDep = async (v: DepViolation): Promise<void> => {
     if (!instanceId) return;
-    const outcome = await installMissing(instanceId, v.dep_id);
+    const outcome = await installMissing(instanceId, v.dependent_sha1, v.dep_id);
     if (outcome.kind === 'installed') {
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: outcome.name }));
       preflight.invalidate();
@@ -246,7 +288,7 @@
       await data.refresh();
     } else {
       pushWarning(
-        get(t)('mods.preflight.installSearchFallback', { dep: v.dep_display_name ?? v.dep_id }),
+        get(t)('mods.preflight.installSearchFallback', { dep: depNames.get(v.dep_id) ?? v.dep_id }),
       );
       onBrowseFor(outcome.query);
     }
@@ -536,6 +578,7 @@
     onOpenModPage={onPreflightOpenModPage}
     onMigrate={() => (migrationDialogOpen = true)}
     migrateCount={compat.incompatibleCount}
+    {depNames}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
   />
@@ -663,7 +706,7 @@
 
   {#if findAltViolation && instanceId && mcVersion && loader}
     <FindAlternativeDialog
-      modName={findAltViolation.dep_display_name ?? findAltViolation.dep_id}
+      modName={depNames.get(findAltViolation.dep_id) ?? findAltViolation.dep_id}
       {mcVersion}
       {loader}
       {instanceId}

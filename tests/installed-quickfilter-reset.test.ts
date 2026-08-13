@@ -89,7 +89,6 @@ const preflightWithViolation = vi.hoisted(() => () => ({
         dependent_sha1: 'a',
         dependent_name: 'Alpha',
         dep_id: 'somelib',
-        dep_display_name: null,
         kind: 'missing_required',
         installed_version: null,
         needed: '',
@@ -147,6 +146,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     ),
     modsDependencyGraph: mocks.modsDependencyGraph,
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
+    // The panel enriches missing-dependency ids with project names; without
+    // this the effect calls undefined and the rejection escapes the test run.
+    modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

@@ -65,6 +65,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: graphWithAbsentRequired }),
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
+    // The panel enriches missing-dependency ids with project names; without
+    // this the effect calls undefined and the rejection escapes the test run.
+    modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -122,7 +125,6 @@ describe('the issue count comes from the pre-flight', () => {
             dependent_sha1: 'a',
             dependent_name: 'Alpha',
             dep_id: 'stylisheffects',
-            dep_display_name: null,
             kind: 'missing_required',
             installed_version: null,
             needed: '',

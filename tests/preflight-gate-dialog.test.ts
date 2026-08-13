@@ -18,7 +18,6 @@ const report: PreflightReport = {
       dependent_name: 'Sophisticated Backpacks',
       dependent_sha1: 'aa',
       dep_id: 'sophisticatedcore',
-      dep_display_name: 'Sophisticated Core',
       needed: '[1.3.51,)',
       needed_desc: rawRangeDesc('[1.3.51,)'),
       installed_version: '1.3.50',

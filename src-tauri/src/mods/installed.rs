@@ -213,6 +213,72 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
     Ok(state.mods)
 }
 
+/// Repair registry rows whose `name` predates the project-title convention.
+///
+/// Rows written before that convention hold `ModVersion.name` — Modrinth's
+/// VERSION title ("b0.25.8") or CurseForge's file display name — so every
+/// surface reading the registry printed a version string where a mod name
+/// belongs. This rewrites them from whatever the caller can resolve offline.
+///
+/// Closure-injected so the behaviour is unit-testable without an `AppHandle`:
+/// the command layer passes a resolver backed by
+/// `summary_cache::get_many_cached`, which by its signature cannot reach the
+/// network. Nothing here may add a network round — it runs on every read of the
+/// installed list AND on every dependency pre-flight.
+///
+/// Only platform-identified rows are considered. A manual jar's `name` is
+/// derived from its filename and is the only thing known about it; rewriting
+/// that would destroy information rather than repair it.
+///
+/// The overwrite is unconditional for a resolved row: for a platform mod the
+/// project summary IS the authority on its name, and there is no reliable
+/// predicate for "this string is already a project title".
+pub async fn backfill_display_names<F, Fut>(instance_root: &Path, resolve: F) -> Result<(), Error>
+where
+    F: FnOnce(Vec<(ModSource, String)>) -> Fut,
+    Fut: std::future::Future<Output = std::collections::HashMap<(ModSource, String), String>>,
+{
+    let mut state = read_or_empty(instance_root).await?;
+    // Deduplicated: two jars of the same project must not be asked for twice.
+    // Sorted by id afterwards because `ModSource` is not `Ord` (a `BTreeSet`
+    // would need it) and a stable order keeps the resolver's batching — and
+    // these tests — deterministic.
+    let mut wanted: Vec<(ModSource, String)> = state
+        .mods
+        .iter()
+        .filter_map(|m| Some((m.source?, m.project_id.clone()?)))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    wanted.sort_by(|a, b| a.1.cmp(&b.1));
+    let names = resolve(wanted).await;
+    if apply_display_names(&mut state.mods, &names) {
+        write(instance_root, &state).await?;
+    }
+    Ok(())
+}
+
+/// Pure half of [`backfill_display_names`]. Returns whether anything changed —
+/// the caller persists only then, so a steady state costs no write.
+pub(crate) fn apply_display_names(
+    mods: &mut [InstalledMod],
+    names: &std::collections::HashMap<(ModSource, String), String>,
+) -> bool {
+    let mut changed = false;
+    for m in mods.iter_mut() {
+        let (Some(source), Some(pid)) = (m.source, m.project_id.clone()) else {
+            continue;
+        };
+        if let Some(name) = names.get(&(source, pid)) {
+            if m.name != *name {
+                m.name = name.clone();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// `list`, and takes the pending external-change marker: reports whether one was
 /// set and clears it in the same write.
 ///
@@ -1622,5 +1688,166 @@ mod tests {
         // Taken once, never twice.
         let (_, pending) = list_taking_external_change(root).await.unwrap();
         assert!(!pending);
+    }
+
+    // ── display-name backfill ────────────────────────────────────────────
+    //
+    // Rows written before the project-title convention hold `ModVersion.name`
+    // — the platform VERSION title ("b0.25.8"), not the mod's name. These
+    // tests read back through `read_or_empty` rather than `list`, because
+    // `list` reconciles against `mods/` and would drop fixture rows that have
+    // no jar on disk, measuring the wrong thing.
+
+    /// A row with a resolvable project id takes the cached project title.
+    #[tokio::test]
+    async fn backfill_rewrites_platform_rows_from_the_resolver() {
+        let td = TempDir::new().unwrap();
+        let mut row = provenanced("opac.jar", "sha-a".into());
+        row.project_id = Some("bo89PdrX".into());
+        row.name = "b0.25.8".into();
+        let state = OnDisk {
+            mods: vec![row],
+            ..Default::default()
+        };
+        write(td.path(), &state).await.unwrap();
+
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rec = calls.clone();
+        backfill_display_names(td.path(), |wanted| {
+            rec.lock().unwrap().push(wanted.clone());
+            async move {
+                let mut m = std::collections::HashMap::new();
+                for k in wanted {
+                    m.insert(k, "Open Parties and Claims".to_string());
+                }
+                m
+            }
+        })
+        .await
+        .unwrap();
+
+        let after = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(after.mods[0].name, "Open Parties and Claims");
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            [vec![(ModSource::Modrinth, "bo89PdrX".to_string())]]
+        );
+    }
+
+    /// A cold cache degrades to a no-op. Never to a worse name, and never to a
+    /// network round to go find one.
+    #[tokio::test]
+    async fn backfill_leaves_the_row_alone_when_the_resolver_knows_nothing() {
+        let td = TempDir::new().unwrap();
+        let mut row = provenanced("opac.jar", "sha-a".into());
+        row.name = "b0.25.8".into();
+        let state = OnDisk {
+            mods: vec![row],
+            ..Default::default()
+        };
+        write(td.path(), &state).await.unwrap();
+
+        backfill_display_names(td.path(), |_| async { std::collections::HashMap::new() })
+            .await
+            .unwrap();
+
+        let after = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(after.mods[0].name, "b0.25.8");
+    }
+
+    /// A manual jar's name is derived from its filename and is the only thing
+    /// known about it. Rewriting that would destroy information, so such rows
+    /// are not even offered to the resolver.
+    #[tokio::test]
+    async fn backfill_never_touches_a_jar_with_no_platform_identity() {
+        let td = TempDir::new().unwrap();
+        let mut manual = provenanced("manual.jar", "sha-m".into());
+        manual.source = None;
+        manual.project_id = None;
+        manual.name = "manual.jar".into();
+        let state = OnDisk {
+            mods: vec![manual],
+            ..Default::default()
+        };
+        write(td.path(), &state).await.unwrap();
+
+        backfill_display_names(td.path(), |wanted| {
+            assert!(
+                wanted.is_empty(),
+                "a row with no platform identity must never be queried"
+            );
+            async { std::collections::HashMap::new() }
+        })
+        .await
+        .unwrap();
+
+        let after = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(after.mods[0].name, "manual.jar");
+    }
+
+    /// Idempotence: a second run over already-correct rows must not rewrite the
+    /// file. Both reading commands call this on every read, so a version that
+    /// dirtied the registry each time would rewrite it on every list.
+    #[tokio::test]
+    async fn backfill_does_not_rewrite_when_nothing_changes() {
+        let td = TempDir::new().unwrap();
+        let mut row = provenanced("opac.jar", "sha-a".into());
+        row.name = "Sodium".into();
+        let state = OnDisk {
+            mods: vec![row],
+            ..Default::default()
+        };
+        write(td.path(), &state).await.unwrap();
+        let before = tokio::fs::metadata(registry_path(td.path()))
+            .await
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        backfill_display_names(td.path(), |wanted| async move {
+            wanted
+                .into_iter()
+                .map(|k| (k, "Sodium".to_string()))
+                .collect()
+        })
+        .await
+        .unwrap();
+
+        let after = tokio::fs::metadata(registry_path(td.path()))
+            .await
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(before, after, "an unchanged registry must not be rewritten");
+    }
+
+    /// Two rows of the same project ask once, not twice.
+    #[tokio::test]
+    async fn backfill_deduplicates_the_ids_it_asks_for() {
+        let td = TempDir::new().unwrap();
+        let mut a = provenanced("a.jar", "sha-a".into());
+        a.name = "old".into();
+        let mut b = provenanced("b.jar", "sha-b".into());
+        b.name = "old".into();
+        let state = OnDisk {
+            mods: vec![a, b],
+            ..Default::default()
+        };
+        write(td.path(), &state).await.unwrap();
+
+        backfill_display_names(td.path(), |wanted| {
+            assert_eq!(wanted.len(), 1, "the same project must be asked for once");
+            async move {
+                wanted
+                    .into_iter()
+                    .map(|k| (k, "Sodium".to_string()))
+                    .collect()
+            }
+        })
+        .await
+        .unwrap();
+
+        let after = read_or_empty(td.path()).await.unwrap();
+        assert!(after.mods.iter().all(|m| m.name == "Sodium"));
     }
 }

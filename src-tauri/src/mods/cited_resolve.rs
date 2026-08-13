@@ -186,6 +186,27 @@ pub async fn resolve(
     out
 }
 
+/// Whether an installed row is the mod a crash log cited by `cited_id`.
+///
+/// Extracted from `resolve_one` so it can be pinned by a test, because the
+/// display-name change of 2026-08-12 (AA-2) altered what it matches.
+/// `InstalledMod.name` used to hold the platform VERSION title — "b0.25.8",
+/// which could never equal a loader mod-id — and now holds the PROJECT title,
+/// which sometimes can ("Balm" vs `balm`). The direction is an improvement: a
+/// project title is far closer to a mod-id than a version title. But it is a
+/// behaviour change in crash diagnosis, not a no-op, so it is named and tested
+/// rather than left inline where a future edit could silently undo it.
+///
+/// A row with no platform identity is never a match: the caller's whole purpose
+/// is to resolve a wanted version from that identity.
+fn identifies_cited_mod(m: &InstalledMod, cited_id: &str) -> bool {
+    m.project_id.is_some()
+        && (m.name.eq_ignore_ascii_case(cited_id)
+            || m.project_id
+                .as_deref()
+                .is_some_and(|p| p.eq_ignore_ascii_case(cited_id)))
+}
+
 async fn resolve_one(
     c: &CitedMod,
     mc_version: &str,
@@ -197,13 +218,7 @@ async fn resolve_one(
     // 1. High-confidence mismatch path: the mod is already installed with a
     //    known platform identity → resolve the wanted version directly.
     if c.kind == CitedKind::VersionMismatch {
-        if let Some(m) = installed.iter().find(|m| {
-            m.project_id.is_some()
-                && (m.name.eq_ignore_ascii_case(&c.id)
-                    || m.project_id
-                        .as_deref()
-                        .is_some_and(|p| p.eq_ignore_ascii_case(&c.id)))
-        }) {
+        if let Some(m) = installed.iter().find(|m| identifies_cited_mod(m, &c.id)) {
             if let (Some(source), Some(pid)) = (m.source, m.project_id.clone()) {
                 let plat: &dyn ModPlatform = match source {
                     ModSource::Curseforge => curseforge,
@@ -429,6 +444,54 @@ mod tests {
         assert!(cited_satisfied_by_installed("farmersdelight", &installed)); // normalized name
         assert!(cited_satisfied_by_installed("jei", &installed)); // filename token
         assert!(!cited_satisfied_by_installed("create", &installed));
+    }
+
+    /// AA-2 (2026-08-12). `InstalledMod.name` now holds the PROJECT title
+    /// instead of the platform VERSION title, and this predicate reads `name`
+    /// as an identity. The change is therefore load-bearing here, in a way it
+    /// is not on the purely cosmetic surfaces:
+    ///
+    /// - before: `name` was "b0.25.8" and the name branch effectively never
+    ///   fired, leaving the `project_id` branch to carry the whole match;
+    /// - after: a single-word project title matches its own mod-id, so the
+    ///   name branch starts doing real work.
+    ///
+    /// Both branches are pinned so a later "cleanup" cannot quietly drop one.
+    #[test]
+    fn identifies_cited_mod_matches_project_title_and_project_id() {
+        let balm = fake_installed("Balm", "balm-forge-1.20.1-7.3.0.jar", Some("MBAaVOrO"));
+        let opac = fake_installed(
+            "Open Parties and Claims",
+            "opac-forge-1.20.6-0.25.8.jar",
+            Some("bo89PdrX"),
+        );
+
+        // Name branch: a project title that IS the mod-id, case-insensitively.
+        assert!(identifies_cited_mod(&balm, "balm"));
+        assert!(identifies_cited_mod(&balm, "BALM"));
+
+        // A project title that is not the id must not match on the name branch.
+        assert!(!identifies_cited_mod(&opac, "forgeconfigapiport"));
+
+        // project_id branch, independent of the name.
+        assert!(identifies_cited_mod(&opac, "bo89PdrX"));
+
+        // No platform identity → never a match, whatever the name says.
+        let manual = fake_installed("Balm", "balm.jar", None);
+        assert!(
+            !identifies_cited_mod(&manual, "balm"),
+            "without a project_id there is no identity to resolve a version from"
+        );
+    }
+
+    /// The version title this field used to hold could never equal a mod-id.
+    /// Kept as an explicit record of the pre-change behaviour, so the diff in
+    /// meaning is visible in the test file and not only in the commit message.
+    #[test]
+    fn a_version_title_in_the_name_field_would_not_have_matched() {
+        let legacy = fake_installed("b0.25.8", "opac.jar", Some("bo89PdrX"));
+        assert!(!identifies_cited_mod(&legacy, "openpartiesandclaims"));
+        assert!(identifies_cited_mod(&legacy, "bo89PdrX"));
     }
 
     #[test]

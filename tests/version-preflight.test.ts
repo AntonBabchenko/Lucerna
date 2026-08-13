@@ -13,7 +13,6 @@ const report: PreflightReport = {
       dependent_name: 'Sophisticated Backpacks',
       dependent_sha1: 'aa',
       dep_id: 'sophisticatedcore',
-      dep_display_name: 'Sophisticated Core',
       needed: '[1.3.51,)',
       needed_desc: rawRangeDesc('[1.3.51,)'),
       installed_version: '1.3.50.2005',
@@ -43,7 +42,6 @@ describe('toOverlayKeys edge cases', () => {
           dependent_name: 'Backpacks',
           dependent_sha1: 'bb',
           dep_id: 'missingmod',
-          dep_display_name: null,
           needed: '',
           needed_desc: rawRangeDesc(''),
           installed_version: null,
@@ -64,7 +62,6 @@ describe('toOverlayKeys edge cases', () => {
           dependent_name: 'SomeMod',
           dependent_sha1: 'cc',
           dep_id: 'unknowndep',
-          dep_display_name: null,
           needed: '[1.0,)',
           needed_desc: rawRangeDesc('[1.0,)'),
           installed_version: '0.9',
@@ -85,7 +82,6 @@ describe('toOverlayKeys edge cases', () => {
           dependent_name: 'SomeMod',
           dependent_sha1: 'dd',
           dep_id: 'cfmod',
-          dep_display_name: null,
           needed: '[2.0,)',
           needed_desc: rawRangeDesc('[2.0,)'),
           installed_version: '1.9',
@@ -112,7 +108,6 @@ const outOfRangeViolation: DepViolation = {
   dependent_name: 'Sophisticated Backpacks',
   dependent_sha1: 'aa',
   dep_id: 'sophisticatedcore',
-  dep_display_name: 'Sophisticated Core',
   needed: '[1.3.51,)',
   needed_desc: rawRangeDesc('[1.3.51,)'),
   installed_version: '1.3.50.2005',
@@ -126,7 +121,6 @@ const missingViolation: DepViolation = {
   dependent_name: 'Backpacks',
   dependent_sha1: 'bb',
   dep_id: 'missingmod',
-  dep_display_name: null,
   needed: '',
   needed_desc: rawRangeDesc(''),
   installed_version: null,
@@ -150,9 +144,17 @@ describe('PreflightPanel', () => {
     expect(queryByTestId('preflight-panel')).toBeNull();
   });
 
+  // The dep's human name used to ride on the violation itself
+  // (`dep_display_name`), a field the backend never populated. It now arrives
+  // as an overlay the Installed tab resolves and passes down; the row's job —
+  // naming both sides in words — is unchanged, which is what this asserts.
   it('renders one row for a version_out_of_range violation with the dependent name and dep name', () => {
     const { getByTestId, getAllByTestId } = render(PreflightPanel, {
-      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+      props: {
+        report: { violations: [outOfRangeViolation] },
+        onUpdate: () => {},
+        depNames: new Map([['sophisticatedcore', 'Sophisticated Core']]),
+      },
     });
     expect(getByTestId('preflight-panel')).toBeTruthy();
     const rows = getAllByTestId('preflight-row');
@@ -160,6 +162,13 @@ describe('PreflightPanel', () => {
     const rowText = rows[0].textContent ?? '';
     expect(rowText).toContain('Sophisticated Backpacks');
     expect(rowText).toContain('Sophisticated Core');
+  });
+
+  it('shows the raw dep id when no overlay is supplied — the launch-gate case', () => {
+    const { getAllByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+    });
+    expect(getAllByTestId('preflight-row')[0].textContent).toContain('sophisticatedcore');
   });
 
   it('renders one row for a missing_required violation with the dependent name and dep id', () => {
