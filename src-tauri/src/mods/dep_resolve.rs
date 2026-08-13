@@ -155,6 +155,61 @@ where
 /// `versions` is newest-first). Errors / empty pages collapse to an empty vec (a
 /// miss); the downstream `jar_provides` gate is the final arbiter so a loosened
 /// name match can never install a wrong jar.
+/// Strict counterpart to `dep_select::name_matches`, for the one caller that
+/// has no download to verify against.
+///
+/// `name_matches` is containment-based and by design admits near misses —
+/// `kilt-forgeconfigapiport-fix` contains `forgeconfigapiport` — because the
+/// install path re-checks the downloaded jar with `jar_provides`. The
+/// compatibility panel's dependency LABEL has no such second gate: whatever
+/// project it picks gets its name printed in front of the user. So the label
+/// path requires equality after separator-stripping, not containment.
+///
+/// Compares against the slug first (the platform's own id-like handle) and
+/// falls back to the display title, which covers projects whose slug diverges
+/// from the loader id.
+pub fn is_exact_project_match(dep_id: &str, slug: Option<&str>, name: &str) -> bool {
+    fn squash(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_lowercase())
+            .collect()
+    }
+    let needle = squash(dep_id);
+    if needle.is_empty() {
+        return false;
+    }
+    if let Some(s) = slug {
+        if squash(s) == needle {
+            return true;
+        }
+    }
+    squash(name) == needle
+}
+
+/// The search queries to try for a bare loader mod-id, in order.
+///
+/// A slammed id is never a Modrinth/CurseForge slug — both tokenize the
+/// hyphenated form — so the raw query finds nothing, or worse, finds only an
+/// unrelated project. Measured 2026-08-12: `forgeconfigapiport` returns 0 hits
+/// under forge + 1.20.6 facets and, unfaceted, exactly one — the third-party
+/// `kilt-forgeconfigapiport-fix`. `forge config api port` returns the real
+/// project first.
+///
+/// This is the same trick `cited_resolve::resolve_via_search` has used since
+/// its introduction, finally reaching the dependency path. The
+/// `dep_select::name_matches` gate at every call site is what keeps the wider
+/// net safe; it must not be relaxed alongside this.
+fn search_queries(dep_id: &str) -> Vec<String> {
+    let mut out = vec![dep_id.to_string()];
+    if let Some(spaced) = crate::mods::word_segment::segment(dep_id) {
+        if spaced != dep_id {
+            out.push(spaced);
+        }
+    }
+    out
+}
+
 pub async fn modrinth_lookup(
     mr: &crate::mods::modrinth::ModrinthClient,
     dep_id: &str,
@@ -169,19 +224,22 @@ pub async fn modrinth_lookup(
             }
         }
     }
-    let q = crate::mods::platform::ModSearchQuery {
-        server_only: false,
-        source: crate::mods::platform::ModSource::Modrinth,
-        kind: crate::mods::platform::ContentKind::Mod,
-        query: dep_id.to_string(),
-        mc_version: Some(mc.to_string()),
-        loader: Some(loader),
-        sort: crate::mods::platform::ModSort::Relevance,
-        page_size: 20,
-        offset: 0,
-        plugin_core: None,
-    };
-    if let Ok(page) = mr.search(&q).await {
+    for query in search_queries(dep_id) {
+        let q = crate::mods::platform::ModSearchQuery {
+            server_only: false,
+            source: crate::mods::platform::ModSource::Modrinth,
+            kind: crate::mods::platform::ContentKind::Mod,
+            query,
+            mc_version: Some(mc.to_string()),
+            loader: Some(loader),
+            sort: crate::mods::platform::ModSort::Relevance,
+            page_size: 20,
+            offset: 0,
+            plugin_core: None,
+        };
+        let Ok(page) = mr.search(&q).await else {
+            continue;
+        };
         for hit in page.hits {
             if crate::mods::dep_select::name_matches(dep_id, hit.slug.as_deref(), &hit.name) {
                 if let Ok(v) = mr.versions(&hit.project_id, Some(mc), Some(loader)).await {
@@ -209,33 +267,36 @@ pub async fn curseforge_lookup(
     loader: crate::mods::platform::LoaderKind,
 ) -> Vec<ModVersion> {
     use crate::mods::platform::ModPlatform;
-    let q = crate::mods::platform::ModSearchQuery {
-        server_only: false,
-        source: crate::mods::platform::ModSource::Curseforge,
-        kind: crate::mods::platform::ContentKind::Mod,
-        query: dep_id.to_string(),
-        mc_version: None, // decoupled — CF modLoaderType/gameVersion filter is unreliable
-        loader: None,     // decoupled
-        sort: crate::mods::platform::ModSort::Relevance,
-        page_size: 20,
-        offset: 0,
-        plugin_core: None,
-    };
-    let Ok(page) = cf.search(&q).await else {
-        return Vec::new();
-    };
-    for hit in page.hits {
-        let slug_eq = hit
-            .slug
-            .as_deref()
-            .map(|s| s.eq_ignore_ascii_case(dep_id))
-            .unwrap_or(false);
-        if slug_eq || crate::mods::dep_select::name_matches(dep_id, hit.slug.as_deref(), &hit.name)
-        {
-            if let Ok(mut v) = cf.versions(&hit.project_id, Some(mc), Some(loader)).await {
-                v.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-                if !v.is_empty() {
-                    return v;
+    for query in search_queries(dep_id) {
+        let q = crate::mods::platform::ModSearchQuery {
+            server_only: false,
+            source: crate::mods::platform::ModSource::Curseforge,
+            kind: crate::mods::platform::ContentKind::Mod,
+            query,
+            mc_version: None, // decoupled — CF modLoaderType/gameVersion filter is unreliable
+            loader: None,     // decoupled
+            sort: crate::mods::platform::ModSort::Relevance,
+            page_size: 20,
+            offset: 0,
+            plugin_core: None,
+        };
+        let Ok(page) = cf.search(&q).await else {
+            continue;
+        };
+        for hit in page.hits {
+            let slug_eq = hit
+                .slug
+                .as_deref()
+                .map(|s| s.eq_ignore_ascii_case(dep_id))
+                .unwrap_or(false);
+            if slug_eq
+                || crate::mods::dep_select::name_matches(dep_id, hit.slug.as_deref(), &hit.name)
+            {
+                if let Ok(mut v) = cf.versions(&hit.project_id, Some(mc), Some(loader)).await {
+                    v.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+                    if !v.is_empty() {
+                        return v;
+                    }
                 }
             }
         }
@@ -702,5 +763,106 @@ mod tests {
         })
         .await;
         assert!(resolved.is_empty() && unresolved.is_empty());
+    }
+
+    /// Both lookups must issue the segmented query as well as the raw one.
+    /// The raw query alone is what left the reported case dead: Modrinth
+    /// returns 0 hits for `forgeconfigapiport` under its own facets, while
+    /// `forge config api port` returns the real project first.
+    #[test]
+    fn search_queries_adds_the_segmented_form_for_a_slammed_id() {
+        assert_eq!(
+            search_queries("forgeconfigapiport"),
+            vec![
+                "forgeconfigapiport".to_string(),
+                "forge config api port".to_string()
+            ]
+        );
+    }
+
+    /// An id that is already a single dictionary word, or is opaque, gains
+    /// nothing from a second identical round trip.
+    #[test]
+    fn search_queries_stays_single_when_segmentation_adds_nothing() {
+        assert_eq!(search_queries("balm"), vec!["balm".to_string()]);
+        assert_eq!(search_queries("jei"), vec!["jei".to_string()]);
+        assert_eq!(search_queries("xyzzy"), vec!["xyzzy".to_string()]);
+    }
+
+    /// A hyphenated id already tokenizes upstream; segmentation must not turn
+    /// it into a duplicate of itself.
+    #[test]
+    fn search_queries_does_not_duplicate_an_already_spaced_result() {
+        let qs = search_queries("farmers-delight");
+        assert_eq!(qs[0], "farmers-delight");
+        assert!(
+            qs.len() == 1 || qs[1] != qs[0],
+            "a second query must differ from the first: {qs:?}"
+        );
+    }
+
+    /// Which gate actually stops the lookalike — recorded because it is NOT
+    /// the one you would assume.
+    ///
+    /// The single unfaceted Modrinth hit for `forgeconfigapiport` is
+    /// `kilt-forgeconfigapiport-fix`, a third-party compat patch.
+    /// `name_matches` is a deliberately loose CONTAINMENT test, and the
+    /// lookalike's slug contains the id verbatim — so the name gate accepts
+    /// both the real project and the patch. It narrows the candidate set; it
+    /// does not decide correctness.
+    ///
+    /// What rejects the patch is the second gate: `jar_provides`, which asks
+    /// the downloaded jar whether it declares the id. Anything that widens
+    /// discovery — this task's segmented query included — is safe only because
+    /// that verification exists. Do not remove it believing the name gate is
+    /// sufficient.
+    #[test]
+    fn the_name_gate_narrows_candidates_but_does_not_reject_a_lookalike() {
+        use crate::mods::dep_select::name_matches;
+
+        assert!(
+            name_matches(
+                "forgeconfigapiport",
+                Some("forge-config-api-port"),
+                "Forge Config API Port"
+            ),
+            "the real project must be discoverable"
+        );
+        assert!(
+            name_matches(
+                "forgeconfigapiport",
+                Some("kilt-forgeconfigapiport-fix"),
+                "Kilt Forge Config API Port fix"
+            ),
+            "containment also admits the lookalike — jar_provides is the arbiter"
+        );
+        assert!(
+            !name_matches("forgeconfigapiport", Some("sodium"), "Sodium"),
+            "an unrelated project is still rejected"
+        );
+    }
+
+    /// The strict variant used where there is no download to verify against —
+    /// the compat panel's dependency LABEL. Showing the name of a project we
+    /// only loosely matched would put a wrong mod name in front of the user
+    /// with nothing downstream to catch it.
+    #[test]
+    fn exact_project_match_admits_only_the_real_slug() {
+        assert!(is_exact_project_match(
+            "forgeconfigapiport",
+            Some("forge-config-api-port"),
+            "Forge Config API Port"
+        ));
+        assert!(
+            !is_exact_project_match(
+                "forgeconfigapiport",
+                Some("kilt-forgeconfigapiport-fix"),
+                "Kilt Forge Config API Port fix"
+            ),
+            "the lookalike must not be allowed to name itself"
+        );
+        assert!(is_exact_project_match("balm", Some("balm"), "Balm"));
+        // Title-only match, for a project whose slug diverges from its id.
+        assert!(is_exact_project_match("jei", None, "JEI"));
     }
 }

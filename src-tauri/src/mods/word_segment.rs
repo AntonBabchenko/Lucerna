@@ -183,4 +183,54 @@ mod tests {
             Some("farmers delight")
         );
     }
+
+    /// The 2026-08-12 case. Measured against the live Modrinth API that day:
+    /// the slammed query `forgeconfigapiport` returns 0 hits under the
+    /// forge + 1.20.6 facets and, unfaceted, only the unrelated
+    /// `kilt-forgeconfigapiport-fix`; `forge config api port` returns the real
+    /// `forge-config-api-port` as hit #1. The words for it were missing.
+    #[test]
+    fn segments_the_loader_and_platform_vocabulary() {
+        assert_eq!(
+            segment("forgeconfigapiport").as_deref(),
+            Some("forge config api port")
+        );
+        assert_eq!(segment("fabricapi").as_deref(), Some("fabric api"));
+    }
+
+    /// A multi-loader compound must prefer the longest covering word. If
+    /// `neoforge` were absent while `forge` is present, `neoforge` would fail
+    /// to cover at all ("neo" is not a word) and be kept whole — correct but
+    /// accidental. Pinning it makes the intent explicit.
+    #[test]
+    fn loader_names_stay_whole_words() {
+        assert_eq!(segment("forge"), None);
+        assert_eq!(segment("neoforge"), None);
+        assert_eq!(segment("fabric"), None);
+        assert_eq!(segment("quilt"), None);
+    }
+
+    /// The wordlist grew by six entries, three of them short (`api`, `port`,
+    /// and the loader names). Short words are the ones that can shatter an id
+    /// that used to resolve, so the previously-working set is pinned here.
+    /// The DP maximises the sum of squared token lengths, which biases toward
+    /// few long words — this test is the proof rather than the hope.
+    #[test]
+    fn wordlist_growth_does_not_over_segment_previously_working_ids() {
+        for id in [
+            "jei",
+            "jade",
+            "create",
+            "xyzzy",
+            "waystones",
+            "supplementaries",
+        ] {
+            assert_eq!(segment(id), None, "{id} must not start splitting");
+        }
+        // And the ids that already segmented still segment the same way.
+        assert_eq!(
+            segment("farmersdelight").as_deref(),
+            Some("farmers delight")
+        );
+    }
 }

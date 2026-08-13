@@ -30,6 +30,22 @@ with
 supplementaries
 waystones
 
+# ── loader / platform vocabulary ──────────────────────────────────────────
+# Library mods are routinely named after the loader they bridge, and their
+# ids slam the words together while their slugs hyphenate them. The measured
+# case (2026-08-12): the loader id `forgeconfigapiport` returns 0 Modrinth
+# hits under its own facets — and unfaceted returns only an unrelated compat
+# patch — while `forge config api port` returns `forge-config-api-port` first.
+#
+# The loader names are also whole words here so a compound like `neoforge`
+# stays intact instead of failing to cover and being kept whole by accident.
+api
+fabric
+forge
+neoforge
+port
+quilt
+
 # ── general / domain vocabulary ───────────────────────────────────────────
 ambient
 animal
