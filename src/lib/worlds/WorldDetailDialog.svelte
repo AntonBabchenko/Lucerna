@@ -74,7 +74,7 @@
     aria-labelledby="world-detail-panel-tab-{tab}"
   >
     {#if tab === 'backups'}
-      <BackupsPanel {instanceId} {world} {onClose} {onChanged} />
+      <BackupsPanel {instanceId} worldFolder={world.folder_name} {onClose} {onChanged} />
     {:else}
       <WorldDatapacks {instanceId} world={world.folder_name} {running} />
     {/if}

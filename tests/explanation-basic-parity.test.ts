@@ -25,6 +25,8 @@ const adaptiveBases: string[] = [
   // its base key here so a missing `*Basic` sibling is caught.
   'onboarding.instanceConcept.body',
   'onboarding.modpackInstance.body',
+  ...['p1', 'p2', 'p3', 'p4'].map((p) => `onboarding.datapackConcept.${p}`),
+  ...['p1', 'p2', 'p3', 'p4'].map((p) => `onboarding.l10nConcept.${p}`),
 ];
 
 describe('Basic copy siblings exist for every adaptive key', () => {

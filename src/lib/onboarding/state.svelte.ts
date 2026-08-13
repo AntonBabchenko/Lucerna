@@ -17,6 +17,16 @@ import { STEPS } from './steps';
 // completed the old tour would never see the new onboarding. Bumping re-shows
 // the improved tour once to existing users.
 export const TOUR_VERSION = '0.6.0';
+// Fingerprint of STEPS and the EN copy their keys resolve to (composed in
+// tests/tour-fingerprint.test.ts from fingerprintSteps + the locale, so this
+// module stays locale-free). Sits beside TOUR_VERSION so a steps edit OR a
+// copy-only rewrite forces the bump question in the diff.
+// Moved by the chooser and importModpacks Settings-pointer corrections. NOT
+// bumping TOUR_VERSION for them: both are pointer fixes to copy the user has
+// already read once, and re-showing the whole 8-step onboarding to every
+// existing user over two corrected section names is disproportionate
+// (precedent #372).
+export const MAIN_STEPS_FINGERPRINT = '241983bd';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;
@@ -60,11 +70,9 @@ export function showAccountHint(): void {
   // returns -1 and STEPS[-1] is undefined — rendering would throw. Fail silent
   // rather than crash the launch flow. (A test asserts the index resolves.)
   if (ACCOUNT_STEP_INDEX === -1) return;
-  // Mutually exclude with contextual surface tours: opening the account hint on
-  // top of a running contextual tour would freeze its popover (two overlays
-  // fighting over the pointer-events kill). ContextualTour sets this attribute
-  // while active; skip the hint until it closes.
-  if (typeof document !== 'undefined' && document.body.hasAttribute('data-ctx-tour-active')) return;
+  // No ctx-tour guard here: ContextualTour yields to tourState.active (see its
+  // yield effect), so activating the hint cleanly suppresses any open
+  // contextual tour instead of being suppressed by it.
   // The account section renders only in client mode, so force it before the
   // spotlight anchors on [data-tour="account-section"]. In practice this hint
   // is triggered from the client Play path (already client mode), but the guard

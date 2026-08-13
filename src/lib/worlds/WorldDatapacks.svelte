@@ -3,6 +3,7 @@
   import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { pushInfo } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -214,7 +215,10 @@
 
 <div class="flex flex-col gap-2" data-testid="world-datapacks">
   <div class="flex items-center justify-between gap-2">
-    <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
+    <div class="flex items-center gap-1">
+      <h4 class="text-sm font-medium text-primary">{$t('worlds.datapacks.title')}</h4>
+      <DatapackConceptHelp />
+    </div>
     <div class="flex items-center gap-2">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span

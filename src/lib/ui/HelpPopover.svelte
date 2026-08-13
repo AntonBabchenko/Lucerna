@@ -16,13 +16,21 @@
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
 
   let {
-    body,
+    paragraphs,
     triggerAriaLabel,
     triggerTitle = undefined,
     closeAriaLabel,
     width = 260,
   }: {
-    body: string;
+    /**
+     * The help text, one `<p>` per entry — required, so an empty popover cannot
+     * be rendered by omission. A one-sentence helper passes a single-element
+     * array; a concept explainer passes several. This was once a `body` /
+     * `paragraphs` pair whose "provide exactly one" rule lived in a comment:
+     * omitting both typechecked and rendered an empty popover, and passing both
+     * silently dropped `body`. One prop makes both states unrepresentable.
+     */
+    paragraphs: readonly string[];
     triggerAriaLabel: string;
     triggerTitle?: string | undefined;
     closeAriaLabel: string;
@@ -103,7 +111,17 @@
       <div class="absolute top-1 right-1">
         <CloseButton onClick={() => (open = false)} ariaLabel={closeAriaLabel} />
       </div>
-      <p class="text-xs text-secondary leading-snug pr-6">{body}</p>
+      <div class="space-y-2">
+        <!-- Index-keyed: paragraphs are ordered static text, and a text key
+             throws Svelte's each_key_duplicate when two paragraphs match.
+             `pr-6` sits on each <p> rather than on this wrapper so the single-
+             paragraph case renders byte-identically to the old `body` branch —
+             the close button's clearance is a property of the text, not of the
+             stack. -->
+        {#each paragraphs as para, i (i)}
+          <p class="text-xs text-secondary leading-snug pr-6">{para}</p>
+        {/each}
+      </div>
     </div>
   {/if}
 </div>

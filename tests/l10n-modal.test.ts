@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceCoverage, NamespaceCoverage } from '$lib/ipc/bindings';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -24,8 +24,11 @@ vi.mock('$lib/ipc/bindings', () => ({
 // even in the cases that never open either dialog.
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn(), open: vi.fn() }));
 
+import { locale } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
 import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
+import { hasSeen, markSeen } from '$lib/onboarding/contextual-tours';
+import { explanationState } from '$lib/onboarding/explanation-level.svelte';
 // Toasts are read back from the real store rather than mocking the module —
 // it's plain reactive state with no IPC or Svelte-runtime dependency, so
 // there's nothing to fake, and this exercises exactly what a user would see.
@@ -69,6 +72,12 @@ function mockCoverageEcho(availableCodes: string[]) {
       >,
   );
 }
+
+// The modal hosts the `l10n` contextual tour, which auto-fires on first open.
+// Seed it seen so its spotlight (and the Escape / focus handling that comes
+// with it) cannot disturb the assertions below. The tour cases in the
+// "first-open tour" block clear localStorage to opt back in.
+beforeEach(() => markSeen('l10n'));
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -903,6 +912,85 @@ describe('LocalizationModal', () => {
       // Offering the instance the user is standing in would be asking them to
       // redo what the Apply button beside it already does.
       expect(screen.queryByTestId('apply-targets-row-a')).toBeNull();
+    });
+  });
+
+  // Onboarding on this surface is two things: a one-shot tour on first open,
+  // and an always-available (?) that outlives it. Both are asserted here rather
+  // than in a tour-only file, because what is actually at risk is the WIRING to
+  // this modal — the mount gate and the three anchors the steps target.
+  describe('first-open tour and concept help', () => {
+    // The copy assertions below are English; the default locale is resolved
+    // from the environment, so pin it rather than hope.
+    beforeAll(() => locale.set('en'));
+
+    // explanationState is a module singleton — leaving it flipped would leak
+    // the Advanced wording into anything rendered after this block.
+    afterEach(() => {
+      explanationState.level = 'basic';
+    });
+
+    it('does not fire the tour when the instance has nothing to translate', async () => {
+      // The file-wide beforeEach seeds the tour seen; clear that, or this would
+      // pass for the wrong reason. This IS a genuine first open.
+      localStorage.clear();
+      mockCoverageOk(coverage({ namespaces: [] }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      await screen.findByTestId('l10n-empty');
+      // Give the tour every chance to mount late before declaring it absent.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+      // And it must still be armed: a tour that "did not fire" but got marked
+      // seen has been burned on the empty state just as surely.
+      expect(hasSeen('l10n')).toBe(false);
+    });
+
+    it('fires the tour once the coverage list has something to point at', async () => {
+      localStorage.clear();
+      mockCoverageOk(coverage({ namespaces: [ns()] }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      expect(await screen.findByTestId('contextual-tour-popover')).toBeTruthy();
+      expect(screen.queryAllByTestId('contextual-tour-popover')).toHaveLength(1);
+      // Fired, and NOT already finished. `markSeen` alone does not take the
+      // popover off screen — only `finish()` also clears `active` — so without
+      // this the case above would still pass for a tour that opened and burned
+      // itself in the same flush. The symmetric guard to test 1's.
+      expect(hasSeen('l10n')).toBe(false);
+
+      // Every step's anchor has to resolve. A missing one is not an error:
+      // ContextualTour silently falls back to a centred, spotlight-less
+      // popover, so a broken anchor looks like a working tour.
+      expect(document.querySelector('[data-tour-ctx="l10n-coverage"]')).not.toBeNull();
+      expect(document.querySelector('[data-tour-ctx="l10n-search"]')).not.toBeNull();
+      expect(document.querySelector('[data-tour-ctx="l10n-actions"]')).not.toBeNull();
+    });
+
+    it('explains the concept from the header, in four paragraphs', async () => {
+      // The tour is seeded seen by the file-wide beforeEach: the (?) is the
+      // safety net for everyone who will never see the tour, so it must work
+      // on its own.
+      explanationState.level = 'advanced';
+      mockCoverageOk(coverage({ namespaces: [ns()] }));
+      render(LocalizationModal, { props: { open: true, instanceId: 'a', lang: 'en_us' } });
+
+      const trigger = await screen.findByRole('button', {
+        name: /how do mod translations work\?/i,
+      });
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      await fireEvent.click(trigger);
+
+      // The popover id is generated per HelpPopover instance, so it is reached
+      // through the trigger's aria-controls rather than hardcoded.
+      const popover = document.getElementById(trigger.getAttribute('aria-controls') as string);
+      const paragraphs = [...(popover as HTMLElement).querySelectorAll('p')];
+      expect(paragraphs).toHaveLength(4);
+      // Verbatim substring of the real EN onboarding.l10nConcept.p1. It is
+      // also absent from the `p1Basic` sibling, which is what makes the single
+      // assertion discriminate the two registers — but that absence is a fact
+      // about the locale data, not something asserted here.
+      expect(paragraphs[0].textContent).toContain('lets you override any string');
     });
   });
 });

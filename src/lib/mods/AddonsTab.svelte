@@ -571,7 +571,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- Content-kind switch: Mods · Resource packs · Shaders. Underline tabs (the
+  <!-- Content-kind switch: Mods · Resource packs · Shaders · Data packs. Underline tabs (the
        app-wide TabBar style) so it reads as the primary scope above the
        Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
   <div class="px-3 pt-1" data-tour-ctx="addons-kind-switch">

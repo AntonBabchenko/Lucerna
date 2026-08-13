@@ -181,6 +181,17 @@ describe('account hint (contextual reuse of the account step)', () => {
     expect(tourState.currentStep).toBe(ACCOUNT_STEP_INDEX);
   });
 
+  test('showAccountHint fires even while a contextual tour is open (the ctx tour yields)', () => {
+    document.body.setAttribute('data-ctx-tour-active', 'true');
+    try {
+      showAccountHint();
+      expect(tourState.active).toBe(true);
+      expect(tourState.contextual).toBe(true);
+    } finally {
+      document.body.removeAttribute('data-ctx-tour-active');
+    }
+  });
+
   test('showAccountHint forces client mode so the account anchor is present', () => {
     // The account section renders only in client mode; the hint spotlights
     // [data-tour="account-section"], so it must switch modes first.

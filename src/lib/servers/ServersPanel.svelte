@@ -331,7 +331,10 @@
         {:else if serversUi.activeTab === 'settings'}
           <ServerSettingsTab serverId={server.id} />
         {:else if serversUi.activeTab === 'addons'}
-          <ServerAddonsTab serverId={server.id} />
+          <!-- `visible` is threaded through: the tab hosts its own contextual
+               tour, and this panel is display:none (not unmounted) in client
+               mode — same rule as the two tours at the bottom of this file. -->
+          <ServerAddonsTab serverId={server.id} {visible} />
         {:else if serversUi.activeTab === 'hosting'}
           <ServerHostingTab serverId={server.id} />
         {:else if serversUi.activeTab === 'backups'}

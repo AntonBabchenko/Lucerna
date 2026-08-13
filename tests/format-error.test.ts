@@ -361,6 +361,10 @@ describe('formatError', () => {
         world_folder: 'World1',
         recovered_at: '.tmp-restoring-World1-0',
       },
+      world_recover_target_occupied: {
+        kind: 'world_recover_target_occupied',
+        world_folder: 'World1',
+      },
       screenshot_not_found: {
         kind: 'screenshot_not_found',
         instance_id: 'i1',

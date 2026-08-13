@@ -175,3 +175,54 @@ pub async fn world_import(
         .await
         .map_err(|e| crate::error::Error::io("<world-import>", format!("join: {e}")))?
 }
+
+/// Backup sets whose world is gone from `saves/`.
+///
+/// Async on purpose: a sync `#[tauri::command]` doing `read_dir` plus per-entry
+/// `metadata` across `backups/*/` runs on the main thread and freezes the
+/// window, and `tauri-specta` renders sync and async identically — so a bindings
+/// diff would not catch the mistake.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_orphaned_backup_worlds(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<Vec<crate::worlds::orphans::OrphanedBackupSet>, crate::error::Error> {
+    let saves = crate::worlds::saves_dir(&app, &instance_id)?;
+    let backups = crate::worlds::backups_root(&app, &instance_id)?;
+    tokio::task::spawn_blocking(move || {
+        crate::worlds::orphans::orphaned_backup_sets_at(&saves, &backups)
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<orphan-scan>", format!("join: {e}")))
+}
+
+/// Worlds a restore could not put back. Invisible to every other listing.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_stranded_worlds(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<Vec<crate::worlds::orphans::StrandedWorld>, crate::error::Error> {
+    let saves = crate::worlds::saves_dir(&app, &instance_id)?;
+    tokio::task::spawn_blocking(move || crate::worlds::orphans::stranded_worlds_at(&saves))
+        .await
+        .map_err(|e| crate::error::Error::io("<stranded-scan>", format!("join: {e}")))
+}
+
+/// Rename a stranded world back into place. Returns the recovered folder name.
+#[tauri::command]
+#[specta::specta]
+pub async fn recover_stranded_world(
+    app: tauri::AppHandle,
+    instance_id: String,
+    dir_name: String,
+) -> Result<String, crate::error::Error> {
+    // A live JVM holds OS locks on the saves tree — same gate the sibling
+    // mutating world commands use.
+    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
+        &instance_id,
+    ))?;
+    let saves = crate::worlds::saves_dir(&app, &instance_id)?;
+    crate::worlds::orphans::recover_stranded_at(&saves, &dir_name)
+}

@@ -12,15 +12,28 @@
     backup,
     onClose,
     onRestored,
+    lockedMode,
+    modeNote,
   }: {
     instanceId: string;
     worldFolder: string;
     backup: Backup;
     onClose: () => void;
     onRestored: () => void;
+    /// When set, the mode is fixed and the radio group is not rendered at all —
+    /// a one-option radio group is not an end state. Used for a backup set whose
+    /// world is gone: `replace` calls `world_dir_at` and would fail
+    /// `WorldNotFound` by construction, so offering it would be a dead choice.
+    lockedMode?: RestoreMode;
+    /// Replacement copy shown in place of the radio group.
+    modeNote?: string;
   } = $props();
 
-  let mode = $state<RestoreMode>('replace');
+  // What the radios bind to, and the mode actually used. Derived rather than
+  // seeded from the prop: a locked mode must win at every read, not only at the
+  // one where the component happened to initialise.
+  let chosenMode = $state<RestoreMode>('replace');
+  const mode = $derived(lockedMode ?? chosenMode);
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -58,26 +71,42 @@
   <h3 id="restore-dialog-title" class="font-semibold text-lg text-primary mb-3">
     {$t('worlds.restore.title', { world: worldFolder, timestamp: formatTs() })}
   </h3>
-  <label class="flex items-start gap-2 mb-3">
-    <input type="radio" name="restore-mode" value="replace" bind:group={mode} disabled={busy} />
-    <span class="text-sm">
-      <span class="font-medium">{$t('worlds.restore.replaceLabel')}</span>
-      <br />
-      <span class="text-secondary">
-        {$t('worlds.restore.replaceDescription')}
+  {#if lockedMode}
+    <p class="text-sm text-secondary mb-4" data-testid="restore-mode-note">{modeNote}</p>
+  {:else}
+    <label class="flex items-start gap-2 mb-3">
+      <input
+        type="radio"
+        name="restore-mode"
+        value="replace"
+        bind:group={chosenMode}
+        disabled={busy}
+      />
+      <span class="text-sm">
+        <span class="font-medium">{$t('worlds.restore.replaceLabel')}</span>
+        <br />
+        <span class="text-secondary">
+          {$t('worlds.restore.replaceDescription')}
+        </span>
       </span>
-    </span>
-  </label>
-  <label class="flex items-start gap-2 mb-4">
-    <input type="radio" name="restore-mode" value="as_copy" bind:group={mode} disabled={busy} />
-    <span class="text-sm">
-      <span class="font-medium">{$t('worlds.restore.asCopyLabel')}</span>
-      <br />
-      <span class="text-secondary">
-        {$t('worlds.restore.asCopyDescription', { world: worldFolder })}
+    </label>
+    <label class="flex items-start gap-2 mb-4">
+      <input
+        type="radio"
+        name="restore-mode"
+        value="as_copy"
+        bind:group={chosenMode}
+        disabled={busy}
+      />
+      <span class="text-sm">
+        <span class="font-medium">{$t('worlds.restore.asCopyLabel')}</span>
+        <br />
+        <span class="text-secondary">
+          {$t('worlds.restore.asCopyDescription', { world: worldFolder })}
+        </span>
       </span>
-    </span>
-  </label>
+    </label>
+  {/if}
   {#if error}
     <p class="text-xs text-danger mb-2">{error}</p>
   {/if}

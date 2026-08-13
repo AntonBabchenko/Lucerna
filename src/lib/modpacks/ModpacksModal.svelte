@@ -48,7 +48,7 @@
           {$t('modpacks.modal.title')}
         </h2>
         <HelpPopover
-          body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
+          paragraphs={[$t(explainKey('onboarding.modpackInstance.body', explanationState.level))]}
           triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
           triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
           closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}

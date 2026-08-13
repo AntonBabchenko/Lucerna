@@ -1,13 +1,36 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
+import { whatsNewState } from '$lib/changelog/whats-new.svelte';
+import { hasSeen, markSeen, OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
+import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
+import { serversUi } from '$lib/servers/servers-ui.svelte';
 
 beforeEach(() => {
   attentionCollapse.reset();
+  // Hygiene, not a load-bearing fix: every render below inherits
+  // `installedStats.total: 18`, so the localization row — and the one-step tour
+  // anchored on it — is mountable in all ~30 of them. Nothing collides with the
+  // stray popover today (removing this line still leaves the file green, since
+  // the first render simply burns the tour for the rest of it), but the three
+  // tour tests below call `localStorage.clear()`, and there is no global
+  // localStorage reset in tests/vitest.setup.ts. Re-seeding per test is what
+  // keeps the file order-independent under `--sequence.shuffle`.
+  markSeen('overview');
+});
+
+// Both are module-level singletons shared by every test in this file, and the
+// tour tests below write to them — reset unconditionally so a failure mid-test
+// can't leak "the main tour is up" or "we're in servers mode" into a neighbour.
+afterEach(() => {
+  tourState.active = false;
+  serversUi.setMode('client');
+  whatsNewState.entries = null;
 });
 
 const noErrors = {
@@ -408,5 +431,134 @@ describe('OverviewTab version-error Reload', () => {
       },
     });
     expect(screen.getByRole('button', { name: 'Reload' }).hasAttribute('disabled')).toBe(true);
+  });
+});
+
+// Overview is the DEFAULT main tab, so unlike every other contextual-tour host
+// it is already mounted at startup, racing initOnboarding's two awaited IPC
+// round-trips. ContextualTour's own deferral is mount-time only, so a plain
+// unconditional mount here would either open on top of the main tour or defer
+// once and stay inert until the user happened to switch tabs away and back.
+// Hence the REACTIVE gate — and hence these tests, which pin each of its
+// conjuncts to the failure it exists to prevent.
+describe('OverviewTab contextual tour', () => {
+  // The step names its anchor by selector, and ContextualTour.updateRect()
+  // degrades a missing one SILENTLY: no spotlight, and a centred popover
+  // describing a row that is nowhere on screen. Nothing else in the suite would
+  // notice — the tour still mounts and still reads "Got it".
+  it('renders the DOM anchor the tour step points at', () => {
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    const selectors = OVERVIEW_STEPS.map((s) => s.targetSelector).filter(
+      (s): s is string => typeof s === 'string',
+    );
+    expect(selectors).toHaveLength(OVERVIEW_STEPS.length);
+    for (const sel of selectors) {
+      expect(document.querySelector(sel), sel).not.toBeNull();
+    }
+  });
+
+  it('overview tour waits out the main tour, then fires on its completion', async () => {
+    localStorage.clear(); // this test needs the tour unseen
+    tourState.active = true;
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    tourState.active = false;
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+    expect(hasSeen('overview')).toBe(false); // fired, not yet finished
+  });
+
+  // In servers mode the whole client panel is class:hidden (display:none), not
+  // {#if}-removed — so a tour activating in here would paint nothing, set
+  // body[data-ctx-tour-active] (swallowing every Modal's Escape), and be burned
+  // unseen by the first Escape the user pressed to close something else.
+  it('does not fire in servers mode, where the client panel is display:none', async () => {
+    localStorage.clear();
+    serversUi.setMode('servers');
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+  });
+
+  // Same gate the localization row itself renders under: no mods, no row, so
+  // nothing for the single step to anchor on.
+  it('does not fire when the instance has no mods, so the row is absent', async () => {
+    localStorage.clear();
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: { total: 0, enabled: 0, disabled: 0 },
+      },
+    });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    // Absence alone is too weak a claim: a regression that mounted the block
+    // and immediately unmounted it would burn the tour PERMANENTLY via
+    // ContextualTour's onDestroy microtask, while the query above still read
+    // null. "Suppressed" has to mean "still armed for its next chance".
+    expect(hasSeen('overview')).toBe(false);
+  });
+
+  // installedStats and activeInstance are separate signals fed by an async
+  // refresh, so "no instance selected" can be on screen for a flush while the
+  // previous instance's count is still ≥ 1 — and the placeholder branch renders
+  // no localization row at all. Without this conjunct the tour would open a
+  // full-screen dim and a centred popover about a row that isn't there, then
+  // burn itself on "Got it".
+  it('does not fire with no instance selected, where the row is absent', async () => {
+    localStorage.clear();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: null } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false); // suppressed, not burned — see above
+  });
+
+  // The post-update changelog offer (checkWhatsNew) and this tour both fire at
+  // startup on the default tab, and the dialog it opens is z-50 against the
+  // contextual dim's z-100 — so a tour left running paints its scrim OVER the
+  // changelog the user just asked to read, and Modal routes their first Escape
+  // to the tour instead of closing the dialog. The user clicked for the
+  // changelog; the passive hint yields to it.
+  it('does not fire while the changelog dialog is open', async () => {
+    localStorage.clear();
+    whatsNewState.entries = [{ version: '0.23.0', added: ['x'] }] as never;
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+  });
+
+  // The half that is easy to get wrong. Yielding is implemented by the reactive
+  // gate dropping the block, which routes through ContextualTour's onDestroy —
+  // whose whole job is to burn a tour whose host went away. Burning here would
+  // mean the user reads the changelog once and NEVER sees this tour, on any
+  // later launch. Suppressed must keep meaning "still armed".
+  it('is not burned when the changelog opens mid-tour, and fires again after it closes', async () => {
+    localStorage.clear();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+
+    whatsNewState.entries = [{ version: '0.23.0', added: ['x'] }] as never;
+    await tick();
+    await tick();
+    await new Promise((r) => queueMicrotask(() => r(null))); // past onDestroy's microtask
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('overview')).toBe(false);
+
+    whatsNewState.entries = null;
+    await tick();
+    await tick();
+    expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
   });
 });

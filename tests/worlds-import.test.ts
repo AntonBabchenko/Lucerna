@@ -14,6 +14,12 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     listWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // WorldsTab queries these alongside the world list; without them the
+    // component rejects and vitest reports unhandled errors even though the
+    // assertions still pass.
+    listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    recoverStrandedWorld: vi.fn(),
     worldImport: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { folder_name: 'Skyblock', size_bytes: 1024, modified_unix_ms: 1, backup_count: 0 },

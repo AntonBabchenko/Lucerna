@@ -159,6 +159,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // truncate a raw English tail, which is what choosing a typed variant over
   // `io` was meant to avoid.
   world_restore_stranded: 'clean',
+  world_recover_target_occupied: 'clean',
   screenshot_not_found: 'clean',
   screenshot_path_invalid: 'clean',
   backup_not_found: 'clean',
@@ -562,6 +563,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldRestoreStranded', {
         worldFolder: e.world_folder,
         recoveredAt: e.recovered_at,
+      });
+    case 'world_recover_target_occupied':
+      return translate('errors.worldRecoverTargetOccupied', {
+        worldFolder: e.world_folder,
       });
     case 'screenshot_not_found':
       return translate('errors.screenshotNotFound', { filename: e.filename });

@@ -1409,6 +1409,21 @@
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
     },
+    "orphaned": {
+      "title": "Backups without a world",
+      "description": "These backups belong to worlds that are no longer in this instance.",
+      "openBtn": "View backups",
+      "asCopyNote": "The backup will be unzipped as a new world."
+    },
+    "stranded": {
+      "title": "Interrupted restore",
+      "description": "A restore of \"{worldFolder}\" didn't finish. The world's files are safe and can be put back.",
+      "recoverBtn": "Put the world back",
+      "toastRecovered": "Recovered {world}",
+      "leftoverTitle": "Leftover copy from a restore",
+      "leftoverDescription": "A restore of \"{worldFolder}\" finished, and a copy of the world as it was beforehand is still on disk. Your current world is the restored one — nothing is missing. Delete the folder when you no longer need the older copy.",
+      "openFolderBtn": "Open saves folder"
+    },
     "datapacks": {
       "tab": "Datapacks (Beta)",
       "title": "Datapacks",
@@ -1899,7 +1914,7 @@
       },
       "importModpacks": {
         "title": "Import modpacks",
-        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key (Settings → CurseForge). Each import lands in its own new instance and leaves your existing ones alone.",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key; add one in Settings, under Integrations. Each import lands in its own new instance and leaves your existing ones alone.",
         "titleBasic": "Add modpacks",
         "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance and leaves your other instances alone."
       }
@@ -1948,7 +1963,7 @@
           "title": "Search with navigation",
           "body": "Type to search the open file. Counter shows N of M matches; Enter / Shift+Enter step through them, Esc clears. Active match is highlighted in blue.",
           "titleBasic": "Search the log",
-          "bodyBasic": "Type to search the open file. It shows which match you’re on (like 3 of 12); Enter and Shift+Enter jump between matches, Esc clears the search. The current match is highlighted in blue."
+          "bodyBasic": "Type to search the open file. It shows which match you're on (like 3 of 12); Enter and Shift+Enter jump between matches, Esc clears the search. The current match is highlighted in blue."
         },
         "shareMcloGs": {
           "title": "Share to mclo.gs",
@@ -1960,7 +1975,7 @@
           "title": "Crash reports get a structured view",
           "body": "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
           "titleBasic": "A clearer view of crashes",
-          "bodyBasic": "When you open a crash report, Lucerna splits it into sections you can open and close (like Head, Affected level, System Details, and Mods). Turn on Raw view in the toolbar if you’d rather read the plain text."
+          "bodyBasic": "When you open a crash report, Lucerna splits it into sections you can open and close (like Head, Affected level, System Details, and Mods). Turn on Raw view in the toolbar if you'd rather read the plain text."
         },
         "diagnosis": {
           "title": "Automatic crash diagnosis",
@@ -1998,9 +2013,9 @@
       "worlds": {
         "worldsWithBackups": {
           "title": "Your worlds, with backups",
-          "body": "Each row is one singleplayer save, and the badge shows its backup count. Click a row to open its actions: back up now, browse past backups (restore by Replace or As-copy), or delete the world.",
+          "body": "Each row is one singleplayer save, and the badge shows its backup count. Click a row to open the world: the Backups tab backs up now and restores older ones, either replacing the world or as a copy, and the Datapacks tab manages that world's data packs. The trash button on the row deletes the world.",
           "titleBasic": "Your worlds and backups",
-          "bodyBasic": "Each row is one single-player world, and the badge shows how many backups it has. Click a row to see what you can do: make a backup now, open past backups (and restore them, replacing the world or as a copy), or delete the world."
+          "bodyBasic": "Each row is one single-player world, and the number shows how many backups it has. Click a row to open it: one tab makes and restores backups, the other manages that world's data packs. The trash button on the row deletes the world."
         },
         "importWorlds": {
           "title": "Import a world",
@@ -2045,7 +2060,7 @@
         "addons": {
           "title": "Mods, plugins and datapacks",
           "titleBasic": "Extra content lives here",
-          "body": "Add-ons adapts to the server core: mod loaders take mods, Paper and Purpur take plugins, and datapacks work everywhere. Search the catalogs or drop files onto the zone.",
+          "body": "Add-ons adapts to the server core: mod loaders take mods, Paper and Purpur take plugins, and data packs join in on Minecraft 1.13 or newer. Search the catalogs or drop files onto the zone.",
           "bodyBasic": "Here you add extra content. The tab only offers what your server type supports."
         },
         "hosting": {
@@ -2063,22 +2078,70 @@
       },
       "addons": {
         "kindSwitch": {
-          "title": "Mods, resource packs, shaders",
-          "body": "This row switches what you're adding: mods, resource packs, or shaders. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
+          "title": "What you're adding",
+          "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta), which appear on Minecraft 1.13 or newer. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
           "titleBasic": "Pick what to add",
-          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
+          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Data packs join the row on Minecraft 1.13 and newer. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
+        },
+        "datapackLibrary": {
+          "title": "Data packs live in worlds",
+          "body": "Data packs join the row on Minecraft 1.13 or newer. Installing one puts it into this instance's library first. From the library you place it into any of your worlds, and an update reaches every world that uses the pack. Pick Data packs, then Installed, and the question mark there has the full story.",
+          "titleBasic": "Data packs live in worlds",
+          "bodyBasic": "A data pack changes the game's rules and content, like recipes or loot. It joins this row on Minecraft 1.13 and newer. Installing one puts it in this instance's library; from there you add it to the worlds you choose. Pick Data packs, then Installed, to read more."
         },
         "subtabs": {
           "title": "Browse and Installed",
-          "body": "Browse searches Modrinth or CurseForge for new content; Installed lists what's already in this instance. The picker on the right switches the source, and CurseForge needs a free API key (Settings → CurseForge).",
+          "body": "Browse searches Modrinth or CurseForge for new content; Installed lists what's already in this instance. The picker on the right switches the source. If CurseForge asks for an API key, add one in Settings, under Integrations.",
           "titleBasic": "Find vs manage",
-          "bodyBasic": "Browse finds new content on Modrinth or CurseForge. Installed shows what you already have. The menu on the right switches between the two sites; CurseForge needs a free key you set in Settings."
+          "bodyBasic": "Browse finds new content on Modrinth or CurseForge. Installed shows what you already have. The menu on the right switches between the two sites. If CurseForge asks for a key, you can add one in Settings, under Integrations."
         },
         "dropzone": {
           "title": "Install from a file",
           "body": "Already have a .jar or .zip? Drop it here, or click to pick one. Lucerna checks it fits this instance's version and loader before installing.",
           "titleBasic": "Drag a file in",
           "bodyBasic": "Got a mod or pack file? Drag it here, or click to choose one. Lucerna checks it works with this instance first."
+        }
+      },
+      "serverAddons": {
+        "kindSwitch": {
+          "title": "What this server takes",
+          "body": "The kinds here follow the server: mod loaders take mods, Paper and Purpur take plugins, and data packs need Minecraft 1.13 or newer. A server's data packs live in its world, and changing them needs the server stopped.",
+          "titleBasic": "What you can add here",
+          "bodyBasic": "This row shows what your server can take: mods, plugins, or data packs. Data packs live inside the server's world, and you change them while the server is stopped."
+        },
+        "dropzone": {
+          "title": "Install from a file",
+          "body": "Drop a file of the selected kind here, or click to pick one. Lucerna checks it fits this server before installing. Stop the server first to make changes.",
+          "titleBasic": "Drag a file in",
+          "bodyBasic": "Got a file? Drag it here, or click to choose one. Lucerna checks it works with this server first. Stop the server before making changes."
+        }
+      },
+      "l10n": {
+        "coverage": {
+          "title": "Translation coverage by mod",
+          "body": "Each row is one mod and how much of its text is translated into the selected language. Click a row to open its strings and edit any of them; your edits live in the launcher, not in the mods.",
+          "titleBasic": "How translated each mod is",
+          "bodyBasic": "Each row is one mod and how much of its text is in your language. Click a row to see and change its lines. Your changes are saved in the launcher, not in the mods."
+        },
+        "search": {
+          "title": "Find a line from the game",
+          "body": "Saw an untranslated line in the game and don't know which mod owns it? Type it here. Lucerna searches every mod in this instance, matching the text the way the game formats it.",
+          "titleBasic": "Find a line you saw",
+          "bodyBasic": "Saw an untranslated line in the game? Type it here and Lucerna finds which mod it belongs to."
+        },
+        "actions": {
+          "title": "Apply, translate, share",
+          "body": "Apply builds a resource pack from your edits and enables it for this instance. Translate with AI fills the gaps once you allow AI translation and store your own API key in Settings, under Integrations. Export and Import share your translations as a file.",
+          "titleBasic": "Turn it on and share",
+          "bodyBasic": "Apply packs your translations so the game can use them. Translate with AI can fill the gaps once you allow it in Settings and add your own key there. Export and Import let you share translations with friends."
+        }
+      },
+      "overview": {
+        "l10nRow": {
+          "title": "Mod translations",
+          "body": "This row shows how much of this instance's mod text is translated into your language. Click it to read, edit, or auto-translate mod strings, and to apply them to the game.",
+          "titleBasic": "Mod translations",
+          "bodyBasic": "This row shows how much of your mods' text is in your language. Click it to see and change the translations."
         }
       }
     },
@@ -2096,9 +2159,35 @@
       "body": "Installing a modpack always creates its own new instance: a self-contained folder with that pack's exact mods, configs and saves. Lucerna can't merge it into an existing instance, because the pack pins specific mod versions that would collide with what's already there. Isolating each pack keeps it reproducible and lets you remove it without breaking your other setups.",
       "bodyBasic": "Adding a modpack always makes its own new instance: a separate setup with that pack's exact mods and worlds. It can't be mixed into an instance you already have, because the pack needs specific mod versions that would clash with what's already there. Keeping each pack on its own means it keeps working, and you can remove it without breaking your other setups."
     },
+    "datapackConcept": {
+      "triggerAriaLabel": "What are data packs?",
+      "triggerTitle": "What are data packs?",
+      "closeAriaLabel": "Close help",
+      "p1": "Data packs change game data: recipes, loot tables, advancements, world generation, and functions. They use the game's own format, and vanilla Minecraft 1.13 or newer reads them natively.",
+      "p1Basic": "Data packs change parts of the game itself, like recipes, loot, and achievements. The game reads them on its own from Minecraft 1.13 on.",
+      "p2": "Unlike a mod, a data pack is not code. It needs no mod loader, and it lives in a world rather than in the instance: each world enables or disables its packs on its own.",
+      "p2Basic": "A data pack is not a mod: it needs no mod system, and it belongs to a world, not to the whole instance. Every world picks its own packs.",
+      "p3": "In an instance, installing a pack puts it into that instance's library. From the library you place it into worlds; updating a pack updates every world that uses it, and removing it can sweep it from all of them. On a server, packs live in the server's world and are changed while the server is stopped. Vanilla Tweaks, the pack builder, is available right in the library.",
+      "p3Basic": "In an instance, a pack you install goes into a library first. From there you add it to the worlds you choose; updates reach every world that uses it. On a server, packs sit in the server's world and are changed while the server is off. Vanilla Tweaks, a pack builder, sits in the library too.",
+      "p4": "Data packs are marked Beta: the feature is complete and guarded, but newer than the rest of the launcher, and details may still change.",
+      "p4Basic": "The Beta tag means this part of the launcher is newer than the rest, so small things about it may still change."
+    },
+    "l10nConcept": {
+      "triggerAriaLabel": "How do mod translations work?",
+      "triggerTitle": "How do mod translations work?",
+      "closeAriaLabel": "Close help",
+      "p1": "This screen shows how much of each mod's text exists in your language and lets you override any string. Your edits are yours: they are stored in the launcher, not written into the mods.",
+      "p1Basic": "Here you can see how much of your mods' text is in your language, and change any line yourself. Your changes live in the launcher, the mods stay untouched.",
+      "p2": "On Apply, Lucerna builds a resource pack from your overrides and enables it for the instance once it has been launched at least once. Untranslated lines simply fall back to the mod's own text.",
+      "p2Basic": "Apply packs your changes so the game can use them. The instance needs to have been started at least once. Anything not translated just shows the mod's original text.",
+      "p3": "After Apply, a running game needs a resource reload (F3+T) or a relaunch to show the changes. Applying works on Minecraft 1.13 or newer; coverage reporting works everywhere.",
+      "p3Basic": "After Apply, press F3+T in the game or restart it to see the changes. Turning translations on needs Minecraft 1.13 or newer.",
+      "p4": "This covers mod resource text: names, tooltips, and books. Quest files and config text are out of reach of resource packs. AI translation is opt-in: it needs your permission and your own key in Settings, under Integrations, and nothing is sent anywhere until you enable it. The Beta tag means the feature is newer than the rest of the launcher and may still change.",
+      "p4Basic": "It covers mod text like names and tooltips; quest and config text can't be changed this way. AI translation only works after you allow it in Settings and add your own key. Nothing is sent anywhere until then. The Beta tag means this part is newer and may still change."
+    },
     "chooser": {
       "title": "How much detail would you like?",
-      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings → General.",
+      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings, under Help.",
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
@@ -2184,6 +2273,7 @@
     "worldPathInvalid": "Invalid name \"{name}\": {reason}",
     "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
     "worldRestoreStranded": "Restore failed and \"{worldFolder}\" couldn't be moved back automatically. Your world is safe in the \"{recoveredAt}\" folder inside saves. See Logs for the cause.",
+    "worldRecoverTargetOccupied": "A world named \"{worldFolder}\" already exists. Rename or remove it first — recovering would otherwise overwrite it.",
     "screenshotNotFound": "Screenshot \"{filename}\" not found in this instance",
     "screenshotPathInvalid": "Invalid screenshot name \"{name}\": {reason}",
     "backupNotFound": "Backup \"{filename}\" not found",

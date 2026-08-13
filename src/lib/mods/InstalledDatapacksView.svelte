@@ -28,6 +28,7 @@
   import { datapacksChanged } from '$lib/settings/state.svelte';
   import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
   import { t } from '$lib/i18n';
+  import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
   import { SvelteSet } from 'svelte/reactivity';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -439,15 +440,23 @@
 
 <div class="p-3" data-testid="installed-datapacks">
   <div class="flex items-center justify-end gap-2 mb-2">
-    {#if disabledKey !== null && !busy}
-      <!-- Why every mutation below is disabled: the game owns level.dat while
-           it runs, and the backend refuses datapack writes for the duration.
-           One visible line beats six tooltips on unfocusable disabled
-           buttons. -->
-      <p class="text-xs text-warning-text mr-auto" data-testid="datapacks-gate-note">
-        {$t(disabledKey)}
-      </p>
-    {/if}
+    <!-- The row is `justify-end`, so exactly ONE child may carry `mr-auto` —
+         it is what pins the left slot. The explainer and the gate note share
+         this always-rendered wrapper rather than claiming it in turn: the note
+         alone used to own it, and moving `mr-auto` onto the (?) instead would
+         have shunted the note across the row to sit against the buttons. -->
+    <div class="mr-auto flex items-center gap-2 min-w-0">
+      <DatapackConceptHelp />
+      {#if disabledKey !== null && !busy}
+        <!-- Why every mutation below is disabled: the game owns level.dat while
+             it runs, and the backend refuses datapack writes for the duration.
+             One visible line beats six tooltips on unfocusable disabled
+             buttons. -->
+        <p class="text-xs text-warning-text" data-testid="datapacks-gate-note">
+          {$t(disabledKey)}
+        </p>
+      {/if}
+    </div>
     {#if updateCount > 0}
       <BusyButton
         type="button"
