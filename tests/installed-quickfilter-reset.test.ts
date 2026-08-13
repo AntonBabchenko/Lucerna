@@ -146,6 +146,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     ),
     modsDependencyGraph: mocks.modsDependencyGraph,
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
+    // The panel enriches missing-dependency ids with project names; without
+    // this the effect calls undefined and the rejection escapes the test run.
+    modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

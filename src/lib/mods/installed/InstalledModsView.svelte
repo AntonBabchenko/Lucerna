@@ -158,12 +158,25 @@
     if (queries.length === 0) return;
     // untrack so writing `depNames` below cannot re-trigger this effect.
     untrack(() => {
-      void commands.modsResolveDepNames(id, queries).then((res) => {
-        if (res.status !== 'ok' || instanceId !== id) return;
-        const next = new SvelteMap<string, string>();
-        for (const r of res.data) next.set(r.dep_id, r.name);
-        depNames = next;
-      });
+      void commands
+        .modsResolveDepNames(id, queries)
+        .then((res) => {
+          if (res.status !== 'ok' || instanceId !== id) return;
+          const next = new SvelteMap<string, string>();
+          for (const r of res.data) next.set(r.dep_id, r.name);
+          depNames = next;
+        })
+        .catch(() => {
+          // Deliberately silent, and it satisfies the four fallback questions:
+          // it resolves to the RESTRICTIVE answer (no overlay → the raw loader
+          // id, never a guessed name); what the user sees — an id — honestly
+          // describes what we know; and it is enrichment, not a recovery path,
+          // so there is no failed operation whose own result goes unchecked.
+          // The one thing it cannot do is tell "nothing resolved" from "the
+          // call never landed", and it does not need to: both mean we have no
+          // name to show. The Result envelope already carries command errors;
+          // this only stops a transport-level rejection escaping an $effect.
+        });
     });
   });
 
