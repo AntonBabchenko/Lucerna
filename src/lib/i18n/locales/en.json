@@ -436,23 +436,23 @@
       "title": "Mod translations",
       "beta": "Beta",
       "keySort": {
-                "label": "Sort keys",
-                "key": "by key",
-                "english": "by English text",
-                "missingFirst": "untranslated first"
-              },
+        "label": "Sort keys",
+        "key": "by key",
+        "english": "by English text",
+        "missingFirst": "untranslated first"
+      },
       "nsFilter": {
-                "placeholder": "Filter mods",
-                "noMatch": "No mod matches that filter."
-              },
-              "nsSort": {
-                "label": "Sort mods",
-                "leastCovered": "least translated first",
-                "mostCovered": "most translated first",
-                "name": "by name",
-                "mostKeys": "most keys first",
-                "mine": "by my translations"
-              },
+        "placeholder": "Filter mods",
+        "noMatch": "No mod matches that filter."
+      },
+      "nsSort": {
+        "label": "Sort mods",
+        "leastCovered": "least translated first",
+        "mostCovered": "most translated first",
+        "name": "by name",
+        "mostKeys": "most keys first",
+        "mine": "by my translations"
+      },
       "find": {
         "placeholder": "Find a line you saw in game — across every mod in this instance",
         "count": "{count} matches",
@@ -530,8 +530,8 @@
       "prefill": {
         "allButton": "Translate with AI",
         "namespaceButtonAria": "Translate missing in {namespace} with AI",
-      "disabledNoConsent": "AI translation is turned off in Settings → Integrations → AI translation.",
-      "disabledNoKey": "Add an API key in Settings → Integrations → AI translation.",
+        "disabledNoConsent": "AI translation is turned off in Settings → Integrations → AI translation.",
+        "disabledNoKey": "Add an API key in Settings → Integrations → AI translation.",
         "title": "AI translation",
         "scopeAll": "Every mod in this instance",
         "scopeNamespace": "Only {namespace}",
@@ -3063,7 +3063,12 @@
         "adventure": "Adventure",
         "spectator": "Spectator"
       },
-      "difficulty": { "peaceful": "Peaceful", "easy": "Easy", "normal": "Normal", "hard": "Hard" }
+      "difficulty": {
+        "peaceful": "Peaceful",
+        "easy": "Easy",
+        "normal": "Normal",
+        "hard": "Hard"
+      }
     },
     "props": {
       "gamemode": {
@@ -3078,7 +3083,10 @@
         "label": "Hardcore",
         "desc": "Locks difficulty to hard and permanently bans a player on death."
       },
-      "pvp": { "label": "PvP", "desc": "Whether players can deal damage to one another." },
+      "pvp": {
+        "label": "PvP",
+        "desc": "Whether players can deal damage to one another."
+      },
       "forceGamemode": {
         "label": "Force game mode",
         "desc": "Reset players to the server's default game mode every time they join."
@@ -3103,7 +3111,10 @@
         "label": "Spawn animals",
         "desc": "Whether passive animals spawn naturally."
       },
-      "spawnNpcs": { "label": "Spawn villagers", "desc": "Whether villagers spawn." },
+      "spawnNpcs": {
+        "label": "Spawn villagers",
+        "desc": "Whether villagers spawn."
+      },
       "generateStructures": {
         "label": "Generate structures",
         "desc": "Generate villages, strongholds and other structures in new chunks."
@@ -3152,8 +3163,14 @@
         "label": "Disabled datapacks",
         "desc": "Comma-separated datapacks disabled when the world is created."
       },
-      "maxPlayers": { "label": "Max players", "desc": "Maximum number of players online at once." },
-      "whiteList": { "label": "Whitelist", "desc": "When on, only whitelisted players may join." },
+      "maxPlayers": {
+        "label": "Max players",
+        "desc": "Maximum number of players online at once."
+      },
+      "whiteList": {
+        "label": "Whitelist",
+        "desc": "When on, only whitelisted players may join."
+      },
       "enforceWhitelist": {
         "label": "Enforce whitelist",
         "desc": "Kick already-online non-whitelisted players when the whitelist reloads."
@@ -3210,7 +3227,10 @@
         "label": "Bind IP",
         "desc": "Bind to a specific network interface; leave empty to bind all."
       },
-      "serverPort": { "label": "Port", "desc": "TCP/UDP port the server listens on." },
+      "serverPort": {
+        "label": "Port",
+        "desc": "TCP/UDP port the server listens on."
+      },
       "preventProxyConnections": {
         "label": "Prevent proxy connections",
         "desc": "Kick players whose authentication region differs from their connection (blocks some proxies/VPNs)."
@@ -3235,7 +3255,10 @@
         "label": "Enable RCON",
         "desc": "Enable the remote console for external administration."
       },
-      "rconPort": { "label": "RCON port", "desc": "Port the RCON server listens on." },
+      "rconPort": {
+        "label": "RCON port",
+        "desc": "Port the RCON server listens on."
+      },
       "rconPassword": {
         "label": "RCON password",
         "desc": "Password for RCON; required when RCON is enabled."
@@ -3248,7 +3271,10 @@
         "label": "Enable query",
         "desc": "Enable the query protocol used by some server-list tools."
       },
-      "queryPort": { "label": "Query port", "desc": "Port the query protocol listens on." },
+      "queryPort": {
+        "label": "Query port",
+        "desc": "Port the query protocol listens on."
+      },
       "resourcePack": {
         "label": "Resource pack URL",
         "desc": "URL of a resource pack offered to players on join."
