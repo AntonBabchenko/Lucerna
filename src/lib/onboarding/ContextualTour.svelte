@@ -10,6 +10,7 @@
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
   import { tourState } from './state.svelte';
+  import { claimPresence, releasePresence, screenOwnedElsewhere } from './tour-presence';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -24,17 +25,28 @@
   const MARGIN = 16;
   const PADDING = 6;
 
-  // While a contextual tour is on screen, flag the body so the host Modal knows
-  // to route Escape to the tour instead of closing itself. The tour is
-  // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
-  // blocking variant could trap the user behind a mispositioned popover and
-  // intercepted legitimate clicks, so we only coordinate Escape here.
+  // The claim is taken in onMount (below) and given back HERE, on this effect's
+  // teardown — the one place every "the tour ended" path passes through:
+  // finish() and the yield effect both clear `active`, and an unmount mid-tour
+  // runs the teardown too. Svelte runs a teardown at most once per run, which
+  // is what makes the release exactly-once-per-activation.
+  //
+  // Set-and-teardown, NOT if/else: this effect runs on every instance,
+  // including one that deferred and never activated, and an `else` branch would
+  // release a claim this instance never took — defeating the ctx-vs-ctx guard
+  // in onMount. A deferred instance registers no teardown at all.
   $effect(() => {
-    if (active) {
-      document.body.setAttribute('data-ctx-tour-active', 'true');
-    } else {
-      document.body.removeAttribute('data-ctx-tour-active');
-    }
+    if (active) return () => releasePresence(id);
+  });
+
+  // Yield to the main tour. Replay (Settings → Help) and a TOUR_VERSION-bump
+  // re-show activate the main tour while a contextual popover can be up; two
+  // live overlays freeze this one (body[data-tour-active] kills its pointer
+  // events) and both window handlers answer one Escape. Deactivate WITHOUT
+  // marking seen — replay just reset the flag, and the tour re-fires on the
+  // next visit to its surface.
+  $effect(() => {
+    if (active && tourState.active) active = false;
   });
 
   onMount(() => {
@@ -44,6 +56,13 @@
     // contextual popover. Defer — the surface stays un-toured this visit and
     // re-fires next time (the "seen" flag is only set on finish).
     if (tourState.active) return;
+    // Take the screen, or defer if another contextual tour already holds it
+    // (cross-surface chaining: e.g. the overview step's own CTA opens the
+    // translations modal, which hosts the l10n tour). Same deferral as the
+    // main-tour case — this surface stays un-toured this visit and re-fires on
+    // its next mount. See tour-presence.ts for why the claim must be
+    // synchronous here rather than inferred from the <body> flag.
+    if (!claimPresence(id)) return;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -58,11 +77,30 @@
   });
 
   onDestroy(() => {
-    document.body.removeAttribute('data-ctx-tour-active');
-    // If the host (modal/tab) unmounts mid-tour, treat it as a soft-skip so the
-    // tour doesn't silently re-fire on every subsequent open. finish() already
-    // clears `active`, so this only fires on an un-finished dismissal.
-    if (active) markSeen(id);
+    // Nothing to release here: the effect above hands the screen back on
+    // destroy (Svelte runs effect teardowns then too), and only for the
+    // instance that actually claimed it. This callback decides one thing —
+    // whether the id is burned.
+    //
+    // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
+    // open — UNLESS another surface's arrival tore the host down, which is a
+    // suppression and not a dismissal (the main tour's own activation, where
+    // replay/startup call setMode('client') and set tourState.active in one
+    // flush; or the post-update changelog dialog, which the `overview` host
+    // yields to). `screenOwnedElsewhere()` owns that list.
+    // Two Svelte facts dictate the shape of this check:
+    //   1. the yield effect above cannot cover it — a destroyed component's
+    //      pending $effects are discarded, so it never runs on that path;
+    //   2. reading state HERE would lie. Svelte serves destroy-phase reads
+    //      from `old_values`, i.e. the value from BEFORE the batch that
+    //      destroyed us (`if (is_destroying_effect && old_values.has(signal))`
+    //      in svelte/src/internal/client/runtime.js), so `tourState.active`
+    //      reads false precisely when the main tour just switched it on.
+    // One microtask lands after the batch, where both reads are honest. A tour
+    // suppressed by replay was just reset by it and must stay armed.
+    queueMicrotask(() => {
+      if (active && !screenOwnedElsewhere()) markSeen(id);
+    });
   });
 
   $effect(() => {

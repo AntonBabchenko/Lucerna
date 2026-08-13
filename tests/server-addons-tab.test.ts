@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore, ServerWithStatus_Serialize } from '$lib/ipc/bindings';
@@ -62,6 +63,8 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn().mockResolvedValue(null),
 }));
 
+import { hasSeen, markSeen, SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
+import { isPresent } from '$lib/onboarding/tour-presence';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
@@ -101,6 +104,11 @@ async function seed(data: ServerWithStatus_Serialize[]) {
 describe('ServerAddonsTab', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
+    // The tab hosts the `serverAddons` contextual tour, which auto-fires on
+    // first visit. Seed it seen so its popover (and the Escape/focus handling
+    // that comes with it) cannot disturb the assertions below. The two tour
+    // tests at the bottom clear localStorage to opt back in.
+    markSeen('serverAddons');
     serverInstallLocal.mockReset();
     serverInstallPluginLocal.mockReset();
     serverInstallDatapack.mockReset();
@@ -113,21 +121,41 @@ describe('ServerAddonsTab', () => {
     serverAddonsKind.value = null;
   });
 
+  // The other end of the pair tests/server-addons-tour.test.ts pins: that file
+  // fixes the step SELECTORS, this one proves the rendered tab actually carries
+  // the anchors they name. Neither claim survives alone — a renamed or deleted
+  // `data-tour-ctx` attribute leaves the step list untouched, and
+  // ContextualTour.updateRect() degrades a missing anchor SILENTLY into a
+  // centred, spotlight-less popover describing something the user cannot see.
+  it('renders the DOM anchor every tour step points at', async () => {
+    await seed([makeServer('a', false, 'fabric')]);
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
+    const selectors = SERVER_ADDONS_STEPS.map((s) => s.targetSelector).filter(
+      (s): s is string => typeof s === 'string',
+    );
+    // Every step is anchored — a selector-less step would otherwise be
+    // silently skipped by the loop below.
+    expect(selectors).toHaveLength(SERVER_ADDONS_STEPS.length);
+    for (const sel of selectors) {
+      expect(document.querySelector(sel), sel).not.toBeNull();
+    }
+  });
+
   it('fabric server offers Mods + Datapacks kinds', async () => {
     await seed([makeServer('a', false, 'fabric')]);
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     const tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Mods', 'Datapacks (Beta)']);
   });
 
   it('paper server offers Plugins + Datapacks; vanilla offers Datapacks only (both with sub-tabs)', async () => {
     await seed([makeServer('a', false, 'paper')]);
-    const r = render(ServerAddonsTab, { serverId: 'a' });
+    const r = render(ServerAddonsTab, { serverId: 'a', visible: true });
     let tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Plugins', 'Datapacks (Beta)']);
     r.unmount();
     await seed([makeServer('b', false, 'vanilla')]);
-    render(ServerAddonsTab, { serverId: 'b' });
+    render(ServerAddonsTab, { serverId: 'b', visible: true });
     tabs = within(screen.getByTestId('server-addons-kind-switch')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Datapacks (Beta)']);
     // The datapack kind now gets the same Browse/Installed sub-tab row as
@@ -141,7 +169,7 @@ describe('ServerAddonsTab', () => {
     // datapack is gated off too.
     mcVersionSupportsDatapacks.mockResolvedValue(false);
     await seed([makeServer('c', false, 'vanilla', '1.12.2')]);
-    render(ServerAddonsTab, { serverId: 'c' });
+    render(ServerAddonsTab, { serverId: 'c', visible: true });
     await waitFor(() => expect(screen.queryByTestId('server-addons-no-kinds')).not.toBeNull());
     expect(screen.queryByTestId('server-addons-kind-switch')).toBeNull();
     expect(screen.queryByTestId('server-addons-subtabs')).toBeNull();
@@ -150,7 +178,7 @@ describe('ServerAddonsTab', () => {
 
   it('kind switch resets the sub-view to browse (Datapacks included)', async () => {
     await seed([makeServer('a', false, 'fabric')]);
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     const kindSwitch = () => within(screen.getByTestId('server-addons-kind-switch'));
     const subTabs = () => within(screen.getByTestId('server-addons-subtabs'));
 
@@ -184,7 +212,7 @@ describe('ServerAddonsTab', () => {
   it('a dropped payload for the active kind installs and clears the rune', async () => {
     await seed([makeServer('a', false, 'fabric')]);
     serverInstallLocal.mockResolvedValue({ status: 'ok', data: 'x.jar' });
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     droppedServerContent.value = { kind: 'mod', paths: ['C:/x.jar'] };
     await waitFor(() => expect(serverInstallLocal).toHaveBeenCalledWith('a', 'C:/x.jar'));
     expect(droppedServerContent.value).toBeNull();
@@ -192,11 +220,113 @@ describe('ServerAddonsTab', () => {
 
   it('a dropped payload for a DIFFERENT kind is left for its own pane', async () => {
     await seed([makeServer('a', false, 'fabric')]); // active kind = mod
-    render(ServerAddonsTab, { serverId: 'a' });
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
     droppedServerContent.value = { kind: 'datapack', paths: ['C:/pack.zip'] };
     await new Promise((r) => setTimeout(r, 50));
     expect(serverInstallDatapack).not.toHaveBeenCalled();
     // The payload stays for the pane that owns the kind.
     expect(droppedServerContent.value).toEqual({ kind: 'datapack', paths: ['C:/pack.zip'] });
+  });
+
+  it('does not mount the tour before the datapack gate answer lands (pre-1.13 vanilla burn)', async () => {
+    // Unlike every other test here, this one needs the tour UNSEEN.
+    localStorage.clear();
+    // '1.9' is a version no other test in this file uses, and that matters:
+    // `supportsDatapacksCache` in ServerAddonsTab is module-level and survives
+    // between tests in the same file. A version some earlier test already
+    // answered for would make the gate resolve synchronously from cache, and
+    // there would be no pending window left for this test to hold open.
+    let resolveGate!: (v: boolean) => void;
+    // Deliberately NOT `mockReturnValueOnce`: were the gate effect ever to run
+    // twice, beforeEach's `mockResolvedValue(true)` fallback would answer the
+    // second call and quietly close the very window under test.
+    mcVersionSupportsDatapacks.mockReturnValue(
+      new Promise<boolean>((res) => {
+        resolveGate = res;
+      }),
+    );
+    await seed([makeServer('t1', false, 'vanilla', '1.9')]);
+    render(ServerAddonsTab, { serverId: 't1', visible: true });
+    await tick();
+
+    // Gate pending: `supportsDatapacks` is optimistically true, so kinds is
+    // ['datapack'] and both tour anchors ARE on screen — the tour would have
+    // something to point at. It must still not fire: when the real answer
+    // (false) lands, kinds empties, the host block unmounts, and
+    // ContextualTour's destroy path marks the tour seen. Burned forever, on
+    // exactly the server where it should never have appeared.
+    expect(screen.queryByTestId('server-addons-kind-switch')).not.toBeNull();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+
+    resolveGate(false);
+    await tick();
+    await tick();
+
+    expect(screen.queryByTestId('server-addons-no-kinds')).not.toBeNull();
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(hasSeen('serverAddons')).toBe(false);
+  });
+
+  it('mounts the tour once the gate resolves with kinds present', async () => {
+    localStorage.clear();
+    // The mc version MUST be one nothing else in this file has touched — do not
+    // "tidy" it back to the makeServer default of '1.21'. By the time this test
+    // runs, '1.21' is warm in the module-level `supportsDatapacksCache`, so
+    // `gateResolved` would flip true through the CACHE-HIT branch alone and the
+    // IPC-return `gateResolved = true` would be left completely unpinned:
+    // delete that line and the file still passes. An uncached version forces
+    // the gate through the async IPC path, which is the one that matters — it
+    // is the session's FIRST visit to a server on this version, exactly the
+    // case the whole first-visit guard exists for.
+    await seed([makeServer('t2', false, 'fabric', '1.20.4')]);
+    render(ServerAddonsTab, { serverId: 't2', visible: true });
+    // waitFor, not a fixed tick count: the mount is gated behind the IPC
+    // promise, the effect re-flush, and ContextualTour's own onMount, so the
+    // exact number of flushes is an implementation detail worth not pinning.
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+  });
+
+  // The servers panel is display:none — not unmounted — while the launcher is
+  // in client mode, so a tour firing in here would paint nothing, hold the
+  // contextual-tour claim (suppressing every later tour) and set the body flag
+  // that swallows every modal's Escape. `visible` is the same gate ServersPanel
+  // applies to its own two tours; this tab needs it because nothing else in its
+  // mount conditions knows which mode is on screen.
+  it('does not mount the tour while the panel is hidden, and still mounts it once shown', async () => {
+    localStorage.clear();
+    // A version untouched by every other test in this file: a cached gate
+    // answer would resolve synchronously and hide the async path this exercises.
+    await seed([makeServer('t3', false, 'fabric', '1.20.5')]);
+    const { rerender } = render(ServerAddonsTab, { serverId: 't3', visible: false });
+    // Let the gate IPC and every dependent effect settle: `gateResolved` and
+    // `kinds` are both satisfied here, so `visible` is the ONLY thing keeping
+    // the tour off screen.
+    await waitFor(() => expect(screen.queryByTestId('server-addons-kind-switch')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
+    // Suppressed, not burned: switching to servers mode must still get the tour.
+    expect(hasSeen('serverAddons')).toBe(false);
+
+    await rerender({ serverId: 't3', visible: true });
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+  });
+
+  it('hands the screen back when the panel is hidden mid-tour', async () => {
+    localStorage.clear();
+    await seed([makeServer('t4', false, 'fabric', '1.20.6')]);
+    const { rerender } = render(ServerAddonsTab, { serverId: 't4', visible: true });
+    await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(true);
+
+    // The mode switch stays clickable under the tour (its dim is
+    // pointer-events:none), so this is a reachable sequence — and the tour must
+    // not survive it. Both halves of the presence claim have to go: the body
+    // flag (Escape routing, focus traps) AND the module-level claim, which has
+    // no reset path and would suppress every later contextual tour.
+    await rerender({ serverId: 't4', visible: false });
+    expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
+    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
+    expect(isPresent()).toBe(false);
   });
 });

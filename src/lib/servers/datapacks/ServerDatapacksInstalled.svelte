@@ -2,6 +2,7 @@
   import { commands, type AssetUpdateState, type ServerDatapackEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -270,6 +271,7 @@
 
 <div class="flex flex-col gap-3" data-testid="server-datapacks-installed">
   <div class="flex flex-wrap items-center gap-2">
+    <DatapackConceptHelp />
     <BusyButton
       class="btn-secondary btn-sm"
       data-testid="server-datapacks-check-updates"

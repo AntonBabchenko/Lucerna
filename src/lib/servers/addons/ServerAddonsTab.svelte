@@ -29,6 +29,8 @@
   import ServerPluginBrowser from '$lib/servers/plugins/ServerPluginBrowser.svelte';
   import ServerDatapackBrowser from '$lib/servers/datapacks/ServerDatapackBrowser.svelte';
   import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
   import ServerModsInstalled from './ServerModsInstalled.svelte';
   import ServerPluginsInstalled from './ServerPluginsInstalled.svelte';
   import { kindsFor } from './addon-kinds';
@@ -39,7 +41,12 @@
   // Browse/Installed sub-tabs, shared by all three kinds including datapacks.
   // The tab-level dropzone (visible in both sub-views, client parity) owns
   // ALL local-file installs.
-  let { serverId }: { serverId: string } = $props();
+  //
+  // `visible` mirrors the prop ServersPanel itself takes from +page.svelte:
+  // the whole servers panel stays MOUNTED (class:hidden) while the launcher is
+  // in client mode, so the tour at the bottom of this file must be gated on it
+  // — see the comment there.
+  let { serverId, visible }: { serverId: string; visible: boolean } = $props();
 
   const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
   const running = $derived(server?.running ?? false);
@@ -55,15 +62,24 @@
   // pre-1.13 server would render the Datapacks tab for one frame on every
   // visit before the IPC answer lands and yanks it.
   let supportsDatapacks = $state(true);
+  // Whether the gate ANSWER has landed (cache hit or IPC return) for the
+  // current mc version. The tour mount at the bottom of this file must wait for
+  // it: the optimistic `true` default makes `kinds` transiently non-empty on a
+  // pre-1.13 vanilla server's first visit, and a tour that mounts on that one
+  // frame is unmount-burned the moment the real answer empties `kinds`.
+  let gateResolved = $state(false);
   $effect(() => {
     const mc = server?.mc_version ?? '';
-    supportsDatapacks = supportsDatapacksCache.get(mc) ?? true;
+    const cached = supportsDatapacksCache.get(mc);
+    supportsDatapacks = cached ?? true;
+    gateResolved = cached !== undefined;
     void (async () => {
       const v = await commands.mcVersionSupportsDatapacks(mc);
       // The user can switch servers while this is in flight.
       if ((server?.mc_version ?? '') !== mc) return;
       supportsDatapacksCache.set(mc, v);
       supportsDatapacks = v;
+      gateResolved = true;
     })();
   });
 
@@ -304,3 +320,18 @@
     {/if}
   {/if}
 </div>
+
+<!-- Both steps anchor inside the {:else} branch above, so the tour may only
+     mount once the branch is settled: `gateResolved` keeps it off the
+     optimistic frame (see the gate effect), and `kinds.length` keeps it off the
+     empty state, whose markup carries neither anchor.
+     `visible` is the same rule ServersPanel applies to its own two tours: the
+     servers panel stays mounted (display:none) in client mode, so without it a
+     tour could fire — or keep running — with nothing on screen. Both halves
+     matter, because the gate is REACTIVE: a mode switch while the tour is up
+     unmounts it here, and ContextualTour's teardown hands the screen back
+     (module claim + body flag together). Left active off-screen it would
+     silently swallow every modal's Escape and every later tour's mount. -->
+{#if visible && gateResolved && kinds.length > 0}
+  <ContextualTour id="serverAddons" steps={SERVER_ADDONS_STEPS} />
+{/if}

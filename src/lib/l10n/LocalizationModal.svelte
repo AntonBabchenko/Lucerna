@@ -30,6 +30,9 @@
   import SearchResults from './SearchResults.svelte';
   import ShareExportDialog from './ShareExportDialog.svelte';
   import ShareImportDialog from './ShareImportDialog.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { L10N_STEPS } from '$lib/onboarding/contextual-tours';
+  import L10nConceptHelp from '$lib/onboarding/L10nConceptHelp.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import DialogTitle from '$lib/ui/DialogTitle.svelte';
@@ -507,6 +510,24 @@
         >
           {$t('instance.l10n.beta')}
         </span>
+        <!--
+          Beside the Beta badge, not in the action group: it explains what this
+          screen IS, which belongs with the title, and it must stay reachable on
+          a zero-mod instance — where the first-open tour deliberately does not
+          fire and this is the only explanation left.
+
+          The wrapper is the alignment fix, and it lives HERE rather than in
+          HelpPopover: how a child sits in a row is the row's concern, and the
+          shared primitive is used on five other surfaces that all lay their
+          rows out with `items-center` and need no opinion from it. This group
+          is the one exception — it is `items-baseline`, so the title, badge and
+          summary share a baseline — and HelpPopover's trigger is an svg-only
+          button. Tailwind preflight makes that svg `display: block`, so the
+          button has no in-flow line box and synthesizes its baseline from the
+          bottom margin edge: the glyph's BOTTOM would pin to the title's
+          baseline and sit high. `self-center` opts this one item out.
+        -->
+        <span class="inline-flex self-center"><L10nConceptHelp /></span>
         {#if coverage}
           <span class="shrink-0 text-xs text-muted" data-testid="l10n-summary">
             {$t('instance.l10n.summary', {
@@ -527,98 +548,111 @@
             dataTestid="l10n-language-select"
           />
         {/if}
-        {#if prefillDisabledReason}
-          <!--
-            Inline, not only in the tooltip — the same remedy the Apply gate
-            below already carries, for the same reason: the wrapper span never
-            matches :focus-visible and `describe: false` suppresses
-            aria-describedby, so a keyboard or screen-reader user would never
-            reach the one copy of the text telling them what to fix. This is
-            the header's single copy; the per-namespace icons stay
-            tooltip-only, because one line per mod row is noise, not help.
-          -->
-          <span class="text-xs text-warning-text" data-testid="l10n-prefill-reason">
-            {prefillDisabledReason}
+        <!--
+          The tour's third step wants "the actions" — but this modal has no
+          footer, and the group above is not it: it also holds the language
+          picker and the Close button, so anchoring the step there would
+          spotlight a switch and a dismiss alongside the work. This wrapper is
+          the actions themselves, opening after the picker and closing before
+          Close. It repeats the parent's `flex items-center gap-2`, so it
+          changes nothing about the spacing — and it stays INSIDE the group
+          rather than beside it, because a third sibling of the header would
+          push the actions off `justify-between`'s far end (see above).
+        -->
+        <div class="flex items-center gap-2" data-tour-ctx="l10n-actions">
+          {#if prefillDisabledReason}
+            <!--
+              Inline, not only in the tooltip — the same remedy the Apply gate
+              below already carries, for the same reason: the wrapper span never
+              matches :focus-visible and `describe: false` suppresses
+              aria-describedby, so a keyboard or screen-reader user would never
+              reach the one copy of the text telling them what to fix. This is
+              the header's single copy; the per-namespace icons stay
+              tooltip-only, because one line per mod row is noise, not help.
+            -->
+            <span class="text-xs text-warning-text" data-testid="l10n-prefill-reason">
+              {prefillDisabledReason}
+            </span>
+          {/if}
+          <span
+            class="inline-flex"
+            use:tooltip={prefillDisabledReason
+              ? { text: prefillDisabledReason, describe: false }
+              : null}
+          >
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={!canPrefill}
+              data-testid="l10n-prefill-all"
+              onclick={() => (prefillScope = { namespace: null })}
+            >
+              {$t('instance.l10n.prefill.allButton')}
+            </button>
           </span>
-        {/if}
-        <span
-          class="inline-flex"
-          use:tooltip={prefillDisabledReason
-            ? { text: prefillDisabledReason, describe: false }
-            : null}
-        >
+          <!--
+            Both act on the GLOBAL override store, not on this instance's
+            coverage, so neither waits for the coverage load: a user must be
+            able to send or receive translations for mods this instance does not
+            have, and an import is exactly what an empty instance needs.
+          -->
           <button
             type="button"
             class="btn-secondary btn-sm"
-            disabled={!canPrefill}
-            data-testid="l10n-prefill-all"
-            onclick={() => (prefillScope = { namespace: null })}
+            data-testid="l10n-share-export"
+            onclick={() => (shareExportOpen = true)}
           >
-            {$t('instance.l10n.prefill.allButton')}
+            {$t('instance.l10n.share.exportBtn')}
           </button>
-        </span>
-        <!--
-          Both act on the GLOBAL override store, not on this instance's
-          coverage, so neither waits for the coverage load: a user must be
-          able to send or receive translations for mods this instance does not
-          have, and an import is exactly what an empty instance needs.
-        -->
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          data-testid="l10n-share-export"
-          onclick={() => (shareExportOpen = true)}
-        >
-          {$t('instance.l10n.share.exportBtn')}
-        </button>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          data-testid="l10n-share-import"
-          onclick={() => (shareImportOpen = true)}
-        >
-          {$t('instance.l10n.share.importBtn')}
-        </button>
-        {#if applyReason}
-          <!--
-            Inline, not only in the tooltip: the wrapper-span pattern below is
-            hover-only by construction (the span never matches :focus-visible)
-            and `describe: false` suppresses aria-describedby, so a keyboard or
-            screen-reader user would never reach the one copy of the
-            remediation text.
-          -->
-          <span class="text-xs text-warning-text" data-testid="l10n-apply-reason">
-            {applyReason}
-          </span>
-        {/if}
-        {#if coverage}
-          <span
-            class="inline-flex"
-            use:tooltip={applyReason ? { text: applyReason, describe: false } : null}
-          >
-            <BusyButton
-              busy={applying}
-              disabled={coverage.applyGate !== 'ready'}
-              class="btn-secondary btn-sm"
-              data-testid="l10n-apply"
-              onclick={apply}
-            >
-              {$t('instance.l10n.apply.button')}
-            </BusyButton>
-          </span>
-          <!--
-            Carrying the same translations to other instances is now something
-            the user asks for, not something Apply does to them on the way past.
-          -->
           <button
             type="button"
-            class="btn-ghost btn-sm"
-            data-testid="l10n-apply-elsewhere"
-            onclick={() => instanceId && openOffer(lang, instanceId, false)}
+            class="btn-secondary btn-sm"
+            data-testid="l10n-share-import"
+            onclick={() => (shareImportOpen = true)}
           >
-            {$t('instance.l10n.targets.openButton')}
+            {$t('instance.l10n.share.importBtn')}
           </button>
-        {/if}
+          {#if applyReason}
+            <!--
+              Inline, not only in the tooltip: the wrapper-span pattern below is
+              hover-only by construction (the span never matches :focus-visible)
+              and `describe: false` suppresses aria-describedby, so a keyboard or
+              screen-reader user would never reach the one copy of the
+              remediation text.
+            -->
+            <span class="text-xs text-warning-text" data-testid="l10n-apply-reason">
+              {applyReason}
+            </span>
+          {/if}
+          {#if coverage}
+            <span
+              class="inline-flex"
+              use:tooltip={applyReason ? { text: applyReason, describe: false } : null}
+            >
+              <BusyButton
+                busy={applying}
+                disabled={coverage.applyGate !== 'ready'}
+                class="btn-secondary btn-sm"
+                data-testid="l10n-apply"
+                onclick={apply}
+              >
+                {$t('instance.l10n.apply.button')}
+              </BusyButton>
+            </span>
+            <!--
+              Carrying the same translations to other instances is now something
+              the user asks for, not something Apply does to them on the way past.
+            -->
+            <button
+              type="button"
+              class="btn-ghost btn-sm"
+              data-testid="l10n-apply-elsewhere"
+              onclick={() => instanceId && openOffer(lang, instanceId, false)}
+            >
+              {$t('instance.l10n.targets.openButton')}
+            </button>
+          {/if}
+        </div>
         <CloseButton onClick={close} ariaLabel={$t('instance.l10n.closeLabel')} />
       </div>
     </header>
@@ -681,7 +715,7 @@
       not the mod — so it must not compete for space with the per-mod search,
       which answers a different question.
     -->
-    <div class="flex items-center gap-2 border-b px-4 py-2">
+    <div class="flex items-center gap-2 border-b px-4 py-2" data-tour-ctx="l10n-search">
       <input
         class="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
         placeholder={$t('instance.l10n.find.placeholder')}
@@ -725,10 +759,18 @@
       </div>
     {:else}
       <div class="flex flex-1 overflow-hidden" use:observeRow>
+        <!--
+          The tour's coverage step anchors THIS region, not the <ul> inside it:
+          the list only exists once the fetch has resolved non-empty, and the
+          tour fires at exactly that moment — one flush too early for the <ul>,
+          which would leave step 1 anchorless (a centred popover, silently).
+          The <aside> is there for every branch: loading, error, empty, list.
+        -->
         <aside
           class="shrink-0 overflow-y-auto p-2"
           style="width:{listWidth}px"
           aria-label={$t('instance.l10n.listRegionLabel')}
+          data-tour-ctx="l10n-coverage"
         >
           {#if loading}
             <LoadingPanel label={$t('instance.l10n.loading')} />
@@ -907,6 +949,15 @@
       </div>
     {/if}
   </Modal>
+  {#if coverage && coverage.namespaces.length > 0}
+    <!-- Mounted only once coverage resolved non-empty: the modal is reachable
+         from Manage → Translations for a zero-mod instance, where the tour
+         would burn its one shot teaching percentages over an empty state.
+         A SIBLING of </Modal>, not a child — same rule ManageInstancesModal
+         follows — so the overlay's z-index escapes the modal's stacking
+         context instead of being trapped under its own host. -->
+    <ContextualTour id="l10n" steps={L10N_STEPS} />
+  {/if}
   <!--
     Stacked AFTER the modal it covers, per Modal.svelte's mount-order == paint-
     order invariant: all modals share z-50, so the last-mounted one must also be

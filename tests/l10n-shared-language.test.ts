@@ -16,6 +16,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import { commands } from '$lib/ipc/bindings';
 import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 
@@ -90,6 +91,11 @@ const overviewProps = {
 beforeEach(() => {
   attentionCollapse.reset();
   vi.mocked(commands.l10nCoverage).mockClear();
+  // BOTH surfaces this file renders host a one-shot contextual tour that fires
+  // on first visit — the modal's `l10n` and Overview's own. Seed each seen, so
+  // neither spotlight lands over the row or the language picker asserted here.
+  markSeen('l10n');
+  markSeen('overview');
 });
 
 describe('translation-target-language agreement', () => {
