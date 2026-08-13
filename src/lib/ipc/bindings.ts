@@ -844,14 +844,29 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	instanceDependencyPreflight: (instanceId: string) => typedError<PreflightReport, Error>(__TAURI_INVOKE("instance_dependency_preflight", { instanceId })),
 	/**
 	 *  One-click install of a missing required dependency identified only by its
-	 *  loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
-	 *  fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
-	 *  actually provides that id, then installs it. No manifest range context on
-	 *  this bare-id path → `range = None`. On any resolution/verification miss
-	 *  returns `OpenSearch` so the UI can offer a pre-filled search instead of
-	 *  guessing.
+	 *  loader mod-id (e.g. `balm`). Tries the requiring mod's declared platform
+	 *  dependencies first (exact project id, no guessing), then falls back to the
+	 *  historical path: Modrinth-slug-first + name-search — now also querying the
+	 *  word-segmented form of a slammed id — then CF, the latter loader/MC-
+	 *  decoupled. Either way the downloaded jar is verified to actually provide
+	 *  that id before it is installed. No manifest range context on this bare-id
+	 *  path → `range = None`. On any resolution/verification miss returns
+	 *  `OpenSearch` so the UI can offer a pre-filled search instead of guessing.
 	 */
-	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
+	modsInstallMissingRequired: (instanceId: string, dependentSha1: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, dependentSha1, depId })),
+	/**
+	 *  Human names for missing dependencies, for the compatibility panel's label.
+	 * 
+	 *  Called ONLY from the Installed tab. The launch gate deliberately does not
+	 *  call it: nothing may sit between the user and the Play button, so the gate
+	 *  renders the raw loader id. That asymmetry is the design, not an omission.
+	 * 
+	 *  Best-effort per id — anything unresolved is simply absent from the result
+	 *  and the panel falls back to the id. Never invents a name: resolution goes
+	 *  through the strict matcher, because unlike the install path there is no
+	 *  downloaded jar here to check a guess against.
+	 */
+	modsResolveDepNames: (instanceId: string, queries: DepNameQuery[]) => typedError<DepNameResolved[], Error>(__TAURI_INVOKE("mods_resolve_dep_names", { instanceId, queries })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader-family and
 	 *  platform (Minecraft / loader-version range) compatibility against the
@@ -2827,6 +2842,23 @@ export type DepDeclaration = "required" | "optional";
 
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
+/**  One missing dependency to put a name to. */
+export type DepNameQuery = {
+	/**
+	 *  SHA-1 of the mod that declared the dependency — the entry point to the
+	 *  platform metadata that names it.
+	 */
+	dependent_sha1: string,
+	/**  The bare loader mod-id, e.g. `forgeconfigapiport`. */
+	dep_id: string,
+};
+
+/**  A dependency id and the project name it resolved to. */
+export type DepNameResolved = {
+	dep_id: string,
+	name: string,
+};
+
 export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
 
 export type DepRoot = {
@@ -2864,11 +2896,6 @@ export type DepViolation = {
 	dependent_name: string,
 	/**  Mod-id of the missing / out-of-range dependency. */
 	dep_id: string,
-	/**
-	 *  Optional human-readable display name for `dep_id`, if we could look
-	 *  it up. `None` in v1 (best-effort enrichment is out of scope).
-	 */
-	dep_display_name: string | null,
 	/**  `MissingRequired` or `VersionOutOfRange`. */
 	kind: ViolationKind,
 	/**  The version that is actually installed (`None` for `MissingRequired`). */

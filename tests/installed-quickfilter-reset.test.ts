@@ -89,7 +89,6 @@ const preflightWithViolation = vi.hoisted(() => () => ({
         dependent_sha1: 'a',
         dependent_name: 'Alpha',
         dep_id: 'somelib',
-        dep_display_name: null,
         kind: 'missing_required',
         installed_version: null,
         needed: '',

@@ -440,9 +440,6 @@ pub struct DepViolation {
     pub dependent_name: String,
     /// Mod-id of the missing / out-of-range dependency.
     pub dep_id: String,
-    /// Optional human-readable display name for `dep_id`, if we could look
-    /// it up. `None` in v1 (best-effort enrichment is out of scope).
-    pub dep_display_name: Option<String>,
     /// `MissingRequired` or `VersionOutOfRange`.
     pub kind: ViolationKind,
     /// The version that is actually installed (`None` for `MissingRequired`).
@@ -534,7 +531,6 @@ fn enrich(
             dependent_sha1,
             dependent_name,
             dep_id,
-            dep_display_name: None,
             kind: ViolationKind::MissingRequired,
             installed_version: None,
             needed: String::new(),
@@ -613,7 +609,6 @@ fn enrich(
             dependent_sha1,
             dependent_name,
             dep_id,
-            dep_display_name: None,
             kind: ViolationKind::PlatformMismatch,
             installed_version: Some(installed),
             needed_desc: crate::mods::range_describe::describe(&needed, family),
@@ -648,7 +643,6 @@ fn ranged(
     DepViolation {
         dependent_sha1,
         dependent_name,
-        dep_display_name: None,
         kind,
         installed_version: Some(installed),
         needed_desc: crate::mods::range_describe::describe(&needed, family),
@@ -1429,7 +1423,6 @@ mod tests {
                 dependent_sha1: "abc".into(),
                 dependent_name: "Backpacks".into(),
                 dep_id: "sophisticatedcore".into(),
-                dep_display_name: None,
                 kind: ViolationKind::VersionOutOfRange,
                 installed_version: Some("1.3.50".into()),
                 needed: "[1.3.51,)".into(),

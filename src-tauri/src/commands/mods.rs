@@ -2772,18 +2772,150 @@ fn dedup_extra_candidates(
         .collect()
 }
 
+/// One question, asked in two places: which project provides this loader id?
+///
+/// Tries the requiring mod's declared platform dependencies first — for an
+/// identified mod the platform states the dependency's project id outright, so
+/// there is nothing to guess. Returns `None` when that is unavailable, and the
+/// caller falls through to the slug/search path.
+///
+/// Shared by the panel's LABEL and its Install BUTTON on purpose: the panel
+/// must never name a project the button would then refuse to install.
+async fn resolve_dep_project(
+    app: &tauri::AppHandle,
+    requiring: &crate::mods::platform::InstalledMod,
+    dep_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> Option<crate::mods::dep_project::DepProject> {
+    let cache_path = crate::paths::mods_cache_file(app).ok()?;
+    let ttl = mod_metadata_ttl_days(app).ok()?;
+    let mc_owned = mc.to_string();
+    crate::mods::dep_project::resolve_via_requiring_mod(
+        requiring,
+        dep_id,
+        |source, project_id, version_id| async move {
+            // The instance's own facets, so this shares `version_cache` with
+            // every other lookup for the same mod. The exact installed build is
+            // preferred; when it is absent from that list — a stale jar the
+            // instance no longer matches — the newest compatible build answers
+            // instead. Both declare the same dependency IDS, which is all this
+            // is read for; the version itself is never installed from here.
+            let versions =
+                match crate::mods::version_cache::get(source, &project_id, &mc_owned, loader) {
+                    Some(v) => v,
+                    None => {
+                        let plat = platform_for(source);
+                        let v = plat
+                            .versions(&project_id, Some(&mc_owned), Some(loader))
+                            .await
+                            .ok()?;
+                        crate::mods::version_cache::put(
+                            source,
+                            &project_id,
+                            &mc_owned,
+                            loader,
+                            v.clone(),
+                        );
+                        v
+                    }
+                };
+            versions
+                .iter()
+                .find(|v| v.version_id == version_id)
+                .or_else(|| versions.first())
+                .cloned()
+        },
+        |source, ids| async move {
+            let plat = platform_for(source);
+            crate::mods::summary_cache::get_many(
+                &cache_path,
+                source,
+                &ids,
+                ttl,
+                false,
+                move |want: Vec<String>| async move {
+                    let refs: Vec<&str> = want.iter().map(String::as_str).collect();
+                    plat.summaries(&refs).await
+                },
+            )
+            .await
+        },
+    )
+    .await
+}
+
+/// One missing dependency to put a name to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepNameQuery {
+    /// SHA-1 of the mod that declared the dependency — the entry point to the
+    /// platform metadata that names it.
+    pub dependent_sha1: String,
+    /// The bare loader mod-id, e.g. `forgeconfigapiport`.
+    pub dep_id: String,
+}
+
+/// A dependency id and the project name it resolved to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepNameResolved {
+    pub dep_id: String,
+    pub name: String,
+}
+
+/// Human names for missing dependencies, for the compatibility panel's label.
+///
+/// Called ONLY from the Installed tab. The launch gate deliberately does not
+/// call it: nothing may sit between the user and the Play button, so the gate
+/// renders the raw loader id. That asymmetry is the design, not an omission.
+///
+/// Best-effort per id — anything unresolved is simply absent from the result
+/// and the panel falls back to the id. Never invents a name: resolution goes
+/// through the strict matcher, because unlike the install path there is no
+/// downloaded jar here to check a guess against.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_resolve_dep_names(
+    app: tauri::AppHandle,
+    instance_id: String,
+    queries: Vec<DepNameQuery>,
+) -> crate::error::Result<Vec<DepNameResolved>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let mut out: Vec<DepNameResolved> = Vec::new();
+    for q in queries {
+        if out.iter().any(|r| r.dep_id == q.dep_id) {
+            continue; // two mods can want the same dependency
+        }
+        let Some(requiring) = installed.iter().find(|m| m.sha1 == q.dependent_sha1) else {
+            continue;
+        };
+        if let Some(p) = resolve_dep_project(&app, requiring, &q.dep_id, &mc_version, loader).await
+        {
+            out.push(DepNameResolved {
+                dep_id: q.dep_id,
+                name: p.name,
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// One-click install of a missing required dependency identified only by its
-/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
-/// fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
-/// actually provides that id, then installs it. No manifest range context on
-/// this bare-id path → `range = None`. On any resolution/verification miss
-/// returns `OpenSearch` so the UI can offer a pre-filled search instead of
-/// guessing.
+/// loader mod-id (e.g. `balm`). Tries the requiring mod's declared platform
+/// dependencies first (exact project id, no guessing), then falls back to the
+/// historical path: Modrinth-slug-first + name-search — now also querying the
+/// word-segmented form of a slammed id — then CF, the latter loader/MC-
+/// decoupled. Either way the downloaded jar is verified to actually provide
+/// that id before it is installed. No manifest range context on this bare-id
+/// path → `range = None`. On any resolution/verification miss returns
+/// `OpenSearch` so the UI can offer a pre-filled search instead of guessing.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_install_missing_required(
     app: tauri::AppHandle,
     instance_id: String,
+    dependent_sha1: String,
     dep_id: String,
 ) -> crate::error::Result<crate::mods::platform::InstallMissingOutcome> {
     use crate::mods::dep_resolve::{jar_provides, DepResolution};
@@ -2793,33 +2925,68 @@ pub async fn mods_install_missing_required(
     let dd = data_dir(&app)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    // Concrete clients; `CurseForgeClient::new()` resolves the key internally.
-    let mr = crate::mods::modrinth::ModrinthClient::new();
-    let cf = crate::mods::curseforge::CurseForgeClient::new();
-    let resolution = crate::mods::dep_resolve::resolve_missing_dep(
-        &dep_id,
-        None,
-        |id| {
-            let mr = &mr;
-            let mc = mc_version.clone();
-            async move { Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await) }
-        },
-        |id| {
-            let cf = &cf;
-            let mc = mc_version.clone();
-            async move {
-                Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
-            }
-        },
-    )
-    .await;
-    let DepResolution::Resolved {
-        candidate,
-        needed_id,
-        selection_reason,
-    } = resolution
-    else {
-        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+    // Step 1 — the requiring mod's declared platform dependencies. For an
+    // identified mod the platform states the dependency's project id outright,
+    // which beats guessing a slug from a slammed loader id. The measured case:
+    // searching `forgeconfigapiport` returns nothing under this instance's
+    // facets, while the requiring mod's own metadata names `ohNO6lps` directly.
+    let installed_now = crate::mods::installed::list(&inst_root).await?;
+    let via_deps = match installed_now.iter().find(|m| m.sha1 == dependent_sha1) {
+        Some(requiring) => resolve_dep_project(&app, requiring, &dep_id, &mc_version, loader).await,
+        None => None,
+    };
+    let from_declared: Option<(ModVersion, crate::mods::platform::SelectionReason)> = match via_deps
+    {
+        Some(p) => {
+            let plat = platform_for(p.source);
+            plat.versions(&p.project_id, Some(&mc_version), Some(loader))
+                .await
+                .ok()
+                .and_then(|v| v.into_iter().next())
+                // Newest compatible build: this path carries no author pin
+                // and no declared range (a bare id has neither).
+                .map(|v| (v, crate::mods::platform::SelectionReason::NewestNoPin))
+        }
+        None => None,
+    };
+
+    // Step 2 — the historical path, when the requiring mod is unidentified or
+    // its metadata does not name the dependency.
+    let (candidate, needed_id, selection_reason) = match from_declared {
+        Some((candidate, reason)) => (candidate, dep_id.clone(), reason),
+        None => {
+            // Concrete clients; `CurseForgeClient::new()` resolves the key internally.
+            let mr = crate::mods::modrinth::ModrinthClient::new();
+            let cf = crate::mods::curseforge::CurseForgeClient::new();
+            let resolution = crate::mods::dep_resolve::resolve_missing_dep(
+                &dep_id,
+                None,
+                |id| {
+                    let mr = &mr;
+                    let mc = mc_version.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await)
+                    }
+                },
+                |id| {
+                    let cf = &cf;
+                    let mc = mc_version.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
+                    }
+                },
+            )
+            .await;
+            let DepResolution::Resolved {
+                candidate,
+                needed_id,
+                selection_reason,
+            } = resolution
+            else {
+                return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+            };
+            (candidate, needed_id, selection_reason)
+        }
     };
     crate::diag!(
         "dep_resolve: {dep_id} -> {} ({selection_reason:?})",

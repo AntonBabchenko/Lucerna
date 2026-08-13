@@ -122,7 +122,6 @@ describe('the issue count comes from the pre-flight', () => {
             dependent_sha1: 'a',
             dependent_name: 'Alpha',
             dep_id: 'stylisheffects',
-            dep_display_name: null,
             kind: 'missing_required',
             installed_version: null,
             needed: '',
