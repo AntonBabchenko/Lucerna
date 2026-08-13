@@ -85,10 +85,12 @@ fn discards_state_change(line: &str) -> bool {
 ///
 /// An earlier draft accepted a comment anywhere within 8 lines of the enclosing
 /// function, on the theory that a short "best-effort" function documents its own
-/// discards. Running it disproved the theory: in `worlds/restore.rs` the rollback
-/// carries a comment two lines up saying *what* it does ("Roll back: nuke
-/// whatever the move left…"), and that was enough to excuse the swallowed
-/// `rename` — the exact defect this whole rule was written to catch.
+/// discards. Running it disproved the theory. At the time, `worlds/restore.rs`
+/// held a rollback whose comment two lines up said *what* it did ("Roll back:
+/// nuke whatever the move left…"), and that was enough to excuse the swallowed
+/// `rename` — the exact defect this rule was written to catch. (That code is
+/// gone: the restore reorder replaced it with a `match` on both renames. The
+/// lesson is why the rule is what it is, not a description of the current tree.)
 ///
 /// There is no syntactic way to tell "this explains what the code does" from
 /// "this explains why discarding is correct". A `//` line merely NEAR a discard

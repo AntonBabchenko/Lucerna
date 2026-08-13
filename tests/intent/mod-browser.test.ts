@@ -137,6 +137,12 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { hits: [], total: 0, offset: 0, limit: 20 },
     }),
     listWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // WorldsTab queries these alongside the world list; without them the
+    // component rejects and vitest reports unhandled errors even though the
+    // assertions still pass.
+    listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    recoverStrandedWorld: vi.fn(),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },

@@ -368,6 +368,15 @@ pub enum Error {
         recovered_at: String,
     },
 
+    /// Putting a stranded world back would overwrite a world that already holds
+    /// its name. Refused: losing the live world to recover an older copy of it
+    /// is a worse loss than the one being repaired.
+    ///
+    /// Typed rather than folded into `WorldPathInvalid`, whose `reason` is
+    /// interpolated raw and would therefore reach a Russian user in English.
+    #[error("A world named '{world_folder}' already exists")]
+    WorldRecoverTargetOccupied { world_folder: String },
+
     #[error("Screenshot '{filename}' not found in instance {instance_id}")]
     ScreenshotNotFound {
         instance_id: String,

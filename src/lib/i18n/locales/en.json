@@ -1409,6 +1409,21 @@
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
     },
+    "orphaned": {
+      "title": "Backups without a world",
+      "description": "These backups belong to worlds that are no longer in this instance.",
+      "openBtn": "View backups",
+      "asCopyNote": "The backup will be unzipped as a new world."
+    },
+    "stranded": {
+      "title": "Interrupted restore",
+      "description": "A restore of \"{worldFolder}\" didn't finish. The world's files are safe and can be put back.",
+      "recoverBtn": "Put the world back",
+      "toastRecovered": "Recovered {world}",
+      "leftoverTitle": "Leftover copy from a restore",
+      "leftoverDescription": "A restore of \"{worldFolder}\" finished, and a copy of the world as it was beforehand is still on disk. Your current world is the restored one — nothing is missing. Delete the folder when you no longer need the older copy.",
+      "openFolderBtn": "Open saves folder"
+    },
     "datapacks": {
       "tab": "Datapacks (Beta)",
       "title": "Datapacks",
@@ -2258,6 +2273,7 @@
     "worldPathInvalid": "Invalid name \"{name}\": {reason}",
     "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
     "worldRestoreStranded": "Restore failed and \"{worldFolder}\" couldn't be moved back automatically. Your world is safe in the \"{recoveredAt}\" folder inside saves. See Logs for the cause.",
+    "worldRecoverTargetOccupied": "A world named \"{worldFolder}\" already exists. Rename or remove it first — recovering would otherwise overwrite it.",
     "screenshotNotFound": "Screenshot \"{filename}\" not found in this instance",
     "screenshotPathInvalid": "Invalid screenshot name \"{name}\": {reason}",
     "backupNotFound": "Backup \"{filename}\" not found",
