@@ -92,7 +92,9 @@ describe('SettingsModal', () => {
   it('shows the changelog under Updates, not under About', async () => {
     settingsOpen.value = { tab: 'updates' };
     render(SettingsModal);
-    expect(screen.getByText("What's new")).toBeTruthy();
+    // Heading, not bare text — the panel renders the real CHANGELOG.md, so a
+    // release note naming the "What's new" panel adds a second match.
+    expect(screen.getByRole('heading', { name: "What's new" })).toBeTruthy();
     expect(screen.getByText('v0.1.0')).toBeTruthy();
   });
 });

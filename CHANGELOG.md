@@ -16,6 +16,121 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-08-13
+
+### Added
+
+- **Search your settings.** Settings has grown to seven sections, and finding a
+  particular control meant knowing which one owned it. There is now a search box
+  above the section list: type part of a setting's name — `gpu`, `theme`, `ключ` —
+  and Lucerna switches to the section that owns it, scrolls the control into view
+  and flashes it, so you can see which one it meant. Results are grouped by
+  section and ranked, so the setting actually *named* what you typed comes before
+  one that merely mentions the word somewhere. Where a control cannot apply to
+  your machine — GPU selection on a system that exposes no such preference — the
+  search still takes you there and says so, rather than landing on nothing.
+
+- **The launcher offers you the release notes after it updates itself.** When it
+  comes back up on a new version, a toast says which one; clicking it opens a
+  **What's new** panel covering exactly the versions you have not read yet. The
+  notes are built into the launcher, so this works with no network at all, and it
+  appears whether or not you have startup update checks switched on. Shown once
+  per version, never again for the same one.
+
+- **Fix an instance whose mods no longer match its Minecraft version.** The
+  compatibility panel can now migrate them for you, and it shows you the plan
+  first: every mod it would replace, and every one it cannot, listed before
+  anything is written. A mod with no published build for the target Minecraft
+  version is named as stranded rather than retried in a loop, and its row says
+  which version the jar *was* built for, so reinstalling is not offered where it
+  cannot possibly help. Mods you have disabled are left out of the count, the
+  badges and the plan — a disabled jar is not loaded and cannot break anything.
+  The panel's count and the plan behind its button come from one source, so the
+  button can never open an empty plan while the badge insists there is work.
+
+- **Recover a world an interrupted restore left behind.** Two things could
+  outlive a failed restore and were reachable only through the file manager: a
+  world the rollback could not put back, and a set of backups whose world is
+  gone. The Worlds tab now lists both. *Put the world back* is a single move, and
+  it refuses when a world of that name already exists — losing a live world to
+  recover an older copy of it would be worse than the failure being repaired.
+  *View backups* opens the usual backup list for an orphaned set.
+
+- **Onboarding explains datapacks and mod translations.** Both features shipped
+  without being taught anywhere: opening the Datapacks tab required already
+  knowing what a datapack is. There are now short tours of the server add-ons and
+  translation screens and a one-step tour of the Overview, plus concept help on
+  all three datapack surfaces — instance, world and server — and in the
+  translation window.
+
+### Changed
+
+- The two **Open backups folder** buttons now use the launcher's standard
+  secondary button with a leading icon, like every other button of their kind.
+
+### Fixed
+
+- **Changing an instance's Minecraft version no longer strands its mods in
+  silence.** Mods built for the old version stayed in place, the game died during
+  pre-load, and every launcher surface said nothing — the one banner shown blamed
+  a missing dependency, which was itself a symptom of one of the stale jars. The
+  pre-launch check now refuses with an explanation, the Installed list and the
+  Overview count the mods that cannot load, and the summary shown after a version
+  change reports them. The check reads what a mod declares about its *loader* as
+  well as about Minecraft, because most mods declare only the former: on the
+  instance this was reported from, a Minecraft-only check caught two of the six
+  broken jars, and the loader axis caught all six.
+
+- **The compatibility badge no longer counts mods you disabled, and no longer
+  carries a verdict across a version change.** A disabled mod still showed a
+  badge and still counted. A manual compatibility check's result was wiped by
+  navigating to the Overview and back, and a verdict worked out under one
+  Minecraft version was still displayed after switching the instance to another.
+
+- **A failed restore no longer moves your world before knowing the backup is
+  good.** Restore renamed the live world aside and *then* extracted, so the world
+  was absent for the whole extraction — minutes on a large world — and any
+  failure inside that window ran a rollback whose own failure was discarded. When
+  that rollback failed, the world stayed under a name nothing in the launcher
+  would list, while the message told you the backup was corrupt. Restore now
+  extracts and verifies first and swaps at the end, so the most likely failure by
+  far — a corrupt or foreign backup — never touches the world at all. If the
+  final swap does fail, the message names the directory that holds your world.
+
+- **Restoring the same world twice within a second no longer destroys the first
+  safety snapshot.** The snapshot's filename came from a second-resolution
+  timestamp, and writing it truncates whatever is already there — so the second
+  restore overwrote the very artefact the first one made in case it went wrong.
+
+- **"This world is currently in use — quit Minecraft and try again" is no longer
+  shown with Minecraft closed.** A name collision when moving the world aside
+  raises the same Windows error code as a live file lock; the launcher now checks
+  which of the two it is actually looking at.
+
+- **The dependency panel names the mod, and its Install button finds it.** The
+  panel read like *"b0.25.8 requires forgeconfigapiport"* — a version string
+  where the mod's name belongs — and Install dead-ended in an empty search.
+  Names now come from the requiring mod's own declaration of what it depends on
+  rather than from guessing at the id, existing entries are repaired in place,
+  and the search resolves ids written without separators
+  (`forgeconfigapiport` → Forge Config API Port). Where a name cannot be
+  confirmed to be the right project, the raw id is shown rather than a plausible
+  wrong one.
+
+- **A tour no longer fires on top of another tour, or marks itself as seen
+  without ever being shown.** Contextual tours could start over the main
+  onboarding tour, two could start in the same frame, and one could be recorded
+  as seen while it was being deferred — after which it never appeared again.
+
+- **A dialog opened while a tour is running is no longer left with no focus at
+  all.** The focus trap deliberately steps aside while a tour owns the screen,
+  but never took focus back when the tour ended, leaving the dialog unannounced
+  to screen readers and its keyboard handling inert.
+
+- **Open backups folder** is now reachable before the first backup exists — it
+  used to render only next to a non-empty list, which is precisely the case it
+  does not help with.
+
 ## [0.22.0] — 2026-08-05
 
 ### Added
@@ -1149,7 +1264,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.19.0...v0.20.0

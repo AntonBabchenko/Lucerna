@@ -33,7 +33,10 @@ describe('UpdatesPanel', () => {
 
   it("renders the changelog (What's new) with the always-present 0.1.0 entry", () => {
     render(UpdatesPanel);
-    expect(screen.getByText("What's new")).toBeTruthy();
+    // Query the heading, not the bare text: this panel renders the real
+    // CHANGELOG.md, and a release note that happens to name the "What's new"
+    // panel puts a second element with that text on screen.
+    expect(screen.getByRole('heading', { name: "What's new" })).toBeTruthy();
     expect(screen.getByText('v0.1.0')).toBeTruthy();
   });
 });
