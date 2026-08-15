@@ -12,8 +12,11 @@ use super::{level_dat_lock, map_removal_err, read_level_dat_or_empty, world_dirs
 
 /// `Some(err)` when `dest` already holds something that is NOT the library
 /// file at `src`, so placing over it would destroy a pack Lucerna did not put
-/// there. `None` when the destination is free, or already holds exactly these
-/// bytes.
+/// there. `None` when the destination is provably free, or already holds
+/// exactly these bytes. Anything this function could not SEE — an unstatable
+/// or unreadable entry — is an `Err`, never a verdict: `materialize` replaces
+/// its destination unconditionally, so answering "free" out of ignorance
+/// would destroy a file that was never identified.
 ///
 /// A DIRECTORY is always a conflict: Minecraft loads folder datapacks, and a
 /// folder has no file sha1 to compare, so it can never be proven ours. Doing
@@ -22,8 +25,18 @@ use super::{level_dat_lock, map_removal_err, read_level_dat_or_empty, world_dirs
 /// Sizes are compared before hashing so a large pack costs one `metadata` call
 /// in the common "different pack" case rather than two full reads.
 async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error>> {
-    let Ok(dest_meta) = tokio::fs::metadata(dest).await else {
-        return Ok(None); // nothing there — free to place
+    let dest_meta = match tokio::fs::metadata(dest).await {
+        Ok(meta) => meta,
+        // Absent is a fact — nothing there, free to place. Any other error is
+        // ignorance. Mirrors `migrate_one`'s discrimination at its own
+        // destination check in this module's `migrate.rs`.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dest.display().to_string(),
+                details: e.to_string(),
+            })
+        }
     };
     let filename = dest
         .file_name()
@@ -40,8 +53,20 @@ async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error
         .await
         .map_err(|e| Error::io(src.display().to_string(), e))?;
     if src_meta.len() == dest_meta.len() {
-        let (Ok(a), Ok(b)) = (tokio::fs::read(src).await, tokio::fs::read(dest).await) else {
-            return Ok(None);
+        let a = tokio::fs::read(src)
+            .await
+            .map_err(|e| Error::io(src.display().to_string(), e))?;
+        let b = match tokio::fs::read(dest).await {
+            Ok(bytes) => bytes,
+            // Vanished between the stat above and this read: the slot really
+            // is free now — the same fact the NotFound arm above records.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(Error::ModsInstancePath {
+                    path: dest.display().to_string(),
+                    details: e.to_string(),
+                })
+            }
         };
         let (sa, sb) = (
             crate::datapacks::library::sha1_hex(&a),
@@ -56,15 +81,25 @@ async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error
             incoming_sha: sa,
         }));
     }
-    // Different sizes ⇒ different content; no need to hash either side.
+    // Different sizes ⇒ different content; no need to hash either side. The
+    // shas below are only for the conflict report — but a fabricated blank
+    // hash is not a report. A failed read propagates exactly as in the
+    // equal-size branch above; the two branches must not disagree about what
+    // an unreadable entry means.
     let existing_sha = match tokio::fs::read(dest).await {
-        Ok(b) => crate::datapacks::library::sha1_hex(&b),
-        Err(_) => String::new(),
+        Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dest.display().to_string(),
+                details: e.to_string(),
+            })
+        }
     };
-    let incoming_sha = match tokio::fs::read(src).await {
-        Ok(b) => crate::datapacks::library::sha1_hex(&b),
-        Err(_) => String::new(),
-    };
+    let incoming_sha = tokio::fs::read(src)
+        .await
+        .map(|bytes| crate::datapacks::library::sha1_hex(&bytes))
+        .map_err(|e| Error::io(src.display().to_string(), e))?;
     Ok(Some(Error::ModsFilenameConflict {
         filename,
         existing_sha,
@@ -577,6 +612,85 @@ mod tests {
         assert!(
             enabled.contains(&"file/b.zip".to_string()),
             "b.zip's enable must survive a concurrent disable of a.zip"
+        );
+    }
+
+    /// Windows: '<' cannot appear in a filename, so the opening stat fails
+    /// with ERROR_INVALID_NAME — a non-NotFound failure, exactly the class
+    /// the old `let Ok(..) else {{ return Ok(None) }}` collapsed into "free
+    /// to place". Absent stays a fact (NotFound → free); ignorance must not.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_unstatable_dest_is_an_error_not_a_free_slot() {
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("lib-vm.zip");
+        std::fs::write(&src, b"library bytes").unwrap();
+        let dest = td.path().join("vm<invalid>.zip");
+
+        let verdict = conflicting_world_entry(&src, &dest).await;
+
+        assert!(
+            verdict.is_err(),
+            "an unstatable dest must be an error, not a free slot: {verdict:?}"
+        );
+    }
+
+    /// Windows: a handle held with no sharing makes a later open-for-read
+    /// fail with a sharing violation while `metadata` (attribute-only access)
+    /// still succeeds. That is what a running game holding the pack open
+    /// looks like. Equal sizes steer the gate into its hash-compare branch,
+    /// whose read failure used to collapse to "free to place".
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_share_locked_equal_size_dest_is_an_error_not_a_free_slot() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("lib-vm.zip");
+        let dest = td.path().join("world-vm.zip");
+        std::fs::write(&src, b"library-bytes").unwrap();
+        // Same length as the library bytes, different content.
+        std::fs::write(&dest, b"foreign-bytes").unwrap();
+        let _held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // no sharing: any later open-for-read fails
+            .open(&dest)
+            .unwrap();
+
+        let verdict = conflicting_world_entry(&src, &dest).await;
+
+        assert!(
+            verdict.is_err(),
+            "an unreadable equal-size dest must be an error, not a free slot: {verdict:?}"
+        );
+    }
+
+    /// Windows twin for the DIFFERENT-size branch. Sizes differing proves the
+    /// contents differ, but the old code answered "conflict" carrying a
+    /// fabricated blank `existing_sha` when the dest could not be read. Both
+    /// branches must agree on what an unreadable entry means: propagate.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_share_locked_different_size_dest_propagates_instead_of_a_blank_sha() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("lib-vm.zip");
+        let dest = td.path().join("world-vm.zip");
+        std::fs::write(&src, b"library bytes").unwrap();
+        std::fs::write(&dest, b"a much longer foreign payload").unwrap();
+        let _held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&dest)
+            .unwrap();
+
+        let verdict = conflicting_world_entry(&src, &dest).await;
+
+        assert!(
+            matches!(verdict, Err(Error::ModsInstancePath { .. })),
+            "an unreadable different-size dest must propagate, not report a conflict \
+             with a fabricated blank sha: {verdict:?}"
         );
     }
 }
