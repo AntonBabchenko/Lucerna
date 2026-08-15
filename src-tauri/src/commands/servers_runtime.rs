@@ -292,7 +292,11 @@ pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let props_path = p.runtime.join("server.properties");
-    let raw = std::fs::read_to_string(&props_path).unwrap_or_default();
+    // NotFound → empty (a server that has never started has no file yet); any
+    // other read failure propagates — the rewrite below is unconditional, so
+    // treating "could not read" as "empty" would replace the user's whole
+    // config with a single server-port line.
+    let raw = crate::servers_runtime::properties::read_properties_file(&props_path)?;
     // The port we're leaving — its firewall allow-rule (if any) is now stale.
     let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
     let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
@@ -540,7 +544,8 @@ pub fn server_update_runtime_config(
 }
 
 /// Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
-/// строку если файл ещё не создан (первый запуск сервера).
+/// строку ТОЛЬКО если файл ещё не создан (первый запуск сервера); любая другая
+/// ошибка чтения — настоящая ошибка, а не «пустой файл».
 #[tauri::command]
 #[specta::specta]
 pub fn server_read_properties(app: AppHandle, id: String) -> Result<String> {
@@ -548,7 +553,7 @@ pub fn server_read_properties(app: AppHandle, id: String) -> Result<String> {
     let path = crate::paths::server_paths(&base, &id)
         .runtime
         .join("server.properties");
-    Ok(std::fs::read_to_string(&path).unwrap_or_default())
+    crate::servers_runtime::properties::read_properties_file(&path)
 }
 
 /// Записать `server.properties` сервера. Входной текст парсится и валидируется
