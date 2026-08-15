@@ -441,3 +441,54 @@ async fn add_to_world_refuses_to_replace_a_world_file_it_could_not_read() {
         "the file that could not be read must survive untouched"
     );
 }
+
+/// `old_bytes` used to be `read(&dest).await.ok()` — a library pack that
+/// exists but cannot be read collapsed into `None`, the exact state a FRESH
+/// install has. The provenance-conflict gate only fires when `old_sha` is
+/// `Some`, so a catalog install onto an unreadable hand-installed pack
+/// skipped the gate and `place_bytes` renamed over it. Unix is where that
+/// clobber completes (rename ignores the target's own permission bits),
+/// making this failing-first: before the fix the install returned Ok and the
+/// user's pack was gone — the silent replacement the gate exists to prevent.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_catalog_install_cannot_skip_the_conflict_gate_via_an_unreadable_pack() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use lucerna_lib::datapacks::DatapackProvenance;
+    use lucerna_lib::mods::platform::ModSource;
+
+    let (_td, inst) = make_fixture("inst-unreadable-lib", &[]);
+    // The user's own pack, installed locally (no provenance).
+    let theirs = datapack_zip(48, "Their Lith!");
+    library::install_named_at(&inst, "terralith.zip", &theirs, None)
+        .await
+        .unwrap();
+    let dest = library_dir_at(&inst).join("terralith.zip");
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = library::install_named_at(
+        &inst,
+        "terralith.zip",
+        &datapack_zip(57, "Terralith 2!"),
+        Some(&DatapackProvenance {
+            source: ModSource::Modrinth,
+            project_id: "terralith".into(),
+            version_id: "v1".into(),
+            version_number: None,
+        }),
+    )
+    .await;
+
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+    match result {
+        Err(lucerna_lib::error::Error::ModsInstancePath { .. }) => {}
+        Err(other) => panic!("expected ModsInstancePath, got {other:?}"),
+        Ok(_) => panic!("a catalog install onto an unreadable existing pack must be refused"),
+    }
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        theirs,
+        "the user's hand-installed pack must survive the refused catalog install"
+    );
+}
