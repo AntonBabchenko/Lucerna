@@ -3107,7 +3107,20 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  Typed rather than folded into `WorldPathInvalid`, whose `reason` is
  *  interpolated raw and would therefore reach a Russian user in English.
  */
-{ kind: "world_recover_target_occupied"; world_folder: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+{ kind: "world_recover_target_occupied"; world_folder: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | 
+/**
+ *  A folder import failed mid-copy AND the rollback could not remove the
+ *  partial copy. `list_worlds` treats any direct subdirectory of `saves/`
+ *  as a world, so the leftover WILL appear in the world list looking like
+ *  a normal world — the user must be told it is incomplete and where it is.
+ * 
+ *  `folder_name` is the directory's NAME — a bare segment, never a full
+ *  path — for the same reason as `WorldRestoreStranded`: it reaches the
+ *  user inside a fully translated sentence. The causes (the copy failure
+ *  and the rollback failure) are `diag!`-logged at the point of failure;
+ *  the copy points at Logs.
+ */
+{ kind: "world_import_partial_left"; folder_name: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Attempt to build/start a server without an accepted EULA. */

@@ -300,6 +300,7 @@ export type TranslationKey =
   | 'errors.windowIo'
   | 'errors.worldImportInvalidArchive'
   | 'errors.worldImportNotAWorld'
+  | 'errors.worldImportPartialLeft'
   | 'errors.worldImportTooLarge'
   | 'errors.worldImportUnsupportedSource'
   | 'errors.worldInUse'
