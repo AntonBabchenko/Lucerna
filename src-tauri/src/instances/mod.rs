@@ -478,9 +478,7 @@ pub fn delete_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
     }
 
     let dir = paths::instance_dir(app, id).map_err(|e| Error::io("<instance_dir>", e))?;
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
-    }
+    remove_instance_dir(&dir)?;
 
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
     let mut app_state = store::read_app_json(&app_file_path)?;
@@ -491,6 +489,23 @@ pub fn delete_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
         store::write_app_json(&app_file_path, &app_state)?;
     }
     Ok(())
+}
+
+/// Remove the instance directory, treating "already gone" as success.
+///
+/// Deliberately NOT `if dir.exists() { remove_dir_all }`: `exists()` answers
+/// false for ANY stat failure, so an unreadable dir would skip the removal
+/// and `delete_instance` would report success while the instance is still on
+/// disk (CLAUDE.md, Fallback discipline, question 2). Attempting the removal
+/// unconditionally needs no pre-stat at all — no TOCTOU window — and the only
+/// outcome read as "nothing to do" is the one the doc contract above names:
+/// `NotFound`.
+pub(crate) fn remove_instance_dir(dir: &std::path::Path) -> Result<()> {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(dir.display().to_string(), e)),
+    }
 }
 
 pub(crate) fn clear_pack_origin_fields(i: &mut schema::InstanceFile) {
@@ -631,5 +646,38 @@ mod tests {
         };
         let decision = decide_loader(LoaderKind::Fabric, Err(err));
         assert!(matches!(decision, LoaderDecision::Error(_)));
+    }
+
+    #[test]
+    fn remove_instance_dir_missing_dir_is_already_gone_ok() {
+        let td = tempfile::tempdir().unwrap();
+        let gone = td.path().join("no-such-instance");
+        assert!(remove_instance_dir(&gone).is_ok());
+    }
+
+    #[test]
+    fn remove_instance_dir_removes_dir_and_contents() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("inst");
+        std::fs::create_dir_all(dir.join(".minecraft")).unwrap();
+        std::fs::write(dir.join("instance.json"), b"{}").unwrap();
+        remove_instance_dir(&dir).unwrap();
+        assert!(!dir.exists());
+    }
+
+    // A FILE where a directory component is expected: the old
+    // `if dir.exists()` guard read this stat failure (NotADirectory) as
+    // "absent", skipped the removal, and reported success. The honest form
+    // surfaces it — NotADirectory ≠ NotFound. cfg(unix) because Windows maps
+    // the file-as-component case to ERROR_PATH_NOT_FOUND (= NotFound), which
+    // the contract legitimately tolerates; ubuntu + macos CI runs this.
+    #[cfg(unix)]
+    #[test]
+    fn remove_instance_dir_surfaces_stat_failure_instead_of_claiming_success() {
+        let td = tempfile::tempdir().unwrap();
+        let file = td.path().join("plain.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let r = remove_instance_dir(&file.join("child"));
+        assert!(matches!(r, Err(Error::Io { .. })), "got: {r:?}");
     }
 }
