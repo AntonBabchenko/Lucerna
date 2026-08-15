@@ -188,12 +188,19 @@ fn find_world_root(root: &Path) -> Option<PathBuf> {
 /// First free `saves/<name>` slot: `name`, then `name (2)`, `name (3)`, … up
 /// to `(999)`. `WorldNameUnresolvable` if all are taken.
 fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
-    if !saves.join(base).exists() {
+    // `try_exists`, not `exists`: `exists()` answers false for ANY stat
+    // failure, so a transient error would report an occupied slot as free —
+    // and `Move::Copy` then merges the import INTO that existing world
+    // (`create_dir_all` + `copy_tree` do not object to a populated dest),
+    // while `Move::Rename` renames onto it. Unread ⇒ occupied is the
+    // restrictive direction (CLAUDE.md, Fallback discipline, question 1); a
+    // skipped slot at worst costs a " (2)" suffix.
+    if !saves.join(base).try_exists().unwrap_or(true) {
         return Ok(base.to_string());
     }
     for i in 2..=999 {
         let candidate = format!("{base} ({i})");
-        if !saves.join(&candidate).exists() {
+        if !saves.join(&candidate).try_exists().unwrap_or(true) {
             return Ok(candidate);
         }
     }
@@ -393,6 +400,28 @@ mod tests {
         assert_eq!(
             pick_free_world_name(td.path(), "World").unwrap(),
             "World (3)"
+        );
+    }
+
+    // NOTE (fallback discipline, Q2): a transient stat failure on a SINGLE
+    // candidate inside an otherwise healthy saves dir cannot be forced
+    // deterministically on Windows+Linux+macOS — the same impossibility
+    // restore.rs documents (lines 110-117) for failing one specific rename.
+    // What CAN be forced portably on unix is "every stat fails": a FILE where
+    // the saves directory is expected makes each `saves.join(...)` lookup
+    // fail with NotADirectory — "could not tell", not "absent". The
+    // restrictive reading is: every slot occupied. The Windows-only remainder
+    // is restrictive-by-construction after the fix (`unwrap_or(true)`).
+    #[cfg(unix)]
+    #[test]
+    fn pick_free_world_name_unreadable_slots_read_as_occupied() {
+        let td = tempdir().unwrap();
+        let saves_is_a_file = td.path().join("saves");
+        fs::write(&saves_is_a_file, b"not a directory").unwrap();
+        let r = pick_free_world_name(&saves_is_a_file, "World");
+        assert!(
+            matches!(r, Err(Error::WorldNameUnresolvable { .. })),
+            "a stat failure must read as occupied, not free — got: {r:?}"
         );
     }
 
