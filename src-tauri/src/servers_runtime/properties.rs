@@ -167,6 +167,21 @@ impl ServerProperties {
     }
 }
 
+/// Read a server's `server.properties` as raw text. Absent → `Ok("")`: a
+/// server that has never started has no file yet, and every caller treats
+/// "no file" as "all defaults". Any other read failure propagates as a real
+/// error carrying the real path — collapsing "could not read" into "empty"
+/// would let a caller that rewrites the file afterwards replace the user's
+/// whole config with a near-empty one. Same NotFound discrimination as
+/// `whitelist::read_array`.
+pub fn read_properties_file(path: &std::path::Path) -> crate::error::Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => Ok(raw),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(crate::error::Error::io(path.display().to_string(), e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +296,50 @@ mod tests {
         assert!(p.set_validated("spawn-protection", "16").is_ok());
         assert!(p.set_validated("op-permission-level", "4").is_ok());
         assert!(p.set_validated("player-idle-timeout", "-3").is_err()); // u32
+    }
+
+    #[test]
+    fn read_properties_file_missing_file_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = read_properties_file(&dir.path().join("server.properties")).unwrap();
+        assert_eq!(raw, "");
+    }
+
+    #[test]
+    fn read_properties_file_returns_existing_content_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.properties");
+        std::fs::write(&path, SAMPLE).unwrap();
+        assert_eq!(read_properties_file(&path).unwrap(), SAMPLE);
+    }
+
+    #[test]
+    fn read_properties_file_unreadable_is_an_error_not_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.properties");
+        // A directory at the file's path makes read_to_string fail with
+        // something other than NotFound on every platform — the same shape as
+        // a file we have no permission to read. Same trick as
+        // `write_at_refuses_to_overwrite_when_it_cannot_back_up` in
+        // src/datapacks/level_dat.rs.
+        std::fs::create_dir(&path).unwrap();
+        let r = read_properties_file(&path);
+        assert!(
+            matches!(r, Err(crate::error::Error::Io { .. })),
+            "got: {r:?}"
+        );
+    }
+
+    #[test]
+    fn read_properties_file_error_names_the_real_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.properties");
+        std::fs::create_dir(&path).unwrap();
+        match read_properties_file(&path) {
+            Err(crate::error::Error::Io { path: p, .. }) => {
+                assert!(p.ends_with("server.properties"), "got path: {p}");
+            }
+            other => panic!("expected an Io error carrying the path, got: {other:?}"),
+        }
     }
 }

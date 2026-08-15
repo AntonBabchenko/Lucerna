@@ -1250,7 +1250,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverSendCommand: (id: string, line: string) => typedError<null, Error>(__TAURI_INVOKE("server_send_command", { id, line })),
 	/**
 	 *  Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
-	 *  строку если файл ещё не создан (первый запуск сервера).
+	 *  строку ТОЛЬКО если файл ещё не создан (первый запуск сервера); любая другая
+	 *  ошибка чтения — настоящая ошибка, а не «пустой файл».
 	 */
 	serverReadProperties: (id: string) => typedError<string, Error>(__TAURI_INVOKE("server_read_properties", { id })),
 	/**

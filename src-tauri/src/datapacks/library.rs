@@ -225,7 +225,21 @@ pub async fn install_named_at(
     // replace would compare worlds against the NEW bytes and classify every
     // legitimately linked world as foreign. Hashed off-executor like the
     // incoming bytes above, and for the same F18 reason.
-    let old_bytes = tokio::fs::read(&dest).await.ok();
+    // Absent is a fact — a fresh install has nothing to hash. Any other read
+    // failure is ignorance, and everything below leans on this hash: with
+    // `None` the provenance-conflict gate silently waves the install through
+    // and the fan-out classifies every legitimately linked world as foreign.
+    // Mirrors `migrate_one`'s discrimination at its own destination check.
+    let old_bytes = match tokio::fs::read(&dest).await {
+        Ok(b) => Some(b),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dest.display().to_string(),
+                details: e.to_string(),
+            })
+        }
+    };
     let old_sha = match old_bytes {
         Some(b) => Some(
             tokio::task::spawn_blocking(move || sha1_hex(&b))
@@ -546,6 +560,43 @@ mod tests {
         let listed = list_at(td.path()).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "VeinMiner.zip");
+    }
+
+    /// A DIRECTORY squatting on the pack's library name makes the identity
+    /// read fail with a non-NotFound error on every platform. The install
+    /// must refuse at the identity read, name the destination, and leave the
+    /// directory alone — while a genuinely absent file (NotFound) keeps
+    /// installing fine, which `installs_a_zip_and_records_pack_format_and_name`
+    /// already pins.
+    ///
+    /// NOTE: before the fix this scenario ALSO errored, but only by accident
+    /// — `place_bytes`' commit rename happened to fail against the directory,
+    /// with the same variant and path. The failing-first witness for this fix
+    /// is `a_catalog_install_cannot_skip_the_conflict_gate_via_an_unreadable_pack`
+    /// in tests/datapacks_integration.rs; this test pins the refusal
+    /// happening at the gate, before anything touches the store.
+    #[tokio::test]
+    async fn a_directory_squatting_on_the_library_name_stops_the_install() {
+        let td = tempfile::tempdir().unwrap();
+        let dest = td.path().join("datapacks").join("vm.zip");
+        std::fs::create_dir_all(dest.join("data")).unwrap();
+
+        let err = install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap_err();
+
+        let Error::ModsInstancePath { path, .. } = err else {
+            panic!("expected Error::ModsInstancePath, got {err:?}");
+        };
+        assert_eq!(path, dest.display().to_string());
+        assert!(
+            dest.join("data").is_dir(),
+            "the squatting directory's content must survive the refusal"
+        );
+        assert!(
+            list_at(td.path()).await.unwrap().is_empty(),
+            "a refused install must not register the pack"
+        );
     }
 
     #[tokio::test]

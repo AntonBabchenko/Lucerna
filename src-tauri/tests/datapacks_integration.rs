@@ -394,3 +394,101 @@ async fn a_hand_dropped_library_file_is_adopted() {
     assert_eq!(listed[0].pack_format, Some(48));
     assert_eq!(listed[0].name, "Vein Miner");
 }
+
+/// The world-link conflict gate's equal-size branch used to collapse ANY read
+/// failure into "free to place" (`let (Ok(a), Ok(b)) = .. else { return Ok(None) }`),
+/// after which `materialize` renames over the destination unconditionally.
+/// Unix is the platform where that clobber actually COMPLETES — rename ignores
+/// the target file's own permission bits — which is what makes this
+/// failing-first: before the fix `add_to_world_at` returns Ok and the user's
+/// unreadable pack is silently replaced by the library link.
+#[cfg(unix)]
+#[tokio::test]
+async fn add_to_world_refuses_to_replace_a_world_file_it_could_not_read() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_td, inst) = make_fixture("inst-unreadable-dest", &["Alpha"]);
+    let bytes = datapack_zip(48, "Vein Miner");
+    library::install_named_at(&inst, "vm.zip", &bytes, None)
+        .await
+        .unwrap();
+    // Same LENGTH as the library zip (two-digit pack_format, ten-char
+    // description on both sides), so the gate takes its equal-size branch —
+    // the one that must READ both sides to compare hashes.
+    let theirs = datapack_zip(57, "Wein Miner");
+    let dp = world_datapacks_dir_at(&inst, "Alpha").unwrap();
+    fs::create_dir_all(&dp).unwrap();
+    let dest = dp.join("vm.zip");
+    fs::write(&dest, &theirs).unwrap();
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = world_link::add_to_world_at(&inst, "Alpha", "vm.zip").await;
+
+    // Restore FIRST so the byte check below can read the file and the
+    // tempdir cleans up even when an assertion fails.
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+    match result {
+        Err(lucerna_lib::error::Error::ModsInstancePath { .. }) => {}
+        Err(other) => panic!("expected ModsInstancePath, got {other:?}"),
+        Ok(placement) => panic!(
+            "the add must be refused, but it returned {placement:?} after renaming over \
+             a file it could not read"
+        ),
+    }
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        theirs,
+        "the file that could not be read must survive untouched"
+    );
+}
+
+/// `old_bytes` used to be `read(&dest).await.ok()` — a library pack that
+/// exists but cannot be read collapsed into `None`, the exact state a FRESH
+/// install has. The provenance-conflict gate only fires when `old_sha` is
+/// `Some`, so a catalog install onto an unreadable hand-installed pack
+/// skipped the gate and `place_bytes` renamed over it. Unix is where that
+/// clobber completes (rename ignores the target's own permission bits),
+/// making this failing-first: before the fix the install returned Ok and the
+/// user's pack was gone — the silent replacement the gate exists to prevent.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_catalog_install_cannot_skip_the_conflict_gate_via_an_unreadable_pack() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use lucerna_lib::datapacks::DatapackProvenance;
+    use lucerna_lib::mods::platform::ModSource;
+
+    let (_td, inst) = make_fixture("inst-unreadable-lib", &[]);
+    // The user's own pack, installed locally (no provenance).
+    let theirs = datapack_zip(48, "Their Lith!");
+    library::install_named_at(&inst, "terralith.zip", &theirs, None)
+        .await
+        .unwrap();
+    let dest = library_dir_at(&inst).join("terralith.zip");
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = library::install_named_at(
+        &inst,
+        "terralith.zip",
+        &datapack_zip(57, "Terralith 2!"),
+        Some(&DatapackProvenance {
+            source: ModSource::Modrinth,
+            project_id: "terralith".into(),
+            version_id: "v1".into(),
+            version_number: None,
+        }),
+    )
+    .await;
+
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+    match result {
+        Err(lucerna_lib::error::Error::ModsInstancePath { .. }) => {}
+        Err(other) => panic!("expected ModsInstancePath, got {other:?}"),
+        Ok(_) => panic!("a catalog install onto an unreadable existing pack must be refused"),
+    }
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        theirs,
+        "the user's hand-installed pack must survive the refused catalog install"
+    );
+}

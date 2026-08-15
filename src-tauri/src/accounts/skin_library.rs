@@ -34,12 +34,32 @@ fn png_path(dir: &Path, id: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{id}.png")))
 }
 
-/// Missing or corrupt index reads as empty — listing must never hard-fail.
+/// Lenient reader for LISTING only: missing or corrupt index reads as
+/// empty — the library panel must never hard-fail. Mutations go through
+/// `read_index_strict` instead: they rewrite the file, so reading a broken
+/// index as empty would silently drop every entry it still holds.
 fn read_index(dir: &Path) -> SkinLibraryFile {
     let Ok(bytes) = std::fs::read(index_path(dir)) else {
         return SkinLibraryFile::default();
     };
     serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+/// Strict reader for the MUTATION paths (`save` / `update` / `delete`).
+/// Absent reads as the empty default — a fresh library is a fact. A corrupt
+/// or unreadable index is an error: `NotFound` is a fact, every other
+/// failure is ignorance (Fallback discipline, Discrimination), and the
+/// mutation that would follow rewrites the whole file.
+fn read_index_strict(dir: &Path) -> Result<SkinLibraryFile> {
+    let path = index_path(dir);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(SkinLibraryFile::default()),
+        Err(e) => return Err(Error::io(path.display().to_string(), e)),
+    };
+    serde_json::from_slice(&bytes).map_err(|e| Error::SkinLibrary {
+        details: format!("index is corrupt: {e}"),
+    })
 }
 
 /// Atomic index write: temp file + rename (same pattern as `accounts/store.rs`).
@@ -84,6 +104,11 @@ pub fn list(dir: &Path) -> Vec<(SkinLibraryEntry, String)> {
 }
 
 /// Validate and persist a new entry, appended at the end of the index.
+///
+/// The index is read strictly, and FIRST: a corrupt or unreadable index must
+/// fail the save rather than be rebuilt from empty with every previously
+/// saved skin dropped — and reading first means a refused save leaves no
+/// orphan PNG behind.
 pub fn save(
     dir: &Path,
     name: &str,
@@ -94,6 +119,7 @@ pub fn save(
 ) -> Result<SkinLibraryEntry> {
     let name = valid_name(name)?;
     crate::accounts::cosmetics::validate_skin_png(png)?;
+    let mut file = read_index_strict(dir)?;
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let entry = SkinLibraryEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -104,7 +130,6 @@ pub fn save(
     };
     let png_file = png_path(dir, &entry.id)?;
     std::fs::write(&png_file, png).map_err(|e| Error::io(png_file.display().to_string(), e))?;
-    let mut file = read_index(dir);
     file.entries.push(entry.clone());
     if let Err(e) = write_index(dir, &file) {
         // Don't leave an orphan PNG behind if the index write failed.
@@ -124,7 +149,7 @@ pub fn update(
     cape_id: Option<String>,
 ) -> Result<()> {
     let name = valid_name(name)?;
-    let mut file = read_index(dir);
+    let mut file = read_index_strict(dir)?;
     let entry = file
         .entries
         .iter_mut()
@@ -138,10 +163,13 @@ pub fn update(
     write_index(dir, &file)
 }
 
-/// Remove an entry and its PNG. Deleting an absent id is a no-op (idempotent).
+/// Remove an entry and its PNG. Deleting an absent id is a no-op
+/// (idempotent) — but only against an index that could actually be read: a
+/// corrupt or unreadable index is an error, not an empty library, because
+/// answering `Ok` there would report a deletion that never happened.
 pub fn delete(dir: &Path, id: &str) -> Result<()> {
     let png_file = png_path(dir, id)?;
-    let mut file = read_index(dir);
+    let mut file = read_index_strict(dir)?;
     let before = file.entries.len();
     file.entries.retain(|e| e.id != id);
     if file.entries.len() != before {
@@ -218,13 +246,58 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_index_reads_as_empty() {
+    fn corrupt_index_lists_empty_but_refuses_mutations() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("library.json"), b"{not json").unwrap();
+        // Listing stays lenient — a broken index must never hard-fail the UI.
         assert!(list(dir.path()).is_empty());
-        // And the library recovers: a save works on top of the corrupt index.
-        save_one(dir.path(), "fresh");
-        assert_eq!(list(dir.path()).len(), 1);
+        // But save refuses: rebuilding the index from empty and writing it
+        // would silently drop every entry the corrupt file still holds.
+        let err = save(
+            dir.path(),
+            "fresh",
+            SkinVariant::Classic,
+            None,
+            &png_of(64, 64),
+            1.0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::SkinLibrary { .. }), "got {err:?}");
+        // The corrupt file is left byte-identical for manual recovery…
+        assert_eq!(
+            std::fs::read(dir.path().join("library.json")).unwrap(),
+            b"{not json"
+        );
+        // …and the refused save left no orphan PNG behind.
+        let pngs = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "png").unwrap_or(false))
+            .count();
+        assert_eq!(pngs, 0, "a refused save must not write a PNG");
+    }
+
+    #[test]
+    fn delete_on_corrupt_index_errors_instead_of_reporting_success() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("library.json"), b"{not json").unwrap();
+        let err = delete(dir.path(), &uuid::Uuid::new_v4().to_string()).unwrap_err();
+        assert!(matches!(err, Error::SkinLibrary { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn update_on_unreadable_index_surfaces_io_not_a_not_found_story() {
+        let dir = tempfile::tempdir().unwrap();
+        // A DIRECTORY where the index file is expected: `fs::read` on it
+        // fails with a non-NotFound error on every platform. Read-side twin
+        // of the poison-the-destination trick in `l10n/prefill/run/state.rs`.
+        std::fs::create_dir_all(dir.path().join("library.json")).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let err = update(dir.path(), &id, "x", SkinVariant::Classic, None).unwrap_err();
+        // Io, not SkinLibrary("entry not found"): the lenient reader used to
+        // collapse "could not read" into "empty library" and then report the
+        // entry as missing — a plausible, wrong story.
+        assert!(matches!(err, Error::Io { .. }), "got {err:?}");
     }
 
     #[test]
