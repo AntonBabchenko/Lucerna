@@ -125,7 +125,13 @@ const ALLOWLIST: &[&str] = &[
     "worlds/import.rs",
 ];
 
-const PRIMITIVES: &[&str] = &["fs::copy(", "fs::write(", "File::create(", "OpenOptions"];
+const PRIMITIVES: &[&str] = &[
+    "fs::copy(",
+    "fs::write(",
+    "File::create(",
+    "File::options",
+    "OpenOptions",
+];
 
 /// `PRIMITIVES` matches call-site text, so it only sees the qualified form. A
 /// plain `use tokio::fs::copy;` would let `copy(&cached, &out)` slip past with
@@ -146,6 +152,58 @@ fn imports_a_primitive_unqualified(line: &str) -> bool {
         tail.split(|c: char| !c.is_alphanumeric() && c != '_')
             .any(|w| w == *item)
     })
+}
+
+/// True for each line index inside a `#[cfg(test)] mod .. { }` region. The
+/// detector is the attribute + `mod` PAIR with brace tracking — NOT "break at
+/// the first `#[cfg(test)]`", which misclassifies the rest of any file whose
+/// attribute sits on a helper fn or const (`mods/curseforge/keyring.rs:25` is
+/// a live example), and NOT "skip to end of file", because production code
+/// follows a mid-file test module in `mods/modpack/export/manifest.rs` and
+/// `datapacks/compat.rs`. Residual risk, accepted and named: an unpaired `{`
+/// or `}` inside a string literal inside a test module would end the region
+/// early or late. No such line exists today.
+fn test_region_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim_start();
+        let is_pair = t.starts_with("#[cfg(test)]")
+            && lines
+                .get(i + 1)
+                .map(|n| {
+                    let n = n.trim_start();
+                    n.starts_with("mod ") || n.starts_with("pub mod ")
+                })
+                .unwrap_or(false);
+        if !is_pair {
+            i += 1;
+            continue;
+        }
+        mask[i] = true;
+        let mut depth = 0usize;
+        let mut opened = false;
+        let mut j = i + 1;
+        while j < lines.len() {
+            mask[j] = true;
+            for c in lines[j].chars() {
+                match c {
+                    '{' => {
+                        depth += 1;
+                        opened = true;
+                    }
+                    '}' => depth = depth.saturating_sub(1),
+                    _ => {}
+                }
+            }
+            if opened && depth == 0 {
+                break;
+            }
+            j += 1;
+        }
+        i = j + 1;
+    }
+    mask
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -180,11 +238,15 @@ fn no_raw_write_primitive_under_mods_datapacks_worlds_outside_the_owners() {
             continue;
         }
         let content = fs::read_to_string(&file).expect("read rust file");
-        for (i, line) in content.lines().enumerate() {
-            // Test modules are conventionally last in a file; their fixture
-            // writes are not production writes. Stop at the first one.
-            if line.trim_start().starts_with("#[cfg(test)]") {
-                break;
+        let lines: Vec<&str> = content.lines().collect();
+        // Test-module interiors are exempt — their fixture writes are not
+        // production writes — but production code before, between, or AFTER
+        // them stays scanned. See `test_region_mask` for why this is a
+        // region mask and not a break-at-first-`#[cfg(test)]`.
+        let in_test = test_region_mask(&lines);
+        for (i, line) in lines.iter().enumerate() {
+            if in_test[i] {
+                continue;
             }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") {
@@ -207,5 +269,40 @@ fn no_raw_write_primitive_under_mods_datapacks_worlds_outside_the_owners() {
          `mods::store::materialize` / `mods::store::place_bytes`, or add the file to \
          ALLOWLIST stating the class of path it writes:\n{}",
         violations.join("\n"),
+    );
+}
+
+#[test]
+fn the_test_region_mask_survives_the_shapes_that_break_naive_detectors() {
+    // A cfg(test) HELPER (the `mods/curseforge/keyring.rs:25` shape):
+    // production code after the attribute must stay scanned. The old
+    // first-`#[cfg(test)]`-line break got this wrong.
+    let helper = [
+        "#[cfg(test)]",
+        "fn append() {}",
+        "fn production(p: &std::path::Path) -> bool { p.exists() }",
+    ];
+    let mask = test_region_mask(&helper);
+    assert!(
+        !mask[2],
+        "production after a cfg(test) helper must stay scanned"
+    );
+
+    // A mid-file test MODULE with production after it (the
+    // `mods/modpack/export/manifest.rs:98` / `datapacks/compat.rs:58`
+    // shape): skip-to-end-of-file would leave the tail unscanned.
+    let midfile = [
+        "#[cfg(test)]",
+        "mod mrpack_tests {",
+        "    #[test]",
+        "    fn t() { fs::write(p, b\"x\").unwrap(); }",
+        "}",
+        "pub fn production() {}",
+    ];
+    let mask = test_region_mask(&midfile);
+    assert!(mask[3], "code inside the test module is exempt");
+    assert!(
+        !mask[5],
+        "production after the test module must stay scanned"
     );
 }
