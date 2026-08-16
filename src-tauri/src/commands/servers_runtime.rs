@@ -1609,7 +1609,7 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 /// Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
 #[tauri::command]
 #[specta::specta]
-pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
+pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
     // A live server holds world region files open and mutates them mid-write, so
     // zipping runtime/ while it runs can produce a torn archive. Refuse until the
     // server is stopped (parity with restore/upload, which also require stopped).
@@ -1618,7 +1618,13 @@ pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Resul
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
+    // Sync walk + deflate of a potentially GB-scale runtime — off the async
+    // runtime and the main thread (same shape as server_backup_create).
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<server_export_zip>", format!("join: {e}")))?
 }
 
 /// Read the server's SFTP host-key fingerprint for first-connect verification
