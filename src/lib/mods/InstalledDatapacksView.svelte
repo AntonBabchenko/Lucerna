@@ -524,7 +524,16 @@
                 else expanded.add(entry.pack.filename);
               }}
             >
-              <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={15} />
+              <!-- §7: icon names are intent-based, not glyph-based — `caret` is
+                   "collapsed disclosure", `chevronRight` is "next" (gallery /
+                   pagination). Both resolve to Lucide's ChevronRight today, so
+                   this renders identically; the point is that swapping the
+                   disclosure glyph in registry.ts must not silently change
+                   Pagination's Next button. This is a manual toggle, not a
+                   <details>, so it uses the caret/chevronDown name swap rather
+                   than the .disclosure-caret rotation — the second of the two
+                   mechanisms registry.ts sanctions. -->
+              <Icon name={isOpen ? 'chevronDown' : 'caret'} size={15} />
             </button>
             {#if entry.pack.source && entry.pack.project_id}
               <button
