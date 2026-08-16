@@ -348,6 +348,32 @@ body[data-tour-active] .tour-overlay {
   pointer-events: auto;
 }
 
+/* Tour spotlight (TourOverlay + ContextualTour). Its geometry comes from the
+   target's measured rect and is set inline; it JUMPS on a step change rather
+   than tweening, and that is deliberate. The dim outside the highlight is this
+   element's OWN `box-shadow: 0 0 0 9999px` — shape and scrim are one paint — so
+   a `transform: scale()` would scale the shadow and the `rounded-md` corners
+   with it, and the highlight would change shape mid-transition (a per-axis
+   radius that differs on every step). §12 allows transform / opacity / colour
+   only, which leaves opacity.
+
+   Run once on mount: both components wrap the spotlight in `{#key <step>}`, so
+   a STEP change remounts it and re-fires the fade, while a scroll or resize —
+   which also recomputes the rect, on every event — merely repositions it and
+   must not re-animate. The global prefers-reduced-motion block above zeroes
+   the duration, so this needs no per-rule guard. */
+.tour-spotlight {
+  animation: tour-spotlight-in var(--duration-base) var(--ease-standard);
+}
+@keyframes tour-spotlight-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* NOTE: the *contextual* tour (ContextualTour.svelte) is intentionally NOT
    pointer-events-blocked. It sets `data-ctx-tour-active` on <body> only so the
    host Modal can route Escape to the tour; its dim is a non-interactive overlay

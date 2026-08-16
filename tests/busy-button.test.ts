@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
 import BusyButton from '../src/lib/ui/BusyButton.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 const label = (text: string) => createRawSnippet(() => ({ render: () => `<span>${text}</span>` }));
 
@@ -27,6 +29,30 @@ describe('BusyButton — prop forwarding', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
     expect(btn.querySelector('[role="status"]')).not.toBeNull();
     expect(btn.textContent).toContain('Save');
+  });
+
+  it('routes `title` through the tooltip layer, never a native title=', () => {
+    // DESIGN.md §5 bans native title=. The prop survives (rather than being
+    // deleted as unused) because destructuring it is what keeps a caller's
+    // title out of `...rest` and off the DOM — a hole the source guard in
+    // tests/no-native-title.test.ts cannot see.
+    render(BusyButton, {
+      props: { children: labelSnippet, title: 'Applies to every world', 'data-testid': 'b' },
+    });
+    const btn = screen.getByTestId('b');
+    expect(btn.getAttribute('title')).toBeNull();
+    revealTooltip(btn);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Applies to every world');
+    hideTooltip();
+  });
+
+  it('adds no tooltip when no title is given', () => {
+    render(BusyButton, { props: { children: labelSnippet, 'data-testid': 'b' } });
+    const btn = screen.getByTestId('b');
+    revealTooltip(btn);
+    expect(tooltipState.visible).toBe(false);
+    hideTooltip();
   });
 });
 

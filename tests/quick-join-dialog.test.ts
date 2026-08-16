@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
@@ -96,5 +96,41 @@ describe('QuickJoinDialog', () => {
     expect(onDelete).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(onDelete).toHaveBeenCalledWith(0, 'play.example.net');
+  });
+});
+
+describe('QuickJoinDialog — the add-server disclosure', () => {
+  beforeAll(() => locale.set('en'));
+
+  it('reveals with the shared disclosure caret', () => {
+    render(QuickJoinDialog, baseProps());
+    const summary = screen.getByText('Add a server').closest('summary') as HTMLElement;
+    // §5's affordance table: "Expand / collapse <details> | <Icon name="caret" />
+    // in .disclosure-caret | caret rotate 90°". The rotation is a CSS rule on
+    // `details[open] > summary .disclosure-caret`, so the wrapper span is the
+    // whole contract — an icon swap cannot produce it.
+    const caret = summary.querySelector('.disclosure-caret');
+    expect(caret).not.toBeNull();
+    expect(caret?.querySelector('svg')).not.toBeNull();
+  });
+
+  it('does not change the caret with open state — the CSS rotates it', () => {
+    // Non-vacuity: the pre-fix code also rendered an <svg> in the summary. What
+    // it did NOT do is render the SAME markup in both states. Collapsed and
+    // expanded must be byte-identical inside the summary.
+    render(QuickJoinDialog, baseProps({ savedServers: [] })); // empty list → auto-expanded
+    const openSummary = screen.getByText('Add a server').closest('summary') as HTMLElement;
+    const openMarkup = openSummary.innerHTML;
+    expect((screen.getByText('Add a server').closest('details') as HTMLDetailsElement).open).toBe(
+      true,
+    );
+
+    cleanup();
+    render(QuickJoinDialog, baseProps()); // saved servers present → collapsed
+    const closedSummary = screen.getByText('Add a server').closest('summary') as HTMLElement;
+    expect((screen.getByText('Add a server').closest('details') as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    expect(closedSummary.innerHTML).toBe(openMarkup);
   });
 });

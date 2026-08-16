@@ -25,6 +25,7 @@
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import CountPill from '$lib/ui/cards/CountPill.svelte';
   import Menu from '$lib/ui/Menu.svelte';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
   import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
@@ -724,15 +725,16 @@
             <Icon name="package" size={14} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
             {$t('sidebar.browseModpacks')}
             {#if modpackUpdates.updateCount > 0}
-              <span
-                class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-                use:tooltip={$t('sidebar.modpackUpdatesBadge', {
+              <CountPill
+                size="md"
+                class="ml-1"
+                title={$t('sidebar.modpackUpdatesBadge', {
                   count: modpackUpdates.updateCount,
                 })}
-                data-testid="sidebar-modpack-updates-badge"
+                testid="sidebar-modpack-updates-badge"
               >
                 {modpackUpdates.updateCount}
-              </span>
+              </CountPill>
             {/if}
           </span>
         </HideableSidebarButton>

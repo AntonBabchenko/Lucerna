@@ -174,22 +174,43 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if tourState.active}
+  <!-- `.tour-overlay` sets no position/z-index/opacity/transform, so it creates
+       NO stacking context — the children's z-index below resolves against the
+       root, which is what lets the tour tier beat a modal. It exists only for
+       the pointer-events re-enable rule in app.css; do not give it a z-* class. -->
   <div class="tour-overlay">
     {#if rect && step.targetSelector}
-      <!-- Spotlight: small div at target rect, huge dark outset shadow
-           darkens everything outside it. pointer-events:none. -->
-      <div
-        class="fixed pointer-events-none transition-all duration-200 rounded-md"
-        style="
-          left: {rect.x - PADDING}px;
-          top: {rect.y - PADDING}px;
-          width: {rect.width + PADDING * 2}px;
-          height: {rect.height + PADDING * 2}px;
-          box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
-        "
-      ></div>
+      <!-- Spotlight: a small div at the target rect whose huge outset shadow
+           darkens everything outside it. pointer-events:none.
+
+           Its geometry is inline and JUMPS between steps rather than tweening:
+           the dim IS this element's own 9999px box-shadow, so a transform would
+           scale that shadow and the rounded corners with it and the highlight
+           would change shape mid-transition. §12 allows transform / opacity /
+           colour only, so what is left is an opacity fade — `.tour-spotlight`
+           in app.css, run on mount by the {#key} below.
+
+           Keyed on the STEP, not on the rect: `updateRect()` also runs on every
+           resize and every captured scroll event, and a rect key would restart
+           the fade on each of those frames. -->
+      {#key tourState.currentStep}
+        <div
+          class="tour-spotlight fixed pointer-events-none rounded-md z-[var(--z-tour)]"
+          style="
+            left: {rect.x - PADDING}px;
+            top: {rect.y - PADDING}px;
+            width: {rect.width + PADDING * 2}px;
+            height: {rect.height + PADDING * 2}px;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+          "
+          data-testid="tour-spotlight"
+        ></div>
+      {/key}
     {:else}
-      <div class="fixed inset-0 bg-black/55 pointer-events-none"></div>
+      <div
+        class="fixed inset-0 bg-black/55 pointer-events-none z-[var(--z-tour)]"
+        data-testid="tour-scrim"
+      ></div>
     {/if}
 
     <div
@@ -197,7 +218,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="tour-popover-title"
-      class="fixed z-50 bg-surface rounded shadow-xl p-4 w-96 max-w-[80vw]"
+      class="fixed z-[var(--z-tour-popover)] bg-surface rounded shadow-xl p-4 w-96 max-w-[80vw]"
       style={popoverStyle(rect, step.anchor)}
     >
       {#if !tourState.contextual}

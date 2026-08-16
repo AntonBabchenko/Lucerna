@@ -25,6 +25,7 @@
   import { t } from '$lib/i18n';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
   import { Icon } from '$lib/ui/icons';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import { SvelteSet } from 'svelte/reactivity';
@@ -182,11 +183,16 @@
 </script>
 
 <div class="relative inline-flex">
+  <!-- The compact trigger IS a count pill, so it borrows the primitive's class
+       builder rather than the component: a <button> cannot nest the <span>
+       CountPill renders, and the trigger has to stay the focusable element that
+       owns aria-expanded / aria-controls. Same reason ToggleChipGroup consumes
+       toggleChipClass() instead of wrapping ToggleChip. -->
   <button
     bind:this={trigger}
     type="button"
     class={compact
-      ? 'flex items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold leading-none text-white h-[15px] min-w-[15px]'
+      ? countPillClass('sm')
       : 'relative inline-flex items-center gap-1 rounded-full bg-black/20 px-2 h-7 text-xs font-semibold text-secondary transition-colors hover:text-primary'}
     class:z-50={open}
     aria-label={$t('running.pill.label', { count: runningCount })}

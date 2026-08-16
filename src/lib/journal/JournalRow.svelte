@@ -36,8 +36,15 @@
 
   {#if event.kind === 'content'}
     {#if event.subject}
-      <span class="min-w-0 truncate font-medium text-primary" title={event.subject}
-        >{event.subject}</span
+      <!--
+        Only the clipped case gets a tooltip: a subject that already reads in
+        full does not need a hover card repeating it on every row. Same
+        treatment as the truncated key in KeyEditRow.svelte, which is where
+        `whenOverflowing` was introduced.
+      -->
+      <span
+        class="min-w-0 truncate font-medium text-primary"
+        use:tooltip={{ text: event.subject, whenOverflowing: true }}>{event.subject}</span
       >
     {/if}
     {@const version = versionLabel(event.from_version, event.to_version)}

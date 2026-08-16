@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
-import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type Account, commands, type InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
+import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 vi.mock('$lib/ipc/bindings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/ipc/bindings')>();
@@ -331,5 +335,78 @@ describe('Sidebar', () => {
     const toggle = getByLabelText('Collapse to mini mode');
     toggle.click();
     expect(onToggleCompact).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Sidebar modpack-update badge', () => {
+  const baseProps = {
+    accounts: [],
+    activeAccount: null,
+    instances: [],
+    activeInstance: null,
+    onSelectAccount: vi.fn(),
+    onRemoveAccount: vi.fn(),
+    onOpenCosmetics: vi.fn(),
+    onAddOffline: vi.fn(),
+    onSelectInstance: vi.fn(),
+    onOpenManage: vi.fn(),
+    onOpenMods: vi.fn(),
+    onOpenLogs: vi.fn(),
+    onOpenModpacks: vi.fn(),
+    onOpenLauncherImport: vi.fn(),
+    running: null,
+    installing: false,
+    onPlay: vi.fn(),
+    onStop: vi.fn(),
+    onInstall: vi.fn(),
+  };
+
+  // `updateCount` is derived from the store's map, so the count is driven the
+  // way the app drives it — a sweep — rather than assigned.
+  async function seedUpdates(ids: string[]) {
+    vi.spyOn(commands, 'modpacksCheckUpdates').mockResolvedValue({
+      status: 'ok',
+      data: ids.map((instance_id) => ({
+        instance_id,
+        status: {
+          kind: 'update_available' as const,
+          entry: {
+            id: 'v2',
+            name: 'P',
+            version_number: '1.5.0',
+            game_versions: [],
+            loaders: [],
+            date_published: '',
+          },
+        },
+      })),
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    await modpackUpdates.sweep(ids, { force: true });
+  }
+
+  afterEach(() => {
+    modpackUpdates.reset();
+    hideTooltip();
+  });
+
+  it('the modpack-update badge is the shared CountPill, not a local recipe', async () => {
+    await seedUpdates(['a', 'b', 'c']);
+    render(Sidebar, { props: baseProps });
+    const badge = await screen.findByTestId('sidebar-modpack-updates-badge');
+
+    // Every class the primitive owns must be present — this is what fails if a
+    // future edit re-inlines a fourth variant of the recipe.
+    for (const cls of countPillClass('md').split(' ')) {
+      expect(badge.classList.contains(cls), `missing ${cls}`).toBe(true);
+    }
+    // Positioning stays with the call site.
+    expect(badge.classList.contains('ml-1')).toBe(true);
+    expect(badge.textContent).toContain('3');
+
+    // §5: the label is the tooltip layer's, not a native title.
+    expect(badge.getAttribute('title')).toBeNull();
+    revealTooltip(badge);
+    expect(tooltipState.text).toBe('3 modpack updates available');
   });
 });

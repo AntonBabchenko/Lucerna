@@ -26,6 +26,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'error', error: { kind: 'modpack_format_unknown' } }),
     modpackImport: vi.fn(),
     modpackFetchToTemp: vi.fn(),
+    // The data-root fallback gate the import entry points read.
+    getDataLocation: vi.fn(),
   },
   events: { gpuPrefApplied: { listen: () => Promise.resolve(() => {}) } },
 }));
@@ -44,6 +46,9 @@ vi.mock('@tauri-apps/api/webview', () => ({
 
 import { commands } from '$lib/ipc/bindings';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
+import { dataLocation } from '$lib/settings/data-location.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 describe('ModpacksTab', () => {
   afterEach(async () => {
@@ -128,5 +133,59 @@ describe('ModpacksTab', () => {
       expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledWith('/x/pack.mrpack');
     });
     expect(droppedModpack.value).toBeNull();
+  });
+});
+
+describe('ModpacksTab — data-root fallback gating (§5 disabled-reason)', () => {
+  async function setFellBack(fellBack: boolean) {
+    vi.mocked(commands.getDataLocation).mockResolvedValue({
+      status: 'ok',
+      data: { effective: 'C:\\tmp', configured: 'D:\\LucernaData', fell_back: fellBack },
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    await dataLocation.refresh();
+  }
+
+  // `dataLocation` is a module singleton shared by every test in this process
+  // — restore the un-gated state so a neighbour cannot inherit the fallback.
+  afterEach(async () => {
+    await setFellBack(false);
+    hideTooltip();
+  });
+
+  it('surfaces the import-from-URL disabled reason without a native title', async () => {
+    await setFellBack(true);
+    const { getByTestId } = render(ModpacksTab, {
+      props: { instances: [], onInstanceCreated: () => {} },
+    });
+
+    const btn = getByTestId('modpacks-import-from-url') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // DESIGN.md §5: never title=. The reason lives on the wrapping span.
+    expect(btn.getAttribute('title')).toBeNull();
+
+    const wrap = btn.parentElement as HTMLElement;
+    expect(wrap.tagName).toBe('SPAN');
+    // Focusable while gated so a keyboard user can reach the explanation a
+    // disabled button can never give them.
+    expect(wrap.getAttribute('tabindex')).toBe('0');
+
+    revealTooltip(wrap);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe(
+      'Creating instances and servers is disabled while the data folder is unavailable.',
+    );
+    // `describe: false` — supplementary info, not the button's accessible name.
+    expect(wrap.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('drops the wrapper tabindex once importing is allowed again', async () => {
+    await setFellBack(false);
+    const { getByTestId } = render(ModpacksTab, {
+      props: { instances: [], onInstanceCreated: () => {} },
+    });
+    const btn = getByTestId('modpacks-import-from-url') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect((btn.parentElement as HTMLElement).hasAttribute('tabindex')).toBe(false);
   });
 });

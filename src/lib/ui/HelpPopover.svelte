@@ -14,6 +14,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     paragraphs,
@@ -32,6 +33,17 @@
      */
     paragraphs: readonly string[];
     triggerAriaLabel: string;
+    /**
+     * Short hover label for the (?) trigger — the terse form of
+     * `triggerAriaLabel` ("Why a new instance?" vs "Why does installing a
+     * modpack create a new instance?"). Routed through the shared tooltip
+     * layer, never a native `title=` (docs/DESIGN.md §5). The prop name is
+     * kept because it is half the `ConceptNamespace` contract in
+     * `ConceptHelp.svelte` — a namespace only typechecks if it has
+     * `triggerAriaLabel` + `triggerTitle` + `closeAriaLabel` leaves — and §5
+     * explicitly blesses it: "A `title` prop forwarded *into* `use:tooltip`
+     * internally is fine — the prop name is incidental."
+     */
     triggerTitle?: string | undefined;
     closeAriaLabel: string;
     width?: number;
@@ -92,7 +104,7 @@
     class="relative text-xs text-placeholder hover:text-secondary leading-none px-1"
     class:z-50={open}
     aria-label={triggerAriaLabel}
-    title={triggerTitle}
+    use:tooltip={triggerTitle}
     aria-expanded={open}
     aria-controls={popoverId}
     onclick={toggle}
