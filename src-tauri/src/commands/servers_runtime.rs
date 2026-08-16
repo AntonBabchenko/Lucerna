@@ -1889,13 +1889,22 @@ async fn provision_loader(
 /// Фаза 1 импорта: распаковать/просканировать источник, вернуть превью.
 #[tauri::command]
 #[specta::specta]
-pub fn server_import_inspect(
+pub async fn server_import_inspect(
     app: AppHandle,
     source_path: String,
 ) -> Result<import::ServerImportPreview> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    import::sweep_stale(&base);
-    import::inspect(&base, std::path::Path::new(&source_path))
+    // `inspect` fully extracts the source zip into staging (caps in
+    // `import::copy`: 4 GB per entry / 20 GB aggregate) and `sweep_stale`
+    // walks old staging dirs — potentially minutes of pure IO that a sync
+    // command would spend on the main thread, freezing the window. Offloaded,
+    // same shape as `server_backup_create`.
+    tokio::task::spawn_blocking(move || {
+        import::sweep_stale(&base);
+        import::inspect(&base, std::path::Path::new(&source_path))
+    })
+    .await
+    .map_err(|e| Error::io("<server_import_inspect>", format!("join: {e}")))?
 }
 
 /// Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
