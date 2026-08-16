@@ -387,16 +387,27 @@
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
   let savedServersLoading = $state(false);
+  // Why the list is empty, when it is empty because the READ failed rather than
+  // because there are no servers. `servers_dat_parse` is the case that matters:
+  // a truncated or hand-edited servers.dat rendered as "No saved servers yet."
+  // and invited the user to re-add servers on top of a file we could not read.
+  let savedServersError = $state<string | null>(null);
 
   async function loadSavedServers() {
     savedServersLoading = true;
+    savedServersError = null;
     try {
       if (!activeInstance) {
         savedServers = [];
         return;
       }
       const r = await commands.listSavedServers(activeInstance.id);
-      savedServers = r.status === 'ok' ? r.data : [];
+      if (r.status === 'ok') {
+        savedServers = r.data;
+      } else {
+        savedServers = [];
+        savedServersError = formatError(r.error);
+      }
     } finally {
       savedServersLoading = false;
     }
@@ -1810,6 +1821,7 @@
     open={quickJoinOpen}
     {savedServers}
     {savedServersLoading}
+    {savedServersError}
     busy={quickJoinBusy}
     connectDisabledReason={quickPlayDisabledReason}
     addDisabledReason={selectedRunning ? $t('worlds.quickPlay.disabledRunning') : null}

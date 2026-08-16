@@ -1819,6 +1819,7 @@ export type TranslationKey =
   | 'quickJoin.empty'
   | 'quickJoin.invalidAddress'
   | 'quickJoin.invalidName'
+  | 'quickJoin.loadError'
   | 'quickJoin.loading'
   | 'quickJoin.nameLabel'
   | 'quickJoin.namePlaceholder'

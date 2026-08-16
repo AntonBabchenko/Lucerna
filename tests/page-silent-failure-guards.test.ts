@@ -70,3 +70,17 @@ describe('account switch', () => {
     expect(body).toContain('formatError(result.error)');
   });
 });
+
+describe('saved-server list read', () => {
+  it('keeps the failure instead of collapsing it into an empty list', () => {
+    const body = functionBody('async function loadSavedServers()');
+    // The old shape was `savedServers = r.status === 'ok' ? r.data : [];` — the
+    // typed error (servers_dat_parse) went straight to the floor.
+    expect(body).not.toContain("r.status === 'ok' ? r.data : []");
+    expect(body).toContain('savedServersError = formatError(r.error)');
+  });
+
+  it('hands the failure to the dialog that renders the list', () => {
+    expect(src).toContain('{savedServersError}');
+  });
+});

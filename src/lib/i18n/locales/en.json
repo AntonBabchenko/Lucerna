@@ -2848,6 +2848,7 @@
     "title": "Servers",
     "savedHeading": "Saved servers",
     "loading": "Loading servers…",
+    "loadError": "Couldn't read your saved servers: {error}",
     "empty": "No saved servers yet. Add one below.",
     "connect": "Connect",
     "copyAddress": "Copy address",
