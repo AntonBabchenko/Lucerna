@@ -2035,22 +2035,6 @@ pub async fn scan_instance_mod_compat(
     .await
 }
 
-/// Read a mod jar's bytes by base filename, trying the `.disabled` variant
-/// too. Returns `None` if neither exists or the read fails.
-///
-/// Duplicates `mods::local::read_jar_for`'s two-path lookup rather than
-/// reusing it: that helper is a private fn of `local.rs`, and this module's
-/// mandate (Task 10) is scoped to `updates.rs` / `migration.rs` /
-/// `commands/mods.rs` / `lib.rs` — not `local.rs`.
-async fn read_installed_jar_bytes(mods_dir: &std::path::Path, filename: &str) -> Option<Vec<u8>> {
-    if let Ok(b) = tokio::fs::read(mods_dir.join(filename)).await {
-        return Some(b);
-    }
-    tokio::fs::read(mods_dir.join(format!("{filename}.disabled")))
-        .await
-        .ok()
-}
-
 /// Plan a Minecraft-version-change mod migration for `instance_id`: for every
 /// installed mod, judge its jar against the instance's CURRENT platform
 /// (`mc_compat::platform_verdict`, computed fresh here — not read off
@@ -2117,7 +2101,7 @@ pub async fn mods_plan_mc_migration(
     //    of collapsing it to a bool.
     let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
     for m in &installed {
-        let bytes = read_installed_jar_bytes(&dir, &m.filename).await;
+        let bytes = crate::mods::local::read_jar_for(&dir, &m.filename).await;
         let manifest = bytes
             .as_deref()
             .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok());
