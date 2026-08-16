@@ -58,3 +58,15 @@ describe('startup settings read', () => {
     );
   });
 });
+
+describe('account switch', () => {
+  it('reports a failed switch instead of leaving the picker unchanged', () => {
+    const body = functionBody('async function onSelectAccount(id: string)');
+    // The Select is controlled off `activeAccount`, so on failure the UI does
+    // not move at all — the only signal available is an explicit one.
+    expect(body).toContain('else');
+    expect(body).toContain('pushWarning');
+    expect(body).toContain('page.accounts.switchFailed');
+    expect(body).toContain('formatError(result.error)');
+  });
+});

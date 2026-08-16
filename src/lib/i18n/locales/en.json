@@ -2754,7 +2754,8 @@
       "offlineNameHelp": "Latin letters, digits and _ — 3 to 16 characters.",
       "offlineNameTooShort": "The nickname must be at least 3 characters.",
       "offlineNameTooLong": "The nickname must be at most 16 characters.",
-      "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters."
+      "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters.",
+      "switchFailed": "Couldn't switch account"
     },
     "overview": {
       "sectionConfiguration": "Configuration",

@@ -1711,6 +1711,7 @@ export type TranslationKey =
   | 'page.accounts.removeTitle'
   | 'page.accounts.signInFailed'
   | 'page.accounts.signedInMicrosoft'
+  | 'page.accounts.switchFailed'
   | 'page.crash.banner'
   | 'page.crash.dismissAriaLabel'
   | 'page.crash.viewReport'

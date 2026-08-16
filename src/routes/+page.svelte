@@ -1096,10 +1096,18 @@
     });
   }
 
+  /** Switch the active account. The sidebar Select is fully controlled off
+   *  `activeAccount` (Sidebar.svelte: `value={activeAccount?.id ?? ''}`), so a
+   *  failed switch leaves the picker showing the OLD account with no visible
+   *  difference between "it worked" and "it did not" — and the next Play then
+   *  launches as somebody else. A non-active surface has no inline banner to
+   *  land in, so this reports the way `onStopInstance` does. */
   async function onSelectAccount(id: string) {
     const result = await commands.setActiveAccount(id);
     if (result.status === 'ok') {
       await refreshAccounts();
+    } else {
+      pushWarning(get(t)('page.accounts.switchFailed'), [formatError(result.error)]);
     }
   }
 

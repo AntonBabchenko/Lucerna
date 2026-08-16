@@ -2754,7 +2754,8 @@
       "offlineNameHelp": "Латинские буквы, цифры и _ — от 3 до 16 символов.",
       "offlineNameTooShort": "Ник должен быть не короче 3 символов.",
       "offlineNameTooLong": "Ник должен быть не длиннее 16 символов.",
-      "offlineNameInvalidChars": "Только латинские буквы, цифры и _ — с другими символами Minecraft не пустит в миры."
+      "offlineNameInvalidChars": "Только латинские буквы, цифры и _ — с другими символами Minecraft не пустит в миры.",
+      "switchFailed": "Не удалось сменить аккаунт"
     },
     "overview": {
       "sectionConfiguration": "Конфигурация",
