@@ -2390,18 +2390,26 @@ use crate::servers_runtime::firewall;
 /// Returns `NotApplicable` immediately on non-Windows hosts.
 #[tauri::command]
 #[specta::specta]
-pub fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::FirewallState> {
+pub async fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::FirewallState> {
     if !cfg!(target_os = "windows") {
         return Ok(firewall::FirewallState::NotApplicable);
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
-    let port = crate::servers_runtime::runtime::read_port(&rt);
-    let present = match port {
-        Some(p) => crate::process::firewall_rule_present(&firewall::rule_name(p)),
-        None => false,
-    };
-    Ok(firewall::status_from(port, present))
+    // `read_port` reads `server.properties` and `firewall_rule_present` waits on
+    // a `netsh … show rule` subprocess (100–500 ms) — off the main thread (same
+    // shape as `data_root_size_bytes`).
+    let state = tokio::task::spawn_blocking(move || {
+        let port = crate::servers_runtime::runtime::read_port(&rt);
+        let present = match port {
+            Some(p) => crate::process::firewall_rule_present(&firewall::rule_name(p)),
+            None => false,
+        };
+        firewall::status_from(port, present)
+    })
+    .await
+    .map_err(|e| Error::io("<server_firewall_status>", format!("join: {e}")))?;
+    Ok(state)
 }
 
 /// Add an inbound allow rule for the server's port (UAC-elevated). Best-effort:
