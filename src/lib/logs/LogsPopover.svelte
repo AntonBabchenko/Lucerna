@@ -372,7 +372,13 @@
     if (result.status === 'ok') {
       files = result.data;
     } else {
-      listError = JSON.stringify(result.error);
+      // formatError, not JSON.stringify: this string is interpolated straight
+      // into `logs.empty.listError` and shown to the user, and the raw variant
+      // dump leaks English field names and an untruncated `details` into a
+      // translated sentence. Every other error surface in this file already
+      // routes through formatError (doShare, openLogFolder, deleteFile,
+      // confirmClearOld).
+      listError = formatError(result.error);
     }
   }
 
@@ -489,7 +495,7 @@
         console.warn('[LogsPopover] annotate_log_file failed:', a.error);
       }
     } else {
-      contentError = JSON.stringify(result.error);
+      contentError = formatError(result.error);
       selectedContent = '';
     }
   }
