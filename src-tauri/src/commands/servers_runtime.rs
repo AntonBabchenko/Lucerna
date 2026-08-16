@@ -500,23 +500,34 @@ fn remove_firewall_rules_on_delete(root: &std::path::Path, runtime: &std::path::
 /// Возвращает ошибку если сервер запущен — сначала остановите его.
 #[tauri::command]
 #[specta::specta]
-pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
+pub async fn server_delete(app: AppHandle, id: String) -> Result<()> {
+    // Cheap in-memory guard — stays on the calling thread, before any offload.
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    // A server adopted from before a restart isn't in the in-memory map, so the
-    // is_running guard above passes; kill any leftover JVM still holding this
-    // server's world before removing the directory, or the delete would fail
-    // (or re-orphan the process).
-    crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
-    // Remove every firewall allow-rule we may have added for this server (all
-    // tracked ports + the current one) so none linger after the server is gone.
-    remove_firewall_rules_on_delete(&p.root, &p.runtime);
-    store::delete_server(&base, &id)?;
-    let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
-    Ok(())
+    // Everything below blocks: `kill_owned_pid` waits on a `taskkill` subprocess,
+    // the firewall sweep runs one `netsh … show rule` / elevated delete
+    // (100–500 ms) PER recorded port, and `store::delete_server` is a
+    // `remove_dir_all` of the whole server including its world. Off the main
+    // thread (same shape as `server_backup_create`).
+    tokio::task::spawn_blocking(move || {
+        let p = crate::paths::server_paths(&base, &id);
+        // A server adopted from before a restart isn't in the in-memory map, so the
+        // is_running guard above passes; kill any leftover JVM still holding this
+        // server's world before removing the directory, or the delete would fail
+        // (or re-orphan the process).
+        crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
+        // Remove every firewall allow-rule we may have added for this server (all
+        // tracked ports + the current one) so none linger after the server is gone.
+        remove_firewall_rules_on_delete(&p.root, &p.runtime);
+        store::delete_server(&base, &id)?;
+        let _ =
+            crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_delete>", format!("join: {e}")))?
 }
 
 /// Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину.
