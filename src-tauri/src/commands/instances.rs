@@ -343,14 +343,23 @@ pub fn create_instance(
 /// Errors `LastInstance` if it's the only one left.
 #[tauri::command]
 #[specta::specta]
-pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+pub async fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
     // Refuse while a game is running: on Windows the live JVM holds OS locks on
     // the instance dir, so remove_dir_all can partially fail and corrupt it.
     // Mirrors the verify/repair guards in this file.
     if crate::launch::spawn::is_running(&id) {
         return Err(crate::error::Error::InstanceBusy);
     }
-    crate::instances::delete_instance(&app, &id)
+    // Async + spawn_blocking (mirrors `world_import` in commands/worlds.rs): the
+    // domain call walks the whole instance list, then remove_dir_all's a
+    // potentially multi-GB instance dir — a sync command spends all of that on
+    // the main thread with the window frozen. The `LastInstance` check stays
+    // INSIDE `instances::delete_instance`, unchanged: it must be evaluated
+    // against the same listing that picks the auto-switch target, so moving it
+    // out here would open a gap between the check and the switch.
+    tokio::task::spawn_blocking(move || crate::instances::delete_instance(&app, &id))
+        .await
+        .map_err(|e| crate::error::Error::io("<delete_instance>", format!("join: {e}")))?
 }
 
 /// Rename an instance's directory. Also the "repair unlaunchable folder name"
