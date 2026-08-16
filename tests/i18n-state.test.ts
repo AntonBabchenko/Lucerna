@@ -40,4 +40,32 @@ describe('i18n state', () => {
     expect(appSettingsSetGeneral).toHaveBeenCalledTimes(1);
     expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({ language: 'ru' });
   });
+
+  it('rolls the locale, the rune and the localStorage mirror back when the read fails', async () => {
+    initLocale('en');
+    appSettingsGet.mockResolvedValueOnce({ status: 'error', error: { kind: 'io', details: 'x' } });
+
+    await setLocalePref('ru');
+
+    expect(langPref.value).toBe('en');
+    expect(get(locale)).toBe('en');
+    // The mirror is what the next launch's anti-FOUC path reads; a stale 'ru'
+    // there opens the UI in a language app.json does not name.
+    expect(localStorage.getItem('locale')).toBe('en');
+    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
+  });
+
+  it('rolls back when the persist write fails', async () => {
+    initLocale('en');
+    appSettingsSetGeneral.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', details: 'x' },
+    });
+
+    await setLocalePref('ru');
+
+    expect(langPref.value).toBe('en');
+    expect(get(locale)).toBe('en');
+    expect(localStorage.getItem('locale')).toBe('en');
+  });
 });
