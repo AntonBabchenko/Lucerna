@@ -581,7 +581,11 @@
         {$t('servers.hosting.authLoadFailed', { error: authLoadError })}
       </p>
       <div>
-        <BusyButton class="btn-secondary btn-sm" busy={busyAuthLoad} onclick={() => void loadUploadAuth()}>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyAuthLoad}
+          onclick={() => void loadUploadAuth()}
+        >
           {$t('servers.retry')}
         </BusyButton>
       </div>

@@ -477,10 +477,7 @@ describe('ServerDiagnosisBanner', () => {
     // The store's one-click fix wrappers have no try/catch, so a transport
     // failure propagates out of acceptEula() and lands in runFix's catch.
     acceptEulaSpy.mockRejectedValue(new Error('ipc channel closed'));
-    mockDiagnoses['srv-throw'] = makePreflightDiagnosis(
-      'server-eula-not-accepted',
-      'accept_eula',
-    );
+    mockDiagnoses['srv-throw'] = makePreflightDiagnosis('server-eula-not-accepted', 'accept_eula');
 
     render(ServerDiagnosisBanner, { props: { serverId: 'srv-throw' } });
     await fireEvent.click(screen.getByTestId('server-fix-accept-eula'));
@@ -497,10 +494,7 @@ describe('ServerDiagnosisBanner', () => {
       ok: false,
       error: { kind: 'server_already_running', id: 'srv-typed' },
     });
-    mockDiagnoses['srv-typed'] = makePreflightDiagnosis(
-      'server-eula-not-accepted',
-      'accept_eula',
-    );
+    mockDiagnoses['srv-typed'] = makePreflightDiagnosis('server-eula-not-accepted', 'accept_eula');
 
     render(ServerDiagnosisBanner, { props: { serverId: 'srv-typed' } });
     await fireEvent.click(screen.getByTestId('server-fix-accept-eula'));
