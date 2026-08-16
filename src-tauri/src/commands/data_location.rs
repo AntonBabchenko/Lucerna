@@ -191,51 +191,71 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
         None => default.clone(),
     };
 
-    // Empty-check differs for reset vs. a fresh custom target: the OS-default
-    // dir legitimately holds the redirect + launcher scratch even with no user
-    // data, so a reset accepts "empty or only-safe entries"; a custom target
-    // must be strictly empty.
-    let empty = if is_reset {
-        crate::data_root::migrate::empty_or_only_safe(&target, &SAFE_OVERLAP)
-    } else {
-        crate::data_root::migrate::target_is_empty(&target)
-    };
-    crate::data_root::validate::validate_target(&current, &target, empty).map_err(|v| {
-        Error::DataLocationInvalid {
-            reason: v.reason_key().to_string(),
+    // Commit-time validation is filesystem work: the empty-dir probe
+    // (`read_dir`), the canonical same/nested comparison (`canonicalize`
+    // walks), the reparse-point scan (a walk over the ENTIRE current tree —
+    // tens of thousands of files on a real data root), and the target
+    // canonicalisation. Run the whole block on a blocking thread — mirroring
+    // `plan_data_location_change` / `adopt_data_location` — so a cold FS cache
+    // or a flaky removable drive can never stall the async runtime. Every
+    // rejection propagates through the `??` below and aborts BEFORE any copy
+    // starts; the MigrationGuard is released by Drop on that early return,
+    // exactly as before.
+    let current_probe = current.clone();
+    let target_probe = target.clone();
+    let canonical_target = tokio::task::spawn_blocking(move || -> Result<PathBuf> {
+        // Empty-check differs for reset vs. a fresh custom target: the
+        // OS-default dir legitimately holds the redirect + launcher scratch
+        // even with no user data, so a reset accepts "empty or only-safe
+        // entries"; a custom target must be strictly empty.
+        let empty = if is_reset {
+            crate::data_root::migrate::empty_or_only_safe(&target_probe, &SAFE_OVERLAP)
+        } else {
+            crate::data_root::migrate::target_is_empty(&target_probe)
+        };
+        crate::data_root::validate::validate_target(&current_probe, &target_probe, empty).map_err(
+            |v| Error::DataLocationInvalid {
+                reason: v.reason_key().to_string(),
+            },
+        )?;
+
+        // BLOCKER guard: `validate_target`'s nested check is lexical + case-
+        // sensitive and misses case-differing / `\\?\` verbatim / 8.3
+        // spellings of the same or a nested path. Reject robustly on
+        // canonical forms BEFORE any copy, so the later delete loop can never
+        // wipe both source and target. (Skip for reset — the default dir is
+        // by construction not nested in a relocated `current`, and its
+        // safe-overlap contents are handled above.)
+        if !is_reset && crate::data_root::migrate::is_same_or_nested(&current_probe, &target_probe)
+        {
+            return Err(Error::DataLocationInvalid {
+                reason: crate::data_root::validate::Invalid::NestedInCurrent
+                    .reason_key()
+                    .to_string(),
+            });
         }
-    })?;
 
-    // BLOCKER guard: `validate_target`'s nested check is lexical + case-
-    // sensitive and misses case-differing / `\\?\` verbatim / 8.3 spellings of
-    // the same or a nested path. Reject robustly on canonical forms BEFORE any
-    // copy, so the later delete loop can never wipe both source and target.
-    // (Skip for reset — the default dir is by construction not nested in a
-    // relocated `current`, and its safe-overlap contents are handled above.)
-    if !is_reset && crate::data_root::migrate::is_same_or_nested(&current, &target) {
-        return Err(Error::DataLocationInvalid {
-            reason: crate::data_root::validate::Invalid::NestedInCurrent
-                .reason_key()
-                .to_string(),
-        });
-    }
-
-    // Symlink/junction safety: refuse to move a tree containing reparse points
-    // — a junction could point outside the tree (data loss) or form a cycle.
-    if crate::data_root::migrate::contains_reparse_point(&current).map_err(|e| {
-        Error::DataLocationMigrationFailed {
-            reason: e.to_string(),
+        // Symlink/junction safety: refuse to move a tree containing reparse
+        // points — a junction could point outside the tree (data loss) or
+        // form a cycle.
+        if crate::data_root::migrate::contains_reparse_point(&current_probe).map_err(|e| {
+            Error::DataLocationMigrationFailed {
+                reason: e.to_string(),
+            }
+        })? {
+            return Err(Error::DataLocationMigrationFailed {
+                reason:
+                    "the data folder contains a symbolic link or junction, which cannot be safely moved"
+                        .into(),
+            });
         }
-    })? {
-        return Err(Error::DataLocationMigrationFailed {
-            reason:
-                "the data folder contains a symbolic link or junction, which cannot be safely moved"
-                    .into(),
-        });
-    }
 
-    // Canonical target for the delete-loop defense-in-depth check below.
-    let canonical_target = std::fs::canonicalize(&target).unwrap_or_else(|_| target.clone());
+        // Canonical target for the delete-loop defense-in-depth check inside
+        // `run_migration`.
+        Ok(std::fs::canonicalize(&target_probe).unwrap_or(target_probe))
+    })
+    .await
+    .map_err(|e| Error::io("<set_data_location>", format!("validate task panicked: {e}")))??;
 
     // Everything from here — the size scan, the copy, the verify, and the
     // delete — is blocking filesystem work. Run it off the async runtime so a

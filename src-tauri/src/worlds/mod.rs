@@ -97,13 +97,12 @@ pub fn list_worlds(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<Worl
             continue;
         }
         let path = entry.path();
-        let size_bytes = fs::dir_size(&path)? as f64;
-        let modified_unix_ms = fs::dir_mtime_recursive(&path)? as f64;
+        let (size_bytes, modified_unix_ms) = fs::dir_size_and_mtime(&path)?;
         let backup_count = count_backups(&backups_root, &name)?;
         out.push(World {
             folder_name: name,
-            size_bytes,
-            modified_unix_ms,
+            size_bytes: size_bytes as f64,
+            modified_unix_ms: modified_unix_ms as f64,
             backup_count,
         });
     }
