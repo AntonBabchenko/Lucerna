@@ -439,6 +439,9 @@ pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
+    if crate::servers_runtime::maintenance::maintenance_is_active(&id) {
+        return Err(crate::error::Error::ServerMaintenanceInProgress { id });
+    }
     crate::servers_runtime::runtime::start(&app, &id).await
 }
 
@@ -466,6 +469,9 @@ pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
     crate::data_root::reject_if_fallen_back(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
+    }
+    if crate::servers_runtime::maintenance::maintenance_is_active(&id) {
+        return Err(crate::error::Error::ServerMaintenanceInProgress { id });
     }
     crate::servers_runtime::runtime::restart(&app, &id).await
 }
