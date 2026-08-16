@@ -33,8 +33,6 @@ const ALLOWED = new Set(
     // Opens external https pages in the default browser (openUrl).
     'src/lib/changelog/ChangelogPanel.svelte',
     'src/lib/logs/FixModRepairCard.svelte',
-    'src/lib/modpacks/ImportPickerDialog.svelte',
-    'src/lib/modpacks/ImportedDetailDrawer.svelte',
     'src/lib/modpacks/ModpackDetailModal.svelte',
     'src/lib/mods/AddonsTab.svelte',
     'src/lib/mods/FindAlternativeDialog.svelte',
@@ -42,15 +40,13 @@ const ALLOWED = new Set(
     'src/lib/mods/ModDetailModal.svelte',
     'src/lib/mods/installed/InstalledModsView.svelte',
     'src/lib/servers/addons/ServerModsInstalled.svelte',
-    'src/lib/servers/addons/ServerPluginsInstalled.svelte',
     'src/lib/servers/datapacks/ServerDatapackBrowser.svelte',
     'src/lib/servers/eula-link.ts',
     'src/lib/servers/mods/ServerModBrowser.svelte',
-    'src/lib/servers/plugins/ServerPluginBrowser.svelte',
     'src/lib/settings/AboutPanel.svelte',
     'src/lib/settings/CurseForgeKeyForm.svelte',
-    'src/lib/ui/RenderedBody.svelte',
-    'src/lib/update/state.svelte.ts',
+    // The https-only chokepoint every remote-data link now routes through.
+    'src/lib/ui/safe-open.ts',
     'src/routes/+page.svelte',
   ].map((p) => resolve(p)),
 );

@@ -11,6 +11,7 @@ import {
   pushWarning,
   updateToastProgress,
 } from '$lib/toasts/toasts.svelte';
+import { openExternalHttps } from '$lib/ui/safe-open';
 
 export const updateState = $state<{ value: UpdateInfo | null }>({ value: null });
 
@@ -36,7 +37,7 @@ export async function runUpdate(): Promise<void> {
   const info = updateState.value;
   if (info && info.installer === null) {
     if (info.release_url) {
-      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(info.release_url));
+      void openExternalHttps(info.release_url);
     }
     return;
   }
@@ -59,7 +60,7 @@ export async function runUpdate(): Promise<void> {
       {
         label: tr('settings.general.updates.openReleasePage'),
         run: () => {
-          if (url) void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+          if (url) void openExternalHttps(url);
         },
       },
       [detail],

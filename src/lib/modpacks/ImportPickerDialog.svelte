@@ -5,6 +5,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
   // Modal that shows the parsed `ModpackSummary` and lets the user choose which
@@ -275,10 +276,7 @@
               {#if u.manual_action_url}
                 <button
                   type="button"
-                  onclick={() =>
-                    void import('@tauri-apps/plugin-opener').then((m) =>
-                      m.openUrl(u.manual_action_url),
-                    )}
+                  onclick={() => void openExternalHttps(u.manual_action_url)}
                   class="btn-link text-xs inline-flex items-center gap-1"
                   >{$t('modpacks.import.picker.openLink')}<Icon
                     name="externalLink"

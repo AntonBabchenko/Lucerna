@@ -1173,6 +1173,11 @@ pub async fn export_preview(
 /// CurseForge `.zip` to `dest_path`. Progress events (Resolving, Bundling,
 /// Writing, Done) are delivered over `on_progress`. Returns `Ok(())` on
 /// success; the `Done` event carries the resolved output path.
+///
+/// `dest_path` must be an absolute path outside the Lucerna program
+/// directory, data root, and OS-default app-data dir, and must be named
+/// `.mrpack` (Modrinth) or `.zip` (CurseForge) to match the chosen format:
+/// the archive write truncates whatever is already at that path.
 #[tauri::command]
 #[specta::specta]
 pub async fn export_modpack(
@@ -1182,6 +1187,23 @@ pub async fn export_modpack(
     dest_path: String,
     on_progress: tauri::ipc::Channel<crate::mods::modpack::export::ModpackExportProgress>,
 ) -> Result<(), crate::error::Error> {
+    // The archive this command writes is decided entirely by `options.format`
+    // — Modrinth produces a `.mrpack`, CurseForge a plain `.zip`. Matched
+    // exhaustively so a new format is a compile error here rather than a
+    // silently unconstrained destination; the two API-only sources have no
+    // local archive at all and `run_export` refuses them a few lines later.
+    let allowed_ext: &[&str] = match options.format {
+        crate::mods::modpack::schema::ModpackFormat::Modrinth => &["mrpack"],
+        crate::mods::modpack::schema::ModpackFormat::Curseforge
+        | crate::mods::modpack::schema::ModpackFormat::Ftb
+        | crate::mods::modpack::schema::ModpackFormat::Atlauncher => &["zip"],
+    };
+    crate::pathsafe::validate_export_dest(
+        &app,
+        std::path::Path::new(&dest_path),
+        None,
+        allowed_ext,
+    )?;
     let root = instance_root(&app, &instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let mods = crate::mods::installed::list(&root).await?;
