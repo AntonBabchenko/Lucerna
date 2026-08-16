@@ -2729,7 +2729,7 @@
       "skippedOverrideLine": "{name} ({mb} МБ) — слишком большой, не является загружаемым модом; пропущено",
       "importedInertLoader": "Импортировано: {name} — не загрузятся файлов: {count}",
       "inertLoaderLine": "{filename} — собран под {loader}, не загружен",
-      "partialFailure": "Сборка импортирована — {count} мод(ов) не удалось",
+      "partialFailure": "Сборка импортирована — не удалось модов: {count}",
       "failed": "Не удалось импортировать сборку"
     },
     "accounts": {
