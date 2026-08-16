@@ -253,8 +253,16 @@
     {/if}
 
     <details class="border-t border-border-subtle pt-3" bind:open={addOpen}>
+      <!--
+        §5/§7: a native <details> reveals with the shared `.disclosure-caret`
+        rotation, not an icon swap. `bind:open` stays — `addOpen` is written
+        programmatically (the section auto-expands when there are no saved
+        servers and collapses after a successful save) — it just no longer
+        picks the glyph. Same shape as ImportPickerDialog and
+        ServerPropertiesEditor.
+      -->
       <summary class="flex items-center gap-2 cursor-pointer text-sm font-medium text-primary">
-        <Icon name={addOpen ? 'chevronDown' : 'caret'} size={16} />
+        <span class="disclosure-caret"><Icon name="caret" size={16} /></span>
         {$t('quickJoin.addSection')}
       </summary>
 
