@@ -95,7 +95,12 @@ pub async fn save_screenshot_copy(
     dest: String,
 ) -> Result<(), crate::error::Error> {
     let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
-    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots), &["png"])?;
+    crate::pathsafe::validate_export_dest(
+        &app,
+        std::path::Path::new(&dest),
+        Some(&shots),
+        &["png"],
+    )?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_screenshot_copy(&app, &instance_id, &file_name, &dest)
     })
@@ -176,7 +181,12 @@ pub async fn save_annotated_screenshot(
     dest: String,
 ) -> Result<(), crate::error::Error> {
     let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
-    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots), &["png"])?;
+    crate::pathsafe::validate_export_dest(
+        &app,
+        std::path::Path::new(&dest),
+        Some(&shots),
+        &["png"],
+    )?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_annotated(
             &app,

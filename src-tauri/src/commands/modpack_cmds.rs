@@ -1198,7 +1198,12 @@ pub async fn export_modpack(
         | crate::mods::modpack::schema::ModpackFormat::Ftb
         | crate::mods::modpack::schema::ModpackFormat::Atlauncher => &["zip"],
     };
-    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest_path), None, allowed_ext)?;
+    crate::pathsafe::validate_export_dest(
+        &app,
+        std::path::Path::new(&dest_path),
+        None,
+        allowed_ext,
+    )?;
     let root = instance_root(&app, &instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let mods = crate::mods::installed::list(&root).await?;

@@ -195,7 +195,10 @@ fn validate_export_dest_in(
             "destination file name must not end with a dot or a space",
         ));
     }
-    let ext = dest.extension().and_then(|e| e.to_str()).unwrap_or_default();
+    let ext = dest
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
     if !allowed_extensions
         .iter()
         .any(|allowed| allowed.eq_ignore_ascii_case(ext))
@@ -326,13 +329,7 @@ mod tests {
             };
             let shots = data_root.join("instances/i/.minecraft/screenshots");
             let user_dir = td.path().join("user");
-            for d in [
-                &exe_dir,
-                &default_data_dir,
-                &data_root,
-                &shots,
-                &user_dir,
-            ] {
+            for d in [&exe_dir, &default_data_dir, &data_root, &shots, &user_dir] {
                 std::fs::create_dir_all(d).unwrap();
             }
             Self {
@@ -497,8 +494,8 @@ mod tests {
             "hook.ps1",
             "lucerna.desktop",
             "libthing.so",
-            "notes",       // no extension at all
-            ".bashrc",     // a dotfile has no extension either
+            "notes",           // no extension at all
+            ".bashrc",         // a dotfile has no extension either
             "pack.mrpack.zip", // the LAST extension is the one that counts
         ] {
             let dest = inst.user_dir.join(bad);
@@ -553,9 +550,18 @@ mod tests {
         // Sanity: with all three known this destination is allowed.
         inst.check(&dest, None, ANY_EXT).unwrap();
         for (label, roots) in [
-            ("program", (None, Some(&inst.data_root), Some(&inst.default_data_dir))),
-            ("data", (Some(&inst.exe_dir), None, Some(&inst.default_data_dir))),
-            ("app-data", (Some(&inst.exe_dir), Some(&inst.data_root), None)),
+            (
+                "program",
+                (None, Some(&inst.data_root), Some(&inst.default_data_dir)),
+            ),
+            (
+                "data",
+                (Some(&inst.exe_dir), None, Some(&inst.default_data_dir)),
+            ),
+            (
+                "app-data",
+                (Some(&inst.exe_dir), Some(&inst.data_root), None),
+            ),
         ] {
             let (exe, data, app_data) = roots;
             let r = validate_export_dest_in(

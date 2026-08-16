@@ -255,10 +255,10 @@ mod tests {
     #[test]
     fn install_dest_refuses_a_coordinate_that_escapes_the_libraries_root() {
         for coord in [
-            ".evil:x:1.0",       // rooted: `/evil/x/1.0/x-1.0.jar`
-            "..:x:1.0",          // rooted too: `//` -> leading separator
-            "g:..:1.0",          // `..` via the artifact field
-            "g:a:1.0:../../evil" // `..` via the classifier field
+            ".evil:x:1.0",        // rooted: `/evil/x/1.0/x-1.0.jar`
+            "..:x:1.0",           // rooted too: `//` -> leading separator
+            "g:..:1.0",           // `..` via the artifact field
+            "g:a:1.0:../../evil", // `..` via the classifier field
         ] {
             // Precondition: this really does expand to something that escapes,
             // so the test fails for the reason it claims rather than because
