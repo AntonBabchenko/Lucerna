@@ -17,6 +17,7 @@
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import InstanceHeader from './InstanceHeader.svelte';
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
@@ -376,17 +377,35 @@
             </button>
           {/if}
           <!-- One-click Optimise: install a curated performance-mod set. Disabled
-               on vanilla (no loader to run the mods). -->
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            disabled={activeInstance.loader === 'vanilla' || optimiseResolving}
-            title={activeInstance.loader === 'vanilla' ? $t('optimise.vanillaTooltip') : undefined}
-            data-testid="optimise-btn"
-            onclick={onOptimise}
+               on vanilla (no loader to run the mods). §5: the reason rides a
+               wrapping <span> with `describe: false`, because a disabled button
+               fires no pointer events and `title=` is banned. The span is
+               focusable only while vanilla, so the explanation is reachable by
+               keyboard. Same shape as WorldDatapacks.svelte.
+
+               Note the tooltip is deliberately keyed on the LOADER only, not on
+               `optimiseResolving`: a resolving button is busy, not blocked, and
+               a hover card saying "add a mod loader" while the curated set is
+               being resolved would be a false statement. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <span
+            class="inline-flex"
+            tabindex={activeInstance.loader === 'vanilla' ? 0 : undefined}
+            use:tooltip={{
+              text: activeInstance.loader === 'vanilla' ? $t('optimise.vanillaTooltip') : '',
+              describe: false,
+            }}
           >
-            {optimiseResolving ? $t('optimise.resolving') : $t('optimise.button')}
-          </button>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={activeInstance.loader === 'vanilla' || optimiseResolving}
+              data-testid="optimise-btn"
+              onclick={onOptimise}
+            >
+              {optimiseResolving ? $t('optimise.resolving') : $t('optimise.button')}
+            </button>
+          </span>
         </div>
       </div>
 

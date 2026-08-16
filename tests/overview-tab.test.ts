@@ -10,6 +10,8 @@ import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { hoverTooltip } from './test-utils/hover-tooltip';
 
 beforeEach(() => {
   attentionCollapse.reset();
@@ -156,6 +158,44 @@ describe('OverviewTab', () => {
       props: { ...baseProps, activeInstance: vanilla, onOptimise: vi.fn() },
     });
     expect((getByTestId('optimise-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('gives the vanilla Optimise block a reachable reason, not a native title', () => {
+    const vanilla = { ...fabricInst, loader: 'vanilla' as const, loader_version: null };
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: vanilla, onOptimise: vi.fn() },
+    });
+    const btn = getByTestId('optimise-btn') as HTMLButtonElement;
+    // DESIGN.md §5 bans title=; a disabled button fires no pointer events, so
+    // the reason has to live on a focusable wrapper.
+    expect(btn.getAttribute('title')).toBeNull();
+    const wrap = btn.parentElement as HTMLElement;
+    expect(wrap.tagName).toBe('SPAN');
+    expect(wrap.getAttribute('tabindex')).toBe('0');
+
+    hoverTooltip(wrap);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Add a mod loader (Fabric/Forge/…) to use Optimise');
+    // Supplementary, not the accessible name — the button's label already names it.
+    expect(wrap.hasAttribute('aria-describedby')).toBe(false);
+    hideTooltip();
+  });
+
+  it('says nothing on hover when Optimise is merely resolving', () => {
+    // `optimiseResolving` disables the button too, but that is busy, not
+    // blocked — a "add a mod loader" card there would be a false statement.
+    const { getByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        optimiseResolving: true,
+        onOptimise: vi.fn(),
+      },
+    });
+    const wrap = getByTestId('optimise-btn').parentElement as HTMLElement;
+    hoverTooltip(wrap);
+    expect(tooltipState.visible).toBe(false);
+    hideTooltip();
   });
 
   it('surfaces an integrity attention row for an unhealthy instance', () => {
