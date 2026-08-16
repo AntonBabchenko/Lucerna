@@ -183,8 +183,8 @@ fn report_cap() -> &'static Mutex<LineCap> {
 ///
 /// `async` with the write inside `spawn_blocking`: a sync Tauri command runs
 /// on the main thread, and `diag::_write` takes a `Mutex` and flushes. Same
-/// shape `structural_no_sync_reconcile.rs` documents for every other blocking
-/// command body.
+/// shape `structural_no_heavy_sync_command.rs` documents for every other
+/// blocking command body.
 #[tauri::command]
 #[specta::specta]
 pub async fn log_ui_error(
