@@ -154,6 +154,7 @@ describe('ServerHostingTab', () => {
     // into a `not.toHaveBeenCalled()` assertion.
     getUploadAuthMock.mockClear();
     setUploadAuthMock.mockClear();
+    setUploadConfigMock.mockClear();
     backupPolicyGetMock.mockClear();
     backupPolicySetMock.mockClear();
   });
