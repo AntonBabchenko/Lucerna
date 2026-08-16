@@ -656,7 +656,7 @@ pub async fn server_list_mods_enriched(
     // of every jar (mirrors `enrich_server_dir` and the update/swap paths).
     // MUST stay `async` — a synchronous Tauri command runs on the MAIN thread,
     // and this scan then freezes the whole window for its duration. Enforced by
-    // `tests/structural_no_sync_reconcile.rs`.
+    // `tests/structural_no_heavy_sync_command.rs`.
     tokio::task::spawn_blocking(move || -> Result<Vec<ServerModEntryEnriched>> {
         let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
         let entries = crate::servers_runtime::installed::reconcile_on_list(&mods)?;
@@ -3417,7 +3417,7 @@ pub async fn server_list_plugins_enriched(
     // Off the async executor for the same reason as `server_list_mods_enriched`:
     // a full byte read + Sha1 of every jar, which on a sync command would run on
     // the MAIN thread and freeze the window. Enforced by
-    // `tests/structural_no_sync_reconcile.rs`.
+    // `tests/structural_no_heavy_sync_command.rs`.
     tokio::task::spawn_blocking(move || -> Result<Vec<ServerPluginEntryEnriched>> {
         let entries = crate::servers_runtime::installed::reconcile_on_list(&dir)?;
         Ok(entries
