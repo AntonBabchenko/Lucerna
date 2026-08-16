@@ -274,6 +274,7 @@ export type TranslationKey =
   | 'errors.serverInstallerFailed'
   | 'errors.serverInvalidProperty'
   | 'errors.serverJarUnavailable'
+  | 'errors.serverMaintenanceInProgress'
   | 'errors.serverModRequiredByOther'
   | 'errors.serverNameInvalid'
   | 'errors.serverNotRunning'

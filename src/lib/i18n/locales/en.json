@@ -2319,6 +2319,7 @@
     "sftpHostKeyMismatch": "The host's key changed — upload blocked for safety. Re-confirm only if you trust it.",
     "sftpTransferFailed": "Upload failed",
     "serverUploadInProgress": "An upload is already running for this server — wait for it to finish or cancel it first",
+    "serverMaintenanceInProgress": "A restore or import is still running for this server — wait for it to finish before starting it",
     "uploadCancelled": "Upload cancelled",
     "serverImportUnsupportedSource": "Pick a .zip file or a server folder to import.",
     "serverImportInvalidArchive": "The server archive couldn't be read",

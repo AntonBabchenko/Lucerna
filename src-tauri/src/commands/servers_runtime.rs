@@ -439,6 +439,9 @@ pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
+    if crate::servers_runtime::maintenance::maintenance_is_active(&id) {
+        return Err(crate::error::Error::ServerMaintenanceInProgress { id });
+    }
     crate::servers_runtime::runtime::start(&app, &id).await
 }
 
@@ -466,6 +469,9 @@ pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
     crate::data_root::reject_if_fallen_back(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
+    }
+    if crate::servers_runtime::maintenance::maintenance_is_active(&id) {
+        return Err(crate::error::Error::ServerMaintenanceInProgress { id });
     }
     crate::servers_runtime::runtime::restart(&app, &id).await
 }
@@ -1986,6 +1992,15 @@ pub async fn server_import_commit(
         // Remove the reserved directory if any step below fails (`?` / early
         // return), so a partial import never leaks the slug.
         let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
+        // Gate Start/Restart for the rest of the commit: `provision_loader`
+        // (via create::) writes server.json BEFORE the loader install finishes
+        // and BEFORE the user's data lands in runtime/ (create.rs writes json,
+        // then downloads/installs), so the server is listable — and startable —
+        // while its tree is still being populated. Held to the end of this
+        // block; a fresh unique id can't already be under maintenance, but map
+        // the refusal properly rather than unwrapping.
+        let _maintenance = crate::servers_runtime::maintenance::maintenance_begin(&new_id)
+            .ok_or_else(|| Error::ServerMaintenanceInProgress { id: new_id.clone() })?;
         let mut file = import::build_file(
             &new_id,
             &name,
@@ -2218,9 +2233,20 @@ pub fn server_backup_list(app: AppHandle, id: String) -> Result<Vec<backup::Back
 #[tauri::command]
 #[specta::specta]
 pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String) -> Result<()> {
-    if crate::servers_runtime::runtime::is_running(&id) {
+    if crate::servers_runtime::runtime::is_running(&id)
+        || crate::servers_runtime::runtime::is_starting(&id)
+    {
         return Err(Error::ServerAlreadyRunning { id });
     }
+    // Claim the maintenance slot BEFORE the offload and hold it for the whole
+    // rewrite: between the cheap check above and the minutes-long tree replace
+    // below, a Start click would otherwise pass its own guard and launch a JVM
+    // over a half-written runtime/. `server_start`/`server_restart` reject with
+    // ServerMaintenanceInProgress while the guard lives; a second concurrent
+    // restore is refused the same way (`maintenance_begin` is an atomic claim).
+    let Some(maintenance) = crate::servers_runtime::maintenance::maintenance_begin(&id) else {
+        return Err(Error::ServerMaintenanceInProgress { id });
+    };
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Safety net: snapshot current state before overwriting it. If the snapshot
     // FAILS (e.g. disk full), ABORT — restoring would `remove_dir_all` the live
@@ -2232,6 +2258,11 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
     // Sync zip + tree replace of a potentially GB-scale runtime — off the
     // async runtime (same as server_backup_create).
     tokio::task::spawn_blocking(move || {
+        // The guard moves INTO the blocking closure so it is released when the
+        // blocking work actually ends — including on a panic (spawn_blocking
+        // catches the unwind, running Drop first) and even if this command's
+        // future were dropped mid-await while the blocking task runs on.
+        let _maintenance = maintenance;
         backup::create_backup_protecting(&base, &id, &stamp, Some(&file_name))?;
         backup::restore_backup(&base, &id, &file_name)
     })
