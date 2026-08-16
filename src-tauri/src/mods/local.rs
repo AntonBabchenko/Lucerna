@@ -3554,9 +3554,15 @@ loaderVersion="[61,)"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", Some("47.4.10"))
-            .await
-            .expect("scan succeeds");
+        let out = scan_instance(
+            td.path(),
+            None,
+            LoaderKind::Forge,
+            "1.20.1",
+            Some("47.4.10"),
+        )
+        .await
+        .expect("scan succeeds");
         assert!(
             out.iter().any(|c| c.platform_mismatch),
             "the loader-axis verdict must reach ModLocalCompat, got {out:?}"

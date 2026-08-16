@@ -201,7 +201,10 @@ impl ScanCache {
         let mut c = Self::load(path);
         f(&mut c);
         if let Err(e) = c.save(path) {
-            crate::diag!("[mods] jar-scan cache save failed ({}): {e}", path.display());
+            crate::diag!(
+                "[mods] jar-scan cache save failed ({}): {e}",
+                path.display()
+            );
         }
     }
 }
@@ -407,7 +410,11 @@ mod tests {
         });
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"version\":1"), "got {raw}");
-        assert_eq!(ScanCache::load(&path).len(), 1, "and reloads, not discarded");
+        assert_eq!(
+            ScanCache::load(&path).len(),
+            1,
+            "and reloads, not discarded"
+        );
     }
 
     #[test]

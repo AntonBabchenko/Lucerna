@@ -96,7 +96,7 @@ const ALLOWLIST: &[&str] = &[
     // sequence number as `mods/installed.rs` above.
     "mods/hash_cache.rs",
     "mods/summary_cache.rs", // mod summary JSON cache
-    "mods/assets.rs",    // installed-assets registry JSON (temp + rename)
+    "mods/assets.rs",        // installed-assets registry JSON (temp + rename)
     // `<app_data>/mods-cache/jar-scans.json` and its `tmp.<pid>` sibling —
     // a global, cross-instance cache of PARSED DESCRIPTORS (families, provided
     // ids, declared deps), keyed by the jar's SHA-1. It writes no content

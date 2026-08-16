@@ -580,7 +580,10 @@ async fn a_modern_scan_does_not_teach_the_legacy_scan_that_a_jar_needs_nothing()
     let cache = root.join("mods-cache").join("jar-scans.json");
 
     let ev = make_jar_raw(&[
-        ("mcmod.info", br#"[{"modid":"ev","version":"1.0"}]"# as &[u8]),
+        (
+            "mcmod.info",
+            br#"[{"modid":"ev","version":"1.0"}]"# as &[u8],
+        ),
         (
             "team/EV.class",
             b"\x00\x02ev\x00\x1brequired-after:creativecore\x00" as &[u8],

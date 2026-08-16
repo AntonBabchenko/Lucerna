@@ -24,7 +24,9 @@ async fn classifies_seeded_tree_offline() {
     // A multi-chunk artefact: the production path is `hash_planned` ->
     // `file_sha1`, and before the streaming fix nothing in this suite hashed
     // anything larger than eight bytes.
-    let big_bytes: Vec<u8> = (0..(300 * 1024)).map(|i| ((i * 31 + 7) % 251) as u8).collect();
+    let big_bytes: Vec<u8> = (0..(300 * 1024))
+        .map(|i| ((i * 31 + 7) % 251) as u8)
+        .collect();
     let big = root.path().join("big.bin");
     fs::write(&big, &big_bytes).unwrap();
     let big_sha = sha1_hex(&big_bytes);

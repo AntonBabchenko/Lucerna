@@ -320,7 +320,9 @@ mod tests {
             .await
             .unwrap();
         let foreign = br#"{"version":99,"entries":{"a.jar":{"mtime_secs":1,"mtime_nanos":0,"size":2,"sha1":"aa"}}}"#;
-        tokio::fs::write(memo_path(td.path()), foreign).await.unwrap();
+        tokio::fs::write(memo_path(td.path()), foreign)
+            .await
+            .unwrap();
         assert!(
             load(td.path()).await.is_empty(),
             "a foreign version says nothing trustworthy about which bytes made which digest"

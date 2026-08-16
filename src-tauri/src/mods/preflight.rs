@@ -1664,9 +1664,10 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
-            .await
-            .unwrap();
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
         assert!(
             report.violations.is_empty(),
             "submodule bundled in Fabric API must satisfy the dep; got {:?}",
@@ -1891,9 +1892,10 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
-            .await
-            .unwrap();
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
         assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
         assert_eq!(report.violations[0].dep_id, "fabric-renderer-api-v1");
         assert!(matches!(
