@@ -3,7 +3,7 @@ import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import CountPill, { countPillClass } from '$lib/ui/cards/CountPill.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip } from '../../test-utils/hover-tooltip';
+import { revealTooltip } from '../../test-utils/reveal-tooltip';
 
 function text(label: string) {
   return createRawSnippet(() => ({ render: () => `<span>${label}</span>` }));
@@ -49,7 +49,7 @@ describe('CountPill', () => {
     render(CountPill, { props: { children: text('3'), testid: 'p', title: '3 updates' } });
     const pill = screen.getByTestId('p');
     expect(pill.getAttribute('title')).toBeNull();
-    hoverTooltip(pill);
+    revealTooltip(pill);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe('3 updates');
   });

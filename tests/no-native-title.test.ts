@@ -56,7 +56,7 @@ function withoutExpressions(source: string): string {
 
 /** Tag names of `title=` / `{title}` occurrences that sit inside the opening
  *  tag of a lowercase-named (i.e. native HTML) element. */
-export function nativeTitleAttributes(source: string): string[] {
+function nativeTitleAttributes(source: string): string[] {
   const hits: string[] = [];
   const candidate = /(?:^|\s)(title\s*=|\{title\})/g;
   let m: RegExpExecArray | null = candidate.exec(source);

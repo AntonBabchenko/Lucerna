@@ -48,7 +48,7 @@ import { commands } from '$lib/ipc/bindings';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip } from './test-utils/hover-tooltip';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 describe('ModpacksTab', () => {
   afterEach(async () => {
@@ -170,7 +170,7 @@ describe('ModpacksTab — data-root fallback gating (§5 disabled-reason)', () =
     // disabled button can never give them.
     expect(wrap.getAttribute('tabindex')).toBe('0');
 
-    hoverTooltip(wrap);
+    revealTooltip(wrap);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe(
       'Creating instances and servers is disabled while the data folder is unavailable.',

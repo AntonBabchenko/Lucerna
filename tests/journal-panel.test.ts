@@ -9,7 +9,7 @@ import { commands } from '$lib/ipc/bindings';
 import JournalCrashContext from '$lib/journal/JournalCrashContext.svelte';
 import JournalPanel from '$lib/journal/JournalPanel.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip, unhoverTooltip } from './test-utils/hover-tooltip';
+import { dismissTooltip, revealTooltip } from './test-utils/reveal-tooltip';
 
 const NOW = Date.UTC(2026, 6, 30, 12, 0, 0);
 const HOUR = 60 * 60 * 1000;
@@ -131,7 +131,7 @@ describe('JournalPanel', () => {
     expect(await findByTestId('journal-empty')).toBeTruthy();
   });
 
-  it('shows the full subject on hover only when the row clips it', async () => {
+  it('reveals the full subject only when the row clips it', async () => {
     // DESIGN.md §5 bans native title=. The overflow tooltip is the prescribed
     // replacement (KeyEditRow's truncated key); `whenOverflowing` consults
     // scrollWidth > clientWidth, which happy-dom reports as 0 > 0 = false, so
@@ -146,13 +146,13 @@ describe('JournalPanel', () => {
 
     Object.defineProperty(subject, 'scrollWidth', { value: 400, configurable: true });
     Object.defineProperty(subject, 'clientWidth', { value: 120, configurable: true });
-    hoverTooltip(subject);
+    revealTooltip(subject);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe(long);
-    unhoverTooltip(subject);
+    dismissTooltip(subject);
 
     Object.defineProperty(subject, 'scrollWidth', { value: 120, configurable: true });
-    hoverTooltip(subject);
+    revealTooltip(subject);
     expect(tooltipState.visible).toBe(false);
     hideTooltip();
   });

@@ -5,7 +5,7 @@ import Sidebar from '$lib/layout/Sidebar.svelte';
 import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
 import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip } from './test-utils/hover-tooltip';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 vi.mock('$lib/ipc/bindings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/ipc/bindings')>();
@@ -406,7 +406,7 @@ describe('Sidebar modpack-update badge', () => {
 
     // §5: the label is the tooltip layer's, not a native title.
     expect(badge.getAttribute('title')).toBeNull();
-    hoverTooltip(badge);
+    revealTooltip(badge);
     expect(tooltipState.text).toBe('3 modpack updates available');
   });
 });

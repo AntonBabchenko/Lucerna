@@ -2,9 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import BusyButton from '../src/lib/ui/BusyButton.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip } from './test-utils/hover-tooltip';
+import BusyButton from '../src/lib/ui/BusyButton.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 const label = (text: string) => createRawSnippet(() => ({ render: () => `<span>${text}</span>` }));
 
@@ -41,7 +41,7 @@ describe('BusyButton — prop forwarding', () => {
     });
     const btn = screen.getByTestId('b');
     expect(btn.getAttribute('title')).toBeNull();
-    hoverTooltip(btn);
+    revealTooltip(btn);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe('Applies to every world');
     hideTooltip();
@@ -50,7 +50,7 @@ describe('BusyButton — prop forwarding', () => {
   it('adds no tooltip when no title is given', () => {
     render(BusyButton, { props: { children: labelSnippet, 'data-testid': 'b' } });
     const btn = screen.getByTestId('b');
-    hoverTooltip(btn);
+    revealTooltip(btn);
     expect(tooltipState.visible).toBe(false);
     hideTooltip();
   });

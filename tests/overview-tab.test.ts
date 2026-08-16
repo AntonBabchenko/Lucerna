@@ -11,7 +11,7 @@ import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { hoverTooltip } from './test-utils/hover-tooltip';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 beforeEach(() => {
   attentionCollapse.reset();
@@ -173,7 +173,7 @@ describe('OverviewTab', () => {
     expect(wrap.tagName).toBe('SPAN');
     expect(wrap.getAttribute('tabindex')).toBe('0');
 
-    hoverTooltip(wrap);
+    revealTooltip(wrap);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe('Add a mod loader (Fabric/Forge/…) to use Optimise');
     // Supplementary, not the accessible name — the button's label already names it.
@@ -181,7 +181,7 @@ describe('OverviewTab', () => {
     hideTooltip();
   });
 
-  it('says nothing on hover when Optimise is merely resolving', () => {
+  it('says nothing when Optimise is merely resolving', () => {
     // `optimiseResolving` disables the button too, but that is busy, not
     // blocked — a "add a mod loader" card there would be a false statement.
     const { getByTestId } = render(OverviewTab, {
@@ -193,7 +193,7 @@ describe('OverviewTab', () => {
       },
     });
     const wrap = getByTestId('optimise-btn').parentElement as HTMLElement;
-    hoverTooltip(wrap);
+    revealTooltip(wrap);
     expect(tooltipState.visible).toBe(false);
     hideTooltip();
   });
