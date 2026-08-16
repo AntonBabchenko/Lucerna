@@ -73,7 +73,13 @@ const ELSE_BODY_SCAN_LINES: usize = 8;
 /// `structural_no_inplace_mods_write.rs` uses — would also disable rule A for
 /// the entire file including its test module, and the PR that fixes this line
 /// rewrites the whole surrounding function under that shield.
-const ALLOWLIST: &[(&str, &str, &str)] = &[];
+const ALLOWLIST: &[(&str, &str, &str)] = &[(
+    "logs/files.rs",
+    "let Ok(entries) = std::fs::read_dir(crash_root) else {",
+    "listing surface: an unreadable crash-reports dir renders as no crash report — \
+     `latest_crash` is display-only, reads and returns, no write follows; the entry \
+     dies with the line if the site ever gains a mutation",
+)];
 
 /// True for an UNGUARDED `Err(<pat>) => {}` / `=> {},` / `=> ()` / `=> (),` —
 /// an error arm whose body does nothing. A comment inside the block makes it

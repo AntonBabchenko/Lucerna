@@ -207,12 +207,27 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 ///
 /// Best-effort, like the config mirror above: the instance is already usable
 /// from the mandatory mod copy, so a pack that fails is logged and the rest
-/// proceed.
+/// proceed — and an UNREADABLE `server.properties` skips the carry outright
+/// (logged) rather than guessing the world.
 pub(crate) async fn copy_server_datapacks(
     runtime: &std::path::Path,
     instance_root: &std::path::Path,
 ) {
-    let props = std::fs::read_to_string(runtime.join("server.properties")).unwrap_or_default();
+    // Absent props (never-started server) read as "" and resolve to the
+    // default `world` — correct, and what the carry tests above pin. An
+    // unreadable file is ignorance: guessing `world` could carry another
+    // directory's packs, so skip the carry and say so.
+    let props = match crate::servers_runtime::properties::read_properties_file(
+        &runtime.join("server.properties"),
+    ) {
+        Ok(props) => props,
+        Err(e) => {
+            crate::diag!(
+                "instance-from-server: server.properties unreadable — datapack carry skipped: {e}"
+            );
+            return;
+        }
+    };
     let world = crate::servers_runtime::datapacks::world_dir(runtime, &props);
     let dp_dir = world.join("datapacks");
 
@@ -433,6 +448,32 @@ mod tests {
         copy_server_datapacks(&runtime, &inst).await;
 
         assert_eq!(library_rows(&inst).await.len(), 1);
+    }
+
+    /// An unreadable `server.properties` (as opposed to an absent one) must
+    /// skip the carry entirely, not fall back to guessing `world` — the guess
+    /// would carry another directory's packs into the produced instance.
+    #[tokio::test]
+    async fn an_unreadable_server_properties_skips_the_carry_not_guesses_world() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // A directory at the file's path: read fails with a non-NotFound
+        // error on every platform (same trick as
+        // `read_properties_file_unreadable_is_an_error_not_empty`).
+        std::fs::create_dir(runtime.join("server.properties")).unwrap();
+        // Packs under the DEFAULT level name — exactly what a wrong guess
+        // would pick up.
+        let decoy = server_world(&runtime, "world");
+        std::fs::write(decoy.join("datapacks/decoy.zip"), datapack_zip()).unwrap();
+
+        copy_server_datapacks(&runtime, &inst).await;
+
+        assert!(
+            library_rows(&inst).await.is_empty(),
+            "carry must be skipped, not guessed"
+        );
     }
 
     /// The `level-name` from `server.properties` is honoured — packs live

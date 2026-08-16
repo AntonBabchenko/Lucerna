@@ -150,8 +150,15 @@ fn cached_sha1(path: &Path, mtime: SystemTime, size: u64) -> Result<String> {
 
 fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
     let mut on_disk: Vec<(String, String, bool)> = Vec::new();
-    let Ok(rd) = std::fs::read_dir(jar_dir) else {
-        return Ok(on_disk);
+    let rd = match std::fs::read_dir(jar_dir) {
+        Ok(rd) => rd,
+        // Absent is a fact: a server that never installed anything has no
+        // jar dir, and "nothing installed" is the true answer. Any other
+        // error is ignorance — `reconcile_on_list` SAVES the sidecar it
+        // reconciles against this listing, so an unreadable dir read as
+        // "empty" would drop every record from it.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(on_disk),
+        Err(e) => return Err(Error::io(jar_dir.display().to_string(), e)),
     };
     for entry in rd.flatten() {
         let meta = match entry.metadata() {
@@ -376,6 +383,22 @@ mod tests {
         assert!(!e.enabled);
         assert_eq!(e.record.project_id.as_deref(), Some("p"));
         assert_eq!(e.record.filename, "m.jar");
+    }
+
+    #[test]
+    fn reconcile_absent_dir_is_empty_but_unreadable_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        // Absent is a fact: a server that never installed anything has no
+        // jar dir, and "nothing installed" is the true answer.
+        let missing = dir.path().join("missing");
+        assert!(reconcile_on_list(&missing).unwrap().is_empty());
+        // Unreadable is ignorance: a FILE where the dir should be fails
+        // read_dir with something other than NotFound on every platform.
+        // Answering "empty" here would let the reconcile drop (and save
+        // away) every sidecar record.
+        let as_file = dir.path().join("mods");
+        std::fs::write(&as_file, b"not a dir").unwrap();
+        assert!(reconcile_on_list(&as_file).is_err());
     }
 
     #[test]

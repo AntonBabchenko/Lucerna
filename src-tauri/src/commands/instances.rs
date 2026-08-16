@@ -137,7 +137,8 @@ async fn refresh_microsoft_if_expiring(
 /// quick-play feature-gated game arg (robust across release/snapshot/loader).
 /// Returns `false` (not an error) when the version JSON is absent (instance
 /// not yet installed, or merged profile not yet written) or unparseable —
-/// the UI simply hides the entry points.
+/// the UI simply hides the entry points. An UNREADABLE file is an error:
+/// answering `false` there would claim knowledge the read never produced.
 #[tauri::command]
 #[specta::specta]
 pub async fn instance_quick_play_support(
@@ -150,8 +151,21 @@ pub async fn instance_quick_play_support(
     let json_path = versions
         .join(&effective_id)
         .join(format!("{effective_id}.json"));
-    let Ok(json) = std::fs::read_to_string(&json_path) else {
-        return Ok(false);
+    quick_play_support_at(&json_path)
+}
+
+/// Pure-path core of `instance_quick_play_support`, split out so the fs
+/// discrimination is unit-testable without an `AppHandle` (the house
+/// pattern — there is no `AppHandle` test harness).
+fn quick_play_support_at(json_path: &std::path::Path) -> Result<bool, crate::error::Error> {
+    let json = match std::fs::read_to_string(json_path) {
+        Ok(json) => json,
+        // Absent is a fact: instance not yet installed, or merged profile
+        // not yet written — Quick Play is genuinely unavailable and the UI
+        // hides the entry points. Any other error is ignorance, not
+        // "unsupported".
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(crate::error::Error::io(json_path.display().to_string(), e)),
     };
     let Ok(details) = crate::versions::version_json::parse(&json) else {
         return Ok(false);
@@ -798,4 +812,35 @@ pub fn running_instances() -> Vec<RunningInstanceInfo> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quick_play_support_missing_json_is_false() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!quick_play_support_at(&dir.path().join("1.21.json")).unwrap());
+    }
+
+    #[test]
+    fn quick_play_support_unparseable_json_is_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("1.21.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        assert!(!quick_play_support_at(&path).unwrap());
+    }
+
+    #[test]
+    fn quick_play_support_unreadable_json_is_an_error_not_false() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory at the file's path makes read_to_string fail with
+        // something other than NotFound on every platform — the same shape
+        // as a file we have no permission to read. Same trick as
+        // `read_properties_file_unreadable_is_an_error_not_empty`.
+        let path = dir.path().join("1.21.json");
+        std::fs::create_dir(&path).unwrap();
+        assert!(quick_play_support_at(&path).is_err());
+    }
 }

@@ -156,6 +156,9 @@ fn linux_adapters() -> Vec<GpuAdapter> {
             continue;
         }
         let dev = e.path().join("device");
+        // sysfs probe: an absent or unreadable vendor file reads as an
+        // unknown adapter, which the label match below already renders
+        // as-is. Display/classification only — no write follows.
         let vendor = std::fs::read_to_string(dev.join("vendor")).unwrap_or_default();
         let vendor = vendor.trim();
         let integrated = std::fs::read_to_string(dev.join("boot_vga"))

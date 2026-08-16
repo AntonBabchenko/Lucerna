@@ -21,7 +21,7 @@ fn world_dir_of(app: &AppHandle, id: &str) -> Result<std::path::PathBuf> {
     let p = crate::paths::server_paths(&base, id);
     Ok(datapacks::world_dir(
         &p.runtime,
-        &super::server_props_raw(&p),
+        &super::server_props_raw(&p)?,
     ))
 }
 
@@ -106,7 +106,7 @@ pub async fn server_check_datapack_updates(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    let world = datapacks::world_dir(&p.runtime, &super::server_props_raw(&p));
+    let world = datapacks::world_dir(&p.runtime, &super::server_props_raw(&p)?);
     let rows = datapacks::sidecar::reconcile(&world);
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
