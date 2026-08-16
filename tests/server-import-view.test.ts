@@ -4,7 +4,9 @@ import { locale } from '$lib/i18n';
 
 const { importInspect, importCommit, importCancel, memBounds } = vi.hoisted(() => ({
   importInspect: vi.fn(),
-  importCommit: vi.fn().mockResolvedValue({ ok: true }),
+  // `server` is required on importCommit's success arm (the store now returns a
+  // discriminated union), and doImport reads `r.server.id` without a hedge.
+  importCommit: vi.fn().mockResolvedValue({ ok: true, server: { id: 'srv-imported' } }),
   importCancel: vi.fn().mockResolvedValue(undefined),
   memBounds: vi.fn().mockResolvedValue({
     min_mb: 1024,
@@ -90,7 +92,10 @@ describe('ServerImportView', () => {
         true,
       ),
     );
-    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    // The created server's id is handed back so the panel can select it. Under
+    // the old flattened return type this was `onDone(r.server?.id)` and an
+    // absent server silently became `undefined`; the union guarantees it.
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith('srv-imported'));
   });
 
   it('warns when the loader is undetected and defaults to Vanilla (#20)', async () => {
