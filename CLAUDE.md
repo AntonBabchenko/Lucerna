@@ -63,7 +63,7 @@ static/                             Static assets served at root
 tools/                              Small CI/dev helper scripts (Node, .mjs)
 tests/                              Vitest unit tests
 tests-e2e/                          Playwright e2e tests
-docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
+docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, TESTING, UI-TESTING, TRANSLATING, MACOS-BETA-TESTING (superpowers/ is gitignored, local-only)
 .github/workflows/ci.yml            CI: rust-ubuntu/windows/macos, linux-bundle, frontend, e2e, lint, coverage-frontend/rust, cargo-deny, ci-gate (SHA-pinned)
 ```
 
