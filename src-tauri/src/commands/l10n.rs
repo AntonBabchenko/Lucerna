@@ -780,7 +780,8 @@ pub fn l10n_overridden_namespaces(
 /// with a version the user picks.
 ///
 /// `dest_path` must be an absolute path outside the Lucerna program
-/// directory: the bundle write truncates whatever is already at that path.
+/// directory, data root, and OS-default app-data dir: the bundle write
+/// truncates whatever is already at that path.
 #[tauri::command]
 #[specta::specta]
 pub async fn l10n_export(
@@ -797,7 +798,7 @@ pub async fn l10n_export(
         return Err(crate::error::Error::L10nShareNothingToExport);
     }
     let dest = std::path::PathBuf::from(&dest_path);
-    crate::pathsafe::validate_export_dest(&dest, None)?;
+    crate::pathsafe::validate_export_dest(&app, &dest, None)?;
     if dest
         .file_name()
         .and_then(|n| n.to_str())

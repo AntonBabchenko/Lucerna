@@ -4,8 +4,11 @@
 //! (`worlds` → WorldPathInvalid, `screenshots` → ScreenshotPathInvalid).
 //!
 //! [`validate_export_dest`] is the other half: not a segment joined onto a
-//! directory we own, but a whole destination path the *user* chose in an OS
-//! save dialog, which an export command is about to create or overwrite.
+//! directory we own, but a whole destination path an export command is about
+//! to create or overwrite. It is *supposed* to be what the user chose in an
+//! OS save dialog — but the dialog lives in the frontend, so what the command
+//! actually receives is a string from the webview, and the guard is written
+//! for the case where that string was not the user's choice at all.
 
 use std::path::Path;
 
@@ -81,7 +84,10 @@ pub fn is_safe_filename(name: &str) -> bool {
 /// `save_screenshot_copy`, `save_annotated_screenshot`) take a path the user
 /// picked in an OS save dialog and hand it straight to `File::create` /
 /// `fs::copy` / `save_with_format`, each of which truncates whatever is
-/// already there. Two shapes are never a legitimate save target:
+/// already there. The dialog itself lives in the frontend, so what reaches
+/// this function is a string the *webview* supplied — the guard has to hold
+/// even when the webview is not telling the truth about where the user
+/// pointed. Three shapes are never a legitimate save target:
 ///
 /// - A **relative** path. It resolves against the launcher process's current
 ///   directory — which the user never sees and which differs between a
@@ -92,36 +98,59 @@ pub fn is_safe_filename(name: &str) -> bool {
 ///   written next to `lucerna.exe` can truncate the binary, a sidecar DLL or
 ///   a WebView2 runtime file, turning "I exported my modpack" into a broken
 ///   install.
+/// - A path **inside the launcher's own state** — the effective data root, or
+///   the OS-default app-data dir. On a stock install those are one and the
+///   same directory; once the user relocates the root they are not, and the
+///   default one *still* holds `data-location.json`, so both have to be
+///   checked or the rule has a hole exactly where relocation put it. Nothing
+///   under either is an export target: `account.json`, every instance's
+///   `instance.json`, the shared mod store. `data-location.json` is the
+///   sharpest case — [`crate::data_root::redirect::read`] treats an
+///   unparseable file as "no redirect", so truncating it raises no error at
+///   all; it silently strands a relocated data root and sends the launcher
+///   back to the default one with the user's instances nowhere in sight.
 ///
 /// `allowed_inside` carves out one directory that stays writable even when it
-/// sits inside the program directory. A **portable** install puts the data
-/// root at `<exe dir>/LucernaData`, so an instance's `screenshots/` folder —
-/// the path the launcher itself proposes as the default for the two
-/// screenshot save commands — is legitimately inside the program directory.
-/// Without the exemption the default save action would be refused on every
-/// portable install. Callers pass the exact directory they own, never a
-/// broad ancestor.
+/// sits inside a protected root, and it applies to *every* containment rule
+/// above because the folder it exists for sits inside a different one on each
+/// install shape. An instance's `screenshots/` folder — the path the launcher
+/// itself proposes as the default for the two screenshot save commands — is
+/// under the data root on a stock install, and under the program directory as
+/// well on a **portable** one (where the data root is `<exe dir>/LucernaData`).
+/// Without the exemption the default save action would be refused for every
+/// user. Callers pass the exact directory they own, never a broad ancestor.
 ///
 /// Containment is decided by [`crate::data_root::migrate::is_same_or_nested`],
 /// so it is robust against case differences, `\\?\` verbatim prefixes, 8.3
 /// short names, and a destination file that does not exist yet.
 pub fn validate_export_dest(
+    app: &tauri::AppHandle,
     dest: &Path,
     allowed_inside: Option<&Path>,
 ) -> crate::error::Result<()> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
-    validate_export_dest_in(dest, allowed_inside, exe_dir.as_deref())
+    let data_root = crate::paths::app_dir(app).ok();
+    let default_data_dir = crate::paths::default_app_data_dir(app).ok();
+    validate_export_dest_in(
+        dest,
+        allowed_inside,
+        exe_dir.as_deref(),
+        data_root.as_deref(),
+        default_data_dir.as_deref(),
+    )
 }
 
-/// [`validate_export_dest`] with the program directory injected, so the rules
+/// [`validate_export_dest`] with the protected roots injected, so the rules
 /// can be tested against a temp directory instead of wherever the test binary
-/// happens to live.
+/// happens to live and whatever the host's real app-data dir is.
 fn validate_export_dest_in(
     dest: &Path,
     allowed_inside: Option<&Path>,
     exe_dir: Option<&Path>,
+    data_root: Option<&Path>,
+    default_data_dir: Option<&Path>,
 ) -> crate::error::Result<()> {
     let deny = |reason: &str| crate::error::Error::io(dest.display().to_string(), reason);
 
@@ -133,24 +162,33 @@ fn validate_export_dest_in(
     if !dest.is_absolute() {
         return Err(deny("destination must be an absolute path"));
     }
-    // Fallback direction: if the process cannot locate its own executable we
-    // cannot tell whether `dest` is inside the program directory, so we refuse
-    // rather than assume it is not. `current_exe()` failing means /proc is
-    // unavailable or the binary was unlinked — not a state in which silently
-    // permitting a truncating write is the safe reading. The message says the
-    // check could not be performed, not that the path is bad.
-    let Some(exe_dir) = exe_dir else {
-        return Err(deny("cannot locate the program directory to check against"));
-    };
-    if !crate::data_root::migrate::is_same_or_nested(exe_dir, dest) {
-        return Ok(());
+
+    let exempt =
+        allowed_inside.is_some_and(|ok| crate::data_root::migrate::is_same_or_nested(ok, dest));
+    for (what, root) in [
+        ("program", exe_dir),
+        ("data", data_root),
+        ("app-data", default_data_dir),
+    ] {
+        // Fallback direction: if a root could not be resolved we cannot tell
+        // whether `dest` is inside it, so we refuse rather than assume it is
+        // not. `current_exe()` failing means /proc is unavailable or the
+        // binary was unlinked; `app_dir` failing means the platform would not
+        // name an app-data dir — neither is a state in which silently
+        // permitting a truncating write is the safe reading. The message says
+        // the check could not be performed, not that the path is bad.
+        let Some(root) = root else {
+            return Err(deny(&format!(
+                "cannot locate the Lucerna {what} directory to check against"
+            )));
+        };
+        if !exempt && crate::data_root::migrate::is_same_or_nested(root, dest) {
+            return Err(deny(&format!(
+                "refusing to write inside the Lucerna {what} directory"
+            )));
+        }
     }
-    match allowed_inside {
-        Some(ok) if crate::data_root::migrate::is_same_or_nested(ok, dest) => Ok(()),
-        _ => Err(deny(
-            "refusing to write inside the Lucerna program directory",
-        )),
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -213,89 +251,212 @@ mod tests {
         }
     }
 
-    /// A temp dir standing in for an installation: `<td>/app` is the program
-    /// directory, `<td>/app/LucernaData/instances/i/.minecraft/screenshots` is
-    /// the portable data root's screenshots folder, `<td>/elsewhere` is the
-    /// user's own folder. Everything is created so `is_same_or_nested`
-    /// canonicalizes real paths rather than best-effort ones.
-    fn install_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
-        let td = tempfile::tempdir().unwrap();
-        let exe_dir = td.path().join("app");
-        let shots = exe_dir.join("LucernaData/instances/i/.minecraft/screenshots");
-        std::fs::create_dir_all(&shots).unwrap();
-        std::fs::create_dir_all(td.path().join("elsewhere")).unwrap();
-        (td, exe_dir, shots)
+    /// A temp dir standing in for an installation. `<td>/app` is the program
+    /// directory, `<td>/appdata/com.lucerna.app` is the OS-default app-data
+    /// dir, `<td>/user` is the user's own folder, and `shots` is an
+    /// instance's screenshots folder under whichever tree the data root is
+    /// in. Everything is created so `is_same_or_nested` canonicalizes real
+    /// paths rather than best-effort ones.
+    struct Install {
+        _td: tempfile::TempDir,
+        exe_dir: std::path::PathBuf,
+        data_root: std::path::PathBuf,
+        default_data_dir: std::path::PathBuf,
+        shots: std::path::PathBuf,
+        user_dir: std::path::PathBuf,
+    }
+
+    impl Install {
+        /// `portable = false` is the stock shape: the data root IS the
+        /// OS-default app-data dir, a different tree from the program
+        /// directory — the shape the data-root rule exists for.
+        /// `portable = true` puts the data root at `<exe dir>/LucernaData`,
+        /// the shape the screenshots exemption exists for.
+        fn new(portable: bool) -> Self {
+            let td = tempfile::tempdir().unwrap();
+            let exe_dir = td.path().join("app");
+            let default_data_dir = td.path().join("appdata/com.lucerna.app");
+            let data_root = if portable {
+                exe_dir.join("LucernaData")
+            } else {
+                default_data_dir.clone()
+            };
+            let shots = data_root.join("instances/i/.minecraft/screenshots");
+            let user_dir = td.path().join("user");
+            for d in [
+                &exe_dir,
+                &default_data_dir,
+                &data_root,
+                &shots,
+                &user_dir,
+            ] {
+                std::fs::create_dir_all(d).unwrap();
+            }
+            Self {
+                _td: td,
+                exe_dir,
+                data_root,
+                default_data_dir,
+                shots,
+                user_dir,
+            }
+        }
+
+        /// Run the validator with this install's three protected roots injected.
+        fn check(&self, dest: &Path, allowed_inside: Option<&Path>) -> crate::error::Result<()> {
+            validate_export_dest_in(
+                dest,
+                allowed_inside,
+                Some(&self.exe_dir),
+                Some(&self.data_root),
+                Some(&self.default_data_dir),
+            )
+        }
     }
 
     #[test]
     fn export_dest_rejects_empty_and_relative_paths() {
-        let (_td, exe_dir, _shots) = install_fixture();
+        let inst = Install::new(false);
         for bad in ["", "export.mrpack", "./export.mrpack", "sub/export.mrpack"] {
-            let r = validate_export_dest_in(Path::new(bad), None, Some(&exe_dir));
-            assert!(r.is_err(), "{bad:?} should be refused");
+            assert!(
+                inst.check(Path::new(bad), None).is_err(),
+                "{bad:?} should be refused"
+            );
         }
     }
 
     #[test]
-    fn export_dest_accepts_a_folder_outside_the_program_directory() {
-        let (td, exe_dir, _shots) = install_fixture();
-        let dest = td.path().join("elsewhere/MyPack.mrpack");
-        validate_export_dest_in(&dest, None, Some(&exe_dir)).unwrap();
+    fn export_dest_accepts_a_folder_the_launcher_does_not_own() {
+        let inst = Install::new(false);
+        let dest = inst.user_dir.join("MyPack.mrpack");
+        inst.check(&dest, None).unwrap();
     }
 
     #[test]
     fn export_dest_refuses_writing_into_the_program_directory() {
-        let (_td, exe_dir, _shots) = install_fixture();
+        let inst = Install::new(false);
         // Directly beside the executable, and nested under it.
-        for dest in [exe_dir.join("lucerna.exe"), exe_dir.join("sub/pack.mrpack")] {
-            let r = validate_export_dest_in(&dest, None, Some(&exe_dir));
-            assert!(r.is_err(), "{} should be refused", dest.display());
+        for dest in [
+            inst.exe_dir.join("lucerna.exe"),
+            inst.exe_dir.join("sub/pack.mrpack"),
+        ] {
+            assert!(
+                inst.check(&dest, None).is_err(),
+                "{} should be refused",
+                dest.display()
+            );
         }
     }
 
-    /// The load-bearing exemption: on a portable install the launcher's OWN
-    /// default screenshot destination lives inside the program directory. If
-    /// the guard refused it, the Save button's default path would break for
-    /// every portable user — a shipped regression, not a hardening.
+    /// The rule the program-directory check does NOT cover: on a stock
+    /// install the data root is a different tree from the exe dir, so every
+    /// one of these was reachable while only the program directory was
+    /// screened. `data-location.json` is the one that fails silently —
+    /// `redirect::read` reads an unparseable file as "no redirect", so a
+    /// truncated one strands a relocated data root with no error anywhere.
     #[test]
-    fn export_dest_allows_the_launchers_own_screenshots_dir_inside_the_program_dir() {
-        let (_td, exe_dir, shots) = install_fixture();
-        let dest = shots.join("2026-08-16_12.00.00-annotated.png");
-        validate_export_dest_in(&dest, Some(&shots), Some(&exe_dir)).unwrap();
+    fn export_dest_refuses_writing_into_the_data_root() {
+        let inst = Install::new(false);
+        for rel in [
+            "data-location.json",
+            "account.json",
+            "instances/i/instance.json",
+            "instances/i/.minecraft/mods/sodium.jar",
+        ] {
+            let dest = inst.data_root.join(rel);
+            assert!(
+                inst.check(&dest, None).is_err(),
+                "{rel} inside the data root should be refused"
+            );
+        }
+    }
+
+    /// Once the root is relocated the two are different trees, and the
+    /// OS-default one still holds `data-location.json`. Checking only the
+    /// effective root would leave the redirect file writable on exactly the
+    /// installs that depend on it.
+    #[test]
+    fn export_dest_refuses_the_default_app_data_dir_even_when_the_root_moved() {
+        let inst = Install::new(true);
+        // Precondition: this really is a tree the data-root rule does not cover.
+        assert!(!crate::data_root::migrate::is_same_or_nested(
+            &inst.data_root,
+            &inst.default_data_dir
+        ));
+        let dest = inst.default_data_dir.join("data-location.json");
+        assert!(inst.check(&dest, None).is_err());
+    }
+
+    /// The load-bearing exemption. On a stock install the launcher's OWN
+    /// default screenshot destination lives inside the data root; on a
+    /// portable one it is inside the program directory as well. If the guard
+    /// refused it, the Save button's default path would break for every user
+    /// — a shipped regression, not a hardening.
+    #[test]
+    fn export_dest_allows_the_launchers_own_screenshots_dir_on_both_install_shapes() {
+        for portable in [false, true] {
+            let inst = Install::new(portable);
+            let dest = inst.shots.join("2026-08-16_12.00.00-annotated.png");
+            inst.check(&dest, Some(&inst.shots))
+                .unwrap_or_else(|e| panic!("portable={portable}: {e:?}"));
+        }
     }
 
     #[test]
-    fn export_dest_exemption_does_not_widen_to_the_rest_of_the_program_dir() {
-        let (_td, exe_dir, shots) = install_fixture();
-        // A sibling of the exempt folder is still inside the program directory.
-        let dest = exe_dir.join("LucernaData/instances/i/.minecraft/mods/evil.png");
-        let r = validate_export_dest_in(&dest, Some(&shots), Some(&exe_dir));
-        assert!(
-            r.is_err(),
-            "the exemption must cover only the passed folder"
-        );
+    fn export_dest_exemption_does_not_widen_to_the_rest_of_the_protected_roots() {
+        for portable in [false, true] {
+            let inst = Install::new(portable);
+            // A sibling of the exempt folder is still inside the data root.
+            let sibling = inst.data_root.join("instances/i/.minecraft/mods/evil.png");
+            assert!(
+                inst.check(&sibling, Some(&inst.shots)).is_err(),
+                "portable={portable}: the exemption must cover only the passed folder"
+            );
+            // And so is the redirect file, exemption or not.
+            let redirect = inst.default_data_dir.join("data-location.json");
+            assert!(
+                inst.check(&redirect, Some(&inst.shots)).is_err(),
+                "portable={portable}: the exemption must not reach the redirect file"
+            );
+        }
     }
 
     #[test]
     fn export_dest_does_not_treat_a_name_prefix_as_containment() {
-        let (td, exe_dir, _shots) = install_fixture();
-        // `<td>/appData` merely starts with the same characters as `<td>/app`.
-        let sibling = td.path().join("appData");
+        let inst = Install::new(false);
+        // `<td>/app-notes` merely starts with the same characters as `<td>/app`.
+        let sibling = inst.exe_dir.with_file_name("app-notes");
         std::fs::create_dir_all(&sibling).unwrap();
         let dest = sibling.join("pack.mrpack");
-        validate_export_dest_in(&dest, None, Some(&exe_dir)).unwrap();
+        inst.check(&dest, None).unwrap();
     }
 
     /// Direction check (see the Fallback discipline section of CLAUDE.md): a
-    /// check that could not be performed resolves to the restrictive answer.
+    /// check that could not be performed resolves to the restrictive answer —
+    /// for every root, not just the first one.
     #[test]
-    fn export_dest_refuses_when_the_program_directory_is_unknown() {
-        let (td, _exe_dir, _shots) = install_fixture();
-        let dest = td.path().join("elsewhere/MyPack.mrpack");
-        let r = validate_export_dest_in(&dest, None, None);
-        assert!(
-            r.is_err(),
-            "unknown program directory must refuse, not allow"
-        );
+    fn export_dest_refuses_when_a_protected_root_is_unknown() {
+        let inst = Install::new(false);
+        let dest = inst.user_dir.join("MyPack.mrpack");
+        // Sanity: with all three known this destination is allowed.
+        inst.check(&dest, None).unwrap();
+        for (label, roots) in [
+            ("program", (None, Some(&inst.data_root), Some(&inst.default_data_dir))),
+            ("data", (Some(&inst.exe_dir), None, Some(&inst.default_data_dir))),
+            ("app-data", (Some(&inst.exe_dir), Some(&inst.data_root), None)),
+        ] {
+            let (exe, data, app_data) = roots;
+            let r = validate_export_dest_in(
+                &dest,
+                None,
+                exe.map(|p| p.as_path()),
+                data.map(|p| p.as_path()),
+                app_data.map(|p| p.as_path()),
+            );
+            assert!(
+                r.is_err(),
+                "an unknown {label} directory must refuse, not allow"
+            );
+        }
     }
 }
