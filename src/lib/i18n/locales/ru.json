@@ -192,6 +192,7 @@
   },
   "sidebar": {
     "account": "Аккаунт",
+    "compactPersistFailed": "Не удалось запомнить компактный режим — при следующем запуске Lucerna откроется в прежнем режиме",
     "noAccounts": "Нет аккаунтов — добавьте один ниже.",
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "офлайн",

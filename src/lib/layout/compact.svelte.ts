@@ -18,7 +18,11 @@
 //    sizes, accounts/instances appearing) re-apply it and grow the window if the
 //    bottom buttons would otherwise clip.
 
+import { get as storeGet } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
+import { formatError } from '$lib/ipc/format-error';
+import { pushWarning } from '$lib/toasts/toasts.svelte';
 
 export const compactState = $state<{ value: boolean }>({ value: false });
 
@@ -111,9 +115,22 @@ export async function setCompact(next: boolean): Promise<void> {
   // observer's next content measurement.
   lastObservedHeight = next ? height : null;
   needsExpandedHug = !next;
-  const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') return;
-  await commands.appSettingsSetGeneral({ ...get.data.general, compact_mode: next });
+  const settings = await commands.appSettingsGet();
+  const written =
+    settings.status === 'ok' &&
+    (await commands.appSettingsSetGeneral({ ...settings.data.general, compact_mode: next }))
+      .status === 'ok';
+  if (written) return;
+  // Deliberately NOT a rollback, unlike setExplanationLevel / setHidden. Those
+  // persist a pure UI preference, so reverting the rune fully undoes the action.
+  // Here the action already SUCCEEDED — the OS window has been resized and the
+  // grid has reflowed. Undoing that would mean a second window call on a
+  // recovery path, whose own failure would then need handling (CLAUDE.md
+  // fallback discipline, Q4), to withdraw something the user can see working.
+  // Only the "remember this" half failed, and its consequence lands at the next
+  // launch, so the honest move is to say so (Q3).
+  const reason = settings.status === 'ok' ? null : formatError(settings.error);
+  pushWarning(storeGet(t)('sidebar.compactPersistFailed'), reason ? [reason] : []);
 }
 
 /** Toggle between compact and expanded. */

@@ -192,6 +192,7 @@
   },
   "sidebar": {
     "account": "Account",
+    "compactPersistFailed": "Couldn't remember compact mode — Lucerna will open in the previous mode next time",
     "noAccounts": "No accounts yet — add one below.",
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "offline",

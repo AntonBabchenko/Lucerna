@@ -2659,6 +2659,7 @@ export type TranslationKey =
   | 'sidebar.cloneInstance'
   | 'sidebar.compactCollapse'
   | 'sidebar.compactExpand'
+  | 'sidebar.compactPersistFailed'
   | 'sidebar.contextHide'
   | 'sidebar.contextMenuAria'
   | 'sidebar.createInstance'
