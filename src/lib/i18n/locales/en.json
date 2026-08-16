@@ -2706,7 +2706,8 @@
       "actionLabel": "Update",
       "currentVersion": "You're on {version}.",
       "downloading": "Downloading update…",
-      "verifyFailed": "Couldn't verify the update"
+      "verifyFailed": "Couldn't verify the update",
+      "dismissFailed": "Couldn't remember that you dismissed this update — it may be offered again next launch"
     },
     "whatsNew": {
       "toast": "Updated to {version} — see what's new",

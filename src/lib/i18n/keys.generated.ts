@@ -1796,6 +1796,7 @@ export type TranslationKey =
   | 'page.update.actionLabel'
   | 'page.update.available'
   | 'page.update.currentVersion'
+  | 'page.update.dismissFailed'
   | 'page.update.downloading'
   | 'page.update.verifyFailed'
   | 'page.whatsNew.actionLabel'
