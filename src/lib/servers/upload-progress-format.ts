@@ -51,12 +51,19 @@ export function etaSeconds(
   return remaining / speedBytesPerSec;
 }
 
-/** Localized transfer rate, e.g. "1.5 MB/s". Picks the unit by magnitude. */
+/**
+ * Localized transfer rate, e.g. "1.5 MB/s" / "1,5 МБ/с". Picks the unit by
+ * magnitude and hands `t()` the RAW number: the dictionary's
+ * `{n, number, ::.0 group-off}` argument owns the rounding AND the decimal
+ * separator, exactly as `formatSize` does. A `.toFixed(1)` string carries the
+ * ENGLISH dot into every locale, and `formatUploadProgress` puts this next to
+ * formatSize's output — so one row read "1,5 МБ / 4,0 МБ · 1.5 МБ/с".
+ */
 export function formatRate(t: Translate, bytesPerSec: number): string {
   const v = Math.max(0, bytesPerSec);
   if (v < KB) return t('format.rate.bytesPerSec', { n: Math.round(v) });
-  if (v < MB) return t('format.rate.kbPerSec', { n: (v / KB).toFixed(1) });
-  return t('format.rate.mbPerSec', { n: (v / MB).toFixed(1) });
+  if (v < MB) return t('format.rate.kbPerSec', { n: v / KB });
+  return t('format.rate.mbPerSec', { n: v / MB });
 }
 
 /** "M:SS" clock for the ETA; "--:--" when unknown (null). */

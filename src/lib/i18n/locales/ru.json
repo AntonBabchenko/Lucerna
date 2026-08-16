@@ -674,7 +674,7 @@
     "warning": {
       "title": "Запустить ещё один профиль?",
       "launchAnyway": "Всё равно запустить",
-      "ram": "Запущенные профили резервируют ~{reserved} ГБ из {total} ГБ.",
+      "ram": "Запущенные профили резервируют ~{reserved, number, ::.0 group-off} ГБ из {total, number, ::.0 group-off} ГБ.",
       "accountMicrosoft": "Аккаунт {account} уже используется запущенным профилем; вход на онлайн-сервер может завершить ту сессию.",
       "accountOffline": "Аккаунт {account} уже используется запущенным профилем; сервер может отклонить повторяющееся имя."
     }
@@ -2900,9 +2900,9 @@
       "megabyte": "МБ"
     },
     "rate": {
-      "bytesPerSec": "{n} Б/с",
-      "kbPerSec": "{n} КБ/с",
-      "mbPerSec": "{n} МБ/с"
+      "bytesPerSec": "{n, number, ::group-off} Б/с",
+      "kbPerSec": "{n, number, ::.0 group-off} КБ/с",
+      "mbPerSec": "{n, number, ::.0 group-off} МБ/с"
     },
     "count": "{n, number}"
   },

@@ -43,20 +43,25 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-/** key -> argument name, for keys with a numeric ICU argument in ANY locale. */
-function numericArgKeys(): Record<string, string> {
-  const out: Record<string, string> = {};
+/** key -> EVERY numeric ICU argument name, unioned across BOTH locales. */
+function numericArgKeys(): Record<string, string[]> {
+  const out: Record<string, Set<string>> = {};
   for (const dict of [flatten(en as Json), flatten(ru as Json)]) {
     for (const [key, value] of Object.entries(dict)) {
-      const m = /\{\s*(\w+)\s*,\s*(?:plural|selectordinal|number)\s*[,}]/.exec(value);
-      if (m) out[key] = m[1];
+      for (const m of value.matchAll(/\{\s*(\w+)\s*,\s*(?:plural|selectordinal|number)\s*[,}]/g)) {
+        (out[key] ??= new Set()).add(m[1]);
+      }
     }
   }
-  return out;
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
 }
 
 // Expressions that are strings (or stringify) rather than numbers.
-const STRINGY = /\.toLocaleString\s*\(|\bString\s*\(|^['"`]/;
+// `.toFixed()` is here for the same reason `.toLocaleString()` is: it returns a
+// STRING with an English decimal point, which a `{n, number}` argument then
+// renders verbatim — so "1.5 МБ/с" landed next to formatSize's "1,5 МБ" on the
+// same upload line. Rounding belongs in the ICU skeleton, not the caller.
+const STRINGY = /\.toLocaleString\s*\(|\.toFixed\s*\(|\bString\s*\(|^['"`]/;
 
 describe('ICU numeric arguments are numbers', () => {
   const keys = numericArgKeys();
@@ -69,12 +74,14 @@ describe('ICU numeric arguments are numbers', () => {
   const callSites: { file: string; key: string; expr: string }[] = [];
   for (const file of files) {
     const src = readFileSync(file, 'utf8');
-    for (const [key, arg] of Object.entries(keys)) {
+    for (const [key, args] of Object.entries(keys)) {
       let at = src.indexOf(`'${key}'`);
       while (at !== -1) {
         const nearby = src.slice(at, at + 400);
-        const m = new RegExp(`\\b${arg}\\s*:\\s*([^,\\n}]+)`).exec(nearby);
-        if (m) callSites.push({ file, key, expr: m[1].trim() });
+        for (const arg of args) {
+          const m = new RegExp(`\\b${arg}\\s*:\\s*([^,\\n}]+)`).exec(nearby);
+          if (m) callSites.push({ file, key, expr: m[1].trim() });
+        }
         at = src.indexOf(`'${key}'`, at + 1);
       }
     }

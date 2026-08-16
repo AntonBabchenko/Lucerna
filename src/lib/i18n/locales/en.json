@@ -674,7 +674,7 @@
     "warning": {
       "title": "Launch another instance?",
       "launchAnyway": "Launch anyway",
-      "ram": "Running instances reserve ~{reserved} GB of {total} GB.",
+      "ram": "Running instances reserve ~{reserved, number, ::.0 group-off} GB of {total, number, ::.0 group-off} GB.",
       "accountMicrosoft": "Account {account} is already in use by a running instance; joining an online server may drop that session.",
       "accountOffline": "Account {account} is already in use by a running instance; a server may reject a duplicate username."
     }
@@ -2900,9 +2900,9 @@
       "megabyte": "MB"
     },
     "rate": {
-      "bytesPerSec": "{n} B/s",
-      "kbPerSec": "{n} KB/s",
-      "mbPerSec": "{n} MB/s"
+      "bytesPerSec": "{n, number, ::group-off} B/s",
+      "kbPerSec": "{n, number, ::.0 group-off} KB/s",
+      "mbPerSec": "{n, number, ::.0 group-off} MB/s"
     },
     "count": "{n, number}"
   },

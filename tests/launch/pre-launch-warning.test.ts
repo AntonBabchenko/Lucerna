@@ -58,6 +58,20 @@ describe('warningLines', () => {
     expect(lines[0]).not.toContain('online server');
   });
 
+  it('renders the RAM figures with the locale decimal mark', () => {
+    const check: PreLaunchCheck = {
+      resource_warning: { reserved_mb: 14336, total_mb: 16384 },
+      account_conflict: null,
+    };
+    // `.toFixed(1)` produced an English "14.0" inside Russian copy. Both
+    // arguments are checked: numericArgKeys used to keep only the first.
+    locale.set('ru');
+    const line = warningLines(check)[0];
+    expect(line).toContain('14,0');
+    expect(line).toContain('16,0');
+    expect(line).not.toContain('14.0');
+  });
+
   it('includes both lines when resource + account both present', () => {
     const check: PreLaunchCheck = {
       resource_warning: { reserved_mb: 14336, total_mb: 16384 },
