@@ -1627,6 +1627,9 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 
 /// Экспортировать серверный `runtime/` в ZIP-архив по пути `dest_path`.
 /// Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
+///
+/// `dest_path` должен быть абсолютным путём вне программного каталога
+/// Lucerna: запись архива затирает то, что уже лежит по этому пути.
 #[tauri::command]
 #[specta::specta]
 pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
@@ -1636,6 +1639,7 @@ pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) ->
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(crate::error::Error::ServerAlreadyRunning { id });
     }
+    crate::pathsafe::validate_export_dest(std::path::Path::new(&dest_path), None)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     // Sync walk + deflate of a potentially GB-scale runtime — off the async

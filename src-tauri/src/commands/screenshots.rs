@@ -73,6 +73,12 @@ pub fn delete_screenshot(
     crate::screenshots::delete_screenshot(&app, &instance_id, &file_name)
 }
 
+/// Copy a screenshot to a destination the user picked in the save dialog.
+///
+/// Refuses a destination inside the Lucerna program directory, except the
+/// instance's own `screenshots/` folder — on a portable install the data root
+/// lives beside the executable, so that folder is where the launcher's own
+/// default save path points.
 // Sync command = main thread: `fs::copy` of a full-size PNG (several MB,
 // possibly onto a slow or removable destination the user picked in the save
 // dialog) blocks the window for the whole write. Same shape as
@@ -85,6 +91,8 @@ pub async fn save_screenshot_copy(
     file_name: String,
     dest: String,
 ) -> Result<(), crate::error::Error> {
+    let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
+    crate::pathsafe::validate_export_dest(std::path::Path::new(&dest), Some(&shots))?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_screenshot_copy(&app, &instance_id, &file_name, &dest)
     })
@@ -139,6 +147,13 @@ pub async fn copy_screenshot_to_clipboard(
         .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))
 }
 
+/// Composite the annotation overlay onto the screenshot and write the result
+/// to a destination the user picked in the save dialog.
+///
+/// Refuses a destination inside the Lucerna program directory, except the
+/// instance's own `screenshots/` folder — `annotated_default_path` proposes a
+/// path in exactly that folder, and on a portable install it sits beside the
+/// executable.
 // Sync command = main thread (see the thumbnail comment above): this one
 // PNG-decodes the full-resolution original, composites the overlay, crops,
 // and re-encodes — seconds of pure CPU on a 4K screenshot. Same shape as
@@ -153,6 +168,8 @@ pub async fn save_annotated_screenshot(
     crop: Option<crate::screenshots::CropFrac>,
     dest: String,
 ) -> Result<(), crate::error::Error> {
+    let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
+    crate::pathsafe::validate_export_dest(std::path::Path::new(&dest), Some(&shots))?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_annotated(
             &app,

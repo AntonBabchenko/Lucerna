@@ -1173,6 +1173,9 @@ pub async fn export_preview(
 /// CurseForge `.zip` to `dest_path`. Progress events (Resolving, Bundling,
 /// Writing, Done) are delivered over `on_progress`. Returns `Ok(())` on
 /// success; the `Done` event carries the resolved output path.
+///
+/// `dest_path` must be an absolute path outside the Lucerna program
+/// directory: the archive write truncates whatever is already at that path.
 #[tauri::command]
 #[specta::specta]
 pub async fn export_modpack(
@@ -1182,6 +1185,7 @@ pub async fn export_modpack(
     dest_path: String,
     on_progress: tauri::ipc::Channel<crate::mods::modpack::export::ModpackExportProgress>,
 ) -> Result<(), crate::error::Error> {
+    crate::pathsafe::validate_export_dest(std::path::Path::new(&dest_path), None)?;
     let root = instance_root(&app, &instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let mods = crate::mods::installed::list(&root).await?;
