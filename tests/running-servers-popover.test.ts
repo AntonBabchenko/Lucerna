@@ -39,6 +39,7 @@ vi.mock('$lib/servers/servers-ui.svelte', () => ({
 }));
 
 import RunningServersPopover from '$lib/layout/RunningServersPopover.svelte';
+import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
 
 function makeServer(id: string, name: string, running = true, port: number | null = null) {
   return { id, name, running, port };
@@ -65,6 +66,28 @@ describe('RunningServersPopover', () => {
     expect(pill.getAttribute('aria-label')).toBe('2 running');
     expect(pill.textContent).toContain('2');
     expect(pill.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the compact trigger IS the shared count pill, not a local recipe', () => {
+    state.list = [makeServer('a', 'Alpha'), makeServer('b', 'Beta')];
+    render(RunningServersPopover, { props: { runningCount: 2, compact: true } });
+    const pill = screen.getByTestId('running-servers-pill');
+    for (const cls of countPillClass('sm').split(' ')) {
+      expect(pill.classList.contains(cls), `missing ${cls}`).toBe(true);
+    }
+    expect(pill.tagName).toBe('BUTTON');
+    expect(pill.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('stays byte-identical to its RunningInstancesPopover twin', () => {
+    // The two popovers are separate components that must not drift; asserting
+    // both against ONE builder is what makes that structural rather than a
+    // convention. Holds only while the pill is CLOSED — `class:z-50={open}`
+    // appends a class once opened — so it is written against a fresh render.
+    state.list = [makeServer('a', 'Alpha')];
+    render(RunningServersPopover, { props: { runningCount: 1, compact: true } });
+    const pill = screen.getByTestId('running-servers-pill');
+    expect(pill.className.trim()).toBe(countPillClass('sm'));
   });
 
   it('opens on click and lists the running servers by name (aria-expanded toggles)', async () => {
