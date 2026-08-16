@@ -288,35 +288,44 @@ pub fn server_stop_orphan(app: AppHandle, id: String, pid: u32) -> Result<()> {
 /// Change the server's listen port in `server.properties` (validated 1..=65535).
 #[tauri::command]
 #[specta::specta]
-pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
+pub async fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let props_path = p.runtime.join("server.properties");
-    // NotFound → empty (a server that has never started has no file yet); any
-    // other read failure propagates — the rewrite below is unconditional, so
-    // treating "could not read" as "empty" would replace the user's whole
-    // config with a single server-port line.
-    let raw = crate::servers_runtime::properties::read_properties_file(&props_path)?;
-    // The port we're leaving — its firewall allow-rule (if any) is now stale.
-    let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
-    let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
-    props.set_validated("server-port", &port.to_string())?;
-    std::fs::create_dir_all(&p.runtime)
-        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
-    std::fs::write(&props_path, props.serialize())
-        .map_err(|e| Error::io("<server.properties>", e))?;
-    // Migrate the firewall rule: remove the old port's allow-rule (if present) so
-    // changing the port doesn't leave a stale open-port rule behind. The new
-    // port's rule is added on demand via `server_firewall_add_rule`.
-    if let Some(old) = old_port {
-        if old != port {
-            remove_firewall_rule_for_port(&p.root, old);
+    // The properties read/rewrite, the old-port lookup, the stale firewall-rule
+    // removal (`remove_firewall_rule_for_port` waits on a `netsh … show rule`
+    // subprocess, 100–500 ms, before the elevated delete spawn), and the
+    // handled-log bookkeeping are all blocking filesystem/subprocess work — off
+    // the main thread (same shape as `server_backup_create`).
+    tokio::task::spawn_blocking(move || {
+        let p = crate::paths::server_paths(&base, &id);
+        let props_path = p.runtime.join("server.properties");
+        // NotFound → empty (a server that has never started has no file yet); any
+        // other read failure propagates — the rewrite below is unconditional, so
+        // treating "could not read" as "empty" would replace the user's whole
+        // config with a single server-port line.
+        let raw = crate::servers_runtime::properties::read_properties_file(&props_path)?;
+        // The port we're leaving — its firewall allow-rule (if any) is now stale.
+        let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
+        let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+        props.set_validated("server-port", &port.to_string())?;
+        std::fs::create_dir_all(&p.runtime)
+            .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+        std::fs::write(&props_path, props.serialize())
+            .map_err(|e| Error::io("<server.properties>", e))?;
+        // Migrate the firewall rule: remove the old port's allow-rule (if present) so
+        // changing the port doesn't leave a stale open-port rule behind. The new
+        // port's rule is added on demand via `server_firewall_add_rule`.
+        if let Some(old) = old_port {
+            if old != port {
+                remove_firewall_rule_for_port(&p.root, old);
+            }
         }
-    }
-    // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
-    // banner from the same FAILED-TO-BIND log after the port has been changed.
-    mark_current_log_handled(&p);
-    Ok(())
+        // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
+        // banner from the same FAILED-TO-BIND log after the port has been changed.
+        mark_current_log_handled(&p);
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_change_port>", format!("join: {e}")))?
 }
 
 /// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
@@ -500,23 +509,34 @@ fn remove_firewall_rules_on_delete(root: &std::path::Path, runtime: &std::path::
 /// Возвращает ошибку если сервер запущен — сначала остановите его.
 #[tauri::command]
 #[specta::specta]
-pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
+pub async fn server_delete(app: AppHandle, id: String) -> Result<()> {
+    // Cheap in-memory guard — stays on the calling thread, before any offload.
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    // A server adopted from before a restart isn't in the in-memory map, so the
-    // is_running guard above passes; kill any leftover JVM still holding this
-    // server's world before removing the directory, or the delete would fail
-    // (or re-orphan the process).
-    crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
-    // Remove every firewall allow-rule we may have added for this server (all
-    // tracked ports + the current one) so none linger after the server is gone.
-    remove_firewall_rules_on_delete(&p.root, &p.runtime);
-    store::delete_server(&base, &id)?;
-    let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
-    Ok(())
+    // Everything below blocks: `kill_owned_pid` waits on a `taskkill` subprocess,
+    // the firewall sweep runs one `netsh … show rule` / elevated delete
+    // (100–500 ms) PER recorded port, and `store::delete_server` is a
+    // `remove_dir_all` of the whole server including its world. Off the main
+    // thread (same shape as `server_backup_create`).
+    tokio::task::spawn_blocking(move || {
+        let p = crate::paths::server_paths(&base, &id);
+        // A server adopted from before a restart isn't in the in-memory map, so the
+        // is_running guard above passes; kill any leftover JVM still holding this
+        // server's world before removing the directory, or the delete would fail
+        // (or re-orphan the process).
+        crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
+        // Remove every firewall allow-rule we may have added for this server (all
+        // tracked ports + the current one) so none linger after the server is gone.
+        remove_firewall_rules_on_delete(&p.root, &p.runtime);
+        store::delete_server(&base, &id)?;
+        let _ =
+            crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_delete>", format!("join: {e}")))?
 }
 
 /// Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину.
@@ -1609,7 +1629,7 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 /// Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
 #[tauri::command]
 #[specta::specta]
-pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
+pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
     // A live server holds world region files open and mutates them mid-write, so
     // zipping runtime/ while it runs can produce a torn archive. Refuse until the
     // server is stopped (parity with restore/upload, which also require stopped).
@@ -1618,7 +1638,13 @@ pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Resul
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
+    // Sync walk + deflate of a potentially GB-scale runtime — off the async
+    // runtime and the main thread (same shape as server_backup_create).
+    tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<server_export_zip>", format!("join: {e}")))?
 }
 
 /// Read the server's SFTP host-key fingerprint for first-connect verification
@@ -1889,13 +1915,22 @@ async fn provision_loader(
 /// Фаза 1 импорта: распаковать/просканировать источник, вернуть превью.
 #[tauri::command]
 #[specta::specta]
-pub fn server_import_inspect(
+pub async fn server_import_inspect(
     app: AppHandle,
     source_path: String,
 ) -> Result<import::ServerImportPreview> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    import::sweep_stale(&base);
-    import::inspect(&base, std::path::Path::new(&source_path))
+    // `inspect` fully extracts the source zip into staging (caps in
+    // `import::copy`: 4 GB per entry / 20 GB aggregate) and `sweep_stale`
+    // walks old staging dirs — potentially minutes of pure IO that a sync
+    // command would spend on the main thread, freezing the window. Offloaded,
+    // same shape as `server_backup_create`.
+    tokio::task::spawn_blocking(move || {
+        import::sweep_stale(&base);
+        import::inspect(&base, std::path::Path::new(&source_path))
+    })
+    .await
+    .map_err(|e| Error::io("<server_import_inspect>", format!("join: {e}")))?
 }
 
 /// Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
@@ -1977,14 +2012,39 @@ pub async fn server_import_commit(
                             .to_string(),
                     });
                 }
-                import::copy::copy_into_runtime(&root, &p.runtime)?;
-                import::pack::apply_overrides(&root, &p.runtime)?;
+                // Sync copy + overrides of a potentially GB-scale staged tree —
+                // off the async runtime (same shape as server_backup_create).
+                let root_task = root.clone();
+                let runtime = p.runtime.clone();
+                tokio::task::spawn_blocking(move || {
+                    import::copy::copy_into_runtime(&root_task, &runtime)?;
+                    import::pack::apply_overrides(&root_task, &runtime)
+                })
+                .await
+                .map_err(|e| Error::io("<server_import_commit>", format!("join: {e}")))??;
             }
             None => {
-                import::copy::copy_into_runtime(&root, &p.runtime)?;
+                // Sync copy of a potentially GB-scale staged tree — off the
+                // async runtime (same shape as server_backup_create).
+                let root_task = root.clone();
+                let runtime = p.runtime.clone();
+                tokio::task::spawn_blocking(move || {
+                    import::copy::copy_into_runtime(&root_task, &runtime)
+                })
+                .await
+                .map_err(|e| Error::io("<server_import_commit>", format!("join: {e}")))??;
             }
         }
-        let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
+        // Best-effort staging cleanup, exactly as before: a removal failure (or
+        // a panic in the removal task) must not fail the already-committed
+        // import — `sweep_stale` reclaims orphaned staging dirs on the next
+        // inspect. The staged tree can be up to 20 GB, so the removal is also
+        // offloaded rather than run inline on the runtime.
+        let staging = import::staging_dir(&base, &token);
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = std::fs::remove_dir_all(&staging);
+        })
+        .await;
         cleanup.keep();
         new_id
     };
@@ -2339,18 +2399,26 @@ use crate::servers_runtime::firewall;
 /// Returns `NotApplicable` immediately on non-Windows hosts.
 #[tauri::command]
 #[specta::specta]
-pub fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::FirewallState> {
+pub async fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::FirewallState> {
     if !cfg!(target_os = "windows") {
         return Ok(firewall::FirewallState::NotApplicable);
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
-    let port = crate::servers_runtime::runtime::read_port(&rt);
-    let present = match port {
-        Some(p) => crate::process::firewall_rule_present(&firewall::rule_name(p)),
-        None => false,
-    };
-    Ok(firewall::status_from(port, present))
+    // `read_port` reads `server.properties` and `firewall_rule_present` waits on
+    // a `netsh … show rule` subprocess (100–500 ms) — off the main thread (same
+    // shape as `data_root_size_bytes`).
+    let state = tokio::task::spawn_blocking(move || {
+        let port = crate::servers_runtime::runtime::read_port(&rt);
+        let present = match port {
+            Some(p) => crate::process::firewall_rule_present(&firewall::rule_name(p)),
+            None => false,
+        };
+        firewall::status_from(port, present)
+    })
+    .await
+    .map_err(|e| Error::io("<server_firewall_status>", format!("join: {e}")))?;
+    Ok(state)
 }
 
 /// Add an inbound allow rule for the server's port (UAC-elevated). Best-effort:

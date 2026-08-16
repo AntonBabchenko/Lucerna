@@ -197,12 +197,19 @@ pub async fn annotate_log_file(
 /// a defensive cap; annotation output is capped inside `annotate_lines`.
 #[tauri::command]
 #[specta::specta]
-pub fn annotate_log_text(
+pub async fn annotate_log_text(
     text: String,
     side: crate::logs::diagnose::annotate::AnnotateSide,
 ) -> Result<crate::logs::diagnose::annotate::AnnotateResult, crate::error::Error> {
-    let slice = truncate_at_char_boundary(&text, ANNOTATE_TEXT_CAP);
-    Ok(crate::logs::diagnose::annotate::annotate_lines(slice, side))
+    // Scan off the IPC thread (mirrors `annotate_log_file` above): up to
+    // ANNOTATE_TEXT_CAP (25 MB) of text × ~43 patterns is real CPU, and a sync
+    // command runs it on the main thread with the window frozen.
+    tokio::task::spawn_blocking(move || {
+        let slice = truncate_at_char_boundary(&text, ANNOTATE_TEXT_CAP);
+        crate::logs::diagnose::annotate::annotate_lines(slice, side)
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<annotate_log_text>", format!("join: {e}")))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or

@@ -4,11 +4,17 @@
 /// Empty Vec for an instance with no `.minecraft/saves/` dir yet.
 #[tauri::command]
 #[specta::specta]
-pub fn list_worlds(
+pub async fn list_worlds(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<Vec<crate::worlds::World>, crate::error::Error> {
-    crate::worlds::list_worlds(&app, &instance_id)
+    // Async + spawn_blocking (mirrors `world_import` below): the domain walk
+    // stats every file of every world for size+mtime plus a per-world backups
+    // scan — seconds on a cold FS cache, and a sync command spends them on the
+    // main thread with the window frozen.
+    tokio::task::spawn_blocking(move || crate::worlds::list_worlds(&app, &instance_id))
+        .await
+        .map_err(|e| crate::error::Error::io("<list_worlds>", format!("join: {e}")))?
 }
 
 /// Lightweight world list (folder name + recency proxy) for the sidebar
@@ -97,7 +103,7 @@ pub fn delete_backup(
 /// Delete a world folder AND its backups subdir (cascade).
 #[tauri::command]
 #[specta::specta]
-pub fn delete_world(
+pub async fn delete_world(
     app: tauri::AppHandle,
     instance_id: String,
     world_folder_name: String,
@@ -108,7 +114,14 @@ pub fn delete_world(
     crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
         &instance_id,
     ))?;
-    crate::worlds::delete_world(&app, &instance_id, &world_folder_name)
+    // Async + spawn_blocking (mirrors `world_import` below): the cascade is two
+    // remove_dir_all's — a region-file-heavy world plus its backups dir — and a
+    // sync command runs them on the main thread with the window frozen.
+    tokio::task::spawn_blocking(move || {
+        crate::worlds::delete_world(&app, &instance_id, &world_folder_name)
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<delete_world>", format!("join: {e}")))?
 }
 
 /// Open `<instance>/.minecraft/saves/` in the OS file manager.
