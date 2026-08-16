@@ -2711,6 +2711,11 @@
       "actionLabel": "What's new",
       "title": "What's new in Lucerna {version}"
     },
+    "startupSettings": {
+      "loadFailed": "Couldn't read your settings",
+      "loadFailedDetail": "Theme, language and your other preferences are showing their defaults for this session. Nothing on disk has been changed.",
+      "retry": "Try again"
+    },
     "crash": {
       "banner": "Minecraft crashed.",
       "viewReport": "View crash report",

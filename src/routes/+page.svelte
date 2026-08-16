@@ -70,7 +70,7 @@
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import type { PreflightReport, QuickPlay } from '$lib/ipc/bindings';
+  import type { AppFile_Serialize, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
   import { listen } from '@tauri-apps/api/event';
   import { dispatchIntent } from '$lib/launch/intent';
   import CreateShortcutDialog from '$lib/instances/CreateShortcutDialog.svelte';
@@ -360,6 +360,11 @@
   let modToggleUnlisten: (() => void) | null = null;
   let modsReconciledUnlisten: (() => void) | null = null;
   let intentUnlisten: (() => void) | null = null;
+  // initTheme() registers a prefers-color-scheme listener and returns its
+  // unlistener. Held (not discarded) because loadStartupSettings is now
+  // retryable: a second init would otherwise stack a second matchMedia listener
+  // on every retry, and the first one was leaking on unmount already.
+  let themeUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
   // Feeds the Overview Mods card's translation row.
@@ -840,6 +845,79 @@
     debouncedExternalChangeStats.cancel();
   });
 
+  /** Apply one successfully-read settings snapshot to the whole app shell.
+   *  Safe to run more than once (the retry path): the theme listener is torn
+   *  down before it is re-registered, the modpack sweep is TTL-deduped, and
+   *  checkWhatsNew is once-per-version. */
+  function applyStartupSettings(data: AppFile_Serialize): void {
+    themeUnlisten?.();
+    themeUnlisten = initTheme(data.general.theme ?? 'system');
+    initLocale(data.general.language ?? 'system');
+    explanationState.level = data.general.explanation_level ?? 'basic';
+    void initCompact(data.general.compact_mode ?? false);
+    initSidebarButtons(data.general.hidden_sidebar_buttons ?? []);
+    modpackSweepEnabled = data.general.check_updates_on_startup ?? true;
+    sweepModpackUpdates();
+    // Post-update "What's new": if the running version differs from the last
+    // one the user saw, offer the changelog. Independent of the update-check
+    // setting — it's fully offline (embedded changelog, no network).
+    // Fire-and-forget; never gate core init on it.
+    void checkWhatsNew(data.changelog_seen_version ?? null);
+
+    // Fire-and-forget: this is a best-effort, error-swallowing check, so it
+    // must NOT gate core init. Awaiting it here would stall accounts +
+    // versions behind the network call (up to the client's 15s connect
+    // timeout) on a GitHub outage. Let it resolve on its own; the toast
+    // appears whenever it completes.
+    if (data.general.check_updates_on_startup) {
+      const dismissed = data.update_dismissed_version ?? null;
+      void (async () => {
+        const upd = await commands.updateCheck();
+        if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
+          updateState.value = upd.data;
+          const latest = upd.data.latest;
+          const current = upd.data.current;
+          const tr = get(t);
+          const toastId = pushActionToast(
+            'info',
+            tr('page.update.available', { version: latest }),
+            { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
+            [tr('page.update.currentVersion', { version: current })],
+            () => void dismissUpdate(latest),
+          );
+          // Auto-hide the startup notification after a few seconds. This
+          // only HIDES it (so it reappears next launch) — it does NOT mark
+          // the version dismissed (that's the × button via dismissUpdate).
+          // The durable path is the Settings → Updates "Check for updates"
+          // button. No-op if the user already acted on the toast.
+          setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
+        }
+      })();
+    }
+  }
+
+  /** Read app settings and apply them. A failed read used to be swallowed: the
+   *  session then silently ran on DEFAULTS — light theme, OS language, expanded
+   *  layout, every hidden sidebar button back, update checks on — and the user
+   *  had no way to tell that apart from "my settings were reset". Nothing is
+   *  written on this path, so the on-disk settings are intact; say so, and offer
+   *  the one action that can fix it. Toast + action button is the same shape
+   *  `$lib/update/state.svelte.ts` uses for a failed install. */
+  async function loadStartupSettings(): Promise<void> {
+    const settingsResult = await commands.appSettingsGet();
+    if (settingsResult.status === 'ok') {
+      applyStartupSettings(settingsResult.data);
+      return;
+    }
+    const tr = get(t);
+    pushActionToast(
+      'warning',
+      tr('page.startupSettings.loadFailed'),
+      { label: tr('page.startupSettings.retry'), run: () => void loadStartupSettings() },
+      [tr('page.startupSettings.loadFailedDetail'), formatError(settingsResult.error)],
+    );
+  }
+
   onMount(async () => {
     void dataLocation.init();
     void refreshInstances();
@@ -938,52 +1016,7 @@
     void mcv.load();
     const accountsReady = refreshAccounts();
 
-    const settingsResult = await commands.appSettingsGet();
-    if (settingsResult.status === 'ok') {
-      initTheme(settingsResult.data.general.theme ?? 'system');
-      initLocale(settingsResult.data.general.language ?? 'system');
-      explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
-      void initCompact(settingsResult.data.general.compact_mode ?? false);
-      initSidebarButtons(settingsResult.data.general.hidden_sidebar_buttons ?? []);
-      modpackSweepEnabled = settingsResult.data.general.check_updates_on_startup ?? true;
-      sweepModpackUpdates();
-      // Post-update "What's new": if the running version differs from the last
-      // one the user saw, offer the changelog. Independent of the update-check
-      // setting — it's fully offline (embedded changelog, no network).
-      // Fire-and-forget; never gate core init on it.
-      void checkWhatsNew(settingsResult.data.changelog_seen_version ?? null);
-    }
-
-    // Fire-and-forget: this is a best-effort, error-swallowing check, so it
-    // must NOT gate core init. Awaiting it here would stall accounts +
-    // versions behind the network call (up to the client's 15s connect
-    // timeout) on a GitHub outage. Let it resolve on its own; the toast
-    // appears whenever it completes.
-    if (settingsResult.status === 'ok' && settingsResult.data.general.check_updates_on_startup) {
-      const dismissed = settingsResult.data.update_dismissed_version ?? null;
-      void (async () => {
-        const upd = await commands.updateCheck();
-        if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
-          updateState.value = upd.data;
-          const latest = upd.data.latest;
-          const current = upd.data.current;
-          const tr = get(t);
-          const toastId = pushActionToast(
-            'info',
-            tr('page.update.available', { version: latest }),
-            { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
-            [tr('page.update.currentVersion', { version: current })],
-            () => void dismissUpdate(latest),
-          );
-          // Auto-hide the startup notification after a few seconds. This
-          // only HIDES it (so it reappears next launch) — it does NOT mark
-          // the version dismissed (that's the × button via dismissUpdate).
-          // The durable path is the Settings → Updates "Check for updates"
-          // button. No-op if the user already acted on the toast.
-          setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
-        }
-      })();
-    }
+    await loadStartupSettings();
 
     await accountsReady;
 
@@ -1006,6 +1039,7 @@
   // stored unlisteners were never called and the mod-event listeners were never
   // even captured, so they leaked on unmount.
   onDestroy(() => {
+    themeUnlisten?.();
     spawnUnlisten?.();
     exitUnlisten?.();
     modInstalledUnlisten?.();
