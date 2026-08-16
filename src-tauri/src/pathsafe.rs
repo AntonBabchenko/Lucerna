@@ -87,7 +87,7 @@ pub fn is_safe_filename(name: &str) -> bool {
 /// already there. The dialog itself lives in the frontend, so what reaches
 /// this function is a string the *webview* supplied — the guard has to hold
 /// even when the webview is not telling the truth about where the user
-/// pointed. Three shapes are never a legitimate save target:
+/// pointed. Four shapes are never a legitimate save target:
 ///
 /// - A **relative** path. It resolves against the launcher process's current
 ///   directory — which the user never sees and which differs between a
@@ -109,6 +109,21 @@ pub fn is_safe_filename(name: &str) -> bool {
 ///   unparseable file as "no redirect", so truncating it raises no error at
 ///   all; it silently strands a relocated data root and sends the launcher
 ///   back to the default one with the user's instances nowhere in sight.
+/// - A filename whose **extension is not one this command actually writes**.
+///   Everywhere outside the three roots above is fair game for a file the
+///   user asked for — but "a file the user asked for" has a name the command
+///   knows in advance. Without this rule an export can drop a `.bat` into the
+///   Startup folder, a `.desktop` into `autostart/`, or overwrite a dotfile,
+///   with content the caller influences (`save_annotated_screenshot`
+///   composites caller-supplied pixels). `allowed_extensions` is matched
+///   case-insensitively, and an extensionless destination is refused too —
+///   `~/.bashrc` has no extension.
+///
+///   The final component is separately refused if it ends in a dot or a
+///   space. Windows strips both when opening a file, so `evil.bat.` reaches
+///   the disk as `evil.bat`; `Path::extension` sees `""` there and would
+///   already refuse it, but naming the trick explicitly is what keeps the
+///   rule from silently depending on that coincidence.
 ///
 /// `allowed_inside` carves out one directory that stays writable even when it
 /// sits inside a protected root, and it applies to *every* containment rule
@@ -127,6 +142,7 @@ pub fn validate_export_dest(
     app: &tauri::AppHandle,
     dest: &Path,
     allowed_inside: Option<&Path>,
+    allowed_extensions: &[&str],
 ) -> crate::error::Result<()> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -136,6 +152,7 @@ pub fn validate_export_dest(
     validate_export_dest_in(
         dest,
         allowed_inside,
+        allowed_extensions,
         exe_dir.as_deref(),
         data_root.as_deref(),
         default_data_dir.as_deref(),
@@ -148,6 +165,7 @@ pub fn validate_export_dest(
 fn validate_export_dest_in(
     dest: &Path,
     allowed_inside: Option<&Path>,
+    allowed_extensions: &[&str],
     exe_dir: Option<&Path>,
     data_root: Option<&Path>,
     default_data_dir: Option<&Path>,
@@ -161,6 +179,31 @@ fn validate_export_dest_in(
     // the folder the user picked in the dialog.
     if !dest.is_absolute() {
         return Err(deny("destination must be an absolute path"));
+    }
+
+    // A name we cannot read as UTF-8 is a name we cannot reason about; a path
+    // ending in `..` or a root has no final component at all.
+    let Some(file_name) = dest.file_name().and_then(|n| n.to_str()) else {
+        return Err(deny("destination has no readable file name"));
+    };
+    // Windows strips trailing dots and spaces when it opens a file, so
+    // `evil.bat.` and `x.bat . ` both land on disk as something other than
+    // what the name says. Refuse the shape outright rather than reasoning
+    // about what the OS will trim.
+    if file_name.ends_with('.') || file_name.ends_with(' ') {
+        return Err(deny(
+            "destination file name must not end with a dot or a space",
+        ));
+    }
+    let ext = dest.extension().and_then(|e| e.to_str()).unwrap_or_default();
+    if !allowed_extensions
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+    {
+        return Err(deny(&format!(
+            "destination must end in .{}",
+            allowed_extensions.join(" or .")
+        )));
     }
 
     let exempt =
@@ -303,10 +346,16 @@ mod tests {
         }
 
         /// Run the validator with this install's three protected roots injected.
-        fn check(&self, dest: &Path, allowed_inside: Option<&Path>) -> crate::error::Result<()> {
+        fn check(
+            &self,
+            dest: &Path,
+            allowed_inside: Option<&Path>,
+            allowed_extensions: &[&str],
+        ) -> crate::error::Result<()> {
             validate_export_dest_in(
                 dest,
                 allowed_inside,
+                allowed_extensions,
                 Some(&self.exe_dir),
                 Some(&self.data_root),
                 Some(&self.default_data_dir),
@@ -314,12 +363,17 @@ mod tests {
         }
     }
 
+    /// The extensions the *containment* tests' destinations happen to use.
+    /// Those tests are about **where** a write may land, not **what** it may
+    /// be called; the extension rule has its own tests further down.
+    const ANY_EXT: &[&str] = &["mrpack", "png", "json", "jar", "exe"];
+
     #[test]
     fn export_dest_rejects_empty_and_relative_paths() {
         let inst = Install::new(false);
         for bad in ["", "export.mrpack", "./export.mrpack", "sub/export.mrpack"] {
             assert!(
-                inst.check(Path::new(bad), None).is_err(),
+                inst.check(Path::new(bad), None, ANY_EXT).is_err(),
                 "{bad:?} should be refused"
             );
         }
@@ -329,7 +383,7 @@ mod tests {
     fn export_dest_accepts_a_folder_the_launcher_does_not_own() {
         let inst = Install::new(false);
         let dest = inst.user_dir.join("MyPack.mrpack");
-        inst.check(&dest, None).unwrap();
+        inst.check(&dest, None, ANY_EXT).unwrap();
     }
 
     #[test]
@@ -341,7 +395,7 @@ mod tests {
             inst.exe_dir.join("sub/pack.mrpack"),
         ] {
             assert!(
-                inst.check(&dest, None).is_err(),
+                inst.check(&dest, None, ANY_EXT).is_err(),
                 "{} should be refused",
                 dest.display()
             );
@@ -365,7 +419,7 @@ mod tests {
         ] {
             let dest = inst.data_root.join(rel);
             assert!(
-                inst.check(&dest, None).is_err(),
+                inst.check(&dest, None, ANY_EXT).is_err(),
                 "{rel} inside the data root should be refused"
             );
         }
@@ -384,7 +438,7 @@ mod tests {
             &inst.default_data_dir
         ));
         let dest = inst.default_data_dir.join("data-location.json");
-        assert!(inst.check(&dest, None).is_err());
+        assert!(inst.check(&dest, None, ANY_EXT).is_err());
     }
 
     /// The load-bearing exemption. On a stock install the launcher's OWN
@@ -397,7 +451,7 @@ mod tests {
         for portable in [false, true] {
             let inst = Install::new(portable);
             let dest = inst.shots.join("2026-08-16_12.00.00-annotated.png");
-            inst.check(&dest, Some(&inst.shots))
+            inst.check(&dest, Some(&inst.shots), ANY_EXT)
                 .unwrap_or_else(|e| panic!("portable={portable}: {e:?}"));
         }
     }
@@ -409,13 +463,13 @@ mod tests {
             // A sibling of the exempt folder is still inside the data root.
             let sibling = inst.data_root.join("instances/i/.minecraft/mods/evil.png");
             assert!(
-                inst.check(&sibling, Some(&inst.shots)).is_err(),
+                inst.check(&sibling, Some(&inst.shots), ANY_EXT).is_err(),
                 "portable={portable}: the exemption must cover only the passed folder"
             );
             // And so is the redirect file, exemption or not.
             let redirect = inst.default_data_dir.join("data-location.json");
             assert!(
-                inst.check(&redirect, Some(&inst.shots)).is_err(),
+                inst.check(&redirect, Some(&inst.shots), ANY_EXT).is_err(),
                 "portable={portable}: the exemption must not reach the redirect file"
             );
         }
@@ -428,7 +482,65 @@ mod tests {
         let sibling = inst.exe_dir.with_file_name("app-notes");
         std::fs::create_dir_all(&sibling).unwrap();
         let dest = sibling.join("pack.mrpack");
-        inst.check(&dest, None).unwrap();
+        inst.check(&dest, None, ANY_EXT).unwrap();
+    }
+
+    /// Outside the protected roots the destination is the user's own folder,
+    /// so containment says nothing — the only thing standing between an
+    /// export and `%APPDATA%\..\Start Menu\...\Startup\run.bat` is the name.
+    #[test]
+    fn export_dest_requires_an_extension_the_command_actually_writes() {
+        let inst = Install::new(false);
+        for bad in [
+            "run.bat",
+            "run.cmd",
+            "hook.ps1",
+            "lucerna.desktop",
+            "libthing.so",
+            "notes",       // no extension at all
+            ".bashrc",     // a dotfile has no extension either
+            "pack.mrpack.zip", // the LAST extension is the one that counts
+        ] {
+            let dest = inst.user_dir.join(bad);
+            assert!(
+                inst.check(&dest, None, &["mrpack"]).is_err(),
+                "{bad:?} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn export_dest_accepts_any_extension_on_the_list_case_insensitively() {
+        let inst = Install::new(false);
+        for ok in ["pack.mrpack", "pack.zip", "pack.MRPACK", "pack.Zip"] {
+            let dest = inst.user_dir.join(ok);
+            inst.check(&dest, None, &["mrpack", "zip"])
+                .unwrap_or_else(|e| panic!("{ok} should be accepted: {e:?}"));
+        }
+    }
+
+    /// Windows trims trailing dots and spaces when it opens a file, so a name
+    /// that reads as `.png` can still land on disk as `.bat`.
+    #[test]
+    fn export_dest_rejects_windows_trailing_dot_and_space_names() {
+        let inst = Install::new(false);
+        for bad in ["shot.png.", "shot.png ", "evil.bat.", "evil.bat . "] {
+            let dest = inst.user_dir.join(bad);
+            assert!(
+                inst.check(&dest, None, &["png"]).is_err(),
+                "{bad:?} should be refused"
+            );
+        }
+    }
+
+    /// The exemption is about **where**, never about **what**. The
+    /// screenshots folder stays writable, but not under any name the caller
+    /// likes — `save_annotated_screenshot` composites caller-supplied pixels.
+    #[test]
+    fn export_dest_exemption_does_not_bypass_the_extension_rule() {
+        let inst = Install::new(true);
+        let dest = inst.shots.join("evil.bat");
+        assert!(inst.check(&dest, Some(&inst.shots), &["png"]).is_err());
     }
 
     /// Direction check (see the Fallback discipline section of CLAUDE.md): a
@@ -439,7 +551,7 @@ mod tests {
         let inst = Install::new(false);
         let dest = inst.user_dir.join("MyPack.mrpack");
         // Sanity: with all three known this destination is allowed.
-        inst.check(&dest, None).unwrap();
+        inst.check(&dest, None, ANY_EXT).unwrap();
         for (label, roots) in [
             ("program", (None, Some(&inst.data_root), Some(&inst.default_data_dir))),
             ("data", (Some(&inst.exe_dir), None, Some(&inst.default_data_dir))),
@@ -449,6 +561,7 @@ mod tests {
             let r = validate_export_dest_in(
                 &dest,
                 None,
+                ANY_EXT,
                 exe.map(|p| p.as_path()),
                 data.map(|p| p.as_path()),
                 app_data.map(|p| p.as_path()),

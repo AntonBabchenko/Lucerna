@@ -80,6 +80,8 @@ pub fn delete_screenshot(
 /// that folder is under the data root on every install (and under the program
 /// directory too on a portable one, where the root lives beside the
 /// executable), and it is where the launcher's own default save path points.
+/// The destination must also be named `.png`: this copies a PNG, and an
+/// export must not be able to create a file the OS treats as executable.
 // Sync command = main thread: `fs::copy` of a full-size PNG (several MB,
 // possibly onto a slow or removable destination the user picked in the save
 // dialog) blocks the window for the whole write. Same shape as
@@ -93,7 +95,7 @@ pub async fn save_screenshot_copy(
     dest: String,
 ) -> Result<(), crate::error::Error> {
     let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
-    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots))?;
+    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots), &["png"])?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_screenshot_copy(&app, &instance_id, &file_name, &dest)
     })
@@ -155,7 +157,10 @@ pub async fn copy_screenshot_to_clipboard(
 /// OS-default app-data dir, except the instance's own `screenshots/` folder —
 /// `annotated_default_path` proposes a path in exactly that folder, which is
 /// under the data root on every install and inside the program directory too
-/// on a portable one.
+/// on a portable one. The destination must also be named `.png`: the write is
+/// `save_with_format(Png)` of caller-supplied pixels, so an unconstrained
+/// name would let a caller place arbitrary bytes under an arbitrary
+/// extension.
 // Sync command = main thread (see the thumbnail comment above): this one
 // PNG-decodes the full-resolution original, composites the overlay, crops,
 // and re-encodes — seconds of pure CPU on a 4K screenshot. Same shape as
@@ -171,7 +176,7 @@ pub async fn save_annotated_screenshot(
     dest: String,
 ) -> Result<(), crate::error::Error> {
     let shots = crate::screenshots::screenshots_dir(&app, &instance_id)?;
-    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots))?;
+    crate::pathsafe::validate_export_dest(&app, std::path::Path::new(&dest), Some(&shots), &["png"])?;
     tokio::task::spawn_blocking(move || {
         crate::screenshots::save_annotated(
             &app,
