@@ -295,9 +295,12 @@
           {#if installed}
             {installedMeta}
           {:else}
+            <!-- Raw count, never pre-formatted: `{downloads, number}` groups the
+                 digits using the UI locale, while a bare toLocaleString() uses
+                 the OS one. Same rule as ModpackCard's download badge. -->
             {$t('mods.card.byAuthorDownloads', {
               author: summary.author,
-              downloads: (summary.downloads ?? 0).toLocaleString(),
+              downloads: summary.downloads ?? 0,
             })}
           {/if}
         </span>
@@ -342,7 +345,7 @@
             <Icon name="user" size={12} />
             {summary.author}
             <Icon name="download" size={12} class="ml-1.5" />
-            {(summary.downloads ?? 0).toLocaleString()}
+            {$t('format.count', { n: summary.downloads ?? 0 })}
           </span>
         {/if}
         {#if summary.summary}

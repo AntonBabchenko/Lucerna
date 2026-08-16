@@ -310,6 +310,7 @@ export type TranslationKey =
   | 'errors.worldPathInvalid'
   | 'errors.worldRecoverTargetOccupied'
   | 'errors.worldRestoreStranded'
+  | 'format.count'
   | 'format.duration.hoursMinutes'
   | 'format.duration.lessThanMinute'
   | 'format.duration.minutes'

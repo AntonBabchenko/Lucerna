@@ -754,13 +754,13 @@
       "update": "Update",
       "selectAriaLabel": "Select mod {name}",
       "fromModpackTitle": "From modpack: {name}",
-      "byAuthorDownloads": "by {author} · {downloads} dl",
+      "byAuthorDownloads": "by {author} · {downloads, number} dl",
       "details": "Details",
       "menuAriaLabel": "Actions for {name}"
     },
     "detail": {
       "loading": "Loading…",
-      "byAuthorSourceDownloads": "by {author} · {source} · {downloads} downloads",
+      "byAuthorSourceDownloads": "by {author} · {source} · {downloads, number} downloads",
       "viewOnModrinth": "View on Modrinth",
       "viewOnCurseForge": "View on CurseForge",
       "closeAriaLabel": "Close mod details",
@@ -2903,7 +2903,8 @@
       "bytesPerSec": "{n} B/s",
       "kbPerSec": "{n} KB/s",
       "mbPerSec": "{n} MB/s"
-    }
+    },
+    "count": "{n, number}"
   },
   "optimise": {
     "button": "Optimise",

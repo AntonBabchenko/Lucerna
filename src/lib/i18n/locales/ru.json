@@ -754,13 +754,13 @@
       "update": "Обновить",
       "selectAriaLabel": "Выбрать мод {name}",
       "fromModpackTitle": "Из сборки: {name}",
-      "byAuthorDownloads": "{author} · {downloads} скач.",
+      "byAuthorDownloads": "{author} · {downloads, number} скач.",
       "details": "Подробнее",
       "menuAriaLabel": "Действия для {name}"
     },
     "detail": {
       "loading": "Загрузка…",
-      "byAuthorSourceDownloads": "{author} · {source} · {downloads} скачиваний",
+      "byAuthorSourceDownloads": "{author} · {source} · {downloads, number} скачиваний",
       "viewOnModrinth": "Открыть на Modrinth",
       "viewOnCurseForge": "Открыть на CurseForge",
       "closeAriaLabel": "Закрыть сведения о моде",
@@ -2903,7 +2903,8 @@
       "bytesPerSec": "{n} Б/с",
       "kbPerSec": "{n} КБ/с",
       "mbPerSec": "{n} МБ/с"
-    }
+    },
+    "count": "{n, number}"
   },
   "optimise": {
     "button": "Оптимизировать",

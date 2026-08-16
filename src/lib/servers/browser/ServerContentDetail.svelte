@@ -158,7 +158,9 @@
     }
   }
 
-  const downloads = $derived((project.downloads ?? 0).toLocaleString());
+  // Raw count through `{n, number}`: a pre-formatted toLocaleString() followed
+  // the OS locale, so a Russian UI on an English Windows printed "12,345".
+  const downloads = $derived($t('format.count', { n: project.downloads ?? 0 }));
 </script>
 
 <Modal
