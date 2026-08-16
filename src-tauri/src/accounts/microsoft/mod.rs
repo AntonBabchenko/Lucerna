@@ -29,10 +29,23 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
     let (listener, redirect_uri) = oauth::bind_listener().await?;
     let auth_url = oauth::build_authorize_url(&redirect_uri, &pkce.challenge, &state);
 
-    // Open the browser. We don't fail if the opener errors; the user may
-    // copy/paste the URL manually. The listener still waits for callback.
+    // Open the browser. If the opener fails, fail the sign-in NOW and say
+    // why. Nothing in the UI ever displays `auth_url`, so "the user may
+    // copy/paste the URL manually" is not a recovery path that exists —
+    // continuing would burn the 5-minute listener timeout in silence and
+    // then report "Microsoft sign-in cancelled", which is not what
+    // happened. The URL is deliberately NOT carried in the error either:
+    // it is only actionable while this listener is alive, and returning
+    // here drops the listener — an error offering a dead URL would rebuild
+    // the same false story in typed form.
     use tauri_plugin_opener::OpenerExt;
-    let _ = app.opener().open_url(&auth_url, None::<&str>);
+    if let Err(e) = app.opener().open_url(&auth_url, None::<&str>) {
+        crate::diag!("msauth: could not open the browser for sign-in: {e}");
+        return Err(Error::AuthFailed {
+            stage: "open_browser".into(),
+            details: e.to_string(),
+        });
+    }
 
     let timeout = crate::test_seam::resolve("LUCERNA_LISTENER_TIMEOUT_SECS")
         .and_then(|s| s.parse::<u64>().ok())

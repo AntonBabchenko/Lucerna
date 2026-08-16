@@ -49,7 +49,20 @@ fn import_from_zip(saves: &Path, zip_path: &Path) -> Result<World> {
         place_world(saves, &staging, Some(&fallback), Move::Rename)
     })();
 
-    let _ = std::fs::remove_dir_all(&staging);
+    // NotFound is the COMMON success case, not debris: when level.dat sits at
+    // the archive root, `find_world_root(staging) == staging` and the
+    // `Move::Rename` inside `place_world` moves the staging dir itself into
+    // saves/ — there is nothing left to sweep. Only a real removal failure
+    // (something genuinely left behind that could not be cleared) is worth a
+    // log line.
+    if let Err(e) = std::fs::remove_dir_all(&staging) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            crate::diag!(
+                "world import: leftover staging dir {}: {e}",
+                staging.display()
+            );
+        }
+    }
     result
 }
 
@@ -107,17 +120,7 @@ fn place_world(
         }
         Move::Copy => {
             std::fs::create_dir_all(&dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
-            let mut aggregate = 0u64;
-            if let Err(e) = copy_tree(
-                &world_root,
-                &dest,
-                &mut aggregate,
-                PER_FILE_CAP,
-                AGGREGATE_CAP,
-            ) {
-                let _ = std::fs::remove_dir_all(&dest);
-                return Err(e);
-            }
+            copy_world_with_rollback(&world_root, &dest, &chosen, &|p| std::fs::remove_dir_all(p))?;
         }
     }
 
@@ -251,6 +254,56 @@ fn copy_tree(
         }
     }
     Ok(())
+}
+
+/// Copy the world subtree into `dest`, removing `dest` again if the copy
+/// fails. The rollback's own result is checked (CLAUDE.md, Fallback
+/// discipline, question 4): `list_worlds` treats ANY direct subdirectory of
+/// `saves/` as a world, so a partial `saves/<chosen>` surviving a swallowed
+/// rollback shows up in the user's world list looking real, while the UI
+/// claims only "import failed".
+///
+/// `remove` is injected rather than called directly so a test can fail the
+/// rollback deterministically on Windows, Linux AND macOS — the seam shape
+/// `restore::swap_in_place` established for its renames. Production passes
+/// `std::fs::remove_dir_all`.
+///
+/// On rollback failure both causes are `diag!`-logged here, where the full
+/// context still exists, and the returned `WorldImportPartialLeft` carries
+/// only the folder NAME — a bare segment inside a fully translated sentence,
+/// the same rule `WorldRestoreStranded` documents.
+fn copy_world_with_rollback(
+    world_root: &Path,
+    dest: &Path,
+    chosen: &str,
+    remove: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> Result<()> {
+    let mut aggregate = 0u64;
+    let Err(e) = copy_tree(
+        world_root,
+        dest,
+        &mut aggregate,
+        PER_FILE_CAP,
+        AGGREGATE_CAP,
+    ) else {
+        return Ok(());
+    };
+    match remove(dest) {
+        Ok(()) => Err(e),
+        // Already gone (external deletion between the failed copy and the
+        // rollback): nothing is left behind, so nothing to report beyond the
+        // copy failure itself — same discrimination as `rollback_partial_instance`.
+        Err(rb) if rb.kind() == std::io::ErrorKind::NotFound => Err(e),
+        Err(rb) => {
+            crate::diag!(
+                "world import: copy into {} failed ({e}) AND rollback failed ({rb}); partial copy left",
+                dest.display()
+            );
+            Err(Error::WorldImportPartialLeft {
+                folder_name: chosen.to_string(),
+            })
+        }
+    }
 }
 
 /// Reject a zip whose declared (uncompressed) sizes exceed the caps — the
@@ -479,6 +532,70 @@ mod tests {
         .unwrap();
         assert!(dst.path().join("level.dat").is_file());
         assert!(!dst.path().join("link").exists(), "symlink must be skipped");
+    }
+
+    #[test]
+    fn copy_rollback_removes_partial_copy_and_returns_the_copy_error() {
+        let src = tempdir().unwrap();
+        touch(&src.path().join("level.dat"));
+        touch(&src.path().join("data.bin"));
+        let saves = tempdir().unwrap();
+        let dest = saves.path().join("World");
+        fs::create_dir_all(&dest).unwrap();
+        // Poison the copy: a DIRECTORY where `fs::copy` must write a file
+        // fails on every platform (the poison-the-destination trick
+        // l10n/prefill/run/state.rs:518 uses against a store write).
+        fs::create_dir_all(dest.join("data.bin")).unwrap();
+        let r =
+            copy_world_with_rollback(src.path(), &dest, "World", &|p| std::fs::remove_dir_all(p));
+        assert!(matches!(r, Err(Error::Io { .. })), "got: {r:?}");
+        assert!(
+            !dest.exists(),
+            "the partial copy must be rolled back when removal succeeds"
+        );
+    }
+
+    #[test]
+    fn copy_rollback_failure_returns_partial_left_with_folder_name() {
+        let src = tempdir().unwrap();
+        touch(&src.path().join("level.dat"));
+        touch(&src.path().join("data.bin"));
+        let saves = tempdir().unwrap();
+        let dest = saves.path().join("World (2)");
+        fs::create_dir_all(&dest).unwrap();
+        fs::create_dir_all(dest.join("data.bin")).unwrap();
+        // Injected rollback failure — the deterministic cross-platform seam,
+        // as in `restore::swap_in_place`.
+        let r = copy_world_with_rollback(src.path(), &dest, "World (2)", &|_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "held open by another process",
+            ))
+        });
+        match r {
+            Err(Error::WorldImportPartialLeft { folder_name }) => {
+                assert_eq!(folder_name, "World (2)");
+            }
+            other => panic!("expected WorldImportPartialLeft, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn copy_rollback_already_gone_dest_keeps_the_copy_error() {
+        let src = tempdir().unwrap();
+        touch(&src.path().join("level.dat"));
+        touch(&src.path().join("data.bin"));
+        let saves = tempdir().unwrap();
+        let dest = saves.path().join("World");
+        fs::create_dir_all(&dest).unwrap();
+        fs::create_dir_all(dest.join("data.bin")).unwrap();
+        // Rollback finds nothing to remove (external deletion between the
+        // failed copy and the rollback): the original copy error must come
+        // back — never WorldImportPartialLeft about a path that is not there.
+        let r = copy_world_with_rollback(src.path(), &dest, "World", &|_| {
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+        });
+        assert!(matches!(r, Err(Error::Io { .. })), "got: {r:?}");
     }
 
     #[test]
