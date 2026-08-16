@@ -26,7 +26,21 @@ use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 ///   row for it instead.
 pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
     let dp_dir = world_dir.join("datapacks");
-    let mut records = installed::load(world_dir);
+    // An UNREADABLE sidecar (`load` discriminates that from an absent one,
+    // which reads as empty) is ignorance, not absence: reconciling against it
+    // would adopt every on-disk zip as a provenance-less row and persist that
+    // wipe. Skip the pass entirely — the listing degrades to ephemeral rows
+    // for one round and the next one retries.
+    let mut records = match installed::load(world_dir) {
+        Ok(records) => records,
+        Err(e) => {
+            crate::diag!(
+                "server datapacks: reconcile skipped, could not read sidecar in {}: {e}",
+                world_dir.display()
+            );
+            return Vec::new();
+        }
+    };
 
     let on_disk: Vec<String> = match std::fs::read_dir(&dp_dir) {
         Ok(rd) => rd
@@ -107,7 +121,7 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
 /// case is one filename whose bytes just changed.
 pub fn upsert_by_filename(world_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
     let key = record.filename.to_lowercase();
-    let mut records = installed::load(world_dir);
+    let mut records = installed::load(world_dir)?;
     records.retain(|r| r.filename.to_lowercase() != key);
     records.push(record);
     installed::save(world_dir, &records)
@@ -116,7 +130,7 @@ pub fn upsert_by_filename(world_dir: &Path, record: ServerInstalledRecord) -> Re
 /// Drop the row for `filename`. Idempotent; writes only when something went.
 pub fn forget(world_dir: &Path, filename: &str) -> Result<()> {
     let key = filename.to_lowercase();
-    let mut records = installed::load(world_dir);
+    let mut records = installed::load(world_dir)?;
     let before = records.len();
     records.retain(|r| r.filename.to_lowercase() != key);
     if records.len() != before {
@@ -210,7 +224,9 @@ mod tests {
         let td = world_with(&[]);
         crate::servers_runtime::installed::save(td.path(), &[row("gone.zip", "deadbeef")]).unwrap();
         assert!(reconcile(td.path()).is_empty());
-        assert!(crate::servers_runtime::installed::load(td.path()).is_empty());
+        assert!(crate::servers_runtime::installed::load(td.path())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -256,7 +272,12 @@ mod tests {
         crate::servers_runtime::installed::save(td.path(), &[row("keep.zip", "aa")]).unwrap();
         let rows = reconcile(td.path());
         assert_eq!(rows.len(), 1, "rows survive an unreadable dir");
-        assert_eq!(crate::servers_runtime::installed::load(td.path()).len(), 1);
+        assert_eq!(
+            crate::servers_runtime::installed::load(td.path())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -266,7 +287,7 @@ mod tests {
         let mut next = row("пак.zip", "bb");
         next.version_id = Some("v2".into());
         upsert_by_filename(td.path(), next).unwrap();
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1, "NTFS folds Cyrillic — one file, one row");
         assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
     }
@@ -276,7 +297,9 @@ mod tests {
         let td = world_with(&[]);
         crate::servers_runtime::installed::save(td.path(), &[row("a.zip", "aa")]).unwrap();
         forget(td.path(), "A.ZIP").unwrap();
-        assert!(crate::servers_runtime::installed::load(td.path()).is_empty());
+        assert!(crate::servers_runtime::installed::load(td.path())
+            .unwrap()
+            .is_empty());
         forget(td.path(), "a.zip").unwrap();
     }
 }

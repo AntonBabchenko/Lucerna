@@ -11,8 +11,12 @@
 //!     (`plugins.rs`, `quarantine.rs`, `store.rs`).
 //!
 //! Keyed by sha1 (lowercased) so identity survives an enable/disable rename.
-//! Fail-open: a missing/corrupt sidecar is treated as empty and rebuilt from
-//! disk by `reconcile_on_list` — never a hard error.
+//! Fail-open only for what is PROVEN: an absent sidecar, or one that read fine
+//! but does not parse, is treated as empty and rebuilt from disk by
+//! `reconcile_on_list`. A sidecar that exists but cannot be READ is an error:
+//! every consumer feeds `load`'s result into a read-modify-write `save`, so
+//! reading ignorance as "empty" would save away every record's identity
+//! metadata (source / project_id / version_id / name / version_number).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -69,13 +73,25 @@ fn sidecar_path(jar_dir: &Path) -> PathBuf {
     jar_dir.join(SIDECAR)
 }
 
-pub fn load(jar_dir: &Path) -> Vec<ServerInstalledRecord> {
-    let Ok(bytes) = std::fs::read(sidecar_path(jar_dir)) else {
-        return Vec::new();
+/// Read the sidecar registry, discriminating "absent" from "could not read".
+///
+/// Absent (`NotFound`) is a fact — a dir that never had anything installed
+/// holds no sidecar, and "no records" is the true answer. Any OTHER read
+/// failure (permission, AV hold, sharing violation) is ignorance, and is an
+/// error: the callers all read-modify-write, so treating it as empty would
+/// persist the loss. A parse failure on successfully read bytes stays
+/// fail-open — the file is provably corrupt, and `reconcile_on_list` rebuilds
+/// it from disk (see the module doc).
+pub fn load(jar_dir: &Path) -> Result<Vec<ServerInstalledRecord>> {
+    let path = sidecar_path(jar_dir);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(Error::io(path.display().to_string(), e)),
     };
-    serde_json::from_slice::<Sidecar>(&bytes)
+    Ok(serde_json::from_slice::<Sidecar>(&bytes)
         .map(|s| s.records)
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
 pub fn save(jar_dir: &Path, records: &[ServerInstalledRecord]) -> Result<()> {
@@ -188,7 +204,7 @@ fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
 
 pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
     let on_disk = scan_dir(jar_dir)?;
-    let mut records = load(jar_dir);
+    let mut records = load(jar_dir)?;
     let mut changed = false;
 
     for r in records.iter_mut() {
@@ -262,14 +278,14 @@ pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
 }
 
 pub fn upsert(jar_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
-    let mut records = load(jar_dir);
+    let mut records = load(jar_dir)?;
     records.retain(|r| !r.sha1.eq_ignore_ascii_case(&record.sha1));
     records.push(record);
     save(jar_dir, &records)
 }
 
 pub fn remove(jar_dir: &Path, sha1: &str) -> Result<()> {
-    let mut records = load(jar_dir);
+    let mut records = load(jar_dir)?;
     let before = records.len();
     records.retain(|r| !r.sha1.eq_ignore_ascii_case(sha1));
     if records.len() != before {
@@ -292,7 +308,7 @@ pub fn apply_enrichment(
     resolved: &HashMap<String, ResolvedServerIdentity>,
     attempted: &HashSet<String>,
 ) -> Result<()> {
-    let mut records = load(jar_dir);
+    let mut records = load(jar_dir)?;
     for r in records.iter_mut() {
         let key = r.sha1.to_ascii_lowercase();
         if let Some(id) = resolved.get(&key) {
@@ -329,9 +345,30 @@ mod tests {
     #[test]
     fn load_is_fail_open_on_missing_and_corrupt() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(load(dir.path()).is_empty());
+        assert!(load(dir.path()).unwrap().is_empty());
+        // Absent must stay absent: a read must not create the sidecar.
+        assert!(!sidecar_path(dir.path()).exists());
         std::fs::write(sidecar_path(dir.path()), b"{ not json").unwrap();
-        assert!(load(dir.path()).is_empty());
+        assert!(load(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn load_unreadable_sidecar_is_an_error_not_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        // A DIRECTORY at the sidecar path makes `fs::read` fail with something
+        // other than NotFound on every platform — "unreadable", not "absent".
+        std::fs::create_dir(sidecar_path(dir.path())).unwrap();
+        assert!(load(dir.path()).is_err());
+    }
+
+    #[test]
+    fn upsert_unreadable_sidecar_errors_instead_of_wiping() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(sidecar_path(dir.path())).unwrap();
+        assert!(
+            upsert(dir.path(), rec("x.jar", "aa")).is_err(),
+            "upsert against an unreadable sidecar must error, not save a one-record file"
+        );
     }
 
     #[test]
@@ -339,7 +376,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let records = vec![rec("a.jar", "aa"), rec("b.jar", "bb")];
         save(dir.path(), &records).unwrap();
-        assert_eq!(load(dir.path()), records);
+        assert_eq!(load(dir.path()).unwrap(), records);
     }
 
     fn write_jar(dir: &Path, name: &str, bytes: &[u8]) -> String {
@@ -402,12 +439,24 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_unreadable_sidecar_is_an_error_not_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        // A DIRECTORY at the sidecar path makes `fs::read` fail with something
+        // other than NotFound on every platform — "unreadable", not "absent".
+        std::fs::create_dir(sidecar_path(dir.path())).unwrap();
+        assert!(
+            reconcile_on_list(dir.path()).is_err(),
+            "an unreadable sidecar must surface as an error, not read as empty"
+        );
+    }
+
+    #[test]
     fn reconcile_drops_stale_records() {
         let dir = tempfile::tempdir().unwrap();
         save(dir.path(), &[rec("gone.jar", "deadbeef")]).unwrap();
         let entries = reconcile_on_list(dir.path()).unwrap();
         assert!(entries.is_empty());
-        assert!(load(dir.path()).is_empty());
+        assert!(load(dir.path()).unwrap().is_empty());
     }
 
     #[test]
@@ -415,7 +464,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         save(dir.path(), &[rec("a.jar", "aa"), rec("b.jar", "bb")]).unwrap();
         remove(dir.path(), "AA").unwrap();
-        let shas: Vec<_> = load(dir.path()).into_iter().map(|r| r.sha1).collect();
+        let shas: Vec<_> = load(dir.path())
+            .unwrap()
+            .into_iter()
+            .map(|r| r.sha1)
+            .collect();
         assert_eq!(shas, vec!["bb".to_string()]);
     }
 
@@ -438,6 +491,7 @@ mod tests {
         let attempted: std::collections::HashSet<String> = [sha.clone()].into_iter().collect();
         apply_enrichment(dir.path(), &resolved, &attempted).unwrap();
         let r = load(dir.path())
+            .unwrap()
             .into_iter()
             .find(|r| r.sha1 == sha)
             .unwrap();
@@ -473,6 +527,7 @@ mod tests {
         assert_eq!(sha_a, sha_b);
         reconcile_on_list(dir.path()).unwrap();
         let matching: Vec<_> = load(dir.path())
+            .unwrap()
             .into_iter()
             .filter(|r| r.sha1 == sha_a)
             .collect();
@@ -489,7 +544,7 @@ mod tests {
         std::fs::write(dir.path().join("notes.txt.disabled"), b"x").unwrap();
         let entries = reconcile_on_list(dir.path()).unwrap();
         assert!(entries.is_empty());
-        assert!(load(dir.path()).is_empty());
+        assert!(load(dir.path()).unwrap().is_empty());
     }
 
     #[test]
@@ -501,7 +556,7 @@ mod tests {
         let mut r2 = rec("x.jar", "aa");
         r2.name = Some("new".into());
         upsert(dir.path(), r2).unwrap();
-        let records = load(dir.path());
+        let records = load(dir.path()).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].name.as_deref(), Some("new"));
     }
