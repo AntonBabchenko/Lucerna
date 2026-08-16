@@ -1736,26 +1736,35 @@ pub struct ServerConnectivity {
 /// and `online-mode` (from `server.properties`; defaults true when unset).
 #[tauri::command]
 #[specta::specta]
-pub fn server_connectivity(app: AppHandle, id: String) -> Result<ServerConnectivity> {
+pub async fn server_connectivity(app: AppHandle, id: String) -> Result<ServerConnectivity> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
-    let (port, online_mode) = match std::fs::read_to_string(rt.join("server.properties")) {
-        Ok(raw) => {
-            let props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
-            let port = props.get("server-port").and_then(|v| v.parse().ok());
-            let online_mode = props
-                .get("online-mode")
-                .map(|v| v != "false")
-                .unwrap_or(true);
-            (port, online_mode)
+    // `local_ipv4_addresses` spawns an `ipconfig` subprocess AND WAITS for its
+    // output, and the properties read is file IO — on a synchronous command both
+    // run on the MAIN thread and freeze the window for the length of the probe.
+    // Off the main thread (same shape as `server_firewall_status`).
+    let snapshot = tokio::task::spawn_blocking(move || {
+        let (port, online_mode) = match std::fs::read_to_string(rt.join("server.properties")) {
+            Ok(raw) => {
+                let props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+                let port = props.get("server-port").and_then(|v| v.parse().ok());
+                let online_mode = props
+                    .get("online-mode")
+                    .map(|v| v != "false")
+                    .unwrap_or(true);
+                (port, online_mode)
+            }
+            Err(_) => (None, true),
+        };
+        ServerConnectivity {
+            lan_addresses: crate::process::local_ipv4_addresses(),
+            port,
+            online_mode,
         }
-        Err(_) => (None, true),
-    };
-    Ok(ServerConnectivity {
-        lan_addresses: crate::process::local_ipv4_addresses(),
-        port,
-        online_mode,
     })
+    .await
+    .map_err(|e| Error::io("<server_connectivity>", format!("join: {e}")))?;
+    Ok(snapshot)
 }
 
 /// Public-address snapshot for the hosting view (#6, contract C3): a primary LAN
