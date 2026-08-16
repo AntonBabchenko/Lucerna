@@ -272,8 +272,8 @@
     try {
       const r = await serverState.quarantineClientMods(serverId);
       if (r.ok) {
-        const n = r.report?.disabled.length ?? 0;
-        const kept = r.report?.kept_because_required.length ?? 0;
+        const n = r.report.disabled.length;
+        const kept = r.report.kept_because_required.length;
         let msg =
           n > 0
             ? get(t)('servers.diagnose.quarantined', { count: n })
@@ -284,7 +284,7 @@
         pushSuccess(msg);
         await data.refresh();
       } else {
-        actionError = formatError(r.error as Parameters<typeof formatError>[0]);
+        actionError = formatError(r.error);
       }
     } finally {
       busyQuarantine = false;
