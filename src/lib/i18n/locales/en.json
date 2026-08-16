@@ -1876,7 +1876,7 @@
       "gotIt": "Got it",
       "skipContextual": "Skip",
       "stepOf": "Step {current} of {total}",
-      "completionNotSaved": "Couldn't remember that you finished the tour — it may open again next launch"
+      "completionNotSaved": "Couldn't remember that you finished the tour. It may open again next launch."
     },
     "tour": {
       "welcome": {

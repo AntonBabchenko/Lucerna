@@ -47,7 +47,11 @@ describe('update state', () => {
 
     // Settings → Updates must keep reporting an update that is still available
     // AND still undismissed — clearing it would be a claim we can't back.
-    expect(updateState.value).toBe(info);
+    // toEqual, not toBe: `updateState` is a $state rune, so the assigned object
+    // comes back as a reactive proxy and is never identity-equal to `info`.
+    // The happy-path test above pins that the rune IS cleared, so a deep-equal
+    // here can only be satisfied by the rollback actually running.
+    expect(updateState.value).toEqual(info);
     expect(pushWarningMock).toHaveBeenCalledTimes(1);
   });
 });
