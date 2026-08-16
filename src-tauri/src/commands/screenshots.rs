@@ -73,15 +73,23 @@ pub fn delete_screenshot(
     crate::screenshots::delete_screenshot(&app, &instance_id, &file_name)
 }
 
+// Sync command = main thread: `fs::copy` of a full-size PNG (several MB,
+// possibly onto a slow or removable destination the user picked in the save
+// dialog) blocks the window for the whole write. Same shape as
+// `screenshot_thumbnail`: `async` with the body on `spawn_blocking`.
 #[tauri::command]
 #[specta::specta]
-pub fn save_screenshot_copy(
+pub async fn save_screenshot_copy(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
     dest: String,
 ) -> Result<(), crate::error::Error> {
-    crate::screenshots::save_screenshot_copy(&app, &instance_id, &file_name, &dest)
+    tokio::task::spawn_blocking(move || {
+        crate::screenshots::save_screenshot_copy(&app, &instance_id, &file_name, &dest)
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<save_screenshot_copy>", format!("join: {e}")))?
 }
 
 #[tauri::command]
