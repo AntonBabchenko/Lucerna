@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { t, locale } from '$lib/i18n';
+  import { formatDateTime } from '$lib/format/date-time';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
@@ -57,7 +58,7 @@
 
   function formatTs(): string {
     if (!backup.created_unix_ms) return backup.filename;
-    return new Date(backup.created_unix_ms).toLocaleString($locale ?? undefined);
+    return formatDateTime($locale, backup.created_unix_ms);
   }
 </script>
 

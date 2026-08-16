@@ -200,3 +200,43 @@ describe('tasks.report.filter.failed', () => {
     expect(tr('tasks.report.filter.failed', { count: 5 })).toBe('5 failed');
   });
 });
+
+// `page.modpackImport.partialFailure` used the "{count} мод(ов)" parenthetical
+// hack, which reads wrong for every count from 1 to 4 ("1 мод(ов)"). The fix is
+// the colon form its two siblings in the same block already use
+// ("Импортировано: {name} — пропущено вложенных файлов: {count}") and that
+// `errors.modpackPartialFailure` uses for the identical situation — the form
+// tests/i18n-parity.test.ts blesses by name as a translator's choice rather
+// than a shape mismatch. It is invariant across counts, so it is pinned
+// explicitly (not assumed) across the buckets that would expose an agreement
+// bug if a future edit "fixed" it into a plural block.
+const IMPORT_PARTIAL_COUNTS = [1, 2, 3, 4, 5, 11, 21, 0];
+
+describe('page.modpackImport.partialFailure', () => {
+  it.each(IMPORT_PARTIAL_COUNTS)('stays invariant in Russian at count %i', (count) => {
+    locale.set('ru');
+    expect(get(t)('page.modpackImport.partialFailure', { count })).toBe(
+      `Сборка импортирована — не удалось модов: ${count}`,
+    );
+  });
+
+  it('never renders a parenthetical plural stub', () => {
+    // The exact shape being retired: a suffix in brackets that is only right
+    // for the genitive-plural bucket.
+    locale.set('ru');
+    for (const count of IMPORT_PARTIAL_COUNTS) {
+      expect(get(t)('page.modpackImport.partialFailure', { count })).not.toMatch(/\(\w+\)/);
+    }
+  });
+
+  it('leaves the English singular/plural pair unchanged', () => {
+    locale.set('en');
+    const tr = get(t);
+    expect(tr('page.modpackImport.partialFailure', { count: 1 })).toBe(
+      'Modpack imported — 1 mod failed',
+    );
+    expect(tr('page.modpackImport.partialFailure', { count: 2 })).toBe(
+      'Modpack imported — 2 mods failed',
+    );
+  });
+});

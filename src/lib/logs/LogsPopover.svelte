@@ -10,8 +10,9 @@
   } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
+  import { formatDateTime } from '$lib/format/date-time';
   import LogDiagnosisBanner from '$lib/logs/LogDiagnosisBanner.svelte';
   import { latestDiagnosis, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
   import {
@@ -536,9 +537,11 @@
     }
   }
 
+  /** Log mtime for the file row. Empty string for an unknown timestamp, which
+   *  the row renders as a bare separator rather than "Invalid Date". */
   function formatMtime(ms: number | null | undefined): string {
     if (!ms) return '';
-    return new Date(ms).toLocaleString();
+    return formatDateTime($locale, ms);
   }
 
   function escapeHtml(s: string): string {

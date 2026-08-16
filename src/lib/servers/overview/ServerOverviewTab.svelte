@@ -36,7 +36,7 @@
       </div>
       <div class="flex items-center justify-between text-sm">
         <span class="text-secondary">{$t('servers.overview.memory')}</span>
-        <span class="font-mono">{formatHeapLabel(server.max_heap_mb)}</span>
+        <span class="font-mono">{formatHeapLabel($t, server.max_heap_mb)}</span>
       </div>
     </div>
 

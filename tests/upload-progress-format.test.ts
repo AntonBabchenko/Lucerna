@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { get } from 'svelte/store';
+import { afterEach, describe, expect, it } from 'vitest';
+import { formatSize } from '$lib/format/size';
+import { locale, t } from '$lib/i18n';
 import {
   advanceProgressDisplay,
   emptyProgressDisplay,
@@ -100,23 +103,42 @@ describe('formatEtaClock', () => {
   });
 });
 
+// formatRate hands `t()` the RAW number and lets the dictionary's
+// `{n, number, ::.0 group-off}` argument own the rounding AND the decimal
+// separator — so these go through the real svelte-i18n store, not `enTr`,
+// which does naive `{placeholder}` substitution and cannot render an ICU
+// number skeleton. Same harness and same reason as tests/format/size.test.ts.
 describe('formatRate', () => {
+  afterEach(() => locale.set('en'));
+
   it('renders bytes/s for sub-KB rates', () => {
-    expect(formatRate(enTr, 512)).toBe('512 B/s');
+    expect(formatRate(get(t), 512)).toBe('512 B/s');
   });
 
   it('renders KB/s for KB-range rates', () => {
     // 1536 B/s = 1.5 KB/s
-    expect(formatRate(enTr, 1536)).toBe('1.5 KB/s');
+    expect(formatRate(get(t), 1536)).toBe('1.5 KB/s');
   });
 
   it('renders MB/s for MB-range rates', () => {
-    // 1.5 * 1024 * 1024 B/s = 1.5 MB/s
-    expect(formatRate(enTr, 1.5 * 1024 * 1024)).toBe('1.5 MB/s');
+    expect(formatRate(get(t), 1.5 * 1024 * 1024)).toBe('1.5 MB/s');
+  });
+
+  it('lets the skeleton round, rather than the caller', () => {
+    // 1600 / 1024 = 1.5625 — one decimal comes from `::.0`, not `.toFixed(1)`.
+    expect(formatRate(get(t), 1600)).toBe('1.6 KB/s');
   });
 
   it('clamps negative to 0 B/s', () => {
-    expect(formatRate(enTr, -100)).toBe('0 B/s');
+    expect(formatRate(get(t), -100)).toBe('0 B/s');
+  });
+
+  it('uses the Russian decimal COMMA, matching formatSize on the same line', () => {
+    // The regression this fixes: formatUploadProgress composes both, so the
+    // upload row read "1,5 МБ / … · 1.5 МБ/с" — two decimal marks, one line.
+    locale.set('ru');
+    expect(formatRate(get(t), 1536)).toBe('1,5 КБ/с');
+    expect(formatSize(get(t), 1536)).toBe('1,5 КБ');
   });
 });
 

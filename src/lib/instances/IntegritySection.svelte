@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
+  import { formatDateTime } from '$lib/format/date-time';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -149,7 +150,7 @@
     {#if effective.checked_unix_ms !== null}
       <p class="text-xs text-muted mt-1">
         {$t('instance.integrity.checkedAt', {
-          date: new Date(effective.checked_unix_ms).toLocaleString(),
+          date: formatDateTime($locale, effective.checked_unix_ms),
         })}
       </p>
     {/if}

@@ -209,7 +209,7 @@
         {$t('mods.detail.byAuthorSourceDownloads', {
           author: project.summary.author,
           source: project.summary.source,
-          downloads: (project.summary.downloads ?? 0).toLocaleString(),
+          downloads: project.summary.downloads ?? 0,
         })}
       </div>
       <button

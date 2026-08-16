@@ -3,6 +3,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatDuration } from '$lib/format/duration';
   import { relativeTime } from '$lib/format/relative-time';
+  import { formatDateTime } from '$lib/format/date-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
@@ -12,7 +13,7 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
   import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -458,7 +459,7 @@
           {#if activeInstance.integrity.checked_unix_ms}
             <span class="text-xs text-muted">
               {$t('instance.integrity.checkedAt', {
-                date: new Date(activeInstance.integrity.checked_unix_ms).toLocaleString(),
+                date: formatDateTime($locale, activeInstance.integrity.checked_unix_ms),
               })}
             </span>
           {/if}

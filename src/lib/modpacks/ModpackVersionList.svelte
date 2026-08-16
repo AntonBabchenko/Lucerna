@@ -9,7 +9,8 @@
   // theme tokens. (Spelling the tag out here would trip the no-native-select
   // guard, which is a plain text scan over src/.)
   import type { ModpackVersionEntry } from '$lib/ipc/bindings';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
+  import { formatDate } from '$lib/format/date-time';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -60,9 +61,11 @@
     return at < installedAt ? 'newer' : 'older';
   }
 
-  function formatDate(iso: string): string {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+  // The platform publishes ISO strings; an unparseable one falls back to the
+  // raw text rather than rendering "Invalid Date".
+  function publishedLabel(iso: string): string {
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? iso : formatDate($locale, ms);
   }
 </script>
 
@@ -104,7 +107,7 @@
             {$t('modpacks.switch.versionMeta', {
               mc: entry.game_versions.join(', '),
               loader: entry.loaders.join(', '),
-              date: formatDate(entry.date_published),
+              date: publishedLabel(entry.date_published),
             })}
           </div>
         </button>

@@ -930,7 +930,7 @@
               />
 
               <label for="create-memory" class="mt-3 mb-1 block text-xs text-secondary">
-                {$t('instance.manage.memoryLabel', { value: formatHeapLabel(createHeapMb) })}
+                {$t('instance.manage.memoryLabel', { value: formatHeapLabel($t, createHeapMb) })}
               </label>
               <!-- No onCommit: this is a draft. Unlike the detail editor, which
                    persists on release, the value is written once by Create. -->
@@ -1135,7 +1135,7 @@
                     >
                       <span>
                         {$t('instance.manage.memoryLabel', {
-                          value: formatHeapLabel(heapDraft),
+                          value: formatHeapLabel($t, heapDraft),
                         })}
                       </span>
                       {@render savedBadge('memory')}

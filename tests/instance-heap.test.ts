@@ -1,16 +1,44 @@
-import { describe, expect, test } from 'vitest';
+import { get } from 'svelte/store';
+import { afterEach, describe, expect, test } from 'vitest';
+import { locale, t } from '$lib/i18n';
 import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+
+// formatHeapLabel hands `t()` the RAW number and lets the dictionary's
+// `{n, number, …}` argument own the rounding and the decimal separator, so it
+// goes through the real svelte-i18n store rather than `enTr`, which does naive
+// `{placeholder}` substitution and cannot render an ICU number skeleton — same
+// harness and same reason as tests/format/size.test.ts.
+
+afterEach(() => locale.set('en'));
 
 describe('formatHeapLabel', () => {
   test('shows GB with one decimal at or above 1 GB', () => {
-    expect(formatHeapLabel(8192)).toBe('8.0 GB');
-    expect(formatHeapLabel(6144)).toBe('6.0 GB');
-    expect(formatHeapLabel(1536)).toBe('1.5 GB');
+    const tr = get(t);
+    expect(formatHeapLabel(tr, 8192)).toBe('8.0 GB');
+    expect(formatHeapLabel(tr, 6144)).toBe('6.0 GB');
+    expect(formatHeapLabel(tr, 1536)).toBe('1.5 GB');
   });
 
-  test('shows MB below 1 GB', () => {
-    expect(formatHeapLabel(768)).toBe('768 MB');
-    expect(formatHeapLabel(1023)).toBe('1023 MB');
+  test('shows whole MB below 1 GB', () => {
+    const tr = get(t);
+    expect(formatHeapLabel(tr, 768)).toBe('768 MB');
+    expect(formatHeapLabel(tr, 1023)).toBe('1023 MB');
+  });
+
+  test('groups nothing, so a 4-digit MB count stays readable as a slider label', () => {
+    // `::group-off` — "1023 MB", never "1,023 MB".
+    expect(formatHeapLabel(get(t), 1023)).not.toContain(',');
+  });
+
+  test('translates the unit and the decimal mark in Russian', () => {
+    // The label was a hardcoded English template literal; the memory slider
+    // read it aloud through aria-valuetext, so a Russian screen reader
+    // announced "8.0 GB".
+    locale.set('ru');
+    const tr = get(t);
+    expect(formatHeapLabel(tr, 8192)).toBe('8,0 ГБ');
+    expect(formatHeapLabel(tr, 1536)).toBe('1,5 ГБ');
+    expect(formatHeapLabel(tr, 768)).toBe('768 МБ');
   });
 });
 

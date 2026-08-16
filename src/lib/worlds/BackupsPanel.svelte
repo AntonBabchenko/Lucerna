@@ -4,6 +4,7 @@
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
   import { t, locale } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
+  import { formatDateTime } from '$lib/format/date-time';
   import Modal from '$lib/ui/Modal.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -98,7 +99,7 @@
 
   function formatBackupTimestamp(b: Backup): string {
     if (!b.created_unix_ms) return b.filename;
-    return new Date(b.created_unix_ms).toLocaleString($locale ?? undefined, {
+    return formatDateTime($locale, b.created_unix_ms, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',

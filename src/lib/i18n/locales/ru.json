@@ -675,7 +675,7 @@
     "warning": {
       "title": "Запустить ещё один профиль?",
       "launchAnyway": "Всё равно запустить",
-      "ram": "Запущенные профили резервируют ~{reserved} ГБ из {total} ГБ.",
+      "ram": "Запущенные профили резервируют ~{reserved, number, ::.0 group-off} ГБ из {total, number, ::.0 group-off} ГБ.",
       "accountMicrosoft": "Аккаунт {account} уже используется запущенным профилем; вход на онлайн-сервер может завершить ту сессию.",
       "accountOffline": "Аккаунт {account} уже используется запущенным профилем; сервер может отклонить повторяющееся имя."
     }
@@ -755,13 +755,13 @@
       "update": "Обновить",
       "selectAriaLabel": "Выбрать мод {name}",
       "fromModpackTitle": "Из сборки: {name}",
-      "byAuthorDownloads": "{author} · {downloads} скач.",
+      "byAuthorDownloads": "{author} · {downloads, number} скач.",
       "details": "Подробнее",
       "menuAriaLabel": "Действия для {name}"
     },
     "detail": {
       "loading": "Загрузка…",
-      "byAuthorSourceDownloads": "{author} · {source} · {downloads} скачиваний",
+      "byAuthorSourceDownloads": "{author} · {source} · {downloads, number} скачиваний",
       "viewOnModrinth": "Открыть на Modrinth",
       "viewOnCurseForge": "Открыть на CurseForge",
       "closeAriaLabel": "Закрыть сведения о моде",
@@ -2730,7 +2730,7 @@
       "skippedOverrideLine": "{name} ({mb} МБ) — слишком большой, не является загружаемым модом; пропущено",
       "importedInertLoader": "Импортировано: {name} — не загрузятся файлов: {count}",
       "inertLoaderLine": "{filename} — собран под {loader}, не загружен",
-      "partialFailure": "Сборка импортирована — {count} мод(ов) не удалось",
+      "partialFailure": "Сборка импортирована — не удалось модов: {count}",
       "failed": "Не удалось импортировать сборку"
     },
     "accounts": {
@@ -2901,9 +2901,13 @@
       "megabyte": "МБ"
     },
     "rate": {
-      "bytesPerSec": "{n} Б/с",
-      "kbPerSec": "{n} КБ/с",
-      "mbPerSec": "{n} МБ/с"
+      "bytesPerSec": "{n, number, ::group-off} Б/с",
+      "kbPerSec": "{n, number, ::.0 group-off} КБ/с",
+      "mbPerSec": "{n, number, ::.0 group-off} МБ/с"
+    },
+    "heap": {
+      "gigabytes": "{n, number, ::.0 group-off} ГБ",
+      "megabytes": "{n, number, ::group-off} МБ"
     }
   },
   "optimise": {
