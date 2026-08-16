@@ -34,6 +34,19 @@ fn consent_path() -> PathBuf {
         .join("consent.rs")
 }
 
+/// The dial-capable socket types, matched as plain substrings. `TcpStream`
+/// dials directly; tokio's `TcpSocket` (the `net` feature is already enabled
+/// in Cargo.toml) builds a socket whose `.connect(..)` dials without the
+/// string `TcpStream` ever appearing at the call site — same packet,
+/// different spelling. `TcpListener` is deliberately NOT here — binds are
+/// not dials (see module doc).
+const DIAL_TYPES: &[&str] = &["TcpStream", "TcpSocket"];
+
+/// Which dial-capable type, if any, `line` names.
+fn dial_type_on(line: &str) -> Option<&'static str> {
+    DIAL_TYPES.iter().copied().find(|n| line.contains(n))
+}
+
 #[test]
 fn tcp_dialing_and_udp_confined_to_the_consent_module() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -49,8 +62,10 @@ fn tcp_dialing_and_udp_confined_to_the_consent_module() {
             if line.trim_start().starts_with("//") {
                 continue; // these types are named in several doc comments
             }
-            if line.contains("TcpStream") && !is_consent {
-                violations.push(format!("{}:{} TcpStream", file.display(), i + 1));
+            if let Some(needle) = dial_type_on(line) {
+                if !is_consent {
+                    violations.push(format!("{}:{} {needle}", file.display(), i + 1));
+                }
             }
             // No raw UDP anywhere: pre-empts a hand-rolled DNS/SRV resolver
             // reaching arbitrary hosts outside the consent tier.
@@ -111,4 +126,41 @@ fn consent_module_still_gates_on_the_setting() {
         call < dial,
         "the consent check must precede TcpStream::connect (found check at {call}, dial at {dial})",
     );
+}
+
+/// The matcher, pinned directly. The tree contains no `TcpSocket` today, so
+/// the scan alone cannot prove the needle works — same rationale as the
+/// `matchers` module in `structural_no_blind_err_swallow.rs`.
+#[cfg(test)]
+mod matchers {
+    use super::*;
+
+    #[test]
+    fn a_tokio_tcpsocket_dial_is_a_dial() {
+        // Synthetic: `TcpSocket::new_v4()?.connect(addr)` dials without the
+        // string `TcpStream` at the call site.
+        assert_eq!(
+            dial_type_on("    let sock = tokio::net::TcpSocket::new_v4()?;"),
+            Some("TcpSocket"),
+        );
+    }
+
+    #[test]
+    fn a_tcpstream_connect_is_still_a_dial() {
+        assert_eq!(
+            dial_type_on("    let stream = TcpStream::connect((host, port)).await?;"),
+            Some("TcpStream"),
+        );
+    }
+
+    #[test]
+    fn a_listener_bind_is_not_a_dial() {
+        // The OAuth loopback and the own-server port probe BIND locally
+        // (module doc lines 9-11); they must stay unmatched.
+        assert_eq!(
+            dial_type_on(r#"    let listener = TcpListener::bind("127.0.0.1:0")"#),
+            None,
+        );
+        assert_eq!(dial_type_on("use tokio::net::TcpListener;"), None);
+    }
 }
