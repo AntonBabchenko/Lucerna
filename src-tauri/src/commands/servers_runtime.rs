@@ -2466,21 +2466,30 @@ pub async fn server_firewall_status(app: AppHandle, id: String) -> Result<firewa
 /// observable from within the launcher process.
 #[tauri::command]
 #[specta::specta]
-pub fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
+pub async fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let rt = crate::paths::server_paths(&base, &id).runtime;
-    let port = crate::servers_runtime::runtime::read_port(&rt).ok_or_else(|| {
-        Error::io(
-            "<firewall>",
-            "server.properties not found — start the server first",
-        )
-    })?;
-    crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)?;
-    // Record the port so `server_delete` (and a later `server_change_port`) can
-    // remove every rule we created, not just the current-port one.
-    let root = crate::paths::server_paths(&base, &id).root;
-    firewall::record_added_port(&root, port);
-    Ok(())
+    // `firewall_add_rule_elevated` spawns `powershell … Start-Process -Verb RunAs`
+    // and the UAC broker handshake runs during that spawn; `read_port` and
+    // `record_added_port` are file IO on either side of it. On a synchronous
+    // command all of that runs on the MAIN thread and freezes the window. Off the
+    // main thread (same shape as `server_firewall_status`).
+    tokio::task::spawn_blocking(move || {
+        let rt = crate::paths::server_paths(&base, &id).runtime;
+        let port = crate::servers_runtime::runtime::read_port(&rt).ok_or_else(|| {
+            Error::io(
+                "<firewall>",
+                "server.properties not found — start the server first",
+            )
+        })?;
+        crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)?;
+        // Record the port so `server_delete` (and a later `server_change_port`) can
+        // remove every rule we created, not just the current-port one.
+        let root = crate::paths::server_paths(&base, &id).root;
+        firewall::record_added_port(&root, port);
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_firewall_add_rule>", format!("join: {e}")))?
 }
 
 // Own server (#9, C4: whitelist / ops editor):
