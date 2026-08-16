@@ -3165,6 +3165,11 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_already_running"; id: string } | 
 /**  The operation requires that no hosting upload is in flight, but one is. */
 { kind: "server_upload_in_progress"; id: string } | 
+/**
+ *  The operation requires that no maintenance is rewriting the server's
+ *  `runtime/` (backup restore or import commit), but one is in flight.
+ */
+{ kind: "server_maintenance_in_progress"; id: string } | 
 /**  The hosting upload was cancelled by the user. */
 { kind: "upload_cancelled" } | 
 /**  The operation requires a running server, but it is not running. */

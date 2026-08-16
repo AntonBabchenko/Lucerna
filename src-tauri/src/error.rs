@@ -488,6 +488,11 @@ pub enum Error {
     #[error("server upload in progress: {id}")]
     ServerUploadInProgress { id: String },
 
+    /// The operation requires that no maintenance is rewriting the server's
+    /// `runtime/` (backup restore or import commit), but one is in flight.
+    #[error("server maintenance in progress: {id}")]
+    ServerMaintenanceInProgress { id: String },
+
     /// The hosting upload was cancelled by the user.
     #[error("upload cancelled")]
     UploadCancelled,
