@@ -21,6 +21,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import RunningInstancesPopover from '$lib/layout/RunningInstancesPopover.svelte';
+import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
 
 // Captured event callbacks the component registers on open, so a test can fire
 // a spawn/exit and drive the resulting refresh (the component's listener bodies
@@ -44,6 +45,8 @@ function renderPopover(props: {
   runningCount: number;
   rows: RunningInstanceInfo[];
   onOpenInstance?: (id: string) => void;
+  /** The narrow ModeSwitcher-rail trigger; the default is the wide one. */
+  compact?: boolean;
 }) {
   runningInstances.mockResolvedValue(props.rows);
   return render(RunningInstancesPopover, {
@@ -51,6 +54,7 @@ function renderPopover(props: {
       runningCount: props.runningCount,
       instanceName: (id: string) => NAMES[id] ?? id,
       onOpenInstance: props.onOpenInstance ?? (() => {}),
+      compact: props.compact ?? false,
     },
   });
 }
@@ -80,6 +84,29 @@ describe('RunningInstancesPopover', () => {
     expect(pill.getAttribute('aria-label')).toBe('2 running');
     expect(pill.textContent).toContain('2');
     expect(pill.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the compact trigger IS the shared count pill, not a local recipe', () => {
+    renderPopover({ runningCount: 2, rows: [], compact: true });
+    const pill = screen.getByTestId('running-instances-pill');
+    for (const cls of countPillClass('sm').split(' ')) {
+      expect(pill.classList.contains(cls), `missing ${cls}`).toBe(true);
+    }
+    // The trigger stays the focusable control: the primitive supplies looks
+    // only, never the button semantics.
+    expect(pill.tagName).toBe('BUTTON');
+    expect(pill.getAttribute('aria-label')).toBe('2 running');
+    expect(pill.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the expanded (non-compact) trigger keeps its own wider shape', () => {
+    // Guard against over-reach: only the COMPACT branch is a count pill. The
+    // h-7 bg-black/20 trigger is a different control and must not be collapsed
+    // into the primitive.
+    renderPopover({ runningCount: 2, rows: [] });
+    const pill = screen.getByTestId('running-instances-pill');
+    expect(pill.className).toContain('h-7');
+    expect(pill.className).not.toContain('h-[15px]');
   });
 
   it('opens the popover on click and lists running instances with elapsed time', async () => {
