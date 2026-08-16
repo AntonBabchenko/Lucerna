@@ -17,36 +17,18 @@ pub fn validate_segment(name: &str) -> Result<(), Error> {
     })
 }
 
-/// Recursively sum file sizes under `path`. Missing path is treated
-/// as size 0 (caller policy — used by `list_worlds` for the optional
-/// `<instance>/backups/<world>/` dir on never-backed-up worlds).
-pub fn dir_size(path: &Path) -> Result<u64, Error> {
+/// One recursive walk computing BOTH per-world totals `list_worlds` needs:
+/// `(total file bytes, latest file mtime in ms since the UNIX epoch)`.
+/// Replaces the `dir_size` + `dir_mtime_recursive` pair, which each walked
+/// the same tree — two `read_dir` + `metadata` passes per world where one
+/// suffices. Missing path → `(0, 0)` and symlinks are ignored — byte-for-byte
+/// the callers' policy under the pair this replaces (the `exists()` probe is
+/// kept deliberately: this is a merge, not a semantics change).
+pub fn dir_size_and_mtime(path: &Path) -> Result<(u64, u64), Error> {
     if !path.exists() {
-        return Ok(0);
+        return Ok((0, 0));
     }
     let mut total: u64 = 0;
-    for entry in std::fs::read_dir(path).map_err(|e| Error::io(path.display().to_string(), e))? {
-        let entry = entry.map_err(|e| Error::io(path.display().to_string(), e))?;
-        let meta = entry
-            .metadata()
-            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
-        if meta.is_file() {
-            total = total.saturating_add(meta.len());
-        } else if meta.is_dir() {
-            total = total.saturating_add(dir_size(&entry.path())?);
-        }
-        // symlinks: ignored (saves don't have them; defensive)
-    }
-    Ok(total)
-}
-
-/// Latest mtime among all files under `path`. Returns 0 for missing
-/// or empty dirs (sentinel — caller renders as "never" or omits).
-/// Milliseconds since UNIX epoch.
-pub fn dir_mtime_recursive(path: &Path) -> Result<u64, Error> {
-    if !path.exists() {
-        return Ok(0);
-    }
     let mut latest_ms: u64 = 0;
     for entry in std::fs::read_dir(path).map_err(|e| Error::io(path.display().to_string(), e))? {
         let entry = entry.map_err(|e| Error::io(path.display().to_string(), e))?;
@@ -54,6 +36,7 @@ pub fn dir_mtime_recursive(path: &Path) -> Result<u64, Error> {
             .metadata()
             .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
         if meta.is_file() {
+            total = total.saturating_add(meta.len());
             if let Ok(ms) = meta
                 .modified()
                 .and_then(|t| {
@@ -65,17 +48,19 @@ pub fn dir_mtime_recursive(path: &Path) -> Result<u64, Error> {
                 latest_ms = latest_ms.max(ms);
             }
         } else if meta.is_dir() {
-            let sub = dir_mtime_recursive(&entry.path())?;
-            latest_ms = latest_ms.max(sub);
+            let (sub_size, sub_ms) = dir_size_and_mtime(&entry.path())?;
+            total = total.saturating_add(sub_size);
+            latest_ms = latest_ms.max(sub_ms);
         }
+        // symlinks: ignored (saves don't have them; defensive)
     }
-    Ok(latest_ms)
+    Ok((total, latest_ms))
 }
 
 /// Cheap "last played" proxy for a world directory: the mtime of its
 /// `level.dat` (Minecraft rewrites it on every save/exit), falling back to
 /// the world directory's own mtime. At most two `stat`s — no recursive walk
-/// (that's `dir_mtime_recursive`, reserved for the Worlds tab). Returns 0
+/// (that's `dir_size_and_mtime`, reserved for the Worlds tab). Returns 0
 /// when neither path can be stat'd. Milliseconds since the UNIX epoch.
 pub fn world_recency_ms(world_dir: &Path) -> u64 {
     let level_dat = world_dir.join("level.dat");
@@ -178,75 +163,49 @@ mod tests {
     }
 
     use std::fs;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     #[test]
-    fn dir_size_empty_dir_is_zero() {
+    fn dir_size_and_mtime_matches_fixture_totals() {
         let td = tempdir().unwrap();
-        assert_eq!(dir_size(td.path()).unwrap(), 0);
-    }
-
-    #[test]
-    fn dir_size_sums_files_and_recurses() {
-        let td = tempdir().unwrap();
-        fs::write(td.path().join("a.txt"), b"hello").unwrap(); // 5
+        fs::write(td.path().join("a.txt"), b"hello").unwrap(); // 5 bytes
         let sub = td.path().join("sub");
         fs::create_dir_all(&sub).unwrap();
-        fs::write(sub.join("b.bin"), b"\x00\x01\x02\x03").unwrap(); // 4
-        fs::write(sub.join("c.bin"), vec![0u8; 100]).unwrap(); // 100
-        assert_eq!(dir_size(td.path()).unwrap(), 5 + 4 + 100);
-    }
+        fs::write(sub.join("b.bin"), b"\x00\x01\x02\x03").unwrap(); // 4 bytes
 
-    #[test]
-    fn dir_size_handles_zero_byte_files() {
-        let td = tempdir().unwrap();
-        fs::write(td.path().join("empty.dat"), b"").unwrap();
-        assert_eq!(dir_size(td.path()).unwrap(), 0);
-    }
-
-    #[test]
-    fn dir_size_returns_zero_for_nonexistent() {
-        let td = tempdir().unwrap();
-        let missing = td.path().join("does-not-exist");
-        // Caller policy: missing = 0, not an error. The list_worlds
-        // path uses this so a freshly created instance with no
-        // backups/<world>/ dir reports backup_count=0 cleanly.
-        assert_eq!(dir_size(&missing).unwrap(), 0);
-    }
-
-    use std::time::Duration;
-
-    #[test]
-    fn dir_mtime_recursive_returns_max_among_files() {
-        let td = tempdir().unwrap();
-        fs::write(td.path().join("a.txt"), b"a").unwrap();
-        // Sleep so the second file gets a strictly-later mtime.
-        // 50ms is enough on every filesystem we care about.
+        // Sleep so the last file gets a strictly-later mtime (same 50ms the
+        // neighbouring mtime tests rely on).
         std::thread::sleep(Duration::from_millis(50));
-        let later = td.path().join("b.txt");
-        fs::write(&later, b"b").unwrap();
-        let mt = dir_mtime_recursive(td.path()).unwrap();
-        let later_mt = std::fs::metadata(&later)
+        let latest = sub.join("c.bin");
+        fs::write(&latest, vec![0u8; 100]).unwrap(); // 100 bytes, newest
+        let (size, mtime) = dir_size_and_mtime(td.path()).unwrap();
+        assert_eq!(size, 5 + 4 + 100);
+        let latest_mt = std::fs::metadata(&latest)
             .unwrap()
             .modified()
             .unwrap()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        assert_eq!(mt, later_mt);
+        assert_eq!(mtime, latest_mt);
     }
 
     #[test]
-    fn dir_mtime_recursive_returns_zero_for_empty_dir() {
+    fn dir_size_and_mtime_empty_dir_is_zero_zero() {
         let td = tempdir().unwrap();
-        // Empty directory: no files to consider, so 0 (sentinel).
-        assert_eq!(dir_mtime_recursive(td.path()).unwrap(), 0);
+        assert_eq!(dir_size_and_mtime(td.path()).unwrap(), (0, 0));
     }
 
     #[test]
-    fn dir_mtime_recursive_returns_zero_for_missing_dir() {
+    fn dir_size_and_mtime_missing_path_is_zero_zero() {
         let td = tempdir().unwrap();
-        assert_eq!(dir_mtime_recursive(&td.path().join("missing")).unwrap(), 0);
+        // Caller policy carried over from the old pair: missing = (0, 0),
+        // not an error (never-backed-up world / "never" mtime sentinel).
+        assert_eq!(
+            dir_size_and_mtime(&td.path().join("missing")).unwrap(),
+            (0, 0)
+        );
     }
 
     #[test]

@@ -124,10 +124,11 @@ fn place_world(
         }
     }
 
+    let (size_bytes, modified_unix_ms) = wfs::dir_size_and_mtime(&dest)?;
     Ok(World {
         folder_name: chosen,
-        size_bytes: wfs::dir_size(&dest)? as f64,
-        modified_unix_ms: wfs::dir_mtime_recursive(&dest)? as f64,
+        size_bytes: size_bytes as f64,
+        modified_unix_ms: modified_unix_ms as f64,
         backup_count: 0,
     })
 }

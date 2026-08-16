@@ -4,11 +4,17 @@
 /// Empty Vec for an instance with no `.minecraft/saves/` dir yet.
 #[tauri::command]
 #[specta::specta]
-pub fn list_worlds(
+pub async fn list_worlds(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<Vec<crate::worlds::World>, crate::error::Error> {
-    crate::worlds::list_worlds(&app, &instance_id)
+    // Async + spawn_blocking (mirrors `world_import` below): the domain walk
+    // stats every file of every world for size+mtime plus a per-world backups
+    // scan — seconds on a cold FS cache, and a sync command spends them on the
+    // main thread with the window frozen.
+    tokio::task::spawn_blocking(move || crate::worlds::list_worlds(&app, &instance_id))
+        .await
+        .map_err(|e| crate::error::Error::io("<list_worlds>", format!("join: {e}")))?
 }
 
 /// Lightweight world list (folder name + recency proxy) for the sidebar
