@@ -18,6 +18,14 @@ vi.mock('$lib/ipc/bindings', () => ({
 // formatError calls get(t) from i18n which is not available in tests.
 vi.mock('$lib/ipc/format-error', () => ({
   formatError: (e: { kind: string }) => `err:${e.kind}`,
+  describeStoreError: (e: unknown) =>
+    typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string'
+      ? `err:${(e as { kind: string }).kind}`
+      : e instanceof Error
+        ? e.message
+        : String(e),
+  isIpcError: (e: unknown) =>
+    typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string',
 }));
 
 import { commands } from '$lib/ipc/bindings';

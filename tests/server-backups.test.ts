@@ -13,6 +13,9 @@ vi.mock('$lib/ipc/bindings', () => ({
 // Mock format-error so errors are stable strings.
 vi.mock('$lib/ipc/format-error', () => ({
   formatError: (_e: unknown) => 'some error',
+  describeStoreError: (_e: unknown) => 'some error',
+  isIpcError: (e: unknown) =>
+    typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string',
 }));
 
 // ---------------------------------------------------------------------------

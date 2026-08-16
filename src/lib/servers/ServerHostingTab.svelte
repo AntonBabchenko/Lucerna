@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { open, save } from '@tauri-apps/plugin-dialog';
-  import { formatError } from '$lib/ipc/format-error';
+  import { formatError, isIpcError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { commands } from '$lib/ipc/bindings';
@@ -83,7 +83,7 @@
       if (r.status === 'ok') {
         backupPolicySaved = true;
       } else {
-        backupPolicyError = formatError(r.error as Parameters<typeof formatError>[0]);
+        backupPolicyError = formatError(r.error);
       }
     } finally {
       busyBackupPolicy = false;
@@ -236,7 +236,7 @@
         private_key_path: authMethod === 'key' ? privateKeyPath.trim() : null,
       });
       if (auth.status !== 'ok') {
-        saveError = formatError(auth.error as Parameters<typeof formatError>[0]);
+        saveError = formatError(auth.error);
         return;
       }
       const r = await serverState.setUploadConfig(serverId, cfg, secretToStore);
@@ -244,7 +244,7 @@
         savedVisible = true;
         await serverState.refresh();
       } else {
-        saveError = formatError(r.error as Parameters<typeof formatError>[0]);
+        saveError = formatError(r.error);
       }
     } finally {
       busySave = false;
@@ -265,16 +265,20 @@
     if (r.status === 'ok') {
       showHostKeyConfirm = false;
       await serverState.refresh();
-    } else {
-      const err = r.error as { kind: string; got?: string };
-      if (err?.kind === 'sftp_host_key_mismatch') {
-        // Changed key: surface the new fingerprint for the user to weigh.
-        hostKeyFingerprint = err.got ?? null;
-        hostKeyIsFirstConnect = false;
-        showHostKeyConfirm = true;
-      }
-      // All other errors are already persisted in the store as storeUploadError.
+    } else if (isIpcError(r.error) && r.error.kind === 'sftp_host_key_mismatch') {
+      // Changed key: surface the new fingerprint for the user to weigh. `got` is
+      // a required string on the typed variant, so there is ALWAYS a fingerprint
+      // to show -- the old `?? null` came from a hand-written
+      // `{ kind: string; got?: string }`, not from the backend's contract, and
+      // made the dialog look like it could open with nothing to verify.
+      //
+      // `isIpcError` rather than a cast because upload() is the one store
+      // wrapper whose failure can also be a THROWN transport error (UploadResult).
+      hostKeyFingerprint = r.error.got;
+      hostKeyIsFirstConnect = false;
+      showHostKeyConfirm = true;
     }
+    // All other errors are already persisted in the store as storeUploadError.
   }
 
   /** Continue an interrupted upload: skips already-uploaded files, re-uploads
@@ -315,7 +319,7 @@
         hostKeyIsFirstConnect = true;
         showHostKeyConfirm = true;
       } else {
-        previewError = formatError(r.error as Parameters<typeof formatError>[0]);
+        previewError = formatError(r.error);
       }
     } finally {
       busyHostKeyPreview = false;
@@ -369,7 +373,7 @@
       if (r.status === 'ok') {
         exportedVisible = true;
       } else {
-        exportError = formatError(r.error as Parameters<typeof formatError>[0]);
+        exportError = formatError(r.error);
       }
     } finally {
       busyExport = false;

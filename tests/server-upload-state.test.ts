@@ -17,6 +17,17 @@ vi.mock('$lib/ipc/bindings', () => ({
 // formatError calls get(t) from i18n which is not available in tests.
 vi.mock('$lib/ipc/format-error', () => ({
   formatError: (e: { kind: string }) => `err:${e.kind}`,
+  // The store renders BOTH halves through the shared helpers now: typed Result
+  // errors keep the `err:<kind>` shape, thrown transport failures show their
+  // own message (that split is what describeStoreError exists for).
+  describeStoreError: (e: unknown) =>
+    typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string'
+      ? `err:${(e as { kind: string }).kind}`
+      : e instanceof Error
+        ? e.message
+        : String(e),
+  isIpcError: (e: unknown) =>
+    typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string',
 }));
 
 import { commands } from '$lib/ipc/bindings';
@@ -92,5 +103,32 @@ describe('upload state lifecycle', () => {
     });
     await serverState.upload('srv-pw', true, false);
     expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, null, false);
+  });
+
+  // Regression pin for the SILENT_UPLOAD_KINDS retyping (readonly IpcError['kind'][]
+  // instead of a bare string[]): the second silent kind must stay silent, because
+  // the hosting tab opens the re-trust dialog for it and a persisted generic error
+  // line alongside that dialog is noise. The non-silent side is pinned above by
+  // 'captures an error and keeps it after the call resolves'.
+  it('treats a host-key mismatch as cancelled, not an error', async () => {
+    (commands.serverUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'sftp_host_key_mismatch', expected: 'a', got: 'b' },
+    });
+    await serverState.upload('srv-hk', false, false, null);
+    expect(serverState.uploadStateFor('srv-hk')?.phase).toBe('cancelled');
+    expect(serverState.uploadStateFor('srv-hk')?.error).toBeUndefined();
+  });
+
+  // The one honest `unknown` in the store: typedError re-throws JS Errors, so
+  // serverUpload can reject. That must land as a readable message, not "{}".
+  it('a thrown transport failure renders its message, not JSON', async () => {
+    (commands.serverUpload as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('ipc channel closed'),
+    );
+    const r = await serverState.upload('srv-throw', false, false, null);
+    expect(r.status).toBe('error');
+    expect(serverState.uploadStateFor('srv-throw')?.phase).toBe('error');
+    expect(serverState.uploadStateFor('srv-throw')?.error).toBe('ipc channel closed');
   });
 });
