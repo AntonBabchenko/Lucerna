@@ -131,9 +131,13 @@ pub async fn copy_screenshot_to_clipboard(
         .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))
 }
 
+// Sync command = main thread (see the thumbnail comment above): this one
+// PNG-decodes the full-resolution original, composites the overlay, crops,
+// and re-encodes — seconds of pure CPU on a 4K screenshot. Same shape as
+// `screenshot_thumbnail`: `async` with the whole body on `spawn_blocking`.
 #[tauri::command]
 #[specta::specta]
-pub fn save_annotated_screenshot(
+pub async fn save_annotated_screenshot(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
@@ -141,14 +145,18 @@ pub fn save_annotated_screenshot(
     crop: Option<crate::screenshots::CropFrac>,
     dest: String,
 ) -> Result<(), crate::error::Error> {
-    crate::screenshots::save_annotated(
-        &app,
-        &instance_id,
-        &file_name,
-        &overlay_png_base64,
-        crop,
-        &dest,
-    )
+    tokio::task::spawn_blocking(move || {
+        crate::screenshots::save_annotated(
+            &app,
+            &instance_id,
+            &file_name,
+            &overlay_png_base64,
+            crop,
+            &dest,
+        )
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<save_annotated_screenshot>", format!("join: {e}")))?
 }
 
 #[tauri::command]
