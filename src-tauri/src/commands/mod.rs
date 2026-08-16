@@ -449,6 +449,27 @@ fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::Error> {
     crate::paths::app_dir(app).map_err(|e| crate::error::Error::io("<app_dir>", e))
 }
 
+/// The shared jar-scan cache file, or `None` when it cannot be resolved.
+///
+/// Deliberately NOT an error, unlike `l10n_coverage`'s equivalent at
+/// `commands/l10n.rs`: a cache is an optimisation, never an answer. If the
+/// data root cannot be resolved right now, the correct behaviour is a full,
+/// uncached scan — the same result, only slower — and not a failed dependency
+/// pre-flight, which sits in the launch chokepoint and would turn a path
+/// hiccup into a blocked Play press. Fallback discipline Q1: the restrictive
+/// direction here is "do the work", not "answer from nothing".
+fn jar_scan_cache_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    match crate::paths::jar_scan_cache_file(app) {
+        Ok(p) => Some(p),
+        // Logged, not swallowed: "the cache quietly stopped working" and "the
+        // cache is working" must not look the same in a bug report.
+        Err(e) => {
+            crate::diag!("[mods] jar-scan cache path unavailable: {e}");
+            None
+        }
+    }
+}
+
 /// Read the active MC version + loader for an instance from
 /// `instance.json`. Returns `InstanceNotFound` if the file is missing.
 ///

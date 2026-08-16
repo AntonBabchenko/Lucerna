@@ -303,8 +303,10 @@ pub async fn build_repair_plan(
             }
             let inst_root = instance_root(&app, &instance_id)?;
             let installed = crate::mods::installed::list(&inst_root).await?;
+            let cache = jar_scan_cache_path(&app);
             let compat = crate::mods::local::scan_instance(
                 &inst_root,
+                cache.as_deref(),
                 instance.loader,
                 &instance.mc_version,
                 instance.loader_version.as_deref(),
