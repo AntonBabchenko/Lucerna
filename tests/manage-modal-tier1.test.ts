@@ -865,3 +865,33 @@ describe('ManageInstancesModal — translations entry point', () => {
     expect(onTranslationsRequest).toHaveBeenCalledWith('b');
   });
 });
+
+describe('ManageInstancesModal — the Active marker', () => {
+  it('is the shared StatusBadge, not a hand-rolled pill', async () => {
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    // Rendered in both the list row and the detail pane — assert every copy, so
+    // migrating one and leaving the other is a failure.
+    const badges = await screen.findAllByTestId('manage-active-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    for (const badge of badges) {
+      expect(badge.textContent).toContain('Active');
+      // §9's `info` variant: the accent-soft token pair, and the app-wide pill
+      // geometry (`rounded`, `text-xs`) — not the rounded-full text-[10px] chip
+      // this replaces.
+      expect(badge.className).toContain('bg-accent-soft');
+      expect(badge.className).toContain('text-accent');
+      expect(badge.className).toContain('rounded');
+      expect(badge.className).not.toContain('rounded-full');
+      expect(badge.className).not.toContain('text-[10px]');
+    }
+  });
+});
