@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
+  import { formatCount } from '$lib/format/count';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -345,7 +346,7 @@
             <Icon name="user" size={12} />
             {summary.author}
             <Icon name="download" size={12} class="ml-1.5" />
-            {$t('format.count', { n: summary.downloads ?? 0 })}
+            {formatCount($locale, summary.downloads ?? 0)}
           </span>
         {/if}
         {#if summary.summary}

@@ -31,7 +31,8 @@
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import { Icon } from '$lib/ui/icons';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
+  import { formatCount } from '$lib/format/count';
 
   // The tauri-specta result envelopes, derived from the actual command
   // signatures so this component never hardcodes the { status, data|error }
@@ -158,9 +159,10 @@
     }
   }
 
-  // Raw count through `{n, number}`: a pre-formatted toLocaleString() followed
-  // the OS locale, so a Russian UI on an English Windows printed "12,345".
-  const downloads = $derived($t('format.count', { n: project.downloads ?? 0 }));
+  // formatCount, not toLocaleString(): the latter followed the OS locale, so a
+  // Russian UI on an English Windows printed "12,345". $locale makes the app
+  // language the source of truth, and re-renders on a live language switch.
+  const downloads = $derived(formatCount($locale, project.downloads ?? 0));
 </script>
 
 <Modal

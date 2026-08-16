@@ -19,13 +19,14 @@
  * dictionary, as it already does for `instance.integrity.checkedAt` and
  * `modpacks.switch.versionMeta`.
  *
- * Number formatting is deliberately NOT here: a numeric `toLocaleString()` is
- * the wrong tool entirely — the dictionary types the argument `{n, number}`
- * and the caller passes a raw number (see `$lib/format/size.ts`).
+ * Number formatting is deliberately NOT here. A number that carries a UNIT
+ * belongs in the dictionary, which types the argument `{n, number}` while the
+ * caller passes a raw number (see `$lib/format/size.ts`). A number with no
+ * words at all belongs in `./count.ts`, which explains why the dictionary is
+ * the wrong home for it.
  */
 
-/** The svelte-i18n locale store's value: a BCP-47 tag, or null before init. */
-export type AppLocale = string | null | undefined;
+import type { AppLocale } from './app-locale';
 
 /** Date + time of day, e.g. "8/13/2026, 9:41 PM" / "13.08.2026, 21:41". */
 export function formatDateTime(
