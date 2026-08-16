@@ -1431,12 +1431,17 @@ pub fn inspect_jar(
 /// ever overrides it. `loader_version` is the instance's own; `None` (a real
 /// import can leave it unset) makes the platform axis go silent rather than
 /// guess, exactly like `platform_verdict` itself.
+///
+/// `cache_path` is the shared jar-scan cache (`paths::jar_scan_cache_file`).
+/// `None` runs uncached: the same verdicts, only slower.
 pub async fn scan_instance(
     instance_root: &Path,
+    cache_path: Option<&Path>,
     instance_loader: LoaderKind,
     mc: &str,
     loader_version: Option<&str>,
 ) -> Result<Vec<ModLocalCompat>, Error> {
+    use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
     use crate::mods::updates::eligible_identity;
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
@@ -1445,33 +1450,62 @@ pub async fn scan_instance(
     // jar's verdict depends on this one fact.
     let connector = connector_installed(&dir, &mods).await;
     let era = descriptor_era(mc);
+    // One read of a small JSON for the whole scan, then a map lookup per jar.
+    let cached = cache_path.map(ScanCache::load).unwrap_or_default();
+    let mut fresh: Vec<(String, CachedScan)> = Vec::new();
     let mut out = Vec::with_capacity(mods.len());
     // Disabled mods are out of scope for every detector (locked decision,
     // 2026-08-03): the loader never opens a `.disabled` jar, so a verdict on it
     // is noise the user already resolved. Filtering at the scan source means the
     // chip, the Overview count and the row badges all inherit the exclusion.
     for m in mods.iter().filter(|m| m.enabled) {
-        // Read the jar bytes ONCE, use them for both verdicts below.
-        let bytes = read_jar_for(&dir, &m.filename).await;
+        // Keyed on the bytes on disk, never on `m.sha1`: the registry keeps a
+        // record's EXPECTED digest when the file under that name was replaced.
+        // See `installed::on_disk_sha1`.
+        let cache_key = installed::on_disk_sha1(&dir, &m.filename).await;
+        // BOTH halves or neither. A record written by the dependency pre-flight
+        // carries a manifest and no `meta`, and a `JarMeta::default()` conjured
+        // for the missing half reads as "no recognised descriptor" — which
+        // silences a true loader mismatch rather than raising a false one, but
+        // silences it just the same.
+        let hit = cache_key
+            .as_deref()
+            .and_then(|k| cached.get(k))
+            .and_then(|h| Some((h.meta.clone()?, h.manifest.clone()?)));
+        let scanned = match hit {
+            Some(v) => Some(v),
+            None => {
+                // Read the jar bytes ONCE, parse both verdicts out of them.
+                let parsed = match read_jar_for(&dir, &m.filename).await {
+                    Some(bytes) => read_meta_and_manifest(bytes).await,
+                    None => None,
+                };
+                if let (Some(k), Some((meta, manifest))) = (cache_key.as_deref(), parsed.as_ref()) {
+                    fresh.push((
+                        k.to_string(),
+                        CachedScan {
+                            meta: Some(meta.clone()),
+                            manifest: Some(manifest.clone()),
+                            // Neither reader runs here. `None`, not an empty
+                            // vector — the pre-flight is the only caller that
+                            // can say whether these are empty.
+                            legacy_deps: None,
+                            jij_provided: None,
+                        },
+                    ));
+                }
+                parsed
+            }
+        };
         // Judge loader-family for ALL mods, pack-bundled included — the
         // conservative verdict (descriptor-less / family-inclusive jars never
         // flag) is the false-positive guard, not pack membership.
-        let verdict = bytes
-            .as_deref()
-            .and_then(|b| read_jar_meta(b).ok())
-            .map(|meta| compat_verdict(&meta, instance_loader, mc, connector));
-        let platform = bytes
-            .as_deref()
-            .and_then(|b| read_jar_manifest_deps(b).ok())
-            .map(|man| {
-                crate::mods::mc_compat::platform_verdict(
-                    &man,
-                    mc,
-                    instance_loader,
-                    loader_version,
-                    era,
-                )
-            });
+        let verdict = scanned
+            .as_ref()
+            .map(|(meta, _)| compat_verdict(meta, instance_loader, mc, connector));
+        let platform = scanned.as_ref().map(|(_, man)| {
+            crate::mods::mc_compat::platform_verdict(man, mc, instance_loader, loader_version, era)
+        });
         let (platform_mismatch, platform_axis, platform_declared) = match platform {
             Some(crate::mods::mc_compat::PlatformVerdict::Violated { axis, declared, .. }) => {
                 (true, Some(axis), Some(declared))
@@ -1488,7 +1522,48 @@ pub async fn scan_instance(
             platform_declared,
         });
     }
+    // One save for the whole scan, under the cache's disk lock.
+    if let Some(path) = cache_path {
+        if !fresh.is_empty() {
+            ScanCache::update(path, |c| {
+                for (sha, entry) in fresh {
+                    c.merge(&sha, entry);
+                }
+            });
+        }
+    }
     Ok(out)
+}
+
+/// [`read_jar_meta`] + [`read_jar_manifest_deps`] for one jar, OFF the async
+/// executor — `zip` is sync, and inflating a 140-mod pack's descriptors on a
+/// tokio worker starves every other task on it. Same shape and same reason as
+/// `preflight::scan_jar`; the caller's loop stays sequential, so one blocking
+/// task at a time.
+///
+/// Joined into ONE `Option` because the two readers fail on exactly one shared
+/// condition — `ZipArchive::new` refusing the bytes; neither has any other
+/// error path — so they are `Some` together or `None` together. The previous
+/// pair of independent `Option`s could never actually disagree, and making the
+/// shared fate explicit is what lets one cache record hold both halves or
+/// neither.
+///
+/// `None` is "could not tell", including a panicked or cancelled blocking task,
+/// and is never cached.
+async fn read_meta_and_manifest(bytes: Vec<u8>) -> Option<(JarMeta, ManifestDeps)> {
+    let joined = tokio::task::spawn_blocking(move || {
+        let meta = read_jar_meta(&bytes).ok()?;
+        let manifest = read_jar_manifest_deps(&bytes).ok()?;
+        Some((meta, manifest))
+    })
+    .await;
+    match joined {
+        Ok(v) => v,
+        Err(e) => {
+            crate::diag!("[mods] compat jar scan task failed: {e}");
+            None
+        }
+    }
 }
 
 /// True when an ENABLED jar in `mods_dir` is Sinytra Connector.
@@ -1521,7 +1596,13 @@ pub async fn instance_has_connector(instance_root: &Path) -> bool {
 
 /// Read a mod jar's bytes by base filename, trying the `.disabled` variant
 /// too. Returns `None` if neither exists or the read fails.
-async fn read_jar_for(mods_dir: &Path, filename: &str) -> Option<Vec<u8>> {
+///
+/// `pub(crate)` for `preflight::dependency_preflight_for_root`, which carried
+/// an inline copy of the same two-path lookup. One reader, one order: the
+/// jar-scan cache's key comes from `installed::on_disk_sha1`, which tries the
+/// same two spellings in the same sequence, and a second copy that drifted
+/// would let the key and the bytes describe different files.
+pub(crate) async fn read_jar_for(mods_dir: &Path, filename: &str) -> Option<Vec<u8>> {
     if let Ok(b) = fs::read(mods_dir.join(filename)).await {
         return Some(b);
     }
@@ -2702,7 +2783,7 @@ modId=\"evilseagull\"
         fs::create_dir_all(&dir).await.unwrap();
         let bytes = zip_with(&[("META-INF/neoforge.mods.toml", b"modLoader=\"javafml\"")]);
         fs::write(dir.join("neo.jar"), &bytes).await.unwrap();
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.6", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.6", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -2929,12 +3010,107 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out[0].loader_mismatch);
         assert_eq!(out[0].detected_loader.as_deref(), Some("Fabric"));
+    }
+
+    /// Red on pre-cache code twice over: nothing wrote the cache, and nothing
+    /// read it. The second half is the important one — a test that only checks
+    /// the file appeared would pass on a write-only wiring that still unzips
+    /// every jar on every open, which is the entire defect.
+    #[tokio::test]
+    async fn the_compat_scan_stores_its_verdict_and_then_believes_it() {
+        use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = installed::mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("META-INF/neoforge.mods.toml", b"modLoader=\"javafml\"")]);
+        fs::write(dir.join("neo.jar"), &bytes).await.unwrap();
+        let sha = hex::encode(Sha1::digest(&bytes));
+        let cache = td.path().join("jar-scans.json");
+
+        let out = scan_instance(td.path(), Some(&cache), LoaderKind::Forge, "1.20.6", None)
+            .await
+            .unwrap();
+        assert!(out[0].loader_mismatch, "neoforge-only jar flags on Forge");
+
+        let hit = ScanCache::load(&cache)
+            .get(&sha)
+            .cloned()
+            .expect("the jar is cached under its on-disk digest");
+        assert!(hit.meta.is_some() && hit.manifest.is_some(), "both halves");
+        assert!(
+            hit.legacy_deps.is_none() && hit.jij_provided.is_none(),
+            "the compat scan runs neither reader and must not claim it did"
+        );
+
+        // Now prove the READ path. A record claiming this jar is Fabric is a
+        // lie about the file, and that is the point: only a scan that actually
+        // consults the cache can answer with it.
+        ScanCache::update(&cache, |c| {
+            c.merge(
+                &sha,
+                CachedScan {
+                    meta: Some(JarMeta {
+                        families: vec![LoaderFamily::Fabric],
+                        loader_label: Some("Fabric".into()),
+                        has_fabric_json: true,
+                        ..JarMeta::default()
+                    }),
+                    manifest: Some(ManifestDeps::default()),
+                    legacy_deps: None,
+                    jij_provided: None,
+                },
+            )
+        });
+        let second = scan_instance(td.path(), Some(&cache), LoaderKind::Forge, "1.20.6", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            second[0].detected_loader.as_deref(),
+            Some("Fabric"),
+            "the second scan read the cache instead of re-unzipping the jar"
+        );
+    }
+
+    /// A record the pre-flight wrote carries a manifest and no `meta`. Believing
+    /// half of it — `JarMeta::default()` for the missing half — reads as "no
+    /// recognised descriptor", which silences a real loader mismatch.
+    #[tokio::test]
+    async fn a_manifest_only_record_does_not_answer_the_family_question() {
+        use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = installed::mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("META-INF/neoforge.mods.toml", b"modLoader=\"javafml\"")]);
+        fs::write(dir.join("neo.jar"), &bytes).await.unwrap();
+        let sha = hex::encode(Sha1::digest(&bytes));
+        let cache = td.path().join("jar-scans.json");
+
+        ScanCache::update(&cache, |c| {
+            c.merge(
+                &sha,
+                CachedScan {
+                    meta: None,
+                    manifest: Some(ManifestDeps::default()),
+                    legacy_deps: None,
+                    jij_provided: Some(Vec::new()),
+                },
+            )
+        });
+
+        let out = scan_instance(td.path(), Some(&cache), LoaderKind::Forge, "1.20.6", None)
+            .await
+            .unwrap();
+        assert!(
+            out[0].loader_mismatch,
+            "a half-record must send the scan back to the jar, not read as 'no descriptor'"
+        );
+        assert_eq!(out[0].detected_loader.as_deref(), Some("NeoForge"));
     }
 
     /// The Connector jar as it actually ships: a JIJ container with no
@@ -2973,7 +3149,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -3002,7 +3178,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -3021,7 +3197,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("META-INF/mods.toml", b"modLoader=\"javafml\"")]);
         fs::write(dir.join("f.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3038,7 +3214,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("data/whatever.txt", b"not a mod")]);
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3055,7 +3231,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Vanilla, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Vanilla, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3072,7 +3248,7 @@ modId=\"evilseagull\"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3096,7 +3272,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3121,7 +3297,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3160,7 +3336,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         let m = out
@@ -3203,7 +3379,7 @@ modId=\"evilseagull\"
         let enabled_sha = hex::encode(Sha1::digest(&enabled_bytes));
         let disabled_sha = hex::encode(Sha1::digest(&disabled_bytes));
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         assert!(
@@ -3287,7 +3463,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("fcap.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "fcap.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3310,7 +3486,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("ok.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "ok.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3332,7 +3508,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "lib.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3378,9 +3554,15 @@ loaderVersion="[61,)"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", Some("47.4.10"))
-            .await
-            .expect("scan succeeds");
+        let out = scan_instance(
+            td.path(),
+            None,
+            LoaderKind::Forge,
+            "1.20.1",
+            Some("47.4.10"),
+        )
+        .await
+        .expect("scan succeeds");
         assert!(
             out.iter().any(|c| c.platform_mismatch),
             "the loader-axis verdict must reach ModLocalCompat, got {out:?}"
@@ -3400,7 +3582,7 @@ loaderVersion="[61,)"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .expect("scan succeeds");
         assert!(

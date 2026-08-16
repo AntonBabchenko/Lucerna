@@ -85,8 +85,18 @@ const ALLOWLIST: &[&str] = &[
     "mods/cache.rs", // store side: temp + rename, SHA-keyed
     // Metadata and caches — JSON sidecars, never content bytes.
     "mods/installed.rs", // .lucerna/installed-mods.json (already temp + rename)
+    // `{instance}/lucerna/jar-hashes.json` and its `json.tmp.<pid>.<seq>`
+    // sibling — the per-instance `(mtime, size) -> sha1` memo that makes the
+    // first installed-list after a launcher start stat-only. Writes no content
+    // bytes: the path it builds is `installed::registry_dir(instance_root)`,
+    // the instance's `lucerna/` METADATA directory, a SIBLING of `.minecraft/`,
+    // so it can never resolve inside `.minecraft/mods/` or a world's
+    // `datapacks/` and can never be one of the hardlinked names this guard
+    // protects. Same class, same temp-then-rename shape, and the same per-write
+    // sequence number as `mods/installed.rs` above.
+    "mods/hash_cache.rs",
     "mods/summary_cache.rs", // mod summary JSON cache
-    "mods/assets.rs",    // installed-assets registry JSON (temp + rename)
+    "mods/assets.rs",        // installed-assets registry JSON (temp + rename)
     // `<app_data>/mods-cache/jar-scans.json` and its `tmp.<pid>` sibling —
     // a global, cross-instance cache of PARSED DESCRIPTORS (families, provided
     // ids, declared deps), keyed by the jar's SHA-1. It writes no content

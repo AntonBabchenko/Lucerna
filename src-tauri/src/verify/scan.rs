@@ -57,6 +57,71 @@ mod tests {
         assert_eq!(classify(false, None, ""), ArtifactStatus::Missing);
     }
 
+    /// Deterministic non-repeating filler, so a chunk read in the wrong order,
+    /// a dropped tail, or a re-hashed chunk all change the digest. A constant
+    /// byte would hide every one of those.
+    fn filler(len: usize) -> Vec<u8> {
+        (0..len).map(|i| ((i * 31 + 7) % 251) as u8).collect()
+    }
+
+    fn whole_file_sha1(bytes: &[u8]) -> String {
+        use sha1::{Digest, Sha1};
+        hex::encode(Sha1::digest(bytes))
+    }
+
+    /// The equivalence lock. Every size that can expose a chunk-loop bug:
+    /// empty, one byte, one byte short of a chunk, exactly a chunk, one past a
+    /// chunk, and several chunks with an odd remainder.
+    #[tokio::test]
+    async fn the_streamed_hash_equals_the_whole_file_hash_at_every_chunk_boundary() {
+        let td = tempfile::tempdir().unwrap();
+        let sizes = [
+            0usize,
+            1,
+            super::HASH_CHUNK_BYTES - 1,
+            super::HASH_CHUNK_BYTES,
+            super::HASH_CHUNK_BYTES + 1,
+            super::HASH_CHUNK_BYTES * 3 + 7,
+        ];
+        for size in sizes {
+            let bytes = filler(size);
+            let path = td.path().join(format!("artefact-{size}.bin"));
+            std::fs::write(&path, &bytes).unwrap();
+            assert_eq!(
+                super::file_sha1(&path).await,
+                Some(whole_file_sha1(&bytes)),
+                "streamed digest must equal the whole-file digest at size {size}"
+            );
+        }
+    }
+
+    /// The conflation `classify`'s own doc states, preserved verbatim: absent
+    /// and unreadable both hash to `None`, which reads as `Missing` so repair
+    /// re-downloads. A directory covers the unreadable side portably — on
+    /// Windows the open fails, on Unix the open succeeds and the read fails,
+    /// and both must answer `None` rather than panic or hang.
+    #[tokio::test]
+    async fn an_absent_or_unreadable_path_still_hashes_to_none() {
+        let td = tempfile::tempdir().unwrap();
+        assert_eq!(super::file_sha1(&td.path().join("absent.bin")).await, None);
+        assert_eq!(
+            super::file_sha1(td.path()).await,
+            None,
+            "a directory is not an artefact"
+        );
+    }
+
+    /// Peak memory must not scale with the artefact. There is no portable way to
+    /// assert allocation from a unit test, so this asserts the one thing that
+    /// IS observable and load-bearing: the buffer is a compile-time constant and
+    /// a sane one. The real guarantee lives in
+    /// `tests/structural_verify_hash_offloaded.rs`.
+    #[test]
+    fn the_hash_buffer_is_a_fixed_size_not_a_function_of_the_file() {
+        assert!(super::HASH_CHUNK_BYTES >= 64 * 1024);
+        assert!(super::HASH_CHUNK_BYTES <= 1024 * 1024);
+    }
+
     #[test]
     fn manifest_recoverable_flag_makes_report_unhealthy() {
         // Guards FIX 2: a recoverable-manifest report must not be healthy even
@@ -85,21 +150,88 @@ use tauri_specta::Event;
 
 const CONCURRENCY: usize = 8;
 
+/// Chunk size for the streamed hash. Large enough that the per-chunk syscall
+/// and `Sha1::update` overhead is noise; small enough that eight concurrent
+/// hashes hold about a megabyte of buffers between them instead of eight whole
+/// artefacts. Mirrors the 64 KiB streaming loop in
+/// `worlds::zip::extract_zip_capped`, doubled because nothing here needs a
+/// per-chunk cap check.
+const HASH_CHUNK_BYTES: usize = 128 * 1024;
+
 /// An artefact resolved to its absolute on-disk path, ready to hash.
 pub struct PlannedOnDisk {
     pub abs_path: PathBuf,
     pub expected_sha: String,
 }
 
+/// SHA-1 of a file, streamed in [`HASH_CHUNK_BYTES`] chunks on a blocking
+/// thread. `None` when the file is absent or unreadable — [`classify`] reports
+/// that as `Missing` so repair re-downloads it, the intentional conflation its
+/// own doc comment already states. That contract is unchanged here.
+///
+/// Two properties matter, and neither is cosmetic:
+///
+/// * **`spawn_blocking`.** Reading and SHA-1'ing is CPU plus blocking IO. Run
+///   directly on the async executor, [`hash_planned`]'s `buffer_unordered(8)`
+///   pins up to eight tokio WORKER threads for the length of a full verify and
+///   starves every other task on the runtime — the same reasoning
+///   `tests/structural_no_heavy_sync_command.rs` spells out for the main
+///   thread, applied one level down to the worker pool. `spawn_blocking` moves
+///   it to the blocking pool, which exists for exactly this.
+/// * **Streaming.** `tokio::fs::read` materialised the whole artefact in memory,
+///   so peak usage was eight times the largest one at once. A fixed chunk buffer
+///   makes peak usage independent of artefact size.
+///
+/// A panic inside the blocking task surfaces as a `JoinError`. It is logged and
+/// folded into `None` rather than unwrapped: verify is a diagnostic pass, and
+/// reporting one artefact `Missing` is a far better failure than aborting the
+/// whole report.
 async fn file_sha1(path: &std::path::Path) -> Option<String> {
+    let owned = path.to_path_buf();
+    match tokio::task::spawn_blocking(move || sha1_of_file(&owned)).await {
+        Ok(result) => result,
+        Err(e) => {
+            crate::diag!("verify: hash task for {} did not join: {e}", path.display());
+            None
+        }
+    }
+}
+
+/// Blocking half of [`file_sha1`]: open, read in fixed-size chunks, feed each
+/// chunk to the digest. Never allocates in proportion to the file.
+///
+/// The incremental `Digest` API (`new` / `update` / `finalize`) is the same one
+/// `accounts::microsoft::oauth::Pkce::new` already uses with `Sha256`; both
+/// crates sit on the same `digest` release in this tree.
+fn sha1_of_file(path: &std::path::Path) -> Option<String> {
     use sha1::{Digest, Sha1};
-    let bytes = tokio::fs::read(path).await.ok()?;
-    Some(hex::encode(Sha1::digest(&bytes)))
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha1::new();
+    let mut buf = vec![0u8; HASH_CHUNK_BYTES];
+    loop {
+        // A mid-read failure yields `None`, i.e. `Missing` — identical to the
+        // whole-file read this replaces, and to the conflation `classify`
+        // documents. Not a new fallback: the same one, in chunks.
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(hex::encode(hasher.finalize()))
 }
 
 /// Hash each item in parallel and classify. `on_progress(done, total, bytes)`
 /// fires after each file (bytes currently always 0 — progress is file-count
 /// based). Preserves input order in the returned vec.
+///
+/// `concurrency` bounds how many hashes are in flight, which since [`file_sha1`]
+/// moved to `spawn_blocking` means how many BLOCKING-pool threads this pass
+/// occupies — not how many async workers it starves. The bound is kept as-is:
+/// it is what stops a verify from saturating the blocking pool and stalling
+/// every other `spawn_blocking` caller in the app.
 pub async fn hash_planned(
     items: Vec<PlannedOnDisk>,
     concurrency: usize,

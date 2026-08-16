@@ -8,6 +8,7 @@
 
 use lucerna_lib::instances::schema::LoaderKind;
 use lucerna_lib::mods::installed;
+use lucerna_lib::mods::jar_scan_cache::ScanCache;
 use lucerna_lib::mods::platform::InstalledMod;
 use lucerna_lib::mods::preflight::{dependency_preflight_for_root, ViolationKind};
 use sha1::{Digest, Sha1};
@@ -120,7 +121,7 @@ version=\"1.3.50.2005\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.50.2005.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
 
@@ -180,7 +181,7 @@ version=\"1.3.55\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.55.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -214,7 +215,7 @@ version=\"3.20\"
     let jar = make_jar(&[("META-INF/mods.toml", toml)]);
     register(root, "backpacks-3.20.jar", &jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -277,7 +278,7 @@ version=\"3.20\"
     .await
     .unwrap();
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -291,7 +292,7 @@ version=\"3.20\"
 #[tokio::test]
 async fn empty_instance_produces_no_violations() {
     let td = TempDir::new().unwrap();
-    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(report.violations.is_empty());
@@ -337,7 +338,7 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
     )]);
     register(root, "CreativeCore_v1.10.71_mc1.12.2.jar", &cc).await;
 
-    let legacy = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let legacy = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert!(
@@ -350,7 +351,7 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
     // The very same jars on a modern instance take the mods.toml path, where
     // 1.10 really is outside [2.0.0,). Pinned so the era predicate cannot be
     // satisfied by simply dropping mods.toml everywhere.
-    let modern = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let modern = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(modern.violations.len(), 1, "{:?}", modern.violations);
@@ -383,7 +384,7 @@ async fn a_dual_descriptor_jar_is_still_checked_on_minecraftforge() {
     ]);
     register(root, "multi-1.0.jar", &both).await;
 
-    let forge = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let forge = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(forge.violations.len(), 1, "{:?}", forge.violations);
@@ -394,7 +395,7 @@ async fn a_dual_descriptor_jar_is_still_checked_on_minecraftforge() {
 
     // On NeoForge the same jar reports through neoforge.mods.toml, and its
     // mods.toml is shadowed — exactly one violation, the other id.
-    let neo = dependency_preflight_for_root(root, LoaderKind::NeoForge, "1.20.1", None)
+    let neo = dependency_preflight_for_root(root, None, LoaderKind::NeoForge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(neo.violations.len(), 1, "{:?}", neo.violations);
@@ -438,7 +439,7 @@ async fn a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -482,7 +483,7 @@ async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
     ]);
     register(root, "dependent.jar", &dependent).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert!(
@@ -499,7 +500,7 @@ async fn the_report_carries_pack_completion_when_the_helper_is_present() {
     let td = TempDir::new().unwrap();
     let root = td.path();
 
-    let plain = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let plain = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -515,11 +516,147 @@ async fn the_report_carries_pack_completion_when_the_helper_is_present() {
     )
     .unwrap();
 
-    let with = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let with = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     let c = with.pack_completion.expect("helper present");
     assert_eq!(c.total, 1);
     assert_eq!(c.outstanding.len(), 1);
     assert_eq!(c.outstanding[0].display_name, "Balm");
+}
+
+// ── the jar-scan cache ─────────────────────────────────────────────────────
+
+/// THE WIRING RED. Red on pre-cache code for the plainest possible reason:
+/// `jar_scan_cache` had no call site, so the file was never created and the
+/// `expect` below panics. Green once the pre-flight writes through it — and the
+/// four assertions pin WHAT it wrote, which is where the honesty lives.
+#[tokio::test]
+async fn the_preflight_stores_what_it_parsed_under_the_jars_on_disk_digest() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let cache = root.join("mods-cache").join("jar-scans.json");
+
+    let dependent = make_jar(&[(
+        "META-INF/mods.toml",
+        "[[mods]]\nmodId=\"alpha\"\nversion=\"1.0\"\n\n\
+         [[dependencies.alpha]]\n    modId=\"absent_mod\"\n    mandatory=true\n    \
+         versionRange=\"[1.0,)\"\n    side=\"BOTH\"\n",
+    )]);
+    let sha = register(root, "alpha.jar", &dependent).await;
+
+    assert!(!cache.exists(), "nothing has scanned yet");
+    let report =
+        dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.20.1", None)
+            .await
+            .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+
+    let stored = ScanCache::load(&cache);
+    let hit = stored
+        .get(&sha)
+        .expect("the scanned jar is cached under its digest");
+    assert!(hit.manifest.is_some(), "the manifest the pre-flight read");
+    assert!(hit.jij_provided.is_some(), "the JIJ pass it also ran");
+    assert!(
+        hit.legacy_deps.is_none(),
+        "a modern-era scan never opened the annotation and must not claim it did"
+    );
+    assert!(hit.meta.is_none(), "and never ran the compat scan's reader");
+}
+
+/// A modern-era scan must not teach a legacy-era scan that a jar needs nothing.
+///
+/// The `@Mod(dependencies = …)` annotation is read ONLY on the legacy era, so a
+/// record written while scanning a 1.20.1 instance has never looked at it. If
+/// that absence were stored as a fact, the 1.12.2 pass below would read it back
+/// and report zero violations for a jar that genuinely requires a mod nobody
+/// installed. Fixture shape copied from
+/// `a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml`.
+#[tokio::test]
+async fn a_modern_scan_does_not_teach_the_legacy_scan_that_a_jar_needs_nothing() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let cache = root.join("mods-cache").join("jar-scans.json");
+
+    let ev = make_jar_raw(&[
+        (
+            "mcmod.info",
+            br#"[{"modid":"ev","version":"1.0"}]"# as &[u8],
+        ),
+        (
+            "team/EV.class",
+            b"\x00\x02ev\x00\x1brequired-after:creativecore\x00" as &[u8],
+        ),
+    ]);
+    register(root, "EnhancedVisuals.jar", &ev).await;
+
+    // Warm the cache from a MODERN instance: the annotation is never read.
+    let modern =
+        dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.20.1", None)
+            .await
+            .unwrap();
+    assert!(
+        modern.violations.is_empty(),
+        "the modern era does not enforce the annotation: {:?}",
+        modern.violations
+    );
+
+    // The same jar, on the era that DOES enforce it, through the same cache.
+    let legacy =
+        dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.12.2", None)
+            .await
+            .unwrap();
+    assert_eq!(
+        legacy.violations.len(),
+        1,
+        "the legacy scan must read the annotation itself, not inherit the modern scan's silence: {:?}",
+        legacy.violations
+    );
+    assert_eq!(legacy.violations[0].dep_id, "creativecore");
+}
+
+/// Replacing a jar's bytes in place must change the answer, even though the
+/// registry still carries the digest of the jar the launcher installed
+/// (`installed::reconcile` step 2 keeps it on purpose). This is why the key is
+/// `installed::on_disk_sha1` and not `InstalledMod::sha1`.
+#[tokio::test]
+async fn replacing_a_jars_bytes_in_place_invalidates_its_cached_scan() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let cache = root.join("mods-cache").join("jar-scans.json");
+
+    let first = make_jar(&[(
+        "META-INF/mods.toml",
+        "[[mods]]\nmodId=\"alpha\"\nversion=\"1.0\"\n\n\
+         [[dependencies.alpha]]\n    modId=\"needs_one\"\n    mandatory=true\n    \
+         versionRange=\"[1.0,)\"\n    side=\"BOTH\"\n",
+    )]);
+    register(root, "alpha.jar", &first).await;
+    let a = dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.20.1", None)
+        .await
+        .unwrap();
+    assert_eq!(a.violations[0].dep_id, "needs_one");
+
+    // Same filename, different bytes — and a DIFFERENT LENGTH on purpose: the
+    // digest shortcut in `installed` is keyed by (mtime, size), and a same-size
+    // rewrite inside one mtime tick is invisible to the whole registry, not just
+    // to this cache.
+    let second = make_jar(&[(
+        "META-INF/mods.toml",
+        "[[mods]]\nmodId=\"alpha\"\nversion=\"1.0\"\n\n\
+         [[dependencies.alpha]]\n    modId=\"needs_two_and_then_some\"\n    mandatory=true\n    \
+         versionRange=\"[1.0,)\"\n    side=\"BOTH\"\n",
+    )]);
+    tokio::fs::write(installed::mods_dir(root).join("alpha.jar"), &second)
+        .await
+        .unwrap();
+
+    let b = dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.20.1", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        b.violations[0].dep_id, "needs_two_and_then_some",
+        "the cache must follow the bytes on disk, not the registry's expectation"
+    );
 }

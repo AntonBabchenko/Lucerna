@@ -21,6 +21,16 @@ async fn classifies_seeded_tree_offline() {
     let corrupt = root.path().join("corrupt.bin");
     fs::write(&corrupt, b"tampered").unwrap();
 
+    // A multi-chunk artefact: the production path is `hash_planned` ->
+    // `file_sha1`, and before the streaming fix nothing in this suite hashed
+    // anything larger than eight bytes.
+    let big_bytes: Vec<u8> = (0..(300 * 1024))
+        .map(|i| ((i * 31 + 7) % 251) as u8)
+        .collect();
+    let big = root.path().join("big.bin");
+    fs::write(&big, &big_bytes).unwrap();
+    let big_sha = sha1_hex(&big_bytes);
+
     let items = vec![
         PlannedOnDisk {
             abs_path: good.clone(),
@@ -34,10 +44,19 @@ async fn classifies_seeded_tree_offline() {
             abs_path: root.path().join("absent.bin"),
             expected_sha: good_sha,
         },
+        PlannedOnDisk {
+            abs_path: big.clone(),
+            expected_sha: big_sha,
+        },
     ];
 
     let statuses = hash_planned(items, 8, |_done, _total, _bytes| {}).await;
     assert_eq!(statuses[0], ArtifactStatus::Ok);
     assert_eq!(statuses[1], ArtifactStatus::Corrupt);
     assert_eq!(statuses[2], ArtifactStatus::Missing);
+    assert_eq!(
+        statuses[3],
+        ArtifactStatus::Ok,
+        "a multi-chunk artefact must hash to the same value the whole-file read gave"
+    );
 }

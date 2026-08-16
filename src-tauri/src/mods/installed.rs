@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 
 /// Monotonic counter giving every `write()` a unique temp-file name.
@@ -29,6 +29,7 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
+use crate::mods::hash_cache::{self, HashMemo};
 use crate::mods::modpack::schema::{
     EnvSupport, InertLoaderJar, ModpackUnresolvable, SkippedOverride,
 };
@@ -39,8 +40,50 @@ const FILE_VERSION: u32 = 4;
 /// Process-lifetime SHA-1 cache for files in `mods/`, keyed by path.
 /// `reconcile()` re-uses the stored digest when a file's (mtime, size)
 /// are unchanged, turning a full read+hash into a cheap `stat`.
+///
+/// This is the FIRST of two tiers. The second, [`crate::mods::hash_cache`],
+/// persists the same `(mtime, size) -> sha1` fact per instance so the first
+/// list after a launcher start is stat-only too; `reconcile` consults it on a
+/// miss here, and a hit there warms this map.
 static HASH_CACHE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64, String)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// One gate per path, held across the hash so N concurrent COLD callers for the
+/// same file hash it once instead of N times.
+///
+/// The Installed view fires `modsListInstalled` + `modsPackOriginSummary` +
+/// `mods_dependency_graph` together (see [`WRITE_SEQ`]); before this gate every
+/// one of them read and hashed every jar independently — three full passes over
+/// the same gigabytes, because the old fast-path lock was released before the
+/// hash and re-taken after it.
+///
+/// Mirrors `src/lib/instances/instance-icon-cache.ts`: ONE shared in-flight
+/// entry per key, and a FAILURE is not memoised — there the `.catch` deletes the
+/// entry, here a failing hasher simply stores nothing, so the next waiter
+/// re-checks, misses, and tries for itself rather than inheriting an error.
+///
+/// The map is never pruned. It holds one small `Arc` per jar path this process
+/// has hashed — the same growth [`HASH_CACHE`] already has, bounded by the same
+/// thing: how many distinct jars the user's instances contain.
+static HASH_GATES: LazyLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The cached digest for `path`, if one was stored under this exact
+/// `(mtime, size)`. Split out so the fast path and the post-gate re-check read
+/// it identically, and so the std lock is provably never held across an await.
+fn lookup(path: &Path, mtime: SystemTime, size: u64) -> Option<String> {
+    let cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    let (m, s, sha) = cache.get(path)?;
+    (*m == mtime && *s == size).then(|| sha.clone())
+}
+
+/// Store `sha` as the digest of `path` under `(mtime, size)`.
+fn remember(path: &Path, mtime: SystemTime, size: u64, sha: &str) {
+    HASH_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(path.to_path_buf(), (mtime, size, sha.to_string()));
+}
 
 /// Seed [`HASH_CACHE`] for a freshly-written `mods/` file whose digest the
 /// caller already knows (the install path SHA-verifies every byte it writes).
@@ -48,6 +91,10 @@ static HASH_CACHE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64, String)>>> 
 /// re-hashes every new jar — on a large modpack that is a full extra pass
 /// over gigabytes. Best-effort: a failed stat just means `reconcile()` hashes
 /// the file the slow way, as before.
+///
+/// Seeds the MEMORY tier only. The persisted tier is written once per
+/// `reconcile`, from the whole directory listing — N per-file writes during an
+/// install would cost more than the pass they save.
 pub(crate) fn seed_hash_cache(path: &Path, sha1: &str) {
     let Ok(meta) = std::fs::metadata(path) else {
         return;
@@ -55,16 +102,13 @@ pub(crate) fn seed_hash_cache(path: &Path, sha1: &str) {
     let Ok(mtime) = meta.modified() else {
         return;
     };
-    let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
-    cache.insert(
-        path.to_path_buf(),
-        (mtime, meta.len(), sha1.to_ascii_lowercase()),
-    );
+    remember(path, mtime, meta.len(), &sha1.to_ascii_lowercase());
 }
 
 /// SHA-1 of the file at `path`, re-using the cached digest when
 /// `(mtime, size)` are unchanged since it was last hashed. `read_and_hash`
-/// is only awaited on a miss. The lock is never held across the await.
+/// is only awaited on a genuine miss, and only by ONE caller at a time per path.
+/// The std lock is never held across an await.
 async fn cached_sha1<F, Fut>(
     path: &Path,
     mtime: SystemTime,
@@ -75,20 +119,88 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<String, Error>>,
 {
-    {
-        let cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some((m, s, sha)) = cache.get(path) {
-            if *m == mtime && *s == size {
-                return Ok(sha.clone());
-            }
-        }
+    if let Some(sha) = lookup(path, mtime, size) {
+        return Ok(sha);
+    }
+    // Miss. Take this path's gate BEFORE hashing so concurrent callers queue
+    // instead of all reading the same file. The std lock is scoped to the map
+    // operation alone — holding it across the `.await` below would also make
+    // this future non-`Send`, which every Tauri command calling `list()` needs.
+    let gate = {
+        let mut gates = HASH_GATES.lock().unwrap_or_else(|p| p.into_inner());
+        Arc::clone(
+            gates
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    };
+    // Bound to a NAMED binding: a bare `_` would drop the guard immediately and
+    // silently restore the stampede this gate exists to prevent.
+    let _held = gate.lock().await;
+    // Re-check under the gate — whoever held it before us has already stored the
+    // digest, and this is where the deduplication is actually paid out.
+    if let Some(sha) = lookup(path, mtime, size) {
+        return Ok(sha);
     }
     let sha = read_and_hash().await?;
-    {
-        let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
-        cache.insert(path.to_path_buf(), (mtime, size, sha.clone()));
-    }
+    remember(path, mtime, size, &sha);
     Ok(sha)
+}
+
+/// SHA-1 of the bytes the jar `filename` has in `mods_dir` RIGHT NOW, trying
+/// the `.disabled` spelling second — the same two paths, in the same order, as
+/// [`crate::mods::local::read_jar_for`], so a cache keyed on this digest and a
+/// reader that opens the jar can never be talking about different files.
+///
+/// NOT [`InstalledMod::sha1`]. [`reconcile`] deliberately RETAINS a record's
+/// expected digest when the file under that name hashes differently — that is
+/// the corrupted-or-externally-replaced jar, and the record is kept so a verify
+/// pass can say "expected X, found Y". The registry's digest is therefore the
+/// jar the launcher installed, which is not always the jar on disk. Anything
+/// keyed on it — the jar-scan cache above all — would answer for bytes that are
+/// no longer there.
+///
+/// Cheap by construction: [`list`]'s `reconcile` has just hashed every file in
+/// this directory through the same `(mtime, size)`-keyed [`HASH_CACHE`], so a
+/// call right after it is a `stat` plus a map lookup. It re-reads only when the
+/// metadata moved since — which is exactly when the cached digest would be
+/// wrong. It inherits that shortcut's one bound and adds none: a replacement
+/// with identical size AND identical mtime is invisible here, as it already is
+/// to the registry every surface in the launcher reads.
+///
+/// `None` is "could not tell" — no such file, unreadable metadata, failed read
+/// — never "no jar". The caller must fall back to reading the bytes, which is
+/// exactly what it did before there was a cache.
+pub(crate) async fn on_disk_sha1(mods_dir: &Path, filename: &str) -> Option<String> {
+    for name in [filename.to_string(), format!("{filename}.disabled")] {
+        let path = mods_dir.join(&name);
+        let Ok(meta) = fs::metadata(&path).await else {
+            continue; // not this spelling — try the other, then give up
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let Ok(mtime) = meta.modified() else {
+            // A filesystem that cannot report mtime cannot feed HASH_CACHE, and
+            // hashing megabytes here to save one unzip is a losing trade.
+            return None;
+        };
+        return match cached_sha1(&path, mtime, meta.len(), || async {
+            let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
+            Ok(hex::encode(Sha1::digest(&bytes)))
+        })
+        .await
+        {
+            Ok(sha) => Some(sha),
+            // A file that stat'd and would not read is ignorance about THIS jar,
+            // not licence to answer with the `.disabled` sibling's bytes.
+            Err(e) => {
+                crate::diag!("[mods] on-disk sha1 for {} failed: {e}", path.display());
+                None
+            }
+        };
+    }
+    None
 }
 
 /// Snapshot of the mods the user selected at modpack-import time, kept
@@ -344,6 +456,13 @@ async fn write(instance_root: &Path, state: &OnDisk) -> Result<(), Error> {
 async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Error> {
     let dir = mods_dir(instance_root);
 
+    // Persisted `(mtime, size) -> sha1` memo. Consulted only on an in-memory
+    // miss, and rewritten below with exactly the files present — so it prunes
+    // itself, and a deleted instance takes its memo with it. See
+    // `crate::mods::hash_cache` for why it is a separate file.
+    let stored = hash_cache::load(instance_root).await;
+    let mut fresh = HashMemo::default();
+
     // (base_filename, sha1_lower, enabled) for every file on disk.
     // A missing mods/ directory is equivalent to an empty one: any stale
     // JSON entries should still be dropped.
@@ -365,13 +484,38 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
             };
             let path = entry.path();
             let size = meta.len();
+            // A stat that FAILS is an error, not an assumed "unchanged": there
+            // is no honest digest to serve without it.
             let mtime = meta.modified().map_err(|e| io_err(&path, e))?;
             let sha = cached_sha1(&path, mtime, size, || async {
+                // The persisted memo is the second-cheapest answer, after the
+                // in-memory one, and the reason the FIRST list after a launcher
+                // start is stat-only. Only a miss here reads bytes.
+                if let Some(sha) = stored.get(&name, mtime, size) {
+                    return Ok(sha.to_string());
+                }
                 let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
                 Ok(hex::encode(Sha1::digest(&bytes)))
             })
             .await?;
+            if let Some(stamp) = hash_cache::stamp_of(mtime, size, &sha) {
+                fresh.insert(&name, stamp);
+            }
             on_disk.push((base_name, sha, enabled));
+        }
+    }
+
+    // Persist the memo only when it actually differs — a steady-state list must
+    // not rewrite the file, the same rule `backfill_display_names` follows for
+    // the registry (`backfill_does_not_rewrite_when_nothing_changes`). A failure
+    // is LOGGED, never fatal: the memo is a performance record, and losing it
+    // costs the next list a re-hash and nothing else.
+    if fresh != stored {
+        if let Err(e) = hash_cache::save(instance_root, &fresh).await {
+            crate::diag!(
+                "mods: hash memo save failed ({}): {e}",
+                hash_cache::memo_path(instance_root).display()
+            );
         }
     }
 
@@ -750,6 +894,254 @@ mod tests {
         assert_eq!(
             mods[0].sha1, good,
             "the EXPECTED hash is retained so a repair knows what it wants"
+        );
+    }
+
+    /// The registry's digest and the file's digest are two different facts, and
+    /// the jar-scan cache must be keyed on the second. `reconcile` step 2 keeps
+    /// the EXPECTED digest on a replaced jar on purpose (pinned by
+    /// `corrupted_known_jar_keeps_its_provenance` above); this asserts the two
+    /// genuinely diverge and that `on_disk_sha1` reports the file, not the
+    /// record.
+    #[tokio::test]
+    async fn on_disk_sha1_reports_the_file_not_the_registrys_expectation() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let dir = mods_dir(root);
+        let installed_sha = place_jar(&dir, "sodium.jar", b"GOOD-BYTES").await;
+        add(root, provenanced("sodium.jar", installed_sha.clone()))
+            .await
+            .unwrap();
+
+        // Replaced in place, same filename. A DIFFERENT LENGTH on purpose:
+        // HASH_CACHE is keyed by (mtime, size), and a same-size rewrite inside
+        // one mtime tick is invisible to it — a bound this helper inherits and
+        // does not pretend to fix.
+        fs::write(dir.join("sodium.jar"), b"REPLACED-WITH-OTHER-BYTES")
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+        assert_eq!(
+            mods[0].sha1, installed_sha,
+            "the registry keeps what it installed — this is the hazard, not a bug"
+        );
+        assert_eq!(
+            on_disk_sha1(&dir, "sodium.jar").await,
+            Some(hex::encode(Sha1::digest(b"REPLACED-WITH-OTHER-BYTES"))),
+            "the cache key must describe the bytes that are actually there"
+        );
+    }
+
+    /// The `.disabled` spelling is the second candidate, matching
+    /// `local::read_jar_for`'s order — a key computed from one file and bytes
+    /// read from another would be a cache that lies by construction.
+    #[tokio::test]
+    async fn on_disk_sha1_falls_back_to_the_disabled_spelling_then_gives_up() {
+        let td = TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        let sha = place_jar(&dir, "off.jar.disabled", b"DISABLED-BYTES").await;
+        assert_eq!(on_disk_sha1(&dir, "off.jar").await, Some(sha));
+        assert_eq!(
+            on_disk_sha1(&dir, "absent.jar").await,
+            None,
+            "could not tell — never an invented digest"
+        );
+    }
+
+    /// Eight cold callers for the same path must read and hash it ONCE.
+    ///
+    /// `#[tokio::test]` is a current-thread runtime, so `join_all` polls in
+    /// creation order: the first future reaches the hasher and yields, and the
+    /// rest arrive at the gate while it is held. Deterministic — no sleeps,
+    /// no flake.
+    #[tokio::test]
+    async fn concurrent_cold_callers_hash_a_file_only_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, UNIX_EPOCH};
+        // A synthetic path no other test uses: the closure is a stub, so no real
+        // file is needed, and a unique name keeps the process-global cache from
+        // answering on another test's behalf.
+        let path = Path::new("modlistcache-test-inflight-dedup.jar");
+        let mtime = UNIX_EPOCH + Duration::from_secs(4000);
+        let calls = AtomicUsize::new(0);
+
+        let results = futures_util::future::join_all((0..8).map(|_| {
+            cached_sha1(path, mtime, 10, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                Ok("shared-digest".to_string())
+            })
+        }))
+        .await;
+
+        for r in &results {
+            assert_eq!(r.as_ref().unwrap(), "shared-digest");
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "eight cold callers for one path must hash it once"
+        );
+    }
+
+    /// A failure is NOT memoised — the same posture `instance-icon-cache.ts`
+    /// takes with `cache.delete(id)` in its `.catch`. The next caller must get a
+    /// fresh attempt, not an inherited error and not a poisoned gate.
+    #[tokio::test]
+    async fn a_failed_hash_is_not_memoised_and_the_next_caller_retries() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, UNIX_EPOCH};
+        let path = Path::new("modlistcache-test-inflight-retry.jar");
+        let mtime = UNIX_EPOCH + Duration::from_secs(5000);
+        let calls = AtomicUsize::new(0);
+
+        let first = cached_sha1(path, mtime, 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Error::ModsInstancePath {
+                path: "x".into(),
+                details: "boom".into(),
+            })
+        })
+        .await;
+        assert!(first.is_err());
+
+        let second = cached_sha1(path, mtime, 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("recovered".to_string())
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(second, "recovered");
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "the retry must really run");
+    }
+
+    /// The persistence proof. A fresh `TempDir` gives paths this process has
+    /// never hashed, so the in-memory `HASH_CACHE` is guaranteed cold for them —
+    /// no global reset, and no interference with tests running in parallel.
+    ///
+    /// The memo is seeded with a well-formed digest that is NOT the file's. If
+    /// `list()` returns it, the bytes were never read — which is exactly the
+    /// claim. (This proves the read was SKIPPED; short of an fs-interception
+    /// harness there is no stronger available proof, and there is none in tree.)
+    #[tokio::test]
+    async fn a_cold_process_answers_from_the_persisted_memo_instead_of_reading_the_jar() {
+        const POISON: &str = "1111111111111111111111111111111111111111";
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let real = place_jar(&mods_dir(root), "sodium.jar", b"REAL-BYTES").await;
+        assert_ne!(real, POISON);
+        let meta = fs::metadata(mods_dir(root).join("sodium.jar"))
+            .await
+            .unwrap();
+
+        let mut memo = crate::mods::hash_cache::HashMemo::default();
+        memo.insert(
+            "sodium.jar",
+            crate::mods::hash_cache::stamp_of(meta.modified().unwrap(), meta.len(), POISON)
+                .unwrap(),
+        );
+        crate::mods::hash_cache::save(root, &memo).await.unwrap();
+
+        let mods = list(root).await.unwrap();
+
+        assert_eq!(mods.len(), 1);
+        assert_eq!(
+            mods[0].sha1, POISON,
+            "the digest must have come from the memo, not from a re-read"
+        );
+    }
+
+    /// Direction: a jar whose bytes changed since the memo was written is
+    /// re-hashed, never served from it. The replacement has a DIFFERENT LENGTH
+    /// on purpose — size alone settles it, so the test cannot depend on the
+    /// filesystem's mtime resolution.
+    #[tokio::test]
+    async fn a_jar_that_changed_since_the_memo_is_rehashed() {
+        const POISON: &str = "2222222222222222222222222222222222222222";
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        place_jar(&mods_dir(root), "sodium.jar", b"ORIGINAL").await;
+        let meta = fs::metadata(mods_dir(root).join("sodium.jar"))
+            .await
+            .unwrap();
+        let mut memo = crate::mods::hash_cache::HashMemo::default();
+        memo.insert(
+            "sodium.jar",
+            crate::mods::hash_cache::stamp_of(meta.modified().unwrap(), meta.len(), POISON)
+                .unwrap(),
+        );
+        crate::mods::hash_cache::save(root, &memo).await.unwrap();
+
+        // Different length ⇒ the size check settles it on every platform.
+        let replaced = place_jar(&mods_dir(root), "sodium.jar", b"REPLACED-WITH-MORE-BYTES").await;
+
+        let mods = list(root).await.unwrap();
+
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].sha1, replaced, "changed bytes must be re-hashed");
+        assert_ne!(mods[0].sha1, POISON);
+    }
+
+    /// The memo's write must survive the same concurrency the registry's does.
+    /// The existing `concurrent_list_migration_does_not_race_on_temp_file` case
+    /// has no jars, so its memo stays empty and never writes — this one does.
+    #[tokio::test]
+    async fn concurrent_lists_do_not_race_on_the_memo_temp_file() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place_jar(&mods_dir(root), "sodium.jar", b"SOME-BYTES").await;
+
+        let results = futures_util::future::join_all((0..16).map(|_| list(root))).await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent list() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+        let meta = fs::metadata(mods_dir(root).join("sodium.jar"))
+            .await
+            .unwrap();
+        let memo = crate::mods::hash_cache::load(root).await;
+        assert_eq!(
+            memo.get("sodium.jar", meta.modified().unwrap(), meta.len()),
+            Some(sha.as_str()),
+            "the memo must be readable and correct after 16 concurrent writers"
+        );
+    }
+
+    /// Idempotence: a second list over an unchanged instance must not rewrite
+    /// the memo — the same rule `backfill_does_not_rewrite_when_nothing_changes`
+    /// pins for the registry.
+    ///
+    /// The witness is the file's BYTES, not its mtime. `save` writes
+    /// pretty-printed JSON, so re-serialising the file compactly leaves content
+    /// that parses to an identical `HashMemo` but is byte-distinguishable: a
+    /// second list that rewrote it would restore the pretty spelling. An mtime
+    /// comparison would instead depend on the filesystem's timestamp
+    /// granularity, and would go quietly green on a coarse one.
+    #[tokio::test]
+    async fn a_steady_state_list_does_not_rewrite_the_memo() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        place_jar(&mods_dir(root), "sodium.jar", b"SOME-BYTES").await;
+        let _ = list(root).await.unwrap();
+
+        let memo_path = crate::mods::hash_cache::memo_path(root);
+        let pretty = fs::read_to_string(&memo_path).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&pretty).unwrap();
+        let compact = serde_json::to_string(&parsed).unwrap();
+        assert_ne!(compact, pretty, "the two spellings must differ");
+        fs::write(&memo_path, compact.as_bytes()).await.unwrap();
+
+        let _ = list(root).await.unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&memo_path).await.unwrap(),
+            compact,
+            "an unchanged memo must not be rewritten"
         );
     }
 
