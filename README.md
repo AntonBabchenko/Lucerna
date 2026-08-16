@@ -274,6 +274,22 @@ when a single-threaded run is required.
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
 
+    Lucerna — a clean, transparent open-source Minecraft launcher.
+    Copyright (C) 2026 Anton Babchenko
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 If you fork this project you must license your fork under GPL-3.0 or a later
 version. This is intentional: it prevents the kind of re-skinned-with-telemetry
 fork that motivated Lucerna in the first place.
