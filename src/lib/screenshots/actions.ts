@@ -21,6 +21,11 @@ export async function saveCopy(s: Screenshot): Promise<boolean> {
   const dest = await save({
     title: get(t)('screenshots.saveDialogTitle'),
     defaultPath: s.file_name,
+    // Load-bearing, not cosmetic: the backend refuses a destination that is
+    // not named `.png`, and the filter is what makes the OS append the
+    // extension when the user types a bare name. Without it the guard would
+    // turn "Save" into a refusal for anyone who does.
+    filters: [{ name: get(t)('common.fileFilter.png'), extensions: ['png'] }],
   });
   if (!dest) return false;
   const r = await commands.saveScreenshotCopy(s.instance_id, s.file_name, dest);
@@ -46,6 +51,9 @@ export async function saveAnnotated(
   const dest = await save({
     title: get(t)('screenshots.saveDialogTitle'),
     defaultPath: dp.status === 'ok' ? dp.data : s.file_name,
+    // See saveCopy: the `.png` the backend now requires is appended by the
+    // dialog only when a filter declares it.
+    filters: [{ name: get(t)('common.fileFilter.png'), extensions: ['png'] }],
   });
   if (!dest) return false;
   const overlay = overlayDataUrl ? overlayDataUrl.replace(/^data:image\/png;base64,/, '') : '';
