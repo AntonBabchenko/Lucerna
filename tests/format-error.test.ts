@@ -382,6 +382,7 @@ describe('formatError', () => {
       world_import_unsupported_source: { kind: 'world_import_unsupported_source' },
       world_import_invalid_archive: { kind: 'world_import_invalid_archive', details: 'd' },
       world_import_too_large: { kind: 'world_import_too_large', size: 3, cap: 2 },
+      world_import_partial_left: { kind: 'world_import_partial_left', folder_name: 'World (2)' },
       playtime_io: { kind: 'playtime_io', details: 'd' },
       tray_io: { kind: 'tray_io', details: 'd' },
       window_io: { kind: 'window_io', details: 'd' },

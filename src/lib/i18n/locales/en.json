@@ -2282,6 +2282,7 @@
     "worldImportUnsupportedSource": "Choose a .zip file or a world folder to import.",
     "worldImportInvalidArchive": "Couldn't read that world archive",
     "worldImportTooLarge": "That world is too large to import safely.",
+    "worldImportPartialLeft": "Import failed and the incomplete copy couldn't be removed. Delete the \"{folderName}\" folder inside saves — it is not a complete world. See Logs for the cause.",
     "playtimeIo": "Couldn't read or write playtime stats",
     "trayIo": "Couldn't show or hide the tray icon",
     "windowIo": "Couldn't resize the launcher window",

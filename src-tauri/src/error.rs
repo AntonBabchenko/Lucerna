@@ -408,6 +408,19 @@ pub enum Error {
     #[error("World is too large to import: {size} > cap {cap}")]
     WorldImportTooLarge { size: f64, cap: f64 },
 
+    /// A folder import failed mid-copy AND the rollback could not remove the
+    /// partial copy. `list_worlds` treats any direct subdirectory of `saves/`
+    /// as a world, so the leftover WILL appear in the world list looking like
+    /// a normal world — the user must be told it is incomplete and where it is.
+    ///
+    /// `folder_name` is the directory's NAME — a bare segment, never a full
+    /// path — for the same reason as `WorldRestoreStranded`: it reaches the
+    /// user inside a fully translated sentence. The causes (the copy failure
+    /// and the rollback failure) are `diag!`-logged at the point of failure;
+    /// the copy points at Logs.
+    #[error("World import left a partial copy that could not be removed; it is at {folder_name}")]
+    WorldImportPartialLeft { folder_name: String },
+
     #[error("Playtime I/O error: {details}")]
     PlaytimeIo { details: String },
 
@@ -1377,5 +1390,15 @@ mod tests {
         // translated sentence, and a filesystem path inside one is what the
         // typed variant exists to avoid.
         assert_eq!(v["recovered_at"], ".tmp-restoring-My World-0");
+    }
+
+    #[test]
+    fn world_import_partial_left_serializes_with_its_tag_and_field() {
+        let e = Error::WorldImportPartialLeft {
+            folder_name: "World (2)".into(),
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "world_import_partial_left");
+        assert_eq!(v["folder_name"], "World (2)");
     }
 }

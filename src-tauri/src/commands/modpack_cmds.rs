@@ -785,10 +785,12 @@ pub async fn modpack_apply_update(
 /// function returns. Continuing at least reaches that write and leaves a
 /// coherent, documented record of exactly what landed and what didn't.
 ///
-/// Removals are reported ONLY on failure. `remove_pack_file` swallows its
-/// own file-unlink errors internally (`let _ =`) — only its registry
-/// `remove` call propagates a real error via `?` — so a success row here
-/// would assert an unlink that was never actually verified.
+/// Removals are reported ONLY on failure. `remove_pack_file` verifies every
+/// unlink (absent is success; any other failure is an `Err`), so the Failed
+/// rows built here are complete — but a success row is still never built:
+/// removals are the mechanism of the version bump, not the user's action,
+/// and per-removal success rows would drown the per-install rows the
+/// report exists for.
 #[allow(clippy::too_many_arguments)]
 async fn apply_update_diff(
     dd: &std::path::Path,

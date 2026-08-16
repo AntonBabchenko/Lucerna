@@ -113,6 +113,32 @@ fn io(path: &Path, e: std::io::Error) -> Error {
     Error::io(path.display().to_string(), e)
 }
 
+/// Remove the half-built instance a failed mandatory phase leaves behind,
+/// and return the error the caller should surface. The rollback runs
+/// BECAUSE something already failed, so its own result is checked
+/// (Fallback discipline, question 4): "already gone" is a fact and keeps
+/// the original error; any other removal failure is logged with both
+/// causes and folded into the returned error — the user must be told a
+/// partial instance remains on disk, because the launcher will list it.
+fn rollback_partial_instance(instance_root: &Path, cause: Error) -> Error {
+    match std::fs::remove_dir_all(instance_root) {
+        Ok(()) => cause,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => cause,
+        Err(rollback_err) => {
+            crate::diag!(
+                "import: rollback failed for {}: {rollback_err} (import failed: {cause})",
+                instance_root.display()
+            );
+            Error::io(
+                instance_root.display().to_string(),
+                format!(
+                    "{cause}; removing the partly-imported instance also failed ({rollback_err}) — a partial instance remains at this path"
+                ),
+            )
+        }
+    }
+}
+
 /// Turn copied `(filename, sha1)` pairs into registry records, applying a
 /// `KnownMod` identity when the manifest provided one (matched by
 /// filename). Jars without a known identity are left untracked
@@ -216,12 +242,18 @@ pub async fn run_import(
     )?;
     let id = created.id;
 
-    // Heap travels with the create above; only the jvm args still need a write.
-    let _ = instances::set_instance_jvm_args(app, &id, plan.extra_jvm_args.clone());
-
     let instance_root =
         paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
     let dst_mc = paths::minecraft_dir(app, &id).map_err(|e| Error::io("<minecraft_dir>", e))?;
+
+    // Heap travels with the create above; only the jvm args still need a write.
+    // A failure here means instance.json — the store every later step reads —
+    // could not be rewritten moments after this function created it. That is
+    // not ignorable: propagate, and roll the fresh instance back rather than
+    // leaving one that silently dropped the user's JVM args.
+    if let Err(e) = instances::set_instance_jvm_args(app, &id, plan.extra_jvm_args.clone()) {
+        return Err(rollback_partial_instance(&instance_root, e));
+    }
 
     // Copy categories. Mods is mandatory if selected — its failure rolls back.
     let mods_selected = plan.copy_categories.contains(&ContentCategory::Mods);
@@ -243,8 +275,7 @@ pub async fn run_import(
                 // is not active during `run_import`, so a direct dir
                 // removal is safe; a stale active-pointer self-heals in
                 // `get_active_instance`.
-                let _ = std::fs::remove_dir_all(&instance_root);
-                return Err(e);
+                return Err(rollback_partial_instance(&instance_root, e));
             }
             // best-effort category: tolerate, continue.
         }
@@ -424,6 +455,52 @@ mod tests {
                 .exists(),
             "TLauncher-injected skin/cape mod must not be copied"
         );
+    }
+
+    #[test]
+    fn rollback_partial_instance_removes_the_root_and_keeps_the_cause() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft")).unwrap();
+        let out = rollback_partial_instance(&root, Error::io("x", "copy failed"));
+        assert!(!root.exists(), "the half-built instance must be gone");
+        assert!(
+            matches!(out, Error::Io { ref path, .. } if path == "x"),
+            "a clean rollback must return the ORIGINAL error, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn rollback_failure_names_the_leftover_path_and_keeps_the_cause() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("inst");
+        // A FILE where the instance dir is expected: `remove_dir_all` on a
+        // file fails with a non-NotFound error on every platform.
+        std::fs::write(&root, b"x").unwrap();
+        let out = rollback_partial_instance(&root, Error::io("x", "copy failed"));
+        match out {
+            Error::Io { path, details } => {
+                assert_eq!(path, root.display().to_string());
+                assert!(
+                    details.contains("partial instance remains"),
+                    "the user must be told something was left behind: {details}"
+                );
+                assert!(
+                    details.contains("copy failed"),
+                    "the original cause must survive the fold: {details}"
+                );
+            }
+            other => panic!("expected Io naming the leftover, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rollback_on_an_already_gone_root_keeps_the_original_error() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("never-created");
+        let out = rollback_partial_instance(&root, Error::io("orig", "copy failed"));
+        // NotFound is a fact — nothing was left behind, so nothing to report.
+        assert!(matches!(out, Error::Io { ref path, .. } if path == "orig"));
     }
 
     #[test]

@@ -129,7 +129,12 @@ pub async fn ensure_jre(
         .map_err(|e| Error::io(marker_p.display().to_string(), e))?;
 
     // Stamp the just-installed runtime with the user's GPU preference and
-    // notify once. Best-effort; only when non-Auto (Auto = nothing changed).
+    // notify once. Only when non-Auto (Auto = nothing changed) — and only
+    // when the stamp actually landed: `GpuPrefApplied` is the UI's evidence
+    // that the preference was applied to the new runtime, so a failed
+    // registry sync (or an unresolvable java path) must log and stay silent
+    // instead of announcing an application that never happened. Mirrors the
+    // launch path's handling at `launch/spawn.rs:421-423`.
     {
         use tauri_specta::Event;
         let pref = crate::paths::app_file(app)
@@ -138,22 +143,37 @@ pub async fn ensure_jre(
             .map(|f| f.general.gpu_preference)
             .unwrap_or_default();
         if pref != crate::instances::schema::GpuPreference::Auto {
-            if let Ok(exe) = java_executable_path(component, app) {
-                let _ = crate::platform::gpu::sync_for_exe(&exe, pref);
-            }
-            let gpu_name = match crate::platform::gpu::capability() {
-                crate::platform::gpu::GpuCapability::Available { high, low, .. } => match pref {
-                    crate::instances::schema::GpuPreference::HighPerformance => high,
-                    crate::instances::schema::GpuPreference::PowerSaving => low,
-                    crate::instances::schema::GpuPreference::Auto => None,
+            let synced = match java_executable_path(component, app) {
+                Ok(exe) => match crate::platform::gpu::sync_for_exe(&exe, pref) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        crate::diag!("gpu: registry sync failed for {}: {e}", exe.display());
+                        false
+                    }
                 },
-                _ => None,
+                Err(e) => {
+                    crate::diag!("gpu: no java path to stamp for {component}: {e}");
+                    false
+                }
             };
-            let _ = crate::commands::GpuPrefApplied {
-                preference: pref,
-                gpu_name,
+            if synced {
+                let gpu_name = match crate::platform::gpu::capability() {
+                    crate::platform::gpu::GpuCapability::Available { high, low, .. } => {
+                        match pref {
+                            crate::instances::schema::GpuPreference::HighPerformance => high,
+                            crate::instances::schema::GpuPreference::PowerSaving => low,
+                            crate::instances::schema::GpuPreference::Auto => None,
+                        }
+                    }
+                    _ => None,
+                };
+                // Best-effort notification: a dropped event costs a toast, not state.
+                let _ = crate::commands::GpuPrefApplied {
+                    preference: pref,
+                    gpu_name,
+                }
+                .emit(app);
             }
-            .emit(app);
         }
     }
 

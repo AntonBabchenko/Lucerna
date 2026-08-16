@@ -166,6 +166,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   world_import_not_a_world: 'clean',
   world_import_unsupported_source: 'clean',
   world_import_too_large: 'clean',
+  world_import_partial_left: 'clean',
   quick_play_address_invalid: 'clean',
   import_unsupported_loader: 'clean',
   import_source_unrecognized: 'clean',
@@ -584,6 +585,8 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.worldImportInvalidArchive'), e.details);
     case 'world_import_too_large':
       return translate('errors.worldImportTooLarge');
+    case 'world_import_partial_left':
+      return translate('errors.worldImportPartialLeft', { folderName: e.folder_name });
     case 'playtime_io':
       return withDetailTail(translate('errors.playtimeIo'), e.details);
     case 'tray_io':
