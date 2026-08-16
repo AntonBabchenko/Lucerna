@@ -91,6 +91,62 @@ where
     Ok(sha)
 }
 
+/// SHA-1 of the bytes the jar `filename` has in `mods_dir` RIGHT NOW, trying
+/// the `.disabled` spelling second — the same two paths, in the same order, as
+/// [`crate::mods::local::read_jar_for`], so a cache keyed on this digest and a
+/// reader that opens the jar can never be talking about different files.
+///
+/// NOT [`InstalledMod::sha1`]. [`reconcile`] deliberately RETAINS a record's
+/// expected digest when the file under that name hashes differently — that is
+/// the corrupted-or-externally-replaced jar, and the record is kept so a verify
+/// pass can say "expected X, found Y". The registry's digest is therefore the
+/// jar the launcher installed, which is not always the jar on disk. Anything
+/// keyed on it — the jar-scan cache above all — would answer for bytes that are
+/// no longer there.
+///
+/// Cheap by construction: [`list`]'s `reconcile` has just hashed every file in
+/// this directory through the same `(mtime, size)`-keyed [`HASH_CACHE`], so a
+/// call right after it is a `stat` plus a map lookup. It re-reads only when the
+/// metadata moved since — which is exactly when the cached digest would be
+/// wrong. It inherits that shortcut's one bound and adds none: a replacement
+/// with identical size AND identical mtime is invisible here, as it already is
+/// to the registry every surface in the launcher reads.
+///
+/// `None` is "could not tell" — no such file, unreadable metadata, failed read
+/// — never "no jar". The caller must fall back to reading the bytes, which is
+/// exactly what it did before there was a cache.
+pub(crate) async fn on_disk_sha1(mods_dir: &Path, filename: &str) -> Option<String> {
+    for name in [filename.to_string(), format!("{filename}.disabled")] {
+        let path = mods_dir.join(&name);
+        let Ok(meta) = fs::metadata(&path).await else {
+            continue; // not this spelling — try the other, then give up
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let Ok(mtime) = meta.modified() else {
+            // A filesystem that cannot report mtime cannot feed HASH_CACHE, and
+            // hashing megabytes here to save one unzip is a losing trade.
+            return None;
+        };
+        return match cached_sha1(&path, mtime, meta.len(), || async {
+            let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
+            Ok(hex::encode(Sha1::digest(&bytes)))
+        })
+        .await
+        {
+            Ok(sha) => Some(sha),
+            // A file that stat'd and would not read is ignorance about THIS jar,
+            // not licence to answer with the `.disabled` sibling's bytes.
+            Err(e) => {
+                crate::diag!("[mods] on-disk sha1 for {} failed: {e}", path.display());
+                None
+            }
+        };
+    }
+    None
+}
+
 /// Snapshot of the mods the user selected at modpack-import time, kept
 /// in `installed-mods.json` alongside the live entries so the launcher
 /// can later diff "what's still here" vs "what was added/removed" without
@@ -750,6 +806,58 @@ mod tests {
         assert_eq!(
             mods[0].sha1, good,
             "the EXPECTED hash is retained so a repair knows what it wants"
+        );
+    }
+
+    /// The registry's digest and the file's digest are two different facts, and
+    /// the jar-scan cache must be keyed on the second. `reconcile` step 2 keeps
+    /// the EXPECTED digest on a replaced jar on purpose (pinned by
+    /// `corrupted_known_jar_keeps_its_provenance` above); this asserts the two
+    /// genuinely diverge and that `on_disk_sha1` reports the file, not the
+    /// record.
+    #[tokio::test]
+    async fn on_disk_sha1_reports_the_file_not_the_registrys_expectation() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let dir = mods_dir(root);
+        let installed_sha = place_jar(&dir, "sodium.jar", b"GOOD-BYTES").await;
+        add(root, provenanced("sodium.jar", installed_sha.clone()))
+            .await
+            .unwrap();
+
+        // Replaced in place, same filename. A DIFFERENT LENGTH on purpose:
+        // HASH_CACHE is keyed by (mtime, size), and a same-size rewrite inside
+        // one mtime tick is invisible to it — a bound this helper inherits and
+        // does not pretend to fix.
+        fs::write(dir.join("sodium.jar"), b"REPLACED-WITH-OTHER-BYTES")
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+        assert_eq!(
+            mods[0].sha1, installed_sha,
+            "the registry keeps what it installed — this is the hazard, not a bug"
+        );
+        assert_eq!(
+            on_disk_sha1(&dir, "sodium.jar").await,
+            Some(hex::encode(Sha1::digest(b"REPLACED-WITH-OTHER-BYTES"))),
+            "the cache key must describe the bytes that are actually there"
+        );
+    }
+
+    /// The `.disabled` spelling is the second candidate, matching
+    /// `local::read_jar_for`'s order — a key computed from one file and bytes
+    /// read from another would be a cache that lies by construction.
+    #[tokio::test]
+    async fn on_disk_sha1_falls_back_to_the_disabled_spelling_then_gives_up() {
+        let td = TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        let sha = place_jar(&dir, "off.jar.disabled", b"DISABLED-BYTES").await;
+        assert_eq!(on_disk_sha1(&dir, "off.jar").await, Some(sha));
+        assert_eq!(
+            on_disk_sha1(&dir, "absent.jar").await,
+            None,
+            "could not tell — never an invented digest"
         );
     }
 
