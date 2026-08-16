@@ -1992,6 +1992,15 @@ pub async fn server_import_commit(
         // Remove the reserved directory if any step below fails (`?` / early
         // return), so a partial import never leaks the slug.
         let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
+        // Gate Start/Restart for the rest of the commit: `provision_loader`
+        // (via create::) writes server.json BEFORE the loader install finishes
+        // and BEFORE the user's data lands in runtime/ (create.rs writes json,
+        // then downloads/installs), so the server is listable — and startable —
+        // while its tree is still being populated. Held to the end of this
+        // block; a fresh unique id can't already be under maintenance, but map
+        // the refusal properly rather than unwrapping.
+        let _maintenance = crate::servers_runtime::maintenance::maintenance_begin(&new_id)
+            .ok_or_else(|| Error::ServerMaintenanceInProgress { id: new_id.clone() })?;
         let mut file = import::build_file(
             &new_id,
             &name,

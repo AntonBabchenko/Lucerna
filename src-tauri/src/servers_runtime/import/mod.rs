@@ -140,6 +140,12 @@ pub fn commit_preserve(
     // Remove the reserved directory if any step below fails (`?`), so a partial
     // import never leaks the slug. Disarmed on success via `keep()`.
     let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
+    // Gate Start/Restart while runtime/ is laid down: once write_server_json
+    // below runs the server is listable, and a Start racing the eula/staging
+    // tail would boot before the import is complete. A fresh unique id can't
+    // already be under maintenance, but map the refusal properly.
+    let _maintenance = crate::servers_runtime::maintenance::maintenance_begin(&id)
+        .ok_or_else(|| Error::ServerMaintenanceInProgress { id: id.clone() })?;
     let p = crate::paths::server_paths(base, &id);
     // Copy all runnable state (server.jar, libraries/, user_jvm_args.txt,
     // worlds, mods, configs, etc.). SKIP_PRESERVE omits only Lucerna-managed
@@ -407,5 +413,35 @@ mod tests {
         assert!(f.eula_accepted);
         // staging cleaned
         assert!(!staging_dir(base.path(), &prev.token).exists());
+    }
+
+    #[test]
+    fn commit_preserve_releases_the_maintenance_slot_on_completion() {
+        // Mid-flight activity is unobservable from a single-threaded test (the
+        // claim and release happen inside one sync call); what IS observable
+        // and load-bearing is that a completed import leaves the new server
+        // startable — a leaked guard would lock it out of Start forever.
+        let base = tempdir().unwrap();
+        let (_z, zip) = make_zip(&[
+            ("server.jar", b"JAR"),
+            ("server.properties", b"server-port=25565\n"),
+            ("world/level.dat", b"x"),
+        ]);
+        let prev = inspect(base.path(), &zip).unwrap();
+        let id = commit_preserve(
+            base.path(),
+            &prev.token,
+            "Maint Gate",
+            "1.20.4",
+            crate::servers_runtime::schema::ServerCore::Vanilla,
+            None,
+            4096,
+            true,
+        )
+        .unwrap();
+        assert!(
+            !crate::servers_runtime::maintenance::maintenance_is_active(&id),
+            "a finished import must release its maintenance slot"
+        );
     }
 }
