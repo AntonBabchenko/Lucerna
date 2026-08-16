@@ -290,7 +290,7 @@ mod tests {
             std::fs::read(td.path().join("datapacks").join("vm.zip")).unwrap(),
             datapack_zip(b"v2")
         );
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
     }
@@ -323,7 +323,7 @@ mod tests {
         let (en, dis) = level_dat::lists(&root);
         assert_eq!(en.len() + dis.len(), 1, "exactly one entry, not both names");
         assert!(dis.contains(&level_dat_entry("vm-2.0.zip")));
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1, "the old sidecar row is dropped last");
     }
 
@@ -479,7 +479,12 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(crate::servers_runtime::installed::load(td.path()).len(), 2);
+        assert_eq!(
+            crate::servers_runtime::installed::load(td.path())
+                .unwrap()
+                .len(),
+            2
+        );
 
         std::fs::remove_file(td.path().join("datapacks").join("vm-1.0.zip")).unwrap();
         let rows = crate::servers_runtime::datapacks::sidecar::reconcile(td.path());
@@ -552,7 +557,7 @@ mod tests {
             datapack_zip(b"v2"),
             "the target bytes must be the final on-disk bytes"
         );
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(
             rows[0].version_id.as_deref(),
@@ -599,7 +604,7 @@ mod tests {
             !td.path().join("datapacks").join("vm-1.0.zip").exists(),
             "the old name must still be cleaned up on a converged retry"
         );
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         let new_row = rows
             .iter()
             .find(|r| r.filename == "vm-2.0.zip")

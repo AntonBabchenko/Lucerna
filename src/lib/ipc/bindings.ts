@@ -126,7 +126,8 @@ export const commands = {
 	 *  quick-play feature-gated game arg (robust across release/snapshot/loader).
 	 *  Returns `false` (not an error) when the version JSON is absent (instance
 	 *  not yet installed, or merged profile not yet written) or unparseable —
-	 *  the UI simply hides the entry points.
+	 *  the UI simply hides the entry points. An UNREADABLE file is an error:
+	 *  answering `false` there would claim knowledge the read never produced.
 	 */
 	instanceQuickPlaySupport: (instanceId: string) => typedError<boolean, Error>(__TAURI_INVOKE("instance_quick_play_support", { instanceId })),
 	/**  Kill the running Minecraft process for `instance_id` if any. Idempotent. */

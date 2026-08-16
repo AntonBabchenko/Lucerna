@@ -388,7 +388,9 @@ mod tests {
             en.is_empty() && dis.is_empty(),
             "the name must be gone from BOTH lists"
         );
-        assert!(crate::servers_runtime::installed::load(td.path()).is_empty());
+        assert!(crate::servers_runtime::installed::load(td.path())
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -488,7 +490,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].version_id.as_deref(), Some("v1"));
         assert_eq!(rows[0].project_id.as_deref(), Some("terralith"));
@@ -500,7 +502,7 @@ mod tests {
         install_bytes(td.path(), "hand.zip", &datapack_zip(b"x"), None)
             .await
             .unwrap();
-        let rows = crate::servers_runtime::installed::load(td.path());
+        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].source.is_none() && rows[0].sha1.len() == 40);
     }

@@ -3241,10 +3241,14 @@ pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) 
     Ok(filename)
 }
 
-/// Raw `server.properties` text for a server (empty when absent) — used to
-/// resolve the `level-name` (datapacks live under `runtime/<level>/datapacks/`).
-pub(super) fn server_props_raw(p: &crate::paths::ServerPaths) -> String {
-    std::fs::read_to_string(p.runtime.join("server.properties")).unwrap_or_default()
+/// Raw `server.properties` text for a server — used to resolve the
+/// `level-name` (datapacks live under `runtime/<level>/datapacks/`). Absent →
+/// `Ok("")`: a never-started server runs on all defaults. An UNREADABLE file
+/// is a real error, not "defaults": the world dir resolved from this text
+/// steers datapack installs and removals, so a guessed `world` would aim
+/// them at a directory the server may not use.
+pub(super) fn server_props_raw(p: &crate::paths::ServerPaths) -> Result<String> {
+    crate::servers_runtime::properties::read_properties_file(&p.runtime.join("server.properties"))
 }
 
 /// One entry in `server_list_plugins`. Unlike mods there is no quarantine
@@ -3633,6 +3637,20 @@ pub async fn server_core_versions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_props_raw_absent_is_empty_but_unreadable_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "s1");
+        // Absent: a never-started server runs on all defaults.
+        assert_eq!(server_props_raw(&p).unwrap(), "");
+        // Unreadable: a directory at the file's path fails the read with a
+        // non-NotFound error on every platform. The discrimination itself is
+        // pinned by the `read_properties_file` tests; this pins the wrapper's
+        // path and propagation.
+        std::fs::create_dir_all(p.runtime.join("server.properties")).unwrap();
+        assert!(server_props_raw(&p).is_err());
+    }
 
     #[test]
     fn save_confirmation_matches_modern_and_legacy_lines() {
