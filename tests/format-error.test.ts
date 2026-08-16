@@ -1,7 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { Error as IpcError } from '$lib/ipc/bindings';
-import { ERROR_CLASS, formatError, withDetailTail } from '$lib/ipc/format-error';
+import {
+  describeStoreError,
+  ERROR_CLASS,
+  formatError,
+  isIpcError,
+  withDetailTail,
+} from '$lib/ipc/format-error';
 
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
@@ -705,5 +711,38 @@ describe('formatError', () => {
       expect(msg).not.toContain('�');
       expect(msg).toContain('… (open Logs for full text)');
     });
+  });
+});
+
+describe('isIpcError / describeStoreError', () => {
+  beforeAll(() => locale.set('en'));
+
+  it('accepts a typed IPC error and rejects a thrown one', () => {
+    expect(isIpcError({ kind: 'server_not_running', id: 'srv-1' })).toBe(true);
+    expect(isIpcError(new Error('ipc channel closed'))).toBe(false);
+    expect(isIpcError(null)).toBe(false);
+    expect(isIpcError('server_not_running')).toBe(false);
+    // A `kind` that is not a string is not the discriminant.
+    expect(isIpcError({ kind: 7 })).toBe(false);
+  });
+
+  it('formats a typed IPC error exactly as formatError does', () => {
+    const e: IpcError = { kind: 'server_not_running', id: 'srv-1' };
+    expect(describeStoreError(e)).toBe('This server is not running');
+    expect(describeStoreError(e)).toBe(formatError(e));
+  });
+
+  it('shows a thrown Error’s message instead of formatError’s "{}"', () => {
+    const thrown = new Error('ipc channel closed');
+    // The defect this helper exists for: formatError falls through to its
+    // `default` arm and JSON.stringify(new Error(...)) is "{}".
+    expect(formatError(thrown as unknown as IpcError)).toBe('{}');
+    expect(describeStoreError(thrown)).toBe('ipc channel closed');
+  });
+
+  it('stringifies a thrown non-Error rather than rendering nothing', () => {
+    expect(describeStoreError('nope')).toBe('nope');
+    expect(describeStoreError(null)).toBe('null');
+    expect(describeStoreError(undefined)).toBe('undefined');
   });
 });

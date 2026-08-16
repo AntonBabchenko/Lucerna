@@ -773,3 +773,36 @@ export function formatError(e: IpcError): string {
     }
   }
 }
+
+/**
+ * Is this value the backend's typed `Error` union rather than a thrown one?
+ *
+ * The generated `typedError` runtime re-throws anything that is a JS `Error`
+ * (`if (e instanceof Error) throw e;` — bindings.ts), so a `Result`'s error
+ * branch is ALWAYS typed and needs no check. This guard exists only for the
+ * slots that genuinely hold either: a store field written from both a Result
+ * and a `catch` (serverState's `listError` / `actionErrors`), and a wrapper
+ * that re-wraps a thrown transport failure (serverState's `upload`). A `kind`
+ * string is the discriminant every variant of the union carries and a JS
+ * `Error` does not.
+ */
+export function isIpcError(e: unknown): e is IpcError {
+  return typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string';
+}
+
+/**
+ * Render a value that is EITHER a typed IPC error or a thrown one.
+ *
+ * `formatError` alone is wrong for those slots: its `default` arm
+ * JSON.stringifies, and `JSON.stringify(new Error('boom'))` is `"{}"` — a
+ * transport failure would render to the user as empty braces. Route by shape
+ * instead so the thrown branch shows the actual message.
+ *
+ * Prefer `formatError` directly wherever the value is known to be typed (any
+ * `Result`'s error branch, and every `serverState` wrapper's `ok: false` arm).
+ * Reach for this only where both are genuinely possible.
+ */
+export function describeStoreError(e: unknown): string {
+  if (isIpcError(e)) return formatError(e);
+  return e instanceof Error ? e.message : String(e);
+}
