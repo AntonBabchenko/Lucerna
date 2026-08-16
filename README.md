@@ -172,9 +172,12 @@ player counts for your saved servers is a separate permission, off by default:
 leave it off and the launcher sends nothing to those hosts.
 
 **Transparency** — every outbound HTTP request goes through a single
-chokepoint with a static host allowlist; every process the launcher
-spawns goes through one Rust module. Adding a network destination or a
-process is a deliberate code change, not an emergent capability.
+chokepoint with a static host allowlist. Every subprocess the launcher
+runs is built in one Rust module, and the only other thing it ever
+starts — your default browser or file manager, when you click a link or
+an "open folder" button — comes from a fixed, test-enforced set of call
+sites. Adding a network destination or a process is a deliberate code
+change, not an emergent capability.
 
 ## Known limitations
 
