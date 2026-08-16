@@ -8,11 +8,14 @@
 //! The opener plugin (`app.opener().open_path(..)` / `.open_url(..)` /
 //! `.reveal_item_in_dir(..)`) also spawns an OS process — the file manager
 //! (`explorer.exe`) or the default browser — outside the `process::`
-//! chokepoint. Those spawns are documented in `docs/PRINCIPLES.md` Appendix A
-//! too, so this guard also enumerates every opener call site against a fixed
-//! allowlist. A NEW opener call in a file not on the allowlist fails the
-//! build, forcing the author to either route it through the documented set
-//! or update Appendix A + this list.
+//! chokepoint. `docs/PRINCIPLES.md` Appendix A documents these spawns under
+//! two process classes: the OS file manager (the folder-open and reveal rows)
+//! and the default browser row, which also covers the frontend `openUrl`
+//! surface gated separately by `tools/check-opener-calls.mjs`. This guard
+//! enumerates every backend opener call site against a fixed allowlist. A NEW
+//! opener call in a file not on the allowlist fails the build, forcing the
+//! author to either route it through the documented set or update Appendix A
+//! + this list.
 
 use std::fs;
 use std::path::{Path, PathBuf};
