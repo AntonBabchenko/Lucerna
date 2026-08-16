@@ -127,3 +127,29 @@ describe('--danger-text token', () => {
     expect(textColorMap).toMatch(/danger:\s*'rgb\(var\(--danger-text\)/);
   });
 });
+
+describe('tour spotlight motion (§12)', () => {
+  // §12: "Every animated property is `transform`, `opacity`, or `color` — never
+  // layout-bound props (width/height/top/left/margin/padding/border/font-size)."
+  // The spotlight used `transition-all` over inline left/top/width/height plus a
+  // 9999px box-shadow, i.e. four layout-bound properties and a full-viewport
+  // repaint on every step. Deriving the animated property list — rather than
+  // pinning the rule text — is what makes this survive a duration or easing
+  // retune while still failing if someone reintroduces a geometry tween.
+  it('animates opacity and nothing else', () => {
+    const kf = /@keyframes tour-spotlight-in\s*\{([\s\S]*?)\n\}/.exec(withoutComments(appCss));
+    if (kf === null) {
+      throw new Error('no @keyframes tour-spotlight-in — was the rule renamed or removed?');
+    }
+    const animated = [...kf[1].matchAll(/^\s*([a-z-]+)\s*:/gm)].map((m) => m[1]);
+    expect(animated.length).toBeGreaterThan(0);
+    expect([...new Set(animated)]).toEqual(['opacity']);
+  });
+
+  it('spends the shared duration and easing tokens rather than a literal', () => {
+    const rule = /\.tour-spotlight\s*\{([^}]*)\}/.exec(withoutComments(appCss));
+    if (rule === null) throw new Error('no .tour-spotlight rule');
+    expect(rule[1]).toContain('var(--duration-base)');
+    expect(rule[1]).toContain('var(--ease-standard)');
+  });
+});
