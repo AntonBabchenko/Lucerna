@@ -38,7 +38,7 @@
   // stays blank, which keeps this component unit-testable.
   function renderTile(node: HTMLCanvasElement, item: SkinLibraryItem) {
     const draw = (it: SkinLibraryItem) => {
-      const img = new Image();
+      const img = new Image(); // no-network-ok: new Image( decodes a local data: URL
       img.onload = () => drawSkinFront(node, img, it.variant, 3);
       img.src = `data:image/png;base64,${it.skin_png_base64}`;
     };
