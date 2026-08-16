@@ -53,12 +53,12 @@
     try {
       const r1 = await serverState.rename(serverId, name.trim());
       if (!r1.ok) {
-        launchError = formatError(r1.error as Parameters<typeof formatError>[0]);
+        launchError = formatError(r1.error);
         return;
       }
       const r2 = await serverState.updateRuntimeConfig(serverId, memoryMb, jvmArgs);
       if (!r2.ok) {
-        launchError = formatError(r2.error as Parameters<typeof formatError>[0]);
+        launchError = formatError(r2.error);
         return;
       }
       launchSaved.markSaved(launchSig);
@@ -80,7 +80,7 @@
     try {
       const r = await serverState.remove(serverId);
       if (!r.ok) {
-        deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+        deleteError = formatError(r.error);
         return;
       }
       // Fall back to the first remaining server (or the empty state).
