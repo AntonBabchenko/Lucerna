@@ -4,6 +4,7 @@ import {
   events,
   type FirewallState,
   type InstallMissingReport,
+  type Error as IpcError,
   type LastUpload,
   type QuarantineReport,
   type ServerConnectivity,
@@ -15,7 +16,7 @@ import {
   type UploadConfig,
   type UploadPreflight,
 } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import { describeStoreError } from '$lib/ipc/format-error';
 import type { NavStatusKind } from '$lib/layout/nav-status';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 import { isCrashed, isDiagnosisActionable } from './runtime-extra';
@@ -23,6 +24,25 @@ import { isCrashed, isDiagnosisActionable } from './runtime-extra';
 // Single source of truth for own-server runtime state.
 // All UI surfaces (sidebar, server list, console panel) read from this store
 // so a refresh hits the IPC layer once and every surface reflects it.
+
+/**
+ * Failure half of every wrapper below. `error` is the backend's typed `Error`
+ * union — never `unknown`, never optional.
+ *
+ * The generated `typedError` runtime re-throws anything that is a JS `Error`
+ * (bindings.ts), so the `{ status: 'error' }` branch of a Result is only ever
+ * reached for a value Rust serialised: it IS an `IpcError`. Returning
+ * `{ ok: boolean; error?: unknown }` threw that away and made every consumer
+ * re-assert it with `as Parameters<typeof formatError>[0]` — a cast that would
+ * have kept compiling if the shape ever drifted. Discriminating on `ok` also
+ * makes `error` non-optional in the branch that reads it, so the `undefined`
+ * that `formatError`'s switch would dereference is now unrepresentable.
+ *
+ * The two slots that genuinely hold either kind — `listError` and
+ * `actionErrors`, both written from a `catch` as well as from a Result — stay
+ * `unknown` and are rendered through `describeStoreError`.
+ */
+export type ServerStoreFailure = { ok: false; error: IpcError };
 
 // Per-server status, mirroring `serversNavStatus`'s precedence for ONE server so
 // each list row can paint its icon exactly like the sidebar aggregate does:
@@ -157,7 +177,7 @@ function clearLines(id: string): void {
   lines = m;
 }
 
-async function diagnose(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function diagnose(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverDiagnose(id);
   if (r.status === 'ok') {
     const m = new Map(diagnoses);
@@ -184,7 +204,7 @@ async function removeClientMods(
   id: string,
   filenames: string[],
   logSignature: string | null,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverRemoveMods(id, filenames, logSignature);
   if (r.status === 'ok') {
     const m = new Map(diagnoses);
@@ -197,7 +217,7 @@ async function removeClientMods(
 
 /// One-click pre-spawn fixes (class A). Each clears the diagnosis on success;
 /// the caller re-runs `diagnose` (or the user retries Start) afterwards.
-async function acceptEula(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function acceptEula(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverAcceptEula(id);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -206,7 +226,7 @@ async function acceptEula(id: string): Promise<{ ok: boolean; error?: unknown }>
   return { ok: false, error: r.error };
 }
 
-async function stopOrphan(id: string, pid: number): Promise<{ ok: boolean; error?: unknown }> {
+async function stopOrphan(id: string, pid: number): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverStopOrphan(id, pid);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -299,7 +319,7 @@ async function kill(id: string): Promise<{ ok: boolean }> {
       // A force-stop that raced with the graceful stop finishing reports
       // ServerNotRunning — the server is already gone, which is exactly the
       // intended outcome, so treat it as success rather than a spurious error.
-      if ((res.error as { kind?: string })?.kind === 'server_not_running') {
+      if (res.error.kind === 'server_not_running') {
         await refresh();
         return { ok: true };
       }
@@ -313,7 +333,7 @@ async function kill(id: string): Promise<{ ok: boolean }> {
   }
 }
 
-async function changePort(id: string, port: number): Promise<{ ok: boolean; error?: unknown }> {
+async function changePort(id: string, port: number): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverChangePort(id, port);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -324,7 +344,7 @@ async function changePort(id: string, port: number): Promise<{ ok: boolean; erro
 
 /// Class-B (post-spawn log) fixes. Each clears the diagnosis on success; the
 /// caller re-runs `diagnose` (or the user retries Start) afterwards.
-async function raiseHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+async function raiseHeap(id: string, toMb: number): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverRaiseHeap(id, toMb);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -333,7 +353,7 @@ async function raiseHeap(id: string, toMb: number): Promise<{ ok: boolean; error
   return { ok: false, error: r.error };
 }
 
-async function lowerHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+async function lowerHeap(id: string, toMb: number): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverLowerHeap(id, toMb);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -342,7 +362,7 @@ async function lowerHeap(id: string, toMb: number): Promise<{ ok: boolean; error
   return { ok: false, error: r.error };
 }
 
-async function redownloadJar(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function redownloadJar(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverRedownloadJar(id);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -355,7 +375,7 @@ async function disableMods(
   id: string,
   filenames: string[],
   logSignature: string | null,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverDisableMods(id, filenames, logSignature);
   if (r.status === 'ok') {
     clearDiagnosis(id);
@@ -367,7 +387,7 @@ async function disableMods(
 async function installMissingDep(
   id: string,
   modIds: string[],
-): Promise<{ ok: boolean; report?: InstallMissingReport; error?: unknown }> {
+): Promise<{ ok: true; report: InstallMissingReport } | ServerStoreFailure> {
   // Honest feedback: return the report (installed vs unresolved) and DON'T clear
   // the diagnosis here — the caller decides, so a no-op install can't pretend the
   // problem is solved. The banner re-diagnoses only when something was installed.
@@ -382,7 +402,7 @@ async function installMissingDep(
 /// `*.disabled`). Returns the report; the banner clears + re-diagnoses on success.
 async function quarantineClientMods(
   id: string,
-): Promise<{ ok: boolean; report?: QuarantineReport; error?: unknown }> {
+): Promise<{ ok: true; report: QuarantineReport } | ServerStoreFailure> {
   const r = await commands.serverQuarantineClientMods(id);
   if (r.status === 'ok') {
     return { ok: true, report: r.data };
@@ -394,9 +414,33 @@ async function setUploadConfig(
   id: string,
   config: UploadConfig,
   password: string | null,
-): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+): ReturnType<typeof commands.serverSetUploadConfig> {
   return await commands.serverSetUploadConfig(id, config, password);
 }
+
+// Upload failures the UI owns rather than the store: `upload_cancelled` is the
+// user's own action, and `sftp_host_key_mismatch` opens the re-trust dialog --
+// neither should ALSO leave a generic error line behind. Typed as the bindings'
+// kind union so a renamed or mistyped variant is a compile error instead of a
+// string that silently never matches (same discipline as format-error's
+// `Record<IpcError['kind'], ErrorClass>`).
+const SILENT_UPLOAD_KINDS: readonly IpcError['kind'][] = [
+  'upload_cancelled',
+  'sftp_host_key_mismatch',
+];
+
+/**
+ * What `upload` resolves to. The second arm is NOT the bindings' Result: it is
+ * this store's own re-wrapping of a THROWN transport failure, and its `unknown`
+ * is the one honest `unknown` in the module -- `typedError` re-throws JS Errors,
+ * so `commands.serverUpload` can reject, and letting that reject out of here
+ * would leave a `void`-ing caller with no user-visible trace. Callers that need
+ * to branch on the kind narrow with `isIpcError` first (a real runtime check,
+ * not a cast).
+ */
+export type UploadResult =
+  | Awaited<ReturnType<typeof commands.serverUpload>>
+  | { status: 'error'; error: unknown };
 
 async function upload(
   id: string,
@@ -404,7 +448,7 @@ async function upload(
   skipWorlds: boolean,
   password?: string | null,
   resume = false,
-): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+): Promise<UploadResult> {
   setUploadState(id, {
     phase: 'uploading',
     filesDone: 0,
@@ -415,33 +459,28 @@ async function upload(
     startedAtMs: Date.now(),
     error: undefined,
   });
-  let r: { status: 'ok'; data: null } | { status: 'error'; error: unknown };
+  let r: Awaited<ReturnType<typeof commands.serverUpload>>;
   try {
     r = await commands.serverUpload(id, acceptNewHostKey, skipWorlds, password ?? null, resume);
   } catch (e) {
-    setUploadState(id, { phase: 'error', error: String(e) });
+    setUploadState(id, { phase: 'error', error: describeStoreError(e) });
     return { status: 'error', error: e };
   }
   if (r.status === 'ok') {
     setUploadState(id, { phase: 'done' });
   } else {
-    const err = r.error as { kind?: string };
     // sftp_host_key_mismatch is handled by the UI (re-trust dialog); treat it as
     // cancelled so no persisted generic error is shown alongside the dialog.
-    const silentKinds = ['upload_cancelled', 'sftp_host_key_mismatch'];
-    const phase: UploadPhase = silentKinds.includes(err?.kind ?? '') ? 'cancelled' : 'error';
+    const silent = SILENT_UPLOAD_KINDS.includes(r.error.kind);
     setUploadState(id, {
-      phase,
-      error:
-        phase === 'error' ? formatError(r.error as Parameters<typeof formatError>[0]) : undefined,
+      phase: silent ? 'cancelled' : 'error',
+      error: silent ? undefined : describeStoreError(r.error),
     });
   }
   return r;
 }
 
-async function cancelUpload(
-  id: string,
-): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+async function cancelUpload(id: string): ReturnType<typeof commands.serverCancelUpload> {
   return await commands.serverCancelUpload(id);
 }
 
@@ -488,7 +527,7 @@ function lastUploadFor(id: string): LastUpload | null {
 async function exportZip(
   id: string,
   destPath: string,
-): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+): ReturnType<typeof commands.serverExportZip> {
   return await commands.serverExportZip(id, destPath);
 }
 
@@ -510,7 +549,7 @@ async function publicAddress(id: string): Promise<ServerPublicAddress | null> {
   return r.status === 'ok' ? r.data : null;
 }
 
-async function firewallAddRule(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function firewallAddRule(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverFirewallAddRule(id);
   if (r.status === 'ok') return { ok: true };
   return { ok: false, error: r.error };
@@ -530,7 +569,7 @@ function replaceInList(updated: ServerWithStatus): void {
   list = list.map((s) => (s.id === updated.id ? updated : s));
 }
 
-async function rename(id: string, name: string): Promise<{ ok: boolean; error?: unknown }> {
+async function rename(id: string, name: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverRename(id, name);
   if (r.status === 'ok') {
     replaceInList(r.data);
@@ -543,7 +582,7 @@ async function updateRuntimeConfig(
   id: string,
   maxHeapMb: number,
   extraJvmArgs: string,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverUpdateRuntimeConfig(id, maxHeapMb, extraJvmArgs);
   if (r.status === 'ok') {
     replaceInList(r.data);
@@ -552,7 +591,7 @@ async function updateRuntimeConfig(
   return { ok: false, error: r.error };
 }
 
-async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function remove(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverDelete(id);
   if (r.status === 'ok') {
     list = list.filter((s) => s.id !== id);
@@ -569,7 +608,7 @@ async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
 
 async function backupList(
   id: string,
-): Promise<{ ok: boolean; list?: BackupInfo[]; error?: unknown }> {
+): Promise<{ ok: true; list: BackupInfo[] } | ServerStoreFailure> {
   const r = await commands.serverBackupList(id);
   if (r.status === 'ok') return { ok: true, list: r.data };
   return { ok: false, error: r.error };
@@ -577,7 +616,7 @@ async function backupList(
 
 async function backupCreate(
   id: string,
-): Promise<{ ok: boolean; data?: BackupInfo; error?: unknown }> {
+): Promise<{ ok: true; data: BackupInfo } | ServerStoreFailure> {
   const r = await commands.serverBackupCreate(id);
   if (r.status === 'ok') return { ok: true, data: r.data };
   return { ok: false, error: r.error };
@@ -586,7 +625,7 @@ async function backupCreate(
 async function backupRestore(
   id: string,
   fileName: string,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverBackupRestore(id, fileName);
   if (r.status === 'ok') return { ok: true };
   return { ok: false, error: r.error };
@@ -595,7 +634,7 @@ async function backupRestore(
 async function backupDelete(
   id: string,
   fileName: string,
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverBackupDelete(id, fileName);
   if (r.status === 'ok') return { ok: true };
   return { ok: false, error: r.error };
@@ -603,7 +642,7 @@ async function backupDelete(
 
 async function importInspect(
   sourcePath: string,
-): Promise<{ ok: boolean; preview?: ServerImportPreview; error?: unknown }> {
+): Promise<{ ok: true; preview: ServerImportPreview } | ServerStoreFailure> {
   const r = await commands.serverImportInspect(sourcePath);
   if (r.status === 'ok') return { ok: true, preview: r.data };
   return { ok: false, error: r.error };
@@ -617,7 +656,7 @@ async function importCommit(
   loaderVersion: string | null,
   maxHeapMb: number,
   eulaAccepted: boolean,
-): Promise<{ ok: boolean; server?: ServerWithStatus; error?: unknown }> {
+): Promise<{ ok: true; server: ServerWithStatus } | ServerStoreFailure> {
   const r = await commands.serverImportCommit(
     token,
     name,
@@ -690,20 +729,20 @@ async function readLog(id: string, fileName: string): Promise<{ ok: boolean; tex
 // The open-folder helpers return the failure (if any) instead of swallowing
 // it — the Installed panes surface the same operations' errors inline, so a
 // sidebar/console click failing silently was an inconsistency, not a policy.
-async function openLogsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function openLogsFolder(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverOpenLogsFolder(id);
   return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Open a mod-loader server's `runtime/mods/` folder. Mirrors openLogsFolder.
 // The sidebar only offers this for mod-capable cores (see core-display.ts).
-async function openModsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function openModsFolder(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverOpenModsFolder(id);
   return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Open a plugin server's `runtime/plugins/` folder (Paper/Purpur cores).
-async function openPluginsFolder(id: string): Promise<{ ok: boolean; error?: unknown }> {
+async function openPluginsFolder(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverOpenPluginsFolder(id);
   return r.status === 'ok' ? { ok: true } : { ok: false, error: r.error };
 }
