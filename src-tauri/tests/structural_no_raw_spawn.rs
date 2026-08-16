@@ -5,13 +5,14 @@
 //!
 //! ## Second surface — `tauri_plugin_opener`
 //!
-//! The opener plugin (`app.opener().open_path(..)` / `.open_url(..)`) also
-//! spawns an OS process — the file manager (`explorer.exe`) or the default
-//! browser — outside the `process::` chokepoint. Those spawns are documented
-//! in `docs/PRINCIPLES.md` Appendix A too, so this guard also enumerates every
-//! opener call site against a fixed allowlist. A NEW `open_path`/`open_url`
-//! call in a file not on the allowlist fails the build, forcing the author to
-//! either route it through the documented set or update Appendix A + this list.
+//! The opener plugin (`app.opener().open_path(..)` / `.open_url(..)` /
+//! `.reveal_item_in_dir(..)`) also spawns an OS process — the file manager
+//! (`explorer.exe`) or the default browser — outside the `process::`
+//! chokepoint. Those spawns are documented in `docs/PRINCIPLES.md` Appendix A
+//! too, so this guard also enumerates every opener call site against a fixed
+//! allowlist. A NEW opener call in a file not on the allowlist fails the
+//! build, forcing the author to either route it through the documented set
+//! or update Appendix A + this list.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,16 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+/// True for the opener plugin's process-spawning calls. `.opener()` alone is
+/// the accessor; the spawns are `open_path` (file manager on a directory),
+/// `open_url` (default browser), and `reveal_item_in_dir` (file manager with
+/// the item pre-selected — the same explorer.exe spawn as `open_path`).
+fn is_opener_spawn(line: &str) -> bool {
+    line.contains(".open_path(")
+        || line.contains(".open_url(")
+        || line.contains(".reveal_item_in_dir(")
 }
 
 #[test]
@@ -101,10 +112,7 @@ fn opener_spawns_only_from_allowlisted_files() {
             if trimmed.starts_with("//") || trimmed.starts_with("//!") {
                 continue; // skip comments (incl. doc mentions of open_path)
             }
-            // The opener plugin's process-spawning calls. `.opener()` alone is
-            // the accessor; the actual spawn is open_path/open_url.
-            let spawns = line.contains(".open_path(") || line.contains(".open_url(");
-            if spawns && !allowed {
+            if is_opener_spawn(line) && !allowed {
                 violations.push(format!("{}:{}", file.display(), i + 1));
             }
         }
@@ -117,4 +125,36 @@ fn opener_spawns_only_from_allowlisted_files() {
          file to OPENER_ALLOWLIST):\n{}",
         violations.join("\n"),
     );
+}
+
+/// The matcher, pinned directly. The one `reveal_item_in_dir` call in the
+/// tree sits in an allowlisted file, so the scan alone cannot prove the
+/// needle works. Same rationale as the `matchers` module in
+/// `structural_no_blind_err_swallow.rs`.
+#[cfg(test)]
+mod matchers {
+    use super::*;
+
+    #[test]
+    fn reveal_item_in_dir_is_a_spawn() {
+        // The commands/screenshots.rs:96 shape: the receiver sits on the
+        // previous line, the call starts its own.
+        assert!(is_opener_spawn("        .reveal_item_in_dir(&path)"));
+    }
+
+    #[test]
+    fn open_path_and_open_url_are_spawns() {
+        // Real shapes: commands/worlds.rs:128 and accounts/microsoft/mod.rs:42.
+        assert!(is_opener_spawn(
+            "        .open_path(dir.to_string_lossy().to_string(), None::<&str>)"
+        ));
+        assert!(is_opener_spawn(
+            "    if let Err(e) = app.opener().open_url(&auth_url, None::<&str>) {"
+        ));
+    }
+
+    #[test]
+    fn the_accessor_alone_is_not_a_spawn() {
+        assert!(!is_opener_spawn("    app.opener()"));
+    }
 }
