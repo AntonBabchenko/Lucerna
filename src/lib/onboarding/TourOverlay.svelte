@@ -14,6 +14,7 @@
   import { Icon } from '$lib/ui/icons';
   import type { ExplanationLevel } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
 
   const PADDING = 6;
 
@@ -70,13 +71,22 @@
     return Array.from(popoverEl.querySelectorAll<HTMLElement>('button:not([disabled])'));
   }
 
+  /** Leave the tour. `finishOrSkip` always closes it; a false result means only
+   *  that "I've seen this" did not reach disk, so the tour will offer itself
+   *  again next launch. Say that rather than letting the reappearance read as a
+   *  bug the user cannot act on. */
+  async function endTour() {
+    const persisted = await finishOrSkip();
+    if (!persisted) pushWarning($t('onboarding.controls.completionNotSaved'));
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (!tourState.active) return;
     if (e.key === 'Escape') {
       // The contextual account hint dismisses without marking the onboarding
       // tour completed; the full tour's Esc is "Skip".
       if (tourState.contextual) closeHint();
-      else void finishOrSkip();
+      else void endTour();
       return;
     }
     if (e.key === 'Tab') {
@@ -259,7 +269,7 @@
             <button
               type="button"
               class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
-              onclick={() => void finishOrSkip()}
+              onclick={() => void endTour()}
             >
               {$t('onboarding.controls.skip')}
             </button>
@@ -278,7 +288,7 @@
               type="button"
               data-tour-primary
               class="btn-primary btn-sm inline-flex items-center gap-1"
-              onclick={() => (isLast ? void finishOrSkip() : next())}
+              onclick={() => (isLast ? void endTour() : next())}
             >
               {#if isLast}
                 {$t('onboarding.controls.finish')}

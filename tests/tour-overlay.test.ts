@@ -11,6 +11,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+const pushWarningMock = vi.fn();
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushWarning: (...a: unknown[]) => pushWarningMock(...a),
+}));
+
 import {
   ACCOUNT_STEP_INDEX,
   TOTAL_STEPS,
@@ -24,6 +29,7 @@ beforeEach(() => {
   tourState.currentStep = 0;
   tourState.contextual = false;
   appSettingsMarkTourCompleted.mockResolvedValue({ status: 'ok', data: null });
+  pushWarningMock.mockClear();
 });
 
 describe('TourOverlay', () => {
@@ -165,5 +171,30 @@ describe('TourOverlay', () => {
     await fireEvent.keyDown(window, { key: 'Tab' });
     // Focus should have wrapped away from the last element.
     expect(document.activeElement).not.toBe(last);
+  });
+
+  test('Skip still closes the tour when the completion write fails, and says so', async () => {
+    appSettingsMarkTourCompleted.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '<app.json>', details: 'disk full' },
+    });
+    tourState.currentStep = 1;
+    render(TourOverlay);
+
+    await fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+
+    // The user asked to leave: keeping the tour open because a settings write
+    // failed would trap them in the thing they just dismissed.
+    expect(tourState.active).toBe(false);
+    // ...but the tour WILL reappear next launch, so that is stated.
+    expect(pushWarningMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a successful Skip says nothing', async () => {
+    tourState.currentStep = 1;
+    render(TourOverlay);
+    await fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(tourState.active).toBe(false);
+    expect(pushWarningMock).not.toHaveBeenCalled();
   });
 });

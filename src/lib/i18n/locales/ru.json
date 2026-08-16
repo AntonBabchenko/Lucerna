@@ -1874,7 +1874,8 @@
       "finish": "Готово",
       "gotIt": "Понятно",
       "skipContextual": "Пропустить",
-      "stepOf": "Шаг {current} из {total}"
+      "stepOf": "Шаг {current} из {total}",
+      "completionNotSaved": "Не удалось запомнить, что тур пройден — он может открыться снова при следующем запуске"
     },
     "tour": {
       "welcome": {
