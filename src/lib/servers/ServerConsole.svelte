@@ -4,7 +4,7 @@
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import type { AnnotateResult, Error as IpcError, ServerLogInfo } from '$lib/ipc/bindings';
+  import type { AnnotateResult, ServerLogInfo } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -386,7 +386,7 @@
   async function openLogsFolder() {
     const r = await serverState.openLogsFolder(serverId);
     if (!r.ok) {
-      pushWarning(get(t)('servers.logs.openFolder'), [formatError(r.error as IpcError)]);
+      pushWarning(get(t)('servers.logs.openFolder'), [formatError(r.error)]);
     }
   }
 </script>
