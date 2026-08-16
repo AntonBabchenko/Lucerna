@@ -156,6 +156,44 @@ describe('TourOverlay', () => {
     });
   });
 
+  // Regression: the popover carried a bare `z-50` and the spotlight/scrim
+  // carried no z-index at all. Modals share that exact tier (--z-modal: 50)
+  // and stack by DOM order, and <TourOverlay /> is mounted in +page.svelte
+  // BEFORE QuickJoinDialog, PreflightGateDialog, the launch-warning
+  // ConfirmDialog, ExportPackDialog and the rest — so any dialog opened during
+  // the welcome tour painted straight over it. The tour tier exists for this
+  // (--z-tour: 100 / --z-tour-popover: 101) and ContextualTour already uses it.
+  test('paints on the tour tier, not the modal tier', () => {
+    tourState.currentStep = 1;
+    render(TourOverlay);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.className).toContain('z-[var(--z-tour-popover)]');
+    expect(dialog.classList.contains('z-50')).toBe(false);
+    expect(screen.getByTestId('tour-scrim').className).toContain('z-[var(--z-tour)]');
+  });
+
+  test('the spotlight sits on the tour tier too', () => {
+    // STEPS[2] (sign-in) targets '[data-tour="account-section"]'; happy-dom
+    // gives it a 0x0 rect, which TourOverlay still treats as a spotlight
+    // (unlike ContextualTour, which centres instead).
+    const target = document.createElement('div');
+    target.setAttribute('data-tour', 'account-section');
+    document.body.appendChild(target);
+    tourState.currentStep = 2;
+    render(TourOverlay);
+    expect(screen.getByTestId('tour-spotlight').className).toContain('z-[var(--z-tour)]');
+    target.remove();
+  });
+
+  test('the wrapper creates no stacking context that would trap the tiers', () => {
+    // A z-*/opacity-*/transform class on `.tour-overlay` would make it the
+    // children's containing stacking context, and the whole tour would drop
+    // back to the wrapper's own (auto) level — silently undoing the fix above.
+    render(TourOverlay);
+    const wrapper = document.querySelector('.tour-overlay') as HTMLElement;
+    expect(wrapper.className.trim()).toBe('tour-overlay');
+  });
+
   test('Tab on the last focusable wraps to the first (focus trap)', async () => {
     render(TourOverlay);
     const buttons = screen.getAllByRole('button');
