@@ -18,9 +18,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
 
 const appCss = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
 const tailwindConfig = readFileSync(resolve(process.cwd(), 'tailwind.config.cjs'), 'utf8');
+const designDoc = readFileSync(resolve(process.cwd(), 'docs/DESIGN.md'), 'utf8');
 
 /** WCAG 2.1 AA floor for normal-size text. */
 const AA_NORMAL_TEXT = 4.5;
@@ -151,5 +153,27 @@ describe('tour spotlight motion (§12)', () => {
     if (rule === null) throw new Error('no .tour-spotlight rule');
     expect(rule[1]).toContain('var(--duration-base)');
     expect(rule[1]).toContain('var(--ease-standard)');
+  });
+});
+
+// Doc prose is not testable, and pretending otherwise would be the kind of
+// green-gate-that-catches-nothing this cluster exists to avoid. What IS
+// testable is that the doc and the code do not contradict each other on the
+// one factual claim the new §9 paragraph makes — the size scale.
+describe('DESIGN.md §9 documents the CountPill that ships', () => {
+  it('names the primitive and both of its sizes', () => {
+    const section = /- \*\*`CountPill`\*\*(.*)/.exec(designDoc);
+    if (section === null) throw new Error('§9 has no CountPill entry');
+    expect(section[1]).toContain('countPillClass');
+    expect(section[1]).toContain('15px');
+    expect(section[1]).toContain('18px');
+  });
+
+  it('the documented sizes are the sizes the primitive actually ships', () => {
+    // DESIGN.md's own rule: "Where this doc and the code disagree, fix the code
+    // or update this file in the same PR." A doc claim about a pixel value is
+    // one of the few that a test can hold to account.
+    expect(countPillClass('sm')).toContain('15px');
+    expect(countPillClass('md')).toContain('18px');
   });
 });
