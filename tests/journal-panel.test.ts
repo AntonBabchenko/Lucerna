@@ -8,6 +8,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import JournalCrashContext from '$lib/journal/JournalCrashContext.svelte';
 import JournalPanel from '$lib/journal/JournalPanel.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { hoverTooltip, unhoverTooltip } from './test-utils/hover-tooltip';
 
 const NOW = Date.UTC(2026, 6, 30, 12, 0, 0);
 const HOUR = 60 * 60 * 1000;
@@ -127,6 +129,32 @@ describe('JournalPanel', () => {
     await fireEvent.click(getByTestId('journal-clear-confirm'));
     expect(commands.instanceJournalClear).toHaveBeenCalledWith('inst-1');
     expect(await findByTestId('journal-empty')).toBeTruthy();
+  });
+
+  it('shows the full subject on hover only when the row clips it', async () => {
+    // DESIGN.md §5 bans native title=. The overflow tooltip is the prescribed
+    // replacement (KeyEditRow's truncated key); `whenOverflowing` consults
+    // scrollWidth > clientWidth, which happy-dom reports as 0 > 0 = false, so
+    // the two cases are driven by stubbing those two properties on the node.
+    const long = 'A mod with a very long display name indeed';
+    mockJournal([contentEntry(NOW, long)]);
+    const { findAllByTestId } = render(JournalPanel, { props: { instanceId: 'inst-1' } });
+    const [row] = await findAllByTestId('journal-row');
+    const subject = row.querySelector('.truncate') as HTMLElement;
+
+    expect(subject.getAttribute('title')).toBeNull();
+
+    Object.defineProperty(subject, 'scrollWidth', { value: 400, configurable: true });
+    Object.defineProperty(subject, 'clientWidth', { value: 120, configurable: true });
+    hoverTooltip(subject);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe(long);
+    unhoverTooltip(subject);
+
+    Object.defineProperty(subject, 'scrollWidth', { value: 120, configurable: true });
+    hoverTooltip(subject);
+    expect(tooltipState.visible).toBe(false);
+    hideTooltip();
   });
 });
 
