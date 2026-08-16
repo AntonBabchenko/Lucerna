@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { t, locale } from '$lib/i18n';
+  import { formatDate } from '$lib/format/date-time';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -134,7 +135,7 @@
             <div class="text-xs text-muted">
               {$t('worlds.tab.backupCountAriaLabel', { count: o.backup_count })}
               {#if o.newest_unix_ms}
-                · {new Date(o.newest_unix_ms).toLocaleDateString($locale ?? undefined)}
+                · {formatDate($locale, o.newest_unix_ms)}
               {/if}
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { formatDateTime } from '$lib/format/date-time';
 import { locale, type Translate } from '$lib/i18n';
 import type { LastUpload, UploadPreflight } from '$lib/ipc/bindings';
 
@@ -20,7 +21,7 @@ export function formatLastUpload(t: Translate, last: LastUpload | null | undefin
   // Format against the APP locale (svelte-i18n's `locale` store), not the OS
   // locale, so the date matches the rest of the UI's language — the Backups
   // dialogs use the same `$locale` pattern.
-  const when = new Date(last.unix_ms ?? 0).toLocaleString(get(locale) ?? undefined);
+  const when = formatDateTime(get(locale), last.unix_ms ?? 0);
   return t('servers.hosting.lastUpload', { when, target: last.target });
 }
 

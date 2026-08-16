@@ -4,8 +4,9 @@
   // outcome label, duration, exit code). Everything user-visible resolves
   // through i18n; only versions, names and numbers come from the backend.
   import type { JournalEntry } from '$lib/ipc/bindings';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
   import { formatDuration } from '$lib/format/duration';
+  import { formatTimeOfDay } from '$lib/format/date-time';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { ACTION_COPY, entryTime, OUTCOME_COPY, toneClass, versionLabel } from './journal-view';
@@ -24,10 +25,7 @@
     event.kind === 'content' ? ACTION_COPY[event.action] : OUTCOME_COPY[event.outcome],
   );
   const clockLabel = $derived(
-    new Date(entryTime(entry)).toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
+    formatTimeOfDay($locale, entryTime(entry), { hour: '2-digit', minute: '2-digit' }),
   );
 </script>
 

@@ -4,6 +4,7 @@
 // grouping and group captions. No DOM, no IPC — unit-tested in isolation;
 // ScreenshotBrowser renders its output. Mirrors journal-view.ts.
 
+import { formatDate } from '$lib/format/date-time';
 import type { Translate } from '$lib/i18n';
 import type { Screenshot } from '$lib/ipc/bindings';
 
@@ -82,9 +83,8 @@ export function groupLabel(
   startMs: number,
   granularity: Granularity,
 ): string {
-  const d = new Date(startMs);
   if (granularity === 'month') {
-    return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+    return formatDate(locale, startMs, { month: 'long', year: 'numeric' });
   }
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -92,5 +92,5 @@ export function groupLabel(
   const diffDays = Math.round((todayStart - startMs) / DAY_MS);
   if (diffDays === 0) return t('screenshots.groupToday');
   if (diffDays === 1) return t('screenshots.groupYesterday');
-  return d.toLocaleDateString(locale);
+  return formatDate(locale, startMs);
 }
