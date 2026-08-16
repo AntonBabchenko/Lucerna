@@ -1992,14 +1992,39 @@ pub async fn server_import_commit(
                             .to_string(),
                     });
                 }
-                import::copy::copy_into_runtime(&root, &p.runtime)?;
-                import::pack::apply_overrides(&root, &p.runtime)?;
+                // Sync copy + overrides of a potentially GB-scale staged tree —
+                // off the async runtime (same shape as server_backup_create).
+                let root_task = root.clone();
+                let runtime = p.runtime.clone();
+                tokio::task::spawn_blocking(move || {
+                    import::copy::copy_into_runtime(&root_task, &runtime)?;
+                    import::pack::apply_overrides(&root_task, &runtime)
+                })
+                .await
+                .map_err(|e| Error::io("<server_import_commit>", format!("join: {e}")))??;
             }
             None => {
-                import::copy::copy_into_runtime(&root, &p.runtime)?;
+                // Sync copy of a potentially GB-scale staged tree — off the
+                // async runtime (same shape as server_backup_create).
+                let root_task = root.clone();
+                let runtime = p.runtime.clone();
+                tokio::task::spawn_blocking(move || {
+                    import::copy::copy_into_runtime(&root_task, &runtime)
+                })
+                .await
+                .map_err(|e| Error::io("<server_import_commit>", format!("join: {e}")))??;
             }
         }
-        let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
+        // Best-effort staging cleanup, exactly as before: a removal failure (or
+        // a panic in the removal task) must not fail the already-committed
+        // import — `sweep_stale` reclaims orphaned staging dirs on the next
+        // inspect. The staged tree can be up to 20 GB, so the removal is also
+        // offloaded rather than run inline on the runtime.
+        let staging = import::staging_dir(&base, &token);
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = std::fs::remove_dir_all(&staging);
+        })
+        .await;
         cleanup.keep();
         new_id
     };
