@@ -288,35 +288,44 @@ pub fn server_stop_orphan(app: AppHandle, id: String, pid: u32) -> Result<()> {
 /// Change the server's listen port in `server.properties` (validated 1..=65535).
 #[tauri::command]
 #[specta::specta]
-pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
+pub async fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let props_path = p.runtime.join("server.properties");
-    // NotFound → empty (a server that has never started has no file yet); any
-    // other read failure propagates — the rewrite below is unconditional, so
-    // treating "could not read" as "empty" would replace the user's whole
-    // config with a single server-port line.
-    let raw = crate::servers_runtime::properties::read_properties_file(&props_path)?;
-    // The port we're leaving — its firewall allow-rule (if any) is now stale.
-    let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
-    let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
-    props.set_validated("server-port", &port.to_string())?;
-    std::fs::create_dir_all(&p.runtime)
-        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
-    std::fs::write(&props_path, props.serialize())
-        .map_err(|e| Error::io("<server.properties>", e))?;
-    // Migrate the firewall rule: remove the old port's allow-rule (if present) so
-    // changing the port doesn't leave a stale open-port rule behind. The new
-    // port's rule is added on demand via `server_firewall_add_rule`.
-    if let Some(old) = old_port {
-        if old != port {
-            remove_firewall_rule_for_port(&p.root, old);
+    // The properties read/rewrite, the old-port lookup, the stale firewall-rule
+    // removal (`remove_firewall_rule_for_port` waits on a `netsh … show rule`
+    // subprocess, 100–500 ms, before the elevated delete spawn), and the
+    // handled-log bookkeeping are all blocking filesystem/subprocess work — off
+    // the main thread (same shape as `server_backup_create`).
+    tokio::task::spawn_blocking(move || {
+        let p = crate::paths::server_paths(&base, &id);
+        let props_path = p.runtime.join("server.properties");
+        // NotFound → empty (a server that has never started has no file yet); any
+        // other read failure propagates — the rewrite below is unconditional, so
+        // treating "could not read" as "empty" would replace the user's whole
+        // config with a single server-port line.
+        let raw = crate::servers_runtime::properties::read_properties_file(&props_path)?;
+        // The port we're leaving — its firewall allow-rule (if any) is now stale.
+        let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
+        let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+        props.set_validated("server-port", &port.to_string())?;
+        std::fs::create_dir_all(&p.runtime)
+            .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+        std::fs::write(&props_path, props.serialize())
+            .map_err(|e| Error::io("<server.properties>", e))?;
+        // Migrate the firewall rule: remove the old port's allow-rule (if present) so
+        // changing the port doesn't leave a stale open-port rule behind. The new
+        // port's rule is added on demand via `server_firewall_add_rule`.
+        if let Some(old) = old_port {
+            if old != port {
+                remove_firewall_rule_for_port(&p.root, old);
+            }
         }
-    }
-    // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
-    // banner from the same FAILED-TO-BIND log after the port has been changed.
-    mark_current_log_handled(&p);
-    Ok(())
+        // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
+        // banner from the same FAILED-TO-BIND log after the port has been changed.
+        mark_current_log_handled(&p);
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_change_port>", format!("join: {e}")))?
 }
 
 /// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
