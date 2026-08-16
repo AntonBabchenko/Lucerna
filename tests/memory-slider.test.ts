@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { get } from 'svelte/store';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { locale } from '$lib/i18n';
+import { locale, t } from '$lib/i18n';
 import { formatHeapLabel } from '$lib/instances/heap';
 import MemorySlider from '$lib/instances/MemorySlider.svelte';
 
@@ -47,10 +48,10 @@ describe('MemorySlider', () => {
     const { rerender } = render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
 
     const slider = screen.getByRole('slider') as HTMLInputElement;
-    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(4096));
+    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(get(t), 4096));
 
     await rerender({ valueMb: 8192, onInput: vi.fn() });
-    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(8192));
+    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(get(t), 8192));
   });
 
   it('fires onInput with the parsed integer MB when dragged', async () => {
@@ -195,8 +196,8 @@ describe('MemorySlider', () => {
     mockLoad.mockResolvedValue(RAM_32GB);
     render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
 
-    expect(await screen.findByText(formatHeapLabel(32768))).toBeTruthy();
-    expect(screen.getByText(formatHeapLabel(1024))).toBeTruthy();
+    expect(await screen.findByText(formatHeapLabel(get(t), 32768))).toBeTruthy();
+    expect(screen.getByText(formatHeapLabel(get(t), 1024))).toBeTruthy();
   });
 
   it('shows the recommended-max marker only when RAM is known', async () => {

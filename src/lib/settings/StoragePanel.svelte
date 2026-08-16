@@ -122,13 +122,6 @@
     if (r.status !== 'ok') ttlError = formatError(r.error);
   }
 
-  function fmt(b: number): string {
-    if (b < 1024) return `${b} B`;
-    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-    if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-
   async function refresh() {
     const result = await commands.modsCacheSizeBytes();
     if (result.status === 'ok') {
@@ -274,7 +267,11 @@
       const freed = result.data ?? 0;
       // Route through the global toast system (auto-dismiss + live region)
       // instead of the old hand-rolled inline box that never went away.
-      pushSuccess($t('settings.storage.cleared', { freed: fmt(freed) }));
+      pushSuccess(
+        $t('settings.storage.cleared', {
+          freed: formatSize($t, freed) || $t('format.size.bytes', { n: 0 }),
+        }),
+      );
       await refresh();
     } else {
       error = formatError(result.error);
@@ -287,7 +284,9 @@
   <SettingsField anchor="storage.cache">
     <div class="text-sm mb-2">
       {$t('settings.storage.cacheLabel')}
-      <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
+      <span class="font-medium"
+        >{bytes === null ? '…' : formatSize($t, bytes) || $t('format.size.bytes', { n: 0 })}</span
+      >
     </div>
     <p class="text-xs text-muted mb-3">
       {$t('settings.storage.cacheDescription')}

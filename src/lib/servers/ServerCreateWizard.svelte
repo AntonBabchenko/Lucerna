@@ -355,7 +355,7 @@
     <div class="flex flex-col gap-1">
       <!-- svelte-ignore a11y_label_has_associated_control -->
       <label class="text-sm font-medium"
-        >{$t('servers.wizard.memory')} · {formatHeapLabel(memoryMb)}</label
+        >{$t('servers.wizard.memory')} · {formatHeapLabel($t, memoryMb)}</label
       >
       <MemorySlider valueMb={memoryMb} onInput={(mb) => (memoryMb = mb)} />
     </div>

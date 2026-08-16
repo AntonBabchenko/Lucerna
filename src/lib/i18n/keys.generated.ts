@@ -314,6 +314,8 @@ export type TranslationKey =
   | 'format.duration.hoursMinutes'
   | 'format.duration.lessThanMinute'
   | 'format.duration.minutes'
+  | 'format.heap.gigabytes'
+  | 'format.heap.megabytes'
   | 'format.rate.bytesPerSec'
   | 'format.rate.kbPerSec'
   | 'format.rate.mbPerSec'

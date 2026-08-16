@@ -2904,7 +2904,11 @@
       "kbPerSec": "{n, number, ::.0 group-off} KB/s",
       "mbPerSec": "{n, number, ::.0 group-off} MB/s"
     },
-    "count": "{n, number}"
+    "count": "{n, number}",
+    "heap": {
+      "gigabytes": "{n, number, ::.0 group-off} GB",
+      "megabytes": "{n, number, ::group-off} MB"
+    }
   },
   "optimise": {
     "button": "Optimise",

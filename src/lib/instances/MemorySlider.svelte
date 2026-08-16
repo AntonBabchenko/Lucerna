@@ -134,7 +134,7 @@
       step={bounds.step_mb}
       value={valueMb}
       aria-label={rangeAriaLabel}
-      aria-valuetext={formatHeapLabel(valueMb)}
+      aria-valuetext={formatHeapLabel($t, valueMb)}
       oninput={handleInput}
       onchange={handleChange}
       class="w-full {extraClass}"
@@ -147,8 +147,8 @@
       ></span>
     {/if}
     <div class="mt-0.5 flex justify-between text-[10px] leading-none text-placeholder">
-      <span>{formatHeapLabel(bounds.min_mb)}</span>
-      <span>{formatHeapLabel(bounds.max_mb)}</span>
+      <span>{formatHeapLabel($t, bounds.min_mb)}</span>
+      <span>{formatHeapLabel($t, bounds.max_mb)}</span>
     </div>
   </div>
   <input
@@ -167,14 +167,14 @@
 {#if showRecommended}
   <span class="sr-only"
     >{$t('instance.manage.memoryRecommendedMarker', {
-      value: formatHeapLabel(bounds.recommended_max_mb),
+      value: formatHeapLabel($t, bounds.recommended_max_mb),
     })}</span
   >
 {/if}
 {#if isAboveRecommended(valueMb, bounds.recommended_max_mb, bounds.ram_known)}
   <p class="text-xs text-warning-text {warnClass}">
     {$t('instance.manage.memoryWarnHigh', {
-      recommended: formatHeapLabel(bounds.recommended_max_mb),
+      recommended: formatHeapLabel($t, bounds.recommended_max_mb),
     })}
   </p>
 {:else if reserveWarnSpace}

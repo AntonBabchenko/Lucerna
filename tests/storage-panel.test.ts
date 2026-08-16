@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 
 // The two IPC commands StoragePanel drives are wrapped in typedError on
 // the real bindings, so they resolve to a `{ status: 'ok' | 'error' }`
@@ -130,6 +131,26 @@ describe('StoragePanel', () => {
     resolveSize({ status: 'ok', data: 4096 });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/4\.0 KB/)).toBeTruthy();
+  });
+
+  it('formats the cache size against the app locale, not a hardcoded English unit', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsCacheSizeBytes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: 2048,
+    });
+    // The panel defined a private fmt() with hardcoded B/KB/MB/GB three lines
+    // below its own import of the localized formatSize, and used fmt() for the
+    // cache row and the cleared toast while using formatSize for the data-root
+    // row — two different renderings of a byte count in one panel.
+    locale.set('ru');
+    try {
+      render(StoragePanel);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.getByText(/2,0 КБ/)).toBeTruthy();
+    } finally {
+      locale.set('en');
+    }
   });
 });
 
