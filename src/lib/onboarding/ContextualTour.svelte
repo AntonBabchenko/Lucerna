@@ -222,18 +222,34 @@
 
 {#if active}
   {#if rect && step.targetSelector}
-    <div
-      class="fixed pointer-events-none transition-all duration-200 rounded-md z-[var(--z-tour)]"
-      style="
-        left: {rect.x - PADDING}px;
-        top: {rect.y - PADDING}px;
-        width: {rect.width + PADDING * 2}px;
-        height: {rect.height + PADDING * 2}px;
-        box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
-      "
-    ></div>
+    <!-- Geometry is inline and JUMPS between steps rather than tweening: the dim
+         IS this element's own 9999px box-shadow, so a transform would scale
+         that shadow and the rounded corners with it and the highlight would
+         change shape mid-transition. §12 allows transform / opacity / colour
+         only, so the reveal is the shared `.tour-spotlight` opacity keyframe
+         (app.css), replayed on mount by the {#key} below.
+
+         Keyed on the STEP, not the rect: `updateRect()` also runs on every
+         resize and every captured scroll event, and a rect key would restart
+         the fade on each of those frames. -->
+    {#key currentStep}
+      <div
+        class="tour-spotlight fixed pointer-events-none rounded-md z-[var(--z-tour)]"
+        style="
+          left: {rect.x - PADDING}px;
+          top: {rect.y - PADDING}px;
+          width: {rect.width + PADDING * 2}px;
+          height: {rect.height + PADDING * 2}px;
+          box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+        "
+        data-testid="contextual-tour-spotlight"
+      ></div>
+    {/key}
   {:else}
-    <div class="fixed inset-0 bg-black/55 z-[var(--z-tour)] pointer-events-none"></div>
+    <div
+      class="fixed inset-0 bg-black/55 z-[var(--z-tour)] pointer-events-none"
+      data-testid="contextual-tour-scrim"
+    ></div>
   {/if}
 
   <div

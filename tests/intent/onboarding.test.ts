@@ -291,3 +291,43 @@ describe('TourOverlay — button variants', () => {
     expect(dim).not.toBeNull();
   });
 });
+
+describe('ContextualTour — spotlight motion (§12)', () => {
+  // ContextualTour treats a 0x0 rect as anchorless (updateRect: `rect = r.width
+  // > 0 && r.height > 0 ? r : null`), and happy-dom reports 0x0 for everything —
+  // so the spotlight branch is only reachable with getBoundingClientRect
+  // stubbed. Without this the {:else} scrim renders and the test would be
+  // vacuous.
+  function anchor(selector: string): HTMLElement {
+    const el = document.createElement('div');
+    const [, attr, value] = /\[([\w-]+)="([^"]+)"\]/.exec(selector) as RegExpExecArray;
+    el.setAttribute(attr, value);
+    el.getBoundingClientRect = () =>
+      ({
+        x: 10,
+        y: 20,
+        width: 120,
+        height: 40,
+        top: 20,
+        left: 10,
+        right: 130,
+        bottom: 60,
+      }) as DOMRect;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it('animates opacity only — never its geometry', async () => {
+    const target = anchor(MANAGE_STEPS[0].targetSelector as string);
+    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+
+    // The mount effect measures the rect inside `tick().then(…)`, so the
+    // spotlight appears a flush after render — find, don't get.
+    const spotlight = await screen.findByTestId('contextual-tour-spotlight');
+    expect(spotlight.className).not.toContain('transition-all');
+    expect(spotlight.className).not.toContain('duration-200');
+    expect(spotlight.classList.contains('tour-spotlight')).toBe(true);
+    expect(spotlight.getAttribute('style')).toContain('box-shadow: 0 0 0 9999px');
+    target.remove();
+  });
+});
