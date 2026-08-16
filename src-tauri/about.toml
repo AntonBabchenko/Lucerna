@@ -1,0 +1,47 @@
+# cargo-about configuration — drives tools/generate-third-party-notices.mjs
+# (the Rust half of THIRD-PARTY-NOTICES.txt).
+#
+# `accepted` must stay in sync with the [licenses] allow list in deny.toml:
+# deny.toml decides what may enter the dependency tree; this file only decides
+# what the notices generator may render without erroring. The one addition is
+# GPL-3.0-or-later — Lucerna's own license, which cargo-about sees because the
+# workspace crate is part of the graph.
+
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "CC0-1.0",
+  "BSL-1.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+  "GPL-3.0-or-later",
+]
+
+# Notices cover what ships in the binary: runtime dependencies for the release
+# platforms (release.yml build matrix). Build- and dev-dependencies are
+# compiled on our machines, not distributed.
+targets = [
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Resolve licenses offline from the crate sources only — no clearlydefined.io
+# lookups (deterministic output, no network dependence in a release tool).
+no-clearly-defined = true
+
+# Built-in clarification for a crate with historically awkward license
+# metadata (ring's multi-file BoringSSL-derived licensing). Harmless now that
+# ring 0.17.14 declares an SPDX expression; kept for older resolutions.
+workarounds = ["ring"]
