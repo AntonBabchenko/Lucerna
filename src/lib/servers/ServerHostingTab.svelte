@@ -39,6 +39,15 @@
   // ── SFTP auth method (#28) — loaded from the S4 sidecar ─────────────────────
   let authMethod = $state<UploadAuthMethod>('password');
   let privateKeyPath = $state('');
+  // A FAILED sidecar read is not "password auth, no key file" -- it is "we could
+  // not tell". Seeding the form from that guess and leaving Save enabled means
+  // one click writes the guess over the user's real stored method. So the read's
+  // outcome is tracked and gates Save, rather than being discarded. Same
+  // absent-vs-unknown discrimination as AiTranslationSection's
+  // `keyStored: boolean | null`.
+  let authLoaded = $state(false);
+  let authLoadError = $state<string | null>(null);
+  let busyAuthLoad = $state(false);
 
   // ── automatic-backup policy (#29) ───────────────────────────────────────────
   let backupEnabled = $state(false);
@@ -46,6 +55,11 @@
   let busyBackupPolicy = $state(false);
   let backupPolicySaved = $state(false);
   let backupPolicyError = $state<string | null>(null);
+  // Same rule for the schedule: a failed read leaves the form on its defaults
+  // (off, 60 min), and Apply would then switch OFF a schedule the user has.
+  let backupPolicyLoaded = $state(false);
+  let backupPolicyLoadError = $state<string | null>(null);
+  let busyBackupPolicyLoad = $state(false);
 
   // ── resume (Section B): a previously interrupted upload to the same target ──
   let resumeInfo = $state<{
@@ -55,22 +69,52 @@
     bytesTotal: number;
   } | null>(null);
 
+  /** Read the stored SFTP auth method. Retryable: the button below calls it
+   *  again, so a transient failure does not strand the form for the session. */
+  async function loadUploadAuth() {
+    busyAuthLoad = true;
+    try {
+      const auth = await commands.serverGetUploadAuth(serverId);
+      if (auth.status === 'ok') {
+        authMethod = auth.data.method ?? 'password';
+        privateKeyPath = auth.data.private_key_path ?? '';
+        authLoadError = null;
+        authLoaded = true;
+      } else {
+        authLoadError = formatError(auth.error);
+      }
+    } finally {
+      busyAuthLoad = false;
+    }
+  }
+
+  /** Read the stored automatic-backup schedule. Retryable, same reason. */
+  async function loadBackupPolicy() {
+    busyBackupPolicyLoad = true;
+    try {
+      const policy = await commands.serverBackupPolicyGet(serverId);
+      if (policy.status === 'ok') {
+        backupEnabled = policy.data.enabled ?? false;
+        const interval = policy.data.interval_minutes ?? 0;
+        if (interval > 0) backupIntervalMinutes = interval;
+        backupPolicyLoadError = null;
+        backupPolicyLoaded = true;
+      } else {
+        backupPolicyLoadError = formatError(policy.error);
+      }
+    } finally {
+      busyBackupPolicyLoad = false;
+    }
+  }
+
   onMount(async () => {
-    const auth = await commands.serverGetUploadAuth(serverId);
-    if (auth.status === 'ok') {
-      authMethod = auth.data.method ?? 'password';
-      privateKeyPath = auth.data.private_key_path ?? '';
-    }
-    const policy = await commands.serverBackupPolicyGet(serverId);
-    if (policy.status === 'ok') {
-      backupEnabled = policy.data.enabled ?? false;
-      const interval = policy.data.interval_minutes ?? 0;
-      if (interval > 0) backupIntervalMinutes = interval;
-    }
+    await loadUploadAuth();
+    await loadBackupPolicy();
     resumeInfo = await serverState.uploadResumeState(serverId);
   });
 
   async function handleSaveBackupPolicy() {
+    if (!backupPolicyLoaded) return;
     busyBackupPolicy = true;
     backupPolicyError = null;
     backupPolicySaved = false;
@@ -188,6 +232,11 @@
   // (Number.isInteger is false → invalid), so Save is blocked until it's fixed.
   const portValid = $derived(Number.isInteger(port) && port >= 1 && port <= 65535);
   const formValid = $derived(hostValid && userValid && keyValid && portValid);
+  // Save ALSO writes the auth method (serverSetUploadAuth), so it needs a method
+  // we actually read. Upload and Check size use the STORED auth server-side and
+  // are deliberately left on `formValid` -- blocking them would punish the user
+  // for a failure that does not affect them.
+  const canSaveConfig = $derived(formValid && authLoaded);
 
   // When savePassword is on, persist the typed password to the keyring on Save.
   // When off, the password stays transient (sent only for this upload, never stored).
@@ -219,7 +268,10 @@
   }
 
   async function handleSave() {
-    if (!formValid) return;
+    // Guard the handler too, not only the button: the disabled attribute is a
+    // UI affordance, and this write is the one that would clobber the real
+    // stored method with the constructed default.
+    if (!canSaveConfig) return;
     busySave = true;
     saveError = null;
     savedVisible = false;
@@ -524,11 +576,21 @@
       />
     </div>
 
+    {#if authLoadError}
+      <p class="text-sm text-danger" role="alert" data-testid="hosting-auth-load-error">
+        {$t('servers.hosting.authLoadFailed', { error: authLoadError })}
+      </p>
+      <div>
+        <BusyButton class="btn-secondary btn-sm" busy={busyAuthLoad} onclick={() => void loadUploadAuth()}>
+          {$t('servers.retry')}
+        </BusyButton>
+      </div>
+    {/if}
     <div class="flex items-center gap-3">
       <BusyButton
         class="btn-primary btn-sm"
-        busy={busySave}
-        disabled={!formValid}
+        busy={busySave || busyAuthLoad}
+        disabled={!canSaveConfig}
         onclick={() => void handleSave()}
       >
         {$t('servers.hosting.save')}
@@ -738,10 +800,25 @@
         <span>{$t('servers.backups.autoIntervalUnit')}</span>
       </div>
     {/if}
+    {#if backupPolicyLoadError}
+      <p class="text-sm text-danger" role="alert" data-testid="hosting-backup-load-error">
+        {$t('servers.backups.autoLoadFailed', { error: backupPolicyLoadError })}
+      </p>
+      <div>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyBackupPolicyLoad}
+          onclick={() => void loadBackupPolicy()}
+        >
+          {$t('servers.retry')}
+        </BusyButton>
+      </div>
+    {/if}
     <div class="flex items-center gap-3">
       <BusyButton
         class="btn-secondary btn-sm"
-        busy={busyBackupPolicy}
+        busy={busyBackupPolicy || busyBackupPolicyLoad}
+        disabled={!backupPolicyLoaded}
         onclick={() => void handleSaveBackupPolicy()}
       >
         {$t('servers.backups.autoSave')}

@@ -149,6 +149,13 @@ describe('ServerHostingTab', () => {
     uploadMock.mockResolvedValue({ status: 'ok', data: null });
     uploadPreflightMock.mockResolvedValue(null);
     cancelUploadMock.mockResolvedValue({ status: 'ok', data: null });
+    // Call history for the onMount reads and the two writes they gate: these
+    // mocks are module-scope and would otherwise carry a previous test's calls
+    // into a `not.toHaveBeenCalled()` assertion.
+    getUploadAuthMock.mockClear();
+    setUploadAuthMock.mockClear();
+    backupPolicyGetMock.mockClear();
+    backupPolicySetMock.mockClear();
   });
 
   it('renders host and user fields', () => {
@@ -540,5 +547,57 @@ describe('ServerHostingTab', () => {
     // robust to whatever skipWorlds/password the tab passes.
     await waitFor(() => expect(uploadMock).toHaveBeenCalled());
     expect(uploadMock.mock.calls.at(-1)?.[4]).toBe(true);
+  });
+  // -- failed onMount reads must not leave Save armed with guessed defaults ----
+
+  it('surfaces a failed auth read and disables Save until a retry succeeds', async () => {
+    // A trusted, fully-configured server: every other Save precondition holds,
+    // so the ONLY thing that may keep Save disabled is the unread auth method.
+    mockList = [makeServer({ upload: savedUpload })];
+    getUploadAuthMock.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: '/servers/srv-1/upload-auth.json', details: 'permission denied' },
+    });
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    // The failure is on screen, not swallowed.
+    expect(screen.getByTestId('hosting-auth-load-error').textContent).toContain(
+      'permission denied',
+    );
+    const saveBtn = screen.getByText('Save').closest('button') as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(true);
+
+    // ...and nothing was written on the way there.
+    expect(setUploadAuthMock).not.toHaveBeenCalled();
+    expect(setUploadConfigMock).not.toHaveBeenCalled();
+
+    // Retry succeeds -> the error clears and Save comes back.
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(saveBtn.disabled).toBe(false));
+    expect(screen.queryByTestId('hosting-auth-load-error')).toBeNull();
+  });
+
+  it('surfaces a failed backup-policy read and disables Apply', async () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    backupPolicyGetMock.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: '/servers/srv-1/backup-policy.json', details: 'disk unreadable' },
+    });
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    expect(screen.getByTestId('hosting-backup-load-error').textContent).toContain(
+      'disk unreadable',
+    );
+    const apply = screen.getByText('Apply').closest('button') as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+
+    // Clicking a disabled button is a no-op; assert the write never happens, so
+    // an "off, every 60 min" default can't replace the real schedule.
+    await fireEvent.click(apply);
+    expect(backupPolicySetMock).not.toHaveBeenCalled();
   });
 });

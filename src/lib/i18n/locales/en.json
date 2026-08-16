@@ -3448,7 +3448,8 @@
       "savePasswordHint": "The password will be stored in the system keyring.",
       "revealPassword": "Reveal password",
       "hidePassword": "Hide password",
-      "passwordNeededEachUpload": "Enter the password above to upload."
+      "passwordNeededEachUpload": "Enter the password above to upload.",
+      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten."
     },
     "diagnose": {
       "clientOnly": {
@@ -3615,7 +3616,8 @@
       "autoInterval": "Every",
       "autoIntervalUnit": "minutes",
       "autoSave": "Apply",
-      "autoSaved": "Saved"
+      "autoSaved": "Saved",
+      "autoLoadFailed": "Couldn't read the backup schedule: {error}. Applying is disabled so your saved schedule isn't overwritten."
     },
     "connect": {
       "stoppedHint": "Start the server to get a join address.",
