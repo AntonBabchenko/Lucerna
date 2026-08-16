@@ -121,7 +121,7 @@ version=\"1.3.50.2005\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.50.2005.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ version=\"1.3.55\"
     let core_jar = make_jar(&[("META-INF/mods.toml", core_toml)]);
     register(root, "sophisticatedcore-1.3.55.jar", &core_jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -215,7 +215,7 @@ version=\"3.20\"
     let jar = make_jar(&[("META-INF/mods.toml", toml)]);
     register(root, "backpacks-3.20.jar", &jar).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -278,7 +278,7 @@ version=\"3.20\"
     .await
     .unwrap();
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -292,7 +292,7 @@ version=\"3.20\"
 #[tokio::test]
 async fn empty_instance_produces_no_violations() {
     let td = TempDir::new().unwrap();
-    let report = dependency_preflight_for_root(td.path(), LoaderKind::Forge, "1.20.1", None)
+    let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(report.violations.is_empty());
@@ -338,7 +338,7 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
     )]);
     register(root, "CreativeCore_v1.10.71_mc1.12.2.jar", &cc).await;
 
-    let legacy = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let legacy = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert!(
@@ -351,7 +351,7 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
     // The very same jars on a modern instance take the mods.toml path, where
     // 1.10 really is outside [2.0.0,). Pinned so the era predicate cannot be
     // satisfied by simply dropping mods.toml everywhere.
-    let modern = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let modern = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(modern.violations.len(), 1, "{:?}", modern.violations);
@@ -384,7 +384,7 @@ async fn a_dual_descriptor_jar_is_still_checked_on_minecraftforge() {
     ]);
     register(root, "multi-1.0.jar", &both).await;
 
-    let forge = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let forge = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(forge.violations.len(), 1, "{:?}", forge.violations);
@@ -395,7 +395,7 @@ async fn a_dual_descriptor_jar_is_still_checked_on_minecraftforge() {
 
     // On NeoForge the same jar reports through neoforge.mods.toml, and its
     // mods.toml is shadowed — exactly one violation, the other id.
-    let neo = dependency_preflight_for_root(root, LoaderKind::NeoForge, "1.20.1", None)
+    let neo = dependency_preflight_for_root(root, None, LoaderKind::NeoForge, "1.20.1", None)
         .await
         .unwrap();
     assert_eq!(neo.violations.len(), 1, "{:?}", neo.violations);
@@ -439,7 +439,7 @@ async fn a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
@@ -483,7 +483,7 @@ async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
     ]);
     register(root, "dependent.jar", &dependent).await;
 
-    let report = dependency_preflight_for_root(root, LoaderKind::Forge, "1.12.2", None)
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
         .await
         .unwrap();
     assert!(
@@ -500,7 +500,7 @@ async fn the_report_carries_pack_completion_when_the_helper_is_present() {
     let td = TempDir::new().unwrap();
     let root = td.path();
 
-    let plain = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let plain = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     assert!(
@@ -516,7 +516,7 @@ async fn the_report_carries_pack_completion_when_the_helper_is_present() {
     )
     .unwrap();
 
-    let with = dependency_preflight_for_root(root, LoaderKind::Forge, "1.20.1", None)
+    let with = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
         .await
         .unwrap();
     let c = with.pack_completion.expect("helper present");

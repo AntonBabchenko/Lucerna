@@ -1664,7 +1664,7 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1", None)
+        let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         assert!(
@@ -1891,7 +1891,7 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric, "1.20.1", None)
+        let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         assert_eq!(report.violations.len(), 1, "{:?}", report.violations);

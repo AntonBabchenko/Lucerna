@@ -2783,7 +2783,7 @@ modId=\"evilseagull\"
         fs::create_dir_all(&dir).await.unwrap();
         let bytes = zip_with(&[("META-INF/neoforge.mods.toml", b"modLoader=\"javafml\"")]);
         fs::write(dir.join("neo.jar"), &bytes).await.unwrap();
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.6", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.6", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3010,7 +3010,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3149,7 +3149,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -3178,7 +3178,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::NeoForge, "1.21.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::NeoForge, "1.21.1", None)
             .await
             .unwrap();
         let x = out
@@ -3197,7 +3197,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("META-INF/mods.toml", b"modLoader=\"javafml\"")]);
         fs::write(dir.join("f.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3214,7 +3214,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("data/whatever.txt", b"not a mod")]);
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3231,7 +3231,7 @@ modId=\"evilseagull\"
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Vanilla, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Vanilla, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3248,7 +3248,7 @@ modId=\"evilseagull\"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.21", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3272,7 +3272,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3297,7 +3297,7 @@ modId=\"evilseagull\"
         ]);
         fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.20.4", None)
             .await
             .unwrap();
         assert_eq!(out.len(), 1);
@@ -3336,7 +3336,7 @@ modId=\"evilseagull\"
         .await
         .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         let m = out
@@ -3379,7 +3379,7 @@ modId=\"evilseagull\"
         let enabled_sha = hex::encode(Sha1::digest(&enabled_bytes));
         let disabled_sha = hex::encode(Sha1::digest(&disabled_bytes));
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.4", None)
             .await
             .unwrap();
         assert!(
@@ -3463,7 +3463,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("fcap.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "fcap.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3486,7 +3486,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("ok.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "ok.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3508,7 +3508,7 @@ modId=\"evilseagull\"
         fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
         let sha = add_pack_mod(td.path(), "lib.jar", &bytes).await;
 
-        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
             .await
             .unwrap();
         let m = out
@@ -3554,7 +3554,7 @@ loaderVersion="[61,)"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", Some("47.4.10"))
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", Some("47.4.10"))
             .await
             .expect("scan succeeds");
         assert!(
@@ -3576,7 +3576,7 @@ loaderVersion="[61,)"
             .await
             .unwrap();
 
-        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.1", None)
+        let out = scan_instance(td.path(), None, LoaderKind::Forge, "1.20.1", None)
             .await
             .expect("scan succeeds");
         assert!(
