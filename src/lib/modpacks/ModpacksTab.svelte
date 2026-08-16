@@ -22,6 +22,7 @@
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { modpackBrowseState } from './browse-state.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -326,17 +327,31 @@
       onClick={importFromFile}
     />
     <div class="mt-2 flex justify-end">
-      <button
-        type="button"
-        class="btn-ghost btn-sm inline-flex items-center gap-1.5"
-        disabled={importDisabledReason !== null}
-        title={importDisabledReason ?? undefined}
-        onclick={openUrlDialog}
-        data-testid="modpacks-import-from-url"
+      <!--
+        Disabled-reason tooltip (§5): a disabled <button> fires no pointer
+        events, so the reason rides a wrapping <span>, and `describe: false`
+        marks it supplementary rather than the button's accessible name. The
+        span is focusable only while the button is disabled, so the reason is
+        reachable by keyboard — which the native `title=` this replaces never
+        was. Same shape as WorldDatapacks.svelte.
+      -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <span
+        class="inline-flex"
+        tabindex={importDisabledReason !== null ? 0 : undefined}
+        use:tooltip={{ text: importDisabledReason ?? '', describe: false }}
       >
-        <Icon name="externalLink" size={14} />
-        {$t('modpacks.tab.importFromUrl')}
-      </button>
+        <button
+          type="button"
+          class="btn-ghost btn-sm inline-flex items-center gap-1.5"
+          disabled={importDisabledReason !== null}
+          onclick={openUrlDialog}
+          data-testid="modpacks-import-from-url"
+        >
+          <Icon name="externalLink" size={14} />
+          {$t('modpacks.tab.importFromUrl')}
+        </button>
+      </span>
     </div>
   </div>
 
