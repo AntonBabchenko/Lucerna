@@ -466,7 +466,7 @@
     <div class="px-4 pb-3">
       <button
         type="button"
-        onclick={() => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url))}
+        onclick={() => void openExternalHttps(url)}
         class="btn-link text-sm inline-flex items-center gap-1"
         data-testid="imported-detail-source-link"
       >

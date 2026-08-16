@@ -33,7 +33,6 @@ const ALLOWED = new Set(
     // Opens external https pages in the default browser (openUrl).
     'src/lib/changelog/ChangelogPanel.svelte',
     'src/lib/logs/FixModRepairCard.svelte',
-    'src/lib/modpacks/ImportedDetailDrawer.svelte',
     'src/lib/modpacks/ModpackDetailModal.svelte',
     'src/lib/mods/AddonsTab.svelte',
     'src/lib/mods/FindAlternativeDialog.svelte',
