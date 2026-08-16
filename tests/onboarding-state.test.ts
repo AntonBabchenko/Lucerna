@@ -138,6 +138,20 @@ describe('finishOrSkip', () => {
     expect(appSettingsMarkTourCompleted).toHaveBeenCalledWith(TOUR_VERSION);
     expect(tourState.active).toBe(false);
   });
+
+  test('reports whether the completion reached disk', async () => {
+    appSettingsMarkTourCompleted.mockResolvedValue({ status: 'ok', data: null });
+    expect(await finishOrSkip()).toBe(true);
+
+    appSettingsMarkTourCompleted.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '<app.json>', details: 'disk full' },
+    });
+    tourState.active = true;
+    // Still closes — the caller decides what to say, not whether to leave.
+    expect(await finishOrSkip()).toBe(false);
+    expect(tourState.active).toBe(false);
+  });
 });
 
 describe('replayTour', () => {

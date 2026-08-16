@@ -97,6 +97,43 @@ describe('QuickJoinDialog', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(onDelete).toHaveBeenCalledWith(0, 'play.example.net');
   });
+
+  it('shows the read failure instead of rendering it as an empty list', () => {
+    // The page passes [] plus the formatted error when list_saved_servers fails
+    // (typically servers_dat_parse on a truncated servers.dat).
+    render(
+      QuickJoinDialog,
+      baseProps({
+        savedServers: [],
+        savedServersError: 'Could not read the server list (servers.dat): unexpected end of input',
+      }),
+    );
+
+    const err = screen.getByTestId('quick-join-load-error');
+    expect(err.textContent).toContain('servers.dat');
+    // The "you have none" copy must NOT be shown — it is a different claim.
+    expect(screen.queryByText('No saved servers yet. Add one below.')).toBeNull();
+  });
+
+  it('does not auto-expand Add a server after a failed read', () => {
+    // With a genuinely empty list the dialog opens the add section (there would
+    // be no other obvious action). After a failed read that would read as
+    // "you have none" — which is exactly what we could not determine.
+    render(
+      QuickJoinDialog,
+      baseProps({ savedServers: [], savedServersError: 'Could not read the server list' }),
+    );
+    const details = screen.getByText('Add a server').closest('details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+  });
+
+  it('still auto-expands Add a server when the list is genuinely empty', () => {
+    // Guards the discrimination in the other direction, so the fix cannot be
+    // "never auto-expand".
+    render(QuickJoinDialog, baseProps({ savedServers: [], savedServersError: null }));
+    const details = screen.getByText('Add a server').closest('details') as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+  });
 });
 
 describe('QuickJoinDialog — the add-server disclosure', () => {

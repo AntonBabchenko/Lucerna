@@ -1,6 +1,6 @@
 <!-- src/lib/servers/ServerSidebarSection.svelte -->
 <script lang="ts">
-  import type { Error as IpcError, ServerWithStatus } from '$lib/ipc/bindings';
+  import type { ServerWithStatus } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -117,7 +117,7 @@
           ? await serverState.openModsFolder(id)
           : null;
     if (r && !r.ok) {
-      pushWarning(get(t)(key), [formatError(r.error as IpcError)]);
+      pushWarning(get(t)(key), [formatError(r.error)]);
     }
   }
 </script>

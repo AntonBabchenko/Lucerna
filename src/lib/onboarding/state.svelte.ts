@@ -98,9 +98,23 @@ export function back(): void {
   if (tourState.currentStep > 0) tourState.currentStep--;
 }
 
-export async function finishOrSkip(): Promise<void> {
-  await commands.appSettingsMarkTourCompleted(TOUR_VERSION);
+/** Close the tour and record that this TOUR_VERSION was seen.
+ *
+ *  Returns false when the completion did NOT reach disk, so the caller can say
+ *  so. Deliberately NOT a rollback like `setExplanationLevel` / `setHidden`:
+ *  the user asked to leave, and keeping an 8-step tour open because a settings
+ *  write failed would trap them in the thing they just dismissed. The tour
+ *  closes either way; the consequence (it reopens at the next launch) is the
+ *  caller's to surface.
+ *
+ *  Returning a boolean rather than raising the toast here keeps this module
+ *  locale-free — see the fingerprint contract above, which composes STEPS with
+ *  the locale in tests/tour-fingerprint.test.ts precisely so production code
+ *  imports no locale. */
+export async function finishOrSkip(): Promise<boolean> {
+  const r = await commands.appSettingsMarkTourCompleted(TOUR_VERSION);
   tourState.active = false;
+  return r.status === 'ok';
 }
 
 export function replayTour(): void {

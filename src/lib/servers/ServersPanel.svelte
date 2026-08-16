@@ -9,7 +9,7 @@
     type ServerWithStatus_Serialize,
     type VersionEntry,
   } from '$lib/ipc/bindings';
-  import { formatError } from '$lib/ipc/format-error';
+  import { describeStoreError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi, type ServerTab } from '$lib/servers/servers-ui.svelte';
@@ -75,19 +75,12 @@
 
   // Lifecycle busy/error state lives in the store (shared with the sidebar's
   // Start/Stop) — a start failure triggered from the sidebar surfaces here.
+  // `actionErrorFor` is one of the two store slots that hold EITHER a typed IPC
+  // error or a thrown transport failure (it is written from both a Result and a
+  // `catch` in runLifecycle), so it renders through describeStoreError rather
+  // than formatError. Same for `listError` below. Every other store call in
+  // this file returns a typed `ok: false` and needs neither.
   const actionError = $derived(server ? serverState.actionErrorFor(server.id) : undefined);
-
-  // The store records action AND list errors RAW: either a typed IPC Result
-  // error (object with a `kind`) or a thrown value (transport failure).
-  // formatError only understands the former — JSON.stringify(new Error())
-  // renders as "{}" — so route by shape (same split as
-  // ServerToInstanceDialog's create()).
-  function describeStoreError(e: unknown): string {
-    if (typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string') {
-      return formatError(e as Parameters<typeof formatError>[0]);
-    }
-    return e instanceof Error ? e.message : String(e);
-  }
 
   // Which server the to-instance dialog is open FOR (null = closed). Captured
   // at open and compared against the current selection in the render gate, so

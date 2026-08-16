@@ -25,6 +25,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: { windowSetCompact, windowSetExpandedFloor, appSettingsGet, appSettingsSetGeneral },
 }));
 
+const pushWarningMock = vi.fn();
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushWarning: (...a: unknown[]) => pushWarningMock(...a),
+}));
+
 import {
   compactState,
   initCompact,
@@ -73,6 +78,7 @@ describe('compact mode rune module', () => {
     windowSetExpandedFloor.mockClear();
     appSettingsGet.mockClear();
     appSettingsSetGeneral.mockClear();
+    pushWarningMock.mockClear();
   });
 
   it('setCompact flips the rune, resizes the window, and persists the flag', async () => {
@@ -130,6 +136,42 @@ describe('compact mode rune module', () => {
     mountCompactDom({ sidebarBottom: 400, phaseHeight: null });
     await setCompact(true);
     expect(windowSetCompact).toHaveBeenCalledWith(true, 400);
+  });
+
+  it('reports a failed persist without undoing the window resize', async () => {
+    appSettingsSetGeneral.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: '<app.json>', details: 'disk full' },
+    });
+
+    await setCompact(true);
+
+    // The action succeeded — the window IS compact and the grid has reflowed.
+    // Reverting that to withdraw a preference write would be worse than saying
+    // the preference did not stick.
+    expect(compactState.value).toBe(true);
+    expect(windowSetCompact).toHaveBeenCalledTimes(1);
+    expect(pushWarningMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed settings read and never writes', async () => {
+    appSettingsGet.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: '<app.json>', details: 'unreadable' },
+    });
+
+    await setCompact(true);
+
+    expect(compactState.value).toBe(true);
+    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
+    expect(pushWarningMock).toHaveBeenCalledTimes(1);
+    // The read error is carried as a detail line, not dropped.
+    expect(pushWarningMock.mock.calls[0][1]?.[0]).toContain('unreadable');
+  });
+
+  it('says nothing when the persist succeeds', async () => {
+    await setCompact(true);
+    expect(pushWarningMock).not.toHaveBeenCalled();
   });
 });
 

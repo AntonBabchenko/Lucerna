@@ -29,9 +29,9 @@
     listError = null;
     const r = await serverState.backupList(serverId);
     if (r.ok) {
-      backups = r.list ?? [];
+      backups = r.list;
     } else {
-      listError = formatError(r.error as Parameters<typeof formatError>[0]);
+      listError = formatError(r.error);
     }
   }
 
@@ -47,7 +47,7 @@
       if (r.ok) {
         await reload();
       } else {
-        createError = formatError(r.error as Parameters<typeof formatError>[0]);
+        createError = formatError(r.error);
       }
     } finally {
       busyCreate = false;
@@ -73,14 +73,14 @@
       if (kind === 'restore') {
         const r = await serverState.backupRestore(serverId, file_name);
         if (!r.ok) {
-          actionError = formatError(r.error as Parameters<typeof formatError>[0]);
+          actionError = formatError(r.error);
         } else {
           await reload();
         }
       } else {
         const r = await serverState.backupDelete(serverId, file_name);
         if (!r.ok) {
-          actionError = formatError(r.error as Parameters<typeof formatError>[0]);
+          actionError = formatError(r.error);
         } else {
           await reload();
         }

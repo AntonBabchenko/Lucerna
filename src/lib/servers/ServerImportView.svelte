@@ -110,8 +110,8 @@
     try {
       const r = await serverState.importInspect(path);
       if (!r.ok) {
-        error = formatError(r.error as Parameters<typeof formatError>[0]);
-      } else if (r.preview) {
+        error = formatError(r.error);
+      } else {
         token = r.preview.token;
         name = r.preview.detected_name;
         mcVersion = r.preview.mc_version ?? '';
@@ -162,9 +162,9 @@
       );
       if (r.ok) {
         token = null; // prevent destroy from cancelling a completed import
-        onDone(r.server?.id);
+        onDone(r.server.id);
       } else {
-        error = formatError(r.error as Parameters<typeof formatError>[0]);
+        error = formatError(r.error);
       }
     } finally {
       busy = false;

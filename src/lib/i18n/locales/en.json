@@ -193,6 +193,7 @@
   },
   "sidebar": {
     "account": "Account",
+    "compactPersistFailed": "Couldn't remember compact mode — Lucerna will open in the previous mode next time",
     "noAccounts": "No accounts yet — add one below.",
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "offline",
@@ -1874,7 +1875,8 @@
       "finish": "Finish",
       "gotIt": "Got it",
       "skipContextual": "Skip",
-      "stepOf": "Step {current} of {total}"
+      "stepOf": "Step {current} of {total}",
+      "completionNotSaved": "Couldn't remember that you finished the tour. It may open again next launch."
     },
     "tour": {
       "welcome": {
@@ -2705,12 +2707,18 @@
       "actionLabel": "Update",
       "currentVersion": "You're on {version}.",
       "downloading": "Downloading update…",
-      "verifyFailed": "Couldn't verify the update"
+      "verifyFailed": "Couldn't verify the update",
+      "dismissFailed": "Couldn't remember that you dismissed this update — it may be offered again next launch"
     },
     "whatsNew": {
       "toast": "Updated to {version} — see what's new",
       "actionLabel": "What's new",
       "title": "What's new in Lucerna {version}"
+    },
+    "startupSettings": {
+      "loadFailed": "Couldn't read your settings",
+      "loadFailedDetail": "Theme, language and your other preferences are showing their defaults for this session. Nothing on disk has been changed.",
+      "retry": "Try again"
     },
     "crash": {
       "banner": "Minecraft crashed.",
@@ -2750,7 +2758,8 @@
       "offlineNameHelp": "Latin letters, digits and _ — 3 to 16 characters.",
       "offlineNameTooShort": "The nickname must be at least 3 characters.",
       "offlineNameTooLong": "The nickname must be at most 16 characters.",
-      "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters."
+      "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters.",
+      "switchFailed": "Couldn't switch account"
     },
     "overview": {
       "sectionConfiguration": "Configuration",
@@ -2843,6 +2852,7 @@
     "title": "Servers",
     "savedHeading": "Saved servers",
     "loading": "Loading servers…",
+    "loadError": "Couldn't read your saved servers: {error}",
     "empty": "No saved servers yet. Add one below.",
     "connect": "Connect",
     "copyAddress": "Copy address",
@@ -3453,7 +3463,8 @@
       "savePasswordHint": "The password will be stored in the system keyring.",
       "revealPassword": "Reveal password",
       "hidePassword": "Hide password",
-      "passwordNeededEachUpload": "Enter the password above to upload."
+      "passwordNeededEachUpload": "Enter the password above to upload.",
+      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten."
     },
     "diagnose": {
       "clientOnly": {
@@ -3620,7 +3631,8 @@
       "autoInterval": "Every",
       "autoIntervalUnit": "minutes",
       "autoSave": "Apply",
-      "autoSaved": "Saved"
+      "autoSaved": "Saved",
+      "autoLoadFailed": "Couldn't read the backup schedule: {error}. Applying is disabled so your saved schedule isn't overwritten."
     },
     "connect": {
       "stoppedHint": "Start the server to get a join address.",

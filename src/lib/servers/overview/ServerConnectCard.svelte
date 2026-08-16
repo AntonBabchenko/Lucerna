@@ -88,7 +88,7 @@
           });
         }, 1200);
       } else {
-        addRuleOutcome = formatError(result.error as Parameters<typeof formatError>[0]);
+        addRuleOutcome = formatError(result.error);
         addRuleFailed = true;
       }
     } finally {

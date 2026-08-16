@@ -28,7 +28,7 @@
   // elevated with the shared `--z-popover` and dismissed via the shared
   // attachPopoverDismiss helper (scroll/resize) plus Escape and an
   // outside-click backdrop.
-  import { formatError } from '$lib/ipc/format-error';
+  import { describeStoreError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
@@ -92,17 +92,6 @@
       positionPopover();
       open = true;
     }
-  }
-
-  // The store records action AND list errors RAW: either a typed IPC Result
-  // error (object with a `kind`) or a thrown value (transport failure).
-  // formatError only understands the former, so route by shape (same split as
-  // ServersPanel's describeStoreError).
-  function describeStoreError(e: unknown): string {
-    if (typeof e === 'object' && e !== null && typeof (e as { kind?: unknown }).kind === 'string') {
-      return formatError(e as Parameters<typeof formatError>[0]);
-    }
-    return e instanceof Error ? e.message : String(e);
   }
 
   async function act(id: string, action: 'stop' | 'restart') {

@@ -8,6 +8,7 @@ import {
   dismiss,
   pushActionToast,
   pushProgress,
+  pushWarning,
   updateToastProgress,
 } from '$lib/toasts/toasts.svelte';
 import { openExternalHttps } from '$lib/ui/safe-open';
@@ -94,6 +95,11 @@ export async function runUpdate(): Promise<void> {
 
 /** User dismissed the toast: remember this version so we don't nag again. */
 export async function dismissUpdate(version: string): Promise<void> {
-  await commands.updateDismiss(version);
+  const prev = updateState.value;
   updateState.value = null;
+  const r = await commands.updateDismiss(version);
+  if (r.status !== 'ok') {
+    updateState.value = prev;
+    pushWarning(get(t)('page.update.dismissFailed'), [formatError(r.error)]);
+  }
 }

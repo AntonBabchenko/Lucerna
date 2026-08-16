@@ -14,6 +14,7 @@
     open,
     savedServers = [],
     savedServersLoading = false,
+    savedServersError = null,
     busy = false,
     connectDisabledReason = null,
     addDisabledReason = null,
@@ -31,6 +32,10 @@
     open: boolean;
     savedServers?: SavedServer[];
     savedServersLoading?: boolean;
+    /** Set when the saved-server read FAILED. Distinct from an empty list: the
+     *  dialog must not invite the user to re-add servers on top of a file it
+     *  could not read. */
+    savedServersError?: string | null;
     busy?: boolean;
     connectDisabledReason?: string | null;
     addDisabledReason?: string | null;
@@ -92,7 +97,10 @@
       touched = false;
       confirmingAddress = null;
       copiedAddress = null;
-      addOpen = untrack(() => savedServers.length === 0);
+      // Auto-expand Add only when the list is genuinely empty. After a failed
+      // read `savedServers` is also [] — expanding then would present "you have
+      // none, add one" as the answer to "we could not tell".
+      addOpen = untrack(() => savedServers.length === 0 && savedServersError === null);
     }
   });
 
@@ -128,6 +136,10 @@
 
     {#if savedServersLoading}
       <LoadingPanel label={$t('quickJoin.loading')} />
+    {:else if savedServersError}
+      <p class="text-xs text-danger mb-3" role="alert" data-testid="quick-join-load-error">
+        {$t('quickJoin.loadError', { error: savedServersError })}
+      </p>
     {:else if savedServers.length > 0}
       <div class="flex items-center justify-between gap-2 mb-2">
         <p class="text-xs text-secondary">{$t('quickJoin.savedHeading')}</p>

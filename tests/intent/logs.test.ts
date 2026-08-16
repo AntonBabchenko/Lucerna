@@ -367,6 +367,54 @@ describe('LogsPopover — file-list error state uses text-danger', () => {
   });
 });
 
+// -- IPC errors are rendered through formatError ------------------------------
+
+describe('LogsPopover — IPC errors are rendered through formatError', () => {
+  it('the file-list error is a translated sentence, not a variant dump', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: '/instances/inst-1/logs', details: 'not found' },
+    });
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+
+    const err = await screen.findByText(/could not list logs/i);
+    // formatError('io') renders `errors.io` = "IO error at {path}" + detail tail.
+    expect(err.textContent).toContain('IO error at /instances/inst-1/logs');
+    // The raw JSON dump must be gone: no field names, no braces.
+    expect(err.textContent).not.toContain('"kind"');
+    expect(err.textContent).not.toContain('{"');
+  });
+
+  it('the file-content error is a translated sentence, not a variant dump', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeLogFileMeta()],
+    });
+    vi.mocked(commands.readLogFile).mockResolvedValueOnce({
+      status: 'error',
+      error: {
+        kind: 'io',
+        path: '/instances/inst-1/logs/latest.log',
+        details: 'permission denied',
+      },
+    });
+    render(LogsPopover, {
+      props: {
+        open: true,
+        instanceId: 'inst-1',
+        initialPath: '/instances/inst-1/logs/latest.log',
+      },
+    });
+
+    const err = await screen.findByText(/IO error at/);
+    expect(err.textContent).toContain('permission denied');
+    expect(err.textContent).not.toContain('"kind"');
+    expect(err.textContent).not.toContain('{"');
+  });
+});
+
 // ── File-list sidebar file button (bare, not .btn-*) ─────────────────────────
 
 describe('LogsPopover — file sidebar row is bare hover:bg-subtle (not .btn-*)', () => {
