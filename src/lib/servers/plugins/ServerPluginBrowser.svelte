@@ -24,6 +24,7 @@
   import Select from '$lib/ui/Select.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import { displayCore } from '$lib/servers/core-display';
 
@@ -153,7 +154,8 @@
   function openExternalPage(url: string, card: ModSummary): void {
     const target =
       url.length > 0 ? url : modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(target));
+    // Hangar `externalUrl` is author-controlled remote data — https-only.
+    void openExternalHttps(target);
   }
 
   // Shared success/dependency/unresolved toast block. Both the card-install
@@ -306,7 +308,7 @@
   }
 
   function openUrl(url: string): void {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 </script>
 

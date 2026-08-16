@@ -305,6 +305,32 @@ describe('ImportPickerDialog selection', () => {
     });
   });
 
+  it('refuses to open a non-https manual_action_url from a crafted pack', async () => {
+    const summary = {
+      ...baseSummary,
+      unresolvable: [
+        {
+          reason: 'host_not_allowed' as const,
+          mod_name: 'Evil',
+          // modrinth.rs preserves the manifest's raw download URL verbatim for
+          // host_not_allowed entries — the scheme is attacker-controlled.
+          manual_action_url: 'javascript:alert(1)',
+          filename: 'evil.jar',
+          size: 100,
+          sha1: null,
+        },
+      ],
+    };
+    const { getByText } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    openUrlMock.mockClear();
+    await fireEvent.click(getByText('Open'));
+    // The opener plugin must never see a non-https scheme.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
   it('unresolvable group is collapsed by default', () => {
     const summary = {
       ...baseSummary,

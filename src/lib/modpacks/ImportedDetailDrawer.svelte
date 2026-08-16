@@ -23,6 +23,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -578,10 +579,7 @@
               {#if !isInstalled && m.entry.manual_action_url}
                 <button
                   type="button"
-                  onclick={() =>
-                    void import('@tauri-apps/plugin-opener').then((opener) =>
-                      opener.openUrl(m.entry.manual_action_url!),
-                    )}
+                  onclick={() => void openExternalHttps(m.entry.manual_action_url!)}
                   class="btn-link text-xs flex-shrink-0 inline-flex items-center gap-1"
                 >
                   {$t('modpacks.imported.detail.openLink')}
@@ -724,8 +722,7 @@
                   type="button"
                   class="btn-tertiary text-xs flex-shrink-0"
                   data-testid="pending-file-open"
-                  onclick={() =>
-                    void import('@tauri-apps/plugin-opener').then((opener) => opener.openUrl(url))}
+                  onclick={() => void openExternalHttps(url)}
                 >
                   {$t('modpacks.imported.detail.pendingOpen')}
                 </button>

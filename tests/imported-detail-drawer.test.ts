@@ -608,6 +608,47 @@ describe('ImportedDetailDrawer', () => {
     });
   });
 
+  it('refuses to open a non-https manual_action_url from a crafted pack', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Evil Pack',
+          version: '1.0',
+          files: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [
+          {
+            entry: {
+              reason: 'host_not_allowed',
+              mod_name: 'Evil',
+              manual_action_url: 'file:///C:/Windows/System32/calc.exe',
+              filename: 'evil.jar',
+              size: 1,
+              sha1: 'ee',
+              project_id: null,
+            },
+            state: 'missing',
+          },
+        ],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-missing-section');
+    openUrlMock.mockClear();
+    await fireEvent.click(within(section).getByText('Open'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
   it('lists skipped oversized overrides as an informational section', async () => {
     vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
       status: 'ok',
@@ -703,6 +744,48 @@ describe('ImportedDetailDrawer', () => {
     await vi.waitFor(() => {
       expect(openUrlMock).toHaveBeenCalledWith('https://example.invalid/balm');
     });
+  });
+
+  it('refuses to open a non-https pending-file url from a crafted completion manifest', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Better MC',
+          version: 'v40',
+          files: [],
+          missing_mods: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+        pack_completion: {
+          total: 1,
+          outstanding: [
+            {
+              display_name: 'Balm (Fabric Edition)',
+              pattern: 'balm-fabric-1.20.1-7.3.38.jar',
+              // Verbatim from the third-party missing_mods_checker.json inside
+              // the instance — the scheme is attacker-controlled.
+              url: 'javascript:alert(1)',
+              destination: 'mods',
+            },
+          ],
+        },
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-pending-section');
+    openUrlMock.mockClear();
+    await fireEvent.click(section.querySelector('[data-testid="pending-file-open"]')!);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it('renders inert wrong-loader jars as an informational section', async () => {
