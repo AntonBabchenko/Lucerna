@@ -654,27 +654,127 @@ fn ranged(
     }
 }
 
+/// Everything the pre-flight reads out of one jar, complete for the era it was
+/// built for. Distinct from the cache's [`crate::mods::jar_scan_cache::CachedScan`],
+/// which may be partial: [`usable_hit`] is the one place a partial record is
+/// turned into a complete answer, or refused.
+struct JarScan {
+    manifest: ManifestDeps,
+    /// `@Mod(dependencies = …)` requirements. Empty on a modern-era instance,
+    /// where the reader never runs — and deliberately NOT stored as a fact
+    /// there; see [`usable_hit`].
+    legacy_deps: Vec<crate::mods::local::DeclaredDep>,
+    jij_provided: Vec<crate::mods::local::ProvidedMod>,
+}
+
+/// A cached record turned into a complete [`JarScan`], or `None` when it does
+/// not answer everything this era asks.
+///
+/// The `legacy_deps` branch is the point of the whole `Option` shape. A record
+/// written while scanning a MODERN instance carries `legacy_deps: None` —
+/// "never scanned", not "this jar declares none" — and a 1.12.2 instance that
+/// believed it would report zero requirements for every mod in the pack,
+/// because the annotation is the ONLY place that era declares them. A modern
+/// instance, symmetrically, does not care what the annotation says and must not
+/// be sent back to the jar to find out.
+fn usable_hit(
+    hit: Option<&crate::mods::jar_scan_cache::CachedScan>,
+    want_legacy: bool,
+) -> Option<JarScan> {
+    let hit = hit?;
+    let manifest = hit.manifest.clone()?;
+    let jij_provided = hit.jij_provided.clone()?;
+    let legacy_deps = if want_legacy {
+        hit.legacy_deps.clone()?
+    } else {
+        Vec::new()
+    };
+    Some(JarScan {
+        manifest,
+        legacy_deps,
+        jij_provided,
+    })
+}
+
+/// Read every descriptor this era needs out of one jar's bytes, OFF the async
+/// executor.
+///
+/// `zip` is sync, and this is not a small sync call: `read_jar_manifest_deps`
+/// inflates several entries, `read_jar_embedded_providers` recursively unzips
+/// every nested jar, and on the legacy era `read_jar_legacy_deps` decompresses
+/// class entries until it finds the annotation. Run inline on a tokio worker, a
+/// 140-mod pack starves every other task on that worker — including the
+/// download and launch pipelines. One blocking task for the WHOLE jar rather
+/// than one per reader, mirroring `datapacks::library::install_local_at`, which
+/// offloads classify + read_meta + sha1 together for the same reason. The
+/// caller's loop stays sequential, so at most one blocking task exists at a
+/// time and the blocking pool is never flooded.
+///
+/// `None` is "could not tell" — an unreadable zip, or a blocking task that
+/// panicked or was cancelled — and it is never written to the cache: a failure
+/// to read must not be frozen into "this jar declares nothing".
+async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
+    use crate::mods::local::{
+        read_jar_embedded_providers, read_jar_legacy_deps, read_jar_manifest_deps,
+    };
+    let joined = tokio::task::spawn_blocking(move || {
+        let manifest = read_jar_manifest_deps(&bytes).ok()?;
+        // The legacy guard needs the jar's own mod-ids, which the manifest read
+        // has just collected.
+        let legacy_deps = if want_legacy {
+            let own: Vec<String> = manifest.provided.iter().map(|p| p.mod_id.clone()).collect();
+            read_jar_legacy_deps(&bytes, &own)
+        } else {
+            Vec::new()
+        };
+        let jij_provided = read_jar_embedded_providers(&bytes);
+        Some(JarScan {
+            manifest,
+            legacy_deps,
+            jij_provided,
+        })
+    })
+    .await;
+    match joined {
+        Ok(scan) => scan,
+        Err(e) => {
+            crate::diag!("[mods] pre-flight jar scan task failed: {e}");
+            None
+        }
+    }
+}
+
 /// The testable core of the `instance_dependency_preflight` Tauri command.
 /// Accepts a resolved `instance_root` path so integration tests can call it
 /// without a `tauri::AppHandle`.
+///
+/// `cache_path` is the shared jar-scan cache (`paths::jar_scan_cache_file`).
+/// `None` runs the scan uncached: the same answer, only slower. That is the
+/// deliberate direction — a data root that cannot be resolved right now must
+/// not fail a check sitting in the launch chokepoint.
 pub async fn dependency_preflight_for_root(
     root: &std::path::Path,
+    cache_path: Option<&std::path::Path>,
     loader: crate::instances::schema::LoaderKind,
     mc: &str,
     loader_version: Option<&str>,
 ) -> crate::error::Result<PreflightReport> {
-    use crate::mods::local::{
-        descriptor_era, read_jar_embedded_providers, read_jar_legacy_deps, read_jar_manifest_deps,
-        DescriptorEra,
-    };
+    use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
+    use crate::mods::local::{descriptor_era, DescriptorEra};
     use std::collections::HashMap;
 
     // Which descriptor this instance's loader actually opens. Decided by the
     // instance's MC version, never by which files a jar happens to ship.
     let era = descriptor_era(mc);
+    let want_legacy = era == DescriptorEra::Legacy;
 
     let installed = crate::mods::installed::list(root).await?;
     let mods_dir = crate::mods::installed::mods_dir(root);
+
+    // One read of a small JSON for the whole scan, then a map lookup per jar —
+    // the shape `l10n::coverage::scan_instance` uses.
+    let cached = cache_path.map(ScanCache::load).unwrap_or_default();
+    let mut fresh: Vec<(String, CachedScan)> = Vec::new();
 
     // Map lowercased provided mod_id → DepProjectRef for violation enrichment
     // (powers the "view on platform" link). Built from mods with source identity.
@@ -690,43 +790,67 @@ pub async fn dependency_preflight_for_root(
         if !m.enabled {
             continue;
         }
-        // Attempt to read the jar bytes; try the .disabled name as fallback.
-        let bytes = {
-            let path = mods_dir.join(&m.filename);
-            match tokio::fs::read(&path).await {
-                Ok(b) => b,
-                Err(_) => {
-                    let disabled = mods_dir.join(format!("{}.disabled", m.filename));
-                    match tokio::fs::read(&disabled).await {
-                        Ok(b) => b,
-                        Err(_) => continue, // jar missing from disk — skip gracefully
-                    }
+        // The cache key is the digest of the bytes on disk RIGHT NOW, never
+        // `m.sha1`: the registry deliberately keeps a record's EXPECTED digest
+        // when the file under that name was replaced, so keying on it would
+        // serve the previous jar's dependencies for the current one. `None` —
+        // no file, or a digest we could not compute — means no cache
+        // participation for this jar in either direction.
+        let cache_key = crate::mods::installed::on_disk_sha1(&mods_dir, &m.filename).await;
+        let hit = cache_key.as_deref().and_then(|k| cached.get(k));
+
+        let scan = match usable_hit(hit, want_legacy) {
+            Some(s) => s,
+            None => {
+                let Some(bytes) = crate::mods::local::read_jar_for(&mods_dir, &m.filename).await
+                else {
+                    continue; // jar missing from disk — skip gracefully
+                };
+                let Some(s) = scan_jar(bytes, want_legacy).await else {
+                    continue; // unreadable zip — skip, never fail the whole scan
+                };
+                // Only a key computed from the real bytes may be written:
+                // without one we do not know WHICH jar this record describes.
+                if let Some(k) = cache_key.as_deref() {
+                    fresh.push((
+                        k.to_string(),
+                        CachedScan {
+                            // Not read on this path. `None` says exactly that,
+                            // leaving `local::scan_instance`'s half of the
+                            // record for whoever measures it.
+                            meta: None,
+                            manifest: Some(s.manifest.clone()),
+                            // `Some(vec![])` only when the reader actually ran.
+                            // A modern-era scan stores `None`, so a later
+                            // legacy-era scan re-reads instead of believing an
+                            // emptiness nobody measured.
+                            legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
+                            jij_provided: Some(s.jij_provided.clone()),
+                        },
+                    ));
                 }
+                s
             }
         };
 
-        let Ok(mut manifest) = read_jar_manifest_deps(&bytes) else {
-            continue; // unreadable zip — skip, never fail the whole scan
-        };
-
+        let mut manifest = scan.manifest;
         // On the legacy era the requirements live nowhere else: `mcmod.info`'s
         // own `dependencies` array is cosmetic and FML enforces the
-        // `@Mod(dependencies = …)` annotation instead. The guard needs the jar's
-        // own mod-ids, which `read_jar_manifest_deps` has just collected.
-        if era == DescriptorEra::Legacy {
-            let own: Vec<String> = manifest.provided.iter().map(|p| p.mod_id.clone()).collect();
-            manifest.deps.extend(read_jar_legacy_deps(&bytes, &own));
-        }
+        // `@Mod(dependencies = …)` annotation instead. Empty on every other era.
+        manifest.deps.extend(scan.legacy_deps);
 
         // Collect JIJ (Jar-in-Jar) providers so an embedded lib is not
         // falsely flagged as a missing dependency.
-        for p in read_jar_embedded_providers(&bytes) {
+        for p in scan.jij_provided {
             jij.push((p.mod_id, p.version));
         }
 
         // Register provided mod-ids → platform identity and SHA-1 for enrichment.
         // provider_sha1 is populated regardless of source so that even FTB/ATL
         // mods (which yield no DepProjectRef) can still route updates correctly.
+        // Deliberately `m.sha1`, the REGISTRY digest, not the on-disk one above:
+        // this value routes UI actions (`mods_update_one`, row identity) against
+        // `installed-mods.json`, so it must be the record's own key.
         for p in &manifest.provided {
             // Canonicalize ('-'/'_' equivalent, lowercase) so the enrichment
             // lookup in `enrich` — which uses the same `canon_id` — matches a
@@ -752,6 +876,18 @@ pub async fn dependency_preflight_for_root(
             name: m.name.clone(),
             manifest,
         });
+    }
+
+    // One save for the whole scan, under the cache's disk lock — the shape
+    // `l10n::coverage::scan_instance` uses for its own `fresh` vector.
+    if let Some(path) = cache_path {
+        if !fresh.is_empty() {
+            ScanCache::update(path, |c| {
+                for (sha, entry) in fresh {
+                    c.merge(&sha, entry);
+                }
+            });
+        }
     }
 
     let index = ProviderIndex::build(&parsed, &jij, loader, era);
@@ -1764,5 +1900,47 @@ mod tests {
             report.violations[0].kind,
             ViolationKind::MissingRequired
         ));
+    }
+
+    /// `usable_hit` is the whole partial-record policy in one pure function, so it
+    /// gets a direct test rather than only being exercised through the integration
+    /// path in `tests/dependency_preflight.rs`.
+    #[test]
+    fn a_record_without_the_annotation_is_refused_only_by_the_era_that_needs_it() {
+        use crate::mods::jar_scan_cache::CachedScan;
+
+        let modern_written = CachedScan {
+            meta: None,
+            manifest: Some(ManifestDeps::default()),
+            legacy_deps: None,
+            jij_provided: Some(Vec::new()),
+        };
+        assert!(
+            usable_hit(Some(&modern_written), false).is_some(),
+            "a modern scan does not need the annotation and must not re-read the jar"
+        );
+        assert!(
+            usable_hit(Some(&modern_written), true).is_none(),
+            "a legacy scan must refuse a record that never opened the annotation"
+        );
+
+        let measured_empty = CachedScan {
+            legacy_deps: Some(Vec::new()),
+            ..modern_written.clone()
+        };
+        assert!(
+            usable_hit(Some(&measured_empty), true).is_some(),
+            "a MEASURED empty annotation is a fact and is believed"
+        );
+
+        // The half a pre-flight never writes is not the half it needs.
+        let compat_written = CachedScan {
+            meta: Some(crate::mods::local::JarMeta::default()),
+            manifest: None,
+            legacy_deps: None,
+            jij_provided: None,
+        };
+        assert!(usable_hit(Some(&compat_written), false).is_none());
+        assert!(usable_hit(None, false).is_none());
     }
 }
