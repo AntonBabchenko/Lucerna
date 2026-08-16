@@ -80,6 +80,46 @@ pub fn extract_universal_jar_bytes(
 /// Re-exported from `forge::patcher` — two eras now need this helper.
 pub use crate::forge::patcher::maven_coord_to_relative_path;
 
+/// Resolve `install.path` — a maven coordinate read out of the installer's
+/// own `install_profile.json` — into the relative path the universal jar is
+/// written to under `<libraries_dir>`, refusing any coordinate whose
+/// expansion would land outside that root.
+///
+/// The group id becomes a directory chain by `parts[0].replace('.', "/")`
+/// with nothing checking the result, so a coordinate whose group starts with
+/// a dot (`.evil:x:1.0`) expands to the **rooted** `/evil/x/1.0/x-1.0.jar` —
+/// and `PathBuf::join` on a rooted path DISCARDS the base it is joined onto.
+/// That is a worse escape than the `../` one the transitional era's `maven/`
+/// extraction screens for: there is no traversal segment to spot, the write
+/// simply relocates to the filesystem root. A `..` anywhere in the artifact,
+/// version or classifier field gets out the ordinary way.
+///
+/// Screened with the same `is_safe_relative_path` gate the transitional era
+/// uses, so the two zip-slip surfaces cannot drift apart. A genuine Forge
+/// installer never trips this; a tampered one is refused as corrupted.
+///
+/// Split out of [`install`] as a pure function so the refusal is testable
+/// without an `AppHandle`.
+fn install_dest_relative_path(install_path: &str, mc: &str, fv: &str) -> Result<String> {
+    let rel = maven_coord_to_relative_path(install_path).ok_or_else(|| {
+        Error::ForgeInstallerCorrupted {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+            details: format!("install.path is not a maven coordinate: {install_path}"),
+        }
+    })?;
+    if !crate::mods::modpack::path_safety::is_safe_relative_path(&rel) {
+        return Err(Error::ForgeInstallerCorrupted {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+            details: format!(
+                "install.path escapes the libraries root (resolves to {rel}): {install_path}"
+            ),
+        });
+    }
+    Ok(rel)
+}
+
 pub async fn install(
     install_profile: &serde_json::Value,
     installer_bytes: &[u8],
@@ -112,13 +152,7 @@ pub async fn install(
             fv: fv.to_string(),
             details: "missing install.path".to_string(),
         })?;
-    let rel_path = maven_coord_to_relative_path(install_path).ok_or_else(|| {
-        Error::ForgeInstallerCorrupted {
-            mc: mc.to_string(),
-            fv: fv.to_string(),
-            details: format!("install.path is not a maven coordinate: {install_path}"),
-        }
-    })?;
+    let rel_path = install_dest_relative_path(install_path, mc, fv)?;
     let libs_root =
         crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
     let dest = libs_root.join(rel_path);
@@ -195,6 +229,59 @@ mod tests {
                 assert!(details.contains("filePath"), "got: {details}");
             }
             other => panic!("expected ForgeInstallerCorrupted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn install_dest_resolves_the_real_1_7_10_coordinate() {
+        let rel = install_dest_relative_path(
+            "net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10",
+            "1.7.10",
+            "10.13.4.1614",
+        )
+        .expect("a genuine coordinate must resolve");
+        assert_eq!(
+            rel,
+            "net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10.jar"
+        );
+    }
+
+    /// `install.path` is attacker-controlled the moment the installer JAR is:
+    /// it is read verbatim out of `install_profile.json`. A group id starting
+    /// with a dot expands to a ROOTED path (`.evil` -> `/evil/...`), and
+    /// `PathBuf::join` on a rooted path discards `libs_root` entirely — the
+    /// universal jar lands at the filesystem root with no `..` anywhere to
+    /// notice. The `..` variants get out the ordinary way.
+    #[test]
+    fn install_dest_refuses_a_coordinate_that_escapes_the_libraries_root() {
+        for coord in [
+            ".evil:x:1.0",        // rooted: `/evil/x/1.0/x-1.0.jar`
+            "..:x:1.0",           // rooted too: `//` -> leading separator
+            "g:..:1.0",           // `..` via the artifact field
+            "g:a:1.0:../../evil", // `..` via the classifier field
+        ] {
+            // Precondition: this really does expand to something that escapes,
+            // so the test fails for the reason it claims rather than because
+            // the coordinate was rejected as malformed.
+            let expanded = maven_coord_to_relative_path(coord)
+                .unwrap_or_else(|| panic!("{coord} should still parse as a coordinate"));
+            assert!(
+                !crate::mods::modpack::path_safety::is_safe_relative_path(&expanded),
+                "{coord} expanded to {expanded}, which does not escape"
+            );
+
+            let Err(err) = install_dest_relative_path(coord, "1.7.10", "10.13.4.1614") else {
+                panic!("{coord} must be refused");
+            };
+            match err {
+                Error::ForgeInstallerCorrupted { details, .. } => {
+                    assert!(
+                        details.contains("escapes the libraries root"),
+                        "got: {details}"
+                    );
+                }
+                other => panic!("expected ForgeInstallerCorrupted, got {other:?}"),
+            }
         }
     }
 

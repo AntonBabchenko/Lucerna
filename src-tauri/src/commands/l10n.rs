@@ -778,6 +778,11 @@ pub fn l10n_overridden_namespaces(
 /// Keyed on `mc_version` rather than an instance id so the eventual global
 /// translations manager, which has no instance context, can call it unchanged
 /// with a version the user picks.
+///
+/// `dest_path` must be an absolute path outside the Lucerna program
+/// directory, data root, and OS-default app-data dir, and must be named
+/// `.zip` — the bundle is a zip archive, and the write truncates whatever is
+/// already at that path.
 #[tauri::command]
 #[specta::specta]
 pub async fn l10n_export(
@@ -794,6 +799,10 @@ pub async fn l10n_export(
         return Err(crate::error::Error::L10nShareNothingToExport);
     }
     let dest = std::path::PathBuf::from(&dest_path);
+    // `share::build_bundle` produces a zip archive (the pack archive with
+    // `lucerna-l10n.json` appended), and `share::default_filename` offers a
+    // `.zip` name for it.
+    crate::pathsafe::validate_export_dest(&app, &dest, None, &["zip"])?;
     if dest
         .file_name()
         .and_then(|n| n.to_str())

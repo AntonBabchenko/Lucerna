@@ -303,6 +303,17 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	screenshotThumbnail: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("screenshot_thumbnail", { instanceId, fileName })),
 	screenshotPreview: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("screenshot_preview", { instanceId, fileName })),
 	deleteScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("delete_screenshot", { instanceId, fileName })),
+	/**
+	 *  Copy a screenshot to a destination the user picked in the save dialog.
+	 * 
+	 *  Refuses a destination inside the Lucerna program directory, data root, or
+	 *  OS-default app-data dir, except the instance's own `screenshots/` folder —
+	 *  that folder is under the data root on every install (and under the program
+	 *  directory too on a portable one, where the root lives beside the
+	 *  executable), and it is where the launcher's own default save path points.
+	 *  The destination must also be named `.png`: this copies a PNG, and an
+	 *  export must not be able to create a file the OS treats as executable.
+	 */
 	saveScreenshotCopy: (instanceId: string, fileName: string, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_screenshot_copy", { instanceId, fileName, dest })),
 	revealScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("reveal_screenshot", { instanceId, fileName })),
 	openScreenshotsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_screenshots_folder", { instanceId })),
@@ -322,6 +333,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	clipboardReadText: () => typedError<string, Error>(__TAURI_INVOKE("clipboard_read_text")),
 	copyScreenshotToClipboard: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("copy_screenshot_to_clipboard", { instanceId, fileName })),
+	/**
+	 *  Composite the annotation overlay onto the screenshot and write the result
+	 *  to a destination the user picked in the save dialog.
+	 * 
+	 *  Refuses a destination inside the Lucerna program directory, data root, or
+	 *  OS-default app-data dir, except the instance's own `screenshots/` folder —
+	 *  `annotated_default_path` proposes a path in exactly that folder, which is
+	 *  under the data root on every install and inside the program directory too
+	 *  on a portable one. The destination must also be named `.png`: the write is
+	 *  `save_with_format(Png)` of caller-supplied pixels, so an unconstrained
+	 *  name would let a caller place arbitrary bytes under an arbitrary
+	 *  extension.
+	 */
 	saveAnnotatedScreenshot: (instanceId: string, fileName: string, overlayPngBase64: string, crop: {
 	x: number | null,
 	y: number | null,
@@ -1121,6 +1145,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  CurseForge `.zip` to `dest_path`. Progress events (Resolving, Bundling,
 	 *  Writing, Done) are delivered over `on_progress`. Returns `Ok(())` on
 	 *  success; the `Done` event carries the resolved output path.
+	 * 
+	 *  `dest_path` must be an absolute path outside the Lucerna program
+	 *  directory, data root, and OS-default app-data dir, and must be named
+	 *  `.mrpack` (Modrinth) or `.zip` (CurseForge) to match the chosen format:
+	 *  the archive write truncates whatever is already at that path.
 	 */
 	exportModpack: (instanceId: string, options: ExportOptions, destPath: string, onProgress: Channel<ModpackExportProgress>) => typedError<null, Error>(__TAURI_INVOKE("export_modpack", { instanceId, options, destPath, onProgress })),
 	/**
@@ -1404,6 +1433,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Экспортировать серверный `runtime/` в ZIP-архив по пути `dest_path`.
 	 *  Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
+	 * 
+	 *  `dest_path` должен быть абсолютным путём вне программного каталога
+	 *  Lucerna, вне каталога его данных и вне системного каталога appdata,
+	 *  и должен оканчиваться на `.zip`: запись архива затирает то, что уже
+	 *  лежит по этому пути.
 	 */
 	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
 	/**
@@ -2109,6 +2143,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Keyed on `mc_version` rather than an instance id so the eventual global
 	 *  translations manager, which has no instance context, can call it unchanged
 	 *  with a version the user picks.
+	 * 
+	 *  `dest_path` must be an absolute path outside the Lucerna program
+	 *  directory, data root, and OS-default app-data dir, and must be named
+	 *  `.zip` — the bundle is a zip archive, and the write truncates whatever is
+	 *  already at that path.
 	 */
 	l10nExport: (mcVersion: string, lang: string, namespaces: string[], note: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("l10n_export", { mcVersion, lang, namespaces, note, destPath })),
 	/**
