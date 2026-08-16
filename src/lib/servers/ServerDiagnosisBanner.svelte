@@ -1,9 +1,9 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
-  import { formatError } from '$lib/ipc/format-error';
+  import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import type { ClientModFinding } from '$lib/ipc/bindings';
-  import { serverState } from '$lib/servers/server-state.svelte';
+  import { serverState, type ServerStoreFailure } from '$lib/servers/server-state.svelte';
   import EulaLink from '$lib/servers/EulaLink.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -117,7 +117,11 @@
   // Neutral informational line (e.g. "couldn't find these mods automatically").
   let installInfo = $state<string | null>(null);
 
-  async function runFix(fn: () => Promise<{ ok: boolean; error?: unknown }>) {
+  // `fn` is any of the store's no-payload one-click fixes. Naming the store's
+  // own failure type instead of `{ ok: boolean; error?: unknown }` is what makes
+  // `r.error` a typed IpcError below -- and what stops a future wrapper with a
+  // different failure shape being passed here by accident.
+  async function runFix(fn: () => Promise<{ ok: true } | ServerStoreFailure>) {
     busyFix = true;
     fixError = null;
     installInfo = null; // a prior unresolved-deps hint must not outlive this action
@@ -126,10 +130,13 @@
       if (r.ok) {
         await serverState.diagnose(serverId);
       } else {
-        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+        fixError = formatError(r.error);
       }
     } catch (e) {
-      fixError = formatError(e as Parameters<typeof formatError>[0]);
+      // NOT formatError: `e` is a THROWN value (the store's fix wrappers have no
+      // catch of their own, so a transport failure propagates out of them).
+      // formatError would match no case and JSON.stringify a JS Error to "{}".
+      fixError = describeStoreError(e);
     } finally {
       busyFix = false;
     }
@@ -147,7 +154,7 @@
       if (r.ok) {
         pushSuccess(get(t)('servers.diagnose.diagnoseDone'));
       } else {
-        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+        fixError = formatError(r.error);
       }
     } finally {
       busyDiagnose = false;
@@ -163,8 +170,8 @@
     try {
       const r = await serverState.quarantineClientMods(serverId);
       if (r.ok) {
-        const n = r.report?.disabled.length ?? 0;
-        const kept = r.report?.kept_because_required.length ?? 0;
+        const n = r.report.disabled.length;
+        const kept = r.report.kept_because_required.length;
         let msg =
           n > 0
             ? `${get(t)('servers.diagnose.quarantined', { count: n })} ${get(t)('servers.diagnose.restartHint')}`
@@ -176,10 +183,10 @@
         pushSuccess(msg);
         await serverState.diagnose(serverId);
       } else {
-        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+        fixError = formatError(r.error);
       }
     } catch (e) {
-      fixError = formatError(e as Parameters<typeof formatError>[0]);
+      fixError = describeStoreError(e);
     } finally {
       busyFix = false;
     }
@@ -194,11 +201,11 @@
     try {
       const r = await serverState.installMissingDep(serverId, diag?.conflict_mods ?? []);
       if (!r.ok) {
-        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+        fixError = formatError(r.error);
         return;
       }
-      const installed = r.report?.installed ?? [];
-      const unresolved = r.report?.unresolved ?? [];
+      const installed = r.report.installed;
+      const unresolved = r.report.unresolved;
       if (installed.length > 0) {
         pushSuccess(
           `${get(t)('servers.diagnose.installReportOk', { count: installed.length })} ${get(t)('servers.diagnose.restartHint')}`,
@@ -211,7 +218,7 @@
         });
       }
     } catch (e) {
-      fixError = formatError(e as Parameters<typeof formatError>[0]);
+      fixError = describeStoreError(e);
     } finally {
       busyFix = false;
     }
@@ -251,10 +258,10 @@
         );
         showChecklist = false;
       } else {
-        removeError = formatError(r.error as Parameters<typeof formatError>[0]);
+        removeError = formatError(r.error);
       }
     } catch (e) {
-      removeError = formatError(e as Parameters<typeof formatError>[0]);
+      removeError = describeStoreError(e);
     } finally {
       busyRemove = false;
     }

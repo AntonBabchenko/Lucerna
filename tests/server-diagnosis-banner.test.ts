@@ -50,6 +50,8 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
 
 // removeClientMods spy — extracted in beforeAll from the mocked module.
 let removeClientModsSpy: ReturnType<typeof vi.fn>;
+// acceptEula spy — same pattern; the failure-rendering tests drive it directly.
+let acceptEulaSpy: ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,6 +124,7 @@ describe('ServerDiagnosisBanner', () => {
     const mod = await import('$lib/servers/server-state.svelte');
     // mod.serverState.removeClientMods is the vi.fn() from our factory above.
     removeClientModsSpy = mod.serverState.removeClientMods as ReturnType<typeof vi.fn>;
+    acceptEulaSpy = mod.serverState.acceptEula as ReturnType<typeof vi.fn>;
   });
 
   beforeEach(() => {
@@ -468,5 +471,41 @@ describe('ServerDiagnosisBanner', () => {
     // etf.jar is pre-checked (high confidence). Click "Disable selected".
     await fireEvent.click(screen.getByText('Disable selected'));
     expect(disableSpy).toHaveBeenCalledWith('srv-mixin', ['etf.jar'], 'sig-mixin');
+  });
+
+  it('shows a thrown transport failure’s message, not "{}"', async () => {
+    // The store's one-click fix wrappers have no try/catch, so a transport
+    // failure propagates out of acceptEula() and lands in runFix's catch.
+    acceptEulaSpy.mockRejectedValue(new Error('ipc channel closed'));
+    mockDiagnoses['srv-throw'] = makePreflightDiagnosis(
+      'server-eula-not-accepted',
+      'accept_eula',
+    );
+
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-throw' } });
+    await fireEvent.click(screen.getByTestId('server-fix-accept-eula'));
+
+    const err = await screen.findByTestId('server-fix-error');
+    expect(err.textContent?.trim()).toBe('ipc channel closed');
+    // The regression this pins: formatError's default arm JSON.stringifies, and
+    // a JS Error has no enumerable own properties, so the user saw empty braces.
+    expect(err.textContent).not.toContain('{}');
+  });
+
+  it('shows the typed reason when the fix command returns an error Result', async () => {
+    acceptEulaSpy.mockResolvedValue({
+      ok: false,
+      error: { kind: 'server_already_running', id: 'srv-typed' },
+    });
+    mockDiagnoses['srv-typed'] = makePreflightDiagnosis(
+      'server-eula-not-accepted',
+      'accept_eula',
+    );
+
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-typed' } });
+    await fireEvent.click(screen.getByTestId('server-fix-accept-eula'));
+
+    const err = await screen.findByTestId('server-fix-error');
+    expect(err.textContent?.trim()).toBe('This server is already running');
   });
 });
