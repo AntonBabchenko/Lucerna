@@ -1,6 +1,6 @@
 //! Structural guard: no blind swallow of a failure.
 //!
-//! Two rules, both distilled from `docs/PRINCIPLES.md` B.7 and the "Fallback
+//! Four rules, all distilled from `docs/PRINCIPLES.md` B.7 and the "Fallback
 //! discipline" section of `CLAUDE.md`:
 //!
 //!   A. An `Err` arm whose body is empty. "An error happened and we do nothing"
@@ -8,6 +8,20 @@
 //!      nothing really is right, say why inside the block.
 //!   B. A discarded `Result` from an fs `rename` or `write` — via `let _ =` or a
 //!      trailing `.ok()` — with no justification comment.
+//!   D. A one-line `let Ok(..) = <fs read> .. else {` whose body answers
+//!      `return Ok(..)` — rule A's blind arm in let-else clothing: every
+//!      failure, `NotFound` and "could not tell" alike, is laundered into a
+//!      success answer. No comment escape; the line-scoped ALLOWLIST is the
+//!      only hatch. A wrapped initializer or a tuple `let (Ok(a), Ok(b))` is
+//!      invisible to this rule — named gaps, not half-matches.
+//!   E. `.unwrap_or_default()` chained onto an fs read on the SAME line — a
+//!      permission failure becomes indistinguishable from an absent file.
+//!      Escape hatch: rule B's justification comment at the call. The chained
+//!      multi-line spelling is a named gap left to review.
+//!
+//! (There is no rule C. A `Path::exists()` ratchet was measured and rejected —
+//! every lexable enforcement form fails against this tree; review owns that
+//! question.)
 //!
 //! Removals are deliberately NOT covered. `let _ = fs::remove_file(&tmp)` after a
 //! temp-and-rename write is a legitimate idiom appearing ~42 times in this
@@ -31,6 +45,26 @@ use std::path::{Path, PathBuf};
 /// prefix covers `std::fs::`, `tokio::fs::` and a bare `fs::` alias alike,
 /// because all three carry it at the call site.
 const STATE_CHANGING: &[&str] = &["fs::rename(", "fs::write("];
+
+/// Call-site text for the read-side primitives, matched on the `fs::` prefix
+/// for the same reason as `STATE_CHANGING`: `std::fs::`, `tokio::fs::` and a
+/// bare `fs::` alias all carry it at the call site. `fs::File::open(` is
+/// included because it is a read acquisition with the same error surface.
+const READ_PRIMITIVES: &[&str] = &[
+    "fs::read(",
+    "fs::read_to_string(",
+    "fs::read_dir(",
+    "fs::metadata(",
+    "fs::symlink_metadata(",
+    "fs::try_exists(",
+    "fs::File::open(",
+];
+
+/// How far into an `else { .. }` body the success-return scan looks. Every
+/// body in the tree today is a single statement; 8 lines is headroom, not a
+/// promise — a body that buries `return Ok(..)` deeper evades the rule, and
+/// the module doc says so.
+const ELSE_BODY_SCAN_LINES: usize = 8;
 
 /// Scheduled exceptions: (path relative to `src/`, the exact violating line
 /// content, why it is allowed and who removes it).
@@ -78,6 +112,77 @@ fn discards_state_change(line: &str) -> bool {
     }
     let t = line.trim_start();
     t.starts_with("let _ =") || line.contains(".ok();")
+}
+
+/// True when `line` is a one-line `let Ok(..) = <fs read> .. else {` — the
+/// let-else form routes EVERY read failure, `NotFound` and "could not tell"
+/// alike, into its else branch. That is rule A's blind `Err(_)` arm in
+/// different clothing, which is exactly how the fail-open in
+/// `datapacks/world_link/mutate.rs` escaped rule A.
+///
+/// Only the one-line spelling is matched. rustfmt keeps `else {` on the
+/// `let` line whenever the initializer fits — all 57 fs let-else sites in
+/// the tree do today (measured); a wrapped initializer puts the fs call and
+/// the `else` on different lines and this rule cannot see it. The tuple form
+/// `let (Ok(a), Ok(b)) = .. else` is likewise invisible. Both gaps are named
+/// here rather than half-matched.
+fn is_fs_read_let_else(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("let Ok(")
+        && READ_PRIMITIVES.iter().any(|p| line.contains(p))
+        && line.contains("else {")
+}
+
+/// True when the else block opened at `idx` answers with SUCCESS —
+/// `return Ok(..)`. A fallible signature promises "I will tell you when I
+/// could not tell"; answering `Ok` out of ignorance is the honesty inversion
+/// of Fallback discipline Q2/Q3. `continue`, bare `return;`, and plain-value
+/// returns from infallible helpers are deliberately NOT flagged (~53 sites
+/// today): an infallible signature is visible at the call site, a laundered
+/// `Ok` is not. A let-else body must diverge, so `return Ok(` is the
+/// complete lexical signature of the flagged shape.
+///
+/// There is NO comment escape hatch for this rule. The founding defect
+/// (`mutate.rs:26`) already carried `// nothing there — free to place` — a
+/// comment that states the fail-open as fact. A comment hatch would excuse
+/// it on day one, making the guard a laundering mechanism at birth (the
+/// concern the fallback spec §7 names). The escape is the line-scoped
+/// ALLOWLIST, which demands a reason string and is stale-checked — or,
+/// better, an actual `NotFound` discrimination.
+fn else_body_returns_ok(lines: &[&str], idx: usize) -> bool {
+    if lines[idx].contains("return Ok(") {
+        return true; // fully inline: `else { return Ok(None) };`
+    }
+    for line in lines.iter().skip(idx + 1).take(ELSE_BODY_SCAN_LINES) {
+        let t = line.trim_start();
+        if t.starts_with('}') {
+            return false; // body closed without a success return
+        }
+        if t.contains("return Ok(") {
+            return true;
+        }
+    }
+    false
+}
+
+/// True for `.unwrap_or_default()` chained onto an fs read on the SAME line —
+/// "could not read" and "absent" both become the empty value, and downstream
+/// code cannot tell a first run from a permission failure. The worst case is
+/// read-modify-write: parse the defaulted empty string, edit one key, write
+/// the whole file back — a transient read failure silently erases every other
+/// key the user set.
+///
+/// The CHAINED spelling — `.ok()` on one line, `.and_then(..)` and
+/// `.unwrap_or_default()` on later lines — is NOT matched: line-based
+/// scanning cannot pair them, and those chains collapse parse errors too,
+/// which is a different question. Four such sites exist today
+/// (`l10n/prefill/cache.rs`, `servers_runtime/{backup,quarantine,transfer}.rs`);
+/// they are review's job, same as the removals exclusion above.
+///
+/// Escape hatch: rule B's — a justification comment trailing the line or on
+/// the line above (`is_justified`).
+fn defaults_a_read(line: &str) -> bool {
+    line.contains(".unwrap_or_default()") && READ_PRIMITIVES.iter().any(|p| line.contains(p))
 }
 
 /// A justification must sit AT the discard: trailing the offending line, or on
@@ -182,6 +287,10 @@ fn no_blind_err_swallow_or_unjustified_state_change_discard() {
                 Some("empty Err arm")
             } else if discards_state_change(line) && !is_justified(&lines, i) {
                 Some("discarded fs rename/write")
+            } else if is_fs_read_let_else(line) && else_body_returns_ok(&lines, i) {
+                Some("fs read let-else answering Ok out of ignorance")
+            } else if defaults_a_read(line) && !is_justified(&lines, i) {
+                Some("fs read defaulted without justification")
             } else if imports_a_primitive_unqualified(line) {
                 Some("unqualified fs rename/write import")
             } else {
@@ -210,6 +319,18 @@ fn no_blind_err_swallow_or_unjustified_state_change_discard() {
          `discarded fs rename/write`: the state change may not have happened and \
          nobody will know. Handle the error, or justify the discard in a comment \
          trailing the line, or a few lines above it inside the same function.\n\
+         \n\
+         `fs read let-else answering Ok out of ignorance`: `let Ok(x) = <fs read> \
+         else {{ return Ok(..) }}` treats every failure — NotFound and `could not \
+         tell` alike — as a success answer. Discriminate: match on the error and \
+         keep `Ok` for `NotFound` only. If collapsing really is right, add a \
+         line-scoped ALLOWLIST entry with the reason — there is deliberately no \
+         comment escape for this rule.\n\
+         \n\
+         `fs read defaulted without justification`: `.unwrap_or_default()` on an \
+         fs read makes a permission failure indistinguishable from an absent \
+         file. Handle the error, or justify the default in a comment at the call \
+         (trailing, or the line above).\n\
          \n{}",
         violations.join("\n"),
     );
@@ -312,6 +433,99 @@ mod matchers {
         assert!(!imports_a_primitive_unqualified("use std::fs;"));
         assert!(!imports_a_primitive_unqualified(
             "use std::fs::remove_file;"
+        ));
+    }
+
+    #[test]
+    fn a_read_let_else_answering_ok_is_flagged() {
+        // The shape that escaped rule A in `datapacks/world_link/mutate.rs`:
+        // any metadata failure reads as "nothing there — free to place", then
+        // materialize renames over the destination unconditionally.
+        let lines = [
+            "    let Ok(dest_meta) = tokio::fs::metadata(dest).await else {",
+            "        return Ok(None); // nothing there — free to place",
+            "    };",
+        ];
+        assert!(is_fs_read_let_else(lines[0]));
+        assert!(else_body_returns_ok(&lines, 0));
+
+        // The fully inline spelling, and a bare `fs::` alias.
+        let inline = ["    let Ok(m) = fs::metadata(&p) else { return Ok(None) };"];
+        assert!(is_fs_read_let_else(inline[0]));
+        assert!(else_body_returns_ok(&inline, 0));
+    }
+
+    #[test]
+    fn a_listing_let_else_returning_a_plain_default_is_not_flagged() {
+        // ~53 read-only listing fallbacks in the tree look like this. An
+        // infallible signature is visible to the caller, so they are not the
+        // honesty inversion this rule targets.
+        let lines = [
+            "    let Ok(rd) = std::fs::read_dir(&saves_dir) else {",
+            "        return Vec::new();",
+            "    };",
+        ];
+        assert!(is_fs_read_let_else(lines[0]));
+        assert!(!else_body_returns_ok(&lines, 0));
+
+        // `continue` in a loop body, inline (instances/import/model.rs shape).
+        let cont = ["        let Ok(rd) = fs::read_dir(&d) else { continue };"];
+        assert!(!else_body_returns_ok(&cont, 0));
+    }
+
+    #[test]
+    fn a_non_fs_let_else_is_out_of_scope() {
+        // Parse and path-helper fallbacks answer a different question; only
+        // the filesystem boundary is this rule's business.
+        assert!(!is_fs_read_let_else(
+            "    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {"
+        ));
+        assert!(!is_fs_read_let_else(
+            "    let Ok(path) = crate::paths::app_file(app) else {"
+        ));
+    }
+
+    #[test]
+    fn a_defaulted_fs_read_is_flagged_across_qualifications() {
+        // The read-modify-write shape (commands/servers_runtime.rs:295): a
+        // transient read failure parses as an empty properties file, one key
+        // is set, and the write-back erases everything else.
+        assert!(defaults_a_read(
+            "    let raw = std::fs::read_to_string(&props_path).unwrap_or_default();"
+        ));
+        assert!(defaults_a_read(
+            "    Ok(std::fs::read_to_string(&path).unwrap_or_default())"
+        ));
+        assert!(defaults_a_read(
+            "    let bytes = tokio::fs::read(&p).await.unwrap_or_default();"
+        ));
+    }
+
+    #[test]
+    fn only_same_line_fs_defaults_are_in_scope() {
+        // The chained spelling is a NAMED gap, not a match — the
+        // `.unwrap_or_default()` line carries no fs text.
+        assert!(!defaults_a_read("        .unwrap_or_default()"));
+        // A defaulted parse with no fs call on the line is out of scope.
+        assert!(!defaults_a_read(
+            "    let cfg: Config = serde_json::from_str(&s).unwrap_or_default();"
+        ));
+    }
+
+    #[test]
+    fn a_justified_defaulted_read_is_the_escape_hatch() {
+        // Same rule as B: the reason must sit AT the call.
+        assert!(is_justified(
+            &[
+                "// sysfs probe: an absent vendor file is an unknown adapter,",
+                "// which the label match below already renders as-is.",
+                "let vendor = std::fs::read_to_string(dev.join(\"vendor\")).unwrap_or_default();",
+            ],
+            2
+        ));
+        assert!(is_justified(
+            &["let raw = std::fs::read_to_string(&p).unwrap_or_default(); // seeded below on first run"],
+            0
         ));
     }
 }
