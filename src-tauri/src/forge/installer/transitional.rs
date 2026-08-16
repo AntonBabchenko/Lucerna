@@ -674,8 +674,11 @@ mod tests {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
-        zw.start_file("maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar", opts)
-            .unwrap();
+        zw.start_file(
+            "maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar",
+            opts,
+        )
+        .unwrap();
         zw.write_all(b"legit").unwrap();
         zw.start_file("maven/../../evil.txt", opts).unwrap();
         zw.write_all(b"pwned").unwrap();
@@ -712,8 +715,11 @@ mod tests {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
-        zw.start_file("maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar", opts)
-            .unwrap();
+        zw.start_file(
+            "maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar",
+            opts,
+        )
+        .unwrap();
         zw.write_all(b"legit").unwrap();
         zw.start_file("install_profile.json", opts).unwrap();
         zw.write_all(b"{}").unwrap();

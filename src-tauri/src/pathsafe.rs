@@ -147,7 +147,9 @@ fn validate_export_dest_in(
     }
     match allowed_inside {
         Some(ok) if crate::data_root::migrate::is_same_or_nested(ok, dest) => Ok(()),
-        _ => Err(deny("refusing to write inside the Lucerna program directory")),
+        _ => Err(deny(
+            "refusing to write inside the Lucerna program directory",
+        )),
     }
 }
 
@@ -268,7 +270,10 @@ mod tests {
         // A sibling of the exempt folder is still inside the program directory.
         let dest = exe_dir.join("LucernaData/instances/i/.minecraft/mods/evil.png");
         let r = validate_export_dest_in(&dest, Some(&shots), Some(&exe_dir));
-        assert!(r.is_err(), "the exemption must cover only the passed folder");
+        assert!(
+            r.is_err(),
+            "the exemption must cover only the passed folder"
+        );
     }
 
     #[test]
@@ -288,6 +293,9 @@ mod tests {
         let (td, _exe_dir, _shots) = install_fixture();
         let dest = td.path().join("elsewhere/MyPack.mrpack");
         let r = validate_export_dest_in(&dest, None, None);
-        assert!(r.is_err(), "unknown program directory must refuse, not allow");
+        assert!(
+            r.is_err(),
+            "unknown program directory must refuse, not allow"
+        );
     }
 }
