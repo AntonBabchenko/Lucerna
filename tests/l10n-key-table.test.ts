@@ -344,6 +344,11 @@ describe('KeyTable', () => {
     // DESIGN.md §5 bans native title=: it is invisible to keyboard users and
     // unstyleable. Both the marker's explanation and the truncated key go
     // through use:tooltip instead.
+    //
+    // This is a LOCAL lock on this one surface — it says nothing about the next
+    // component. The ban itself lives in tests/no-native-title.test.ts, which
+    // scans every .svelte file in src; keep both, since a rendered-DOM assertion
+    // catches what a source scan cannot (an attribute arriving via {...rest}).
     expect(badge.getAttribute('title')).toBeNull();
     expect(screen.getByText('gui.quark.rune').getAttribute('title')).toBeNull();
   });
