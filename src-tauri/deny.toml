@@ -84,12 +84,24 @@ allow = [
   "CC0-1.0",
   "BSL-1.0",
   "Unlicense",
-  "OpenSSL",
   # webpki-root-certs ships the Mozilla CA bundle under a permissive data license
   # (pulled in via reqwest -> rustls-platform-verifier).
   "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
+# "OpenSSL" is deliberately NOT in the allowlist above. It sat there globally
+# from the first version of this file (#85), when the rustls crypto provider
+# (aws-lc-sys) still declared it; the current lockfile no longer does —
+# aws-lc-sys 0.41.0 declares its OpenSSL-derived code as Apache-2.0, and
+# ring 0.17.14 declares `Apache-2.0 AND ISC`. The OpenSSL license is
+# GPL-incompatible (advertising clause), and this binary is GPL-3.0-or-later:
+# a global allow would let any NEW dependency link OpenSSL-licensed code into
+# it without review. If a future dependency bump reintroduces an OpenSSL
+# declaration, scope it to that one crate as an `exceptions` entry (e.g.
+# `{ allow = ["OpenSSL"], crate = "aws-lc-sys" }`) together with a written
+# resolution of the GPL question — a linking permission from the copyright
+# holder, or a crypto provider without OpenSSL-licensed code — never by
+# re-adding the global allow.
 exceptions = [
   # Lucerna itself is GPL-3.0-or-later. The allowlist above governs DEPENDENCY
   # licenses; this scoped exception permits our own crate's copyleft license

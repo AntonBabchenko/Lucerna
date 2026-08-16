@@ -18,6 +18,8 @@
     "lint:opener": "node tools/check-opener-calls.mjs",
     "i18n:keys": "node tools/gen-i18n-keys.mjs",
     "i18n:keys:check": "node tools/gen-i18n-keys.mjs --check",
+    "notices": "node tools/generate-third-party-notices.mjs",
+    "notices:check": "node tools/generate-third-party-notices.mjs --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

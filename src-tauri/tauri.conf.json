@@ -18,6 +18,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "app", "dmg", "appimage", "deb", "rpm"],
+    "copyright": "Copyright (C) 2026 Anton Babchenko",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
