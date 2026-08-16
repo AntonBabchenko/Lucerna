@@ -1597,8 +1597,10 @@ pub async fn instance_has_connector(instance_root: &Path) -> bool {
 /// Read a mod jar's bytes by base filename, trying the `.disabled` variant
 /// too. Returns `None` if neither exists or the read fails.
 ///
-/// `pub(crate)` for `preflight::dependency_preflight_for_root`, which carried
-/// an inline copy of the same two-path lookup. One reader, one order: the
+/// `pub(crate)` for the callers outside this module that each used to carry
+/// an inline copy of the same two-path lookup —
+/// `preflight::dependency_preflight_for_root` and
+/// `commands::mods::mods_plan_mc_migration`. One reader, one order: the
 /// jar-scan cache's key comes from `installed::on_disk_sha1`, which tries the
 /// same two spellings in the same sequence, and a second copy that drifted
 /// would let the key and the bytes describe different files.
