@@ -770,7 +770,7 @@
       const fr = new FileReader();
       fr.onload = () => {
         const dataUrl = fr.result as string; // data: URL — prod CSP blocks blob:
-        const img = new Image();
+        const img = new Image(); // no-network-ok: new Image( decodes a local data: URL
         img.onload = async () => {
           if (validateSkinDimensions(img.naturalWidth, img.naturalHeight) === 'invalid') {
             saveError = $t('skinEditor.invalidImage');

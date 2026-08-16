@@ -28,15 +28,41 @@ const ALLOWED = new Set([
   resolve('src/lib/ipc/bindings.ts'),
 ]);
 
+// A pattern with an `annotation` accepts a per-line exemption: a matched line
+// passes only if it also carries that exact marker comment. Same discipline as
+// the justification comments the Rust guards demand for unwrap() / discarded
+// renames (CLAUDE.md "Forbidden patterns") — the reason lives on the line it
+// excuses. The marker is per-pattern and exact, so it can never silence
+// fetch() or any other needle, and a NEW un-annotated use fails even in a
+// file that already contains annotated ones.
 const PATTERNS = [
   { name: 'fetch(', re: /\bfetch\s*\(/g },
   { name: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/g },
   { name: 'new WebSocket(', re: /\bnew\s+WebSocket\s*\(/g },
   { name: 'navigator.sendBeacon', re: /\bnavigator\.sendBeacon\b/g },
   { name: 'EventSource', re: /\bnew\s+EventSource\s*\(/g },
+  // A programmatic <img> is the classic tracking-beacon primitive: assigning
+  // a remote URL to `.src` fires a GET with no fetch()/XHR in sight. Every
+  // legitimate use in the launcher decodes a LOCAL data: URL (skin / cape /
+  // icon pixels that already arrived over IPC) and says so via the marker.
+  {
+    name: 'new Image(',
+    re: /\bnew\s+Image\s*\(/g,
+    annotation: 'no-network-ok: new Image( decodes a local data: URL',
+  },
+  // Stylesheets fetch too: url(https://…) in CSS (app.css, a <style> block,
+  // or an inline style attribute) is a network request the moment the rule
+  // applies. Also catches protocol-relative url(//…), which resolves remote
+  // under the packaged https://tauri.localhost origin. The lookbehind keeps
+  // `new URL(…)` (the WHATWG parser — no network) out of the blast radius.
+  { name: 'url(http(s)://', re: /(?<!new\s)\burl\(\s*['"]?(?:https?:)?\/\//gi },
+  // Non-HTTP escape hatches — zero uses today, banned before the first one.
+  { name: 'RTCPeerConnection', re: /\bRTCPeerConnection\b/g },
+  { name: 'WebTransport', re: /\bWebTransport\b/g },
 ];
 
-const EXTS = new Set(['.ts', '.tsx', '.js', '.svelte', '.mjs', '.cjs', '.html']);
+// .css: src/app.css ships to the webview verbatim, exactly like static/ assets.
+const EXTS = new Set(['.ts', '.tsx', '.js', '.svelte', '.mjs', '.cjs', '.html', '.css']);
 
 function walk(dir) {
   const out = [];
@@ -58,13 +84,13 @@ for (const file of files) {
   if (ALLOWED.has(file)) continue;
   const content = readFileSync(file, 'utf8');
   const lines = content.split('\n');
-  for (const { name, re } of PATTERNS) {
+  for (const { name, re, annotation } of PATTERNS) {
     for (let i = 0; i < lines.length; i++) {
       re.lastIndex = 0;
-      if (re.test(lines[i])) {
-        console.error(`${file}:${i + 1}: forbidden network API "${name}"`);
-        violations++;
-      }
+      if (!re.test(lines[i])) continue;
+      if (annotation && lines[i].includes(annotation)) continue;
+      console.error(`${file}:${i + 1}: forbidden network API "${name}"`);
+      violations++;
     }
   }
 }

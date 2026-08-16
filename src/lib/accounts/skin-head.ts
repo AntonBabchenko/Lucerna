@@ -27,7 +27,7 @@ export function drawHead(
   canvas.height = Math.round(size * dpr);
   canvas.style.width = `${size}px`;
   canvas.style.height = `${size}px`;
-  const img = new Image();
+  const img = new Image(); // no-network-ok: new Image( decodes a local data: URL
   img.onload = () => {
     if (aborted) return;
     ctx.imageSmoothingEnabled = false;

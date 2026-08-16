@@ -90,7 +90,7 @@
     // every other image in the app (skins, capes, screenshots).
     const reader = new FileReader();
     reader.onload = () => {
-      const image = new Image();
+      const image = new Image(); // no-network-ok: new Image( decodes a local data: URL
       image.onload = () => {
         imgW = image.naturalWidth;
         imgH = image.naturalHeight;

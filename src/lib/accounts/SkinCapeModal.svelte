@@ -163,7 +163,7 @@
     void (async () => {
       const res = await commands.capeTexture(url);
       if (res.status !== 'ok' || !res.data) return;
-      const img = new Image();
+      const img = new Image(); // no-network-ok: new Image( decodes a local data: URL
       img.onload = () => drawCapeFront(node, img);
       img.src = `data:image/png;base64,${res.data}`;
     })();
