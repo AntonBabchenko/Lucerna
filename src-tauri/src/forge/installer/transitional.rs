@@ -42,6 +42,19 @@ async fn extract_installer_maven_tree(
         let Some(rel) = name.strip_prefix("maven/") else {
             continue;
         };
+        // Zip-slip defense: reject any maven/ sub-path that would escape
+        // libs_root when joined — `..`, absolute root, drive letter, or
+        // backslash separator. Same string-level guard as modpack overrides
+        // (`overrides::extract`) and the JRE manifest keys
+        // (`jre::install::is_safe_manifest_rel`). A genuine Forge/NeoForge
+        // installer never trips this; a tampered one is refused as corrupted.
+        if !crate::mods::modpack::path_safety::is_safe_relative_path(rel) {
+            return Err(Error::ForgeInstallerCorrupted {
+                mc: "<unknown>".into(),
+                fv: "<unknown>".into(),
+                details: format!("unsafe maven entry path (escapes libraries root): {name}"),
+            });
+        }
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry
             .read_to_end(&mut buf)
@@ -648,6 +661,80 @@ mod tests {
             Some("https://maven.minecraftforge.net/")
         );
         assert!(libs[1].url.is_none()); // falls back to libraries.minecraft.net
+    }
+
+    #[tokio::test]
+    async fn maven_tree_extraction_refuses_zip_slip_entry() {
+        use std::io::Write;
+        // Handcraft an installer zip whose maven/ subtree carries a
+        // traversal entry alongside a legitimate one. Zip-building shape
+        // mirrors `mods::asset_local` tests (in-memory Cursor writer);
+        // the traversal-entry shape mirrors `worlds::zip`'s
+        // `extract_zip_rejects_path_traversal`.
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file(
+            "maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar",
+            opts,
+        )
+        .unwrap();
+        zw.write_all(b"legit").unwrap();
+        zw.start_file("maven/../../evil.txt", opts).unwrap();
+        zw.write_all(b"pwned").unwrap();
+        let installer_bytes = zw.finish().unwrap().into_inner();
+
+        // Nest libs_root two levels inside the tempdir so the `..` escape
+        // (were it to happen) lands inside the tempdir — observable by the
+        // assert below and cleaned up with it — rather than in %TEMP%.
+        let td = tempfile::tempdir().unwrap();
+        let libs_root = td.path().join("inner").join("libraries");
+        std::fs::create_dir_all(&libs_root).unwrap();
+
+        let r = extract_installer_maven_tree(&installer_bytes, &libs_root).await;
+        assert!(
+            matches!(r, Err(Error::ForgeInstallerCorrupted { .. })),
+            "expected ForgeInstallerCorrupted for zip-slip entry, got: {r:?}"
+        );
+        // The escape target MUST NOT exist outside libs_root
+        // (libs_root/../../evil.txt resolves to td/evil.txt).
+        assert!(!td.path().join("evil.txt").exists());
+        // The refusal is all-or-nothing: the write phase only runs after the
+        // whole archive is collected, so the legitimate entry collected
+        // before the poisoned one must not be flushed either.
+        let legit = libs_root.join("net/minecraftforge/forge/1.16.5/forge-1.16.5.jar");
+        assert!(!legit.exists());
+    }
+
+    #[tokio::test]
+    async fn maven_tree_extraction_writes_safe_entries() {
+        use std::io::Write;
+        // Companion regression guard (green both before and after the fix):
+        // proves the new traversal check does not over-reject the real
+        // Forge maven layout, and that non-maven entries stay ignored.
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file(
+            "maven/net/minecraftforge/forge/1.16.5/forge-1.16.5.jar",
+            opts,
+        )
+        .unwrap();
+        zw.write_all(b"legit").unwrap();
+        zw.start_file("install_profile.json", opts).unwrap();
+        zw.write_all(b"{}").unwrap();
+        let installer_bytes = zw.finish().unwrap().into_inner();
+
+        let td = tempfile::tempdir().unwrap();
+        let libs_root = td.path().join("libraries");
+        std::fs::create_dir_all(&libs_root).unwrap();
+
+        extract_installer_maven_tree(&installer_bytes, &libs_root)
+            .await
+            .unwrap();
+        let legit = libs_root.join("net/minecraftforge/forge/1.16.5/forge-1.16.5.jar");
+        assert_eq!(std::fs::read(&legit).unwrap(), b"legit");
+        assert!(!libs_root.join("install_profile.json").exists());
     }
 }
 

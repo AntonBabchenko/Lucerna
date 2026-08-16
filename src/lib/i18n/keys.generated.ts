@@ -101,6 +101,7 @@ export type TranslationKey =
   | 'common.fileFilter.modpack'
   | 'common.fileFilter.modrinthModpack'
   | 'common.fileFilter.pluginJar'
+  | 'common.fileFilter.png'
   | 'common.fileFilter.serverZip'
   | 'common.fileFilter.worldZip'
   | 'common.fileFilter.zip'
