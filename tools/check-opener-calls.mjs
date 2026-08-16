@@ -45,7 +45,6 @@ const ALLOWED = new Set(
     'src/lib/servers/mods/ServerModBrowser.svelte',
     'src/lib/settings/AboutPanel.svelte',
     'src/lib/settings/CurseForgeKeyForm.svelte',
-    'src/lib/ui/RenderedBody.svelte',
     // The https-only chokepoint every remote-data link now routes through.
     'src/lib/ui/safe-open.ts',
     'src/routes/+page.svelte',
