@@ -11,8 +11,8 @@
       "!**/build",
       "!**/.svelte-kit",
       "!**/src-tauri/target",
-      "!**/.claude/**",
-      "!**/.clone/**"
+      "!**/.claude/",
+      "!**/.clone/"
     ]
   },
   "formatter": {
