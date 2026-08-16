@@ -159,13 +159,23 @@ fn else_body_returns_ok(lines: &[&str], idx: usize) -> bool {
     if lines[idx].contains("return Ok(") {
         return true; // fully inline: `else { return Ok(None) };`
     }
+    // Brace-depth-aware, line-based: a nested `if`/`match` inside the else
+    // body must not read as the body's closing brace (the old first-`}` bail
+    // would false-negative a `return Ok(` after it). Depth is opens minus
+    // closes per line; the else body has closed only when it goes NEGATIVE.
+    let mut depth: i32 = 0;
     for line in lines.iter().skip(idx + 1).take(ELSE_BODY_SCAN_LINES) {
         let t = line.trim_start();
-        if t.starts_with('}') {
-            return false; // body closed without a success return
+        if t.starts_with("//") {
+            continue; // `return Ok(` in prose is not a success return
         }
         if t.contains("return Ok(") {
             return true;
+        }
+        depth += line.matches('{').count() as i32;
+        depth -= line.matches('}').count() as i32;
+        if depth < 0 {
+            return false; // the else body closed without a success return
         }
     }
     false
@@ -459,6 +469,36 @@ mod matchers {
         let inline = ["    let Ok(m) = fs::metadata(&p) else { return Ok(None) };"];
         assert!(is_fs_read_let_else(inline[0]));
         assert!(else_body_returns_ok(&inline, 0));
+    }
+
+    #[test]
+    fn a_nested_block_before_the_success_return_is_still_flagged() {
+        // A nested `if` closes with a `}` before the success return. The
+        // first-`}` bail the scan used to do would read that as the else
+        // body's end and miss the laundered `Ok` below it.
+        let lines = [
+            "    let Ok(bytes) = std::fs::read(&p) else {",
+            "        if verbose {",
+            "            note_read_failure();",
+            "        }",
+            "        return Ok(Vec::new());",
+            "    };",
+        ];
+        assert!(is_fs_read_let_else(lines[0]));
+        assert!(else_body_returns_ok(&lines, 0));
+    }
+
+    #[test]
+    fn a_comment_mentioning_return_ok_is_not_a_success_return() {
+        // Prose inside the window naming the spelling must not flag the body.
+        let lines = [
+            "    let Ok(bytes) = std::fs::read(&p) else {",
+            "        // a `return Ok(..)` here would launder the failure",
+            "        return Vec::new();",
+            "    };",
+        ];
+        assert!(is_fs_read_let_else(lines[0]));
+        assert!(!else_body_returns_ok(&lines, 0));
     }
 
     #[test]
