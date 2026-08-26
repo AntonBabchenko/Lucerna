@@ -1,5 +1,11 @@
 # Rust / Cargo
 /target/
+# Ad-hoc isolated target dirs. The bindings-regen and structural-guard
+# procedures run `CARGO_TARGET_DIR=target-bindings` (also `target-wire`,
+# `target-guards`) so one build cannot fight another over the shared one.
+# Mirrored in `src-tauri/.gitignore` — those commands are run from both
+# directories, so the dir lands at whichever one was current.
+/target-*/
 **/*.rs.bk
 Cargo.lock.bak
 # Shared Cargo build directories. Nothing in this repo configures them — a
@@ -50,10 +56,13 @@ desktop.ini
 
 # Claude Code — personal-scope settings and agent worktrees. The worktree roots
 # hold full checkouts of this repository nested inside it, so without these
-# rules a `git add -A` at the root stages an entire second working tree.
+# rules a `git add -A` at the root stages an entire second working tree — as
+# gitlinks while the checkout is intact, and as tens of thousands of duplicated
+# files once one loses its `.git` marker.
 .claude/settings.local.json
 /.claude-worktrees/
 .claude/worktrees/
+/.worktrees/
 
 # Logs and ephemera
 *.log
