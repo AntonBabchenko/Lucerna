@@ -16,6 +16,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Security
+
+- Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
+
 ## [0.23.0] — 2026-08-13
 
 ### Added
