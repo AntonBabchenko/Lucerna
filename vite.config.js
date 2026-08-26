@@ -24,11 +24,15 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. Ignore `src-tauri`, plus two paths that would otherwise make this
+      // 3. Ignore `src-tauri`, plus the paths that would otherwise make this
       //    dev server invalidate its whole module graph mid-request:
-      //    - `.claude/` — agent worktrees live at `.claude/worktrees/<name>/`,
-      //      i.e. INSIDE this project root, each a full checkout with its own
+      //    - `.claude/` and `.claude-worktrees/` — agent worktrees live at
+      //      `.claude/worktrees/<name>/` and `.claude-worktrees/<name>/`, i.e.
+      //      INSIDE this project root, each a full checkout with its own
       //      generated `.svelte-kit/tsconfig.json`.
+      //    - `.cargo-target*/` — per-worktree cargo target dirs at the root;
+      //      hundreds of thousands of build artifacts that nothing in the
+      //      frontend graph depends on, but which the watcher would crawl.
       //    - our own `.svelte-kit/tsconfig.json`, rewritten by every
       //      `svelte-kit sync` (i.e. by `pnpm typecheck` / `pnpm check`).
       //    Either write makes Vite log "changed tsconfig file detected", call
@@ -47,6 +51,8 @@ export default defineConfig(async () => ({
       ignored: [
         "**/src-tauri/**",
         "**/.claude/**",
+        "**/.claude-worktrees/**",
+        "**/.cargo-target*/**",
         "**/.svelte-kit/tsconfig.json",
       ],
     },

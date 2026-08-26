@@ -1,14 +1,23 @@
 # Rust / Cargo
 /target/
+# Ad-hoc isolated target dirs. The bindings-regen and structural-guard
+# procedures run `CARGO_TARGET_DIR=target-bindings` (also `target-wire`,
+# `target-guards`) so one build cannot fight another over the shared one.
+# Mirrored in `src-tauri/.gitignore` — those commands are run from both
+# directories, so the dir lands at whichever one was current.
+/target-*/
 **/*.rs.bk
 Cargo.lock.bak
-# Shared Cargo build directory. Nothing in this repo configures it — a
+# Shared Cargo build directories. Nothing in this repo configures them — a
 # machine-level `~/.cargo/config.toml` may point `build.target-dir` here so
 # that every git worktree reuses one set of dependency artifacts instead of
 # keeping its own multi-GB `src-tauri/target/`. Harmless on machines that do
-# not set it; ignored so the (large, untracked) directory can never be staged
-# by a `git add -A` on machines that do.
-/.cargo-target/
+# not set it; ignored so the (large, untracked) directories can never be staged
+# by a `git add -A` on machines that do. The wildcard also covers the
+# per-worktree variants (`.cargo-target-<worktree>/`) that such a config
+# produces — one of those reached a clone's object store via `git add -A`,
+# leaving ~900 MB of unreachable build artifacts behind.
+/.cargo-target*/
 
 # Tauri
 /src-tauri/target/
@@ -45,8 +54,15 @@ desktop.ini
 *.swp
 *~
 
-# Claude Code — personal-scope settings only
+# Claude Code — personal-scope settings and agent worktrees. The worktree roots
+# hold full checkouts of this repository nested inside it, so without these
+# rules a `git add -A` at the root stages an entire second working tree — as
+# gitlinks while the checkout is intact, and as tens of thousands of duplicated
+# files once one loses its `.git` marker.
 .claude/settings.local.json
+/.claude-worktrees/
+.claude/worktrees/
+/.worktrees/
 
 # Logs and ephemera
 *.log
