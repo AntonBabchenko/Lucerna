@@ -16,6 +16,27 @@ use chrono::Utc;
 /// the wrong one: writing into a world's own tree is what
 /// `structural_no_inplace_mods_write` exists to stop.
 pub(crate) const TMP_RESTORING_PREFIX: &str = ".tmp-restoring-";
+
+/// Prefix of the hidden stage a world migration (`worlds::migrate`) parks a
+/// world in while it is moved or copied between instances —
+/// `.tmp-migrate-moved-<world>-<n>`, the same `<world>-<n>` shape as
+/// `TMP_RESTORING_PREFIX`, read back by the same `world_folder_of_tmp_dir`.
+///
+/// The stage lives in the TARGET instance's `saves/`. On the migration's
+/// rename path it is the user's ONLY copy of the world from the moment the
+/// source folder is renamed into it until the final rename lands under the
+/// real name; process death in that window leaves this directory and nothing
+/// else. That is why `worlds::orphans` must list it as a stranded world and be
+/// able to put it under `saves/<world>`, and why nothing may ever delete a
+/// candidate on sight — the rule `claim_stage` states for `.tmp-restoring-*`.
+///
+/// Invisible to every world listing for the same reason `.tmp-restoring-*` is:
+/// `pathsafe::validate_segment` rejects a leading `.`, and `list_worlds` /
+/// `list_world_names_in` skip every `saves/` entry that fails it.
+///
+/// Declared next to its sibling rather than in `worlds::migrate` so the reader
+/// and both writers share one definition.
+pub(crate) const TMP_MIGRATE_MOVED_PREFIX: &str = ".tmp-migrate-moved-";
 const STAGE_PREFIX: &str = ".tmp-restore-stage-";
 
 /// How many `-<n>` candidates to try before giving up. Reaching this means ~64
@@ -66,15 +87,31 @@ pub(crate) fn claim_stage(saves: &std::path::Path, world_folder: &str) -> Result
     ))
 }
 
-/// Recover the world folder name from a `.tmp-restoring-<world>-<n>` directory
-/// name. `None` for anything that is not one of ours — including a staging
-/// directory, which holds extracted backup bytes rather than a world.
+/// Recover the world folder name from a `.tmp-restoring-<world>-<n>` or a
+/// `.tmp-migrate-moved-<world>-<n>` directory name. `None` for anything that is not
+/// one of ours — including a restore staging directory
+/// (`.tmp-restore-stage-*`), which holds extracted backup bytes rather than a
+/// world.
 ///
-/// This is the *reader* for the naming decision `claim_stage` makes: embedding
-/// the world folder is only justified if it can be read back. `worlds::orphans`
-/// is the consumer.
+/// Both prefixes answer the same question — whose bytes are parked here? — and
+/// `worlds::orphans` uses the answer the same way for both: list the directory,
+/// and on request rename it back to `saves/<world>`. For a migration stage that
+/// is the right destination: the stage sits in the target instance's `saves/`,
+/// so recovery lands the world where the migration was taking it. The tail
+/// rule is shared too: a non-empty world, then `-`, then one or more ASCII
+/// digits; the world keeps everything before the LAST `-`.
+///
+/// The two prefixes are pairwise disjoint (and disjoint from `STAGE_PREFIX`),
+/// which the tests pin; the order of the two `strip_prefix` calls is therefore
+/// immaterial.
+///
+/// This is the *reader* for the naming decision `claim_stage` and
+/// `worlds::migrate` make: embedding the world folder is only justified if it
+/// can be read back. `worlds::orphans` is the consumer.
 pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
-    let rest = dir_name.strip_prefix(TMP_RESTORING_PREFIX)?;
+    let rest = dir_name
+        .strip_prefix(TMP_RESTORING_PREFIX)
+        .or_else(|| dir_name.strip_prefix(TMP_MIGRATE_MOVED_PREFIX))?;
     let (world, n) = rest.rsplit_once('-')?;
     if world.is_empty() || n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
         return None;
@@ -677,6 +714,54 @@ mod tests {
         assert_eq!(world_folder_of_tmp_dir(".tmp-restore-stage-W-0"), None);
         assert_eq!(world_folder_of_tmp_dir(".tmp-restoring-W"), None);
         assert_eq!(world_folder_of_tmp_dir(".tmp-restoring--0"), None);
+    }
+
+    #[test]
+    fn migrate_stage_name_round_trips_the_world_folder() {
+        // `worlds::migrate` names its stage with the same `<prefix><world>-<n>`
+        // shape `claim_stage` uses, so the one reader serves both. Built from
+        // the constant so a renamed prefix cannot silently orphan every stage
+        // already on disk.
+        let name = format!("{TMP_MIGRATE_MOVED_PREFIX}Survival-1");
+        assert_eq!(world_folder_of_tmp_dir(&name).as_deref(), Some("Survival"));
+        assert_eq!(
+            world_folder_of_tmp_dir(".tmp-migrate-moved-W-0").as_deref(),
+            Some("W")
+        );
+        // A world name containing '-' keeps everything before the LAST '-'.
+        assert_eq!(
+            world_folder_of_tmp_dir(".tmp-migrate-moved-My-World-12").as_deref(),
+            Some("My-World")
+        );
+        // Spaces are ordinary world-name characters.
+        assert_eq!(
+            world_folder_of_tmp_dir(".tmp-migrate-moved-My World-0").as_deref(),
+            Some("My World")
+        );
+    }
+
+    #[test]
+    fn world_folder_of_tmp_dir_rejects_migrate_names_without_a_counter() {
+        // Same tail rule as `.tmp-restoring-`: the name must end in `-<digits>`
+        // with a non-empty world before it. A bare `.tmp-migrate-moved-W` is not a
+        // stage this launcher ever creates and must not be offered as one.
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-moved-W"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-moved-"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-moved--0"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-moved-W-x"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-moved-W-"), None);
+    }
+
+    #[test]
+    fn the_parked_prefixes_are_pairwise_disjoint() {
+        // `strip_prefix` is tried in order. If one prefix were a prefix of
+        // another, a directory of the longer kind would parse as a world of the
+        // shorter kind with prefix garbage glued onto its name — and recovery
+        // would rename it to that garbage.
+        assert!(!TMP_MIGRATE_MOVED_PREFIX.starts_with(TMP_RESTORING_PREFIX));
+        assert!(!TMP_RESTORING_PREFIX.starts_with(TMP_MIGRATE_MOVED_PREFIX));
+        assert!(!TMP_MIGRATE_MOVED_PREFIX.starts_with(STAGE_PREFIX));
+        assert!(!STAGE_PREFIX.starts_with(TMP_MIGRATE_MOVED_PREFIX));
     }
 
     /// Collect `pre-restore-*.zip` names in a backups dir.
