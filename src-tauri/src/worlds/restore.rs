@@ -242,34 +242,17 @@ async fn restore_replace(
         let stage_clone = staged.stage.clone();
         // spawn_blocking has TWO results: the join and the extraction itself.
         // Both route through this one `?` chain so neither can skip the cleanup
-        // below — `restore_as_copy` gets this wrong and leaks its staging dir on
-        // a join error.
+        // below; `restore_as_copy` uses the same shape.
         tokio::task::spawn_blocking(move || wzip::extract_zip(&backup_clone, &stage_clone))
             .await
             .map_err(|e| Error::io(staged.stage.display().to_string(), format!("join: {e}")))??;
 
-        // The zip's root is named after the world (put there by backup_world /
-        // zip_dir). Verify the expected root is present and is the ONLY
-        // top-level entry — a mismatched root must ERROR, never silently leave
-        // an empty world.
-        let inner = staged.stage.join(world_folder);
-        if !inner.is_dir() {
-            return Err(corrupt(format!(
-                "extract did not produce expected folder '{world_folder}/'"
-            )));
-        }
-        let want = std::ffi::OsStr::new(world_folder);
-        let extra = std::fs::read_dir(&staged.stage)
-            .map_err(|e| Error::io(staged.stage.display().to_string(), e))?
-            .flatten()
-            .find(|e| e.file_name() != want);
-        if let Some(extra) = extra {
-            return Err(corrupt(format!(
-                "backup has unexpected root '{}' (expected only '{world_folder}/')",
-                extra.file_name().to_string_lossy()
-            )));
-        }
-        Ok(inner)
+        // The zip's root is the world's folder name AT BACKUP TIME (put there
+        // by backup_world / zip_dir), which need not be its name now — see
+        // `reroot_single_root`. Exactly one root directory is accepted,
+        // whatever it is called, and re-rooted to `world_folder`; any other
+        // shape must ERROR, never silently leave an empty world.
+        reroot_single_root(&staged.stage, world_folder, &corrupt)
     }
     .await;
 
@@ -338,6 +321,82 @@ fn drop_stage(stage: &std::path::Path) {
     if let Err(e) = std::fs::remove_dir_all(stage) {
         crate::diag!("restore: leftover staging dir {}: {e}", stage.display());
     }
+}
+
+/// Reduce what `extract_zip` left at the top level of a staging directory to
+/// the one shape a world backup can have — exactly one directory — and make
+/// that directory answer to `world_folder`.
+///
+/// **Invariant: the archive's root name is the world's folder name AT BACKUP
+/// TIME; it is informational, not identity.** `backup_world` zips with
+/// `root_name = <world folder>`, and worlds get renamed afterwards: a
+/// migration into an instance where the name is taken suffixes it
+/// (`Survival` → `Survival (2)`), and nothing stops the user renaming the
+/// folder in Explorer. Either used to make every earlier backup of that world
+/// unrestorable (`BackupCorrupt`, "unexpected root"). So a single root of ANY
+/// name is the world and is re-rooted here — renamed to
+/// `<stage>/<world_folder>` — so every later step sees the name it expects.
+/// What stays `BackupCorrupt` is a shape that cannot be one world: no entry at
+/// all, several entries, or a lone file. Each rejection says what was found.
+///
+/// Fallback direction (restrictive): an unreadable listing or entry type is
+/// `Io`, never "nothing extra here" — the check this replaces `flatten()`ed
+/// per-entry errors, reading "could not tell" as "no extra root". The entry
+/// type is read without following links: `extract_zip` never creates one, so
+/// a symlink here is not something a backup produced and is refused as
+/// "not a folder".
+fn reroot_single_root(
+    stage: &std::path::Path,
+    world_folder: &str,
+    corrupt: &dyn Fn(String) -> Error,
+) -> Result<std::path::PathBuf> {
+    let mut entries: Vec<(std::ffi::OsString, bool)> = Vec::new();
+    let listing =
+        std::fs::read_dir(stage).map_err(|e| Error::io(stage.display().to_string(), e))?;
+    for entry in listing {
+        let entry = entry.map_err(|e| Error::io(stage.display().to_string(), e))?;
+        let is_dir = entry
+            .file_type()
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))?
+            .is_dir();
+        entries.push((entry.file_name(), is_dir));
+    }
+    let (root, is_dir) = match entries.as_slice() {
+        [] => return Err(corrupt("archive is empty: it holds no root folder".into())),
+        [single] => single,
+        many => {
+            let names: Vec<String> = many
+                .iter()
+                .map(|(name, _)| name.to_string_lossy().into_owned())
+                .collect();
+            return Err(corrupt(format!(
+                "archive has {} top-level entries ({}); a world backup has exactly one root folder",
+                names.len(),
+                names.join(", ")
+            )));
+        }
+    };
+    let root_name = root.to_string_lossy();
+    if !*is_dir {
+        return Err(corrupt(format!(
+            "archive's only root '{root_name}' is a file, not a folder"
+        )));
+    }
+    let inner = stage.join(world_folder);
+    if root.as_os_str() == std::ffi::OsStr::new(world_folder) {
+        return Ok(inner);
+    }
+    let found = stage.join(root);
+    std::fs::rename(&found, &inner).map_err(|e| {
+        Error::io(
+            inner.display().to_string(),
+            format!("re-root '{root_name}/' as '{world_folder}/': {e}"),
+        )
+    })?;
+    crate::diag!(
+        "restore: archive root '{root_name}' re-rooted as '{world_folder}' (the world was renamed after this backup was taken)"
+    );
+    Ok(inner)
 }
 
 /// Map a failure to move the live world aside.
@@ -633,6 +692,22 @@ mod tests {
             .collect()
     }
 
+    /// Handcraft a zip whose entries are exactly `entries` (`name`, bytes).
+    /// `zip_dir` can only produce a single-root archive, and the shape tests
+    /// need archives it would never write: two roots, or a lone file.
+    fn write_zip_with_entries(dest: &Path, entries: &[(&str, &[u8])]) {
+        use std::io::Write as _;
+        let file = std::fs::File::create(dest).unwrap();
+        let mut zw = zip::ZipWriter::new(std::io::BufWriter::new(file));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, bytes) in entries {
+            zw.start_file(*name, options).unwrap();
+            zw.write_all(bytes).unwrap();
+        }
+        zw.finish().unwrap();
+    }
+
     #[tokio::test]
     async fn restore_replace_rejects_a_corrupt_backup_without_moving_the_world() {
         // World "W" with marker file inside.
@@ -698,39 +773,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn restore_replace_rejects_a_mismatched_root_without_moving_the_world() {
-        // A backup whose zip root is NOT the world folder must ERROR and leave
-        // the original world intact — never silently empty it.
-        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
-        // Build a backup whose single root folder is "WRONG", not "W".
-        let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
-        let wrong_world = _td.path().join("WRONG");
-        fs::create_dir_all(&wrong_world).unwrap();
-        fs::write(wrong_world.join("level.dat"), b"x").unwrap();
-        wzip::zip_dir(&wrong_world, &bad_backup, "WRONG").unwrap();
-
-        let r = restore_replace(&saves, &backups_dir, &bad_backup, "W").await;
-        assert!(
-            matches!(r, Err(Error::BackupCorrupt { .. })),
-            "mismatched root must error, got: {r:?}"
-        );
-        // The world never moved — verification happens before anything
-        // destructive, so there is no rollback to depend on.
-        let marker = saves.join("W").join("marker.txt");
-        assert!(marker.is_file(), "the world must not have moved at all");
-        assert_eq!(fs::read(&marker).unwrap(), b"original");
-
-        let pre_restore = pre_restore_zips(&backups_dir);
-        assert!(
-            pre_restore.is_empty(),
-            "a backup that never verified must not cost a snapshot, found {pre_restore:?}"
-        );
-
-        let leftovers = staging_leftovers(&saves);
-        assert!(leftovers.is_empty(), "staging dirs must be cleaned up");
-    }
-
-    #[tokio::test]
     async fn restore_as_copy_suffixes_on_conflict() {
         let (_td, saves, backups_dir) = make_world_with_files("W", &[("file.txt", b"v1")]);
         let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
@@ -767,5 +809,122 @@ mod tests {
             fs::read(saves.join("W (restored)").join("file.txt")).unwrap(),
             b"v1"
         );
+    }
+
+    #[test]
+    fn reroot_single_root_renames_a_foreign_root_and_keeps_a_matching_one() {
+        let td = tempdir().unwrap();
+        let corrupt = |details: String| Error::BackupCorrupt {
+            filename: "t.zip".into(),
+            details,
+        };
+
+        // A root under the world's OLD name is renamed to its current one.
+        let stage = td.path().join("stage-a");
+        fs::create_dir_all(stage.join("Survival")).unwrap();
+        fs::write(stage.join("Survival").join("level.dat"), b"x").unwrap();
+        let inner = reroot_single_root(&stage, "Survival (2)", &corrupt).unwrap();
+        assert_eq!(inner, stage.join("Survival (2)"));
+        assert_eq!(fs::read(inner.join("level.dat")).unwrap(), b"x");
+        assert!(
+            !stage.join("Survival").try_exists().unwrap(),
+            "the old root name must not survive next to the new one"
+        );
+
+        // A root already under the current name is left exactly where it is.
+        let stage = td.path().join("stage-b");
+        fs::create_dir_all(stage.join("W")).unwrap();
+        let inner = reroot_single_root(&stage, "W", &corrupt).unwrap();
+        assert_eq!(inner, stage.join("W"));
+        assert!(stage.join("W").is_dir());
+
+        // An empty stage is a corrupt archive, never an empty world.
+        let stage = td.path().join("stage-c");
+        fs::create_dir_all(&stage).unwrap();
+        assert!(matches!(
+            reroot_single_root(&stage, "W", &corrupt),
+            Err(Error::BackupCorrupt { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_replace_re_roots_a_backup_taken_under_the_worlds_old_name() {
+        // The world was backed up as "Survival" and has since been renamed to
+        // "Survival (2)" — a migration into an instance where the name was
+        // taken, or a rename in Explorer. The backup's root is the OLD name.
+        let (_td, saves, backups_dir) =
+            make_world_with_files("Survival (2)", &[("file.txt", b"v1")]);
+        let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
+        wzip::zip_dir(&saves.join("Survival (2)"), &backup_path, "Survival").unwrap();
+        fs::write(saves.join("Survival (2)").join("file.txt"), b"v2").unwrap();
+
+        let r = restore_replace(&saves, &backups_dir, &backup_path, "Survival (2)")
+            .await
+            .unwrap();
+
+        assert_eq!(r.final_folder_name, "Survival (2)");
+        assert_eq!(
+            fs::read(saves.join("Survival (2)").join("file.txt")).unwrap(),
+            b"v1",
+            "the world under its CURRENT name holds the backup's bytes"
+        );
+        assert!(
+            !saves.join("Survival").try_exists().unwrap(),
+            "re-rooting must not resurrect the old name as a second world"
+        );
+        assert_eq!(pre_restore_zips(&backups_dir).len(), 1);
+        let leftovers = staging_leftovers(&saves);
+        assert!(leftovers.is_empty(), "leftovers: {leftovers:?}");
+    }
+
+    #[tokio::test]
+    async fn restore_replace_rejects_an_archive_with_two_roots_naming_both() {
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
+        let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
+        write_zip_with_entries(
+            &bad_backup,
+            &[("Alpha/level.dat", b"a"), ("Beta/level.dat", b"b")],
+        );
+
+        let r = restore_replace(&saves, &backups_dir, &bad_backup, "W").await;
+
+        let Err(Error::BackupCorrupt { details, .. }) = r else {
+            panic!("two roots must be BackupCorrupt, got: {r:?}");
+        };
+        assert!(
+            details.contains("Alpha") && details.contains("Beta"),
+            "the rejection must say what was found: {details}"
+        );
+        // The world never moved, no snapshot was taken, nothing was left behind
+        // — the guarantees the old mismatched-root test pinned, kept here.
+        assert_eq!(
+            fs::read(saves.join("W").join("marker.txt")).unwrap(),
+            b"original"
+        );
+        assert!(pre_restore_zips(&backups_dir).is_empty());
+        assert!(staging_leftovers(&saves).is_empty());
+    }
+
+    #[tokio::test]
+    async fn restore_replace_rejects_an_archive_whose_only_root_is_a_file() {
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
+        let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
+        write_zip_with_entries(&bad_backup, &[("level.dat", b"loose")]);
+
+        let r = restore_replace(&saves, &backups_dir, &bad_backup, "W").await;
+
+        let Err(Error::BackupCorrupt { details, .. }) = r else {
+            panic!("a lone file root must be BackupCorrupt, got: {r:?}");
+        };
+        assert!(
+            details.contains("level.dat"),
+            "the rejection must name what was found: {details}"
+        );
+        assert_eq!(
+            fs::read(saves.join("W").join("marker.txt")).unwrap(),
+            b"original"
+        );
+        assert!(pre_restore_zips(&backups_dir).is_empty());
+        assert!(staging_leftovers(&saves).is_empty());
     }
 }
