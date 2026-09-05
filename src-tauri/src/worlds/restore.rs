@@ -37,6 +37,11 @@ pub(crate) const TMP_RESTORING_PREFIX: &str = ".tmp-restoring-";
 /// Declared next to its sibling rather than in `worlds::migrate` so the reader
 /// and both writers share one definition.
 pub(crate) const TMP_MIGRATE_MOVED_PREFIX: &str = ".tmp-migrate-moved-";
+/// The stage a migration is COPYING a world into (spec §4.1). Never a stranded
+/// world: the source is intact and the stage may be partial. Named here only so
+/// the recogniser can state, in one place, which dot-prefixed directories under
+/// `saves/` are ours and which of them hold a user's only copy.
+pub(crate) const TMP_MIGRATE_COPY_PREFIX: &str = ".tmp-migrate-copy-";
 const STAGE_PREFIX: &str = ".tmp-restore-stage-";
 
 /// How many `-<n>` candidates to try before giving up. Reaching this means ~64
@@ -109,14 +114,33 @@ pub(crate) fn claim_stage(saves: &std::path::Path, world_folder: &str) -> Result
 /// `worlds::migrate` make: embedding the world folder is only justified if it
 /// can be read back. `worlds::orphans` is the consumer.
 pub(crate) fn world_folder_of_tmp_dir(dir_name: &str) -> Option<String> {
-    let rest = dir_name
-        .strip_prefix(TMP_RESTORING_PREFIX)
-        .or_else(|| dir_name.strip_prefix(TMP_MIGRATE_MOVED_PREFIX))?;
+    parked_world_of_tmp_dir(dir_name).map(|(world, _)| world)
+}
+
+/// The world folder AND which operation parked it. `Restore` for
+/// `.tmp-restoring-<world>-<n>`, `Migration` for
+/// `.tmp-migrate-moved-<world>-<n>` — the stage a migration MOVED a world
+/// into by rename, i.e. the user's only copy (spec §4.2). A copy-path stage
+/// (`.tmp-migrate-copy-<world>-<n>`, spec §4.1) is deliberately `None`: the
+/// source world is intact, the stage may be a partial tree, and putting a
+/// partial tree back under a real name would list an incomplete world as a
+/// normal one — the exact hazard `WorldMigratePartialLeft` exists to name.
+pub(crate) fn parked_world_of_tmp_dir(
+    dir_name: &str,
+) -> Option<(String, crate::worlds::orphans::StrandedKind)> {
+    use crate::worlds::orphans::StrandedKind;
+    let (rest, kind) = if let Some(rest) = dir_name.strip_prefix(TMP_RESTORING_PREFIX) {
+        (rest, StrandedKind::Restore)
+    } else if let Some(rest) = dir_name.strip_prefix(TMP_MIGRATE_MOVED_PREFIX) {
+        (rest, StrandedKind::Migration)
+    } else {
+        return None;
+    };
     let (world, n) = rest.rsplit_once('-')?;
     if world.is_empty() || n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
-    Some(world.to_string())
+    Some((world.to_string(), kind))
 }
 
 /// Outcome of the two-rename window. Every variant says exactly where the
@@ -1091,5 +1115,36 @@ mod tests {
             b"original"
         );
         assert!(as_copy_leftovers(&saves).is_empty());
+    }
+
+    #[test]
+    fn parked_world_of_tmp_dir_tells_a_restore_from_a_move() {
+        use crate::worlds::orphans::StrandedKind;
+        assert_eq!(
+            parked_world_of_tmp_dir(".tmp-restoring-W-0"),
+            Some(("W".to_string(), StrandedKind::Restore))
+        );
+        assert_eq!(
+            parked_world_of_tmp_dir(".tmp-migrate-moved-W-3"),
+            Some(("W".to_string(), StrandedKind::Migration))
+        );
+    }
+
+    #[test]
+    fn a_copy_path_stage_is_never_a_parked_world() {
+        // Spec §4.1: the source is intact and the stage may be a partial tree.
+        assert_eq!(parked_world_of_tmp_dir(".tmp-migrate-copy-W-0"), None);
+        assert_eq!(world_folder_of_tmp_dir(".tmp-migrate-copy-W-0"), None);
+    }
+
+    #[test]
+    fn the_three_prefixes_are_pairwise_disjoint() {
+        for (a, b) in [
+            (TMP_RESTORING_PREFIX, TMP_MIGRATE_MOVED_PREFIX),
+            (TMP_RESTORING_PREFIX, TMP_MIGRATE_COPY_PREFIX),
+            (TMP_MIGRATE_MOVED_PREFIX, TMP_MIGRATE_COPY_PREFIX),
+        ] {
+            assert!(!a.starts_with(b) && !b.starts_with(a), "{a} vs {b}");
+        }
     }
 }

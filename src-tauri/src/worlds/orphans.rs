@@ -31,6 +31,19 @@ pub struct OrphanedBackupSet {
     pub newest_unix_ms: f64,
 }
 
+/// Which operation parked the world. The UI branches its copy on this: a
+/// `.tmp-restoring-*` directory is an interrupted RESTORE, a
+/// `.tmp-migrate-moved-*` directory is an interrupted MOVE from another
+/// instance — telling a user who moved a world that a restore didn't finish
+/// is a false statement about what happened (CLAUDE.md, Fallback discipline,
+/// question 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum StrandedKind {
+    Restore,
+    Migration,
+}
+
 /// A world-sized directory parked by a restore or by a world migration.
 ///
 /// The name alone does NOT say the operation failed. A restore's success path
@@ -43,14 +56,14 @@ pub struct OrphanedBackupSet {
 /// new one, is worse than showing nothing.
 ///
 /// A `.tmp-migrate-moved-*` directory is a migration stage in the TARGET instance's
-/// `saves/` (`worlds::migrate`). On the rename path it holds the user's only
-/// copy of the world; on the copy path it is a partial copy whose original is
-/// intact in the source instance. For it, `target_occupied` means only that
-/// the final name was already taken in the target (the migration would have
-/// suffixed it) — never that the migration finished, and never that the stage
-/// is safe to delete. This row does not say which operation parked it; a
-/// consumer that must word the two differently needs a field added here, not
-/// a parse of `dir_name`.
+/// `saves/` (`worlds::migrate`). It holds the user's only copy of the world: a
+/// MOVE renamed the source folder into it. For it, `target_occupied` means only
+/// that the final name was already taken in the target (the migration would
+/// have suffixed it) — never that the migration finished, and never that the
+/// stage is safe to delete. A copy-path stage (`.tmp-migrate-copy-*`) is never
+/// listed here: its original is intact in the source instance. `kind` says
+/// which operation parked it; a consumer that must word the two differently
+/// branches on that, never on a parse of `dir_name`.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct StrandedWorld {
     /// The on-disk directory name, e.g. `.tmp-restoring-My World-0` or
@@ -58,12 +71,15 @@ pub struct StrandedWorld {
     pub dir_name: String,
     /// The name it came from.
     pub world_folder: String,
-    /// `saves/<world_folder>` exists. For a restore: it finished, this is a
-    /// leftover copy of the world as it was BEFORE it, and putting it back
-    /// would overwrite the result the user asked for. For a migration stage:
-    /// the name is held by a different world, `recover_stranded_at` refuses,
-    /// and the stage still holds the parked world.
+    /// `saves/<world_folder>` exists. For a restore: the restore finished and
+    /// this is a leftover copy of the world as it was BEFORE it — putting it
+    /// back would overwrite the result the user asked for. For a migration:
+    /// a world of that name already lives in this instance, so the moved
+    /// world cannot be put back under its name until one of them is renamed;
+    /// it is NOT a leftover of a finished operation.
     pub target_occupied: bool,
+    /// Which operation parked it — see [`StrandedKind`].
+    pub kind: StrandedKind,
 }
 
 /// Backup sets under `backups` with no matching directory under `saves`.
@@ -139,7 +155,7 @@ fn modified_unix_ms(p: &Path) -> Option<f64> {
 /// parked directory may be the only copy of the world — on the migration's
 /// rename path it is, which is exactly why the stage must be listed here and
 /// why `recover_stranded_at` must be able to put it under `saves/<world>`.
-/// `world_folder_of_tmp_dir` is what tells them apart.
+/// `parked_world_of_tmp_dir` is what tells them apart.
 ///
 /// No world listing shows any of these: `list_worlds` and `list_world_names_in`
 /// (`worlds/mod.rs`) skip every entry that fails `validate_segment`, and
@@ -153,16 +169,17 @@ pub fn stranded_worlds_at(saves: &Path) -> Vec<StrandedWorld> {
         .flatten()
         // Keep the entry when `file_type()` fails: dropping it would hide a
         // parked world from the only surface in the app that can recover it.
-        // `world_folder_of_tmp_dir` is the real filter.
+        // `parked_world_of_tmp_dir` is the real filter.
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(true))
         .filter_map(|e| {
             let dir_name = e.file_name().to_string_lossy().into_owned();
-            let world_folder = world_folder_of_tmp_dir(&dir_name)?;
+            let (world_folder, kind) = crate::worlds::restore::parked_world_of_tmp_dir(&dir_name)?;
             let target_occupied = saves.join(&world_folder).try_exists().unwrap_or(true);
             Some(StrandedWorld {
                 dir_name,
                 world_folder,
                 target_occupied,
+                kind,
             })
         })
         .collect();
@@ -458,5 +475,27 @@ mod tests {
         // outside saves/. Mirrors the `.tmp-restoring-` case above.
         assert!(recover_stranded_at(&saves, ".tmp-migrate-moved-../evil-0").is_err());
         assert!(!saves.parent().unwrap().join("evil").exists());
+    }
+
+    #[test]
+    fn stranded_worlds_carry_the_kind_that_parked_them() {
+        let td = tempfile::tempdir().unwrap();
+        let saves = td.path().join("saves");
+        std::fs::create_dir_all(saves.join(".tmp-restoring-A-0")).unwrap();
+        std::fs::create_dir_all(saves.join(".tmp-migrate-moved-B-0")).unwrap();
+        std::fs::create_dir_all(saves.join(".tmp-migrate-copy-C-0")).unwrap();
+        let listed = stranded_worlds_at(&saves);
+        let kinds: Vec<(String, StrandedKind)> = listed
+            .iter()
+            .map(|w| (w.world_folder.clone(), w.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("B".to_string(), StrandedKind::Migration),
+                ("A".to_string(), StrandedKind::Restore),
+            ],
+            "sorted by dir_name: '.tmp-migrate-moved-B-0' < '.tmp-restoring-A-0'; the copy-path stage is not listed"
+        );
     }
 }

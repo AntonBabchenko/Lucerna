@@ -6747,6 +6747,16 @@ export type SourceCaps = {
 export type StrandedDisposition = "disable" | "remove" | "keep";
 
 /**
+ *  Which operation parked the world. The UI branches its copy on this: a
+ *  `.tmp-restoring-*` directory is an interrupted RESTORE, a
+ *  `.tmp-migrate-moved-*` directory is an interrupted MOVE from another
+ *  instance — telling a user who moved a world that a restore didn't finish
+ *  is a false statement about what happened (CLAUDE.md, Fallback discipline,
+ *  question 3).
+ */
+export type StrandedKind = "restore" | "migration";
+
+/**
  *  Why a `Violated` mod has no replacement plan. The UI shows different copy
  *  for each — a failed query must never be read as "no build exists".
  */
@@ -6802,28 +6812,46 @@ export type StrandedSelection = {
 };
 
 /**
- *  A world-sized directory parked by a restore.
+ *  A world-sized directory parked by a restore or by a world migration.
  * 
- *  The name alone does NOT say the restore failed. The success path's cleanup is
- *  best-effort (`swap_in_place` logs and carries on), and process death between
- *  the second rename and that cleanup leaves the same name behind — in which
- *  case `saves/<world_folder>` holds the RESTORED world and this directory holds
- *  the pre-restore one. `target_occupied` is what tells the two apart, and the
- *  UI must branch on it: telling a user their restore "didn't finish" when it
- *  did, and offering to put the old copy back over the new one, is worse than
- *  showing nothing.
+ *  The name alone does NOT say the operation failed. A restore's success path
+ *  cleans up best-effort (`swap_in_place` logs and carries on), and process
+ *  death between the second rename and that cleanup leaves the same name
+ *  behind — in which case `saves/<world_folder>` holds the RESTORED world and
+ *  this directory holds the pre-restore one. `target_occupied` is what tells
+ *  the two apart, and the UI must branch on it: telling a user their restore
+ *  "didn't finish" when it did, and offering to put the old copy back over the
+ *  new one, is worse than showing nothing.
+ * 
+ *  A `.tmp-migrate-moved-*` directory is a migration stage in the TARGET instance's
+ *  `saves/` (`worlds::migrate`). It holds the user's only copy of the world: a
+ *  MOVE renamed the source folder into it. For it, `target_occupied` means only
+ *  that the final name was already taken in the target (the migration would
+ *  have suffixed it) — never that the migration finished, and never that the
+ *  stage is safe to delete. A copy-path stage (`.tmp-migrate-copy-*`) is never
+ *  listed here: its original is intact in the source instance. `kind` says
+ *  which operation parked it; a consumer that must word the two differently
+ *  branches on that, never on a parse of `dir_name`.
  */
 export type StrandedWorld = {
-	/**  The on-disk directory name, e.g. `.tmp-restoring-My World-0`. */
+	/**
+	 *  The on-disk directory name, e.g. `.tmp-restoring-My World-0` or
+	 *  `.tmp-migrate-moved-My World-0`.
+	 */
 	dir_name: string,
 	/**  The name it came from. */
 	world_folder: string,
 	/**
-	 *  `saves/<world_folder>` exists. The restore finished; this is a leftover
-	 *  copy of the world as it was BEFORE it, and putting it back would
-	 *  overwrite the result the user asked for.
+	 *  `saves/<world_folder>` exists. For a restore: the restore finished and
+	 *  this is a leftover copy of the world as it was BEFORE it — putting it
+	 *  back would overwrite the result the user asked for. For a migration:
+	 *  a world of that name already lives in this instance, so the moved
+	 *  world cannot be put back under its name until one of them is renamed;
+	 *  it is NOT a leftover of a finished operation.
 	 */
 	target_occupied: boolean,
+	/**  Which operation parked it — see [`StrandedKind`]. */
+	kind: StrandedKind,
 };
 
 /**  One file's provenance and outcome — a row in a per-file install report. */
