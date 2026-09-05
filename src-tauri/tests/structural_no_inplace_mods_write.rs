@@ -126,12 +126,26 @@ const ALLOWLIST: &[&str] = &[
     // result into place afterward — never straight onto a live world or its
     // `datapacks/` folder. Verified by reading every call site.
     "worlds/zip.rs",
-    // `std::fs::copy` in `copy_tree` only ever writes into a destination
-    // built from `dest = saves.join(&chosen)`, where `chosen` is a name
-    // `pick_free_world_name` proved did NOT already exist on disk — so
-    // every path `copy_tree` writes through is a fresh name under a
-    // brand-new world folder, never a pre-existing, possibly-hardlinked
-    // datapack.
+    // `std::fs::copy` in `copy_tree` has two callers, and both write only
+    // into a directory that did not exist before the caller itself created
+    // it:
+    //
+    // (1) `worlds::import::place_world` — `dest = saves.join(&chosen)`,
+    //     where `chosen` is a name `pick_free_world_name` proved did NOT
+    //     already exist on disk, so every path written is a fresh name
+    //     under a brand-new world folder;
+    // (2) `worlds::migrate` (the world-migration copy path) — a hidden
+    //     stage `saves/.tmp-migrate-<world>-<n>` that migrate claimed with
+    //     `create_dir` (`AlreadyExists` ⇒ next `n`, the `restore::claim_stage`
+    //     shape) and later `rename`s to its final name; the stage is a
+    //     directory only migrate has ever written into.
+    //
+    // Neither destination can be a pre-existing, possibly-hardlinked
+    // datapack: this guard's subject is a write ONTO an existing link, and a
+    // directory created moments earlier by the writer holds none. `copy_tree`
+    // never follows symlinks, so it cannot be steered onto one either. A
+    // third caller must keep the same discipline — a destination it created
+    // itself — or this entry is no longer justified.
     "worlds/import.rs",
 ];
 
