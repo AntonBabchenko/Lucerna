@@ -215,27 +215,18 @@ pub fn world_dir(
 }
 
 /// Delete a world folder AND its associated backups directory.
-/// Errors with WorldNotFound on missing world; best-effort cleanup
-/// of the backups subdirectory (silently ignores a missing backups
-/// subdirectory).
+/// Errors with WorldNotFound on missing world; the world removal itself is
+/// `remove_world_dir_at`. Cleanup of the backups subdirectory silently
+/// ignores a missing backups subdirectory — and, until the cascade below is
+/// rewritten, skips it on ANY stat failure, because `exists()` cannot tell
+/// the two apart.
 pub fn delete_world(
     app: &tauri::AppHandle,
     instance_id: &str,
     world_folder_name: &str,
 ) -> Result<()> {
     let world_path = world_dir(app, instance_id, world_folder_name)?;
-    std::fs::remove_dir_all(&world_path).map_err(|e| {
-        // A running Minecraft holds region/lock files open — surface that as
-        // the friendly typed WorldInUse instead of a raw IO error. Windows:
-        // sharing violation (32) / lock violation (33) / access denied (5).
-        if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
-            Error::WorldInUse {
-                folder_name: world_folder_name.to_string(),
-            }
-        } else {
-            Error::io(world_path.display().to_string(), e)
-        }
-    })?;
+    remove_world_dir_at(&world_path, world_folder_name)?;
     // Cascade: drop the backups dir for this world if it exists.
     let backups_for_world = backups_root(app, instance_id)?.join(world_folder_name);
     if backups_for_world.exists() {
@@ -243,6 +234,33 @@ pub fn delete_world(
             .map_err(|e| Error::io(backups_for_world.display().to_string(), e))?;
     }
     Ok(())
+}
+
+/// Remove one world directory, mapping a held-open tree to `WorldInUse`.
+///
+/// Path-based so it is testable without an `AppHandle` and reusable by any
+/// caller that has already resolved the world's path: `delete_world` above,
+/// and the world-migration source removal (`worlds::migrate`, PR-B). It
+/// removes ONLY `world_path` — a world's backups live outside the saves tree
+/// and are the caller's business (`delete_world` cascades; a migration moves
+/// them with `backup::move_set_at` instead).
+///
+/// A running Minecraft holds region/lock files open — surface that as the
+/// friendly typed `WorldInUse` instead of a raw IO error. Windows: sharing
+/// violation (32) / lock violation (33) / access denied (5). Every other
+/// failure, INCLUDING a path that does not exist, is `Error::Io` naming the
+/// path: "absent" is not "held open", and `WorldInUse`'s text tells the user
+/// to quit Minecraft, which would be false advice for a missing folder.
+pub fn remove_world_dir_at(world_path: &std::path::Path, folder_name: &str) -> Result<()> {
+    std::fs::remove_dir_all(world_path).map_err(|e| {
+        if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+            Error::WorldInUse {
+                folder_name: folder_name.to_string(),
+            }
+        } else {
+            Error::io(world_path.display().to_string(), e)
+        }
+    })
 }
 
 /// Number of `*.zip` entries directly under `<backups_root>/<world_folder>/`;
@@ -336,4 +354,58 @@ mod quick_list_tests {
             td.path().join("Survival")
         );
     }
+}
+
+#[cfg(test)]
+mod remove_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn remove_world_dir_at_removes_a_populated_world_directory() {
+        let td = tempdir().unwrap();
+        let saves = td.path().join("saves");
+        let world = saves.join("Survival");
+        fs::create_dir_all(world.join("region")).unwrap();
+        fs::write(world.join("level.dat"), b"x").unwrap();
+        fs::write(world.join("region").join("r.0.0.mca"), b"y").unwrap();
+
+        remove_world_dir_at(&world, "Survival").unwrap();
+
+        assert!(!world.try_exists().unwrap(), "the world dir must be gone");
+        assert!(
+            saves.try_exists().unwrap(),
+            "only the world dir is removed — never its parent"
+        );
+    }
+
+    #[test]
+    fn remove_world_dir_at_reports_a_missing_path_as_io_not_world_in_use() {
+        // A path that does not exist fails with NotFound — errno 2, or
+        // ERROR_PATH_NOT_FOUND (3) on Windows when the parent is missing too —
+        // never one of the three held-open codes (5/32/33). `WorldInUse`'s text
+        // tells the user to quit Minecraft; for an absent folder that advice
+        // would be false, so the mapping must not reach it.
+        let td = tempdir().unwrap();
+        let missing = td.path().join("saves").join("Gone");
+
+        let err = remove_world_dir_at(&missing, "Gone").unwrap_err();
+
+        assert!(
+            !matches!(err, Error::WorldInUse { .. }),
+            "a missing path must not render as 'quit Minecraft': {err:?}"
+        );
+        match err {
+            Error::Io { path, .. } => assert_eq!(path, missing.display().to_string()),
+            other => panic!("expected Error::Io naming the world path, got {other:?}"),
+        }
+    }
+
+    // The errno 5/32/33 → WorldInUse branch is NOT tested here: it needs a
+    // handle held open by another process with Windows sharing semantics, which
+    // cannot be provoked portably from a unit test (POSIX lets `remove_dir_all`
+    // succeed on a held-open tree). Faking it with a mocked error would test the
+    // mock, not the mapping. The branch is byte-identical to the one `delete_world`
+    // shipped with, and its Windows behaviour is covered by the dev smoke.
 }
