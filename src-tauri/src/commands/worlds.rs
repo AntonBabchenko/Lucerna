@@ -39,11 +39,11 @@ pub async fn backup_world(
     world_folder_name: String,
 ) -> Result<crate::worlds::Backup, crate::error::Error> {
     // A live JVM holds OS locks on the world tree, and level.dat is rewritten
-    // on exit — a mutation now is clobbered at best. Same gate the datapack
-    // commands use.
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
-        &instance_id,
-    ))?;
+    // on exit — a mutation now is clobbered at best. One gate for every
+    // instance, world and datapack writer (`instances::maintenance`): running,
+    // starting, or under a maintenance claim — a world migration in flight —
+    // all refuse with `InstanceBusy`.
+    crate::instances::maintenance::write_allowed(&instance_id)?;
     crate::worlds::backup::backup_world(&app, &instance_id, &world_folder_name).await
 }
 
@@ -71,12 +71,9 @@ pub async fn restore_backup(
     backup_filename: String,
     mode: crate::worlds::RestoreMode,
 ) -> Result<crate::worlds::RestoredWorld, crate::error::Error> {
-    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
-    // on exit — a mutation now is clobbered at best. Same gate the datapack
-    // commands use.
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
-        &instance_id,
-    ))?;
+    // Same gate as `backup_world` — see there: running, starting, or under a
+    // maintenance claim all refuse.
+    crate::instances::maintenance::write_allowed(&instance_id)?;
     crate::worlds::restore::restore_backup(
         &app,
         &instance_id,
@@ -97,6 +94,16 @@ pub fn delete_backup(
     backup_filename: String,
 ) -> Result<(), crate::error::Error> {
     // No running guard: backups live outside the world tree the JVM holds.
+    // A maintenance claim is different — a Move migration is relocating this
+    // very set file by file (`worlds::backup::move_set_at`), and a zip deleted
+    // under it would be counted and reported as "left behind" by a mover that
+    // never saw it. Refuse for the claim alone, so deleting a backup while the
+    // game runs stays allowed exactly as before. Direction: a claim that
+    // cannot be observed does not exist (`maintenance_is_active` reads a set
+    // under a poison-tolerant lock; there is no "could not tell" state).
+    if crate::instances::maintenance::maintenance_is_active(&instance_id) {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     crate::worlds::backup::delete_backup(&app, &instance_id, &world_folder_name, &backup_filename)
 }
 
@@ -108,12 +115,9 @@ pub async fn delete_world(
     instance_id: String,
     world_folder_name: String,
 ) -> Result<(), crate::error::Error> {
-    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
-    // on exit — a mutation now is clobbered at best. Same gate the datapack
-    // commands use.
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
-        &instance_id,
-    ))?;
+    // Same gate as `backup_world` — see there: running, starting, or under a
+    // maintenance claim all refuse.
+    crate::instances::maintenance::write_allowed(&instance_id)?;
     // Async + spawn_blocking (mirrors `world_import` below): the cascade is two
     // remove_dir_all's — a region-file-heavy world plus its backups dir — and a
     // sync command runs them on the main thread with the window frozen.
@@ -175,12 +179,9 @@ pub async fn world_import(
     instance_id: String,
     source_path: String,
 ) -> Result<crate::worlds::World, crate::error::Error> {
-    // A live JVM holds OS locks on the world tree, and level.dat is rewritten
-    // on exit — a mutation now is clobbered at best. Same gate the datapack
-    // commands use.
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
-        &instance_id,
-    ))?;
+    // Same gate as `backup_world` — see there: running, starting, or under a
+    // maintenance claim all refuse.
+    crate::instances::maintenance::write_allowed(&instance_id)?;
     crate::data_root::reject_if_fallen_back(&app)?;
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     let source = std::path::PathBuf::from(source_path);
@@ -231,11 +232,11 @@ pub async fn recover_stranded_world(
     instance_id: String,
     dir_name: String,
 ) -> Result<String, crate::error::Error> {
-    // A live JVM holds OS locks on the saves tree — same gate the sibling
-    // mutating world commands use.
-    crate::datapacks::guard::datapack_write_allowed(crate::launch::spawn::is_running(
-        &instance_id,
-    ))?;
+    // Same gate as `backup_world` — see there. The maintenance half matters
+    // most here: a migration's own `.tmp-migrate-*` stage in this instance is
+    // listed as stranded while the copy is in flight, and "recovering" it
+    // would rename a half-copied tree into saves/ under a real name.
+    crate::instances::maintenance::write_allowed(&instance_id)?;
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     crate::worlds::orphans::recover_stranded_at(&saves, &dir_name)
 }

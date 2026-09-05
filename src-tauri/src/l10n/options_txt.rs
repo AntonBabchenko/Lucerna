@@ -379,8 +379,9 @@ static OPTIONS_WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 /// compile without an answer to "is the instance running". The caller — the
 /// command layer, which already has both the instance id and `mc_dir` — is
 /// expected to compute `launch::spawn::is_running(instance_id)` and pass the
-/// snapshot in, the same division of labour `commands::worlds` already uses
-/// for `datapacks::guard::datapack_write_allowed`.
+/// snapshot in: the snapshot-in shape `datapacks::guard::datapack_write_allowed`
+/// also takes. (The world and datapack commands themselves now open with
+/// `instances::maintenance::write_allowed(id)`, which resolves the snapshot.)
 pub fn update_atomically<F>(
     mc_dir: &Path,
     is_running: bool,
