@@ -296,6 +296,20 @@ pub async fn start(
     if crate::datapacks::guard::update_in_progress() {
         return Err(Error::InstanceBusy);
     }
+    // Same pairing with a world migration (`instances::maintenance`). The
+    // migration claims BOTH instances' maintenance slots first and only then
+    // checks `is_running || is_starting`; this side claimed `starting` first
+    // (above) and only now checks the slot. Whichever interleaving occurs, at
+    // least one side sees the other's claim and refuses — a launch cannot slip
+    // in between the migration's claim and its running-check, nor the other
+    // way round. `launch_instance` checks the slot at command entry too, but
+    // the account refresh between there and here is the same network
+    // round-trip a whole migration can begin inside. The claim's `Drop`
+    // releases the `starting` reservation on this early return, so a refused
+    // launch leaves nothing for the migration's own check to trip over.
+    if crate::instances::maintenance::maintenance_is_active(&instance.id) {
+        return Err(Error::InstanceBusy);
+    }
     // Fresh run: clear any stale stop request for THIS instance.
     let _ = take_stop_requested(&instance.id);
 

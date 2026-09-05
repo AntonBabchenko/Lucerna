@@ -46,8 +46,17 @@ pub async fn launch_instance(
     // one level.dat rewrite per world, the game rewrites level.dat on save
     // and exit, and whichever side loses the race silently reverts the
     // user's enable/disable choices. The forward direction (no datapack
-    // write while the game runs) is `datapacks::guard`.
-    if crate::verify::repair_in_progress() || crate::datapacks::guard::update_in_progress() {
+    // write while the game runs) is `datapacks::guard`. And the same again
+    // for a world migration holding this instance's maintenance claim
+    // (`instances::maintenance`): its world is mid-rename or mid-copy in
+    // saves/. Deliberately NOT `write_allowed` — launch must not refuse on
+    // `is_running` here (a same-id relaunch is refused inside `launch::start`
+    // by `claim_start`, and other ids may run side by side); only the claim
+    // is checked, and `start` re-checks it after claiming.
+    if crate::verify::repair_in_progress()
+        || crate::datapacks::guard::update_in_progress()
+        || crate::instances::maintenance::maintenance_is_active(&instance_id)
+    {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Stop here rather than letting the JVM die on an InvalidPathException. We

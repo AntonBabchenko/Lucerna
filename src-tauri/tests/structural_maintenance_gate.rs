@@ -152,6 +152,20 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         WRITE_GATE,
         "copies saves/ wholesale — a half-staged world would be cloned mid-copy",
     ),
+    (
+        "commands/instances.rs",
+        "launch_instance",
+        ACTIVE_GATE,
+        "must not refuse on is_running (claim_start refuses a same-id relaunch inside \
+         start); the maintenance claim alone is checked at command entry",
+    ),
+    (
+        "launch/spawn.rs",
+        "start",
+        ACTIVE_GATE,
+        "the re-check after claim_start — the launch half of the Dekker pairing with \
+         the migration's claim-then-check",
+    ),
 ];
 
 /// Commands in the ratcheted files that touch nothing a migration moves:
