@@ -214,12 +214,17 @@ pub fn world_dir(
     })
 }
 
-/// Delete a world folder AND its associated backups directory.
-/// Errors with WorldNotFound on missing world; the world removal itself is
-/// `remove_world_dir_at`. Cleanup of the backups subdirectory silently
-/// ignores a missing backups subdirectory — and, until the cascade below is
-/// rewritten, skips it on ANY stat failure, because `exists()` cannot tell
-/// the two apart.
+/// Delete a world folder AND its backups directory.
+///
+/// `WorldNotFound` on a missing world; `WorldInUse` when the world tree is
+/// held open (see `remove_world_dir_at`). The world is removed FIRST, then
+/// `backups/<world>/`: a set that fails to go after the world is gone is an
+/// `Io` error naming the set's path — honest about what happened (the world
+/// is deleted, its backups are not) — whereas the reverse order could remove
+/// every backup and then refuse the world with `WorldInUse`.
+///
+/// The cascade discriminates (`remove_backup_set_at`): an absent set is
+/// nothing to do; any other failure is an error. Nothing here is best-effort.
 pub fn delete_world(
     app: &tauri::AppHandle,
     instance_id: &str,
@@ -227,13 +232,8 @@ pub fn delete_world(
 ) -> Result<()> {
     let world_path = world_dir(app, instance_id, world_folder_name)?;
     remove_world_dir_at(&world_path, world_folder_name)?;
-    // Cascade: drop the backups dir for this world if it exists.
     let backups_for_world = backups_root(app, instance_id)?.join(world_folder_name);
-    if backups_for_world.exists() {
-        std::fs::remove_dir_all(&backups_for_world)
-            .map_err(|e| Error::io(backups_for_world.display().to_string(), e))?;
-    }
-    Ok(())
+    remove_backup_set_at(&backups_for_world)
 }
 
 /// Remove one world directory, mapping a held-open tree to `WorldInUse`.
@@ -261,6 +261,34 @@ pub fn remove_world_dir_at(world_path: &std::path::Path, folder_name: &str) -> R
             Error::io(world_path.display().to_string(), e)
         }
     })
+}
+
+/// The backups cascade of `delete_world`: remove `<backups_root>/<world>/`.
+/// Private and path-based so the discrimination below is test-pinned; the
+/// cascade itself stays `delete_world`'s (the only caller). Migration does
+/// not use it — it moves backup sets with `backup::move_set_at`.
+///
+/// Fallback discipline: the removal is attempted unconditionally and ITS
+/// error is discriminated, replacing an `exists()` pre-check that answered
+/// `false` for any stat failure and skipped the removal silently.
+///
+/// - `NotFound` ⇒ `Ok(())`: a world that was never backed up has no set —
+///   `<instance>/backups/` itself is created lazily on the first backup, so
+///   the whole root may be absent (Windows reports a missing parent as
+///   ERROR_PATH_NOT_FOUND, which also decodes to `NotFound`). Absent is the
+///   common case and genuinely nothing to do — that is discrimination (Q2),
+///   not a swallow.
+/// - any other error ⇒ `Err(Io)` naming the set: permission denied, a zip
+///   held open, a transient I/O failure — "could not remove", never "absent".
+///   Direction (Q1): restrictive. The world is already gone when this runs,
+///   so the caller must be told that its backups are not (Q3/Q4: the
+///   cleanup's own result is checked and reaches the user).
+fn remove_backup_set_at(backups_for_world: &std::path::Path) -> Result<()> {
+    match std::fs::remove_dir_all(backups_for_world) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(Error::io(backups_for_world.display().to_string(), e)),
+    }
 }
 
 /// Number of `*.zip` entries directly under `<backups_root>/<world_folder>/`;
@@ -408,4 +436,68 @@ mod remove_tests {
     // succeed on a held-open tree). Faking it with a mocked error would test the
     // mock, not the mapping. The branch is byte-identical to the one `delete_world`
     // shipped with, and its Windows behaviour is covered by the dev smoke.
+
+    #[test]
+    fn remove_backup_set_at_removes_a_populated_set() {
+        let td = tempdir().unwrap();
+        let root = td.path().join("backups");
+        let set = root.join("Survival");
+        fs::create_dir_all(&set).unwrap();
+        fs::write(set.join("Survival-2026-01-01_00-00-00.zip"), b"z").unwrap();
+
+        remove_backup_set_at(&set).unwrap();
+
+        assert!(!set.try_exists().unwrap(), "the set must be gone");
+        assert!(
+            root.try_exists().unwrap(),
+            "only the world's set is removed — never the backups root"
+        );
+    }
+
+    #[test]
+    fn remove_backup_set_at_treats_an_absent_set_as_nothing_to_do() {
+        // A world that was never backed up has no `backups/<world>/` — the
+        // common case for `delete_world`, and genuinely nothing to remove.
+        let td = tempdir().unwrap();
+        let root = td.path().join("backups");
+        fs::create_dir_all(&root).unwrap();
+
+        remove_backup_set_at(&root.join("NeverBackedUp")).unwrap();
+    }
+
+    #[test]
+    fn remove_backup_set_at_treats_an_absent_backups_root_as_nothing_to_do() {
+        // `<instance>/backups/` is created lazily on the first backup, so a
+        // fresh instance has no root at all. Windows reports a missing PARENT
+        // as ERROR_PATH_NOT_FOUND (3), not ERROR_FILE_NOT_FOUND (2); both
+        // decode to `ErrorKind::NotFound`, and this pins that the cascade
+        // relies on the kind, not on the raw code.
+        let td = tempdir().unwrap();
+        let set = td.path().join("backups").join("Survival"); // neither exists
+
+        remove_backup_set_at(&set).unwrap();
+    }
+
+    #[test]
+    fn remove_backup_set_at_reports_any_failure_other_than_not_found() {
+        // A regular file where the set directory should be: `remove_dir_all`
+        // is documented to fail when the path is not a directory (ENOTDIR on
+        // POSIX, ERROR_DIRECTORY on Windows) — a portable "could not remove"
+        // that is NOT NotFound. The stat failures the old `exists()` pre-check
+        // laundered into "absent" (permission denied, transient I/O) cannot be
+        // provoked portably, so the restrictive direction is pinned through
+        // this one: anything but NotFound must surface, naming the set.
+        let td = tempdir().unwrap();
+        let root = td.path().join("backups");
+        fs::create_dir_all(&root).unwrap();
+        let set = root.join("Survival");
+        fs::write(&set, b"not a directory").unwrap();
+
+        let err = remove_backup_set_at(&set).unwrap_err();
+
+        match err {
+            Error::Io { path, .. } => assert_eq!(path, set.display().to_string()),
+            other => panic!("expected Error::Io naming the set, got {other:?}"),
+        }
+    }
 }
