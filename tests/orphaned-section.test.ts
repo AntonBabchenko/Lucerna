@@ -27,7 +27,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 import OrphanedSection from '$lib/worlds/OrphanedSection.svelte';
 
 const STRANDED = [
-  { dir_name: '.tmp-restoring-My World-0', world_folder: 'My World', target_occupied: false },
+  {
+    dir_name: '.tmp-restoring-My World-0',
+    world_folder: 'My World',
+    target_occupied: false,
+    kind: 'restore',
+  },
 ];
 const ORPHANS = [{ world_folder: 'Gone', backup_count: 2, newest_unix_ms: 1_700_000_000_000 }];
 
@@ -101,7 +106,9 @@ describe('OrphanedSection — a world a rollback could not put back', () => {
 });
 
 describe('OrphanedSection — a leftover from a restore that finished', () => {
-  const LEFTOVER = [{ dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true }];
+  const LEFTOVER = [
+    { dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true, kind: 'restore' },
+  ];
 
   it('offers no way to put it back, because saves/W is the restored world', async () => {
     renderSection({ stranded: LEFTOVER });
