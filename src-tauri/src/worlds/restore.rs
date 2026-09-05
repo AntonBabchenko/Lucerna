@@ -449,40 +449,50 @@ async fn restore_as_copy(
             });
         }
     }
+    let corrupt = |details: String| Error::BackupCorrupt {
+        filename: backup_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .into(),
+        details,
+    };
 
-    // Extract zip into a temp staging dir, then rename the inner
-    // folder to the chosen name. The zip's root is `<world>/` so the
-    // staging dir contains `staging/<world>/...` — we rename that to
-    // `saves/<chosen>/`.
+    // Extract the zip into a temp staging dir, re-root its single top-level
+    // folder to `world_folder` (the archive's root is the name the world had
+    // when it was backed up — see `reroot_single_root`), then rename that
+    // folder to `saves/<chosen>/`.
     let tmp_extract = saves.join(format!(".tmp-as-copy-{}", &chosen.replace(' ', "_")));
     let _ = std::fs::remove_dir_all(&tmp_extract); // stale from earlier failure
     std::fs::create_dir_all(&tmp_extract)
         .map_err(|e| Error::io(tmp_extract.display().to_string(), e))?;
-    let backup_clone = backup_path.to_path_buf();
-    let tmp_clone = tmp_extract.clone();
-    let result = tokio::task::spawn_blocking(move || wzip::extract_zip(&backup_clone, &tmp_clone))
-        .await
-        .map_err(|e| Error::io(tmp_extract.display().to_string(), format!("join: {e}")))?;
-    if let Err(e) = result {
-        let _ = std::fs::remove_dir_all(&tmp_extract);
-        return Err(e);
+    let extracted = async {
+        let backup_clone = backup_path.to_path_buf();
+        let tmp_clone = tmp_extract.clone();
+        // Both spawn_blocking results — the join and the extraction — route
+        // through this one `?` chain so neither can skip the cleanup below
+        // (the `restore_replace` shape; a join error used to leak this dir).
+        tokio::task::spawn_blocking(move || wzip::extract_zip(&backup_clone, &tmp_clone))
+            .await
+            .map_err(|e| Error::io(tmp_extract.display().to_string(), format!("join: {e}")))??;
+        reroot_single_root(&tmp_extract, world_folder, &corrupt)
     }
-    let inner = tmp_extract.join(world_folder);
-    if !inner.is_dir() {
-        let _ = std::fs::remove_dir_all(&tmp_extract);
-        return Err(Error::BackupCorrupt {
-            filename: backup_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("?")
-                .into(),
-            details: format!("zip root was not '{world_folder}/'"),
-        });
-    }
+    .await;
+    let inner = match extracted {
+        Ok(i) => i,
+        Err(e) => {
+            drop_stage(&tmp_extract);
+            return Err(e);
+        }
+    };
     let final_path = saves.join(&chosen);
-    std::fs::rename(&inner, &final_path)
-        .map_err(|e| Error::io(final_path.display().to_string(), e))?;
-    let _ = std::fs::remove_dir_all(&tmp_extract);
+    if let Err(e) = std::fs::rename(&inner, &final_path) {
+        // The extract is only bytes the backup zip still holds, so dropping it
+        // costs nothing; `drop_stage` logs its own failure (Fallback Q4).
+        drop_stage(&tmp_extract);
+        return Err(Error::io(final_path.display().to_string(), e));
+    }
+    drop_stage(&tmp_extract);
     Ok(RestoredWorld {
         final_folder_name: chosen,
     })
@@ -708,6 +718,17 @@ mod tests {
         zw.finish().unwrap();
     }
 
+    /// Collect leftover `.tmp-as-copy-*` extraction directories in a saves dir.
+    fn as_copy_leftovers(saves: &Path) -> Vec<String> {
+        fs::read_dir(saves)
+            .unwrap()
+            .filter_map(|e| {
+                let n = e.ok()?.file_name().into_string().ok()?;
+                n.starts_with(".tmp-as-copy-").then_some(n)
+            })
+            .collect()
+    }
+
     #[tokio::test]
     async fn restore_replace_rejects_a_corrupt_backup_without_moving_the_world() {
         // World "W" with marker file inside.
@@ -926,5 +947,64 @@ mod tests {
         );
         assert!(pre_restore_zips(&backups_dir).is_empty());
         assert!(staging_leftovers(&saves).is_empty());
+    }
+
+    #[tokio::test]
+    async fn restore_as_copy_re_roots_a_backup_taken_under_the_worlds_old_name() {
+        let (_td, saves, backups_dir) =
+            make_world_with_files("Survival (2)", &[("file.txt", b"v1")]);
+        let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
+        wzip::zip_dir(&saves.join("Survival (2)"), &backup_path, "Survival").unwrap();
+        fs::write(saves.join("Survival (2)").join("file.txt"), b"v2").unwrap();
+
+        let r = restore_as_copy(&saves, &backup_path, "Survival (2)")
+            .await
+            .unwrap();
+
+        assert_eq!(r.final_folder_name, "Survival (2) (restored)");
+        assert_eq!(
+            fs::read(saves.join("Survival (2) (restored)").join("file.txt")).unwrap(),
+            b"v1"
+        );
+        assert_eq!(
+            fs::read(saves.join("Survival (2)").join("file.txt")).unwrap(),
+            b"v2",
+            "the original is untouched by an as-copy restore"
+        );
+        assert!(
+            !saves.join("Survival").try_exists().unwrap(),
+            "re-rooting must not resurrect the old name as a second world"
+        );
+        let leftovers = as_copy_leftovers(&saves);
+        assert!(leftovers.is_empty(), "leftovers: {leftovers:?}");
+    }
+
+    #[tokio::test]
+    async fn restore_as_copy_rejects_an_archive_with_two_roots_and_leaves_nothing_behind() {
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
+        let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
+        write_zip_with_entries(
+            &bad_backup,
+            &[("Alpha/level.dat", b"a"), ("Beta/level.dat", b"b")],
+        );
+
+        let r = restore_as_copy(&saves, &bad_backup, "W").await;
+
+        let Err(Error::BackupCorrupt { details, .. }) = r else {
+            panic!("two roots must be BackupCorrupt, got: {r:?}");
+        };
+        assert!(
+            details.contains("Alpha") && details.contains("Beta"),
+            "the rejection must say what was found: {details}"
+        );
+        assert!(
+            !saves.join("W (restored)").try_exists().unwrap(),
+            "no world may appear from a rejected archive"
+        );
+        assert_eq!(
+            fs::read(saves.join("W").join("marker.txt")).unwrap(),
+            b"original"
+        );
+        assert!(as_copy_leftovers(&saves).is_empty());
     }
 }
