@@ -31,6 +31,18 @@ pub enum DatapackRejection {
     NotAPack,
 }
 
+// Carried by `Error::WorldMigrateInstanceRunning`. A typed role rather than a
+// string for the same reason as `DatapackRejection`: the UI renders it through
+// a translated word, never the enum name. `Deserialize` is derived because the
+// migration IPC types in `worlds::migrate` reuse it.
+/// Which side of a world migration an instance is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationRole {
+    Source,
+    Target,
+}
+
 #[derive(Debug, Clone, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
@@ -420,6 +432,44 @@ pub enum Error {
     /// the copy points at Logs.
     #[error("World import left a partial copy that could not be removed; it is at {folder_name}")]
     WorldImportPartialLeft { folder_name: String },
+
+    /// A world migration failed before its point of no return AND the
+    /// rollback could not remove the hidden stage (`.tmp-migrate-…`) it had
+    /// created in the target instance. Raise it ONLY when the stage is an
+    /// incomplete copy and the source world is intact: the copy says exactly
+    /// that. A failed rename-back on the move path leaves the user's only,
+    /// complete copy in the stage: `only_copy` is then `true` and the copy
+    /// tells them to put it back, never to delete it.
+    ///
+    /// `target_instance` is the target's display NAME, never its id: the
+    /// sentence points at a folder inside a specific instance, and from the
+    /// source's Worlds tab a bare "inside saves" would point at the user's
+    /// original world. `folder_name` is the stage directory's NAME — a bare
+    /// segment, never a full path. Both causes are `diag!`-logged where they
+    /// happen; the copy points at Logs.
+    ///
+    /// `only_copy`: `true` when the stage holds the user's ONLY copy — a move
+    /// whose rename into the stage succeeded and whose rename BACK failed. The
+    /// two states need opposite instructions ("delete the incomplete copy" vs.
+    /// "do not delete it — put it back"), so the UI renders two keys from one
+    /// variant. Never `true` on the copy path: the source is intact there.
+    #[error("World migration left a stage that could not be removed; it is at {folder_name} in instance {target_instance} (only copy: {only_copy})")]
+    WorldMigratePartialLeft {
+        folder_name: String,
+        target_instance: String,
+        only_copy: bool,
+    },
+
+    /// The source or the target of a world migration is running or starting.
+    /// Distinct from `InstanceBusy`, whose copy names no instance: a migration
+    /// involves two, and the user must be told which one to stop.
+    /// `instance_name` is the display NAME; `role` says which side it is on
+    /// and is rendered through a translated word, never the enum name.
+    #[error("Instance {instance_name} is running; it is the {role:?} of this migration")]
+    WorldMigrateInstanceRunning {
+        instance_name: String,
+        role: MigrationRole,
+    },
 
     #[error("Playtime I/O error: {details}")]
     PlaytimeIo { details: String },
@@ -1405,5 +1455,42 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "world_import_partial_left");
         assert_eq!(v["folder_name"], "World (2)");
+    }
+
+    #[test]
+    fn world_migrate_partial_left_serializes_with_its_tag_and_fields() {
+        let e = Error::WorldMigratePartialLeft {
+            folder_name: ".tmp-migrate-Base-1".into(),
+            target_instance: "Survival 1.21".into(),
+            only_copy: false,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "world_migrate_partial_left");
+        assert_eq!(v["folder_name"], ".tmp-migrate-Base-1");
+        assert_eq!(v["only_copy"], false);
+        // The display NAME, so the sentence can point at a specific instance.
+        assert_eq!(v["target_instance"], "Survival 1.21");
+    }
+
+    #[test]
+    fn world_migrate_instance_running_serializes_role_as_snake_case_tag() {
+        let e = Error::WorldMigrateInstanceRunning {
+            instance_name: "Creative Lab".into(),
+            role: MigrationRole::Target,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "world_migrate_instance_running");
+        assert_eq!(v["instance_name"], "Creative Lab");
+        // `format-error.ts` switches on exactly this string to pick the
+        // translated role word; the enum name must never cross the boundary.
+        assert_eq!(v["role"], "target");
+        assert_eq!(
+            Error::WorldMigrateInstanceRunning {
+                instance_name: "Creative Lab".into(),
+                role: MigrationRole::Source,
+            }
+            .to_string(),
+            "Instance Creative Lab is running; it is the Source of this migration"
+        );
     }
 }

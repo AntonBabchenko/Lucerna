@@ -389,6 +389,17 @@ describe('formatError', () => {
       world_import_invalid_archive: { kind: 'world_import_invalid_archive', details: 'd' },
       world_import_too_large: { kind: 'world_import_too_large', size: 3, cap: 2 },
       world_import_partial_left: { kind: 'world_import_partial_left', folder_name: 'World (2)' },
+      world_migrate_partial_left: {
+        kind: 'world_migrate_partial_left',
+        folder_name: '.tmp-migrate-copy-World-1',
+        target_instance: 'Survival 1.21',
+        only_copy: false,
+      },
+      world_migrate_instance_running: {
+        kind: 'world_migrate_instance_running',
+        instance_name: 'Survival 1.21',
+        role: 'target',
+      },
       playtime_io: { kind: 'playtime_io', details: 'd' },
       tray_io: { kind: 'tray_io', details: 'd' },
       window_io: { kind: 'window_io', details: 'd' },
