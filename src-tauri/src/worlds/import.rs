@@ -191,7 +191,7 @@ fn find_world_root(root: &Path) -> Option<PathBuf> {
 
 /// First free `saves/<name>` slot: `name`, then `name (2)`, `name (3)`, … up
 /// to `(999)`. `WorldNameUnresolvable` if all are taken.
-fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
+pub(crate) fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
     // `try_exists`, not `exists`: `exists()` answers false for ANY stat
     // failure, so a transient error would report an occupied slot as free —
     // and `Move::Copy` then merges the import INTO that existing world

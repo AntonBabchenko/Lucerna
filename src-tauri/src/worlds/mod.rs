@@ -245,7 +245,11 @@ pub fn delete_world(
     Ok(())
 }
 
-fn count_backups(backups_root: &std::path::Path, world_folder: &str) -> Result<u32> {
+/// Number of `*.zip` entries directly under `<backups_root>/<world_folder>/`;
+/// `0` when that directory is absent. Used by `list_worlds` for the row's
+/// backup count and by `worlds::migrate` to report how many archives a Move
+/// will carry along.
+pub(crate) fn count_backups(backups_root: &std::path::Path, world_folder: &str) -> Result<u32> {
     let world_backups = backups_root.join(world_folder);
     if !world_backups.exists() {
         return Ok(0);
