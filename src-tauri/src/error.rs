@@ -357,7 +357,7 @@ pub enum Error {
     #[error("Invalid world or backup name '{name}': {reason}")]
     WorldPathInvalid { name: String, reason: String },
 
-    #[error("Could not resolve a free name for '{folder_name}' after trying 99 suffixes")]
+    #[error("Could not resolve a free name for '{folder_name}' after trying 998 suffixes")]
     WorldNameUnresolvable { folder_name: String },
 
     /// A restore failed AND the rollback could not put the world back. The world
