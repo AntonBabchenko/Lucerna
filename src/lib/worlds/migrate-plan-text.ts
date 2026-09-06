@@ -137,6 +137,8 @@ export function splitTargets(instances: InstanceWithStatus[], sourceId: string):
 export interface MigrateGateState {
   /** The configured data root is unavailable (`dataLocation.fellBack`). */
   fellBack: boolean;
+  /** The picker has something to offer (`splitTargets().candidates`). */
+  hasCandidates: boolean;
   /** `taskFor({ instanceId: source })` is non-null. */
   sourceBusy: boolean;
   /** A target instance is chosen. */
@@ -147,12 +149,20 @@ export interface MigrateGateState {
 
 /**
  * Why the confirm button is disabled, or `null` when the migration may start.
- * Priority: data root fallen back → source busy → no target → plan in flight.
- * A failed plan and every §6 verdict leave the button enabled (D3).
+ * Priority: data root fallen back → nothing to migrate to → source busy → no
+ * target → plan in flight. A failed plan and every §6 verdict leave the button
+ * enabled (D3).
+ *
+ * An empty picker outranks the busy and no-target reasons because it is the
+ * only one the user cannot act on: "Choose a target instance first." above an
+ * empty picker is an instruction with nothing to follow it with. The sentence
+ * lives here rather than in the dialog so both places that say it — the note
+ * replacing the picker and this reason — cannot drift apart.
  */
 export function migrateDisabledKey(s: MigrateGateState): TranslationKey | null {
   const fallen = dataRootCreateDisabledKey(s.fellBack);
   if (fallen !== null) return fallen;
+  if (!s.hasCandidates) return 'worlds.migrate.noTargets';
   if (s.sourceBusy) return 'worlds.migrate.disabledBusy';
   if (!s.hasTarget) return 'worlds.migrate.disabledNoTarget';
   if (s.planning) return 'worlds.migrate.disabledPlanning';

@@ -156,16 +156,30 @@ describe('splitTargets', () => {
 });
 
 describe('migrateDisabledKey', () => {
-  const open = { fellBack: false, sourceBusy: false, hasTarget: true, planning: false };
+  const open = {
+    fellBack: false,
+    hasCandidates: true,
+    sourceBusy: false,
+    hasTarget: true,
+    planning: false,
+  };
 
   it('returns null when nothing blocks the migration', () => {
     expect(migrateDisabledKey(open)).toBeNull();
   });
 
   it('puts the data-root fallback first', () => {
-    expect(migrateDisabledKey({ ...open, fellBack: true, sourceBusy: true })).toBe(
-      'page.dataRootFallback.createDisabledReason',
-    );
+    expect(
+      migrateDisabledKey({ ...open, fellBack: true, hasCandidates: false, sourceBusy: true }),
+    ).toBe('page.dataRootFallback.createDisabledReason');
+  });
+
+  it('then an empty picker, never an instruction the user cannot follow', () => {
+    // With nowhere to migrate to, "choose a target first" and "stop the
+    // running instance" are both advice about a dialog that cannot proceed.
+    expect(
+      migrateDisabledKey({ ...open, hasCandidates: false, sourceBusy: true, hasTarget: false }),
+    ).toBe('worlds.migrate.noTargets');
   });
 
   it('then a task active for the source', () => {

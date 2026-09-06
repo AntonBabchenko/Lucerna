@@ -158,6 +158,7 @@
   const disabledKey = $derived(
     migrateDisabledKey({
       fellBack: dataLocation.fellBack,
+      hasCandidates: split.candidates.length > 0,
       sourceBusy: taskFor({ instanceId }) !== null,
       hasTarget: selectedTarget !== null,
       planning,
@@ -382,7 +383,12 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
       {$t('common.cancel')}
     </button>
-    <span class="inline-flex" use:tooltip={{ text: disabledReason ?? '', describe: false }}>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <span
+      class="inline-flex"
+      tabindex={disabledReason !== null ? 0 : undefined}
+      use:tooltip={{ text: disabledReason ?? '', describe: false }}
+    >
       <BusyButton
         type="button"
         class="btn-primary btn-sm"

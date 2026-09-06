@@ -101,13 +101,19 @@ const outcome: MigrationOutcome = {
   backups_left: 0,
 };
 
-function renderDialog(over: { onDone?: (r: unknown) => void; onClose?: () => void } = {}) {
+function renderDialog(
+  over: {
+    onDone?: (r: unknown) => void;
+    onClose?: () => void;
+    instances?: InstanceWithStatus[];
+  } = {},
+) {
   return render(MigrateWorldDialog, {
     props: {
       instanceId: 'src',
       instanceName: 'Source',
       world,
-      instances,
+      instances: over.instances ?? instances,
       onClose: over.onClose ?? (() => {}),
       onDone: over.onDone ?? (() => {}),
     },
@@ -210,6 +216,36 @@ describe('MigrateWorldDialog — confirm gate', () => {
     expect(screen.getByTestId('migrate-disabled-reason').textContent).toContain(
       'disabled while the data folder is unavailable',
     );
+  });
+
+  it('says there is nowhere to migrate to instead of asking for a target', () => {
+    // Only the source and a version-less instance: the picker is replaced by
+    // the note, so "Choose a target instance first." would be an instruction
+    // with nothing to follow it with.
+    renderDialog({ instances: [source, beta] });
+    expect(screen.getByTestId('migrate-no-targets')).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect((screen.getByTestId('migrate-confirm') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('migrate-disabled-reason').textContent?.trim()).toBe(
+      'No other instance can receive this world.',
+    );
+  });
+
+  it('keeps the reason reachable by keyboard while the confirm is blocked', async () => {
+    // A disabled button receives no hover and `title=` is banned (DESIGN.md
+    // §5), so the reason rides the wrapping span — focusable only while the
+    // action is blocked, the WorldDatapacks / WorldDetailDialog shape.
+    renderDialog();
+    const confirm = screen.getByTestId('migrate-confirm') as HTMLButtonElement;
+    const wrap = confirm.parentElement as HTMLElement;
+    expect(wrap.tagName).toBe('SPAN');
+    expect(confirm.getAttribute('title')).toBeNull();
+    expect(wrap.getAttribute('tabindex')).toBe('0');
+
+    await pickTarget(/Alpha/);
+    await screen.findByTestId('migrate-verdict');
+    expect(confirm.disabled).toBe(false);
+    expect(wrap.hasAttribute('tabindex')).toBe(false);
   });
 });
 
