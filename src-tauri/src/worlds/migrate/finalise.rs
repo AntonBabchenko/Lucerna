@@ -26,11 +26,11 @@ const MAX_FINALISE_ATTEMPTS: usize = 999;
 /// The name is chosen by `pick_free_world_name` immediately before each
 /// attempt; a rename refused because the name appeared in the probe → rename
 /// gap moves on to the next suffix. Any other failure rolls the stage back
-/// (`roll_back_stage`) and is returned — errno 5/32/33 as `WorldInUse`, whose
-/// "try again" is true because the source slot is whole again, anything else
-/// as `Io`. On Linux `rename(2)` replaces an EMPTY directory of the target
-/// name; an empty `saves/<name>` is not a world and the gap is microseconds —
-/// stated, not closed, as `import.rs` states its own.
+/// (`roll_back_stage`) and is returned — on Windows errno 5/32/33 as
+/// `WorldInUse`, whose "try again" is true because the source slot is whole
+/// again, anything else as `Io`. On Linux `rename(2)` replaces an EMPTY
+/// directory of the target name; an empty `saves/<name>` is not a world and
+/// the gap is microseconds — stated, not closed, as `import.rs` states its own.
 pub(crate) fn finalise_at(
     loc: &MigrationLocations,
     staged: &Staged,
@@ -94,11 +94,13 @@ fn name_appeared(dest: &Path) -> bool {
     dest.try_exists().unwrap_or(false)
 }
 
-/// errno 5/32/33 is a running Minecraft holding the world open — the mapping
-/// `worlds::remove_world_dir_at` uses. Valid here only because the caller rolls
-/// the stage back first: `WorldInUse`'s copy says "try again".
+/// On Windows errno 5/32/33 is a running Minecraft holding the world open —
+/// the mapping `worlds::remove_world_dir_at` uses, gated to Windows by
+/// `stage::is_in_use` because on POSIX errno 5 is EIO and "quit Minecraft and
+/// try again" would be a false statement. Valid here only because the caller
+/// rolls the stage back first: `WorldInUse`'s copy says "try again".
 fn map_rename_failure(world_folder: &str, dest: &Path, e: std::io::Error) -> Error {
-    if matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) {
+    if super::stage::is_in_use(&e) {
         Error::WorldInUse {
             folder_name: world_folder.to_string(),
         }
@@ -451,6 +453,35 @@ mod tests {
         assert!(matches!(r, Err(Error::Io { .. })), "{r:?}");
         assert_eq!(marker_of(&fx.loc.src_saves.join("W")), b"staged");
         assert!(tmp_dirs(&fx.loc.dst_saves).is_empty());
+    }
+
+    /// errno 32 at the final rename: on Windows a sharing violation — a
+    /// running Minecraft — so `WorldInUse` once the stage is rolled back;
+    /// elsewhere the same number is EPIPE and says nothing about Minecraft,
+    /// so `Io`. Either way the copy-path rollback removes the stage.
+    #[test]
+    fn a_lock_error_at_the_final_rename_is_world_in_use_on_windows_and_io_elsewhere() {
+        let fx = two_instances();
+        let staged = stage_with_world(&fx, MigrationPath::Copied);
+        let seams = seams(
+            |_, _| Err(io::Error::from_raw_os_error(32)),
+            |p| fs::remove_dir_all(p),
+        );
+
+        let r = finalise_at(&fx.loc, &staged, &seams);
+
+        match r {
+            Err(Error::WorldInUse { folder_name }) if cfg!(windows) => {
+                assert_eq!(folder_name, "W")
+            }
+            Err(Error::Io { .. }) if !cfg!(windows) => {}
+            other => panic!("unexpected mapping on this platform: {other:?}"),
+        }
+        assert!(
+            tmp_dirs(&fx.loc.dst_saves).is_empty(),
+            "copy-path rollback removes the stage"
+        );
+        assert_eq!(marker_of(&fx.loc.src_saves.join("W")), b"original");
     }
 
     #[test]

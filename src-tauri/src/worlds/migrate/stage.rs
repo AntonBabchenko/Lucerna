@@ -390,11 +390,15 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     }
 }
 
-/// Windows: access denied (5) / sharing violation (32) / lock violation (33)
-/// — a running Minecraft holding the world's files open. Same codes as
-/// `worlds::delete_world` and `restore::map_move_aside_error`.
-fn is_in_use(e: &std::io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33))
+/// Windows only: access denied (5) / sharing violation (32) / lock violation
+/// (33) — a running Minecraft holding the world's files open. Same codes as
+/// `worlds::delete_world` and `restore::map_move_aside_error`. On POSIX errno
+/// 5 is EIO and 32 is EPIPE, so "quit Minecraft and try again" would be a
+/// false statement there. Shared with `finalise::map_rename_failure` so every
+/// phase of a migration gates the mapping the same way (`map_copy_error`
+/// applies the same gate to the stringified error `copy_tree` returns).
+pub(super) fn is_in_use(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33))
 }
 
 /// The stage's bare directory NAME — a segment inside a translated sentence,
@@ -577,8 +581,12 @@ mod tests {
         assert!(fx.world.join("level.dat").is_file());
     }
 
+    /// errno 32 from the move's rename: on Windows a sharing violation — a
+    /// running Minecraft — so `WorldInUse`; elsewhere the same number is
+    /// EPIPE and says nothing about Minecraft, so `Io`. Both leave nothing
+    /// behind.
     #[test]
-    fn move_reports_world_in_use_and_leaves_nothing_behind() {
+    fn move_reports_world_in_use_on_windows_and_io_elsewhere_leaving_nothing_behind() {
         let fx = fixture();
         let before = tree(&fx.world);
         let s = seams(
@@ -587,8 +595,11 @@ mod tests {
         );
         let err = stage_world_at(&fx.loc, MigrationMode::Move, &mut |_, _| {}, &s).unwrap_err();
         match err {
-            Error::WorldInUse { folder_name } => assert_eq!(folder_name, "Survival"),
-            other => panic!("expected WorldInUse, got {other:?}"),
+            Error::WorldInUse { folder_name } if cfg!(windows) => {
+                assert_eq!(folder_name, "Survival")
+            }
+            Error::Io { .. } if !cfg!(windows) => {}
+            other => panic!("unexpected mapping on this platform: {other:?}"),
         }
         assert!(stages_in(&fx.loc.dst_saves).is_empty());
         assert_eq!(tree(&fx.world), before);
