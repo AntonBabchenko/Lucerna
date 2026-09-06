@@ -2910,8 +2910,9 @@ export type DatapackPlacementView = {
 };
 
 /**
- *  Plan-time prediction for one `.zip`: `Linked`, `Adopted`, or
- *  `LeftAsCopy { NameHeldByDifferentPack }`.
+ *  Plan-time prediction for one `.zip`: `Linked`, `Adopted`, or `LeftAsCopy`
+ *  — `NameHeldByDifferentPack` for different bytes, `Io` when the library
+ *  name could not be checked, `Unreadable` when a side could not be read.
  */
 export type DatapackPlan = {
 	filename: string,
@@ -4705,8 +4706,8 @@ export type MigrationPlan = {
 /**  `f64`, not `u64`: specta-typescript rejects `u64` (A10). */
 export type MigrationProgress = {
 	phase: MigrationPhase,
-	current: number,
-	total: number,
+	current: number | null,
+	total: number | null,
 };
 
 /**  Which side of a world migration an instance is on. */
