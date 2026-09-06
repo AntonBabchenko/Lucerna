@@ -143,8 +143,11 @@ fn zip_stem(name: &str) -> Option<&str> {
 /// are not `.zip` files are never touched and count in `ignored`. `src_dir` is
 /// removed only when nothing was left and a fresh listing shows it empty;
 /// `NotFound` there means it is already gone, and any other removal failure is
-/// `Err` — logged with the moved count first, because by then the zips HAVE
-/// moved and Logs must say so.
+/// logged and NOT an error — by then the zips HAVE moved and the report must
+/// reach the caller (a migration is past its point of no return here); the
+/// empty leftover is invisible to every listing. The function still returns
+/// `Result` because the `read_dir` / `create_dir_all` / rename-loop
+/// preconditions can fail before any rename.
 pub fn move_set_at(src_dir: &Path, dst_dir: &Path) -> Result<MoveReport> {
     let entries = match std::fs::read_dir(src_dir) {
         Ok(rd) => rd,
@@ -226,7 +229,12 @@ pub fn move_set_at(src_dir: &Path, dst_dir: &Path) -> Result<MoveReport> {
                 dst_dir.display(),
                 src_dir.display()
             );
-            return Err(e);
+            // Not an error: by now every zip HAS moved, and the report must
+            // reach the caller — a migration is past its point of no return
+            // here (spec A4: outcomes, never errors). The leftover directory is
+            // empty and invisible to every listing (`orphaned_backup_sets_at`
+            // needs a zip; `count_backups` reports 0), so Logs is the only
+            // place it can be mentioned, and it just was.
         }
     }
     Ok(report)
