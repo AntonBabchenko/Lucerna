@@ -328,9 +328,24 @@ pub async fn migrate_world_at(
     let final_name = {
         let loc_task = loc.clone();
         let seams_task = seams.clone();
-        tokio::task::spawn_blocking(move || finalise_at(&loc_task, &staged, &seams_task))
-            .await
-            .map_err(join_error)??
+        let finalised =
+            match tokio::task::spawn_blocking(move || finalise_at(&loc_task, &staged, &seams_task))
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => Err(join_error(e)),
+            };
+        match finalised {
+            Ok(final_name) => final_name,
+            // Rolled back — or the rollback itself failed, which the error
+            // says. Either way the outcome that would have listed the packs
+            // the re-link step adopted is lost with it, so they are logged
+            // here (spec §4.1 Rollback) before the error goes up.
+            Err(e) => {
+                log_packs_kept_after_rollback(&relinked);
+                return Err(e);
+            }
+        }
     };
     // ---- point of no return: the world is complete in the target ----
 
@@ -368,14 +383,23 @@ pub async fn migrate_world_at(
         let final_task = final_name.clone();
         match tokio::task::spawn_blocking(move || move_backups(&loc_task, &final_task)).await {
             Ok(counts) => counts,
+            // A panic in the move task: no move is claimed, and what is
+            // still in the source is counted afresh (no pre-count survives
+            // the task).
             Err(e) => {
                 crate::diag!("world migrate: backup move task failed: {e}");
-                (0, count_or_zero(&loc.src_backups_root, &loc.world_folder))
+                (
+                    0,
+                    backups_left_or_zero(&loc.src_backups_root, &loc.world_folder, None),
+                )
             }
         }
     } else {
         // The source world is still there; its backups stay with it.
-        (0, count_or_zero(&loc.src_backups_root, &loc.world_folder))
+        (
+            0,
+            backups_left_or_zero(&loc.src_backups_root, &loc.world_folder, None),
+        )
     };
 
     Ok(MigrationOutcome {
@@ -402,6 +426,31 @@ fn join_error(e: tokio::task::JoinError) -> crate::error::Error {
     crate::error::Error::io("<migrate>", format!("join: {e}"))
 }
 
+/// Spec §4.1 Rollback: a failed finalise rolls the stage back, but the packs
+/// the re-link step adopted into the TARGET library are kept — they are valid
+/// library entries, and a retry links the world to them directly instead of
+/// adopting again. `Adopted` and `CopiedNotLinked` are the results that put
+/// (or found) the bytes in the library; only those are named, and only when
+/// there are any.
+fn log_packs_kept_after_rollback(relinked: &Relinked) {
+    let kept: Vec<&str> = relinked
+        .datapacks
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.result,
+                DatapackResult::Adopted | DatapackResult::CopiedNotLinked
+            )
+        })
+        .map(|d| d.filename.as_str())
+        .collect();
+    if !kept.is_empty() {
+        crate::diag!(
+            "world migrate: rolled back; already adopted into the target library and kept (a retry links them directly): {kept:?}"
+        );
+    }
+}
+
 /// Move the source world's backup set to the target. Runs after the point of
 /// no return, so nothing here is ever an error: the world is complete in the
 /// target and a backup that could not follow it is reported as `backups_left`,
@@ -415,8 +464,10 @@ fn join_error(e: tokio::task::JoinError) -> crate::error::Error {
 fn move_backups(loc: &MigrationLocations, final_name: &str) -> (u32, u32) {
     let src_dir = loc.src_backups_root.join(&loc.world_folder);
     let dst_dir = loc.dst_backups_root.join(final_name);
-    let src_before = count_or_zero(&loc.src_backups_root, &loc.world_folder);
-    let dst_before = count_or_zero(&loc.dst_backups_root, final_name);
+    // Counted ONCE before the move: the figure `left` falls back to when the
+    // recount after a failure cannot be taken.
+    let src_before = backup_count(&loc.src_backups_root, &loc.world_folder);
+    let dst_before = backup_count(&loc.dst_backups_root, final_name);
     match crate::worlds::backup::move_set_at(&src_dir, &dst_dir) {
         Ok(report) => (report.moved, report.left),
         Err(e) => {
@@ -425,35 +476,53 @@ fn move_backups(loc: &MigrationLocations, final_name: &str) -> (u32, u32) {
                 src_dir.display(),
                 dst_dir.display()
             );
-            let moved = count_or_zero(&loc.dst_backups_root, final_name).saturating_sub(dst_before);
-            let left = match crate::worlds::count_backups(&loc.src_backups_root, &loc.world_folder)
-            {
-                Ok(n) => n,
-                // Could not tell ⇒ every zip that did not visibly arrive is
-                // reported as still here — the pessimistic figure; the orphan
-                // panel remains the authoritative view of the directory.
-                Err(err) => {
-                    crate::diag!(
-                        "world migrate: could not recount {}: {err}",
-                        src_dir.display()
-                    );
-                    src_before.saturating_sub(moved)
-                }
+            // `moved` needs the target counted both before and after; with
+            // either count missing no move is claimed — the restrictive
+            // figure (never claim a move that cannot be seen).
+            let moved = match (dst_before, backup_count(&loc.dst_backups_root, final_name)) {
+                (Some(before), Some(after)) => after.saturating_sub(before),
+                _ => 0,
             };
+            // A fresh recount first; failing that, every zip that did not
+            // visibly arrive is reported as still here — the pessimistic
+            // figure.
+            let left = backups_left_or_zero(
+                &loc.src_backups_root,
+                &loc.world_folder,
+                src_before.map(|before| before.saturating_sub(moved)),
+            );
             (moved, left)
         }
     }
 }
 
-/// `count_backups`, with "could not count" reported as 0 and logged. This is
-/// the restrictive direction for `moved` (never claim a move that cannot be
-/// seen); for `left` the caller keeps the figure it counted before the move.
-fn count_or_zero(root: &std::path::Path, world: &str) -> u32 {
+/// `count_backups` with "could not count" kept apart from zero: `None`, and
+/// the cause logged.
+fn backup_count(root: &Path, world: &str) -> Option<u32> {
     match crate::worlds::count_backups(root, world) {
-        Ok(n) => n,
+        Ok(n) => Some(n),
         Err(e) => {
             crate::diag!(
                 "world migrate: could not count backups under {}/{world}: {e}",
+                root.display()
+            );
+            None
+        }
+    }
+}
+
+/// The `backups_left` figure: a fresh count of the source set, else the
+/// `fallback` the caller counted before the move, else 0 — and that last one
+/// is logged as the guess it is, because a "0 left" out of ignorance is a
+/// definite figure the toast would state as fact. The orphan panel ("Backups
+/// without a world") reads the directory itself and stays authoritative for
+/// the real list.
+fn backups_left_or_zero(root: &Path, world: &str, fallback: Option<u32>) -> u32 {
+    match backup_count(root, world).or(fallback) {
+        Some(n) => n,
+        None => {
+            crate::diag!(
+                "world migrate: backups_left reported as 0 for {}/{world} although the set could not be counted; the orphan panel shows the real list",
                 root.display()
             );
             0
