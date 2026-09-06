@@ -82,6 +82,14 @@ function instance(over: Partial<InstanceWithStatus>): InstanceWithStatus {
     ready: true,
     has_icon: false,
     mrpack_name: null,
+    mrpack_version: null,
+    mrpack_project_id: null,
+    mrpack_source: null,
+    mrpack_summary: null,
+    mrpack_version_id: null,
+    integrity: null,
+    imported_from: null,
+    created_from_server: null,
     ...over,
   };
 }

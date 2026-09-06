@@ -3,6 +3,8 @@
 // is the same `load(id)` the selection effect performs, so a world moved out
 // of the active instance leaves the menu instead of Quick-Playing a folder
 // that is gone (world-migration spec §7 "Completion", §9 "Frontend").
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,5 +67,48 @@ describe('createQuickWorlds — refresh after a migration', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(names(qw)).toEqual(['Other World']);
     qw.dispose();
+  });
+});
+
+// The composable above is only half the §9 line: it can refresh, but nothing
+// makes it. `+page.svelte` is the whole app shell and is not renderable under
+// vitest (it is excluded from the coverage denominator for that reason), so
+// its half is a source scan — the `tests/page-silent-failure-guards.test.ts`
+// shape. MainTabs' link in the same chain is pinned in tests/main-tabs.test.ts.
+const PAGE = resolve('src/routes/+page.svelte');
+const pageSrc = readFileSync(PAGE, 'utf8');
+
+/**
+ * The body of a function, brace-matched from its header. Adequate here for the
+ * same reason as in `page-silent-failure-guards`: the body scanned holds no
+ * brace inside a string or a template literal. If one ever does, this returns a
+ * short slice and the assertions below fail loudly instead of passing.
+ */
+function functionBody(header: string): string {
+  const start = pageSrc.indexOf(header);
+  expect(start, `${header} must still exist in +page.svelte`).toBeGreaterThan(-1);
+  const open = pageSrc.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < pageSrc.length; i++) {
+    if (pageSrc[i] === '{') depth++;
+    else if (pageSrc[i] === '}' && --depth === 0) return pageSrc.slice(open, i + 1);
+  }
+  throw new Error(`unbalanced braces after ${header}`);
+}
+
+describe('+page.svelte — the Play menu refresh the Worlds tab triggers', () => {
+  it('hands `refreshQuickWorlds` to MainTabs as onWorldsChanged', () => {
+    // Without this forward the migration outcome never reaches the Play menu
+    // and "Play this world" keeps offering a folder that was moved away.
+    expect(pageSrc).toContain('onWorldsChanged={refreshQuickWorlds}');
+  });
+
+  it('refreshes through the same load/clear rule that fills the menu', () => {
+    const body = functionBody('function refreshQuickWorlds()');
+    // Both halves matter: `load` re-reads the eligible instance's worlds, and
+    // `clear` is what an ineligible one must resolve to — a refresh that only
+    // ever loaded would leave a stale list standing.
+    expect(body).toContain('quickWorlds.load(');
+    expect(body).toContain('quickWorlds.clear(');
   });
 });
