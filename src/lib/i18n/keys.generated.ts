@@ -2906,7 +2906,6 @@ export type TranslationKey =
   | 'worlds.migrate.leftReason.io'
   | 'worlds.migrate.leftReason.linkFailed'
   | 'worlds.migrate.leftReason.nameHeldByDifferentPack'
-  | 'worlds.migrate.leftReason.notADatapack'
   | 'worlds.migrate.leftReason.tooLarge'
   | 'worlds.migrate.leftReason.unreadable'
   | 'worlds.migrate.loaderDiffers'

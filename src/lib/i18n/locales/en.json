@@ -1523,7 +1523,6 @@
       },
       "leftReason": {
         "nameHeldByDifferentPack": "its name is in use by a different pack in the target library",
-        "notADatapack": "the target library did not accept it as a datapack",
         "tooLarge": "it is larger than the target library accepts",
         "linkFailed": "the link into the target library could not be created",
         "unreadable": "the file could not be read",
@@ -2808,7 +2807,7 @@
     },
     "dataRootFallback": {
       "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then. If the folder is gone for good, detach it via Settings → Storage → \"Reset to default\" (nothing on it is deleted).",
-      "createDisabledReason": "Creating instances and servers is disabled while the data folder is unavailable.",
+      "createDisabledReason": "Creating and moving instance data is disabled while the data folder is unavailable.",
       "playDisabledReason": "Playing is disabled while the data folder is unavailable. Reconnect it and restart Lucerna."
     },
     "modpackImport": {

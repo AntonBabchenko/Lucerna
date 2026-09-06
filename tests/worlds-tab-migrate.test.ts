@@ -224,6 +224,34 @@ describe('buildMigrationToast — says only what happened', () => {
     expect(text).not.toContain('tectonic.zip');
   });
 
+  it('names the resource-pack case exactly, not an umbrella "not a datapack"', () => {
+    // `NotADatapack` carries a typed `DatapackRejection`; the toast is where
+    // the user learns which one, because "it is a resource pack" is the case
+    // they can act on and the same sentence the library's own error shows.
+    const r = buildMigrationToast(tr, {
+      ...base,
+      mode: 'copy',
+      outcome: outcome({
+        path: 'copied',
+        source_state: { kind: 'untouched' },
+        datapacks: [
+          {
+            filename: 'faithful.zip',
+            result: {
+              kind: 'left_as_copy',
+              reason: { kind: 'not_a_datapack', reason: 'is_a_resource_pack' },
+            },
+          },
+        ],
+      }),
+    });
+    expect(r.kind).toBe('warning');
+    const text = r.lines.join('\n');
+    expect(text).toContain('faithful.zip');
+    expect(text).toContain(tr('errors.datapackInvalidReason.isAResourcePack'));
+    expect(text).toMatch(/resource pack/i);
+  });
+
   it('a copy where every pack linked or was adopted is a success with no failure wording', () => {
     const r = buildMigrationToast(tr, {
       ...base,

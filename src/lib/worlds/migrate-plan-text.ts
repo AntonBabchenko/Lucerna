@@ -10,6 +10,7 @@ import type {
   UnknownReason,
   VersionVerdict,
 } from '$lib/ipc/bindings';
+import { datapackRejectionKey } from '$lib/ipc/format-error';
 import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
 /** Record, not a switch: a new `UnknownReason` without a sentence must not compile. */
@@ -62,11 +63,11 @@ const KEPT_BUCKET: Record<LeftReason['kind'], 'nameTaken' | 'notAdded'> = {
  * of the two plan-time buckets above — those exist only because `predict_one`
  * cannot tell the five non-name causes apart before the copy happens. Record,
  * not a switch, for the same reason: a seventh `LeftReason` without a sentence
- * must not compile.
+ * must not compile. `NotADatapack` is excluded because it carries a typed
+ * `DatapackRejection` of its own — see `leftReasonKey`.
  */
-const LEFT_REASON_KEY: Record<LeftReason['kind'], TranslationKey> = {
+const LEFT_REASON_KEY: Record<Exclude<LeftReason['kind'], 'not_a_datapack'>, TranslationKey> = {
   name_held_by_different_pack: 'worlds.migrate.leftReason.nameHeldByDifferentPack',
-  not_a_datapack: 'worlds.migrate.leftReason.notADatapack',
   too_large: 'worlds.migrate.leftReason.tooLarge',
   link_failed: 'worlds.migrate.leftReason.linkFailed',
   unreadable: 'worlds.migrate.leftReason.unreadable',
@@ -75,10 +76,18 @@ const LEFT_REASON_KEY: Record<LeftReason['kind'], TranslationKey> = {
 
 /**
  * Why a datapack stayed a plain copy in the migrated world instead of being
- * linked into the target library (spec §5 steps 4–5), as the sentence fragment
- * the completion toast reads out after "… not linked to the target library:".
+ * linked into the target library (spec §5 steps 4–5), as the sentence the
+ * completion toast reads out after "… not linked to the target library:".
+ *
+ * `NotADatapack` is the one variant the backend qualifies: it carries the same
+ * typed `DatapackRejection` the library's own "this file is not a datapack"
+ * error does, and "it is a resource pack" is something the user can act on.
+ * Reusing `datapackRejectionKey` keeps that sentence identical wherever the
+ * rejection surfaces, instead of paraphrasing it into an umbrella here (spec
+ * §7 "Completion").
  */
 export function leftReasonKey(r: LeftReason): TranslationKey {
+  if (r.kind === 'not_a_datapack') return datapackRejectionKey(r.reason);
   return LEFT_REASON_KEY[r.kind];
 }
 
