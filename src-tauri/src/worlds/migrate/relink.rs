@@ -633,6 +633,55 @@ mod tests {
         }
     }
 
+    /// `LinkFailed`: the library holds the identical pack, but the world's
+    /// `datapacks/` directory is not writable (mode 0o555), so `materialize`
+    /// can neither link nor copy a temp sibling into it. The entry is left as
+    /// a copy with that reason, the library file is untouched, and the step
+    /// still succeeds. Unix only: a read-only bit on a Windows directory does
+    /// not stop file creation inside it. Permissions are saved and restored
+    /// (never `set_readonly(false)`, which would widen the mode) — restored
+    /// BEFORE the assertions, so the tempdir cleans up even when one fails.
+    /// `set_readonly` rather than a mode literal: `PermissionsExt` is confined
+    /// to `platform::` by `structural_platform_chokepoint`.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_datapacks_dir_that_cannot_be_written_leaves_the_pack_as_link_failed() {
+        let _lock = hardlink_lock();
+        let f = fixture();
+        seed_library(&f.dst_root, "vm.zip", 48).await;
+        let staged = stage_file(&f, "vm.zip", &datapack_zip(48));
+        let dp_dir = f.stage.join("datapacks");
+        let original = std::fs::metadata(&dp_dir).unwrap().permissions();
+        let mut read_only = original.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&dp_dir, read_only).unwrap();
+
+        let out =
+            relink_datapacks_at(&f.stage, &f.src_root, &f.dst_root, MigrationPath::Copied).await;
+
+        std::fs::set_permissions(&dp_dir, original).unwrap();
+        let out = out.expect("a per-entry failure is never fatal");
+        assert_eq!(
+            out.datapacks,
+            vec![DatapackMigration {
+                filename: "vm.zip".into(),
+                result: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::LinkFailed,
+                },
+            }]
+        );
+        assert_eq!(
+            std::fs::read(lib_file(&f.dst_root, "vm.zip")).unwrap(),
+            datapack_zip(48),
+            "the library file is untouched"
+        );
+        assert_eq!(
+            std::fs::read(&staged).unwrap(),
+            datapack_zip(48),
+            "the world keeps its plain copy"
+        );
+    }
+
     /// `materialize`'s documented fallback: when the filesystem cannot link,
     /// the outcome says so — a copy is never reported as `Linked`/`Adopted`.
     #[tokio::test]
