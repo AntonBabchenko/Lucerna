@@ -16,6 +16,37 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Move or copy a world to another instance.** A world's detail dialog has a
+  new footer action that takes the world to any other instance — as a copy,
+  which leaves the original where it is, or as a move. Before anything is
+  written the dialog says what will change: whether Minecraft will upgrade the
+  world the first time it opens there (decided by the world's data version, not
+  by comparing version names), which of the world's datapacks the target's
+  library already holds, and how many of the mods the world was played with are
+  missing in the target. The world's datapacks arrive connected to the target's
+  library rather than as loose files — a pack the library already has under the
+  same name becomes a link to it, a new one is adopted; a pack whose name is
+  taken by a different pack is left as a plain copy and the launcher says so,
+  rather than overwriting the library and every other world linked to it. A
+  move takes the world's backups along; between instances on the same drive it
+  is a rename, so it is instant and needs no second copy on disk. While a
+  migration runs, neither instance can be launched, deleted, re-versioned or
+  edited, and the toast at the end names where the world landed and anything
+  that could not be moved — the original is never removed until the copy is
+  complete, and nothing after that point is reported as an error to retry.
+
+### Fixed
+
+- **Restoring a backup no longer fails when the world was renamed after the
+  backup was made.** A backup archive carries the world's folder name from the
+  time it was taken; if the folder was renamed since — in the file manager, or
+  because a migration had to give the world a suffixed name — both restore modes
+  rejected the archive as corrupt. They now accept an archive with a single
+  top-level folder under any name and restore it under the world's current one.
+  An archive with no folder, or several, is still refused.
+
 ### Security
 
 - Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
