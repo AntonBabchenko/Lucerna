@@ -68,6 +68,39 @@ describe('OrphanedSection — a world a rollback could not put back', () => {
     expect(await screen.findByText(/My World/)).toBeTruthy();
   });
 
+  it('a parked move says "move", never "restore", and offers to put it back', async () => {
+    renderSection({
+      stranded: [
+        {
+          dir_name: '.tmp-migrate-moved-Base-0',
+          world_folder: 'Base',
+          target_occupied: false,
+          kind: 'migration',
+        },
+      ],
+    });
+    expect(await screen.findByText(/Interrupted move/)).toBeTruthy();
+    expect(screen.queryByText(/Interrupted restore/)).toBeNull();
+    expect(screen.getByText(/"Base"/)).toBeTruthy();
+    expect(screen.getByTestId('stranded-recover-btn')).toBeTruthy();
+  });
+
+  it('a parked move whose name is taken explains the clash instead of calling it a leftover', async () => {
+    renderSection({
+      stranded: [
+        {
+          dir_name: '.tmp-migrate-moved-Base-0',
+          world_folder: 'Base',
+          target_occupied: true,
+          kind: 'migration',
+        },
+      ],
+    });
+    expect(await screen.findByText(/waiting for a free name/)).toBeTruthy();
+    expect(screen.queryByText(/Leftover copy from a restore/)).toBeNull();
+    expect(screen.queryByTestId('stranded-recover-btn')).toBeNull();
+  });
+
   it('recovering calls the command with the directory name and reports the change', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.recoverStrandedWorld).mockResolvedValueOnce({

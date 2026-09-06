@@ -1424,7 +1424,11 @@
       "toastRecovered": "Recovered {world}",
       "leftoverTitle": "Leftover copy from a restore",
       "leftoverDescription": "A restore of \"{worldFolder}\" finished, and a copy of the world as it was beforehand is still on disk. Your current world is the restored one — nothing is missing. Delete the folder when you no longer need the older copy.",
-      "openFolderBtn": "Open saves folder"
+      "openFolderBtn": "Open saves folder",
+      "migrationTitle": "Interrupted move",
+      "migrationDescription": "A move of \"{worldFolder}\" into this instance didn't finish. The world's files are safe here and can be put back under that name.",
+      "migrationBlockedTitle": "Moved world waiting for a free name",
+      "migrationBlockedDescription": "A world named \"{worldFolder}\" already exists here, and a world moved from another instance is parked beside it under the same name. Rename one of them in the saves folder, then put the moved world back."
     },
     "datapacks": {
       "tab": "Datapacks (Beta)",
