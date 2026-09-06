@@ -737,16 +737,27 @@
     quickPlaySupported && (activeInstance?.ready ?? false) && !selectedRunning,
   );
 
-  // Load the cheap world list when the active instance is eligible; drop it
-  // otherwise. Loads regardless of `running` (worlds only change on exit,
-  // which the composable already re-fetches on); `menuEnabled` gates display.
-  $effect(() => {
+  // One definition of "which instance's worlds the Play menu lists". The
+  // selection effect below and the Worlds tab's post-migration refresh
+  // (`onWorldsChanged`) both go through it, so a world moved out of the
+  // active instance leaves the menu by the same rule that put it there —
+  // otherwise "Play this world" would Quick-Play a folder that is gone.
+  // Loads regardless of `running` (worlds only change on exit, which the
+  // composable already re-fetches on); `quickPlayMenuEnabled` gates display.
+  function refreshQuickWorlds() {
     const id = activeInstance?.id ?? null;
     if (id && quickPlaySupported && (activeInstance?.ready ?? false)) {
       quickWorlds.load(id);
     } else {
       quickWorlds.clear();
     }
+  }
+
+  // Load the cheap world list when the active instance is eligible; drop it
+  // otherwise. `refreshQuickWorlds` reads `activeInstance` and
+  // `quickPlaySupported` synchronously, so this effect re-runs on either.
+  $effect(() => {
+    refreshQuickWorlds();
   });
 
   async function refreshAccounts() {
@@ -1625,9 +1636,11 @@
           mcVersion={activeInstance?.mc_version ?? null}
           loader={activeInstance?.loader ?? null}
           loaderVersion={activeInstance?.loader_version ?? null}
+          {instances}
           onListChanged={() => {
             void refreshInstances();
           }}
+          onWorldsChanged={refreshQuickWorlds}
           {onQuickPlayWorld}
           {quickPlayDisabledReason}
           running={selectedRunning}

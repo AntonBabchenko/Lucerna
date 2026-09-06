@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import ScreenshotsTab from '$lib/screenshots/ScreenshotsTab.svelte';
@@ -15,7 +16,9 @@
     mcVersion = null,
     loader = null,
     loaderVersion = null,
+    instances = [],
     onListChanged = () => {},
+    onWorldsChanged = () => {},
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
     running = false,
@@ -26,7 +29,11 @@
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     loaderVersion?: string | null;
+    /** Every instance — the Worlds tab's migrate dialog picks its target from it. */
+    instances?: InstanceWithStatus[];
     onListChanged?: () => void;
+    /** The Worlds tab's world set changed on disk (a migration landed). */
+    onWorldsChanged?: () => void;
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
     running?: boolean;
@@ -172,7 +179,10 @@
     {:else if active === 'worlds'}
       <WorldsTab
         {instanceId}
+        {instanceName}
+        {instances}
         {onListChanged}
+        {onWorldsChanged}
         {onQuickPlayWorld}
         {quickPlayDisabledReason}
         {running}

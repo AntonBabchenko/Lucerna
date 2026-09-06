@@ -1,5 +1,6 @@
 <script lang="ts">
   import { commands, events, type World } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, MigrationMode, MigrationOutcome } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { relativeTime } from '$lib/format/relative-time';
@@ -7,6 +8,8 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import WorldDetailDialog from '$lib/worlds/WorldDetailDialog.svelte';
+  import MigrateWorldDialog from '$lib/worlds/MigrateWorldDialog.svelte';
+  import { buildMigrationToast } from '$lib/worlds/migrate-toast';
   import OrphanedSection from '$lib/worlds/OrphanedSection.svelte';
   import type { OrphanedBackupSet, StrandedWorld } from '$lib/ipc/bindings';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
@@ -23,13 +26,27 @@
 
   let {
     instanceId,
+    instanceName = null,
+    instances = [],
     onListChanged,
+    onWorldsChanged = () => {},
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
     running = false,
   }: {
     instanceId: string | null;
+    /** Display name of `instanceId` (the page's `activeInstance.name`) — the
+     *  migrate dialog and its toast name the source by it, never by id. Null
+     *  only while `instanceId` is null, when no dialog can open. */
+    instanceName?: string | null;
+    /** Every instance, for the migrate dialog's target picker. The page owns
+     *  the list; it is passed down rather than fetched a second time here. */
+    instances?: InstanceWithStatus[];
     onListChanged: () => void;
+    /** This tab's world set changed on disk (a migration landed). The parent
+     *  refreshes whatever else lists worlds — the sidebar's Play menu — which
+     *  nothing in this tab can reach. */
+    onWorldsChanged?: () => void;
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
     running?: boolean;
@@ -40,12 +57,17 @@
   let loading = $state(false);
   let detailFor = $state<World | null>(null);
   let deleteFor = $state<World | null>(null);
+  // The world a MigrateWorldDialog is open for; set from the detail dialog's
+  // footer action, cleared on close or completion.
+  let migrateFor = $state<World | null>(null);
   // What a failed restore can leave behind. Both are invisible to listWorlds —
   // their names start with a dot, which validate_segment rejects — so they need
   // their own queries. Failures here are non-fatal: they leave the recovery
   // section hidden rather than breaking the world list.
   let orphans = $state<OrphanedBackupSet[]>([]);
   let stranded = $state<StrandedWorld[]>([]);
+
+  const sourceName = $derived(instanceName ?? '');
 
   async function reloadRecoverable(reqId: string) {
     const [o, s] = await Promise.all([
@@ -125,6 +147,44 @@
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);
   });
+
+  // Entry-point gating for the migrate action (world-migration spec §7). The
+  // same data-root key as import — a migration writes into ANOTHER instance's
+  // saves, which would land in the temporary root while fallen back — and
+  // "stop the source first" while it is running. The backend refuses both
+  // regardless (reject_if_fallen_back / WorldMigrateInstanceRunning, which
+  // also covers a merely STARTING source this tab does not know about); this
+  // only keeps the button honest about why it will not work.
+  const migrateDisabledReason = $derived.by(() => {
+    if (importDisabledReason !== null) return importDisabledReason;
+    if (running) return $t('worlds.migrate.entry.disabledRunning', { name: sourceName });
+    return null;
+  });
+
+  // After MigrateWorldDialog reports a landed migration (its `onDone` fires
+  // only for `status: 'ok'`). Order: toast first — the user sees the outcome
+  // the moment it exists — then this tab's list, then the parent's Play menu.
+  async function onMigrateDone(
+    world: World,
+    r: { mode: MigrationMode; outcome: MigrationOutcome; targetName: string },
+  ) {
+    migrateFor = null;
+    // A moved world no longer exists in this instance: a detail dialog left
+    // open on it would show backups and datapacks of a folder that is gone.
+    // A copied world is still here, so its dialog stays.
+    if (r.mode === 'move' && detailFor?.folder_name === world.folder_name) detailFor = null;
+    const toast = buildMigrationToast($t, {
+      mode: r.mode,
+      outcome: r.outcome,
+      sourceWorld: world.folder_name,
+      sourceName,
+      targetName: r.targetName,
+    });
+    if (toast.kind === 'warning') pushWarning(toast.title, toast.lines);
+    else pushSuccess(toast.title, toast.lines);
+    await reload();
+    onWorldsChanged();
+  }
 
   // One core for all entry points (dropzone click, folder button, and the
   // drag-drop consume effect). Imports each path; the backend decides zip vs
@@ -348,6 +408,8 @@
     {instanceId}
     world={detailFor}
     {running}
+    {migrateDisabledReason}
+    onMigrate={() => (migrateFor = detailFor)}
     onClose={() => {
       detailFor = null;
       void reload();
@@ -356,6 +418,22 @@
       onListChanged();
       void reload();
     }}
+  />
+{/if}
+
+<!-- Rendered AFTER WorldDetailDialog on purpose: Modals share z-50 and stack
+     by DOM order (DESIGN.md §8), and this one opens on top of the detail
+     dialog it was summoned from. The {@const} pins the world for the callback:
+     the {#if} narrows `migrateFor` for direct reads, not inside closures. -->
+{#if migrateFor && instanceId}
+  {@const world = migrateFor}
+  <MigrateWorldDialog
+    {instanceId}
+    instanceName={sourceName}
+    {world}
+    {instances}
+    onClose={() => (migrateFor = null)}
+    onDone={(r) => void onMigrateDone(world, r)}
   />
 {/if}
 
