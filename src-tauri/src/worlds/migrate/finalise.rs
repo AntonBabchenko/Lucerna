@@ -170,13 +170,16 @@ pub(crate) fn roll_back_stage(
 /// state honestly ("the world is in <target>; <source> still holds …").
 ///
 /// Re-verifies first (defence in depth behind the maintenance claim) that the
-/// target's `instance.json` and the target world's `level.dat` still exist,
-/// with `try_exists`: absent AND "could not tell" both keep the source
+/// target's `instance.json`, the target world directory and — when the SOURCE
+/// world has one — the target world's `level.dat` still exist, with
+/// `try_exists`: absent AND "could not tell" both keep the source
 /// (`LeftIntact`) — the restrictive direction, because a Move that keeps its
 /// source is a Copy the user can finish by hand, while a removed source with
-/// no verified target is a lost world. A world without `level.dat` (delete and
-/// backup accept such worlds) therefore keeps its source on this path; the
-/// reason names the file that was missing.
+/// no verified target is a lost world. `level.dat` is demanded of the target
+/// only when the source has one (the source is intact on this path): §6
+/// accepts a world without it (delete and backup accept such worlds), and
+/// demanding it unconditionally would keep that world's source forever — a
+/// Move that can never complete. The reason names the file that was missing.
 ///
 /// The removal goes through `seams.remove` rather than `remove_world_dir_at`:
 /// the errno → `WorldInUse` mapping is exactly what must NOT be reported after
@@ -191,27 +194,40 @@ pub(crate) fn remove_source_after_copy_at(
     final_name: &str,
     seams: &MigrationSeams,
 ) -> SourceState {
-    let instance_file = loc.dst_root.join("instance.json");
-    let level_dat = loc.dst_saves.join(final_name).join("level.dat");
-    for required in [&instance_file, &level_dat] {
-        match required.try_exists() {
+    let source = loc.src_saves.join(&loc.world_folder);
+    let world_dir = loc.dst_saves.join(final_name);
+    let mut required = vec![loc.dst_root.join("instance.json"), world_dir.clone()];
+    // The target must hold a `level.dat` exactly when the source does: a
+    // world without one is verified by its directory alone.
+    match source.join("level.dat").try_exists() {
+        Ok(true) => required.push(world_dir.join("level.dat")),
+        Ok(false) => {}
+        // Could not tell what the source holds: keep it (restrictive), and
+        // say why.
+        Err(e) => {
+            return SourceState::LeftIntact {
+                reason: format!(
+                    "{} could not be checked ({e}); source kept",
+                    source.display()
+                ),
+            };
+        }
+    }
+    for path in &required {
+        match path.try_exists() {
             Ok(true) => {}
             Ok(false) => {
                 return SourceState::LeftIntact {
-                    reason: format!("{} is missing; source kept", required.display()),
+                    reason: format!("{} is missing; source kept", path.display()),
                 };
             }
             Err(e) => {
                 return SourceState::LeftIntact {
-                    reason: format!(
-                        "{} could not be checked ({e}); source kept",
-                        required.display()
-                    ),
+                    reason: format!("{} could not be checked ({e}); source kept", path.display()),
                 };
             }
         }
     }
-    let source = loc.src_saves.join(&loc.world_folder);
     let before = count_entries(&source);
     match (seams.remove)(&source) {
         Ok(()) => SourceState::Removed,
@@ -473,6 +489,38 @@ mod tests {
 
         assert_eq!(state, SourceState::Removed);
         assert!(!fx.loc.src_saves.join("W").try_exists().unwrap());
+    }
+
+    /// §6 accepts a world without `level.dat`. Re-verification must not
+    /// demand of the target what the source never had, or such a world moved
+    /// across volumes keeps its source forever — a Move that never completes.
+    #[test]
+    fn a_world_without_level_dat_on_either_side_lets_the_source_go() {
+        let fx = two_instances();
+        fs::remove_file(fx.loc.src_saves.join("W").join("level.dat")).unwrap();
+        make_world(&fx.loc.dst_saves.join("W"), b"original");
+        fs::remove_file(fx.loc.dst_saves.join("W").join("level.dat")).unwrap();
+        let seams = seams(|f, t| fs::rename(f, t), |p| fs::remove_dir_all(p));
+
+        let state = remove_source_after_copy_at(&fx.loc, "W", &seams);
+
+        assert_eq!(state, SourceState::Removed);
+        assert!(!fx.loc.src_saves.join("W").try_exists().unwrap());
+    }
+
+    /// The other half of the conditional: a source WITH `level.dat` still
+    /// requires it in the target — a directory alone is not that world.
+    #[test]
+    fn a_target_missing_the_level_dat_the_source_has_keeps_the_source() {
+        let fx = two_instances();
+        make_world(&fx.loc.dst_saves.join("W"), b"original");
+        fs::remove_file(fx.loc.dst_saves.join("W").join("level.dat")).unwrap();
+        let seams = seams(|f, t| fs::rename(f, t), |p| fs::remove_dir_all(p));
+
+        let state = remove_source_after_copy_at(&fx.loc, "W", &seams);
+
+        assert!(matches!(state, SourceState::LeftIntact { .. }), "{state:?}");
+        assert_eq!(marker_of(&fx.loc.src_saves.join("W")), b"original");
     }
 
     #[test]
