@@ -41,8 +41,14 @@
   // holds the pre-restore one. Telling that user their restore "didn't finish",
   // and offering to put the old copy back over the new one, would be actively
   // harmful: the refusal they would hit reads "rename or remove it first".
-  const unfinished = $derived(stranded.filter((s) => !s.target_occupied));
-  const leftovers = $derived(stranded.filter((s) => s.target_occupied));
+  const unfinished = $derived(stranded.filter((s) => !s.target_occupied && s.kind === 'restore'));
+  const leftovers = $derived(stranded.filter((s) => s.target_occupied && s.kind === 'restore'));
+  const parkedMoves = $derived(
+    stranded.filter((s) => !s.target_occupied && s.kind === 'migration'),
+  );
+  const blockedMoves = $derived(
+    stranded.filter((s) => s.target_occupied && s.kind === 'migration'),
+  );
 
   async function openSaves() {
     const r = await commands.openSavesFolder(instanceId);
@@ -110,6 +116,64 @@
             type="button"
             class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
             data-testid="leftover-open-folder-btn"
+            onclick={() => void openSaves()}
+          >
+            <Icon name="folderOpen" size={14} />
+            {$t('worlds.stranded.openFolderBtn')}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
+
+{#if parkedMoves.length > 0}
+  <section class="mt-6" aria-labelledby="worlds-parked-move-title" data-testid="stranded-section">
+    <h3 id="worlds-parked-move-title" class="text-sm font-semibold text-primary mb-1">
+      {$t('worlds.stranded.migrationTitle')}
+    </h3>
+    <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
+      {#each parkedMoves as s (s.dir_name)}
+        <li class="flex items-center justify-between gap-3 px-3 py-2">
+          <p class="text-sm text-secondary min-w-0">
+            {$t('worlds.stranded.migrationDescription', { worldFolder: s.world_folder })}
+          </p>
+          <BusyButton
+            type="button"
+            class="btn-primary btn-sm flex-shrink-0"
+            data-testid="stranded-recover-btn"
+            busy={recovering === s.dir_name}
+            onclick={() => void recover(s)}
+          >
+            {$t('worlds.stranded.recoverBtn')}
+          </BusyButton>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
+
+{#if blockedMoves.length > 0}
+  <section
+    class="mt-6"
+    aria-labelledby="worlds-blocked-move-title"
+    data-testid="blocked-move-section"
+  >
+    <h3 id="worlds-blocked-move-title" class="text-sm font-semibold text-primary mb-1">
+      {$t('worlds.stranded.migrationBlockedTitle')}
+    </h3>
+    <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
+      {#each blockedMoves as s (s.dir_name)}
+        <li class="flex items-center justify-between gap-3 px-3 py-2">
+          <p class="text-sm text-secondary min-w-0">
+            {$t('worlds.stranded.migrationBlockedDescription', { worldFolder: s.world_folder })}
+          </p>
+          <!-- No "put it back": recover_stranded_at refuses while saves/<name>
+               exists. The user renames one of the two in the saves folder. -->
+          <button
+            type="button"
+            class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+            data-testid="blocked-move-open-folder-btn"
             onclick={() => void openSaves()}
           >
             <Icon name="folderOpen" size={14} />

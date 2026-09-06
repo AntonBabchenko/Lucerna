@@ -12,21 +12,19 @@
 //! — see `datapacks::guard`'s module doc for why this feature needs a hard
 //! gate the mods commands don't.
 
-/// Fully-qualified per this file's neighbours (`commands::instances`): a
-/// re-export exists, but every existing guard call site spells out
-/// `crate::launch::spawn::is_running`.
-///
-/// `is_starting` alongside `is_running`: the `running` registry is only
+/// The gate every datapack writer in this file opens with — a one-line
+/// delegate to `instances::maintenance::write_allowed`, the single definition
+/// shared with `commands::worlds` and the instance writers. It refuses while
+/// the instance is running; starting (the `running` registry is only
 /// populated after the JVM process exists, so a launch is invisible to
 /// `is_running` for its whole multi-second spawn pipeline — during which the
-/// game will shortly open a world and rewrite its `level.dat`. A datapack
-/// write admitted in that window races the boot exactly like one racing the
-/// running game.
+/// game will shortly open a world and rewrite its `level.dat`); or under a
+/// maintenance claim (a world migration holding both of its instances). Kept
+/// as a local fn rather than inlined so `tests/structural_maintenance_gate.rs`
+/// can name one spelling (`guard(&`) for this file's commands. Fully-qualified
+/// per this file's neighbours (`commands::instances`).
 fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
-    crate::datapacks::guard::datapack_write_allowed(
-        crate::launch::spawn::is_running(instance_id)
-            || crate::launch::spawn::is_starting(instance_id),
-    )
+    crate::instances::maintenance::write_allowed(instance_id)
 }
 
 /// Best-effort expected pack_format for `instance_id`'s installed Minecraft,

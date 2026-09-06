@@ -9,6 +9,7 @@ import type {
   FormatError,
   Error as IpcError,
   LoaderKind,
+  MigrationRole,
 } from '$lib/ipc/bindings';
 
 // Detail-bearing errors are truncated to this many code points in the UI; the
@@ -167,6 +168,11 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   world_import_unsupported_source: 'clean',
   world_import_too_large: 'clean',
   world_import_partial_left: 'clean',
+  // Both built entirely from structured fields — a folder NAME plus an
+  // instance display NAME; a name plus a typed role rendered through
+  // `migrationRoleKey` — so there is nothing raw to truncate: `clean`.
+  world_migrate_partial_left: 'clean',
+  world_migrate_instance_running: 'clean',
   quick_play_address_invalid: 'clean',
   import_unsupported_loader: 'clean',
   import_source_unrecognized: 'clean',
@@ -279,6 +285,26 @@ function datapackRejectionKey(reason: DatapackRejection): TranslationKey {
       return 'errors.datapackInvalidReason.notAPack';
     default: {
       const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Map a `MigrationRole` to the dictionary key for its word. The role reaches
+ * the user inside a translated sentence ("it is the source of this
+ * migration"), so it must be a word in the user's language, never the serde
+ * tag. No `default` fallthrough beyond the exhaustiveness guard: a new role
+ * that isn't handled here fails to compile rather than rendering nothing.
+ */
+function migrationRoleKey(role: MigrationRole): TranslationKey {
+  switch (role) {
+    case 'source':
+      return 'worlds.migrate.role.source';
+    case 'target':
+      return 'worlds.migrate.role.target';
+    default: {
+      const _exhaustive: never = role;
       return _exhaustive;
     }
   }
@@ -588,6 +614,19 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldImportTooLarge');
     case 'world_import_partial_left':
       return translate('errors.worldImportPartialLeft', { folderName: e.folder_name });
+    case 'world_migrate_partial_left':
+      // `only_copy`: the stage holds the user's ONLY copy (a move whose
+      // rename-back failed) — the sentence must say "put it back", never
+      // "delete it". Same fields, opposite instruction: two keys.
+      return translate(
+        e.only_copy ? 'errors.worldMigrateOnlyCopyParked' : 'errors.worldMigratePartialLeft',
+        { folderName: e.folder_name, targetInstance: e.target_instance },
+      );
+    case 'world_migrate_instance_running':
+      return translate('errors.worldMigrateInstanceRunning', {
+        name: e.instance_name,
+        role: translate(migrationRoleKey(e.role)),
+      });
     case 'playtime_io':
       return withDetailTail(translate('errors.playtimeIo'), e.details);
     case 'tray_io':

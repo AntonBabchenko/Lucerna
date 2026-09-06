@@ -3160,7 +3160,38 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  and the rollback failure) are `diag!`-logged at the point of failure;
  *  the copy points at Logs.
  */
-{ kind: "world_import_partial_left"; folder_name: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+{ kind: "world_import_partial_left"; folder_name: string } | 
+/**
+ *  A world migration failed before its point of no return AND the
+ *  rollback could not remove the hidden stage (`.tmp-migrate-…`) it had
+ *  created in the target instance. Raise it ONLY when the stage is an
+ *  incomplete copy and the source world is intact: the copy says exactly
+ *  that. A failed rename-back on the move path leaves the user's only,
+ *  complete copy in the stage: `only_copy` is then `true` and the copy
+ *  tells them to put it back, never to delete it.
+ * 
+ *  `target_instance` is the target's display NAME, never its id: the
+ *  sentence points at a folder inside a specific instance, and from the
+ *  source's Worlds tab a bare "inside saves" would point at the user's
+ *  original world. `folder_name` is the stage directory's NAME — a bare
+ *  segment, never a full path. Both causes are `diag!`-logged where they
+ *  happen; the copy points at Logs.
+ * 
+ *  `only_copy`: `true` when the stage holds the user's ONLY copy — a move
+ *  whose rename into the stage succeeded and whose rename BACK failed. The
+ *  two states need opposite instructions ("delete the incomplete copy" vs.
+ *  "do not delete it — put it back"), so the UI renders two keys from one
+ *  variant. Never `true` on the copy path: the source is intact there.
+ */
+{ kind: "world_migrate_partial_left"; folder_name: string; target_instance: string; only_copy: boolean } | 
+/**
+ *  The source or the target of a world migration is running or starting.
+ *  Distinct from `InstanceBusy`, whose copy names no instance: a migration
+ *  involves two, and the user must be told which one to stop.
+ *  `instance_name` is the display NAME; `role` says which side it is on
+ *  and is rendered through a translated word, never the enum name.
+ */
+{ kind: "world_migrate_instance_running"; instance_name: string; role: MigrationRole } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Attempt to build/start a server without an accepted EULA. */
@@ -4578,6 +4609,9 @@ export type MemoryBounds = {
 	step_mb: number,
 	ram_known: boolean,
 };
+
+/**  Which side of a world migration an instance is on. */
+export type MigrationRole = "source" | "target";
 
 /**
  *  Reconciled state of a `PackOrigin.missing_mods` entry against the
@@ -6713,6 +6747,16 @@ export type SourceCaps = {
 export type StrandedDisposition = "disable" | "remove" | "keep";
 
 /**
+ *  Which operation parked the world. The UI branches its copy on this: a
+ *  `.tmp-restoring-*` directory is an interrupted RESTORE, a
+ *  `.tmp-migrate-moved-*` directory is an interrupted MOVE from another
+ *  instance — telling a user who moved a world that a restore didn't finish
+ *  is a false statement about what happened (CLAUDE.md, Fallback discipline,
+ *  question 3).
+ */
+export type StrandedKind = "restore" | "migration";
+
+/**
  *  Why a `Violated` mod has no replacement plan. The UI shows different copy
  *  for each — a failed query must never be read as "no build exists".
  */
@@ -6768,28 +6812,46 @@ export type StrandedSelection = {
 };
 
 /**
- *  A world-sized directory parked by a restore.
+ *  A world-sized directory parked by a restore or by a world migration.
  * 
- *  The name alone does NOT say the restore failed. The success path's cleanup is
- *  best-effort (`swap_in_place` logs and carries on), and process death between
- *  the second rename and that cleanup leaves the same name behind — in which
- *  case `saves/<world_folder>` holds the RESTORED world and this directory holds
- *  the pre-restore one. `target_occupied` is what tells the two apart, and the
- *  UI must branch on it: telling a user their restore "didn't finish" when it
- *  did, and offering to put the old copy back over the new one, is worse than
- *  showing nothing.
+ *  The name alone does NOT say the operation failed. A restore's success path
+ *  cleans up best-effort (`swap_in_place` logs and carries on), and process
+ *  death between the second rename and that cleanup leaves the same name
+ *  behind — in which case `saves/<world_folder>` holds the RESTORED world and
+ *  this directory holds the pre-restore one. `target_occupied` is what tells
+ *  the two apart, and the UI must branch on it: telling a user their restore
+ *  "didn't finish" when it did, and offering to put the old copy back over the
+ *  new one, is worse than showing nothing.
+ * 
+ *  A `.tmp-migrate-moved-*` directory is a migration stage in the TARGET instance's
+ *  `saves/` (`worlds::migrate`). It holds the user's only copy of the world: a
+ *  MOVE renamed the source folder into it. For it, `target_occupied` means only
+ *  that the final name was already taken in the target (the migration would
+ *  have suffixed it) — never that the migration finished, and never that the
+ *  stage is safe to delete. A copy-path stage (`.tmp-migrate-copy-*`) is never
+ *  listed here: its original is intact in the source instance. `kind` says
+ *  which operation parked it; a consumer that must word the two differently
+ *  branches on that, never on a parse of `dir_name`.
  */
 export type StrandedWorld = {
-	/**  The on-disk directory name, e.g. `.tmp-restoring-My World-0`. */
+	/**
+	 *  The on-disk directory name, e.g. `.tmp-restoring-My World-0` or
+	 *  `.tmp-migrate-moved-My World-0`.
+	 */
 	dir_name: string,
 	/**  The name it came from. */
 	world_folder: string,
 	/**
-	 *  `saves/<world_folder>` exists. The restore finished; this is a leftover
-	 *  copy of the world as it was BEFORE it, and putting it back would
-	 *  overwrite the result the user asked for.
+	 *  `saves/<world_folder>` exists. For a restore: the restore finished and
+	 *  this is a leftover copy of the world as it was BEFORE it — putting it
+	 *  back would overwrite the result the user asked for. For a migration:
+	 *  a world of that name already lives in this instance, so the moved
+	 *  world cannot be put back under its name until one of them is renamed;
+	 *  it is NOT a leftover of a finished operation.
 	 */
 	target_occupied: boolean,
+	/**  Which operation parked it — see [`StrandedKind`]. */
+	kind: StrandedKind,
 };
 
 /**  One file's provenance and outcome — a row in a per-file install report. */

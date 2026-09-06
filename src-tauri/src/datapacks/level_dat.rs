@@ -136,6 +136,75 @@ fn string_list(v: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+/// A world's recorded Minecraft version, read shape-tolerantly from
+/// `level.dat`. Two fields because Minecraft wrote them in two steps:
+/// `Data.DataVersion` (an integer) arrived in 1.9; the `Data.Version`
+/// compound — `Id` (the same integer), `Name` (the display string) and
+/// `Snapshot` — arrived in 1.10. That is Minecraft-format knowledge, not
+/// something this repo can prove, which is why both slots are read and the
+/// tests pin both shapes. Minecraft's own upgrade path keys on `DataVersion`;
+/// `Version.Id` mirrors it in every world Minecraft has written since 1.10,
+/// so whichever is read first the answer is the same, and a file where they
+/// disagree was not written by Minecraft.
+///
+/// `data_version` is the ordering key world migration compares against the
+/// target jar's `world_version`; `name` is a label for the dialog and is
+/// never compared — no offline ordering of version NAMES exists in this tree.
+/// A world last saved before 1.9 has neither, which reads as `None` / `None`:
+/// "not recorded", an answer rather than an error.
+///
+/// Note the case: `Data.version` (lowercase) is the storage-format number
+/// (19133 = Anvil), present in every world, and is never read here.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorldVersion {
+    pub name: Option<String>,
+    pub data_version: Option<i32>,
+}
+
+/// Read the world's recorded version. Absent or wrong-typed tags read as
+/// `None` for that field rather than erroring — the `lists` discipline:
+/// planning a migration must never fail because a level.dat is odd, and a
+/// field that is not there is never guessed at.
+///
+/// Read order for `data_version`: `Data.Version.Id` when it is a `TAG_Int`,
+/// else `Data.DataVersion` when it is a `TAG_Int`, else `None`. A `Long`,
+/// `Short` or `String` in either slot is not coerced: a value of the wrong
+/// tag type was not written by Minecraft, and coercing it would hand the
+/// caller a made-up number to compare. Fallback direction: unrecorded
+/// resolves to `None`, which the caller renders as "unknown" — never as a
+/// confident verdict. "Could not tell" never reaches this function: a
+/// `level.dat` that cannot be read or parsed fails in `read_at` / `parse`
+/// first, so `None` here means exactly one thing — the file does not record
+/// the field.
+pub fn version_of(root: &Value) -> WorldVersion {
+    let Value::Compound(map) = root else {
+        return WorldVersion::default();
+    };
+    let Some(Value::Compound(data)) = map.get("Data") else {
+        return WorldVersion::default();
+    };
+    let version = match data.get("Version") {
+        Some(Value::Compound(v)) => Some(v),
+        _ => None,
+    };
+    let name = version.and_then(|v| match v.get("Name") {
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    });
+    let data_version = version
+        .and_then(|v| int_of(v.get("Id")))
+        .or_else(|| int_of(data.get("DataVersion")));
+    WorldVersion { name, data_version }
+}
+
+/// `Some` only for a `TAG_Int`; every other tag type, and absence, is `None`.
+fn int_of(v: Option<&Value>) -> Option<i32> {
+    match v {
+        Some(Value::Int(i)) => Some(*i),
+        _ => None,
+    }
+}
+
 /// Mutable access to `Data.DataPacks`, creating the compounds when absent and
 /// rejecting a key that exists with the wrong tag type. Mirrors
 /// `servers::nbt::servers_list_mut`.
@@ -607,6 +676,176 @@ mod tests {
         let (enabled, disabled) = lists(&root);
         assert!(enabled.is_empty());
         assert!(disabled.is_empty());
+    }
+
+    /// A root whose `Data` compound holds exactly `entries` — the smallest
+    /// shape `version_of` walks, so each test states only the tags it is
+    /// about and nothing else can be what made it pass.
+    fn root_with_data(entries: Vec<(&str, Value)>) -> Value {
+        let mut data = HashMap::new();
+        for (k, v) in entries {
+            data.insert(k.to_string(), v);
+        }
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        Value::Compound(root)
+    }
+
+    /// `Data.Version` as Minecraft has written it since 1.10. `id` and `name`
+    /// are taken as given so a test can hand in a wrong-typed one.
+    fn version_compound(id: Value, name: Value) -> Value {
+        let mut version = HashMap::new();
+        version.insert("Id".to_string(), id);
+        version.insert("Name".to_string(), name);
+        version.insert("Snapshot".to_string(), Value::Byte(0));
+        Value::Compound(version)
+    }
+
+    #[test]
+    fn version_of_reads_id_and_name_from_the_1_10_plus_shape() {
+        // `realistic_root` is the 1.10+ shape: a `Version` compound with
+        // `Id` and `Name`. The assertion pins the fixture's own values.
+        assert_eq!(
+            version_of(&realistic_root()),
+            WorldVersion {
+                name: Some("1.21.5".to_string()),
+                data_version: Some(4189),
+            }
+        );
+        // Every world Minecraft has written since 1.10 carries BOTH tags
+        // holding the same integer (3953 is 1.21's data version).
+        let root = root_with_data(vec![
+            (
+                "Version",
+                version_compound(Value::Int(3953), Value::String("1.21".into())),
+            ),
+            ("DataVersion", Value::Int(3953)),
+        ]);
+        assert_eq!(version_of(&root).data_version, Some(3953));
+    }
+
+    #[test]
+    fn version_of_falls_back_to_data_version_for_the_1_9_shape() {
+        // 1.9 wrote `DataVersion` (169) but no `Version` compound yet: the
+        // integer is known, the display name is not.
+        let root = root_with_data(vec![("DataVersion", Value::Int(169))]);
+        assert_eq!(
+            version_of(&root),
+            WorldVersion {
+                name: None,
+                data_version: Some(169),
+            }
+        );
+    }
+
+    #[test]
+    fn version_of_reads_nothing_from_a_pre_1_9_world() {
+        // `root_with_unknown_keys` has LevelName / RandomSeed / GameRules and
+        // neither version tag — the shape of a world last saved before 1.9.
+        // "Not recorded" is an answer, never an error.
+        assert_eq!(
+            version_of(&root_with_unknown_keys()),
+            WorldVersion::default()
+        );
+    }
+
+    #[test]
+    fn version_of_does_not_coerce_a_wrong_typed_tag() {
+        // `Version.Id` as a String is not what Minecraft writes, so it is not
+        // a data version — and with no `DataVersion` to fall through to, the
+        // answer is "unknown", never a number parsed out of the string.
+        let root = root_with_data(vec![(
+            "Version",
+            version_compound(Value::String("4189".into()), Value::String("1.21.5".into())),
+        )]);
+        assert_eq!(
+            version_of(&root),
+            WorldVersion {
+                name: Some("1.21.5".to_string()),
+                data_version: None,
+            }
+        );
+        // A `Long` in `DataVersion` is equally not coerced: only `TAG_Int`
+        // is the integer Minecraft compares.
+        let root = root_with_data(vec![("DataVersion", Value::Long(4189))]);
+        assert_eq!(version_of(&root).data_version, None);
+    }
+
+    #[test]
+    fn version_of_falls_through_to_data_version_when_version_id_is_wrong_typed() {
+        let root = root_with_data(vec![
+            (
+                "Version",
+                version_compound(Value::String("x".into()), Value::String("1.21".into())),
+            ),
+            ("DataVersion", Value::Int(3953)),
+        ]);
+        assert_eq!(version_of(&root).data_version, Some(3953));
+    }
+
+    #[test]
+    fn version_of_is_default_without_a_data_compound() {
+        assert_eq!(version_of(&Value::Int(1)), WorldVersion::default());
+        assert_eq!(
+            version_of(&Value::Compound(HashMap::new())),
+            WorldVersion::default()
+        );
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::String("not a compound".into()));
+        assert_eq!(version_of(&Value::Compound(root)), WorldVersion::default());
+    }
+
+    #[test]
+    fn version_of_ignores_a_wrong_typed_name_but_keeps_the_id() {
+        let root = root_with_data(vec![(
+            "Version",
+            version_compound(Value::Int(4189), Value::Int(1)),
+        )]);
+        assert_eq!(
+            version_of(&root),
+            WorldVersion {
+                name: None,
+                data_version: Some(4189),
+            }
+        );
+    }
+
+    #[test]
+    fn version_of_ignores_a_version_tag_that_is_not_a_compound() {
+        let root = root_with_data(vec![
+            ("Version", Value::String("1.21".into())),
+            ("DataVersion", Value::Int(3953)),
+        ]);
+        assert_eq!(
+            version_of(&root),
+            WorldVersion {
+                name: None,
+                data_version: Some(3953),
+            }
+        );
+    }
+
+    #[test]
+    fn version_of_prefers_version_id_over_data_version() {
+        // Minecraft never writes the two apart; this pins the DOCUMENTED read
+        // order so a change to it is a deliberate one, not drift.
+        let root = root_with_data(vec![
+            (
+                "Version",
+                version_compound(Value::Int(100), Value::String("a".into())),
+            ),
+            ("DataVersion", Value::Int(200)),
+        ]);
+        assert_eq!(version_of(&root).data_version, Some(100));
+    }
+
+    #[test]
+    fn version_of_never_mistakes_the_anvil_format_tag_for_a_data_version() {
+        // `Data.version` (lowercase) is the storage-format number — 19133 for
+        // Anvil — carried by every world, pre-1.9 included. It is not a data
+        // version and must not turn "not recorded" into a confident 19133.
+        let root = root_with_data(vec![("version", Value::Int(19133))]);
+        assert_eq!(version_of(&root), WorldVersion::default());
     }
 
     #[test]

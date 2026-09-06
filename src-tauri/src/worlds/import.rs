@@ -191,7 +191,7 @@ fn find_world_root(root: &Path) -> Option<PathBuf> {
 
 /// First free `saves/<name>` slot: `name`, then `name (2)`, `name (3)`, … up
 /// to `(999)`. `WorldNameUnresolvable` if all are taken.
-fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
+pub(crate) fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
     // `try_exists`, not `exists`: `exists()` answers false for ANY stat
     // failure, so a transient error would report an occupied slot as free —
     // and `Move::Copy` then merges the import INTO that existing world
@@ -216,12 +216,29 @@ fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
 /// Recursively copy `src` into `dst`. Skips symlinks (never follows them).
 /// Enforces per-file and running-aggregate byte caps. Caller owns cleanup of
 /// `dst` on error.
-fn copy_tree(
+///
+/// `on_file(bytes)` is called once per regular file, AFTER its `fs::copy`
+/// succeeded, with the byte count `fs::copy` reported for it — the same
+/// contract as `data_root::migrate::copy_tree`'s `on_bytes`, so a caller's
+/// progress counter only ever counts bytes that are on disk in `dst`. It is
+/// never called for a skipped symlink, for a directory, or for a file the
+/// caps rejected. Import passes a no-op (it has no progress channel);
+/// `worlds::migrate` feeds it into the copy-phase progress report.
+///
+/// Two callers, one discipline: `dst` is always a directory the caller
+/// itself created immediately beforehand — `place_world`'s
+/// `saves/<chosen>` (a name `pick_free_world_name` proved free) or
+/// migrate's `create_dir`-claimed `saves/.tmp-migrate-<world>-<n>` stage —
+/// so no path written here can be a pre-existing, possibly hardlinked
+/// datapack. That is the justification `structural_no_inplace_mods_write`
+/// records for allowlisting this file; keep it true.
+pub(crate) fn copy_tree(
     src: &Path,
     dst: &Path,
     aggregate: &mut u64,
     per_file_cap: u64,
     aggregate_cap: u64,
+    on_file: &mut dyn FnMut(u64),
 ) -> Result<()> {
     for entry in std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))? {
         let entry = entry.map_err(|e| Error::io(src.display().to_string(), e))?;
@@ -235,7 +252,7 @@ fn copy_tree(
         let to = dst.join(entry.file_name());
         if ft.is_dir() {
             std::fs::create_dir_all(&to).map_err(|e| Error::io(to.display().to_string(), e))?;
-            copy_tree(&from, &to, aggregate, per_file_cap, aggregate_cap)?;
+            copy_tree(&from, &to, aggregate, per_file_cap, aggregate_cap, on_file)?;
         } else if ft.is_file() {
             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
             if size > per_file_cap {
@@ -251,7 +268,12 @@ fn copy_tree(
                     cap: aggregate_cap as f64,
                 });
             }
-            std::fs::copy(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
+            let copied =
+                std::fs::copy(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
+            // Reported only once the bytes are in `dst` — a hook that fired
+            // before the copy (or for a rejected file) would let a progress
+            // bar claim bytes that never landed.
+            on_file(copied);
         }
     }
     Ok(())
@@ -280,12 +302,16 @@ fn copy_world_with_rollback(
     remove: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<()> {
     let mut aggregate = 0u64;
+    // Import runs with no progress channel (the UI shows a spinner for the
+    // whole import), so the per-file hook is a no-op here; `worlds::migrate`
+    // is the caller that reports.
     let Err(e) = copy_tree(
         world_root,
         dest,
         &mut aggregate,
         PER_FILE_CAP,
         AGGREGATE_CAP,
+        &mut |_| {},
     ) else {
         return Ok(());
     };
@@ -492,9 +518,46 @@ mod tests {
             &mut agg,
             PER_FILE_CAP,
             AGGREGATE_CAP,
+            &mut |_| {},
         )
         .unwrap();
         assert!(dst.path().join("level.dat").is_file());
+        assert!(dst.path().join("region").join("r.0.0.mca").is_file());
+    }
+
+    #[test]
+    fn copy_tree_reports_each_regular_file_size_once() {
+        let src = tempdir().unwrap();
+        // Three regular files, three DISTINCT sizes, one of them a level down
+        // — so the assertion proves both "once per file" and "the hook
+        // travels through the recursion", not just "something was called".
+        fs::write(src.path().join("level.dat"), vec![0u8; 3]).unwrap();
+        fs::write(src.path().join("session.lock"), vec![0u8; 5]).unwrap();
+        fs::create_dir_all(src.path().join("region")).unwrap();
+        fs::write(src.path().join("region").join("r.0.0.mca"), vec![0u8; 7]).unwrap();
+        let dst = tempdir().unwrap();
+        let mut agg = 0u64;
+        let mut seen: Vec<u64> = Vec::new();
+        copy_tree(
+            src.path(),
+            dst.path(),
+            &mut agg,
+            PER_FILE_CAP,
+            AGGREGATE_CAP,
+            &mut |size| seen.push(size),
+        )
+        .unwrap();
+        // `read_dir` order is filesystem-defined: compare as a sorted set.
+        seen.sort_unstable();
+        assert_eq!(
+            seen,
+            vec![3, 5, 7],
+            "one call per regular file, carrying that file's size"
+        );
+        assert_eq!(
+            agg, 15,
+            "the hook and the aggregate cap counter see the same bytes"
+        );
         assert!(dst.path().join("region").join("r.0.0.mca").is_file());
     }
 
@@ -505,10 +568,27 @@ mod tests {
         fs::write(src.path().join("b.bin"), vec![0u8; 100]).unwrap();
         let dst = tempdir().unwrap();
         let mut agg = 0u64;
-        let r = copy_tree(src.path(), dst.path(), &mut agg, PER_FILE_CAP, 150);
+        let mut seen: Vec<u64> = Vec::new();
+        let r = copy_tree(
+            src.path(),
+            dst.path(),
+            &mut agg,
+            PER_FILE_CAP,
+            150,
+            &mut |size| seen.push(size),
+        );
         assert!(
             matches!(r, Err(Error::WorldImportTooLarge { .. })),
             "got: {r:?}"
+        );
+        // Whichever of a.bin / b.bin `read_dir` yields first is copied (100 ≤
+        // 150) and reported; the second trips the aggregate cap BEFORE its
+        // copy, so it must not be reported — a progress counter fed by this
+        // hook only ever counts bytes that are on disk in `dst`.
+        assert_eq!(
+            seen,
+            vec![100],
+            "the hook must not fire for a rejected file"
         );
     }
 
@@ -523,16 +603,20 @@ mod tests {
         symlink(outside.path().join("secret"), src.path().join("link")).unwrap();
         let dst = tempdir().unwrap();
         let mut agg = 0u64;
+        let mut seen: Vec<u64> = Vec::new();
         copy_tree(
             src.path(),
             dst.path(),
             &mut agg,
             PER_FILE_CAP,
             AGGREGATE_CAP,
+            &mut |size| seen.push(size),
         )
         .unwrap();
         assert!(dst.path().join("level.dat").is_file());
         assert!(!dst.path().join("link").exists(), "symlink must be skipped");
+        // `touch` writes one byte; the skipped link must not appear.
+        assert_eq!(seen, vec![1], "a skipped symlink is never reported");
     }
 
     #[test]

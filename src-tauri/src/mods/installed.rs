@@ -391,6 +391,55 @@ pub(crate) fn apply_display_names(
     changed
 }
 
+/// Number of `src` mods with no counterpart in `dst` — the input to the world
+/// migration dialog's "N mods this world was played with are not in the
+/// target" sentence (`worlds::migrate` plan; spec §6, A7).
+///
+/// Two rows are the same mod when EITHER holds:
+///
+/// 1. both carry a platform identity and it is the same `(source, project_id)`
+///    pair. Project ids are per-source — a Modrinth id and a CurseForge id
+///    live in different namespaces, which is why [`backfill_display_names`]
+///    and [`apply_display_names`] key on `(ModSource, String)` — so the source
+///    is part of the key here too. A different VERSION of the same project
+///    matches: an updated jar is not a missing mod.
+/// 2. the SHA-1s are equal, ASCII-case-insensitively — the registry's rule
+///    everywhere (`reconcile` step 1, [`add`], [`remove`]). This is what
+///    identifies a manual jar with no platform row, and the same jar installed
+///    from Modrinth on one side and CurseForge on the other.
+///
+/// Both identities are already in the rows; nothing is read from disk or the
+/// network. `enabled` is not consulted: this is the difference of the two mod
+/// SETS as [`list`] reports them, and it counts per `src` row — two rows of one
+/// project that are both absent count twice.
+///
+/// Pure and total: no IO, never fails.
+pub fn missing_in(src: &[InstalledMod], dst: &[InstalledMod]) -> u32 {
+    let missing = src
+        .iter()
+        .filter(|s| !dst.iter().any(|d| is_same_mod(s, d)))
+        .count();
+    // A registry with more than u32::MAX rows does not exist; saturating
+    // rather than truncating keeps even that impossible case from under-
+    // reporting.
+    u32::try_from(missing).unwrap_or(u32::MAX)
+}
+
+/// The identity rule of [`missing_in`]; see its doc for why the source is
+/// part of the project key and why sha1 is the fallback.
+fn is_same_mod(a: &InstalledMod, b: &InstalledMod) -> bool {
+    let same_project = match (
+        a.source,
+        a.project_id.as_deref(),
+        b.source,
+        b.project_id.as_deref(),
+    ) {
+        (Some(sa), Some(pa), Some(sb), Some(pb)) => sa == sb && pa == pb,
+        _ => false,
+    };
+    same_project || a.sha1.eq_ignore_ascii_case(&b.sha1)
+}
+
 /// `list`, and takes the pending external-change marker: reports whether one was
 /// set and clears it in the same write.
 ///
@@ -2241,5 +2290,142 @@ mod tests {
 
         let after = read_or_empty(td.path()).await.unwrap();
         assert!(after.mods.iter().all(|m| m.name == "Sodium"));
+    }
+
+    // ── missing_in ───────────────────────────────────────────────────────
+    //
+    // The mod-set difference behind the world-migration compatibility
+    // sentence (spec §6, A7). Pure: registry rows in, a count out, no disk —
+    // plain `#[test]`, no tempdir.
+
+    /// A row with no platform identity — the shape `reconcile` synthesises
+    /// for a jar the user dropped into `mods/`.
+    fn anonymous_jar(filename: &str, sha1: &str) -> InstalledMod {
+        InstalledMod {
+            filename: filename.into(),
+            sha1: sha1.into(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: filename.into(),
+            version_number: None,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        }
+    }
+
+    /// A platform row: project `pid` from `source`, whose jar hashes to `sha1`.
+    fn platform_jar(source: ModSource, pid: &str, sha1: &str) -> InstalledMod {
+        InstalledMod {
+            source: Some(source),
+            project_id: Some(pid.into()),
+            version_id: Some("v".into()),
+            ..anonymous_jar(&format!("{pid}.jar"), sha1)
+        }
+    }
+
+    #[test]
+    fn missing_in_is_zero_for_identical_lists() {
+        let mods = vec![
+            platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium"),
+            anonymous_jar("manual.jar", "sha-manual"),
+        ];
+        assert_eq!(missing_in(&mods, &mods), 0);
+    }
+
+    #[test]
+    fn missing_in_counts_a_source_mod_absent_from_the_target() {
+        let src = vec![
+            platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium"),
+            platform_jar(ModSource::Modrinth, "P7dR8mSH", "sha-fabric-api"),
+        ];
+        let dst = vec![platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium")];
+        assert_eq!(missing_in(&src, &dst), 1);
+    }
+
+    /// An updated jar of the same project is not a missing mod: the blocks and
+    /// items it adds are still there when the world opens in the target.
+    #[test]
+    fn missing_in_treats_another_version_of_the_same_project_as_present() {
+        let src = vec![platform_jar(
+            ModSource::Modrinth,
+            "AANobbMI",
+            "sha-sodium-0.5",
+        )];
+        let dst = vec![platform_jar(
+            ModSource::Modrinth,
+            "AANobbMI",
+            "sha-sodium-0.6",
+        )];
+        assert_eq!(missing_in(&src, &dst), 0);
+    }
+
+    /// Manual jars have no project id; the same bytes ARE the same mod, whatever
+    /// the file is called on either side.
+    #[test]
+    fn missing_in_matches_anonymous_jars_by_sha1() {
+        let src = vec![anonymous_jar("manual.jar", "sha-manual")];
+        let dst = vec![anonymous_jar("renamed.jar", "sha-manual")];
+        assert_eq!(missing_in(&src, &dst), 0);
+    }
+
+    #[test]
+    fn missing_in_is_zero_for_an_empty_source_whatever_the_target_holds() {
+        let dst = vec![
+            platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium"),
+            anonymous_jar("manual.jar", "sha-manual"),
+        ];
+        assert_eq!(missing_in(&[], &dst), 0);
+        assert_eq!(missing_in(&[], &[]), 0);
+    }
+
+    /// Project ids are per-source (`backfill_display_names` keys on
+    /// `(ModSource, String)` for the same reason): equal id strings from two
+    /// sources are not one project. Presence then falls back to the bytes — the
+    /// same jar uploaded to both platforms matches by sha1; a different jar
+    /// does not.
+    #[test]
+    fn missing_in_keys_project_ids_per_source_and_falls_back_to_sha1() {
+        let src = vec![platform_jar(ModSource::Modrinth, "12345", "sha-same-jar")];
+        let same_bytes_from_cf = vec![platform_jar(ModSource::Curseforge, "12345", "sha-same-jar")];
+        let other_bytes_from_cf = vec![platform_jar(
+            ModSource::Curseforge,
+            "12345",
+            "sha-other-jar",
+        )];
+        assert_eq!(missing_in(&src, &same_bytes_from_cf), 0);
+        assert_eq!(missing_in(&src, &other_bytes_from_cf), 1);
+    }
+
+    /// A platform row on one side and an anonymous row of the same bytes on the
+    /// other are one mod: the bytes are all that is known on the anonymous side.
+    #[test]
+    fn missing_in_matches_a_platform_row_to_an_anonymous_row_by_sha1() {
+        let src = vec![platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium")];
+        let dst = vec![anonymous_jar("sodium.jar", "sha-sodium")];
+        assert_eq!(missing_in(&src, &dst), 0);
+    }
+
+    /// The registry compares digests ASCII-case-insensitively everywhere
+    /// (`reconcile` step 1, `add`, `remove`); this helper is not the exception.
+    #[test]
+    fn missing_in_compares_sha1_case_insensitively() {
+        let src = vec![anonymous_jar("a.jar", "abcdef")];
+        let dst = vec![anonymous_jar("a.jar", "ABCDEF")];
+        assert_eq!(missing_in(&src, &dst), 0);
+    }
+
+    /// Per-row counting: the caller receives exactly what `list` returned, and
+    /// a source holding two jars of one project (a `.disabled` older build
+    /// beside the current one), neither in the target, reports two.
+    #[test]
+    fn missing_in_counts_per_source_row() {
+        let src = vec![
+            platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium-0.5"),
+            platform_jar(ModSource::Modrinth, "AANobbMI", "sha-sodium-0.6"),
+        ];
+        assert_eq!(missing_in(&src, &[]), 2);
     }
 }

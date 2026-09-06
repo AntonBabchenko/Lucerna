@@ -1,4 +1,4 @@
-//! The running-instance gate for datapack — and, now, world — writes.
+//! The running-instance gate for datapack — and world — writes.
 //!
 //! Why a hard guard here when the mods commands have none: a `mods/` jar is a
 //! file only Lucerna touches, but `level.dat` is a file the game owns and
@@ -6,12 +6,19 @@
 //! best and a corrupt save at worst. Same reasoning as
 //! `servers::add_saved_server`.
 //!
-//! `commands::worlds`'s `delete_world`, `restore_backup`, `backup_world` and
-//! `world_import` open with this exact same gate: refusing a datapack toggle
-//! on a live world while cheerfully deleting or overwriting that same world
-//! would be indefensible. `delete_backup` is the one exception — it only
-//! touches `<instance>/backups/`, never the world tree the JVM holds, so it
-//! stays unguarded.
+//! Where the gate is CALLED: no command calls [`datapack_write_allowed`]
+//! directly. `commands::worlds`, `commands::datapacks` (through its file-local
+//! `guard`) and the instance writers all open with
+//! `crate::instances::maintenance::write_allowed(id)`, which answers
+//! `is_running || is_starting || maintenance_is_active` with the same
+//! `InstanceBusy` — one definition, so a world migration's maintenance claim
+//! holds every writer off, and `tests/structural_maintenance_gate.rs` fails
+//! the build for a writer that forgets it. The predicate below stays as the
+//! named, tested statement of the running-state half of that rule, which
+//! `l10n::options_txt` mirrors for `options.txt`. `delete_backup` is the one
+//! world command outside `write_allowed` — it only touches
+//! `<instance>/backups/`, never the world tree the JVM holds, so it refuses
+//! for the maintenance claim alone (a Move migration relocates that set).
 //!
 //! This gate does not replace `worlds::delete_world`'s and `restore.rs`'s own
 //! OS-lock handling, which maps errno 5/32/33 to `WorldInUse`: `is_running` is

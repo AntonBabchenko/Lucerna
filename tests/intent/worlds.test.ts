@@ -791,7 +791,12 @@ describe('WorldsTab — recovery section survives an empty world list', () => {
     vi.mocked(commands.listStrandedWorlds).mockResolvedValueOnce({
       status: 'ok',
       data: [
-        { dir_name: '.tmp-restoring-My World-0', world_folder: 'My World', target_occupied: false },
+        {
+          dir_name: '.tmp-restoring-My World-0',
+          world_folder: 'My World',
+          target_occupied: false,
+          kind: 'restore',
+        },
       ],
     });
 
@@ -810,7 +815,14 @@ describe('WorldsTab — recovery section survives an empty world list', () => {
     vi.mocked(commands.listWorlds).mockResolvedValueOnce({ status: 'ok', data: [] });
     vi.mocked(commands.listStrandedWorlds).mockResolvedValueOnce({
       status: 'ok',
-      data: [{ dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true }],
+      data: [
+        {
+          dir_name: '.tmp-restoring-W-0',
+          world_folder: 'W',
+          target_occupied: true,
+          kind: 'restore',
+        },
+      ],
     });
 
     render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });

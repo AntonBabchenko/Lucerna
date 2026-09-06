@@ -1424,7 +1424,11 @@
       "toastRecovered": "Recovered {world}",
       "leftoverTitle": "Leftover copy from a restore",
       "leftoverDescription": "A restore of \"{worldFolder}\" finished, and a copy of the world as it was beforehand is still on disk. Your current world is the restored one — nothing is missing. Delete the folder when you no longer need the older copy.",
-      "openFolderBtn": "Open saves folder"
+      "openFolderBtn": "Open saves folder",
+      "migrationTitle": "Interrupted move",
+      "migrationDescription": "A move of \"{worldFolder}\" into this instance didn't finish. The world's files are safe here and can be put back under that name.",
+      "migrationBlockedTitle": "Moved world waiting for a free name",
+      "migrationBlockedDescription": "A world named \"{worldFolder}\" already exists here, and a world moved from another instance is parked beside it under the same name. Rename one of them in the saves folder, then put the moved world back."
     },
     "datapacks": {
       "tab": "Datapacks (Beta)",
@@ -1462,6 +1466,12 @@
       "description": "This will permanently delete the world folder and all its contents. The backups for this world will also be removed. This cannot be undone.",
       "typeToConfirm": "Type {word} to confirm:",
       "deleteBtn": "Delete"
+    },
+    "migrate": {
+      "role": {
+        "source": "source",
+        "target": "target"
+      }
     }
   },
   "logs": {
@@ -2286,6 +2296,9 @@
     "worldImportInvalidArchive": "Couldn't read that world archive",
     "worldImportTooLarge": "That world is too large to import safely.",
     "worldImportPartialLeft": "Import failed and the incomplete copy couldn't be removed. Delete the \"{folderName}\" folder inside saves — it is not a complete world. See Logs for the cause.",
+    "worldMigratePartialLeft": "The migration failed and the incomplete copy couldn't be removed. Your original world is untouched in this instance. Delete the \"{folderName}\" folder inside the saves folder of \"{targetInstance}\" — it is not a complete world. See Logs for the cause.",
+    "worldMigrateOnlyCopyParked": "The migration failed and the world could not be put back either. Your only copy is now the \"{folderName}\" folder inside the saves folder of \"{targetInstance}\" — do not delete it. Open that instance's Worlds tab: the world is listed there as an interrupted move and can be put back. See Logs for the cause.",
+    "worldMigrateInstanceRunning": "Stop \"{name}\" first — it is the {role} of this migration.",
     "playtimeIo": "Couldn't read or write playtime stats",
     "trayIo": "Couldn't show or hide the tray icon",
     "windowIo": "Couldn't resize the launcher window",

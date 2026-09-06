@@ -27,7 +27,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 import OrphanedSection from '$lib/worlds/OrphanedSection.svelte';
 
 const STRANDED = [
-  { dir_name: '.tmp-restoring-My World-0', world_folder: 'My World', target_occupied: false },
+  {
+    dir_name: '.tmp-restoring-My World-0',
+    world_folder: 'My World',
+    target_occupied: false,
+    kind: 'restore',
+  },
 ];
 const ORPHANS = [{ world_folder: 'Gone', backup_count: 2, newest_unix_ms: 1_700_000_000_000 }];
 
@@ -61,6 +66,39 @@ describe('OrphanedSection — a world a rollback could not put back', () => {
     // The user has no reason to care that it is called .tmp-restoring-My World-0;
     // they care that "My World" is recoverable.
     expect(await screen.findByText(/My World/)).toBeTruthy();
+  });
+
+  it('a parked move says "move", never "restore", and offers to put it back', async () => {
+    renderSection({
+      stranded: [
+        {
+          dir_name: '.tmp-migrate-moved-Base-0',
+          world_folder: 'Base',
+          target_occupied: false,
+          kind: 'migration',
+        },
+      ],
+    });
+    expect(await screen.findByText(/Interrupted move/)).toBeTruthy();
+    expect(screen.queryByText(/Interrupted restore/)).toBeNull();
+    expect(screen.getByText(/"Base"/)).toBeTruthy();
+    expect(screen.getByTestId('stranded-recover-btn')).toBeTruthy();
+  });
+
+  it('a parked move whose name is taken explains the clash instead of calling it a leftover', async () => {
+    renderSection({
+      stranded: [
+        {
+          dir_name: '.tmp-migrate-moved-Base-0',
+          world_folder: 'Base',
+          target_occupied: true,
+          kind: 'migration',
+        },
+      ],
+    });
+    expect(await screen.findByText(/waiting for a free name/)).toBeTruthy();
+    expect(screen.queryByText(/Leftover copy from a restore/)).toBeNull();
+    expect(screen.queryByTestId('stranded-recover-btn')).toBeNull();
   });
 
   it('recovering calls the command with the directory name and reports the change', async () => {
@@ -101,7 +139,9 @@ describe('OrphanedSection — a world a rollback could not put back', () => {
 });
 
 describe('OrphanedSection — a leftover from a restore that finished', () => {
-  const LEFTOVER = [{ dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true }];
+  const LEFTOVER = [
+    { dir_name: '.tmp-restoring-W-0', world_folder: 'W', target_occupied: true, kind: 'restore' },
+  ];
 
   it('offers no way to put it back, because saves/W is the restored world', async () => {
     renderSection({ stranded: LEFTOVER });

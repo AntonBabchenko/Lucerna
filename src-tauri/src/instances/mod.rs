@@ -4,6 +4,7 @@ pub mod clone;
 pub mod icon;
 pub mod ids;
 pub mod import;
+pub mod maintenance;
 pub mod memory;
 pub mod migrate;
 pub mod rename;

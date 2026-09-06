@@ -46,8 +46,17 @@ pub async fn launch_instance(
     // one level.dat rewrite per world, the game rewrites level.dat on save
     // and exit, and whichever side loses the race silently reverts the
     // user's enable/disable choices. The forward direction (no datapack
-    // write while the game runs) is `datapacks::guard`.
-    if crate::verify::repair_in_progress() || crate::datapacks::guard::update_in_progress() {
+    // write while the game runs) is `datapacks::guard`. And the same again
+    // for a world migration holding this instance's maintenance claim
+    // (`instances::maintenance`): its world is mid-rename or mid-copy in
+    // saves/. Deliberately NOT `write_allowed` — launch must not refuse on
+    // `is_running` here (a same-id relaunch is refused inside `launch::start`
+    // by `claim_start`, and other ids may run side by side); only the claim
+    // is checked, and `start` re-checks it after claiming.
+    if crate::verify::repair_in_progress()
+        || crate::datapacks::guard::update_in_progress()
+        || crate::instances::maintenance::maintenance_is_active(&instance_id)
+    {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Stop here rather than letting the JVM die on an InvalidPathException. We
@@ -344,12 +353,13 @@ pub fn create_instance(
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
-    // Refuse while a game is running: on Windows the live JVM holds OS locks on
-    // the instance dir, so remove_dir_all can partially fail and corrupt it.
-    // Mirrors the verify/repair guards in this file.
-    if crate::launch::spawn::is_running(&id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // Refuse while a game is running or starting: on Windows the live JVM
+    // holds OS locks on the instance dir, so remove_dir_all can partially fail
+    // and corrupt it. And while a maintenance claim is held — a world
+    // migration reading from or writing into this instance — the tree is in
+    // flight. One gate for all three (`instances::maintenance::write_allowed`),
+    // the same one every world and datapack writer opens with.
+    crate::instances::maintenance::write_allowed(&id)?;
     // Async + spawn_blocking (mirrors `world_import` in commands/worlds.rs): the
     // domain call walks the whole instance list, then remove_dir_all's a
     // potentially multi-GB instance dir — a sync command spends all of that on
@@ -376,11 +386,15 @@ pub fn rename_instance_dir(
     new_name: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
-    // The same two guards `launch_instance` and `delete_instance` use. The op
-    // queue is frontend state and cannot be consulted from here; a mod install
-    // racing this is a known limitation whose worst case is a failed
-    // `fs::rename` with a typed error, not corruption.
-    if crate::launch::spawn::is_running(&id) || crate::verify::repair_in_progress() {
+    // Running, starting, or under a maintenance claim (a world migration holds
+    // every path under this root) — the shared gate every writer opens with.
+    // Plus the repair guard `launch_instance` also checks: a repair is
+    // rewriting files under the root about to move. The op queue is frontend
+    // state and cannot be consulted from here; a mod install racing this is a
+    // known limitation whose worst case is a failed `fs::rename` with a typed
+    // error, not corruption.
+    crate::instances::maintenance::write_allowed(&id)?;
+    if crate::verify::repair_in_progress() {
         return Err(crate::error::Error::InstanceBusy);
     }
     // Before the rename, so shortcuts created afterwards survive the NEXT one.
@@ -443,9 +457,11 @@ pub async fn change_instance_mc(
     use crate::instances::{self, LoaderDecision, LoaderOutcome};
     use crate::versions::loaders::{list_loaders, Loader};
 
-    if crate::launch::spawn::is_running(&id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // Running, starting, or under a maintenance claim: a world migration's
+    // plan was computed against THIS version, and the game rewrites
+    // `instance.json`-adjacent state on exit. The shared gate, same as every
+    // other writer.
+    instances::maintenance::write_allowed(&id)?;
     let current = instances::read_instance(&app, &id)?;
     let loader = current.loader;
 
@@ -596,11 +612,11 @@ pub async fn clone_instance(
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     crate::data_root::reject_if_fallen_back(&app)?;
     validate_instance_name(&new_name)?;
-    // Copying files a live JVM is writing produces torn saves — mirror the
-    // delete/verify guards.
-    if crate::launch::spawn::is_running(&source_id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // Copying files a live JVM is writing produces torn saves; copying saves/
+    // while a world migration is staging a world in it clones a half-copied
+    // tree. The shared gate (running, starting, or under a maintenance claim)
+    // — the same one delete/verify use.
+    crate::instances::maintenance::write_allowed(&source_id)?;
     crate::instances::clone::clone_instance(
         &app,
         &source_id,
