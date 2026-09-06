@@ -260,7 +260,6 @@ pub(crate) enum JarWorldVersion {
 /// dead-code lint spares only fully `pub` items) — hence the allow, which
 /// is removed together with the first production caller.
 #[must_use]
-#[allow(dead_code)] // first caller is `worlds::migrate::plan` (PR-B); remove there
 pub(crate) fn world_version_of_jar(versions_dir: &Path, mc_version: &str) -> JarWorldVersion {
     let Some(zip) = open_client_jar(versions_dir, mc_version) else {
         return JarWorldVersion::JarUnavailable;
