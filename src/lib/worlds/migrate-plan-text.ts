@@ -56,6 +56,32 @@ const KEPT_BUCKET: Record<LeftReason['kind'], 'nameTaken' | 'notAdded'> = {
   io: 'notAdded',
 };
 
+/**
+ * The outcome-time counterpart of `KEPT_BUCKET`. Once the migration has run
+ * the real cause is known per pack, so the completion toast names it instead
+ * of the two plan-time buckets above — those exist only because `predict_one`
+ * cannot tell the five non-name causes apart before the copy happens. Record,
+ * not a switch, for the same reason: a seventh `LeftReason` without a sentence
+ * must not compile.
+ */
+const LEFT_REASON_KEY: Record<LeftReason['kind'], TranslationKey> = {
+  name_held_by_different_pack: 'worlds.migrate.leftReason.nameHeldByDifferentPack',
+  not_a_datapack: 'worlds.migrate.leftReason.notADatapack',
+  too_large: 'worlds.migrate.leftReason.tooLarge',
+  link_failed: 'worlds.migrate.leftReason.linkFailed',
+  unreadable: 'worlds.migrate.leftReason.unreadable',
+  io: 'worlds.migrate.leftReason.io',
+};
+
+/**
+ * Why a datapack stayed a plain copy in the migrated world instead of being
+ * linked into the target library (spec §5 steps 4–5), as the sentence fragment
+ * the completion toast reads out after "… not linked to the target library:".
+ */
+export function leftReasonKey(r: LeftReason): TranslationKey {
+  return LEFT_REASON_KEY[r.kind];
+}
+
 export interface DatapackSummary {
   /** Every `.zip` pack the plan looked at. */
   total: number;

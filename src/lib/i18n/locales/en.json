@@ -1516,6 +1516,29 @@
       "role": {
         "source": "source",
         "target": "target"
+      },
+      "entry": {
+        "action": "Migrate…",
+        "disabledRunning": "Stop \"{name}\" first"
+      },
+      "leftReason": {
+        "nameHeldByDifferentPack": "its name is in use by a different pack in the target library",
+        "notADatapack": "the target library did not accept it as a datapack",
+        "tooLarge": "it is larger than the target library accepts",
+        "linkFailed": "the link into the target library could not be created",
+        "unreadable": "the file could not be read",
+        "io": "a file operation failed — see Logs"
+      },
+      "toast": {
+        "titleCopied": "Copied \"{name}\"",
+        "titleMoved": "Moved \"{name}\"",
+        "nowIn": "Now in \"{target}\" as \"{name}\"",
+        "datapackLeftAsCopy": "{filename} stays a plain copy, not linked to the target library: {reason}",
+        "datapackCopiedNotLinked": "{filename} matches a pack in the target library but could not be hardlinked to it — it uses its own disk space",
+        "linksSkipped": "{count, plural, one {# symbolic link inside the world was not copied} other {# symbolic links inside the world were not copied}}",
+        "backupsLeft": "In \"{source}\": {count, plural, one {# backup stayed behind — it could not be moved} other {# backups stayed behind — they could not be moved}}",
+        "sourceLeftIntact": "The original \"{name}\" could not be removed from \"{source}\" and is still there. The world in \"{target}\" is complete; delete the copy in \"{source}\" when you no longer want it. See Logs for the cause.",
+        "sourceLeftPartial": "The original \"{name}\" in \"{source}\" was only partly removed and is no longer a complete world. The world in \"{target}\" is complete; delete the leftover \"{name}\" folder from the saves folder of \"{source}\". See Logs for the cause."
       }
     }
   },
