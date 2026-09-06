@@ -203,6 +203,11 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "scan only — it is how a stranded stage is FOUND; recovery is the gated command",
     ),
     (
+        "commands/worlds.rs",
+        "world_migration_plan",
+        "reads level.dat, the target jar and both installed-mod lists; writes nothing a migration could race, and must stay available while an instance runs",
+    ),
+    (
         "commands/datapacks.rs",
         "datapacks_list_library",
         "read-only view; the registry reconcile it may persist is launcher-owned metadata \

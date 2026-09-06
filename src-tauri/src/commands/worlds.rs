@@ -240,3 +240,208 @@ pub async fn recover_stranded_world(
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     crate::worlds::orphans::recover_stranded_at(&saves, &dir_name)
 }
+
+// --- World migration between instances (spec 2026-08-16, v2) ---------------
+
+/// Both endpoints of a migration, resolved the way every other
+/// instance-scoped command resolves an id (`read_active_mc_and_loader` in
+/// `commands/mod.rs`): an id absent from the instance listing is
+/// `InstanceNotFound`, not the `Io` a bare `read_instance` reports for a
+/// missing `instance.json`. One listing serves both ids.
+///
+/// `from == to` is unreachable from the UI (the target picker excludes the
+/// source, spec §7) and is refused with a plain `Io` carrying the detail: no
+/// dictionary key exists for a state the UI cannot produce (spec §3.4).
+fn read_migration_endpoints(
+    app: &tauri::AppHandle,
+    from: &str,
+    to: &str,
+) -> Result<
+    (
+        crate::instances::schema::InstanceFile,
+        crate::instances::schema::InstanceFile,
+    ),
+    crate::error::Error,
+> {
+    let all = crate::instances::list_instances_with_status(app)?;
+    for id in [from, to] {
+        if !all.iter().any(|i| i.id == id) {
+            return Err(crate::error::Error::InstanceNotFound { id: id.to_string() });
+        }
+    }
+    if from == to {
+        return Err(crate::error::Error::io(
+            "<world_migrate>",
+            "source and target are the same instance",
+        ));
+    }
+    let source = crate::instances::read_instance(app, from)?;
+    let target = crate::instances::read_instance(app, to)?;
+    Ok((source, target))
+}
+
+/// Every path the core needs, resolved from the two ids. `src_root` and
+/// `dst_root` are the instance roots `datapacks::instance_root` hands the
+/// datapack library and registry (`<instances>/<id>`, i.e. `paths::instance_dir`),
+/// so the re-link step sees exactly the library the datapack commands see.
+/// `saves_dir` / `backups_root` are the same helpers every world command uses.
+fn migration_locations(
+    app: &tauri::AppHandle,
+    from: &str,
+    to: &str,
+    world_folder: &str,
+    target_instance_name: &str,
+) -> Result<crate::worlds::migrate::MigrationLocations, crate::error::Error> {
+    Ok(crate::worlds::migrate::MigrationLocations {
+        src_saves: crate::worlds::saves_dir(app, from)?,
+        src_backups_root: crate::worlds::backups_root(app, from)?,
+        src_root: crate::datapacks::instance_root(app, from)?,
+        dst_saves: crate::worlds::saves_dir(app, to)?,
+        dst_backups_root: crate::worlds::backups_root(app, to)?,
+        dst_root: crate::datapacks::instance_root(app, to)?,
+        world_folder: world_folder.to_string(),
+        target_instance_name: target_instance_name.to_string(),
+    })
+}
+
+/// Compatibility plan for moving or copying `world_folder` from
+/// `from_instance` into `to_instance`: version verdict, loader pair, mods
+/// the target lacks, and what will happen to each datapack. Read-only: no
+/// maintenance claim and no running-instance gate — it reads `level.dat`,
+/// both mod lists and both datapack libraries, and writes nothing. On
+/// Windows a `level.dat` held open by a running game surfaces as
+/// `WorldInUse` from the reader itself, which is the honest outcome; on
+/// Linux and macOS the read simply succeeds. Async because the core awaits
+/// the datapack registry and mod listings and runs its own file reads under
+/// `spawn_blocking` (spec §3.4: the lexical heavy-sync guard cannot see
+/// through the call, so review owns the offload).
+#[tauri::command]
+#[specta::specta]
+pub async fn world_migration_plan(
+    app: tauri::AppHandle,
+    from_instance: String,
+    world_folder: String,
+    to_instance: String,
+) -> Result<crate::worlds::migrate::MigrationPlan, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    // Defence in depth, same as `open_backups_folder`: the core re-validates
+    // through `world_dir_at`, but a dot-name or path-shaped segment is refused
+    // here before any listing or library read happens.
+    crate::worlds::fs::validate_segment(&world_folder)?;
+    let (source, target) = read_migration_endpoints(&app, &from_instance, &to_instance)?;
+    let loc = migration_locations(
+        &app,
+        &from_instance,
+        &to_instance,
+        &world_folder,
+        &target.name,
+    )?;
+    let versions_dir = crate::paths::versions_dir(&app)
+        .map_err(|e| crate::error::Error::io("<versions_dir>", e))?;
+    crate::worlds::migrate::plan_migration_at(
+        &loc,
+        &versions_dir,
+        &source.mc_version,
+        &target.mc_version,
+        source.loader,
+        target.loader,
+    )
+    .await
+}
+
+/// Move or copy `world_folder` from `from_instance` into `to_instance`
+/// (spec §4). Both instances stay under a maintenance claim for the whole
+/// command. The claims are taken BEFORE the running/starting check, and
+/// `launch::start` re-checks `maintenance_is_active` after its own claim —
+/// the Dekker pairing `DatapackUpdateGuard` uses — so a launch racing this
+/// command is refused by exactly one side, never admitted by both. Progress
+/// arrives on `on_progress`; the outcome states what actually happened to
+/// the source, the datapacks and the backups, because after the point of
+/// no return nothing is an error (spec §4.2). The core is async and runs
+/// every blocking phase under `spawn_blocking` itself (spec §3.4: the
+/// lexical heavy-sync guard cannot see through the call; review owns the
+/// offload).
+#[tauri::command]
+#[specta::specta]
+pub async fn world_migrate(
+    app: tauri::AppHandle,
+    from_instance: String,
+    world_folder: String,
+    to_instance: String,
+    mode: crate::worlds::migrate::MigrationMode,
+    on_progress: tauri::ipc::Channel<crate::worlds::migrate::MigrationProgress>,
+) -> Result<crate::worlds::migrate::MigrationOutcome, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
+    // Defence in depth, same as `open_backups_folder`: the core re-validates
+    // through `world_dir_at`, but a dot-name or path-shaped segment must never
+    // reach the maintenance claim.
+    crate::worlds::fs::validate_segment(&world_folder)?;
+    let (source, target) = read_migration_endpoints(&app, &from_instance, &to_instance)?;
+    let loc = migration_locations(
+        &app,
+        &from_instance,
+        &to_instance,
+        &world_folder,
+        &target.name,
+    )?;
+
+    // Claim both slots first (spec §4.0). `None` means another migration —
+    // or any other maintenance holder — already owns that id: `InstanceBusy`,
+    // the restrictive answer. When the second claim fails, the `?` drops
+    // `from_claim` on the way out, so the source slot is released (RAII).
+    let from_claim = crate::instances::maintenance::maintenance_begin(&from_instance)
+        .ok_or(crate::error::Error::InstanceBusy)?;
+    let to_claim = crate::instances::maintenance::maintenance_begin(&to_instance)
+        .ok_or(crate::error::Error::InstanceBusy)?;
+
+    // Only now the running/starting check. `launch::start` claims its start
+    // slot and then re-checks `maintenance_is_active`; with the claims already
+    // held above, whichever side raced first is the one that proceeds. The
+    // display NAME goes into the error — the user never sees an id.
+    for (id, name, role) in [
+        (
+            &from_instance,
+            &source.name,
+            crate::error::MigrationRole::Source,
+        ),
+        (
+            &to_instance,
+            &target.name,
+            crate::error::MigrationRole::Target,
+        ),
+    ] {
+        if crate::launch::spawn::is_running(id) || crate::launch::spawn::is_starting(id) {
+            // Early return drops both claims (RAII) before the error leaves.
+            return Err(crate::error::Error::WorldMigrateInstanceRunning {
+                instance_name: name.clone(),
+                role,
+            });
+        }
+    }
+
+    let progress: std::sync::Arc<dyn Fn(crate::worlds::migrate::MigrationProgress) + Send + Sync> =
+        std::sync::Arc::new(move |p| {
+            // Same discipline as `clone_instance`: a failed send means the webview
+            // dropped its listener (window closed, page reloaded). Progress is
+            // advisory; the outcome still returns through the command result, and
+            // a delivery failure must never abort a migration that is already
+            // moving the user's world. Direction chosen: continue, because the
+            // restrictive alternative (abort mid-flight) is the one that risks data.
+            let _ = on_progress.send(p);
+        });
+
+    let result = crate::worlds::migrate::migrate_world_at(
+        loc,
+        mode,
+        progress,
+        crate::worlds::migrate::MigrationSeams::real(),
+    )
+    .await;
+
+    // The claims live across the await above (named locals, not `let _`) and
+    // are released here in reverse claim order on Ok and Err alike; every
+    // earlier `?` / `return` released them through `Drop`.
+    drop(to_claim);
+    drop(from_claim);
+    result
+}
