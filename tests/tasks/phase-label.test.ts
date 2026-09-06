@@ -24,6 +24,12 @@ const base: Task = {
   finishedAt: null,
 };
 
+/** A world-migrate task at `phase` — the adapter stores the raw
+ *  `MigrationPhase` discriminant, so these are the wire strings. */
+function worldMigrate(phase: string | null): Task {
+  return { ...base, kind: 'world-migrate', phase };
+}
+
 describe('phaseLabel', () => {
   it('maps a game-install phase to the reused install.phase text', () => {
     const task: Task = { ...base, kind: 'game-install', phase: 'libraries' };
@@ -132,5 +138,18 @@ describe('phaseLabel', () => {
       phaseLabel(tr, { ...base, kind: 'server-upload', phase: '/some/file/path.jar' }),
     ).toBeNull();
     expect(phaseLabel(tr, { ...base, kind: 'app-update', phase: null })).toBeNull();
+  });
+
+  it('maps every world-migrate phase to its tasks.phase.worldMigrate text', () => {
+    expect(phaseLabel(tr, worldMigrate('moving'))).toBe('Moving the world');
+    expect(phaseLabel(tr, worldMigrate('copying'))).toBe('Copying files');
+    expect(phaseLabel(tr, worldMigrate('linking'))).toBe('Reconnecting datapacks');
+    expect(phaseLabel(tr, worldMigrate('backups'))).toBe('Moving backups');
+    expect(phaseLabel(tr, worldMigrate('finalising'))).toBe('Finishing');
+  });
+
+  it('returns null for world-migrate before the first tick and for a phase it does not map', () => {
+    expect(phaseLabel(tr, worldMigrate(null))).toBeNull();
+    expect(phaseLabel(tr, worldMigrate('teleporting'))).toBeNull();
   });
 });

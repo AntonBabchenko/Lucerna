@@ -190,6 +190,30 @@ function dataMigrationPhase(tr: Translate, task: Task): string | null {
   }
 }
 
+/** `tasks.phase.worldMigrate.*` — the five `MigrationPhase` discriminants
+ *  `adapters/world-migrate.ts` stores verbatim as `phase`. The one kind with
+ *  keys of its own rather than reused copy: no earlier surface ever rendered
+ *  a world migration, so there was nothing to reuse. All five are
+ *  argument-free — the byte/file counter travels in `progress`, which the
+ *  strip renders itself, and the rename path's `moving` and `finalising`
+ *  carry no counter at all. */
+function worldMigratePhase(tr: Translate, task: Task): string | null {
+  switch (task.phase) {
+    case 'moving':
+      return tr('tasks.phase.worldMigrate.moving');
+    case 'copying':
+      return tr('tasks.phase.worldMigrate.copying');
+    case 'linking':
+      return tr('tasks.phase.worldMigrate.linking');
+    case 'backups':
+      return tr('tasks.phase.worldMigrate.backups');
+    case 'finalising':
+      return tr('tasks.phase.worldMigrate.finalising');
+    default:
+      return null;
+  }
+}
+
 /** One deliberate entry per kind — `null` for a kind with no phase
  *  vocabulary to reuse (see the module doc comment for why each is `null`).
  *  `Record<TaskKind, …>` rather than a lookup function: a new kind added to
@@ -207,6 +231,7 @@ const PHASE_LABEL: Record<TaskKind, PhaseLabelFn | null> = {
   'server-upload': null,
   'app-update': null,
   'data-migration': dataMigrationPhase,
+  'world-migrate': worldMigratePhase,
 };
 
 /** The localized "what is this task doing" line for `task`, or `null` when

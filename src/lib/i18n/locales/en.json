@@ -3703,7 +3703,8 @@
       "repair": "Repairing instance",
       "serverUpload": "Uploading server",
       "appUpdate": "Updating Lucerna",
-      "dataMigration": "Migrating data folder"
+      "dataMigration": "Migrating data folder",
+      "worldMigrate": "Migrating world"
     },
     "origin": {
       "modrinth": "Modrinth",
@@ -3713,6 +3714,15 @@
       "archive": "Modpack archive",
       "local": "Local file",
       "game": "Game files"
+    },
+    "phase": {
+      "worldMigrate": {
+        "moving": "Moving the world",
+        "copying": "Copying files",
+        "linking": "Reconnecting datapacks",
+        "backups": "Moving backups",
+        "finalising": "Finishing"
+      }
     },
     "strip": {
       "count": "{count, plural, one {# operation} other {# operations}}",

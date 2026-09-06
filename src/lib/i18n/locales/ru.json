@@ -3703,7 +3703,8 @@
       "repair": "Восстановление инстанса",
       "serverUpload": "Заливка сервера",
       "appUpdate": "Обновление Lucerna",
-      "dataMigration": "Перенос папки данных"
+      "dataMigration": "Перенос папки данных",
+      "worldMigrate": "Перенос мира"
     },
     "origin": {
       "modrinth": "Modrinth",
@@ -3713,6 +3714,15 @@
       "archive": "Архив сборки",
       "local": "Локальный файл",
       "game": "Файлы игры"
+    },
+    "phase": {
+      "worldMigrate": {
+        "moving": "Перемещение мира",
+        "copying": "Копирование файлов",
+        "linking": "Переподключение датапаков",
+        "backups": "Перенос резервных копий",
+        "finalising": "Завершение"
+      }
     },
     "strip": {
       "count": "{count, plural, one {# операция} few {# операции} many {# операций} other {# операций}}",

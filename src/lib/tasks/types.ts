@@ -17,6 +17,7 @@ export const TASK_KINDS = [
   'server-upload',
   'app-update',
   'data-migration',
+  'world-migrate',
 ] as const;
 
 // `server-core-install` is deliberately absent. Server core provisioning
@@ -75,6 +76,7 @@ export const KIND_LABEL_KEY: Record<TaskKind, TranslationKey> = {
   'server-upload': 'tasks.kind.serverUpload',
   'app-update': 'tasks.kind.appUpdate',
   'data-migration': 'tasks.kind.dataMigration',
+  'world-migrate': 'tasks.kind.worldMigrate',
 };
 
 export const ORIGIN_LABEL_KEY: Record<TaskDetail['origin'], TranslationKey> = {
