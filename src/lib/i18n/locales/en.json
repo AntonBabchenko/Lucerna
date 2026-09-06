@@ -1468,6 +1468,51 @@
       "deleteBtn": "Delete"
     },
     "migrate": {
+      "title": "Migrate \"{world}\"",
+      "targetLabel": "Target instance",
+      "targetPlaceholder": "Choose an instance…",
+      "noTargets": "No other instance can receive this world.",
+      "excludedNoVersion": "Not listed — no Minecraft version set: {names}",
+      "modeLegend": "How",
+      "copyLabel": "Copy",
+      "copyDescription": "The original stays in {source}, and its backups stay with it.",
+      "moveLabel": "Move",
+      "moveDescription": "The world leaves {source}; its backups move with it.",
+      "moveShortcutsNote": "Desktop shortcuts and Quick Play entries that open this world in {source} will stop working; the launcher cannot update them.",
+      "size": "{size} on disk",
+      "backupsCopy": "{count, plural, =0 {No backups} one {# backup — will stay here} other {# backups — will stay here}}",
+      "backupsMove": "{count, plural, =0 {No backups} one {# backup — will move with the world} other {# backups — will move with the world}}",
+      "planning": "Checking the target…",
+      "worldVersion": "Last saved by Minecraft {name}",
+      "datapacks": {
+        "total": "{count, plural, =0 {No datapacks} one {# datapack} other {# datapacks}}",
+        "inTarget": "{count, plural, one {# already in the target library — will be linked to it} other {# already in the target library — will be linked to it}}",
+        "adopted": "{count, plural, one {# will be added to the target library} other {# will be added to the target library}}",
+        "keptNameTaken": "{count, plural, one {# kept as a plain copy — its name is in use by a different pack in the target library} other {# kept as plain copies — their names are in use by different packs in the target library}}",
+        "keptNotAdded": "{count, plural, one {# kept as a plain copy — it will not be added to the target library} other {# kept as plain copies — they will not be added to the target library}}",
+        "folders": "{count, plural, one {# folder pack will be copied as it is} other {# folder packs will be copied as they are}}"
+      },
+      "verdict": {
+        "willUpgrade": "Minecraft will upgrade this world to {target} the first time it opens. That cannot be undone.",
+        "worldIsNewer": "This world was last saved by a newer Minecraft ({name}) than {target}. Opening it there is unsupported and may damage the world.",
+        "versionNameUnknown": "version name not recorded",
+        "unknown": {
+          "noLevelDat": "This world has no level.dat; its version is unknown.",
+          "unreadable": "This world's level.dat could not be read; its version is unknown.",
+          "notRecorded": "This world does not record its version (worlds last saved before Minecraft 1.10 do not).",
+          "targetVersionUnset": "The target instance has no Minecraft version set.",
+          "targetNotInstalled": "Minecraft {target} isn't installed here (or its files are damaged) — install or repair it first to check compatibility.",
+          "targetNotRecorded": "Minecraft {target} does not record its data version (versions before 1.14 don't), so the two can't be compared."
+        }
+      },
+      "modsMissing": "{count, plural, one {# mod this world was played with is not in the target: blocks, items and entities it adds will disappear from chunks the game loads there.} other {# mods this world was played with are not in the target: blocks, items and entities they add will disappear from chunks the game loads there.}}",
+      "loaderDiffers": "Last played with {source}; the target runs {target}.",
+      "disabledNoTarget": "Choose a target instance first.",
+      "disabledPlanning": "Wait for the target check to finish.",
+      "disabledBusy": "An operation on this instance is already running.",
+      "cancelledQueued": "The migration was cancelled before it started; nothing changed.",
+      "copyBtn": "Copy world",
+      "moveBtn": "Move world",
       "role": {
         "source": "source",
         "target": "target"
