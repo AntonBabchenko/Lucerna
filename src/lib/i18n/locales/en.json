@@ -1468,9 +1468,76 @@
       "deleteBtn": "Delete"
     },
     "migrate": {
+      "title": "Migrate \"{world}\"",
+      "targetLabel": "Target instance",
+      "targetPlaceholder": "Choose an instance…",
+      "noTargets": "No other instance can receive this world.",
+      "excludedNoVersion": "Not listed — no Minecraft version set: {names}",
+      "modeLegend": "How",
+      "copyLabel": "Copy",
+      "copyDescription": "The original stays in {source}, and its backups stay with it.",
+      "moveLabel": "Move",
+      "moveDescription": "The world leaves {source}; its backups move with it.",
+      "moveShortcutsNote": "Desktop shortcuts and Quick Play entries that open this world in {source} will stop working; the launcher cannot update them.",
+      "size": "{size} on disk",
+      "backupsCopy": "{count, plural, =0 {No backups} one {# backup — will stay here} other {# backups — will stay here}}",
+      "backupsMove": "{count, plural, =0 {No backups} one {# backup — will move with the world} other {# backups — will move with the world}}",
+      "planning": "Checking the target…",
+      "worldVersion": "Last saved by Minecraft {name}",
+      "datapacks": {
+        "total": "{count, plural, =0 {No datapacks} one {# datapack} other {# datapacks}}",
+        "inTarget": "{count, plural, one {# already in the target library — will be linked to it} other {# already in the target library — will be linked to it}}",
+        "adopted": "{count, plural, one {# will be added to the target library} other {# will be added to the target library}}",
+        "keptNameTaken": "{count, plural, one {# kept as a plain copy — its name is in use by a different pack in the target library} other {# kept as plain copies — their names are in use by different packs in the target library}}",
+        "keptNotAdded": "{count, plural, one {# kept as a plain copy — it will not be added to the target library} other {# kept as plain copies — they will not be added to the target library}}",
+        "folders": "{count, plural, one {# folder pack will be copied as it is} other {# folder packs will be copied as they are}}"
+      },
+      "verdict": {
+        "willUpgrade": "Minecraft will upgrade this world to {target} the first time it opens. That cannot be undone.",
+        "worldIsNewer": "This world was last saved by a newer Minecraft ({name}) than {target}. Opening it there is unsupported and may damage the world.",
+        "versionNameUnknown": "version name not recorded",
+        "unknown": {
+          "noLevelDat": "This world has no level.dat; its version is unknown.",
+          "unreadable": "This world's level.dat could not be read; its version is unknown.",
+          "notRecorded": "This world does not record its version (worlds last saved before Minecraft 1.10 do not).",
+          "targetVersionUnset": "The target instance has no Minecraft version set.",
+          "targetNotInstalled": "Minecraft {target} isn't installed here (or its files are damaged) — install or repair it first to check compatibility.",
+          "targetNotRecorded": "Minecraft {target} does not record its data version (versions before 1.14 don't), so the two can't be compared."
+        }
+      },
+      "modsMissing": "{count, plural, one {# mod this world was played with is not in the target: blocks, items and entities it adds will disappear from chunks the game loads there.} other {# mods this world was played with are not in the target: blocks, items and entities they add will disappear from chunks the game loads there.}}",
+      "loaderDiffers": "Last played with {source}; the target runs {target}.",
+      "disabledNoTarget": "Choose a target instance first.",
+      "disabledPlanning": "Wait for the target check to finish.",
+      "disabledBusy": "An operation on this instance is already running.",
+      "cancelledQueued": "The migration was cancelled before it started; nothing changed.",
+      "copyBtn": "Copy world",
+      "moveBtn": "Move world",
       "role": {
         "source": "source",
         "target": "target"
+      },
+      "entry": {
+        "action": "Migrate…",
+        "disabledRunning": "Stop \"{name}\" first"
+      },
+      "leftReason": {
+        "nameHeldByDifferentPack": "its name is in use by a different pack in the target library",
+        "tooLarge": "it is larger than the target library accepts",
+        "linkFailed": "the link into the target library could not be created",
+        "unreadable": "the file could not be read",
+        "io": "a file operation failed — see Logs"
+      },
+      "toast": {
+        "titleCopied": "Copied \"{name}\"",
+        "titleMoved": "Moved \"{name}\"",
+        "nowIn": "Now in \"{target}\" as \"{name}\"",
+        "datapackLeftAsCopy": "{filename} stays a plain copy, not linked to the target library: {reason}",
+        "datapackCopiedNotLinked": "{filename} matches a pack in the target library but could not be hardlinked to it — it uses its own disk space",
+        "linksSkipped": "{count, plural, one {# symbolic link inside the world was not copied} other {# symbolic links inside the world were not copied}}",
+        "backupsLeft": "In \"{source}\": {count, plural, one {# backup stayed behind — it could not be moved} other {# backups stayed behind — they could not be moved}}",
+        "sourceLeftIntact": "The original \"{name}\" could not be removed from \"{source}\" and is still there. The world in \"{target}\" is complete; delete the copy in \"{source}\" when you no longer want it. See Logs for the cause.",
+        "sourceLeftPartial": "The original \"{name}\" in \"{source}\" was only partly removed and is no longer a complete world. The world in \"{target}\" is complete; delete the leftover \"{name}\" folder from the saves folder of \"{source}\". See Logs for the cause."
       }
     }
   },
@@ -2740,7 +2807,7 @@
     },
     "dataRootFallback": {
       "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then. If the folder is gone for good, detach it via Settings → Storage → \"Reset to default\" (nothing on it is deleted).",
-      "createDisabledReason": "Creating instances and servers is disabled while the data folder is unavailable.",
+      "createDisabledReason": "Creating and moving instance data is disabled while the data folder is unavailable.",
       "playDisabledReason": "Playing is disabled while the data folder is unavailable. Reconnect it and restart Lucerna."
     },
     "modpackImport": {
@@ -3703,7 +3770,8 @@
       "repair": "Repairing instance",
       "serverUpload": "Uploading server",
       "appUpdate": "Updating Lucerna",
-      "dataMigration": "Migrating data folder"
+      "dataMigration": "Migrating data folder",
+      "worldMigrate": "Migrating world"
     },
     "origin": {
       "modrinth": "Modrinth",
@@ -3713,6 +3781,15 @@
       "archive": "Modpack archive",
       "local": "Local file",
       "game": "Game files"
+    },
+    "phase": {
+      "worldMigrate": {
+        "moving": "Moving the world",
+        "copying": "Copying files",
+        "linking": "Reconnecting datapacks",
+        "backups": "Moving backups",
+        "finalising": "Finishing"
+      }
     },
     "strip": {
       "count": "{count, plural, one {# operation} other {# operations}}",

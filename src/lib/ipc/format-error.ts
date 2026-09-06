@@ -274,8 +274,12 @@ function dataLocationInvalidReason(reason: string): string {
  * `DatapackRejection` variant that isn't handled here falls through to the
  * `_exhaustive: never` assignment below and fails to compile, rather than
  * silently rendering nothing for the new reason.
+ *
+ * Exported because the same rejection reaches the user down a second path: a
+ * migration's `LeftReason::NotADatapack` carries one, and the completion toast
+ * says which it was rather than an umbrella "not accepted as a datapack".
  */
-function datapackRejectionKey(reason: DatapackRejection): TranslationKey {
+export function datapackRejectionKey(reason: DatapackRejection): TranslationKey {
   switch (reason) {
     case 'not_a_zip':
       return 'errors.datapackInvalidReason.notAZip';

@@ -10,4 +10,9 @@ describe('task label maps', () => {
     const origins = ['modrinth', 'curseforge', 'ftb', 'atlauncher', 'archive', 'local'] as const;
     for (const o of origins) expect(ORIGIN_LABEL_KEY[o]).toBeTruthy();
   });
+
+  it('registers world-migrate as a task kind with its own label key', () => {
+    expect(TASK_KINDS).toContain('world-migrate');
+    expect(KIND_LABEL_KEY['world-migrate']).toBe('tasks.kind.worldMigrate');
+  });
 });

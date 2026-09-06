@@ -173,7 +173,7 @@ describe('ModpacksTab — data-root fallback gating (§5 disabled-reason)', () =
     revealTooltip(wrap);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe(
-      'Creating instances and servers is disabled while the data folder is unavailable.',
+      'Creating and moving instance data is disabled while the data folder is unavailable.',
     );
     // `describe: false` — supplementary info, not the button's accessible name.
     expect(wrap.hasAttribute('aria-describedby')).toBe(false);

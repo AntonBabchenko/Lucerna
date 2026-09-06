@@ -3,6 +3,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import BackupsPanel from '$lib/worlds/BackupsPanel.svelte';
   import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
   import { t } from '$lib/i18n';
@@ -14,19 +15,30 @@
   // BackupsPanel so it can sit inside this shared chrome instead of nesting a
   // second Modal (Modal's shared openStack only gives Escape to the topmost
   // layer, so two stacked Modals for one logical surface would be wrong).
+  //
+  // Migration to another instance (world-migration spec §7, A12) lives here
+  // for the same reason: a footer action beside the tabs, not a fourth row
+  // icon. The dialog only reports the click — WorldsTab owns the
+  // MigrateWorldDialog because it owns the world list the outcome changes.
 
   let {
     instanceId,
     world,
     running = false,
+    migrateDisabledReason = null,
     onClose,
     onChanged,
+    onMigrate = () => {},
   }: {
     instanceId: string;
     world: World;
     running?: boolean;
+    /** Why the migrate action is unavailable right now (data root fallen
+     *  back, source running) — rendered as its tooltip; `null` = enabled. */
+    migrateDisabledReason?: string | null;
     onClose: () => void;
     onChanged: () => void;
+    onMigrate?: () => void;
   } = $props();
 
   type TabId = 'backups' | 'datapacks';
@@ -78,5 +90,30 @@
     {:else}
       <WorldDatapacks {instanceId} world={world.folder_name} {running} />
     {/if}
+  </div>
+
+  <!-- Fixed footer: the migrate entry point. Text-labelled `.btn-secondary`
+       (DESIGN.md §5 — a committing, standalone dialog action carries no icon).
+       A disabled button fires no pointer events and `title=` is banned, so the
+       reason rides the wrapping span's tooltip, and the span is focusable only
+       while the action is blocked so the explanation is reachable by keyboard
+       — the OverviewTab / WorldDatapacks shape. -->
+  <div class="p-4 pt-2 shrink-0 border-t border-border-subtle flex justify-end">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <span
+      class="inline-flex"
+      tabindex={migrateDisabledReason !== null ? 0 : undefined}
+      use:tooltip={{ text: migrateDisabledReason ?? '', describe: false }}
+    >
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        data-testid="world-migrate-btn"
+        disabled={migrateDisabledReason !== null}
+        onclick={onMigrate}
+      >
+        {$t('worlds.migrate.entry.action')}
+      </button>
+    </span>
   </div>
 </Modal>
