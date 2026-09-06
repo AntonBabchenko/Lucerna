@@ -146,7 +146,6 @@ pub struct MigrationPlan {
 pub enum MigrationPhase {
     Moving,
     Copying,
-    Verifying,
     Linking,
     Backups,
     Finalising,

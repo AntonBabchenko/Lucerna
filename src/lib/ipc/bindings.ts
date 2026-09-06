@@ -4683,7 +4683,7 @@ export type MigrationOutcome = {
 /**  Which §4 path actually ran: one same-volume rename, or a verified copy. */
 export type MigrationPath = "renamed" | "copied";
 
-export type MigrationPhase = "moving" | "copying" | "verifying" | "linking" | "backups" | "finalising";
+export type MigrationPhase = "moving" | "copying" | "linking" | "backups" | "finalising";
 
 /**
  *  The read-only plan for one world → one target (A13: size and backup count
