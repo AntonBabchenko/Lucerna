@@ -133,6 +133,11 @@ pub(crate) fn parked_world_of_tmp_dir(
         (rest, StrandedKind::Restore)
     } else if let Some(rest) = dir_name.strip_prefix(TMP_MIGRATE_MOVED_PREFIX) {
         (rest, StrandedKind::Migration)
+    } else if dir_name.starts_with(TMP_MIGRATE_COPY_PREFIX) {
+        // A copy-path stage is never a parked world: the source is intact and
+        // the tree may be partial (spec §4.1). Spelled out rather than left to
+        // "no prefix matched" so the exclusion is code, not an accident.
+        return None;
     } else {
         return None;
     };
