@@ -20,7 +20,7 @@ pub enum ModsAuthKind {
 /// than a message, so the UI can localise it — the launcher ships in English
 /// and Russian and a hand-written English sentence inside a `clean` error would
 /// reach a Russian user untranslated.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum DatapackRejection {
     /// The picked file is not a `.zip` (and is not a folder).
@@ -357,7 +357,7 @@ pub enum Error {
     #[error("Invalid world or backup name '{name}': {reason}")]
     WorldPathInvalid { name: String, reason: String },
 
-    #[error("Could not resolve a free name for '{folder_name}' after trying 99 suffixes")]
+    #[error("Could not resolve a free name for '{folder_name}' after trying 998 suffixes")]
     WorldNameUnresolvable { folder_name: String },
 
     /// A restore failed AND the rollback could not put the world back. The world

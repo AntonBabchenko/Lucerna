@@ -9,6 +9,7 @@
 pub mod backup;
 pub mod fs;
 pub mod import;
+pub mod migrate;
 pub mod orphans;
 pub mod restore;
 pub mod zip;

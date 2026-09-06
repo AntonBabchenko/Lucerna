@@ -255,12 +255,8 @@ pub(crate) enum JarWorldVersion {
 /// [`expected_data_format`].
 ///
 /// `pub(crate)`: read by `worlds::migrate::plan`, the first caller, which
-/// lands with the migration core. Until it does, the tests below are the
-/// only callers, so a non-test build would flag the fn as unused (rustc's
-/// dead-code lint spares only fully `pub` items) — hence the allow, which
-/// is removed together with the first production caller.
+/// lands with the migration core.
 #[must_use]
-#[allow(dead_code)] // first caller is `worlds::migrate::plan` (PR-B); remove there
 pub(crate) fn world_version_of_jar(versions_dir: &Path, mc_version: &str) -> JarWorldVersion {
     let Some(zip) = open_client_jar(versions_dir, mc_version) else {
         return JarWorldVersion::JarUnavailable;

@@ -298,6 +298,35 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  extract/copy off the IPC thread.
 	 */
 	worldImport: (instanceId: string, sourcePath: string) => typedError<World, Error>(__TAURI_INVOKE("world_import", { instanceId, sourcePath })),
+	/**
+	 *  Compatibility plan for moving or copying `world_folder` from
+	 *  `from_instance` into `to_instance`: version verdict, loader pair, mods
+	 *  the target lacks, and what will happen to each datapack. Read-only: no
+	 *  maintenance claim and no running-instance gate — it reads `level.dat`,
+	 *  both mod lists and both datapack libraries, and writes nothing. On
+	 *  Windows a `level.dat` held open by a running game surfaces as
+	 *  `WorldInUse` from the reader itself, which is the honest outcome; on
+	 *  Linux and macOS the read simply succeeds. Async because the core awaits
+	 *  the datapack registry and mod listings and runs its own file reads under
+	 *  `spawn_blocking` (spec §3.4: the lexical heavy-sync guard cannot see
+	 *  through the call, so review owns the offload).
+	 */
+	worldMigrationPlan: (fromInstance: string, worldFolder: string, toInstance: string) => typedError<MigrationPlan, Error>(__TAURI_INVOKE("world_migration_plan", { fromInstance, worldFolder, toInstance })),
+	/**
+	 *  Move or copy `world_folder` from `from_instance` into `to_instance`
+	 *  (spec §4). Both instances stay under a maintenance claim for the whole
+	 *  command. The claims are taken BEFORE the running/starting check, and
+	 *  `launch::start` re-checks `maintenance_is_active` after its own claim —
+	 *  the Dekker pairing `DatapackUpdateGuard` uses — so a launch racing this
+	 *  command is refused by exactly one side, never admitted by both. Progress
+	 *  arrives on `on_progress`; the outcome states what actually happened to
+	 *  the source, the datapacks and the backups, because after the point of
+	 *  no return nothing is an error (spec §4.2). The core is async and runs
+	 *  every blocking phase under `spawn_blocking` itself (spec §3.4: the
+	 *  lexical heavy-sync guard cannot see through the call; review owns the
+	 *  offload).
+	 */
+	worldMigrate: (fromInstance: string, worldFolder: string, toInstance: string, mode: MigrationMode, onProgress: Channel<MigrationProgress>) => typedError<MigrationOutcome, Error>(__TAURI_INVOKE("world_migrate", { fromInstance, worldFolder, toInstance, mode, onProgress })),
 	listScreenshots: (instanceId: string) => typedError<Screenshot[], Error>(__TAURI_INVOKE("list_screenshots", { instanceId })),
 	listAllScreenshots: () => typedError<Screenshot[], Error>(__TAURI_INVOKE("list_all_screenshots")),
 	screenshotThumbnail: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("screenshot_thumbnail", { instanceId, fileName })),
@@ -2863,6 +2892,11 @@ export type DatapackLibraryView = {
 	entries: DatapackLibraryEntry[],
 };
 
+export type DatapackMigration = {
+	filename: string,
+	result: DatapackResult,
+};
+
 /**  One world's view of one library pack. */
 export type DatapackPlacementView = {
 	world: string,
@@ -2873,6 +2907,16 @@ export type DatapackPlacementView = {
 	 *  empty lists, which is a real answer.
 	 */
 	state: WorldPackState | null,
+};
+
+/**
+ *  Plan-time prediction for one `.zip`: `Linked`, `Adopted`, or `LeftAsCopy`
+ *  — `NameHeldByDifferentPack` for different bytes, `Io` when the library
+ *  name could not be checked, `Unreadable` when a side could not be read.
+ */
+export type DatapackPlan = {
+	filename: string,
+	predicted: DatapackResult,
 };
 
 /**
@@ -2888,6 +2932,13 @@ export type DatapackRejection =
 "is_a_resource_pack" | 
 /**  No `pack.mcmeta`, or no `data/` tree. */
 "not_a_pack";
+
+/**
+ *  Per-`.zip` result of the datapack step. `CopiedNotLinked` is
+ *  `materialize`'s documented fallback on a filesystem that cannot hardlink —
+ *  the toast must not call a copy "linked".
+ */
+export type DatapackResult = { kind: "linked" } | { kind: "copied_not_linked" } | { kind: "adopted" } | { kind: "left_as_copy"; reason: LeftReason };
 
 /**  The result of `datapacks_update_one`. */
 export type DatapackUpdateOutcome = {
@@ -4285,6 +4336,9 @@ export type LauncherImportOutcome = {
 	untracked_mods: number,
 };
 
+/**  Why a world datapack stayed a plain copy instead of a library link (§5). */
+export type LeftReason = { kind: "name_held_by_different_pack" } | { kind: "not_a_datapack"; reason: DatapackRejection } | { kind: "too_large" } | { kind: "link_failed" } | { kind: "unreadable" } | { kind: "io" };
+
 /**
  *  The result of a library install: the registry row, plus what the same-name
  *  fan-out did to each world already holding that filename.
@@ -4608,6 +4662,52 @@ export type MemoryBounds = {
 	recommended_max_mb: number,
 	step_mb: number,
 	ram_known: boolean,
+};
+
+/**  D1: copy (default — the original survives) or move. */
+export type MigrationMode = "copy" | "move";
+
+export type MigrationOutcome = {
+	/**  Suffixed if the name was taken in the target. */
+	final_folder_name: string,
+	path: MigrationPath,
+	datapacks: DatapackMigration[],
+	datapacks_folders_copied: number,
+	/**  Copy path only: symlinks `copy_tree` did not follow. */
+	links_skipped: number,
+	source_state: SourceState,
+	backups_moved: number,
+	/**  Still in the source's `backups/<world>/`, where the orphan UI shows them. */
+	backups_left: number,
+};
+
+/**  Which §4 path actually ran: one same-volume rename, or a verified copy. */
+export type MigrationPath = "renamed" | "copied";
+
+export type MigrationPhase = "moving" | "copying" | "linking" | "backups" | "finalising";
+
+/**
+ *  The read-only plan for one world → one target (A13: size and backup count
+ *  come from the `World` row the dialog was opened from, not from here).
+ */
+export type MigrationPlan = {
+	/**  `Data.Version.Name` — display only, never compared. */
+	world_version_name: string | null,
+	verdict: VersionVerdict,
+	source_loader: LoaderKind,
+	target_loader: LoaderKind,
+	/**  A7: source mods absent from the target, by `project_id` else `sha1`. */
+	mods_missing_in_target: number,
+	datapacks: DatapackPlan[],
+	/**  Folder packs: copied as they are, never adopted or linked. */
+	datapacks_folders: number,
+};
+
+/**  `f64`, not `u64`: specta-typescript rejects `u64` (A10). */
+export type MigrationProgress = {
+	phase: MigrationPhase,
+	current: number | null,
+	total: number | null,
 };
 
 /**  Which side of a world migration an instance is on. */
@@ -6734,6 +6834,13 @@ export type SourceCaps = {
 };
 
 /**
+ *  What is left in the source after the point of no return (A4). `reason` is
+ *  the io error text for Logs / the details panel, never shown raw as the
+ *  toast sentence.
+ */
+export type SourceState = { kind: "untouched" } | { kind: "removed" } | { kind: "left_intact"; reason: string } | { kind: "left_partial"; reason: string };
+
+/**
  *  Disposition the user chose for one [`StrandedRow`]. Deliberately carries
  *  no `Default` impl — the jar behind a stranded row is PROVEN incompatible
  *  (`Violated` verdict, no replacement plan), so there is no safe "the user
@@ -6934,6 +7041,17 @@ export type ThemePreference = "system" | "light" | "dark";
  */
 export type UiErrorLevel = "error" | "warn";
 
+/**
+ *  Why a version verdict could not be reached (§6). Typed so the dialog
+ *  renders each as its own honest sentence — never a raw string.
+ */
+export type UnknownReason = "no_level_dat" | "unreadable" | "not_recorded" | "target_version_unset" | "target_not_installed" | 
+/**
+ *  The target jar is installed but records no DataVersion: no
+ *  `version.json` (clients before 1.14) or no integer `world_version`.
+ */
+"target_not_recorded";
+
 export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path" | 
 /**
  *  A file whose integrity cannot be verified because no SHA-1 checksum was
@@ -7123,6 +7241,9 @@ export type VersionRef = {
 };
 
 export type VersionType = "release" | "snapshot" | "old_alpha" | "old_beta";
+
+/**  Ordered by DataVersion (integer), never by version name (A6). */
+export type VersionVerdict = { kind: "same" } | { kind: "will_upgrade" } | { kind: "world_is_newer" } | { kind: "unknown"; reason: UnknownReason };
 
 /**  What kind of dependency violation was detected. */
 export type ViolationKind = 

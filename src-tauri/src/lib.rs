@@ -111,6 +111,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_saves_folder,
             commands::open_backups_folder,
             commands::world_import,
+            commands::world_migration_plan,
+            commands::world_migrate,
             commands::list_screenshots,
             commands::list_all_screenshots,
             commands::screenshot_thumbnail,
