@@ -173,17 +173,19 @@ async fn relink_one(
         Ok(false) => adopt_then_link(world_file, lib_file, name, dst_root, source_rows).await,
         Ok(true) => link_if_identical(world_file, lib_file, name).await,
         Err(e) => {
-            // Could not stat the library name. Fallback direction: treated as
-            // present-with-different-bytes (spec §5 step 1) — the restrictive
-            // answer, since both adopting and linking would act on a library
-            // entry this step could not see. The world keeps its plain copy
-            // either way; the real cause goes to Logs.
+            // Could not stat the library name. Fallback direction: the world
+            // keeps its plain copy (spec §5 step 1) — the restrictive answer,
+            // since both adopting and linking would act on a library entry
+            // this step could not see. The direction is the same as for a
+            // different pack — no adopt, no link — but the reason must say
+            // what happened: a stat failure is `Io`, not a different pack
+            // holding the name. The real cause goes to Logs.
             crate::diag!(
                 "worlds::migrate: could not stat library entry {} for {name}: {e}; left as a copy",
                 lib_file.display()
             );
             DatapackResult::LeftAsCopy {
-                reason: LeftReason::NameHeldByDifferentPack,
+                reason: LeftReason::Io,
             }
         }
     }
@@ -758,6 +760,39 @@ mod tests {
         assert!(
             !same_physical_file(&src_lib, &staged),
             "a write through the source library name must no longer reach the moved world"
+        );
+    }
+
+    /// A stat failure on the library name — here ENOTDIR, a FILE where the
+    /// target library directory should be — is `Io`: the same "left as a
+    /// copy" direction, never dressed up as a different pack holding the
+    /// name. Unix only: Windows reports a path through a file as not found.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_library_name_that_cannot_be_stat_ed_is_left_as_io_not_a_different_pack() {
+        let f = fixture();
+        let staged = stage_file(&f, "vm.zip", &datapack_zip(48));
+        std::fs::write(
+            library_dir_at(&f.dst_root),
+            b"a file where the library directory should be",
+        )
+        .unwrap();
+
+        let out = relink(&f, MigrationPath::Copied).await;
+
+        assert_eq!(
+            out.datapacks,
+            vec![DatapackMigration {
+                filename: "vm.zip".into(),
+                result: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::Io,
+                },
+            }]
+        );
+        assert_eq!(
+            std::fs::read(&staged).unwrap(),
+            datapack_zip(48),
+            "the world keeps its plain copy"
         );
     }
 

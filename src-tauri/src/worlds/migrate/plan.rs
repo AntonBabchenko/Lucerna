@@ -196,35 +196,60 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
     Ok((packs, folders))
 }
 
-fn held_by_a_different_pack() -> DatapackResult {
-    DatapackResult::LeftAsCopy {
-        reason: LeftReason::NameHeldByDifferentPack,
-    }
+fn left_as_copy(reason: LeftReason) -> DatapackResult {
+    DatapackResult::LeftAsCopy { reason }
+}
+
+/// A side that could not be read: logged, and predicted `Unreadable` — the
+/// same "left as a copy" direction as a different pack, with the true reason.
+fn unreadable(path: &Path, e: std::io::Error) -> DatapackResult {
+    crate::diag!(
+        "world migration plan: could not read {}: {e}; predicted left as a copy",
+        path.display()
+    );
+    left_as_copy(LeftReason::Unreadable)
 }
 
 /// §5 name-first rule at plan time. Absent in the library ⇒ `Adopted`;
 /// present with identical on-disk bytes ⇒ `Linked`; present with different
-/// bytes — or anything that cannot be read — ⇒ `LeftAsCopy`.
+/// bytes ⇒ `LeftAsCopy { NameHeldByDifferentPack }`. Anything that could not
+/// be checked is `LeftAsCopy` too — the direction is the same, no adopt, no
+/// link — but the reason must say what happened: a stat failure is `Io` and a
+/// file that could not be read is `Unreadable`, never a different pack.
 fn predict_one(world_file: &Path, library_file: &Path) -> DatapackResult {
     match library_file.try_exists() {
         Ok(false) => return DatapackResult::Adopted,
         Ok(true) => {}
-        // "Could not tell" reads as present-with-different-bytes: the
-        // restrictive direction (Fallback discipline Q1/Q2). Predicting
-        // `Adopted` here would promise a library write the migration may
-        // then refuse.
-        Err(_) => return held_by_a_different_pack(),
+        // "Could not tell" keeps the plain copy: the restrictive direction
+        // (Fallback discipline Q1/Q2) — predicting `Adopted` here would
+        // promise a library write the migration may then refuse. The
+        // direction is the same as for a different pack — no adopt, no link —
+        // but the reason must say what happened: a stat failure is `Io`, not
+        // a different pack holding the name.
+        Err(e) => {
+            crate::diag!(
+                "world migration plan: could not stat library entry {}: {e}; predicted left as a copy",
+                library_file.display()
+            );
+            return left_as_copy(LeftReason::Io);
+        }
     }
     // Both files are hashed ON DISK (§5.3): the registry keeps names without
     // re-hashing. An unreadable file on either side cannot be proven
-    // identical, and §5.4 classes it with "differs".
-    let (Ok(ours), Ok(theirs)) = (std::fs::read(world_file), std::fs::read(library_file)) else {
-        return held_by_a_different_pack();
+    // identical; §5.4 classes it with "differs" for the DIRECTION (left as a
+    // copy), and the reason says which it was.
+    let ours = match std::fs::read(world_file) {
+        Ok(bytes) => bytes,
+        Err(e) => return unreadable(world_file, e),
+    };
+    let theirs = match std::fs::read(library_file) {
+        Ok(bytes) => bytes,
+        Err(e) => return unreadable(library_file, e),
     };
     if library::sha1_hex(&ours) == library::sha1_hex(&theirs) {
         DatapackResult::Linked
     } else {
-        held_by_a_different_pack()
+        left_as_copy(LeftReason::NameHeldByDifferentPack)
     }
 }
 
@@ -568,6 +593,57 @@ mod tests {
                     predicted: DatapackResult::Adopted,
                 },
             ]
+        );
+    }
+
+    /// An unreadable side is reported as what it is. Here the library entry
+    /// is a DIRECTORY under the pack's name: the stat succeeds (the name is
+    /// held) and the read fails on every platform — and the reason says
+    /// `Unreadable`, not that a different pack holds the name.
+    #[tokio::test]
+    async fn an_unreadable_library_entry_predicts_unreadable_not_a_different_pack() {
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(&dp).unwrap();
+        fs::write(dp.join("odd.zip"), b"world bytes").unwrap();
+        fs::create_dir_all(library_dir_at(&fx.loc.dst_root).join("odd.zip")).unwrap();
+
+        let p = plan(&fx, "1.20.1").await.unwrap();
+
+        assert_eq!(
+            p.datapacks,
+            vec![DatapackPlan {
+                filename: "odd.zip".into(),
+                predicted: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::Unreadable
+                },
+            }]
+        );
+    }
+
+    /// A stat failure on the library name — here ENOTDIR, a FILE where the
+    /// library directory should be — is `Io`: the same "left as a copy"
+    /// direction, never dressed up as a different pack holding the name.
+    /// Unix only: Windows reports a path through a file as not found.
+    #[cfg(unix)]
+    #[test]
+    fn a_library_name_that_cannot_be_stat_ed_predicts_io_not_a_different_pack() {
+        let td = tempdir().unwrap();
+        let world_file = td.path().join("pack.zip");
+        fs::write(&world_file, b"world bytes").unwrap();
+        let library_dir = td.path().join("datapacks");
+        fs::write(
+            &library_dir,
+            b"a file where the library directory should be",
+        )
+        .unwrap();
+
+        assert_eq!(
+            predict_one(&world_file, &library_dir.join("pack.zip")),
+            DatapackResult::LeftAsCopy {
+                reason: LeftReason::Io
+            }
         );
     }
 

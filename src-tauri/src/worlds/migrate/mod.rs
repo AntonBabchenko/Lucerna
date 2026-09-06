@@ -98,8 +98,9 @@ pub enum DatapackResult {
     LeftAsCopy { reason: LeftReason },
 }
 
-/// Plan-time prediction for one `.zip`: `Linked`, `Adopted`, or
-/// `LeftAsCopy { NameHeldByDifferentPack }`.
+/// Plan-time prediction for one `.zip`: `Linked`, `Adopted`, or `LeftAsCopy`
+/// — `NameHeldByDifferentPack` for different bytes, `Io` when the library
+/// name could not be checked, `Unreadable` when a side could not be read.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct DatapackPlan {
     pub filename: String,
