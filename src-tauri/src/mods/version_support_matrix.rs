@@ -116,18 +116,39 @@ pub(crate) fn overrides_for(
     let applicability = match (entry.since, loader_version) {
         (None, _) => Applicability::Applies,
         (Some(_), None) => Applicability::Unknown,
-        (Some(first), Some(lv)) => {
-            match satisfies(lv, &format!("[{first},)"), RangeFamily::Maven) {
-                Satisfaction::Satisfied => Applicability::Applies,
-                Satisfaction::Violated => return None,
-                Satisfaction::Unknown => Applicability::Unknown,
-            }
-        }
+        (Some(first), Some(lv)) => build_carries(entry.mc, lv, first)?,
     };
     Some(Overrides {
         versions,
         applicability,
     })
+}
+
+/// Whether loader build `loader_version` is `first` or later; `None` when it
+/// is provably older.
+///
+/// Forge's own Maven coordinate is `<mc>-<build>`, so this instance's
+/// Minecraft prefix is dropped before comparing. A prefix naming ANOTHER
+/// Minecraft version is not a build number this can order — measured as-is it
+/// would compare `1` against `47` and confidently call every build older — so
+/// it is `Unknown`. (No Forge build number itself starts with `1.`.)
+fn build_carries(instance_mc: &str, loader_version: &str, first: &str) -> Option<Applicability> {
+    let lv = loader_version.trim();
+    let build = lv
+        .strip_prefix(instance_mc)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .unwrap_or(lv);
+    if build
+        .split_once('-')
+        .is_some_and(|(head, _)| head.starts_with("1."))
+    {
+        return Some(Applicability::Unknown);
+    }
+    match satisfies(build, &format!("[{first},)"), RangeFamily::Maven) {
+        Satisfaction::Satisfied => Some(Applicability::Applies),
+        Satisfaction::Violated => None,
+        Satisfaction::Unknown => Some(Applicability::Unknown),
+    }
 }
 
 /// FML's containment test for a Maven `range` (`ModSorter` →
@@ -232,6 +253,33 @@ mod tests {
         );
         assert_eq!(
             mc(LoaderKind::Forge, "1.21.1", Some("")),
+            o(&["1.21"], Applicability::Unknown)
+        );
+    }
+
+    #[test]
+    fn a_minecraft_prefixed_build_is_read_as_its_build() {
+        // Forge's own Maven coordinate is `<mc>-<build>`. No writer stores that
+        // shape today, but a comparison of `1` against `47` must not be allowed
+        // to decide "this build predates the entry" if one ever does.
+        assert_eq!(
+            ld(LoaderKind::Forge, "1.20.1", Some("1.20.1-47.4.10")),
+            o(&["47.1.79"], APPLIES)
+        );
+        assert_eq!(
+            ld(LoaderKind::Forge, "1.20.1", Some("1.20.1-47.2.14")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_build_prefixed_with_another_minecraft_is_unknown_not_old() {
+        assert_eq!(
+            ld(LoaderKind::Forge, "1.20.1", Some("1.20-47.4.10")),
+            o(&["47.1.79"], Applicability::Unknown)
+        );
+        assert_eq!(
+            mc(LoaderKind::Forge, "1.21.1", Some("forge-52.1.0")),
             o(&["1.21"], Applicability::Unknown)
         );
     }
