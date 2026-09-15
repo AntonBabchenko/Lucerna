@@ -598,6 +598,11 @@ pub async fn modpack_compute_update(
 /// here aborts cleanly). Phase 2 removes the old files, installs the new
 /// ones from the warm cache, and rewrites `pack_origin` + the instance's
 /// version metadata. `overrides/`-bundled content is not touched.
+///
+/// The whole command runs under the instance's maintenance claim
+/// (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
+/// the game runs or starts, or while another long operation — a world
+/// migration, a mod migration, a clone, another update — holds the instance.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_apply_update(
@@ -608,6 +613,17 @@ pub async fn modpack_apply_update(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateOutcome> {
+    // First, before anything is read. The diff, the carry-disabled snapshot
+    // and the instance's Minecraft/loader below all describe the tree phase 2
+    // rewrites; taken after them — or after phase 1's downloads, to keep Play
+    // available meanwhile — the claim would protect a write computed from a
+    // state a concurrent writer may already have changed. While it is held,
+    // everything that consults the maintenance gate refuses this instance —
+    // Play, world and datapack writers, a Minecraft-version change, a world
+    // migration, a mod migration apply, a clone. (Single-mod installs and
+    // toggles do not consult it yet.) Every early `?` below releases it
+    // through `Drop`.
+    let claim = crate::instances::maintenance::claim_write(&instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -759,6 +775,8 @@ pub async fn modpack_apply_update(
             report_id: Some(task_id),
         },
     );
+    // The journal row was the last write; the instance is whole again.
+    drop(claim);
     // Phase marker only — the result rides the return value below.
     let _ = on_progress.send(ModpackProgress::Done);
     Ok(crate::mods::modpack::schema::ModpackUpdateOutcome {

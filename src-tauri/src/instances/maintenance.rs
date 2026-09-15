@@ -1,7 +1,8 @@
 //! Per-instance maintenance gate: a registry of client instances whose
-//! content — `saves/`, `backups/`, the datapack library, `instance.json` — is
-//! being rewritten by one long operation. Today that operation is a world
-//! migration.
+//! content — `saves/`, `backups/`, `mods/`, the datapack library,
+//! `instance.json` — is being rewritten, or copied wholesale, by one long
+//! operation: a world migration, a modpack update, a Minecraft-version mod
+//! migration, or a clone.
 //!
 //! Why a client-instance gate exists at all (spec §4.0, amendment A5): a
 //! world migration holds TWO instances for the whole operation, and on its
@@ -34,6 +35,12 @@
 //! side sees the other and refuses. Every other writer opens with
 //! [`write_allowed`], which folds the three signals into one check so the
 //! gate has exactly one definition.
+//!
+//! Long writers other than the migration — the modpack update, the
+//! Minecraft-version mod migration, the clone — take the same claim through
+//! [`claim_write`], the same claim-then-check order spelled once, refusing
+//! with `InstanceBusy`. The migration keeps its own spelling only because it
+//! claims two ids and its refusal names the instance and its role.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -103,7 +110,9 @@ pub fn maintenance_is_active(id: &str) -> bool {
 /// OS-lock mapping (errno 5/32/33 → `WorldInUse`) in the world writers still
 /// covers it. A migration must NOT call this on the two ids it has just
 /// claimed — it would refuse itself; it checks `is_running || is_starting`
-/// directly and maps a hit to `WorldMigrateInstanceRunning`.
+/// directly and maps a hit to `WorldMigrateInstanceRunning`. The same holds
+/// for a long writer under [`claim_write`]: nothing it calls while holding the
+/// claim may open with this gate on its own id.
 pub fn write_allowed(id: &str) -> Result<()> {
     if crate::launch::spawn::is_running(id)
         || crate::launch::spawn::is_starting(id)
@@ -112,6 +121,49 @@ pub fn write_allowed(id: &str) -> Result<()> {
         return Err(Error::InstanceBusy);
     }
     Ok(())
+}
+
+/// The gate for a LONG writer — one that holds an instance for seconds or
+/// minutes (a modpack update, a Minecraft-version mod migration, a clone)
+/// rather than performing one short write. Claims the maintenance slot, and
+/// only then refuses if the instance is running or mid-launch. The returned
+/// guard IS the protection: bind it to a named local for the whole write
+/// (never `let _ =`, which releases it on the spot) and drop it after the
+/// last write.
+///
+/// While it is held, every short writer ([`write_allowed`]), a world
+/// migration (`maintenance_begin`), another long writer, and a launch
+/// (`maintenance_is_active`, checked at command entry and again after
+/// `claim_start`) all refuse this instance.
+///
+/// Order is the point — the Dekker pairing the module doc describes: launch
+/// sets `starting` and then checks the claim; this sets the claim and then
+/// checks `starting`/`running`, so a launch racing a long writer is refused by
+/// at least one side. Checking first and claiming second would let a launch
+/// slip in between. Every refusal is `InstanceBusy`, whose copy ("an
+/// operation is already in progress, or the game is running") is true for
+/// both causes. Three in-memory booleans and no I/O, so there is no "could not
+/// tell" state; a claim taken and then refused is released by the guard's
+/// `Drop` before the error leaves, so a refusal never locks the instance.
+pub fn claim_write(id: &str) -> Result<MaintenanceGuard> {
+    claim_write_with(id, &|id| {
+        crate::launch::spawn::is_running(id) || crate::launch::spawn::is_starting(id)
+    })
+}
+
+/// [`claim_write`] with the running/starting predicate injected: the launch
+/// registry has no test hook, so this is the seam its refusal paths are tested
+/// through. Production passes the real predicate and nothing else.
+fn claim_write_with(
+    id: &str,
+    running_or_starting: &dyn Fn(&str) -> bool,
+) -> Result<MaintenanceGuard> {
+    let claim = maintenance_begin(id).ok_or(Error::InstanceBusy)?;
+    if running_or_starting(id) {
+        // `claim` drops on this return and releases the slot we just took.
+        return Err(Error::InstanceBusy);
+    }
+    Ok(claim)
 }
 
 #[cfg(test)]
@@ -228,5 +280,104 @@ mod tests {
         );
         drop(g_dst);
         assert!(write_allowed(dst).is_ok());
+    }
+
+    /// Nothing running, nothing starting — the predicate the tests below pass
+    /// when they are not exercising the running/starting refusal.
+    fn idle(_: &str) -> bool {
+        false
+    }
+
+    #[test]
+    fn claim_write_holds_the_instance_against_every_other_writer_until_dropped() {
+        // A modpack update (or mod migration, or clone) in flight: a short
+        // writer, a world migration, a second long writer and a launch must
+        // all see the instance as taken — and all see it free again after.
+        let id = "inst-maint-9";
+        let claim = claim_write_with(id, &idle).expect("an idle instance is claimed");
+        assert!(
+            maintenance_is_active(id),
+            "launch's check must see the claim"
+        );
+        assert!(
+            matches!(write_allowed(id), Err(Error::InstanceBusy)),
+            "a short writer (world backup, change MC, datapack) must be refused"
+        );
+        assert!(
+            maintenance_begin(id).is_none(),
+            "a world migration must be refused"
+        );
+        assert!(
+            matches!(claim_write_with(id, &idle), Err(Error::InstanceBusy)),
+            "a second long writer (pack update vs. mod migration) must be refused"
+        );
+        drop(claim);
+        assert!(!maintenance_is_active(id));
+        assert!(write_allowed(id).is_ok());
+    }
+
+    #[test]
+    fn a_refused_long_writer_leaves_the_holders_claim_in_place() {
+        // The refusal must not release a claim it never took: a world
+        // migration holding the slot stays protected after a pack update
+        // bounces off it.
+        let id = "inst-maint-10";
+        let migration = maintenance_begin(id).expect("the migration claims first");
+        assert!(matches!(
+            claim_write_with(id, &idle),
+            Err(Error::InstanceBusy)
+        ));
+        assert!(
+            maintenance_is_active(id),
+            "the refused writer must not have released the migration's slot"
+        );
+        drop(migration);
+        assert!(!maintenance_is_active(id));
+    }
+
+    #[test]
+    fn claim_write_refuses_a_running_or_starting_instance_and_releases_its_claim() {
+        // A leaked claim here would leave the instance unlaunchable and
+        // unwritable until the launcher restarts, all because the user tried
+        // to update a pack while playing.
+        let id = "inst-maint-11";
+        let refused = claim_write_with(id, &|_| true);
+        assert!(matches!(refused, Err(Error::InstanceBusy)));
+        assert!(
+            !maintenance_is_active(id),
+            "a refusal after claiming must release the slot"
+        );
+        assert!(write_allowed(id).is_ok());
+    }
+
+    #[test]
+    fn claim_write_checks_running_only_while_already_holding_the_claim() {
+        // The Dekker order with `launch::start`: claim first, then look at
+        // running/starting. Checked the other way round, a launch could claim
+        // `starting` between our check and our claim, and both would proceed.
+        let id = "inst-maint-12";
+        let checked_under_claim = std::cell::Cell::new(None);
+        let claim = claim_write_with(id, &|id| {
+            checked_under_claim.set(Some(maintenance_is_active(id)));
+            false
+        })
+        .expect("idle instance");
+        assert_eq!(
+            checked_under_claim.get(),
+            Some(true),
+            "the running/starting predicate must run, and run after the claim is taken"
+        );
+        drop(claim);
+    }
+
+    #[test]
+    fn claim_write_admits_an_idle_instance_with_the_real_predicate() {
+        // The unit-test binary launches nothing, so the real running/starting
+        // predicate is false: the production entry point claims and releases.
+        let id = "inst-maint-13";
+        let claim = claim_write(id).expect("nothing runs in the test binary");
+        assert!(maintenance_is_active(id));
+        drop(claim);
+        assert!(!maintenance_is_active(id));
     }
 }

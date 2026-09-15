@@ -614,10 +614,14 @@ pub async fn clone_instance(
     validate_instance_name(&new_name)?;
     // Copying files a live JVM is writing produces torn saves; copying saves/
     // while a world migration is staging a world in it clones a half-copied
-    // tree. The shared gate (running, starting, or under a maintenance claim)
-    // — the same one delete/verify use.
-    crate::instances::maintenance::write_allowed(&source_id)?;
-    crate::instances::clone::clone_instance(
+    // tree. So the source is refused while running, starting, or under a
+    // maintenance claim — and the copy HOLDS the claim itself
+    // (`claim_write`), because a check at entry cannot stop what starts during
+    // the copy: Play, a modpack update, a mod migration apply, a world
+    // migration or a datapack write would otherwise write into the tree being
+    // copied. Released after the clone returns, on success and error alike.
+    let claim = crate::instances::maintenance::claim_write(&source_id)?;
+    let cloned = crate::instances::clone::clone_instance(
         &app,
         &source_id,
         new_name,
@@ -629,7 +633,9 @@ pub async fn clone_instance(
                 total,
             });
         },
-    )
+    );
+    drop(claim);
+    cloned
 }
 
 /// Content categories present in an instance (file counts + byte totals) for

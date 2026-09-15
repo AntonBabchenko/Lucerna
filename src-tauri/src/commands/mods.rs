@@ -2408,12 +2408,14 @@ pub async fn mods_apply_mc_migration(
         resolve_migration_selections, McMigrationReport, McMigrationRowOutcome, MigrationAction,
     };
 
-    // Same guard, same error variant, as `change_instance_mc`: touching
-    // `mods/` while the game (or a version change) is running races the live
-    // process.
-    if crate::launch::spawn::is_running(&instance_id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // The instance's maintenance claim for the whole apply, refused with
+    // `InstanceBusy` while the game runs or is mid-launch (`is_running` alone
+    // stays false for the whole spawn pipeline) or while another long
+    // operation holds it. Rows run one by one with `.await`s between them, so
+    // an entry-only check would still let a modpack update, a world migration,
+    // a clone or a launch land between two rows and see — or rewrite — a
+    // half-migrated mod set. Every early `?` releases the claim through `Drop`.
+    let claim = crate::instances::maintenance::claim_write(&instance_id)?;
 
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -2623,6 +2625,8 @@ pub async fn mods_apply_mc_migration(
         }
     }
 
+    // The report and its journal rows were the last write.
+    drop(claim);
     Ok(McMigrationReport { outcomes })
 }
 

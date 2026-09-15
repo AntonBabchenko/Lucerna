@@ -38,18 +38,32 @@
 //!      either file must choose, in code — silence fails the build. A
 //!      `READ_ONLY` entry that gains a gate, or names a fn that is gone, is
 //!      reported as stale. A command that TAKES the claim itself
-//!      (`maintenance_begin(`, the migration command) is gated by
-//!      construction: a second claim on either id is refused.
+//!      (`maintenance_begin(`, the migration command; `claim_write(`, the
+//!      modpack update, the mod-migration apply and the clone) is gated by
+//!      construction: a second claim on the same id is refused.
+//!   3. CLAIM HELD. A listed writer that takes a claim must HOLD it for the
+//!      write: the first code line carrying the claim binds a named local
+//!      (`let claim = …`, never `let _ = …`, which drops the guard — and
+//!      releases the instance — on the spot), and it comes before the body's
+//!      first `.await`. The second half exists because the plausible
+//!      regression is moving the claim below a modpack update's downloads
+//!      "so Play works meanwhile": the diff and the carry-disabled snapshot
+//!      are computed before those awaits, and would then describe a tree a
+//!      concurrent writer may already have changed.
 //!
 //! Guardrail, not a static analyzer — same framing as
 //! `structural_no_heavy_sync_command.rs`. Named gaps:
 //!
 //!   - ORDER. The scan is lexical: it proves the gate is CALLED, not that it
-//!     runs before the first write or `.await`. Review owns ordering.
+//!     runs before the first write or `.await`. Review owns ordering — except
+//!     for a claim, which rule 3 pins before the first `.await`. A claim moved
+//!     below a SYNC read or write is still invisible.
 //!   - `commands/instances.rs` is NOT ratcheted — most of its commands edit
 //!     `instance.json` fields a migration never reads — so an instance writer
-//!     that must refuse under a claim is added to `GATED` by hand. The spec's
-//!     list (§4.0) is exactly the entries below.
+//!     that must refuse under a claim is added to `GATED` by hand, and so is a
+//!     long writer outside the ratcheted files that must TAKE one
+//!     (`commands/modpack_cmds.rs`, `commands/mods.rs`). The entries below are
+//!     the world-migration spec's list (§4.0) plus those long writers.
 //!   - A gate reached through a helper this file does not name is invisible;
 //!     add the helper's call-site spelling to `GATE_SPELLINGS` together with
 //!     the helper, and list the helper itself in `GATED` (as `guard` is).
@@ -74,6 +88,12 @@ const ACTIVE_GATE: &str = "maintenance_is_active(";
 /// migration command's spelling, `crate::instances::maintenance::maintenance_begin(id)`.
 const CLAIM_GATE: &str = "maintenance_begin(";
 
+/// The long writer's claim: `crate::instances::maintenance::claim_write(id)` —
+/// claim first, then refuse while running or starting. Listed in `GATED` as a
+/// helper (`claim_write_with` must take the claim, `claim_write` must pass the
+/// real running/starting predicate).
+const CLAIM_WRITE_GATE: &str = "maintenance::claim_write(";
+
 /// `commands/datapacks.rs` routes its commands through a file-local
 /// `fn guard(instance_id)`, itself listed in `GATED` as a `WRITE_GATE` site.
 const DATAPACKS_DELEGATE: &str = "guard(&";
@@ -81,7 +101,17 @@ const DATAPACKS_DELEGATE: &str = "guard(&";
 /// Spellings a command body may carry to count as gated. Every entry is a
 /// call-site prefix, so a bare mention in prose (a comment line) never counts
 /// and a helper with a different name never matches by accident.
-const GATE_SPELLINGS: &[&str] = &[WRITE_GATE, ACTIVE_GATE, CLAIM_GATE, DATAPACKS_DELEGATE];
+const GATE_SPELLINGS: &[&str] = &[
+    WRITE_GATE,
+    ACTIVE_GATE,
+    CLAIM_GATE,
+    CLAIM_WRITE_GATE,
+    DATAPACKS_DELEGATE,
+];
+
+/// The spellings that TAKE a claim — the `GATED` entries rule 3 (CLAIM HELD)
+/// applies to.
+const CLAIM_SPELLINGS: &[&str] = &[CLAIM_GATE, CLAIM_WRITE_GATE];
 
 /// `(path relative to src/, fn name, required spelling, why it is a writer)`.
 const GATED: &[(&str, &str, &str, &str)] = &[
@@ -149,8 +179,52 @@ const GATED: &[(&str, &str, &str, &str)] = &[
     (
         "commands/instances.rs",
         "clone_instance",
-        WRITE_GATE,
-        "copies saves/ wholesale — a half-staged world would be cloned mid-copy",
+        CLAIM_WRITE_GATE,
+        "copies saves/ and mods/ wholesale for minutes — a half-staged world would be \
+         cloned mid-copy, and a pack update, mod migration or world migration that \
+         starts DURING the copy must be refused, which an entry-only check cannot do",
+    ),
+    (
+        "commands/worlds.rs",
+        "world_migrate",
+        CLAIM_GATE,
+        "holds both instances for the whole move or copy; listed so rule 3 pins that \
+         its claims are held, not only taken",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_apply_update",
+        CLAIM_WRITE_GATE,
+        "swaps pack files in mods/ and rewrites pack_origin and instance.json over \
+         minutes of downloads and installs — Update, Switch version and the migration \
+         dialog's platform restore all run through it",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_apply_mc_migration",
+        CLAIM_WRITE_GATE,
+        "replaces, installs, disables and removes jars in mods/ row by row — a pack \
+         update or a launch between two rows sees a half-migrated mod set",
+    ),
+    (
+        "instances/maintenance.rs",
+        "claim_write_with",
+        CLAIM_GATE,
+        "the long writers' helper: it must take the claim itself, before the \
+         running/starting check (the Dekker pairing with launch::start)",
+    ),
+    (
+        "instances/maintenance.rs",
+        "claim_write",
+        "is_running(",
+        "the long writers' helper must refuse a running instance",
+    ),
+    (
+        "instances/maintenance.rs",
+        "claim_write",
+        "is_starting(",
+        "the long writers' helper must refuse mid-launch too — is_running stays false \
+         for the whole spawn pipeline, which is the half the old mod-migration check lacked",
     ),
     (
         "commands/instances.rs",
@@ -319,6 +393,62 @@ fn body_carries(lines: &[String], sig: usize, end: usize, needle: &str) -> bool 
         .any(|l| l.contains(needle))
 }
 
+/// Index of the first CODE line of `lines[sig..=end]` — signature and whole-line
+/// `//` comments excluded, same filter as [`body_carries`] — containing `needle`.
+fn first_code_line_with(lines: &[String], sig: usize, end: usize, needle: &str) -> Option<usize> {
+    (sig + 1..=end).find(|&i| {
+        let l = &lines[i];
+        !l.trim_start().starts_with("//") && l.contains(needle)
+    })
+}
+
+/// True when `line` opens a `let` whose pattern is not the bare `_` — i.e. the
+/// value lives in a binding until the end of its scope. `let _ = claim` drops
+/// the guard on the spot; `let _claim`, `let claim`, `let mut claim` and
+/// `let Some(claim) = … else` all hold it.
+fn opens_named_let(line: &str) -> bool {
+    let Some(rest) = line.trim_start().strip_prefix("let ") else {
+        return false;
+    };
+    let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+    let pattern_end = rest
+        .find(|c: char| c.is_whitespace() || c == '=' || c == ':')
+        .unwrap_or(rest.len());
+    let pattern = &rest[..pattern_end];
+    !pattern.is_empty() && pattern != "_"
+}
+
+/// Rule 3 on one fn body: `None` when the claim spelled `needle` is held (bound
+/// to a named local, before the first `.await`) — or absent, which is rule 1's
+/// report, not this one's — else the reason it is not held.
+/// The binding may sit on the claim's own line or — when rustfmt breaks a long
+/// `let claim =` — on the code line directly above it, ending in `=`.
+fn claim_not_held(lines: &[String], sig: usize, end: usize, needle: &str) -> Option<String> {
+    let at = first_code_line_with(lines, sig, end, needle)?;
+    let above_binds = at > sig + 1 && {
+        let prev = lines[at - 1].trim_end();
+        opens_named_let(prev) && prev.ends_with('=')
+    };
+    if !opens_named_let(&lines[at]) && !above_binds {
+        return Some(format!(
+            "line {}: the claim is not bound to a named local, so its guard is dropped — \
+             and the instance released — before the write runs",
+            at + 1
+        ));
+    }
+    if let Some(first_await) = first_code_line_with(lines, sig, end, ".await") {
+        if first_await < at {
+            return Some(format!(
+                "line {}: the claim is taken after the first `.await` (line {}), so what \
+                 the body read or awaited before it is not covered",
+                at + 1,
+                first_await + 1
+            ));
+        }
+    }
+    None
+}
+
 #[test]
 fn every_listed_writer_opens_with_the_gate() {
     let mut violations = Vec::new();
@@ -340,12 +470,41 @@ fn every_listed_writer_opens_with_the_gate() {
     }
     assert!(
         violations.is_empty(),
-        "a writer the world-migration claim must hold off does not open with the \
-         maintenance gate. Every instance, world and datapack writer calls \
+        "a writer the maintenance claim must hold off does not open with the \
+         maintenance gate. Every short instance, world and datapack writer calls \
          `crate::instances::maintenance::write_allowed(&id)?` (launch and \
-         `delete_backup`: `maintenance_is_active(&id)`) on a code line of its \
-         body — a comment naming the gate is not a gate. If a listed fn was \
+         `delete_backup`: `maintenance_is_active(&id)`), and every long writer \
+         takes `crate::instances::maintenance::claim_write(&id)?`, on a code line \
+         of its body — a comment naming the gate is not a gate. If a listed fn was \
          renamed, update GATED in the same change.\n{}",
+        violations.join("\n"),
+    );
+}
+
+#[test]
+fn every_listed_claim_is_held_for_the_write() {
+    let mut violations = Vec::new();
+    for (rel, name, needle, why) in GATED {
+        if !CLAIM_SPELLINGS.contains(needle) {
+            continue;
+        }
+        let lines = read_lines(rel);
+        // A missing fn or spelling is rule 1's report; nothing to add here.
+        let Some((sig, end)) = locate_fn(&lines, name) else {
+            continue;
+        };
+        if let Some(reason) = claim_not_held(&lines, sig, end, needle) {
+            violations.push(format!("{rel} — `{name}` {reason} ({why})"));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "a long writer takes the maintenance claim but does not hold it for the \
+         write. Bind the claim to a named local — `let claim = \
+         crate::instances::maintenance::claim_write(&id)?;` — as the first thing \
+         the command does, before any `.await`, and `drop(claim)` after the last \
+         write. If a read genuinely must precede the claim, redo it under the \
+         claim rather than moving the claim down.\n{}",
         violations.join("\n"),
     );
 }
@@ -545,10 +704,114 @@ mod matchers {
     }
 
     #[test]
+    fn a_named_let_is_told_apart_from_the_discarding_underscore() {
+        assert!(opens_named_let("    let claim = claim_write(&id)?;"));
+        assert!(opens_named_let("    let _claim = claim_write(&id)?;"));
+        assert!(opens_named_let("    let mut claim = claim_write(&id)?;"));
+        assert!(opens_named_let(
+            "    let claim: MaintenanceGuard = claim_write(&id)?;"
+        ));
+        assert!(opens_named_let(
+            "    let Some(claim) = maintenance_begin(&id) else {"
+        ));
+        assert!(!opens_named_let("    let _ = claim_write(&id)?;"));
+        assert!(!opens_named_let("    let _= claim_write(&id)?;"));
+        assert!(!opens_named_let("    claim_write(&id)?;"));
+        assert!(!opens_named_let("    // let claim = claim_write(&id)?;"));
+        assert!(!opens_named_let("    letter = 1;"));
+    }
+
+    #[test]
+    fn a_named_claim_before_the_first_await_is_held() {
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    // Reads below are computed under the claim.",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    let origin = get_pack_origin(&root).await?;",
+            "    drop(claim);",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        assert_eq!(claim_not_held(&l, sig, end, CLAIM_WRITE_GATE), None);
+    }
+
+    #[test]
+    fn a_claim_rustfmt_broke_below_its_let_is_held() {
+        let l = lines(&[
+            "pub async fn f(from_instance: String) -> Result<()> {",
+            "    let from_claim =",
+            "        crate::instances::maintenance::maintenance_begin(&from_instance)",
+            "            .ok_or(crate::error::Error::InstanceBusy)?;",
+            "    work().await",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        assert_eq!(claim_not_held(&l, sig, end, CLAIM_GATE), None);
+    }
+
+    #[test]
+    fn a_claim_bound_to_underscore_or_never_bound_is_not_held() {
+        for claim_line in [
+            "    let _ = crate::instances::maintenance::claim_write(&id)?;",
+            "    crate::instances::maintenance::claim_write(&id)?;",
+        ] {
+            let l = lines(&[
+                "pub async fn f(id: String) -> Result<()> {",
+                claim_line,
+                "    swap_mods(&root).await?;",
+                "    Ok(())",
+                "}",
+            ]);
+            let (sig, end) = locate_fn(&l, "f").expect("found");
+            let reason = claim_not_held(&l, sig, end, CLAIM_WRITE_GATE);
+            assert!(
+                reason.as_deref().is_some_and(|r| r.contains("named local")),
+                "{claim_line:?} must be reported as not held, got {reason:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_claim_taken_after_the_first_await_is_late() {
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    let installed_before = list(&root).await?;",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    apply(&installed_before).await?;",
+            "    drop(claim);",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        let reason = claim_not_held(&l, sig, end, CLAIM_WRITE_GATE);
+        assert!(
+            reason
+                .as_deref()
+                .is_some_and(|r| r.contains("after the first `.await`")),
+            "got {reason:?}"
+        );
+    }
+
+    #[test]
+    fn an_await_named_only_in_a_comment_does_not_make_a_claim_late() {
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    // Taken before the first .await on purpose.",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        assert_eq!(claim_not_held(&l, sig, end, CLAIM_WRITE_GATE), None);
+    }
+
+    #[test]
     fn a_new_ungated_command_in_a_ratcheted_file_would_fail() {
         // The ratchet's decision on a synthetic file: one gated directly, one
         // through the datapacks delegate, one that takes the claim itself,
-        // and one that nobody gated or declared.
+        // one long writer through `claim_write`, and one that nobody gated
+        // or declared.
         let l = lines(&[
             "#[tauri::command]",
             "pub async fn gated(id: String) -> Result<()> {",
@@ -564,6 +827,12 @@ mod matchers {
             "pub async fn claims(id: String) -> Result<()> {",
             "    let _claim = crate::instances::maintenance::maintenance_begin(&id)",
             "        .ok_or(crate::error::Error::InstanceBusy)?;",
+            "    Ok(())",
+            "}",
+            "#[tauri::command]",
+            "pub async fn long_writer(id: String) -> Result<()> {",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    drop(claim);",
             "    Ok(())",
             "}",
             "#[tauri::command]",
