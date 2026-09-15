@@ -710,6 +710,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
 	 *  doesn't need to keep a heavy struct around — we re-fetch from the
 	 *  platform here. This also re-validates against the live API.
+	 * 
+	 *  Runs under the instance's SHARED maintenance claim
+	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
+	 *  while a long operation holds the instance, admitted alongside other item
+	 *  writers and while the game runs.
 	 */
 	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[]) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps })),
 	/**
@@ -722,13 +727,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Rename `<name>.jar` to `<name>.jar.disabled` and flip the registry
 	 *  flag so the next launch skips this mod. Emits `mod-toggle` with
 	 *  `enabled: false`.
+	 * 
+	 *  Under the shared maintenance claim: refused with `InstanceBusy` while a
+	 *  long operation (a pack update, a mod migration, a clone, a world migration)
+	 *  holds the instance; still allowed while the game runs.
 	 */
 	modsDisable: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_disable", { instanceId, sha1 })),
-	/**  Inverse of `mods_disable`. Emits `mod-toggle` with `enabled: true`. */
+	/**
+	 *  Inverse of `mods_disable`. Emits `mod-toggle` with `enabled: true`.
+	 *  Same shared maintenance claim as `mods_disable`.
+	 */
 	modsEnable: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_enable", { instanceId, sha1 })),
 	/**
 	 *  Remove the jar (enabled or disabled flavor) and drop the registry
 	 *  entry. The shared cache copy survives. Emits `mod-uninstalled`.
+	 *  Same shared maintenance claim as `mods_disable`.
 	 */
 	modsUninstall: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
 	/**
@@ -756,6 +769,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Remove an asset's file from disk (best-effort) and drop its registry
 	 *  entry. The registry is the source of truth, so a missing file is fine.
+	 * 
+	 *  Every asset writer here runs under the instance's SHARED maintenance claim
+	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
+	 *  while a long operation — a pack update swapping pack files, a clone copying
+	 *  them — holds the instance; admitted alongside other item writers and while
+	 *  the game runs.
 	 */
 	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<null, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
 	/**
@@ -878,6 +897,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  old jar, `mod-installed` per landed mod, and `mod-install-failed`
 	 *  on error. Optional dependencies are intentionally not installed —
 	 *  see the spec ("Dependencies on update").
+	 * 
+	 *  Under the shared maintenance claim for the whole update, as
+	 *  `mods_install_with_deps`.
 	 */
 	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
 	modsFindOrphans: (instanceId: string, removing: string[]) => typedError<OrphanRef[], Error>(__TAURI_INVOKE("mods_find_orphans", { instanceId, removing })),
@@ -952,7 +974,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Install a local mod `.jar` into the instance as a manual mod. Emits
 	 *  `mod-installed` on success so the Installed view refreshes the same
-	 *  way it does after a platform install.
+	 *  way it does after a platform install. Under the shared maintenance claim.
 	 */
 	modsInstallLocal: (instanceId: string, jarPath: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("mods_install_local", { instanceId, jarPath })),
 	/**
@@ -1099,6 +1121,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  onto the instance's `PackOrigin` so `modpack_status` reports the entry as
 	 *  `Substituted`. Idempotent. Errors `ModsNotFound` when the substitute jar is
 	 *  not in the registry yet, or the instance has no pack origin.
+	 * 
+	 *  Under the shared maintenance claim: the upsert reads `pack_origin` and
+	 *  writes it back, so overlapping a pack update it would restore the OLD
+	 *  origin over the one the update just wrote.
 	 */
 	modpackResolveMissingWith: (instanceId: string, entryFilename: string, entryModName: string, substituteSource: ModSource, substituteProjectId: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_resolve_missing_with", { instanceId, entryFilename, entryModName, substituteSource, substituteProjectId })),
 	/**
@@ -1108,7 +1134,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  synthesises a `ModVersion` from the snapshot fields, and calls
 	 *  `install_one`. Errors `ModsNotFound { source: "pack_origin" }` if
 	 *  `sha1` is not in the origin (= caller has stale data, or the
-	 *  instance has no origin at all).
+	 *  instance has no origin at all). Under the shared maintenance claim.
 	 */
 	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
 	/**
@@ -1154,12 +1180,24 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  here aborts cleanly). Phase 2 removes the old files, installs the new
 	 *  ones from the warm cache, and rewrites `pack_origin` + the instance's
 	 *  version metadata. `overrides/`-bundled content is not touched.
+	 * 
+	 *  The whole command runs under the instance's maintenance claim
+	 *  (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
+	 *  the game runs or starts, while another long operation — a world
+	 *  migration, a mod migration, a clone, another update — holds the instance,
+	 *  or while a single mod, asset or pack-file writer is still in flight.
 	 */
 	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Re-fetch the instance's current modpack version and re-extract its
 	 *  `overrides/` — recovers bundled mods/files that a per-file Restore
 	 *  cannot. Modrinth pack instances only.
+	 * 
+	 *  Runs under the instance's EXCLUSIVE maintenance claim
+	 *  (`instances::maintenance::claim_write`), like `modpack_apply_update`: it is
+	 *  a pack-level rewrite, not a per-item write, so it is refused with
+	 *  `InstanceBusy` while the game runs or starts, while another long operation
+	 *  holds the instance, or while a single mod or asset writer is in flight.
 	 */
 	modpackReimportOverrides: (instanceId: string, onProgress: Channel<ModpackProgress>) => typedError<null, Error>(__TAURI_INVOKE("modpack_reimport_overrides", { instanceId, onProgress })),
 	/**
