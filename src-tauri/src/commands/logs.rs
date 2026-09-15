@@ -532,6 +532,13 @@ pub async fn execute_repair(
     // repair on any instance. Dropped automatically on return.
     let _repair_guard =
         crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
+    // The instance's shared maintenance claim for the repair: DisableMod,
+    // Reinstall and InstallFixMod write `mods/` and the registry exactly as the
+    // Mods view's toggle and install do, so a long operation holding the
+    // instance refuses them, and one starting mid-repair is refused. Shared
+    // claims nest, so the `mods_install_with_deps` a reinstall runs below takes
+    // its own without refusing this one.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
 
     match choice {
         RepairChoice::RaiseHeap { to_mb } => {
@@ -617,6 +624,7 @@ pub async fn execute_repair(
     if let Ok(Some(sig)) = latest_diagnosable_signature(&app, &instance_id).await {
         let _ = crate::instances::set_instance_handled_log_sig(&app, &instance_id, Some(sig));
     }
+    drop(write);
     Ok(())
 }
 

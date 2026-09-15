@@ -32,26 +32,37 @@
 //!   1. LISTED WRITERS. Every `(file, fn)` in `GATED` carries its required
 //!      spelling on a code line of its body. A listed fn that no longer
 //!      exists fails too, so the list cannot rot.
-//!   2. RATCHET. In `commands/worlds.rs` and `commands/datapacks.rs` every
-//!      `#[tauri::command]` either carries a `GATE_SPELLINGS` entry or is
-//!      declared read-only in `READ_ONLY` with a reason. A new command in
-//!      either file must choose, in code — silence fails the build. A
-//!      `READ_ONLY` entry that gains a gate, or names a fn that is gone, is
-//!      reported as stale. A command that TAKES the claim itself
-//!      (`maintenance_begin(`, the migration command; `claim_write(`, the
-//!      modpack update, the mod-migration apply and the clone) is gated by
-//!      construction: a second claim on the same id is refused.
-//!   3. CLAIM HELD. A listed writer that takes a claim must HOLD it for the
-//!      write: the first code line carrying the claim binds a named local
-//!      (`let claim = …`, never `let _ = …`, which drops the guard — and
-//!      releases the instance — on the spot); it comes before the body's
-//!      first `.await`; and an explicit `drop(<name>)` on the fn's main path
-//!      comes after the body's LAST `.await`. The ordering halves exist
-//!      because the plausible regression is shrinking the protected region
-//!      "so Play works during a modpack update's downloads" — by claiming
-//!      late or releasing early — which leaves the diff and the carry-disabled
-//!      snapshot describing a tree a concurrent writer may already have
-//!      changed.
+//!   2. RATCHET. In every `RATCHETED` file — `commands/worlds.rs`,
+//!      `commands/datapacks.rs`, `commands/mods.rs`, `commands/modpack_cmds.rs`,
+//!      `commands/assets.rs` — every `#[tauri::command]` either carries a
+//!      `GATE_SPELLINGS` entry or is declared read-only in `READ_ONLY` with a
+//!      reason. A new command in any of them must choose, in code — silence
+//!      fails the build. A `READ_ONLY` entry that gains a gate, or names a fn
+//!      that is gone, is reported as stale. A command that TAKES a claim itself
+//!      (`maintenance_begin(`, the migration command; `claim_write(`, the long
+//!      writers; `claim_shared_write(`, the per-item mod, asset and pack-file
+//!      writers) is gated by construction: the claims refuse each other.
+//!   3. CLAIM HELD. A listed writer that takes a claim — exclusive or shared —
+//!      must HOLD it for the write: the first code line carrying the claim
+//!      binds a named local (`let claim = …`, never `let _ = …`, which drops
+//!      the guard — and releases the instance — on the spot); it comes before
+//!      the body's first `.await`; and an explicit `drop(<name>)` on the fn's
+//!      main path comes after the body's LAST `.await`. The ordering halves
+//!      exist because the plausible regression is shrinking the protected
+//!      region "so Play works during a modpack update's downloads" — by
+//!      claiming late or releasing early — which leaves the diff and the
+//!      carry-disabled snapshot describing a tree a concurrent writer may
+//!      already have changed. For a shared claim the same shrink ("only the
+//!      commit needs it") re-opens the window an install admitted before a pack
+//!      update was supposed to close.
+//!
+//! Which claim a writer takes is a decision this guard pins per `GATED` entry,
+//! not one it can derive: a per-item writer (one mod or asset, one pack file,
+//! one overlay row) takes the SHARED claim — the Mods browser runs two installs
+//! on one instance at once, and none of these writers has ever been refused
+//! while the game runs — while a rewrite of the instance's pack or tree takes
+//! the exclusive one. Moving an entry between spellings changes user-visible
+//! behaviour; do it in the same change as the reason.
 //!
 //! Guardrail, not a static analyzer — same framing as
 //! `structural_no_heavy_sync_command.rs`. Named gaps:
@@ -60,12 +71,15 @@
 //!     runs before the first write or `.await`. Review owns ordering — except
 //!     for a claim, which rule 3 pins to span the body's awaits. A claim moved
 //!     below a SYNC read, or released before a SYNC write, is still invisible.
-//!   - `commands/instances.rs` is NOT ratcheted — most of its commands edit
-//!     `instance.json` fields a migration never reads — so an instance writer
-//!     that must refuse under a claim is added to `GATED` by hand, and so is a
-//!     long writer outside the ratcheted files that must TAKE one
-//!     (`commands/modpack_cmds.rs`, `commands/mods.rs`). The entries below are
-//!     the world-migration spec's list (§4.0) plus those long writers.
+//!   - `commands/instances.rs` and `commands/logs.rs` are NOT ratcheted — most
+//!     of their commands edit `instance.json` fields no claimer reads, or read
+//!     logs — so a writer there that must refuse under a claim, or take one, is
+//!     added to `GATED` by hand (`detach_instance_pack`, `set_instance_loader`,
+//!     `clone_instance`, `execute_repair`).
+//!   - `READ_ONLY` means "writes nothing a claim protects". Several of those
+//!     reads persist launcher-owned registry metadata (the `installed::list`
+//!     reconcile, display-name and identity backfills); that is declared, not
+//!     gated — see the note above the `commands/mods.rs` entries.
 //!   - A gate reached through a helper this file does not name is invisible;
 //!     add the helper's call-site spelling to `GATE_SPELLINGS` together with
 //!     the helper, and list the helper itself in `GATED` (as `guard` is).
@@ -96,6 +110,12 @@ const CLAIM_GATE: &str = "maintenance_begin(";
 /// real running/starting predicate).
 const CLAIM_WRITE_GATE: &str = "maintenance::claim_write(";
 
+/// A per-item content writer's SHARED claim:
+/// `crate::instances::maintenance::claim_shared_write(id)` — admitted alongside
+/// other item writers and while the game runs, refused under an exclusive
+/// claim, and refusing every exclusive claim while held.
+const SHARED_WRITE_GATE: &str = "maintenance::claim_shared_write(";
+
 /// `commands/datapacks.rs` routes its commands through a file-local
 /// `fn guard(instance_id)`, itself listed in `GATED` as a `WRITE_GATE` site.
 const DATAPACKS_DELEGATE: &str = "guard(&";
@@ -108,12 +128,13 @@ const GATE_SPELLINGS: &[&str] = &[
     ACTIVE_GATE,
     CLAIM_GATE,
     CLAIM_WRITE_GATE,
+    SHARED_WRITE_GATE,
     DATAPACKS_DELEGATE,
 ];
 
 /// The spellings that TAKE a claim — the `GATED` entries rule 3 (CLAIM HELD)
 /// applies to.
-const CLAIM_SPELLINGS: &[&str] = &[CLAIM_GATE, CLAIM_WRITE_GATE];
+const CLAIM_SPELLINGS: &[&str] = &[CLAIM_GATE, CLAIM_WRITE_GATE, SHARED_WRITE_GATE];
 
 /// `(path relative to src/, fn name, required spelling, why it is a writer)`.
 const GATED: &[(&str, &str, &str, &str)] = &[
@@ -209,6 +230,130 @@ const GATED: &[(&str, &str, &str, &str)] = &[
          update or a launch between two rows sees a half-migrated mod set",
     ),
     (
+        "commands/modpack_cmds.rs",
+        "modpack_reimport_overrides",
+        CLAIM_WRITE_GATE,
+        "overwrites overrides/ (config, options, jars, packs) across the instance and \
+         rewrites pack_origin — a pack-level rewrite like the update; exclusive, and \
+         refused while the game runs, which rewrites those config files on exit",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_install_with_deps",
+        SHARED_WRITE_GATE,
+        "resolves, downloads and commits a mod and its dependency closure into mods/ and \
+         the registry — a pack update or mod migration starting meanwhile must refuse; \
+         shared, because Browse runs two installs on one instance at once",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_update_one",
+        SHARED_WRITE_GATE,
+        "removes the old jar and installs the new one plus its dependencies",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_install_missing_required",
+        SHARED_WRITE_GATE,
+        "resolves, downloads and installs one dependency jar",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_install_local",
+        SHARED_WRITE_GATE,
+        "places a dropped jar in mods/ and adds its registry row",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_disable",
+        SHARED_WRITE_GATE,
+        "renames a jar in mods/ and flips its registry row",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_enable",
+        SHARED_WRITE_GATE,
+        "renames a jar in mods/ and flips its registry row",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_uninstall",
+        SHARED_WRITE_GATE,
+        "removes a jar from mods/ and its registry row",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_restore_file",
+        SHARED_WRITE_GATE,
+        "re-installs one pack file into mods/ or an asset folder",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_resolve_missing_with",
+        SHARED_WRITE_GATE,
+        "read-modify-writes pack_origin — overlapping a pack update it writes the old \
+         origin back over the new one",
+    ),
+    (
+        "commands/assets.rs",
+        "asset_install",
+        SHARED_WRITE_GATE,
+        "downloads a resource or shader pack into the instance and its registry — the \
+         folders a pack update swaps and a clone copies",
+    ),
+    (
+        "commands/assets.rs",
+        "asset_install_local",
+        SHARED_WRITE_GATE,
+        "places a dropped resource or shader pack and adds its registry row",
+    ),
+    (
+        "commands/assets.rs",
+        "asset_update_one",
+        SHARED_WRITE_GATE,
+        "installs the new pack version and removes the superseded file and row",
+    ),
+    (
+        "commands/assets.rs",
+        "asset_uninstall",
+        SHARED_WRITE_GATE,
+        "removes a resource or shader pack file and its registry row",
+    ),
+    (
+        "commands/logs.rs",
+        "execute_repair",
+        SHARED_WRITE_GATE,
+        "a log-diagnosis repair disables, removes or reinstalls a mod — the same writes \
+         as the Mods view's toggle and install",
+    ),
+    (
+        "commands/instances.rs",
+        "detach_instance_pack",
+        WRITE_GATE,
+        "clears the instance's pack identity, the fields a pack update writes last — \
+         overlapping it, the detach is silently undone",
+    ),
+    (
+        "commands/instances.rs",
+        "set_instance_loader",
+        WRITE_GATE,
+        "changes the loader a pack update, a mod migration and every install resolve \
+         against — the sibling of change_instance_mc",
+    ),
+    (
+        "instances/maintenance.rs",
+        "maintenance_begin",
+        "sharing.contains_key(",
+        "the exclusive claim must refuse while a per-item writer is in flight — the \
+         half an entry check on the item writer's side cannot give",
+    ),
+    (
+        "instances/maintenance.rs",
+        "claim_shared_write",
+        "held.contains(",
+        "a per-item writer must refuse while a long operation holds the instance",
+    ),
+    (
         "instances/maintenance.rs",
         "claim_write_with",
         CLAIM_GATE,
@@ -299,10 +444,203 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "datapacks_check_updates",
         "network query over the library listing; installs nothing",
     ),
+    // commands/mods.rs. "Reconcile" below means `installed::list` (or a
+    // display-name backfill) persisting launcher-owned registry metadata after
+    // reading `mods/` — gating a read on that would make opening the Installed
+    // tab refuse the next pack update. Its lost-update window against a
+    // concurrent writer is the registry's missing read-modify-write lock, not a
+    // claim question.
+    ("commands/mods.rs", "mods_search", "platform search; no instance"),
+    (
+        "commands/mods.rs",
+        "mods_filter_satisfying",
+        "pure version-range filter; no instance",
+    ),
+    ("commands/mods.rs", "mods_project", "platform metadata; no instance"),
+    ("commands/mods.rs", "mods_projects", "platform metadata; no instance"),
+    ("commands/mods.rs", "mods_versions", "platform metadata; no instance"),
+    ("commands/mods.rs", "mods_changelog", "platform metadata; no instance"),
+    (
+        "commands/mods.rs",
+        "mods_plugin_versions",
+        "platform metadata; no instance",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_datapack_versions",
+        "platform metadata; no instance",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_resolve_deps",
+        "platform dependency query; no instance",
+    ),
+    (
+        "commands/mods.rs",
+        "optimise_resolve",
+        "plans the Optimise set from the installed list (reconcile only); the installs are gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_resolve_install_plan",
+        "plans an install from the installed list (reconcile only); the install is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_list_installed",
+        "the installed list — reconcile and display-name backfill only",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_check_updates",
+        "network query over the installed list (reconcile only); updates nothing",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_pack_origin_summary",
+        "reads pack_origin",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_enrich_pack_mods",
+        "backfills platform identity into registry rows — launcher metadata, auto-run when \
+         the Installed tab opens; gating it would refuse the next pack update for no visible \
+         operation",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_inspect_local",
+        "reads a dropped jar and judges it (reconcile only); the install is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "check_instance_mod_compat",
+        "network query over the installed list (reconcile only)",
+    ),
+    (
+        "commands/mods.rs",
+        "scan_instance_mod_compat",
+        "reads jars (reconcile only); persists the launcher's jar-scan cache, which lives \
+         in the app dir, not the instance",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_plan_mc_migration",
+        "plans the migration; the apply is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_find_orphans",
+        "reads the registry's dependency edges (reconcile only)",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_resolve_dep_names",
+        "name lookup over the installed list and platform metadata (reconcile only)",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_dependency_graph",
+        "network query over the installed list (reconcile only)",
+    ),
+    (
+        "commands/mods.rs",
+        "instance_dependency_preflight",
+        "reads jars and the registry — reconcile and display-name backfill only",
+    ),
+    // commands/modpack_cmds.rs
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_inspect",
+        "reads an archive the user picked; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_import",
+        "creates a NEW instance directory no other operation can hold yet",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_search",
+        "platform search; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_resolve_url",
+        "parses a URL; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_fetch_to_temp",
+        "downloads an archive to a temp file; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_status",
+        "reads pack_origin against the installed list (reconcile only)",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_get_versions",
+        "platform metadata; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_project",
+        "platform metadata; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_source_caps",
+        "static capabilities; no instance",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_update_status",
+        "network query against the instance's pack identity",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpacks_check_updates",
+        "network query against each instance's pack identity",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_compute_update",
+        "diffs a downloaded archive against pack_origin; the apply is gated",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "export_preview",
+        "reads the instance to preview an export",
+    ),
+    (
+        "commands/modpack_cmds.rs",
+        "export_modpack",
+        "reads the instance into an archive outside it — unclaimed, so a concurrent \
+         writer can tear the export (a named gap; the instance itself is untouched)",
+    ),
+    // commands/assets.rs
+    (
+        "commands/assets.rs",
+        "assets_list",
+        "the installed packs — backfills the assets registry from pack_origin only",
+    ),
+    (
+        "commands/assets.rs",
+        "assets_check_updates",
+        "network query over the installed packs",
+    ),
 ];
 
 /// Files whose every `#[tauri::command]` must be gated or declared read-only.
-const RATCHETED: &[&str] = &["commands/worlds.rs", "commands/datapacks.rs"];
+const RATCHETED: &[&str] = &[
+    "commands/worlds.rs",
+    "commands/datapacks.rs",
+    "commands/mods.rs",
+    "commands/modpack_cmds.rs",
+    "commands/assets.rs",
+];
 
 fn src_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
@@ -506,8 +844,10 @@ fn every_listed_writer_opens_with_the_gate() {
         "a writer the maintenance claim must hold off does not open with the \
          maintenance gate. Every short instance, world and datapack writer calls \
          `crate::instances::maintenance::write_allowed(&id)?` (launch and \
-         `delete_backup`: `maintenance_is_active(&id)`), and every long writer \
-         takes `crate::instances::maintenance::claim_write(&id)?`, on a code line \
+         `delete_backup`: `maintenance_is_active(&id)`), every long writer \
+         takes `crate::instances::maintenance::claim_write(&id)?`, and every \
+         per-item mod, asset or pack-file writer takes \
+         `crate::instances::maintenance::claim_shared_write(&id)?`, on a code line \
          of its body — a comment naming the gate is not a gate. If a listed fn was \
          renamed, update GATED in the same change.\n{}",
         violations.join("\n"),
@@ -532,9 +872,10 @@ fn every_listed_claim_is_held_for_the_write() {
     }
     assert!(
         violations.is_empty(),
-        "a long writer takes the maintenance claim but does not hold it for the \
+        "a writer takes a maintenance claim but does not hold it for the \
          write. Bind the claim to a named local — `let claim = \
-         crate::instances::maintenance::claim_write(&id)?;` — as the first thing \
+         crate::instances::maintenance::claim_write(&id)?;` (or `let write = \
+         …::claim_shared_write(&id)?;`) — as the first thing \
          the command does, before any `.await`, and `drop(claim)` after the last \
          write (in any case after the last `.await`). If a read genuinely must \
          precede the claim, redo it under the claim rather than moving the claim \
@@ -569,10 +910,12 @@ fn every_command_in_a_ratcheted_file_is_gated_or_declared_read_only() {
     assert!(
         violations.is_empty(),
         "a #[tauri::command] in a ratcheted file must choose, in code: open with \
-         `crate::instances::maintenance::write_allowed(&id)?` (or the file's \
-         delegate `guard(&id)?`, or take the claim with `maintenance_begin`), or \
-         be declared in READ_ONLY with the reason it touches nothing a migration \
-         moves.\n{}",
+         `crate::instances::maintenance::write_allowed(&id)?` (or the datapacks \
+         delegate `guard(&id)?`), take a claim — `claim_write` for a rewrite of \
+         the instance's pack or tree, `claim_shared_write` for a per-item mod, \
+         asset or pack-file writer, `maintenance_begin` for a migration — or be \
+         declared in READ_ONLY with the reason it writes nothing a claim \
+         protects.\n{}",
         violations.join("\n"),
     );
 }
@@ -898,11 +1241,68 @@ mod matchers {
     }
 
     #[test]
+    fn the_shared_and_exclusive_claim_spellings_never_match_each_other() {
+        // `GATED` pins WHICH claim a writer takes. If one spelling were a
+        // substring of the other, a per-item writer moved to the exclusive
+        // claim (or back) would still satisfy its old entry, and the
+        // behaviour change would pass unseen.
+        let exclusive = "    let claim = crate::instances::maintenance::claim_write(&id)?;";
+        let shared = "    let write = crate::instances::maintenance::claim_shared_write(&id)?;";
+        assert!(exclusive.contains(CLAIM_WRITE_GATE) && !exclusive.contains(SHARED_WRITE_GATE));
+        assert!(shared.contains(SHARED_WRITE_GATE) && !shared.contains(CLAIM_WRITE_GATE));
+    }
+
+    #[test]
+    fn a_shared_claim_taken_outside_an_interactive_wrapper_is_held() {
+        // The shape of the per-item installers: the claim is taken before the
+        // `with_interactive(async move { … })` wrapper, whose own `.await` is the
+        // body's last one, and released after it.
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    let write = crate::instances::maintenance::claim_shared_write(&id)?;",
+            "    let installed = crate::network::throttle::with_interactive(async move {",
+            "        resolve(&id).await?;",
+            "        commit(&id).await",
+            "    })",
+            "    .await;",
+            "    drop(write);",
+            "    installed",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        assert_eq!(claim_not_held(&l, sig, end, SHARED_WRITE_GATE), None);
+    }
+
+    #[test]
+    fn a_shared_claim_released_before_the_commit_is_not_held() {
+        // "Only the commit touches mods/" — but an install that drops its claim
+        // after resolving lets a pack update start between the resolution it
+        // pruned against and the jars it then lands.
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    let write = crate::instances::maintenance::claim_shared_write(&id)?;",
+            "    let plan = resolve(&id).await?;",
+            "    drop(write);",
+            "    commit(&plan).await?;",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        let reason = claim_not_held(&l, sig, end, SHARED_WRITE_GATE);
+        assert!(
+            reason
+                .as_deref()
+                .is_some_and(|r| r.contains("released before the body's last `.await`")),
+            "got {reason:?}"
+        );
+    }
+
+    #[test]
     fn a_new_ungated_command_in_a_ratcheted_file_would_fail() {
         // The ratchet's decision on a synthetic file: one gated directly, one
         // through the datapacks delegate, one that takes the claim itself,
-        // one long writer through `claim_write`, and one that nobody gated
-        // or declared.
+        // one long writer through `claim_write`, one per-item writer through
+        // `claim_shared_write`, and one that nobody gated or declared.
         let l = lines(&[
             "#[tauri::command]",
             "pub async fn gated(id: String) -> Result<()> {",
@@ -924,6 +1324,12 @@ mod matchers {
             "pub async fn long_writer(id: String) -> Result<()> {",
             "    let claim = crate::instances::maintenance::claim_write(&id)?;",
             "    drop(claim);",
+            "    Ok(())",
+            "}",
+            "#[tauri::command]",
+            "pub async fn item_writer(id: String) -> Result<()> {",
+            "    let write = crate::instances::maintenance::claim_shared_write(&id)?;",
+            "    drop(write);",
             "    Ok(())",
             "}",
             "#[tauri::command]",

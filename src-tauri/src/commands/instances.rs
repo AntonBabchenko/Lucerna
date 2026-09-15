@@ -515,9 +515,11 @@ pub fn set_instance_loader(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running(&id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // The gate `change_instance_mc` has, for the same reason: a pack update, a
+    // mod migration and every install resolve against the loader, so changing
+    // it under their claim leaves them landing mods built for the old one. The
+    // running refusal this replaces is part of the gate, plus mid-launch.
+    crate::instances::maintenance::write_allowed(&id)?;
     crate::instances::set_instance_loader(&app, &id, loader, loader_version)
 }
 
@@ -591,9 +593,10 @@ pub fn detach_instance_pack(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    if crate::launch::spawn::is_running(&id) {
-        return Err(crate::error::Error::InstanceBusy);
-    }
+    // A pack update writes these same pack-identity fields as its last step,
+    // so a detach overlapping one is silently undone. The shared gate refuses
+    // under its claim — and, as before, while the game runs (plus mid-launch).
+    crate::instances::maintenance::write_allowed(&id)?;
     crate::instances::detach_instance_pack(&app, &id)
 }
 
