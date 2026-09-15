@@ -27,7 +27,7 @@
 //! gate" lived as prose in `datapacks::guard`'s module doc, listing four
 //! world commands by name. `recover_stranded_world` was added later WITH the
 //! gate, but nothing would have failed had it been added without — a comment
-//! is not a guard. Two rules:
+//! is not a guard. Three rules:
 //!
 //!   1. LISTED WRITERS. Every `(file, fn)` in `GATED` carries its required
 //!      spelling on a code line of its body. A listed fn that no longer
@@ -44,20 +44,22 @@
 //!   3. CLAIM HELD. A listed writer that takes a claim must HOLD it for the
 //!      write: the first code line carrying the claim binds a named local
 //!      (`let claim = …`, never `let _ = …`, which drops the guard — and
-//!      releases the instance — on the spot), and it comes before the body's
-//!      first `.await`. The second half exists because the plausible
-//!      regression is moving the claim below a modpack update's downloads
-//!      "so Play works meanwhile": the diff and the carry-disabled snapshot
-//!      are computed before those awaits, and would then describe a tree a
-//!      concurrent writer may already have changed.
+//!      releases the instance — on the spot); it comes before the body's
+//!      first `.await`; and an explicit `drop(<name>)` on the fn's main path
+//!      comes after the body's LAST `.await`. The ordering halves exist
+//!      because the plausible regression is shrinking the protected region
+//!      "so Play works during a modpack update's downloads" — by claiming
+//!      late or releasing early — which leaves the diff and the carry-disabled
+//!      snapshot describing a tree a concurrent writer may already have
+//!      changed.
 //!
 //! Guardrail, not a static analyzer — same framing as
 //! `structural_no_heavy_sync_command.rs`. Named gaps:
 //!
 //!   - ORDER. The scan is lexical: it proves the gate is CALLED, not that it
 //!     runs before the first write or `.await`. Review owns ordering — except
-//!     for a claim, which rule 3 pins before the first `.await`. A claim moved
-//!     below a SYNC read or write is still invisible.
+//!     for a claim, which rule 3 pins to span the body's awaits. A claim moved
+//!     below a SYNC read, or released before a SYNC write, is still invisible.
 //!   - `commands/instances.rs` is NOT ratcheted — most of its commands edit
 //!     `instance.json` fields a migration never reads — so an instance writer
 //!     that must refuse under a claim is added to `GATED` by hand, and so is a
@@ -393,56 +395,87 @@ fn body_carries(lines: &[String], sig: usize, end: usize, needle: &str) -> bool 
         .any(|l| l.contains(needle))
 }
 
-/// Index of the first CODE line of `lines[sig..=end]` — signature and whole-line
-/// `//` comments excluded, same filter as [`body_carries`] — containing `needle`.
-fn first_code_line_with(lines: &[String], sig: usize, end: usize, needle: &str) -> Option<usize> {
-    (sig + 1..=end).find(|&i| {
-        let l = &lines[i];
-        !l.trim_start().starts_with("//") && l.contains(needle)
-    })
+/// Indices of the CODE lines of `lines[sig..=end]` — signature and whole-line
+/// `//` comments excluded, same filter as [`body_carries`] — containing
+/// `needle`, in order.
+fn code_lines_with(lines: &[String], sig: usize, end: usize, needle: &str) -> Vec<usize> {
+    (sig + 1..=end)
+        .filter(|&i| {
+            let l = &lines[i];
+            !l.trim_start().starts_with("//") && l.contains(needle)
+        })
+        .collect()
 }
 
-/// True when `line` opens a `let` whose pattern is not the bare `_` — i.e. the
+/// The pattern a `let` on `line` binds, when it is not the bare `_` — i.e. the
 /// value lives in a binding until the end of its scope. `let _ = claim` drops
-/// the guard on the spot; `let _claim`, `let claim`, `let mut claim` and
-/// `let Some(claim) = … else` all hold it.
-fn opens_named_let(line: &str) -> bool {
-    let Some(rest) = line.trim_start().strip_prefix("let ") else {
-        return false;
-    };
+/// the guard on the spot (`None`); `let _claim`, `let claim`, `let mut claim`
+/// and `let Some(claim) = … else` all hold it.
+fn let_binding(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix("let ")?;
     let rest = rest.strip_prefix("mut ").unwrap_or(rest);
     let pattern_end = rest
         .find(|c: char| c.is_whitespace() || c == '=' || c == ':')
         .unwrap_or(rest.len());
     let pattern = &rest[..pattern_end];
-    !pattern.is_empty() && pattern != "_"
+    (!pattern.is_empty() && pattern != "_").then_some(pattern)
 }
 
-/// Rule 3 on one fn body: `None` when the claim spelled `needle` is held (bound
-/// to a named local, before the first `.await`) — or absent, which is rule 1's
-/// report, not this one's — else the reason it is not held.
-/// The binding may sit on the claim's own line or — when rustfmt breaks a long
-/// `let claim =` — on the code line directly above it, ending in `=`.
+fn indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Rule 3 on one fn body: `None` when the claim spelled `needle` is held — or
+/// absent, which is rule 1's report, not this one's — else the reason it is
+/// not held. Held means:
+///
+///   - bound to a named local, on the claim's own line or — when rustfmt
+///     breaks a long `let claim =` — on the code line directly above it,
+///     ending in `=`;
+///   - taken before the body's first `.await`;
+///   - if the body releases it with `drop(<name>)` at the claim's own
+///     indentation (the fn's main path; a `drop` nested in an early-return
+///     branch is deeper and not counted), that release comes after the body's
+///     LAST `.await`. A sync write after the release is still invisible.
 fn claim_not_held(lines: &[String], sig: usize, end: usize, needle: &str) -> Option<String> {
-    let at = first_code_line_with(lines, sig, end, needle)?;
-    let above_binds = at > sig + 1 && {
-        let prev = lines[at - 1].trim_end();
-        opens_named_let(prev) && prev.ends_with('=')
+    let at = *code_lines_with(lines, sig, end, needle).first()?;
+    let binding_line = if let_binding(&lines[at]).is_some() {
+        Some(at)
+    } else {
+        (at > sig + 1).then_some(at - 1).filter(|&prev| {
+            let_binding(&lines[prev]).is_some() && lines[prev].trim_end().ends_with('=')
+        })
     };
-    if !opens_named_let(&lines[at]) && !above_binds {
+    let Some(binding_line) = binding_line else {
         return Some(format!(
             "line {}: the claim is not bound to a named local, so its guard is dropped — \
              and the instance released — before the write runs",
             at + 1
         ));
-    }
-    if let Some(first_await) = first_code_line_with(lines, sig, end, ".await") {
+    };
+    let awaits = code_lines_with(lines, sig, end, ".await");
+    if let Some(&first_await) = awaits.first() {
         if first_await < at {
             return Some(format!(
                 "line {}: the claim is taken after the first `.await` (line {}), so what \
                  the body read or awaited before it is not covered",
                 at + 1,
                 first_await + 1
+            ));
+        }
+    }
+    let name = let_binding(&lines[binding_line])?;
+    let main_path = indent(&lines[binding_line]);
+    let early_release = code_lines_with(lines, at, end, &format!("drop({name})"))
+        .into_iter()
+        .find(|&i| indent(&lines[i]) == main_path);
+    if let (Some(release), Some(&last_await)) = (early_release, awaits.last()) {
+        if release < last_await {
+            return Some(format!(
+                "line {}: the claim is released before the body's last `.await` (line {}), \
+                 so the work after the release runs unprotected",
+                release + 1,
+                last_await + 1
             ));
         }
     }
@@ -503,8 +536,9 @@ fn every_listed_claim_is_held_for_the_write() {
          write. Bind the claim to a named local — `let claim = \
          crate::instances::maintenance::claim_write(&id)?;` — as the first thing \
          the command does, before any `.await`, and `drop(claim)` after the last \
-         write. If a read genuinely must precede the claim, redo it under the \
-         claim rather than moving the claim down.\n{}",
+         write (in any case after the last `.await`). If a read genuinely must \
+         precede the claim, redo it under the claim rather than moving the claim \
+         down.\n{}",
         violations.join("\n"),
     );
 }
@@ -705,20 +739,77 @@ mod matchers {
 
     #[test]
     fn a_named_let_is_told_apart_from_the_discarding_underscore() {
-        assert!(opens_named_let("    let claim = claim_write(&id)?;"));
-        assert!(opens_named_let("    let _claim = claim_write(&id)?;"));
-        assert!(opens_named_let("    let mut claim = claim_write(&id)?;"));
-        assert!(opens_named_let(
-            "    let claim: MaintenanceGuard = claim_write(&id)?;"
-        ));
-        assert!(opens_named_let(
-            "    let Some(claim) = maintenance_begin(&id) else {"
-        ));
-        assert!(!opens_named_let("    let _ = claim_write(&id)?;"));
-        assert!(!opens_named_let("    let _= claim_write(&id)?;"));
-        assert!(!opens_named_let("    claim_write(&id)?;"));
-        assert!(!opens_named_let("    // let claim = claim_write(&id)?;"));
-        assert!(!opens_named_let("    letter = 1;"));
+        assert_eq!(
+            let_binding("    let claim = claim_write(&id)?;"),
+            Some("claim")
+        );
+        assert_eq!(
+            let_binding("    let _claim = claim_write(&id)?;"),
+            Some("_claim")
+        );
+        assert_eq!(
+            let_binding("    let mut claim = claim_write(&id)?;"),
+            Some("claim")
+        );
+        assert_eq!(
+            let_binding("    let claim: MaintenanceGuard = claim_write(&id)?;"),
+            Some("claim")
+        );
+        assert_eq!(
+            let_binding("    let Some(claim) = maintenance_begin(&id) else {"),
+            Some("Some(claim)")
+        );
+        assert_eq!(let_binding("    let _ = claim_write(&id)?;"), None);
+        assert_eq!(let_binding("    let _= claim_write(&id)?;"), None);
+        assert_eq!(let_binding("    claim_write(&id)?;"), None);
+        assert_eq!(let_binding("    // let claim = claim_write(&id)?;"), None);
+        assert_eq!(let_binding("    letter = 1;"), None);
+    }
+
+    #[test]
+    fn a_claim_released_before_the_last_await_is_not_held() {
+        // The "keep Play available during the downloads" regression spelled
+        // as an early release instead of a late claim.
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    let diff = compute(&root).await?;",
+            "    drop(claim);",
+            "    download(&diff).await?;",
+            "    apply(&diff).await?;",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        let reason = claim_not_held(&l, sig, end, CLAIM_WRITE_GATE);
+        assert!(
+            reason
+                .as_deref()
+                .is_some_and(|r| r.contains("released before the body's last `.await`")),
+            "got {reason:?}"
+        );
+    }
+
+    #[test]
+    fn a_release_on_an_early_return_branch_or_after_the_last_await_is_held() {
+        // A `drop` nested in an early-return branch sits deeper than the
+        // claim and is not the main path's release; the main path's release
+        // after the last `.await` is the shape every long writer uses.
+        let l = lines(&[
+            "pub async fn f(id: String) -> Result<()> {",
+            "    let claim = crate::instances::maintenance::claim_write(&id)?;",
+            "    if nothing_to_do() {",
+            "        drop(claim);",
+            "        return Ok(());",
+            "    }",
+            "    apply(&root).await?;",
+            "    journal(&root);",
+            "    drop(claim);",
+            "    Ok(())",
+            "}",
+        ]);
+        let (sig, end) = locate_fn(&l, "f").expect("found");
+        assert_eq!(claim_not_held(&l, sig, end, CLAIM_WRITE_GATE), None);
     }
 
     #[test]

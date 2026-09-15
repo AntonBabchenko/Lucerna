@@ -2414,7 +2414,9 @@ pub async fn mods_apply_mc_migration(
     // operation holds it. Rows run one by one with `.await`s between them, so
     // an entry-only check would still let a modpack update, a world migration,
     // a clone or a launch land between two rows and see — or rewrite — a
-    // half-migrated mod set. Every early `?` releases the claim through `Drop`.
+    // half-migrated mod set. (Single-mod installs, toggles and removals from
+    // the Mods view do not consult the gate yet, so they are not refused.)
+    // Every early `?` releases the claim through `Drop`.
     let claim = crate::instances::maintenance::claim_write(&instance_id)?;
 
     let inst_root = instance_root(&app, &instance_id)?;
