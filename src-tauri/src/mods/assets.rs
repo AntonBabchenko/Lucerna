@@ -290,12 +290,11 @@ mod tests {
         assert_eq!(a.project_id.as_deref(), Some("pid"));
     }
 
-    #[tokio::test]
-    async fn backfill_seeds_assets_from_pack_origin_when_registry_absent() {
+    /// Record a pack origin holding one resource pack (`Faithful.zip`) and one
+    /// mod jar — the shape an imported pack leaves before assets were tracked.
+    async fn record_pack_origin_with_a_resource_pack(root: &Path) {
         use crate::mods::installed::{set_pack_origin, PackOrigin, PackOriginFile};
         use crate::mods::modpack::schema::EnvSupport;
-        let td = tempfile::tempdir().unwrap();
-        let root = td.path();
 
         let rp = PackOriginFile {
             sha1: "AABB".into(),
@@ -331,6 +330,13 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn backfill_seeds_assets_from_pack_origin_when_registry_absent() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        record_pack_origin_with_a_resource_pack(root).await;
 
         // Registry absent → backfill seeds only the resource pack.
         backfill_from_pack_origin_if_missing(root).await.unwrap();
@@ -343,6 +349,66 @@ mod tests {
         assert_eq!(
             list(root, ContentKind::ResourcePack).await.unwrap().len(),
             1
+        );
+    }
+
+    // ── concurrent read-modify-write ─────────────────────────────────────
+    //
+    // `add` / `remove` are read → mutate → write with `.await`s between, and
+    // `join_all` polls every future to its first await before any finishes —
+    // so without a lock they all read one snapshot and the last rename wins.
+
+    /// Several resource packs and shaders installing into one instance at once.
+    /// Every row must survive, and no writer may fail on a shared temp name.
+    #[tokio::test]
+    async fn concurrent_adds_keep_every_asset() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        let names: Vec<String> = (0..32).map(|i| format!("pack-{i:02}.zip")).collect();
+
+        let results = futures_util::future::join_all(
+            names
+                .iter()
+                .map(|n| add(root, sample(ContentKind::ResourcePack, n))),
+        )
+        .await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent add() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+
+        let mut kept: Vec<String> = list_all(root)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|a| a.filename)
+            .collect();
+        kept.sort();
+        assert_eq!(kept, names, "a concurrent add erased another add's row");
+    }
+
+    /// The backfill decides "registry absent" and writes the whole file later.
+    /// An asset installed in between was overwritten by the seeded list.
+    #[tokio::test]
+    async fn backfill_racing_an_add_keeps_the_added_asset() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        record_pack_origin_with_a_resource_pack(root).await;
+
+        let (seeded, added) = tokio::join!(
+            backfill_from_pack_origin_if_missing(root),
+            add(root, sample(ContentKind::Shader, "BSL.zip")),
+        );
+        seeded.unwrap();
+        added.unwrap();
+
+        let all = list_all(root).await.unwrap();
+        assert!(
+            all.iter().any(|a| a.filename == "BSL.zip"),
+            "the backfill erased an asset installed while it ran: {all:?}"
         );
     }
 }

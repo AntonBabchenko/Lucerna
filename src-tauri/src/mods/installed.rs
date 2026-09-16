@@ -2428,4 +2428,121 @@ mod tests {
         ];
         assert_eq!(missing_in(&src, &[]), 2);
     }
+
+    // ── concurrent read-modify-write ─────────────────────────────────────
+    //
+    // Every registry writer is read → mutate → write with `.await`s between.
+    // `join_all` polls each future to its first await before any of them
+    // finishes, so without a lock they all read one snapshot and the last
+    // rename wins. Rows are read back through `read_or_empty` where the test
+    // has no jars on disk — `list` would reconcile them away.
+
+    /// Browse installs several mods into one instance at once, and every
+    /// install ends in `add`. Every one of those rows must survive.
+    #[tokio::test]
+    async fn concurrent_adds_on_one_instance_keep_every_row() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let rows: Vec<InstalledMod> = (0..32)
+            .map(|i| provenanced(&format!("mod-{i}.jar"), format!("sha-{i:02}")))
+            .collect();
+
+        let results =
+            futures_util::future::join_all(rows.iter().cloned().map(|m| add(root, m))).await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent add() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+
+        let mut kept: Vec<String> = read_or_empty(root)
+            .await
+            .unwrap()
+            .mods
+            .into_iter()
+            .map(|m| m.sha1)
+            .collect();
+        kept.sort();
+        let mut wanted: Vec<String> = rows.into_iter().map(|m| m.sha1).collect();
+        wanted.sort();
+        assert_eq!(kept, wanted, "a concurrent add erased another add's row");
+    }
+
+    /// The widest window: `list` reads, hashes every jar, then writes. An
+    /// install registering inside that window was overwritten by `list`'s
+    /// snapshot, and the next reconcile re-adopted its jar as a manual mod —
+    /// platform identity, update tracking and `requires` edges gone.
+    #[tokio::test]
+    async fn a_list_reconciling_during_installs_does_not_orphan_their_rows() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let mut rows = Vec::new();
+        for i in 0..24 {
+            let filename = format!("mod-{i}.jar");
+            let body = format!("BYTES-OF-MOD-{i}");
+            let sha = place_jar(&mods_dir(root), &filename, body.as_bytes()).await;
+            rows.push(provenanced(&filename, sha));
+        }
+
+        let (listed, added) = tokio::join!(
+            list(root),
+            futures_util::future::join_all(rows.iter().cloned().map(|m| add(root, m))),
+        );
+        listed.unwrap();
+        for r in added {
+            r.unwrap();
+        }
+
+        let after = list(root).await.unwrap();
+        assert_eq!(after.len(), rows.len());
+        for m in &after {
+            assert!(
+                m.source.is_some(),
+                "{} was re-adopted as a manual mod: its install record was lost",
+                m.filename
+            );
+        }
+    }
+
+    /// The resolver is the caller's future. The registry must not be held
+    /// across it — a resolver that reaches the registry would wait on its own
+    /// caller forever — and a row registered while it ran must survive the
+    /// backfill's write.
+    #[tokio::test]
+    async fn backfill_keeps_a_row_written_while_the_resolver_ran() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let mut row = provenanced("opac.jar", "sha-a".into());
+        row.project_id = Some("bo89PdrX".into());
+        row.name = "b0.25.8".into();
+        add(root, row).await.unwrap();
+
+        let backfill = backfill_display_names(root, |wanted| async move {
+            // An install finishing while the names are being resolved.
+            add(root, provenanced("late.jar", "sha-late".into()))
+                .await
+                .unwrap();
+            wanted
+                .into_iter()
+                .map(|k| (k, "Open Parties and Claims".to_string()))
+                .collect::<HashMap<_, _>>()
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), backfill)
+            .await
+            .expect("backfill must not hold the registry across the resolver")
+            .unwrap();
+
+        let after = read_or_empty(root).await.unwrap();
+        let by_sha = |sha: &str| after.mods.iter().find(|m| m.sha1 == sha);
+        assert_eq!(
+            by_sha("sha-a").map(|m| m.name.as_str()),
+            Some("Open Parties and Claims")
+        );
+        assert!(
+            by_sha("sha-late").is_some(),
+            "the row registered while the resolver ran was erased"
+        );
+    }
 }
