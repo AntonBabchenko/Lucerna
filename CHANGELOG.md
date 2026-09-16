@@ -50,6 +50,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 ### Security
 
 - Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
+- Bumped `rustls` 0.23.40 → 0.23.45 for RUSTSEC-2026-0285.
 
 ## [0.23.0] — 2026-08-13
 
