@@ -12,11 +12,17 @@
 //! skip, and the INVERTED polarity of an `incompatible` declaration. Deriving
 //! them a second time is how two consumers of one dependency list come to
 //! disagree.
+//!
+//! What "satisfied" means is the loader's, too: FML counts a range as met when
+//! the running version is inside it OR a version on its own support matrix is
+//! (`version_support_matrix`). Without that, every jar declaring `1.21` on a
+//! NeoForge 1.21.1 instance reads as incompatible although the game loads it.
 
 use crate::instances::schema::LoaderKind;
 use crate::mods::local::{DepSide, DependencyKind, DescriptorEra, DescriptorSource, ManifestDeps};
 use crate::mods::preflight::effective_rank;
 use crate::mods::version_range::{satisfies, RangeFamily, Satisfaction};
+use crate::mods::version_support_matrix::{overrides_for, widen};
 
 /// Which half of the platform a verdict is about. Two unit variants, no
 /// payload — crosses IPC directly (a later task puts `Option<PlatformAxis>`
@@ -160,8 +166,18 @@ pub fn platform_verdict(
         else {
             continue;
         };
-        // 5. resolve()'s own (kind, satisfaction) arms.
-        let sat = satisfies(actual, &d.range, d.family);
+        // 5. resolve()'s own (kind, satisfaction) arms, with satisfaction
+        //    measured the way the loader measures it: FML also counts a Maven
+        //    range as met when a version on its support matrix is inside it.
+        let direct = satisfies(actual, &d.range, d.family);
+        let sat = match d.family {
+            RangeFamily::Maven => widen(
+                direct,
+                &d.range,
+                overrides_for(loader, instance_mc, loader_version, axis),
+            ),
+            RangeFamily::FabricPredicate | RangeFamily::QuiltPredicate => direct,
+        };
         if fires(d.kind, sat) {
             let v = PlatformVerdict::Violated {
                 axis,
@@ -696,6 +712,136 @@ mod tests {
             ),
             "{v:?}"
         );
+    }
+
+    // ── the loader's version-support matrix ────────────────────────────────
+    fn neoforge_dep(id: &str, range: &str) -> DeclaredDep {
+        dep(
+            id,
+            range,
+            DescriptorSource::NeoForgeToml,
+            RangeFamily::Maven,
+        )
+    }
+
+    fn neoforge_manifest(deps: Vec<DeclaredDep>) -> ManifestDeps {
+        manifest(deps, vec![DescriptorSource::NeoForgeToml])
+    }
+
+    fn on_neoforge_1_21_1(m: &ManifestDeps) -> PlatformVerdict {
+        platform_verdict(
+            m,
+            "1.21.1",
+            LoaderKind::NeoForge,
+            Some("21.1.235"),
+            DescriptorEra::Modern,
+        )
+    }
+
+    #[test]
+    fn neoforge_1_21_1_accepts_jars_declaring_1_21() {
+        // The declarations of the seven reported All Of Create mods — every
+        // one of them is in that instance's loaded-mod list.
+        for range in [
+            "[1.21,1.21.1)",
+            "[1.21, 1.21.1)",
+            "[1.21]",
+            "[1.20.1,1.21.1)",
+        ] {
+            let m = neoforge_manifest(vec![neoforge_dep("minecraft", range)]);
+            assert_eq!(on_neoforge_1_21_1(&m), PlatformVerdict::Fits, "{range}");
+        }
+    }
+
+    #[test]
+    fn neoforge_1_21_1_still_refuses_a_genuinely_older_range() {
+        let m = neoforge_manifest(vec![neoforge_dep("minecraft", "[1.20,1.21)")]);
+        assert!(
+            matches!(
+                on_neoforge_1_21_1(&m),
+                PlatformVerdict::Violated {
+                    axis: PlatformAxis::Minecraft,
+                    ..
+                }
+            ),
+            "{:?}",
+            on_neoforge_1_21_1(&m)
+        );
+    }
+
+    #[test]
+    fn neoforge_1_21_1_loader_axis_accepts_the_21_0_166_override() {
+        // ballastmod, from a Create+ instance NeoForge 21.1.233 loaded it in.
+        let m = neoforge_manifest(vec![neoforge_dep("neoforge", "[21.0.0-beta,21.1.227)")]);
+        assert_eq!(on_neoforge_1_21_1(&m), PlatformVerdict::Fits);
+    }
+
+    #[test]
+    fn forge_1_21_1_matrix_follows_the_build_that_carries_it() {
+        let m = forge_manifest(vec![dep(
+            "minecraft",
+            "[1.21,1.21.1)",
+            DescriptorSource::ModsToml,
+            RangeFamily::Maven,
+        )]);
+        let on = |lv| platform_verdict(&m, "1.21.1", LoaderKind::Forge, lv, DescriptorEra::Modern);
+        assert!(
+            matches!(on(Some("52.0.0")), PlatformVerdict::Violated { .. }),
+            "52.0.0 has no matrix: {:?}",
+            on(Some("52.0.0"))
+        );
+        assert_eq!(on(Some("52.0.1")), PlatformVerdict::Fits);
+        assert_eq!(on(None), PlatformVerdict::Unknown);
+    }
+
+    #[test]
+    fn an_incompatible_declaration_fires_on_an_override_version_too() {
+        // FML's `incompatibleVersions` filter uses the same widened containment.
+        let mut d = neoforge_dep("minecraft", "[1.21]");
+        d.kind = DependencyKind::Incompatible;
+        let m = neoforge_manifest(vec![d]);
+        assert!(
+            matches!(on_neoforge_1_21_1(&m), PlatformVerdict::Violated { .. }),
+            "{:?}",
+            on_neoforge_1_21_1(&m)
+        );
+    }
+
+    #[test]
+    fn a_fabric_predicate_never_consults_the_matrix() {
+        let fabric = |range: &str| {
+            let m = manifest(
+                vec![dep(
+                    "minecraft",
+                    range,
+                    DescriptorSource::FabricJson,
+                    RangeFamily::FabricPredicate,
+                )],
+                vec![DescriptorSource::FabricJson],
+            );
+            platform_verdict(
+                &m,
+                "1.21.1",
+                LoaderKind::Fabric,
+                Some("0.16.0"),
+                DescriptorEra::Modern,
+            )
+        };
+        assert_eq!(fabric("~1.21"), PlatformVerdict::Fits);
+        assert!(
+            matches!(fabric("1.21"), PlatformVerdict::Violated { .. }),
+            "{:?}",
+            fabric("1.21")
+        );
+    }
+
+    #[test]
+    fn a_violation_still_reports_the_instances_real_version() {
+        let m = neoforge_manifest(vec![neoforge_dep("minecraft", "[1.20,1.21)")]);
+        match on_neoforge_1_21_1(&m) {
+            PlatformVerdict::Violated { actual, .. } => assert_eq!(actual, "1.21.1"),
+            other => panic!("{other:?}"),
+        }
     }
 
     // ── same-axis tie-break: arbitrary string, deterministic axis ──────────

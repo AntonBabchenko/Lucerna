@@ -1,0 +1,29 @@
+# Header, modId and every [[dependencies]] block of META-INF/neoforge.mods.toml
+# from createendertransmission-2.1.1-1.21.1.jar (All Of Create v2.1), verbatim; comments and descriptions dropped.
+modLoader="javafml" #mandatory
+loaderVersion="[4,)" #mandatory
+license="All Right Reserved"
+
+[[mods]] #mandatory
+modId="createendertransmission" #mandatory
+
+[[dependencies.createendertransmission]] #optional
+modId="neoforge" #mandatory
+type="required" #mandatory
+versionRange="[21.1.125,)" #mandatory
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.createendertransmission]]
+modId="minecraft"
+type="required"
+versionRange="[1.21,1.21.1)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.createendertransmission]]
+    modId="create"
+    mandatory=true
+    versionRange="[0.5.0.e,)"
+    ordering="NONE"
+    side="BOTH"

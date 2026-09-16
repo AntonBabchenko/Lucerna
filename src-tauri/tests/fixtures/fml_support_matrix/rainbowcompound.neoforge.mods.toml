@@ -1,0 +1,50 @@
+# Header, modId and every [[dependencies]] block of META-INF/neoforge.mods.toml
+# from rainbowcompound-1.21.1-1.3.5.d.jar (All Of Create v2.1), verbatim; comments and descriptions dropped.
+modLoader="javafml" #mandatory
+loaderVersion="[1,)" #mandatory
+license="All Rights Reserved"
+
+[[mods]] #mandatory
+modId="rainbowcompound" #mandatory
+
+[[dependencies.rainbowcompound]] #optional
+    modId="neoforge" #mandatory
+    type="required" #mandatory
+    versionRange="[21.1.232,)" #mandatory
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.rainbowcompound]]
+    modId="minecraft"
+    type="required"
+    versionRange="[1.21]"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.rainbowcompound]]
+modId="create"
+type="required"
+versionRange="[6.0.9,6.1.0)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.rainbowcompound]]
+modId="curios"
+type="required"
+versionRange="[9.5,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.rainbowcompound]]
+modId="caelus"
+type="optional"
+versionRange="[7.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.rainbowcompound]]
+modId="jei"
+type="optional"
+versionRange="[19.25,)"
+ordering="NONE"
+side="BOTH"
