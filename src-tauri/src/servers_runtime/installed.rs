@@ -592,6 +592,93 @@ mod tests {
         assert!(e.enabled);
     }
 
+    /// Browse installs several mods into one server at once (a per-card busy
+    /// set, not a queue), and each install ends in `upsert` on its own
+    /// blocking-pool thread. Two writers that read one snapshot lose a row to
+    /// the later rename.
+    #[test]
+    fn concurrent_upserts_on_one_dir_keep_every_record() {
+        const WRITERS: usize = 16;
+        const PER_WRITER: usize = 25;
+        let dir = tempfile::tempdir().unwrap();
+        let start = std::sync::Barrier::new(WRITERS);
+        std::thread::scope(|s| {
+            for w in 0..WRITERS {
+                let (dir, start) = (dir.path(), &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..PER_WRITER {
+                        upsert(
+                            dir,
+                            rec(&format!("m{w}-{i}.jar"), &format!("{w:04x}{i:04x}")),
+                        )
+                        .unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            load(dir.path()).unwrap().len(),
+            WRITERS * PER_WRITER,
+            "a concurrent upsert erased another writer's row"
+        );
+    }
+
+    /// Sets a flag when dropped, so a panicking writer thread still stops the
+    /// reader loop it races — the test fails instead of hanging.
+    struct StopOnDrop<'a>(&'a std::sync::atomic::AtomicBool);
+
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// An install lands its jar, then records its identity; the UI re-lists
+    /// meanwhile. A reconcile that interleaves with the upsert — or that scans
+    /// the dir before the jar lands and loads after the row does — saves the
+    /// row away, and the next pass re-adopts the jar with no identity.
+    #[test]
+    fn a_listing_racing_installs_never_strips_an_installed_identity() {
+        const INSTALLS: usize = 40;
+        let dir = tempfile::tempdir().unwrap();
+        let done = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                while !done.load(Ordering::SeqCst) {
+                    reconcile_on_list(dir.path()).unwrap();
+                }
+            });
+            s.spawn(|| {
+                let _stop = StopOnDrop(&done);
+                for i in 0..INSTALLS {
+                    let filename = format!("installed-{i}.jar");
+                    let sha1 = write_jar(dir.path(), &filename, format!("JAR {i}").as_bytes());
+                    upsert(
+                        dir.path(),
+                        ServerInstalledRecord {
+                            filename,
+                            sha1,
+                            ..rec("", "")
+                        },
+                    )
+                    .unwrap();
+                }
+            });
+        });
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        assert_eq!(entries.len(), INSTALLS);
+        let stripped: Vec<&str> = entries
+            .iter()
+            .filter(|e| e.record.source.is_none())
+            .map(|e| e.record.filename.as_str())
+            .collect();
+        assert!(
+            stripped.is_empty(),
+            "a racing reconcile erased the installed identity of {stripped:?}"
+        );
+    }
+
     #[test]
     fn sha1_of_seeds_the_hash_cache() {
         let dir = tempfile::tempdir().unwrap();

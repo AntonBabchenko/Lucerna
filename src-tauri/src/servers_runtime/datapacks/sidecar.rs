@@ -292,6 +292,36 @@ mod tests {
         assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
     }
 
+    /// The datapack browser installs several catalog packs at once (a per-card
+    /// busy set), each ending in `upsert_by_filename` on a tokio worker. Two
+    /// writers that read one snapshot lose a row — and its provenance — to the
+    /// later rename.
+    #[test]
+    fn concurrent_filename_upserts_keep_every_datapack_row() {
+        const WRITERS: usize = 16;
+        const PER_WRITER: usize = 25;
+        let td = world_with(&[]);
+        let start = std::sync::Barrier::new(WRITERS);
+        std::thread::scope(|s| {
+            for w in 0..WRITERS {
+                let (world, start) = (td.path(), &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..PER_WRITER {
+                        upsert_by_filename(world, row(&format!("pack-{w}-{i}.zip"), "aa")).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            crate::servers_runtime::installed::load(td.path())
+                .unwrap()
+                .len(),
+            WRITERS * PER_WRITER,
+            "a concurrent upsert erased another pack's row"
+        );
+    }
+
     #[test]
     fn forget_drops_the_row_for_a_name_and_is_idempotent() {
         let td = world_with(&[]);
