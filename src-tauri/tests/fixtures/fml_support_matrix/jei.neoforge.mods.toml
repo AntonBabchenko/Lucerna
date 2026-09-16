@@ -1,0 +1,22 @@
+# Header, modId and every [[dependencies]] block of META-INF/neoforge.mods.toml
+# from jei-1.21.1-neoforge-19.39.0.368.jar (All Of Create v2.1), verbatim; comments and descriptions dropped.
+modLoader="javafml" #mandatory
+loaderVersion="[4,)" #mandatory
+license="The MIT License (MIT)"
+
+[[mods]] #mandatory
+modId="jei" #mandatory
+
+[[dependencies.jei]]
+    modId="neoforge" #mandatory
+    type="required" #mandatory
+    versionRange="[21.0.118-beta,)" #mandatory
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.jei]]
+    modId="minecraft" #mandatory
+    type="required" #mandatory
+    versionRange="[1.21, 1.21.1)" #mandatory
+    ordering="NONE"
+    side="BOTH"
