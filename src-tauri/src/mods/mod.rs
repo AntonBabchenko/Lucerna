@@ -37,6 +37,7 @@ pub mod platform;
 pub mod preflight;
 pub mod project_cache;
 pub mod range_describe;
+pub(crate) mod registry_lock;
 pub mod render;
 pub mod store;
 pub mod summary_cache;
