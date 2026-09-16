@@ -1154,6 +1154,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  here aborts cleanly). Phase 2 removes the old files, installs the new
 	 *  ones from the warm cache, and rewrites `pack_origin` + the instance's
 	 *  version metadata. `overrides/`-bundled content is not touched.
+	 * 
+	 *  The whole command runs under the instance's maintenance claim
+	 *  (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
+	 *  the game runs or starts, or while another long operation — a world
+	 *  migration, a mod migration, a clone, another update — holds the instance.
 	 */
 	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
 	/**
