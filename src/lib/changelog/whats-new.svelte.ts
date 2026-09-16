@@ -7,11 +7,13 @@
 // Rune-state-in-a-.svelte.ts module — the same idiom as
 // `$lib/toasts/toasts.svelte` and `$lib/update/state.svelte`.
 import { get } from 'svelte/store';
-import { t } from '$lib/i18n';
+import { locale, t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
 import { dismiss, pushActionToast } from '$lib/toasts/toasts.svelte';
+import { CHANGELOG_SOURCE_LOCALE } from './locales';
 import { changelogSince, hasRenderableEntry } from './since';
 import { CHANGELOG } from './source';
+import { ensureChangelogTranslation } from './translation.svelte';
 import type { Changelog, ChangelogVersion } from './types';
 
 /** Non-null `entries` means the modal is open, showing these versions. */
@@ -64,6 +66,11 @@ export async function checkWhatsNew(seen: string | null, deps: WhatsNewDeps = {}
 
   // Mark seen up front → once per version, never nags (mirrors update_dismiss).
   void markSeen(current);
+
+  // Start loading the UI language's changelog now, while the toast is on
+  // screen, so the dialog opens already translated instead of flashing
+  // English first. A no-op for English and for a locale already loaded.
+  void ensureChangelogTranslation(get(locale) ?? CHANGELOG_SOURCE_LOCALE);
 
   const tr = get(t);
   const toastId = pushActionToast('info', tr('page.whatsNew.toast', { version: current }), {
