@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import type { InstanceWithStatus, ModpackUpdateDiff, ModpackVersionEntry } from '$lib/ipc/bindings';
 
 // vi.mock is hoisted above top-level consts, so the mock fns must come from
@@ -136,6 +137,33 @@ describe('ModpackVersionSwitchDialog', () => {
     await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
     await fireEvent.click(screen.getByTestId('switch-confirm'));
     await waitFor(() => expect(p.onSwitched).toHaveBeenCalled());
+  });
+
+  it('a busy refusal of the switch says why, offers a retry, and reports no switch', async () => {
+    // The apply takes the instance's maintenance claim, so while the game
+    // runs or starts, or a mod migration, world migration or clone holds the
+    // instance, the backend refuses with InstanceBusy before touching a file.
+    // Nothing switched: the caller must not be told it did, and a retry must
+    // re-prepare the SAME version so its diff is recomputed against whatever
+    // the other operation left behind.
+    locale.set('en');
+    applyUpdate.mockResolvedValueOnce({ status: 'error', error: { kind: 'instance_busy' } });
+    const p = props();
+    render(ModpackVersionSwitchDialog, p);
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('version-row-v1'));
+    await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('switch-confirm'));
+
+    const error = await screen.findByTestId('switch-error');
+    expect(error.textContent).toContain(
+      'An operation is already in progress, or the game is running.',
+    );
+    expect(p.onSwitched).not.toHaveBeenCalled();
+
+    await fireEvent.click(screen.getByTestId('switch-retry'));
+    await waitFor(() => expect(fetchToTemp).toHaveBeenCalledTimes(2));
+    expect(fetchToTemp.mock.calls[1][2]).toBe('v1');
   });
 
   it('shows the cause and a retry when preparing fails', async () => {
