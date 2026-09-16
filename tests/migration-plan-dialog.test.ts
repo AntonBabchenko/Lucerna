@@ -239,6 +239,44 @@ describe('MigrationPlanDialog', () => {
     expect(selections.replace).toEqual([{ old_sha1: 'r1', target: PLAN.replaceable[0]?.target }]);
   });
 
+  it('a busy refusal says why, keeps the reviewed plan, and lets the user apply again', async () => {
+    // The apply takes the instance's maintenance claim: while the game runs
+    // or starts, or a pack update, world migration or clone holds the
+    // instance, the backend refuses with InstanceBusy before touching a jar.
+    // Nothing was applied, so this must read as "not now" — not a result
+    // view, not onApplied — and the same selections must still be one click
+    // away once the other operation ends.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    modsApplyMcMigration.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'instance_busy' },
+    });
+    const onApplied = vi.fn();
+    renderDialog(onApplied);
+
+    await waitFor(() => expect(screen.getByTestId('migration-apply-btn')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-disposition-remove-s1'));
+    await fireEvent.click(screen.getByTestId('migration-apply-btn'));
+
+    const error = await screen.findByTestId('migration-apply-error');
+    expect(error.textContent).toBe('An operation is already in progress, or the game is running.');
+    expect(screen.queryByTestId('migration-result-summary')).toBeNull();
+    expect(onApplied).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect((screen.getByTestId('migration-apply-btn') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    modsApplyMcMigration.mockResolvedValueOnce({
+      status: 'ok',
+      data: { outcomes: [{ kind: 'removed', sha1: 's1', name: 'Old Mod' }] },
+    });
+    await fireEvent.click(screen.getByTestId('migration-apply-btn'));
+    await waitFor(() => expect(screen.getByTestId('migration-done-btn')).toBeTruthy());
+    expect(modsApplyMcMigration).toHaveBeenCalledTimes(2);
+    expect(modsApplyMcMigration.mock.calls[1]).toEqual(modsApplyMcMigration.mock.calls[0]);
+    expect(onApplied).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the result view with a Done button after a successful apply, and calls onApplied', async () => {
     modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
     modsApplyMcMigration.mockResolvedValue({

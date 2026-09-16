@@ -1,0 +1,35 @@
+# Header, modId and every [[dependencies]] block of META-INF/neoforge.mods.toml
+# from create_sophback_compat-1.0.jar (All Of Create v2.1), verbatim; comments and descriptions dropped.
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "create_sophback_compat"
+
+[[dependencies.create_sophback_compat]]
+modId="neoforge"
+type="required"
+versionRange="[21,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.create_sophback_compat]]
+modId="minecraft"
+type="required"
+versionRange="[1.20.1,1.21.1)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.create_sophback_compat]]
+modId="sophisticatedbackpacks"
+mandatory=true
+versionRange="[3.24.1,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.create_sophback_compat]]
+modId="create"
+mandatory=true
+versionRange="[0.5.1,)"
+ordering="AFTER"

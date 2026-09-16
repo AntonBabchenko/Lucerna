@@ -26,6 +26,12 @@ pub async fn assets_list(
 
 /// Remove an asset's file from disk (best-effort) and drop its registry
 /// entry. The registry is the source of truth, so a missing file is fine.
+///
+/// Every asset writer here runs under the instance's SHARED maintenance claim
+/// (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
+/// while a long operation — a pack update swapping pack files, a clone copying
+/// them — holds the instance; admitted alongside other item writers and while
+/// the game runs.
 #[tauri::command]
 #[specta::specta]
 pub async fn asset_uninstall(
@@ -34,6 +40,7 @@ pub async fn asset_uninstall(
     kind: crate::mods::platform::ContentKind,
     filename: String,
 ) -> crate::error::Result<()> {
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     // Guard against path escape before touching the filesystem (defense-in-depth:
@@ -47,6 +54,7 @@ pub async fn asset_uninstall(
         &inst_root,
         crate::journal::content(crate::journal::ContentAction::AssetRemoved, name),
     );
+    drop(write);
     Ok(())
 }
 
@@ -80,6 +88,8 @@ pub async fn asset_install(
     version: crate::mods::platform::ModVersion,
     kind: crate::mods::platform::ContentKind,
 ) -> crate::error::Result<()> {
+    // Shared maintenance claim, see `asset_uninstall`.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -110,6 +120,7 @@ pub async fn asset_install(
             Some(version.version_number.clone()),
         ),
     );
+    drop(write);
     Ok(())
 }
 
@@ -125,6 +136,8 @@ pub async fn asset_install_local(
     kind: crate::mods::platform::ContentKind,
     file_path: String,
 ) -> crate::error::Result<crate::mods::platform::InstalledAsset> {
+    // Shared maintenance claim, see `asset_uninstall`.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let bytes =
@@ -152,6 +165,7 @@ pub async fn asset_install_local(
             installed.name.clone(),
         ),
     );
+    drop(write);
     Ok(installed)
 }
 
@@ -213,34 +227,47 @@ pub async fn asset_update_one(
     old_filename: String,
     target: crate::mods::platform::ModVersion,
 ) -> crate::error::Result<()> {
-    crate::network::throttle::with_interactive(async move {
-        crate::mods::assets::require_asset_kind(kind)?;
-        let inst_root = instance_root(&app, &instance_id)?;
-        let dd = data_dir(&app)?;
-        let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
-        // The outgoing version, read before the replace drops its registry row.
-        let previous = crate::mods::assets::list(&inst_root, kind)
-            .await
-            .ok()
-            .and_then(|list| {
-                list.into_iter()
-                    .find(|a| a.filename.eq_ignore_ascii_case(&old_filename))
-                    .and_then(|a| a.version_number)
-            });
-        let name = target.name.clone();
-        let to_version = target.version_number.clone();
-        crate::mods::install::update_asset(&dd, &inst_root, kind, &old_filename, target, &progress)
+    // Shared maintenance claim, see `asset_uninstall` — held across the
+    // download and the replace.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let updated: crate::error::Result<()> =
+        crate::network::throttle::with_interactive(async move {
+            crate::mods::assets::require_asset_kind(kind)?;
+            let inst_root = instance_root(&app, &instance_id)?;
+            let dd = data_dir(&app)?;
+            let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+            // The outgoing version, read before the replace drops its registry row.
+            let previous = crate::mods::assets::list(&inst_root, kind)
+                .await
+                .ok()
+                .and_then(|list| {
+                    list.into_iter()
+                        .find(|a| a.filename.eq_ignore_ascii_case(&old_filename))
+                        .and_then(|a| a.version_number)
+                });
+            let name = target.name.clone();
+            let to_version = target.version_number.clone();
+            crate::mods::install::update_asset(
+                &dd,
+                &inst_root,
+                kind,
+                &old_filename,
+                target,
+                &progress,
+            )
             .await?;
-        crate::journal::record(
-            &inst_root,
-            crate::journal::content_versioned(
-                crate::journal::ContentAction::AssetUpdated,
-                name,
-                previous,
-                Some(to_version),
-            ),
-        );
-        Ok(())
-    })
-    .await
+            crate::journal::record(
+                &inst_root,
+                crate::journal::content_versioned(
+                    crate::journal::ContentAction::AssetUpdated,
+                    name,
+                    previous,
+                    Some(to_version),
+                ),
+            );
+            Ok(())
+        })
+        .await;
+    drop(write);
+    updated
 }
