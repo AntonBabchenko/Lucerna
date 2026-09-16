@@ -299,25 +299,28 @@ pub async fn modpack_resolve_missing_with(
             platform: "substitute".into(),
         })?;
 
-    let mut origin = crate::mods::installed::get_pack_origin(&inst_root)
-        .await?
-        .ok_or_else(|| crate::error::Error::ModsNotFound {
-            platform: "pack_origin".into(),
-        })?;
-
-    // Upsert: one overlay row per (filename, mod_name).
-    origin.resolved_missing.retain(|r| {
-        !(r.filename.eq_ignore_ascii_case(&entry_filename) && r.mod_name == entry_mod_name)
-    });
-    origin
-        .resolved_missing
-        .push(crate::mods::installed::ResolvedMissing {
-            filename: entry_filename,
-            mod_name: entry_mod_name,
-            sha1,
+    // One locked edit, not get → set: two substitutes resolved back to back
+    // would otherwise both read the same origin, and the second write would
+    // erase the first one's overlay row.
+    let recorded = crate::mods::installed::update_pack_origin(&inst_root, |origin| {
+        // Upsert: one overlay row per (filename, mod_name).
+        origin.resolved_missing.retain(|r| {
+            !(r.filename.eq_ignore_ascii_case(&entry_filename) && r.mod_name == entry_mod_name)
         });
-
-    crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
+        origin
+            .resolved_missing
+            .push(crate::mods::installed::ResolvedMissing {
+                filename: entry_filename,
+                mod_name: entry_mod_name,
+                sha1,
+            });
+    })
+    .await?;
+    if !recorded {
+        return Err(crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        });
+    }
     Ok(())
 }
 
@@ -1101,11 +1104,15 @@ pub async fn modpack_reimport_overrides(
         inst.loader,
         &inst.mc_version,
     );
-    if let Some(mut origin) = crate::mods::installed::get_pack_origin(&inst_root).await? {
-        origin.skipped_overrides = outcome.skipped.clone();
-        origin.inert_loader_jars = inert_loader_jars.clone();
-        crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
-    }
+    // One locked edit, so an overlay row another command records meanwhile
+    // (`modpack_resolve_missing_with`) survives. `false` — no pack origin — has
+    // nothing to refresh, exactly as before.
+    let skipped = outcome.skipped.clone();
+    crate::mods::installed::update_pack_origin(&inst_root, move |origin| {
+        origin.skipped_overrides = skipped;
+        origin.inert_loader_jars = inert_loader_jars;
+    })
+    .await?;
 
     // Phase marker only. This path's caller (`ImportedDetailDrawer`'s
     // `reimportPackFiles`) discards the result and re-reads the instance, and

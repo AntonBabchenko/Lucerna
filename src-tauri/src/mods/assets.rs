@@ -1,6 +1,10 @@
 //! Tracks resource packs and shaders installed into an instance, in
 //! `<instance_root>/installed-assets.json`. Parallel to `installed.rs`
 //! (mods) but simpler: no enable/disable, no dependency closure.
+//!
+//! Every read-modify-write of the file holds [`registry_lock`] — for the same
+//! lost-update reason `installed.rs` does. Readers (`list_all`, `list`) do not
+//! need it: the rename in `write_all` hands them a whole file.
 
 use std::path::Path;
 
@@ -8,6 +12,7 @@ use tokio::fs;
 
 use crate::error::Error;
 use crate::mods::platform::{ContentKind, InstalledAsset, ModSource};
+use crate::mods::registry_lock;
 
 fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
@@ -78,12 +83,16 @@ async fn write_all(instance_root: &Path, items: &[InstalledAsset]) -> Result<(),
     })?;
     // Atomic write (mirrors installed.rs): write to a temp file then rename
     // over the target, so a crash mid-write can't leave a truncated registry.
+    // One fixed temp name is safe only because every caller holds
+    // `registry_lock`; two unlocked writers would share it and one rename would
+    // fail (`installed::WRITE_SEQ` records that incident).
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, &json).await.map_err(|e| io_err(&tmp, e))?;
     fs::rename(&tmp, &path).await.map_err(|e| io_err(&path, e))
 }
 
 pub async fn add(instance_root: &Path, asset: InstalledAsset) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut items = list_all(instance_root).await?;
     items.retain(|a| !(a.kind == asset.kind && a.filename == asset.filename));
     items.push(asset);
@@ -91,6 +100,7 @@ pub async fn add(instance_root: &Path, asset: InstalledAsset) -> Result<(), Erro
 }
 
 pub async fn remove(instance_root: &Path, kind: ContentKind, filename: &str) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut items = list_all(instance_root).await?;
     items.retain(|a| !(a.kind == kind && a.filename == filename));
     write_all(instance_root, &items).await
@@ -136,13 +146,17 @@ pub fn make_asset(
 /// time — `PackOrigin` carries no per-import timestamp, so retro-fitted assets
 /// read as "installed now". Acceptable: the field only drives display/sort for
 /// these older instances, not correctness.
+///
+/// "Absent" is decided twice: once unlocked, so every listing after the first
+/// exits without queueing, and again under the registry lock right before the
+/// write — an `add` that landed in between created the file, and seeding over
+/// it would erase the asset it registered.
 pub async fn backfill_from_pack_origin_if_missing(instance_root: &Path) -> Result<(), Error> {
-    let path = registry_path(instance_root);
-    match fs::metadata(&path).await {
-        Ok(_) => return Ok(()), // registry already exists — leave it untouched
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io_err(&path, e)),
+    if !registry_absent(instance_root).await? {
+        return Ok(()); // registry already exists — leave it untouched
     }
+    // Read with NO asset guard held: `get_pack_origin` takes the mods
+    // registry's lock, and holding both at once would create an order to keep.
     let Some(origin) = crate::mods::installed::get_pack_origin(instance_root).await? else {
         return Ok(()); // not a pack-imported instance
     };
@@ -166,7 +180,23 @@ pub async fn backfill_from_pack_origin_if_missing(instance_root: &Path) -> Resul
     if items.is_empty() {
         return Ok(()); // nothing to seed — avoid writing an empty registry
     }
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    if !registry_absent(instance_root).await? {
+        return Ok(()); // an `add` created it since the check above — keep its row
+    }
     write_all(instance_root, &items).await
+}
+
+/// Whether the registry file does not exist yet. Only `NotFound` counts as
+/// absent: any other stat failure is an error, never a licence to seed over a
+/// registry that could not be seen.
+async fn registry_absent(instance_root: &Path) -> Result<bool, Error> {
+    let path = registry_path(instance_root);
+    match fs::metadata(&path).await {
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(io_err(&path, e)),
+    }
 }
 
 #[cfg(test)]

@@ -21,6 +21,11 @@ use std::time::SystemTime;
 /// race on the same path — the first rename won, the rest failed with
 /// "cannot find the file" (os error 2). A per-write unique name removes the
 /// collision; the final atomic rename still serializes the visible result.
+///
+/// Every writer now also holds [`registry_lock`], so two writes of one file no
+/// longer overlap in this process at all. The unique name stays: it costs
+/// nothing, and it keeps a writer that ever runs outside the lock from
+/// corrupting another's temp file instead of merely racing it.
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use chrono::Utc;
@@ -34,6 +39,7 @@ use crate::mods::modpack::schema::{
     EnvSupport, InertLoaderJar, ModpackUnresolvable, SkippedOverride,
 };
 use crate::mods::platform::{InstalledMod, ModSource};
+use crate::mods::registry_lock;
 
 const FILE_VERSION: u32 = 4;
 
@@ -315,7 +321,13 @@ pub fn mods_dir(instance_root: &Path) -> PathBuf {
 /// only flip the on-disk values, leaving the in-memory backfill check
 /// stale until the next refresh. Persists changes if migration or
 /// reconciliation modified state.
+///
+/// Holds the registry lock across reconcile's hashing. That is local disk only,
+/// never network, and it is the widest window there is: an install's `add`
+/// landing between this read and this write used to be overwritten by the
+/// snapshot, and its jar re-adopted as a manual mod on the next read.
 pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     let migrated = migrate(&mut state);
     let reconciled = reconcile(instance_root, &mut state).await?;
@@ -345,12 +357,20 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
 /// The overwrite is unconditional for a resolved row: for a platform mod the
 /// project summary IS the authority on its name, and there is no reliable
 /// predicate for "this string is already a project title".
+///
+/// The registry lock is NOT held across `resolve`: it is the caller's future,
+/// and one that reached the registry would wait on this very lock forever. The
+/// rows are re-read under the lock afterwards instead, so a row written while
+/// the names were being resolved survives the write. Re-applying to the fresh
+/// read is exact: names are keyed by `(source, project_id)`, not by position.
 pub async fn backfill_display_names<F, Fut>(instance_root: &Path, resolve: F) -> Result<(), Error>
 where
     F: FnOnce(Vec<(ModSource, String)>) -> Fut,
     Fut: std::future::Future<Output = std::collections::HashMap<(ModSource, String), String>>,
 {
-    let mut state = read_or_empty(instance_root).await?;
+    let guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let state = read_or_empty(instance_root).await?;
+    drop(guard);
     // Deduplicated: two jars of the same project must not be asked for twice.
     // Sorted by id afterwards because `ModSource` is not `Ord` (a `BTreeSet`
     // would need it) and a stable order keeps the resolver's batching — and
@@ -364,6 +384,8 @@ where
         .collect();
     wanted.sort_by(|a, b| a.1.cmp(&b.1));
     let names = resolve(wanted).await;
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let mut state = read_or_empty(instance_root).await?;
     if apply_display_names(&mut state.mods, &names) {
         write(instance_root, &state).await?;
     }
@@ -448,6 +470,7 @@ fn is_same_mod(a: &InstalledMod, b: &InstalledMod) -> bool {
 pub async fn list_taking_external_change(
     instance_root: &Path,
 ) -> Result<(Vec<InstalledMod>, bool), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     let migrated = migrate(&mut state);
     let reconciled = reconcile(instance_root, &mut state).await?;
@@ -459,6 +482,10 @@ pub async fn list_taking_external_change(
     Ok((state.mods, pending))
 }
 
+/// The registry as it is on disk, unreconciled. Lock-free: `write`'s atomic
+/// rename already hands a reader a whole file. A caller that WRITES back what it
+/// read must hold [`registry_lock`] across both — every writer in this module
+/// does, and `tests/structural_registry_rmw_lock.rs` pins it.
 pub(crate) async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
     let path = registry_path(instance_root);
     if !fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
@@ -678,6 +705,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
 
 /// Append a new entry. Caller has already placed the file in `mods/`.
 pub async fn add(instance_root: &Path, m: InstalledMod) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     state.mods.retain(|x| !x.sha1.eq_ignore_ascii_case(&m.sha1));
     state.mods.push(m);
@@ -686,6 +714,7 @@ pub async fn add(instance_root: &Path, m: InstalledMod) -> Result<(), Error> {
 
 /// Remove the entry with the given SHA-1.
 pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     state.mods.retain(|x| !x.sha1.eq_ignore_ascii_case(sha1));
     write(instance_root, &state).await
@@ -699,6 +728,7 @@ pub async fn remove_many(instance_root: &Path, sha1s: &HashSet<String>) -> Resul
         return Ok(());
     }
     let lowered: HashSet<String> = sha1s.iter().map(|s| s.to_ascii_lowercase()).collect();
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     state
         .mods
@@ -713,6 +743,7 @@ pub async fn set_requires(
     sha1: &str,
     requires: Vec<String>,
 ) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     if let Some(m) = state
         .mods
@@ -726,6 +757,7 @@ pub async fn set_requires(
 
 /// Toggle `enabled` for the entry with the given SHA-1.
 pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     if let Some(m) = state
         .mods
@@ -740,10 +772,47 @@ pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Res
 /// Persist the modpack-origin snapshot for the instance. Read-modify-
 /// write: preserves the existing `mods` list. Called once after a
 /// successful import; the bundled file set is immutable thereafter.
+///
+/// A WHOLE replacement. To change part of the recorded origin, use
+/// [`update_pack_origin`] — see there for what a get-then-set loses.
 pub async fn set_pack_origin(instance_root: &Path, origin: PackOrigin) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     state.pack_origin = Some(origin);
     write(instance_root, &state).await
+}
+
+/// Edit the recorded pack origin in place — read, `edit`, write, under one hold
+/// of the registry lock. Returns whether an origin was recorded; without one,
+/// `edit` never runs and the origin stays absent.
+///
+/// `get_pack_origin` → edit → [`set_pack_origin`] is two locked sections, not
+/// one: an editor landing between them — two missing mods resolved back to back
+/// — is erased by the other's whole-origin write.
+///
+/// `edit` is synchronous on purpose. It runs while the lock is held, and a
+/// closure that cannot `.await` cannot reach another registry call and wait on
+/// its own caller.
+pub async fn update_pack_origin<F>(instance_root: &Path, edit: F) -> Result<bool, Error>
+where
+    F: FnOnce(&mut PackOrigin),
+{
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let mut state = read_or_empty(instance_root).await?;
+    // The same one-shot migration `get_pack_origin` runs, so `edit` sees the
+    // current shape — and a migration is persisted even when there is no origin.
+    let migrated = migrate(&mut state);
+    let recorded = match state.pack_origin.as_mut() {
+        Some(origin) => {
+            edit(origin);
+            true
+        }
+        None => false,
+    };
+    if recorded || migrated {
+        write(instance_root, &state).await?;
+    }
+    Ok(recorded)
 }
 
 /// Apply an enrichment pass to the registry. `resolved` maps an
@@ -758,6 +827,7 @@ pub async fn apply_enrichment(
     resolved: &HashMap<String, crate::mods::platform::ResolvedIdentity>,
     attempted: &HashSet<String>,
 ) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     for m in state.mods.iter_mut() {
         let key = m.sha1.to_ascii_lowercase();
@@ -782,6 +852,7 @@ pub async fn register_imported_mods(
     instance_root: &Path,
     mods: Vec<InstalledMod>,
 ) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     for m in mods {
         let key = m.sha1.to_ascii_lowercase();
@@ -799,6 +870,7 @@ pub async fn register_imported_mods(
 /// (`source.is_some()`) are not touched. A no-op on instances whose
 /// `source = None` mods are already `enrich_attempted = false`.
 pub async fn reset_enrichment_attempts_for_unresolved(instance_root: &Path) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     let mut changed = false;
     for m in state.mods.iter_mut() {
@@ -856,6 +928,7 @@ fn migrate(state: &mut OnDisk) -> bool {
 /// Runs the one-shot schema migration (writes back once for v1 files).
 /// Returns `None` for manually-created instances and pre-bundle-2 imports.
 pub async fn get_pack_origin(instance_root: &Path) -> Result<Option<PackOrigin>, Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut state = read_or_empty(instance_root).await?;
     if migrate(&mut state) {
         write(instance_root, &state).await?;
@@ -2543,6 +2616,59 @@ mod tests {
         assert!(
             by_sha("sha-late").is_some(),
             "the row registered while the resolver ran was erased"
+        );
+    }
+
+    /// Missing mods resolved back to back: each edit reads the origin and
+    /// writes it whole, so outside one locked section the later write erased
+    /// the earlier one's overlay row.
+    #[tokio::test]
+    async fn concurrent_pack_origin_edits_all_survive() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        set_pack_origin(root, sample_origin()).await.unwrap();
+
+        let results = futures_util::future::join_all((0..16).map(|i| {
+            update_pack_origin(root, move |origin| {
+                origin.resolved_missing.push(ResolvedMissing {
+                    filename: format!("blocked-{i:02}.jar"),
+                    mod_name: format!("Blocked {i}"),
+                    sha1: format!("sha-{i:02}"),
+                });
+            })
+        }))
+        .await;
+        for r in results {
+            assert!(r.unwrap(), "the origin is recorded, so every edit ran");
+        }
+
+        let origin = get_pack_origin(root).await.unwrap().unwrap();
+        let mut kept: Vec<String> = origin
+            .resolved_missing
+            .into_iter()
+            .map(|r| r.filename)
+            .collect();
+        kept.sort();
+        let wanted: Vec<String> = (0..16).map(|i| format!("blocked-{i:02}.jar")).collect();
+        assert_eq!(kept, wanted, "a concurrent edit erased another's row");
+    }
+
+    /// No origin recorded: the edit never runs, the answer says so, and nothing
+    /// is invented or written.
+    #[tokio::test]
+    async fn update_pack_origin_without_an_origin_edits_nothing() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let mut ran = false;
+
+        let recorded = update_pack_origin(root, |_| ran = true).await.unwrap();
+
+        assert!(!recorded);
+        assert!(!ran);
+        assert!(get_pack_origin(root).await.unwrap().is_none());
+        assert!(
+            !registry_path(root).exists(),
+            "a fresh instance must not gain a registry file"
         );
     }
 }
