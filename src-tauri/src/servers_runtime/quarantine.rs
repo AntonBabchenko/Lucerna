@@ -323,6 +323,95 @@ mod tests {
         );
     }
 
+    /// A sidecar that cannot be READ is ignorance, not a fact. `apply_quarantine`
+    /// feeds the read straight into a whole-file write, so fail-opening to an
+    /// empty map erases every stored reason — and, worse, sets mods aside while
+    /// unable to record why. The restrictive direction is: change nothing.
+    ///
+    /// The unreadable sidecar is a DIRECTORY at the sidecar's path. That is
+    /// portable (Linux `IsADirectory`, Windows/macOS access denied) and is
+    /// definitively not `NotFound`, which is the one error that IS a fact.
+    ///
+    /// The `is_err()` alone proves nothing here — today's code also ends in an
+    /// `Err` when its write hits the directory. The jar still standing is the
+    /// assertion that carries the defect.
+    #[test]
+    fn apply_quarantine_refuses_when_the_sidecar_cannot_be_read() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        write_jar(dir, "betterf3.jar", b"x");
+        std::fs::create_dir(dir.join(SIDECAR)).unwrap();
+
+        let result = ClassifyResult {
+            quarantine: vec!["betterf3.jar".into()],
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        let outcome = apply_quarantine(dir, &result);
+
+        assert!(
+            outcome.is_err(),
+            "an unreadable sidecar must not read as empty"
+        );
+        assert!(
+            dir.join("betterf3.jar").exists(),
+            "nothing may be set aside when the reason cannot be recorded"
+        );
+        assert!(
+            !dir.join("betterf3.jar.disabled").exists(),
+            "the jar must not be renamed on the refusal path"
+        );
+    }
+
+    /// Read-modify-write on one shared map from several threads. Every writer
+    /// owns a distinct jar, so the only way to lose an entry is an interleave:
+    /// two writers read the same map and the later write clobbers the earlier.
+    ///
+    /// Concurrency is real here — `server_quarantine_client_mods` is an async
+    /// command that hashes every jar and makes two Modrinth round-trips before
+    /// reaching `apply_quarantine`, while `server_enable_mod` is a sync command
+    /// on the main thread. The UI gates neither against the other.
+    #[test]
+    fn concurrent_quarantine_keeps_every_reason() {
+        const WRITERS: usize = 16;
+
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().to_path_buf();
+        for i in 0..WRITERS {
+            write_jar(&dir, &format!("m{i}.jar"), b"x");
+        }
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(WRITERS));
+        let mut handles = Vec::new();
+        for i in 0..WRITERS {
+            let dir = dir.clone();
+            let barrier = std::sync::Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let result = ClassifyResult {
+                    quarantine: vec![format!("m{i}.jar")],
+                    kept: vec![],
+                    kept_because_required: vec![],
+                };
+                barrier.wait();
+                apply_quarantine(&dir, &result)
+            }));
+        }
+        for h in handles {
+            h.join().expect("writer panicked").expect("write failed");
+        }
+
+        let reasons = read_reasons(&dir);
+        let missing: Vec<String> = (0..WRITERS)
+            .map(|i| format!("m{i}.jar.disabled"))
+            .filter(|name| !reasons.contains_key(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "{} of {WRITERS} reasons lost to an interleaved read-modify-write: {missing:?}",
+            missing.len()
+        );
+    }
+
     #[test]
     fn first_required_conflict_allows_removing_a_leaf() {
         let td = tempfile::tempdir().unwrap();
