@@ -5,7 +5,7 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::error::{Error, Result};
 
-/// The forward gate's decision, as a pure function of the two flags so the
+/// The forward gate's decision, as a pure function of the three flags so the
 /// whole table is unit-testable without a live registry.
 ///
 /// `is_running` alone is NOT enough: it reads only the live-process map,
@@ -13,20 +13,40 @@ use crate::error::{Error, Result};
 /// JRE. During that window the server is unambiguously being started and a
 /// datapack write would race the JVM's first world load.
 ///
+/// `under_maintenance` is the third: a backup restore or import commit is
+/// `remove_dir_all(runtime/)` + re-extract, and the world — `level.dat` and
+/// `datapacks/` both — lives inside it. A datapack write admitted meanwhile
+/// lands in a tree that is being deleted and rebuilt around it.
+///
 /// Returns a plain `bool`, not a `Result` — an error is the caller's to build,
-/// because only the caller knows the server id that belongs in it.
+/// because only the caller knows the server id that belongs in it, and the two
+/// causes map to different errors.
 #[must_use]
-pub fn write_allowed(is_running: bool, is_starting: bool) -> bool {
-    !is_running && !is_starting
+pub fn write_allowed(is_running: bool, is_starting: bool, under_maintenance: bool) -> bool {
+    !is_running && !is_starting && !under_maintenance
 }
 
 /// The gate every mutating datapack command opens with.
+///
+/// The running and maintenance causes are reported separately: "the server is
+/// running" and "a restore is rewriting this server" call for different waits,
+/// and collapsing them would make one of the two messages a false statement.
 pub fn gate(server_id: &str) -> Result<()> {
     let rt = crate::servers_runtime::runtime::is_running(server_id);
     let starting = crate::servers_runtime::runtime::is_starting(server_id);
-    if !write_allowed(rt, starting) {
-        return Err(Error::ServerAlreadyRunning {
-            id: server_id.to_string(),
+    // Checked directly rather than through `not_under_maintenance` so the three
+    // flags reach `write_allowed` as one table and the refusal keeps naming the
+    // cause that actually fired.
+    let maintenance = crate::servers_runtime::maintenance::maintenance_is_active(server_id);
+    if !write_allowed(rt, starting, maintenance) {
+        return Err(if maintenance {
+            Error::ServerMaintenanceInProgress {
+                id: server_id.to_string(),
+            }
+        } else {
+            Error::ServerAlreadyRunning {
+                id: server_id.to_string(),
+            }
         });
     }
     Ok(())
@@ -84,11 +104,15 @@ mod tests {
 
     #[test]
     fn the_gate_refuses_a_running_or_starting_server_and_admits_a_stopped_one() {
-        assert!(write_allowed(false, false));
-        assert!(!write_allowed(true, false));
-        // The hole the audit found: `is_running` is still false during the
-        // whole of `start()`'s Java resolution and JRE download.
-        assert!(!write_allowed(false, true));
+        assert!(write_allowed(false, false, false));
+        assert!(!write_allowed(true, false, false));
+        // The hole the first audit found: `is_running` is still false during
+        // the whole of `start()`'s Java resolution and JRE download.
+        assert!(!write_allowed(false, true, false));
+        // The hole this change found: a backup restore replaces `runtime/`
+        // wholesale, and the world it holds — `level.dat` and `datapacks/` —
+        // goes with it. The server is neither running nor starting meanwhile.
+        assert!(!write_allowed(false, false, true));
     }
 
     #[test]
