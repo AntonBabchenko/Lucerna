@@ -273,7 +273,8 @@ jobs:
           cat > notes.md <<'NOTES'
           Lucerna ${APP_VERSION}.
 
-          See CHANGELOG.md for the full feature list. This release ships
+          See CHANGELOG.md for the full feature list (in Russian:
+          src/lib/changelog/locales/ru.md). This release ships
           Windows (NSIS `-setup.exe`), Linux (`.AppImage`, `.deb`, `.rpm`),
           and macOS (Universal2 `.dmg`, unsigned) artifacts.
 

@@ -40,6 +40,45 @@ and matching `{placeholders}`. A partial `ru.json` fails `pnpm test` and CI.
 > `src/lib/settings/AppearancePanel.svelte` (otherwise the picker shows the raw
 > code). Optional but nice.
 
+## Translating the changelog
+
+The launcher shows its changelog — Settings → Updates → **What's new**, and the
+dialog after an update — in the interface language. The English source is
+`CHANGELOG.md` in the repository root; translations are one Markdown file per
+language at `src/lib/changelog/locales/<code>.md`, using the same BCP-47 codes
+as the UI dictionaries (`ru.md` next to `ru.json`).
+
+A translation is a mirror of `CHANGELOG.md` in the same
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) shape:
+
+- Keep every `## [version] — date` heading and the link-reference block at the
+  end exactly as in English; the launcher matches versions by that label and
+  takes dates and links from the English file.
+- Keep the same sections in the same order and the same number of bullets in
+  each — a version whose counts differ is shown in English, because bullets
+  are paired by position. Section headings themselves (`### Added`) may be
+  translated; the launcher labels sections from the English kind.
+- Keep inline `code` spans verbatim and keep a bullet's **bold lead-in** where
+  the English one has it.
+
+A translation may be partial. A version that is missing, or a bullet left
+identical to its English text, is shown in English with a short note saying
+so; a language with no file at all gets one note for the whole panel. Nothing
+is hidden, and nothing is guessed. Translate the newest versions first — they
+are what the post-update dialog shows — and back-fill older ones as you like.
+
+Russian is the exception again: `tests/changelog-parity.test.ts` requires
+`ru.md` to mirror `CHANGELOG.md` completely, with every bullet translated. A
+changelog entry and its Russian twin land in the same pull request.
+
+Weblate: the changelog is intended to become a second component (Weblate's
+*Markdown* format, file mask `src/lib/changelog/locales/*.md`, base file
+`CHANGELOG.md`, *Deduplicate identical strings* enabled so entries keep their
+translation when a release pushes them down the file, Russian excluded by the
+language filter). Until that component exists, translate the changelog the
+manual way: copy `CHANGELOG.md` to `src/lib/changelog/locales/<code>.md`,
+translate, and open a pull request.
+
 ## Status
 
 Lucerna is live on

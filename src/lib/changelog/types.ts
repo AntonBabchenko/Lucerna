@@ -32,3 +32,32 @@ export interface ChangelogVersion {
 
 /** Versions in file order (newest first). */
 export type Changelog = ChangelogVersion[];
+
+// ---------------------------------------------------------------------------
+// Display model: the English structure with the active locale's text laid over
+// it (see localize.ts). The panel renders this, never `Changelog` directly.
+
+/** One bullet as shown: the locale's text when it has one, else the source. */
+export interface DisplayItem {
+  text: string;
+  /** True when `text` is in the active locale (always true for the source locale). */
+  localized: boolean;
+}
+
+export interface DisplaySection {
+  /** Always the source kind — a translated heading never decides the label. */
+  kind: SectionKind;
+  /** The locale's heading when aligned, else the source one; rendered only for 'other'. */
+  heading: string;
+  items: DisplayItem[];
+}
+
+export interface DisplayVersion {
+  version: string;
+  date: string | null;
+  url: string | null;
+  sections: DisplaySection[];
+  /** 'full' = every bullet localized (or nothing to localize); 'partial' = some
+   *  fell back to the source; 'none' = the whole version is source text. */
+  coverage: 'full' | 'partial' | 'none';
+}

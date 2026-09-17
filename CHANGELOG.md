@@ -4,6 +4,11 @@ All notable changes to Lucerna are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Translations: [Русский](src/lib/changelog/locales/ru.md). The launcher shows
+this changelog in its interface language and falls back to English, saying so,
+for anything not translated yet. See [`docs/TRANSLATING.md`](docs/TRANSLATING.md)
+to add a language.
+
 Development happens continuously on `main`. Versions between `0.1.0` and the first
 published release were untagged feature milestones; the first packaged public
 release is **0.9.0**.
@@ -17,6 +22,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 ## [Unreleased]
 
 ### Added
+
+- **The changelog in your language.** The **What's new** panel in Settings →
+  Updates and the dialog shown after an update now follow the interface
+  language. Russian ships complete, and a test keeps it in step with the
+  English file, so the Russian interface never lags behind a release. Other
+  languages have a place to land (`src/lib/changelog/locales/`, see
+  `docs/TRANSLATING.md`); until a version is translated, the launcher shows it
+  in English and says so, rather than hiding it or guessing.
 
 - **Move or copy a world to another instance.** A world's detail dialog has a
   new footer action that takes the world to any other instance — as a copy,
