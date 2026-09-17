@@ -35,6 +35,7 @@ No "small fix" exception. A bugfix is still a feature in this sense — it still
 - **Commits:** Conventional Commits prefixes — `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, `build:`, `ci:`.
 - **Merges:** squash merge into `main`.
 - **Tags:** `vMAJOR.MINOR.PATCH` for releases (semver).
+- **Changelog:** a user-visible change gets an entry under `[Unreleased]` in `CHANGELOG.md` **and** its Russian twin at the same position in `src/lib/changelog/locales/ru.md` — `tests/changelog-parity.test.ts` fails on any drift (versions, dates, links, section and bullet counts, untranslated bullets, dropped code spans).
 
 ## Repo layout
 
@@ -56,6 +57,7 @@ src/routes/                         SvelteKit file-based routes (single-page lau
 src/lib/ipc/bindings.ts             Generated TS bindings from tauri-specta — do not edit
 src/lib/accounts/                   Accounts UI + skins/capes + skin-editor/
 src/lib/i18n/                       Locales (en, ru) + generated key union
+src/lib/changelog/locales/          Changelog translations: one Keep-a-Changelog mirror of CHANGELOG.md per locale (ru complete, parity-tested)
 src/lib/ui/                         Shared design-system primitives
 src/app.css                         Tailwind imports + minimal global CSS
 src/app.html                        SvelteKit HTML shell (page title lives here)

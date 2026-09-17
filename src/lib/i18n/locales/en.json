@@ -2698,6 +2698,12 @@
     "changelog": {
       "title": "What's new",
       "empty": "No changelog available.",
+      "fallback": {
+        "noTranslation": "The release notes are not available in your language yet, so they are shown in English.",
+        "loadFailed": "The translated release notes could not be loaded, so the English ones are shown.",
+        "versionUntranslated": "Not translated yet; shown in English.",
+        "versionPartial": "Partly translated; the rest is shown in English."
+      },
       "openReleaseLabel": "Open the v{version} release notes on GitHub",
       "sections": {
         "added": "Added",
