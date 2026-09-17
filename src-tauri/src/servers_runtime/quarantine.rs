@@ -267,7 +267,7 @@ impl SidecarGuard {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
             Err(e) => return Err(Error::io(self.path.display().to_string(), e)),
         };
-        match serde_json::from_slice(&bytes) {
+        match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
             Ok(map) => Ok(map),
             Err(e) => {
                 crate::diag!(
@@ -388,7 +388,7 @@ mod tests {
         assert!(!dir.join("betterf3.jar").exists());
         assert!(dir.join("betterf3.jar.disabled").exists());
         assert!(dir.join("jei.jar").exists(), "kept jar untouched");
-        let sidecar = read_sidecar(dir);
+        let sidecar = read_reasons(dir);
         assert_eq!(
             sidecar.get("betterf3.jar.disabled").map(String::as_str),
             Some(REASON_CLIENT_ONLY)
