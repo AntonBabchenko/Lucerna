@@ -1,11 +1,19 @@
 //! Server datapack commands: listing with state, catalog install, update
 //! check/apply, toggle and removal.
 //!
-//! Every mutating command opens with
+//! Every mutating command takes
+//! `servers_runtime::maintenance::claim_shared_write` and then opens with
 //! `servers_runtime::datapacks::guard::gate`, which is
-//! `is_running || is_starting` — the plain `is_running` snapshot the shipped
-//! commands used cannot see the whole of `start()`'s Java resolution and JRE
-//! download.
+//! `is_running || is_starting || maintenance_is_active` — the plain
+//! `is_running` snapshot the shipped commands used cannot see the whole of
+//! `start()`'s Java resolution and JRE download, and cannot see a backup
+//! restore replacing `runtime/` (world included) underneath the write at all.
+//!
+//! The claim comes FIRST, in the order `server_update_datapack_one` already
+//! documents for its update guard: the gate is a snapshot, so it answers the
+//! forward direction only. The claim is what a restore STARTING LATER can see,
+//! and it is held for the whole command — across the catalog download and the
+//! `level.dat` read-modify-write — so `maintenance_begin` refuses meanwhile.
 
 use tauri::AppHandle;
 
@@ -42,6 +50,7 @@ pub async fn server_install_datapack(
     id: String,
     zip_path: String,
 ) -> Result<String> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
     datapacks::install_datapack(&world, std::path::Path::new(&zip_path)).await
@@ -52,6 +61,7 @@ pub async fn server_install_datapack(
 #[tauri::command]
 #[specta::specta]
 pub async fn server_remove_datapack(app: AppHandle, id: String, filename: String) -> Result<()> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     mutate::remove(&world_dir_of(&app, &id)?, &filename).await
 }
@@ -65,6 +75,7 @@ pub async fn server_set_datapack_enabled(
     filename: String,
     enabled: bool,
 ) -> Result<()> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     mutate::set_enabled(&world_dir_of(&app, &id)?, &filename, enabled).await
 }
@@ -77,6 +88,7 @@ pub async fn server_install_datapack_version(
     id: String,
     version: ModVersion,
 ) -> Result<crate::servers_runtime::installed::ServerInstalledRecord> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
     let dd = super::data_dir(&app)?;
@@ -149,6 +161,7 @@ pub async fn server_update_datapack_one(
     target: ModVersion,
 ) -> Result<ServerDatapackUpdateOutcome> {
     let _claim = guard::UpdateGuard::acquire(&id).ok_or(Error::ServerContentStale)?;
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
     let dd = super::data_dir(&app)?;

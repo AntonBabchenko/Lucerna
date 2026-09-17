@@ -543,6 +543,18 @@ pub enum Error {
     #[error("server maintenance in progress: {id}")]
     ServerMaintenanceInProgress { id: String },
 
+    /// The reverse of `ServerMaintenanceInProgress`: a restore or import was
+    /// asked for, but a per-item content writer (a mod or plugin install or
+    /// update, a datapack write, a hash-enrichment pass) is still writing into
+    /// this server's `runtime/`.
+    ///
+    /// Distinct from `ServerMaintenanceInProgress` on purpose: telling the user
+    /// "a restore is already running" when what is actually running is their
+    /// own add-on install would be a false statement, and the two have
+    /// different waits and different things to look at.
+    #[error("server content write in progress: {id}")]
+    ServerContentBusy { id: String },
+
     /// The hosting upload was cancelled by the user.
     #[error("upload cancelled")]
     UploadCancelled,

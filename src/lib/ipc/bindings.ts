@@ -3303,6 +3303,18 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  `runtime/` (backup restore or import commit), but one is in flight.
  */
 { kind: "server_maintenance_in_progress"; id: string } | 
+/**
+ *  The reverse of `ServerMaintenanceInProgress`: a restore or import was
+ *  asked for, but a per-item content writer (a mod or plugin install or
+ *  update, a datapack write, a hash-enrichment pass) is still writing into
+ *  this server's `runtime/`.
+ * 
+ *  Distinct from `ServerMaintenanceInProgress` on purpose: telling the user
+ *  "a restore is already running" when what is actually running is their
+ *  own add-on install would be a false statement, and the two have
+ *  different waits and different things to look at.
+ */
+{ kind: "server_content_busy"; id: string } | 
 /**  The hosting upload was cancelled by the user. */
 { kind: "upload_cancelled" } | 
 /**  The operation requires a running server, but it is not running. */
