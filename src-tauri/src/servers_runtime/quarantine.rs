@@ -6,13 +6,24 @@
 //!
 //! The decision logic lives in [`super::mod_classify`] (pure). This module only
 //! does I/O around it.
+//!
+//! The sidecar is read-modify-written by two writers ([`apply_quarantine`]
+//! inserts, [`forget_reason`] removes) on genuinely different threads:
+//! `server_quarantine_client_mods` is an async command that hashes every jar
+//! and makes two Modrinth round-trips before it gets here, while
+//! `server_enable_mod` is a synchronous command running on the main thread, and
+//! the UI gates neither against the other. So every access goes through
+//! [`lock_sidecar`], whose guard OWNS the read and the write — an unlocked
+//! read-modify-write does not compile.
 
 use crate::error::{Error, Result};
 use crate::servers_runtime::mod_classify::{
     classify_server_mods, norm_id, ClassifyResult, ModFacts, ServerSideSupport,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// Sidecar in the server's `mods/` recording why each disabled jar was set
 /// aside, so the UI can label it. Cosmetic; safe to delete; tolerant of absence.
@@ -67,9 +78,14 @@ pub fn gather_facts(
 /// reason in the sidecar. Returns the disabled filenames (with `.disabled`).
 /// Idempotent: an already-disabled / absent jar is skipped without error.
 /// Path-safe: unsafe names and path-escapes are skipped.
+/// Refuses outright when the sidecar cannot be read: setting a mod aside while
+/// unable to record why leaves the user with a disabled jar and no explanation
+/// beside it, so the restrictive answer is to change nothing.
 pub fn apply_quarantine(mods_dir: &Path, result: &ClassifyResult) -> Result<Vec<String>> {
+    let sidecar = lock_sidecar(mods_dir);
+    // Read BEFORE the first rename, so the refusal above costs nothing.
+    let mut reasons = sidecar.read()?;
     let mut disabled = Vec::new();
-    let mut sidecar = read_sidecar(mods_dir);
     for filename in &result.quarantine {
         if !crate::servers_runtime::runtime::is_safe_mod_name(filename) {
             continue;
@@ -82,7 +98,7 @@ pub fn apply_quarantine(mods_dir: &Path, result: &ClassifyResult) -> Result<Vec<
         }
         match std::fs::rename(&src, &dst) {
             Ok(()) => {
-                sidecar.insert(disabled_name.clone(), REASON_CLIENT_ONLY.to_string());
+                reasons.insert(disabled_name.clone(), REASON_CLIENT_ONLY.to_string());
                 disabled.push(disabled_name);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -90,7 +106,7 @@ pub fn apply_quarantine(mods_dir: &Path, result: &ClassifyResult) -> Result<Vec<
         }
     }
     if !disabled.is_empty() {
-        write_sidecar(mods_dir, &sidecar)?;
+        sidecar.write(&reasons)?;
     }
     Ok(disabled)
 }
@@ -140,39 +156,149 @@ pub fn first_required_conflict(mods_dir: &Path, targets: &[String]) -> Option<(S
 }
 
 /// Read the `disabled-filename -> reason` sidecar map for a server's `mods/`.
-/// Empty when the sidecar is absent/unreadable. The command layer uses this to
-/// label disabled rows ("set aside: client-only") instead of guessing from the
-/// `.disabled` suffix alone.
+/// The command layer uses this to label disabled rows ("set aside:
+/// client-only") instead of guessing from the `.disabled` suffix alone.
+///
+/// Infallible, and the ONE place in this module where an unreadable sidecar is
+/// allowed to answer "empty": the result is rendered as a badge and never
+/// written back, and for a label "say nothing" IS the restrictive answer. The
+/// failure is logged rather than swallowed.
 pub fn read_reasons(mods_dir: &Path) -> BTreeMap<String, String> {
-    read_sidecar(mods_dir)
+    let sidecar = lock_sidecar(mods_dir);
+    sidecar.read().unwrap_or_else(|e| {
+        crate::diag!("servers: quarantine reasons unreadable, labelling none: {e}");
+        BTreeMap::new()
+    })
 }
 
-/// Drop a disabled jar's sidecar reason (e.g. after re-enabling it). Best-effort
-/// and non-fatal: a missing sidecar or a write failure is silently ignored —
-/// the sidecar is cosmetic. A no-op when the entry isn't present.
-pub fn forget_reason(mods_dir: &Path, disabled_filename: &str) {
-    let mut sidecar = read_sidecar(mods_dir);
-    if sidecar.remove(disabled_filename).is_some() {
-        let _ = write_sidecar(mods_dir, &sidecar);
+/// Drop a disabled jar's sidecar reason (e.g. after re-enabling it). A no-op
+/// when the entry isn't present.
+///
+/// Fallible on purpose. The caller (`server_enable_mod`) runs this AFTER a
+/// rename that already succeeded, so it must not turn the failure into a failed
+/// enable — but it must not pretend it worked either. Returning the error lets
+/// the caller log the truth.
+pub fn forget_reason(mods_dir: &Path, disabled_filename: &str) -> Result<()> {
+    let sidecar = lock_sidecar(mods_dir);
+    let mut reasons = sidecar.read()?;
+    if reasons.remove(disabled_filename).is_none() {
+        return Ok(());
     }
+    sidecar.write(&reasons)
 }
 
-fn sidecar_path(mods_dir: &Path) -> std::path::PathBuf {
+fn sidecar_path(mods_dir: &Path) -> PathBuf {
     mods_dir.join(SIDECAR)
 }
 
-fn read_sidecar(mods_dir: &Path) -> BTreeMap<String, String> {
-    std::fs::read(sidecar_path(mods_dir))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+/// Process-lifetime write counter, giving each write a unique temp name.
+/// Mirrors `servers_runtime::installed::save`.
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// The mutex guarding one sidecar FILE, created on first use and kept for the
+/// process lifetime.
+///
+/// Keyed by the sidecar's path, not by the mods dir: `.lucerna-quarantine.json`
+/// and the neighbouring `.lucerna-installed.json` have disjoint writers, and a
+/// directory key would serialise unrelated work and create a lock-order pair to
+/// reason about. Same choice as `mods::registry_lock` ("one mutex per registry
+/// FILE").
+///
+/// Deliberately a plain mutex with no `Condvar`: a keyed lock built on
+/// `Condvar::wait_while` hands the key to two holders once the inner mutex is
+/// poisoned, because `wait_while` returns on poison WITHOUT re-checking its
+/// predicate. There is no such edge here.
+///
+/// Process-local is enough — `tauri-plugin-single-instance` means one launcher
+/// process at a time.
+fn sidecar_mutex(path: &Path) -> &'static Mutex<()> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, &'static Mutex<()>>>> = OnceLock::new();
+    let mut map = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Deref-copies the `&'static` out of the entry, so nothing borrowed from
+    // `map` (a guard on a local) escapes this function.
+    *map.entry(path.to_path_buf()).or_insert_with(|| {
+        // Leaked so the guard can be `'static`. Bounded by the number of
+        // distinct server mods dirs seen in the process — the same growth the
+        // map entry itself already costs.
+        let m: &'static Mutex<()> = Box::leak(Box::new(Mutex::new(())));
+        m
+    })
 }
 
-fn write_sidecar(mods_dir: &Path, map: &BTreeMap<String, String>) -> Result<()> {
+/// Exclusive access to one server's quarantine sidecar.
+///
+/// Holds the read and the write as METHODS, so a read-modify-write without the
+/// lock is not expressible. Not re-entrant: a holder must never call another
+/// function that locks the same sidecar. The three holders —
+/// [`apply_quarantine`], [`forget_reason`] and [`read_reasons`] — are all in
+/// this file and none calls another.
+struct SidecarGuard {
+    path: PathBuf,
+    _lock: MutexGuard<'static, ()>,
+}
+
+fn lock_sidecar(mods_dir: &Path) -> SidecarGuard {
     let path = sidecar_path(mods_dir);
-    let json =
-        serde_json::to_vec_pretty(map).expect("BTreeMap<String,String> always serializes to JSON");
-    std::fs::write(&path, json).map_err(|e| Error::io(path.display().to_string(), e))
+    let lock = sidecar_mutex(&path)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    SidecarGuard { path, _lock: lock }
+}
+
+impl SidecarGuard {
+    /// Read the map, telling "absent" apart from "could not read".
+    ///
+    /// Absent is a fact: a mods dir that never had a quarantine holds no
+    /// sidecar, and "no reasons" is the true answer. Any other read failure is
+    /// ignorance, and both write paths feed this straight into a whole-file
+    /// write — so answering "empty" would persist the loss of every reason.
+    ///
+    /// A PARSE failure on bytes that read fine stays fail-open, the same
+    /// deliberate asymmetry `servers_runtime::installed::load` documents: the
+    /// file is provably corrupt and holds no recoverable reasons, and erroring
+    /// would wedge quarantine forever on one bad byte. It is logged, never
+    /// silent.
+    fn read(&self) -> Result<BTreeMap<String, String>> {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(e) => return Err(Error::io(self.path.display().to_string(), e)),
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(map) => Ok(map),
+            Err(e) => {
+                crate::diag!(
+                    "servers: quarantine sidecar {} is corrupt, starting empty: {e}",
+                    self.path.display()
+                );
+                Ok(BTreeMap::new())
+            }
+        }
+    }
+
+    /// Write via temp-then-rename, so a crash or power loss mid-write cannot
+    /// leave a truncated map for the next read to inherit and re-persist.
+    fn write(&self, map: &BTreeMap<String, String>) -> Result<()> {
+        let json =
+            serde_json::to_vec_pretty(map).expect("BTreeMap<String,String> always serializes");
+        let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let tmp = self
+            .path
+            .with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
+        std::fs::write(&tmp, &json).map_err(|e| Error::io(tmp.display().to_string(), e))?;
+        if let Err(e) = std::fs::rename(&tmp, &self.path) {
+            // The rename IS the commit, and it failed — the temp is now garbage
+            // that would otherwise sit beside the jars forever. This is cleanup
+            // on an already-failed path: a failed removal only leaves a stray
+            // file, while the error that matters is the one returned below.
+            let _ = std::fs::remove_file(&tmp);
+            return Err(Error::io(self.path.display().to_string(), e));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -303,6 +429,177 @@ mod tests {
         // A dir with no sidecar yields an empty map (no panic).
         let empty = tempfile::tempdir().unwrap();
         assert!(read_reasons(empty.path()).is_empty());
+    }
+
+    /// Bytes that READ fine but do not parse are a proven fact: the file is
+    /// corrupt and holds no recoverable reasons. Unlike an unreadable sidecar
+    /// this stays fail-open on purpose — erroring would wedge quarantine
+    /// forever on one bad byte. The deliberate asymmetry, pinned.
+    #[test]
+    fn apply_quarantine_tolerates_a_corrupt_sidecar() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        write_jar(dir, "betterf3.jar", b"x");
+        std::fs::write(dir.join(SIDECAR), b"{ not json at all").unwrap();
+
+        let result = ClassifyResult {
+            quarantine: vec!["betterf3.jar".into()],
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        let disabled = apply_quarantine(dir, &result).expect("corrupt is recoverable, not fatal");
+
+        assert_eq!(disabled, vec!["betterf3.jar.disabled".to_string()]);
+        assert_eq!(
+            read_reasons(dir)
+                .get("betterf3.jar.disabled")
+                .map(String::as_str),
+            Some(REASON_CLIENT_ONLY),
+            "the corrupt map is replaced, not inherited"
+        );
+    }
+
+    /// `read_reasons` is the one label-only caller, so an unreadable sidecar
+    /// answers "no reasons" there — for a badge, saying nothing IS the
+    /// restrictive answer, and it writes nothing back. Pinned so a later
+    /// "make it consistent" change has to argue with a test.
+    #[test]
+    fn read_reasons_is_empty_when_the_sidecar_cannot_be_read() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        std::fs::create_dir(dir.join(SIDECAR)).unwrap();
+
+        assert!(read_reasons(dir).is_empty());
+    }
+
+    /// The write paths do NOT get that latitude: `forget_reason` reports the
+    /// failure so `server_enable_mod` can log the truth instead of pretending
+    /// the reason was dropped.
+    #[test]
+    fn forget_reason_reports_an_unreadable_sidecar() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        std::fs::create_dir(dir.join(SIDECAR)).unwrap();
+
+        assert!(forget_reason(dir, "betterf3.jar.disabled").is_err());
+    }
+
+    #[test]
+    fn forget_reason_drops_only_its_own_entry() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        write_jar(dir, "betterf3.jar", b"x");
+        write_jar(dir, "modmenu.jar", b"y");
+        let result = ClassifyResult {
+            quarantine: vec!["betterf3.jar".into(), "modmenu.jar".into()],
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        apply_quarantine(dir, &result).unwrap();
+
+        forget_reason(dir, "betterf3.jar.disabled").unwrap();
+
+        let reasons = read_reasons(dir);
+        assert!(!reasons.contains_key("betterf3.jar.disabled"));
+        assert_eq!(
+            reasons.get("modmenu.jar.disabled").map(String::as_str),
+            Some(REASON_CLIENT_ONLY),
+            "the neighbour's reason survives"
+        );
+        // Forgetting something that isn't there is a no-op, not an error.
+        forget_reason(dir, "ghost.jar.disabled").unwrap();
+    }
+
+    /// The write commits through a temp file and a rename. Pins the mechanism:
+    /// a temp that is written but never renamed (or never cleaned up) would
+    /// leave residue beside the jars.
+    ///
+    /// Crash-safety itself is not unit-testable without fault injection — this
+    /// asserts the shape, not the power-loss guarantee.
+    #[test]
+    fn a_committed_write_leaves_no_temp_file_behind() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        write_jar(dir, "betterf3.jar", b"x");
+        let result = ClassifyResult {
+            quarantine: vec!["betterf3.jar".into()],
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        apply_quarantine(dir, &result).unwrap();
+        forget_reason(dir, "betterf3.jar.disabled").unwrap();
+
+        let residue: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(residue.is_empty(), "temp files left behind: {residue:?}");
+    }
+
+    /// Both writers at once on one map: half the threads insert their own jar's
+    /// reason, the other half forget a pre-seeded one. Every insert must survive
+    /// and every forget must stick — an interleaved read-modify-write loses one
+    /// or resurrects the other.
+    #[test]
+    fn concurrent_quarantine_and_forget_never_clobber_each_other() {
+        const PAIRS: usize = 8;
+
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().to_path_buf();
+        for i in 0..PAIRS {
+            write_jar(&dir, &format!("new{i}.jar"), b"x");
+            write_jar(&dir, &format!("old{i}.jar"), b"y");
+        }
+        // Seed the `old*` reasons so the forgetting threads have something real
+        // to remove.
+        let seed = ClassifyResult {
+            quarantine: (0..PAIRS).map(|i| format!("old{i}.jar")).collect(),
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        apply_quarantine(&dir, &seed).unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(PAIRS * 2));
+        let mut handles = Vec::new();
+        for i in 0..PAIRS {
+            for insert in [true, false] {
+                let dir = dir.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                handles.push(std::thread::spawn(move || {
+                    barrier.wait();
+                    if insert {
+                        let result = ClassifyResult {
+                            quarantine: vec![format!("new{i}.jar")],
+                            kept: vec![],
+                            kept_because_required: vec![],
+                        };
+                        apply_quarantine(&dir, &result).map(|_| ())
+                    } else {
+                        forget_reason(&dir, &format!("old{i}.jar.disabled"))
+                    }
+                }));
+            }
+        }
+        for h in handles {
+            h.join().expect("writer panicked").expect("write failed");
+        }
+
+        let reasons = read_reasons(&dir);
+        let lost: Vec<String> = (0..PAIRS)
+            .map(|i| format!("new{i}.jar.disabled"))
+            .filter(|n| !reasons.contains_key(n))
+            .collect();
+        let resurrected: Vec<String> = (0..PAIRS)
+            .map(|i| format!("old{i}.jar.disabled"))
+            .filter(|n| reasons.contains_key(n))
+            .collect();
+        assert!(lost.is_empty(), "inserts lost: {lost:?}");
+        assert!(
+            resurrected.is_empty(),
+            "forgotten reasons came back: {resurrected:?}"
+        );
     }
 
     #[test]

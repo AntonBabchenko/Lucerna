@@ -3268,8 +3268,12 @@ pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result
         Err(e) => return Err(Error::io(src.display().to_string(), e)),
     }
     // Drop the now-stale quarantine sidecar entry so the row stops showing a
-    // "set aside" reason. Best-effort: a missing/locked sidecar is non-fatal.
-    crate::servers_runtime::quarantine::forget_reason(&mods, &filename);
+    // "set aside" reason. The rename above already succeeded and the jar IS
+    // enabled, so a sidecar failure must not be reported as a failed enable --
+    // that would describe something that did not happen. Logged instead.
+    if let Err(e) = crate::servers_runtime::quarantine::forget_reason(&mods, &filename) {
+        crate::diag!("servers: could not drop the quarantine reason for {filename}: {e}");
+    }
     Ok(())
 }
 
