@@ -3057,9 +3057,7 @@ pub async fn server_update_one(
                 std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
             }
         }
-        crate::servers_runtime::installed::remove(&mods, &old_record_sha1)?;
-        crate::servers_runtime::installed::upsert(&mods, new_record)?;
-        Ok(())
+        crate::servers_runtime::installed::replace(&mods, &old_record_sha1, new_record)
     })
     .await
     .map_err(|e| Error::io("<update-swap>", e))??;
@@ -3150,9 +3148,7 @@ pub async fn server_update_plugin_one(
                 std::fs::rename(&src, &dst).map_err(|e| Error::io(src.display().to_string(), e))?;
             }
         }
-        crate::servers_runtime::installed::remove(&plugins, &old_record_sha1)?;
-        crate::servers_runtime::installed::upsert(&plugins, new_record)?;
-        Ok(())
+        crate::servers_runtime::installed::replace(&plugins, &old_record_sha1, new_record)
     })
     .await
     .map_err(|e| Error::io("<update-swap>", e))??;
