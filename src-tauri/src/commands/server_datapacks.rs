@@ -29,8 +29,15 @@ fn world_dir_of(app: &AppHandle, id: &str) -> Result<std::path::PathBuf> {
 /// state read from `level.dat`.
 #[tauri::command]
 #[specta::specta]
-pub fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<ServerDatapackEntry>> {
-    Ok(listing::entries(&world_dir_of(&app, &id)?))
+pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<ServerDatapackEntry>> {
+    let world = world_dir_of(&app, &id)?;
+    // Off the main thread: the listing reconciles the world's sidecar, which
+    // hashes every unadopted zip and waits on the sidecar lock while another
+    // thread's install holds it. Enforced by
+    // `tests/structural_no_heavy_sync_command.rs`.
+    tokio::task::spawn_blocking(move || listing::entries(&world))
+        .await
+        .map_err(|e| Error::io("<datapack-listing>", e))
 }
 
 /// Install a datapack `.zip` chosen from disk. Records a provenance-less
@@ -107,7 +114,11 @@ pub async fn server_check_datapack_updates(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let world = datapacks::world_dir(&p.runtime, &super::server_props_raw(&p)?);
-    let rows = datapacks::sidecar::reconcile(&world);
+    // Off the async executor, like the mods twin's reconcile: it hashes every
+    // unadopted zip and may wait on the sidecar lock.
+    let rows = tokio::task::spawn_blocking(move || datapacks::sidecar::reconcile(&world))
+        .await
+        .map_err(|e| Error::io("<datapack-reconcile>", e))?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         // No identity ⇒ nothing to query. Hand-dropped packs are omitted.

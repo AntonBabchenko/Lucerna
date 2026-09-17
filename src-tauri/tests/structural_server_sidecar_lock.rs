@@ -38,6 +38,10 @@
 //!     the one-section spelling of an update's row swap.
 //!   - A locking function reached through a helper that takes no guard itself
 //!     is invisible to rule 2. Every holder takes it directly today.
+//!   - Rule 3 reads spellings, not name resolution: a module alias
+//!     (`use …::installed as x;` then `x::lock(..)`) evades it. Visibility
+//!     bounds the hole — `lock` is private to `servers_runtime` — and review
+//!     owns the alias.
 //!   - A function is located by a column-0 signature, and its body ends at the
 //!     next line that is exactly `}` — sound for rustfmt'd top-level fns.
 //!     Methods inside `impl` blocks are not scanned; none takes the guard.

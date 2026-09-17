@@ -76,6 +76,16 @@ const NEEDLES: &[(&str, &str)] = &[
         "full byte read + SHA-1 of every jar in the directory",
     ),
     (
+        "listing::entries(",
+        "reconciles a world's datapack sidecar — hashes every unadopted zip, and \
+         waits on the sidecar lock another thread's install may hold",
+    ),
+    (
+        "sidecar::reconcile(",
+        "hashes every unadopted zip, and waits on the sidecar lock another \
+         thread's install may hold",
+    ),
+    (
         "extract_zip",
         "unpacks an archive — GB-scale for a real modpack or world",
     ),
