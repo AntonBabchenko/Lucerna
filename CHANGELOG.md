@@ -52,6 +52,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Server mods, plugins and datapacks installed at the same time keep their
+  origin.** Installing several of them into one server at once, or while its
+  content list was being refreshed, could drop an item's record from the
+  server's registry. The file stayed in place and came back as manually added —
+  with no platform link and no update checks; a datapack lost its catalog
+  provenance the same way. Updating a server mod or plugin also recorded the
+  swap as two separate changes, leaving a moment where the new file had no
+  record. Every change to these registries now waits for the previous one to
+  finish, and an update's swap is recorded as one change.
+
 - **Restoring a backup no longer fails when the world was renamed after the
   backup was made.** A backup archive carries the world's folder name from the
   time it was taken; if the folder was renamed since — in the file manager, or

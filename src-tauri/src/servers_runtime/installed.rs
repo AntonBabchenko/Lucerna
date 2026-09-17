@@ -17,11 +17,24 @@
 //! every consumer feeds `load`'s result into a read-modify-write `save`, so
 //! reading ignorance as "empty" would save away every record's identity
 //! metadata (source / project_id / version_id / name / version_number).
+//!
+//! Every read-modify-write holds the sidecar's [`SidecarLock`], and the lock is
+//! the only way in: `load` and `save` are its methods. Browse installs several
+//! cards into one server at once (a per-card busy set, not a queue), each
+//! finishing on its own thread, and the UI re-lists around them — two writers
+//! that read one snapshot lose a row to the later rename, and the next reconcile
+//! re-adopts that jar with no identity. `datapacks::sidecar` shares the file
+//! format (and this lock) for a world's datapacks. Rules for holders, pinned by
+//! `tests/structural_server_sidecar_lock.rs`: take it once, as a named local at
+//! function level; call no other function that takes it (it is not re-entrant);
+//! never across network I/O.
 
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Condvar, LazyLock, Mutex};
+use std::thread::ThreadId;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -34,8 +47,9 @@ const FILE_VERSION: u32 = 1;
 const SIDECAR: &str = ".lucerna-installed.json";
 
 /// Process-lifetime write counter. Mirrors `mods::installed`: a unique per-write
-/// temp name so concurrent `save()` calls for the same dir don't collide on the
-/// tmp path and fail the rename.
+/// temp name, so two saves never share a tmp path. [`SidecarLock`] already
+/// serialises saves of one sidecar within this process; the pid + counter keep
+/// the tmp name unique beyond that lock's reach.
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
@@ -73,40 +87,123 @@ fn sidecar_path(jar_dir: &Path) -> PathBuf {
     jar_dir.join(SIDECAR)
 }
 
-/// Read the sidecar registry, discriminating "absent" from "could not read".
-///
-/// Absent (`NotFound`) is a fact — a dir that never had anything installed
-/// holds no sidecar, and "no records" is the true answer. Any OTHER read
-/// failure (permission, AV hold, sharing violation) is ignorance, and is an
-/// error: the callers all read-modify-write, so treating it as empty would
-/// persist the loss. A parse failure on successfully read bytes stays
-/// fail-open — the file is provably corrupt, and `reconcile_on_list` rebuilds
-/// it from disk (see the module doc).
-pub fn load(jar_dir: &Path) -> Result<Vec<ServerInstalledRecord>> {
-    let path = sidecar_path(jar_dir);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(Error::io(path.display().to_string(), e)),
-    };
-    Ok(serde_json::from_slice::<Sidecar>(&bytes)
-        .map(|s| s.records)
-        .unwrap_or_default())
+/// Sidecar files in use, each with the thread holding it. An entry lives
+/// exactly as long as its [`SidecarLock`], so the map never outgrows the writers
+/// in flight. Waiters park on [`FREED`].
+static HELD: LazyLock<Mutex<HashMap<PathBuf, ThreadId>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Signalled whenever a [`SidecarLock`] is released.
+static FREED: Condvar = Condvar::new();
+
+/// The [`HELD`] key for `dir`'s sidecar. `components()` folds the spellings that
+/// name one file lexically — `/` vs `\` on Windows, a doubled or trailing
+/// separator, an interior `.` — so they share one entry. It does not resolve
+/// case or symlinks; every production caller builds the dir through
+/// `paths::server_paths` (and `datapacks::world_dir`), so those never diverge.
+fn lock_key(dir: &Path) -> PathBuf {
+    sidecar_path(dir).components().collect()
 }
 
-pub fn save(jar_dir: &Path, records: &[ServerInstalledRecord]) -> Result<()> {
-    std::fs::create_dir_all(jar_dir).map_err(|e| Error::io(jar_dir.display().to_string(), e))?;
-    let final_path = sidecar_path(jar_dir);
-    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
-    let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
-    let sidecar = Sidecar {
-        version: FILE_VERSION,
-        records: records.to_vec(),
-    };
-    let bytes = serde_json::to_vec_pretty(&sidecar)
-        .map_err(|e| Error::io(final_path.display().to_string(), e))?;
-    std::fs::write(&tmp, &bytes).map_err(|e| Error::io(tmp.display().to_string(), e))?;
-    std::fs::rename(&tmp, &final_path).map_err(|e| Error::io(final_path.display().to_string(), e))
+/// Exclusive use of one sidecar file, and the only way to read or write it.
+///
+/// `!Send` on purpose: it is released on the thread that took it (the re-entry
+/// check compares thread ids), and holding it across an `.await` in a command
+/// future fails to compile instead of stalling every other writer of the file
+/// for the length of a download.
+#[must_use = "the sidecar is held only while this guard lives — bind it to a named local"]
+pub(in crate::servers_runtime) struct SidecarLock {
+    dir: PathBuf,
+    key: PathBuf,
+    _not_send: PhantomData<*const ()>,
+}
+
+/// Wait for exclusive use of `dir`'s sidecar.
+///
+/// Std, not tokio: every holder is a synchronous function, running on the
+/// blocking pool, a tokio worker (the datapack commands) or the main thread
+/// (the sync datapack listing) — and `tokio::sync::Mutex::blocking_lock` panics
+/// inside a runtime.
+pub(in crate::servers_runtime) fn lock(dir: &Path) -> SidecarLock {
+    let key = lock_key(dir);
+    let me = std::thread::current().id();
+    // Poison is recovered, never propagated: the only code that runs under this
+    // mutex is a lookup, an insert and a remove, which cannot leave the map
+    // half-updated. The loop is spelled out rather than `Condvar::wait_while`,
+    // which returns on poison WITHOUT re-checking its condition — that would
+    // hand out a file someone still holds.
+    let mut held = HELD.lock().unwrap_or_else(|p| p.into_inner());
+    loop {
+        let owner = held.get(&key).copied();
+        let Some(owner) = owner else { break };
+        // Waiting on yourself never ends. The structural guard keeps holders
+        // from nesting; a debug build that nests anyway fails here instead of
+        // hanging — after releasing the map, so the panic poisons nothing.
+        if cfg!(debug_assertions) && owner == me {
+            drop(held);
+            panic!(
+                "re-entrant lock of {}: this thread already holds it",
+                key.display()
+            );
+        }
+        held = FREED.wait(held).unwrap_or_else(|p| p.into_inner());
+    }
+    held.insert(key.clone(), me);
+    SidecarLock {
+        dir: dir.to_path_buf(),
+        key,
+        _not_send: PhantomData,
+    }
+}
+
+impl Drop for SidecarLock {
+    fn drop(&mut self) {
+        HELD.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.key);
+        FREED.notify_all();
+    }
+}
+
+impl SidecarLock {
+    /// Read the sidecar registry, discriminating "absent" from "could not read".
+    ///
+    /// Absent (`NotFound`) is a fact — a dir that never had anything installed
+    /// holds no sidecar, and "no records" is the true answer. Any OTHER read
+    /// failure (permission, AV hold, sharing violation) is ignorance, and is an
+    /// error: the callers all read-modify-write, so treating it as empty would
+    /// persist the loss. A parse failure on successfully read bytes stays
+    /// fail-open — the file is provably corrupt, and `reconcile_on_list` rebuilds
+    /// it from disk (see the module doc).
+    pub fn load(&self) -> Result<Vec<ServerInstalledRecord>> {
+        let path = sidecar_path(&self.dir);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(Error::io(path.display().to_string(), e)),
+        };
+        Ok(serde_json::from_slice::<Sidecar>(&bytes)
+            .map(|s| s.records)
+            .unwrap_or_default())
+    }
+
+    pub fn save(&self, records: &[ServerInstalledRecord]) -> Result<()> {
+        let jar_dir = &self.dir;
+        std::fs::create_dir_all(jar_dir)
+            .map_err(|e| Error::io(jar_dir.display().to_string(), e))?;
+        let final_path = sidecar_path(jar_dir);
+        let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
+        let sidecar = Sidecar {
+            version: FILE_VERSION,
+            records: records.to_vec(),
+        };
+        let bytes = serde_json::to_vec_pretty(&sidecar)
+            .map_err(|e| Error::io(final_path.display().to_string(), e))?;
+        std::fs::write(&tmp, &bytes).map_err(|e| Error::io(tmp.display().to_string(), e))?;
+        std::fs::rename(&tmp, &final_path)
+            .map_err(|e| Error::io(final_path.display().to_string(), e))
+    }
 }
 
 /// SHA-1 of a jar, also seeding [`HASH_CACHE`] so the next `reconcile_on_list`
@@ -203,8 +300,13 @@ fn scan_dir(jar_dir: &Path) -> Result<Vec<(String, String, bool)>> {
 }
 
 pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
+    // Held across the SCAN, not just load → save: an install whose jar lands
+    // after an unlocked scan and whose row lands before the load would be
+    // retained away as "not on disk", and saved. Costs concurrent writers the
+    // scan's hashing on a cold cache; every later scan is a stat per jar.
+    let sidecar = lock(jar_dir);
     let on_disk = scan_dir(jar_dir)?;
-    let mut records = load(jar_dir)?;
+    let mut records = sidecar.load()?;
     let mut changed = false;
 
     for r in records.iter_mut() {
@@ -252,7 +354,7 @@ pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
     }
 
     if changed {
-        save(jar_dir, &records)?;
+        sidecar.save(&records)?;
     }
 
     let by_sha: HashMap<String, ServerInstalledRecord> = records
@@ -278,20 +380,27 @@ pub fn reconcile_on_list(jar_dir: &Path) -> Result<Vec<ServerInstalledEntry>> {
 }
 
 pub fn upsert(jar_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
-    let mut records = load(jar_dir)?;
+    let sidecar = lock(jar_dir);
+    let mut records = sidecar.load()?;
     records.retain(|r| !r.sha1.eq_ignore_ascii_case(&record.sha1));
     records.push(record);
-    save(jar_dir, &records)
+    sidecar.save(&records)
 }
 
-pub fn remove(jar_dir: &Path, sha1: &str) -> Result<()> {
-    let mut records = load(jar_dir)?;
-    let before = records.len();
-    records.retain(|r| !r.sha1.eq_ignore_ascii_case(sha1));
-    if records.len() != before {
-        save(jar_dir, &records)?;
-    }
-    Ok(())
+/// Swap the row for `old_sha1` for `record` in ONE critical section — the
+/// registry half of an update, after its file swap. As two calls (remove, then
+/// upsert) a listing in between would see the new jar with no row, and a crash
+/// there would leave it so. Rows for both shas go first, so reinstalling the
+/// same bytes, or a listing that already adopted the new jar identity-less,
+/// still ends in exactly one row carrying the new identity.
+pub fn replace(jar_dir: &Path, old_sha1: &str, record: ServerInstalledRecord) -> Result<()> {
+    let sidecar = lock(jar_dir);
+    let mut records = sidecar.load()?;
+    records.retain(|r| {
+        !r.sha1.eq_ignore_ascii_case(old_sha1) && !r.sha1.eq_ignore_ascii_case(&record.sha1)
+    });
+    records.push(record);
+    sidecar.save(&records)
 }
 
 #[derive(Debug, Clone)]
@@ -308,7 +417,10 @@ pub fn apply_enrichment(
     resolved: &HashMap<String, ResolvedServerIdentity>,
     attempted: &HashSet<String>,
 ) -> Result<()> {
-    let mut records = load(jar_dir)?;
+    // Taken here, after the network, not across it: the caller's scan already
+    // released it, so installs are not held up for the lookup's round trips.
+    let sidecar = lock(jar_dir);
+    let mut records = sidecar.load()?;
     for r in records.iter_mut() {
         let key = r.sha1.to_ascii_lowercase();
         if let Some(id) = resolved.get(&key) {
@@ -322,7 +434,7 @@ pub fn apply_enrichment(
             r.enrich_attempted = true;
         }
     }
-    save(jar_dir, &records)
+    sidecar.save(&records)
 }
 
 #[cfg(test)]
@@ -345,11 +457,11 @@ mod tests {
     #[test]
     fn load_is_fail_open_on_missing_and_corrupt() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(load(dir.path()).unwrap().is_empty());
+        assert!(lock(dir.path()).load().unwrap().is_empty());
         // Absent must stay absent: a read must not create the sidecar.
         assert!(!sidecar_path(dir.path()).exists());
         std::fs::write(sidecar_path(dir.path()), b"{ not json").unwrap();
-        assert!(load(dir.path()).unwrap().is_empty());
+        assert!(lock(dir.path()).load().unwrap().is_empty());
     }
 
     #[test]
@@ -358,7 +470,7 @@ mod tests {
         // A DIRECTORY at the sidecar path makes `fs::read` fail with something
         // other than NotFound on every platform — "unreadable", not "absent".
         std::fs::create_dir(sidecar_path(dir.path())).unwrap();
-        assert!(load(dir.path()).is_err());
+        assert!(lock(dir.path()).load().is_err());
     }
 
     #[test]
@@ -375,8 +487,8 @@ mod tests {
     fn save_then_load_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let records = vec![rec("a.jar", "aa"), rec("b.jar", "bb")];
-        save(dir.path(), &records).unwrap();
-        assert_eq!(load(dir.path()).unwrap(), records);
+        lock(dir.path()).save(&records).unwrap();
+        assert_eq!(lock(dir.path()).load().unwrap(), records);
     }
 
     fn write_jar(dir: &Path, name: &str, bytes: &[u8]) -> String {
@@ -453,23 +565,136 @@ mod tests {
     #[test]
     fn reconcile_drops_stale_records() {
         let dir = tempfile::tempdir().unwrap();
-        save(dir.path(), &[rec("gone.jar", "deadbeef")]).unwrap();
+        lock(dir.path())
+            .save(&[rec("gone.jar", "deadbeef")])
+            .unwrap();
         let entries = reconcile_on_list(dir.path()).unwrap();
         assert!(entries.is_empty());
-        assert!(load(dir.path()).unwrap().is_empty());
+        assert!(lock(dir.path()).load().unwrap().is_empty());
     }
 
     #[test]
-    fn remove_deletes_by_sha() {
+    fn replace_swaps_the_old_row_for_the_new_one() {
         let dir = tempfile::tempdir().unwrap();
-        save(dir.path(), &[rec("a.jar", "aa"), rec("b.jar", "bb")]).unwrap();
-        remove(dir.path(), "AA").unwrap();
-        let shas: Vec<_> = load(dir.path())
+        // The new jar already adopted identity-less by a listing that ran
+        // between the update's file swap and its registry swap.
+        let adopted = ServerInstalledRecord {
+            source: None,
+            project_id: None,
+            ..rec("new.jar", "cc")
+        };
+        lock(dir.path())
+            .save(&[rec("old.jar", "aa"), rec("keep.jar", "bb"), adopted])
+            .unwrap();
+        let mut new = rec("new.jar", "CC");
+        new.version_id = Some("v2".into());
+
+        replace(dir.path(), "AA", new).unwrap();
+
+        let mut rows: Vec<(String, Option<String>)> = lock(dir.path())
+            .load()
             .unwrap()
             .into_iter()
-            .map(|r| r.sha1)
+            .map(|r| (r.sha1, r.version_id))
             .collect();
-        assert_eq!(shas, vec!["bb".to_string()]);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                ("CC".to_string(), Some("v2".to_string())),
+                ("bb".to_string(), Some("ver".to_string())),
+            ],
+            "the old row and the identity-less adoption go, the new identity and \
+             unrelated rows stay"
+        );
+    }
+
+    #[test]
+    fn spellings_of_one_dir_share_one_lock_key() {
+        let plain = lock_key(Path::new("srv/runtime/mods"));
+        for spelling in [
+            "srv/runtime/mods/",
+            "srv//runtime/mods",
+            "srv/./runtime/mods",
+        ] {
+            assert_eq!(
+                lock_key(Path::new(spelling)),
+                plain,
+                "{spelling} must map to the same lock"
+            );
+        }
+        assert_ne!(lock_key(Path::new("srv/runtime/plugins")), plain);
+    }
+
+    /// How long a test lets a spawned thread run into a held lock before it
+    /// checks that the thread is still waiting.
+    const SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+    #[test]
+    fn a_held_sidecar_blocks_writers_of_its_dir_and_no_other() {
+        let held_dir = tempfile::tempdir().unwrap();
+        let other_dir = tempfile::tempdir().unwrap();
+        let guard = lock(held_dir.path());
+        std::thread::scope(|s| {
+            let blocked = s.spawn(|| upsert(held_dir.path(), rec("a.jar", "aa")));
+            // A different dir's sidecar is a different lock: no waiting.
+            upsert(other_dir.path(), rec("b.jar", "bb")).unwrap();
+            std::thread::sleep(SETTLE);
+            assert!(
+                !blocked.is_finished(),
+                "an upsert ran while its sidecar was held"
+            );
+            assert!(guard.load().unwrap().is_empty());
+            drop(guard);
+            blocked.join().unwrap().unwrap();
+        });
+        assert_eq!(lock(held_dir.path()).load().unwrap().len(), 1);
+        assert_eq!(lock(other_dir.path()).load().unwrap().len(), 1);
+    }
+
+    /// The deterministic twin of the racing-installs test: a reconcile that
+    /// scanned before taking the lock would have seen the dir empty, then
+    /// loaded the row that landed while it waited, and saved it away.
+    #[test]
+    fn reconcile_scans_the_dir_under_the_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let guard = lock(dir.path());
+        std::thread::scope(|s| {
+            let listing = s.spawn(|| reconcile_on_list(dir.path()));
+            std::thread::sleep(SETTLE);
+            // An install lands its jar and records its identity meanwhile.
+            let sha1 = write_jar(dir.path(), "late.jar", b"LATE");
+            guard
+                .save(&[ServerInstalledRecord {
+                    filename: "late.jar".into(),
+                    sha1,
+                    ..rec("", "")
+                }])
+                .unwrap();
+            drop(guard);
+            let entries = listing.join().unwrap().unwrap();
+            assert_eq!(
+                entries.len(),
+                1,
+                "the listing must see the jar that landed before it held the sidecar"
+            );
+        });
+        let records = lock(dir.path()).load().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].project_id.as_deref(),
+            Some("proj"),
+            "the installed identity must survive the listing"
+        );
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "re-entrant")]
+    fn re_entering_a_held_sidecar_panics_instead_of_hanging() {
+        let dir = tempfile::tempdir().unwrap();
+        let _held = lock(dir.path());
+        upsert(dir.path(), rec("a.jar", "aa")).unwrap();
     }
 
     #[test]
@@ -490,7 +715,8 @@ mod tests {
         );
         let attempted: std::collections::HashSet<String> = [sha.clone()].into_iter().collect();
         apply_enrichment(dir.path(), &resolved, &attempted).unwrap();
-        let r = load(dir.path())
+        let r = lock(dir.path())
+            .load()
             .unwrap()
             .into_iter()
             .find(|r| r.sha1 == sha)
@@ -526,7 +752,8 @@ mod tests {
         let sha_b = write_jar(dir.path(), "b.jar", b"SAME");
         assert_eq!(sha_a, sha_b);
         reconcile_on_list(dir.path()).unwrap();
-        let matching: Vec<_> = load(dir.path())
+        let matching: Vec<_> = lock(dir.path())
+            .load()
             .unwrap()
             .into_iter()
             .filter(|r| r.sha1 == sha_a)
@@ -544,7 +771,7 @@ mod tests {
         std::fs::write(dir.path().join("notes.txt.disabled"), b"x").unwrap();
         let entries = reconcile_on_list(dir.path()).unwrap();
         assert!(entries.is_empty());
-        assert!(load(dir.path()).unwrap().is_empty());
+        assert!(lock(dir.path()).load().unwrap().is_empty());
     }
 
     #[test]
@@ -556,7 +783,7 @@ mod tests {
         let mut r2 = rec("x.jar", "aa");
         r2.name = Some("new".into());
         upsert(dir.path(), r2).unwrap();
-        let records = load(dir.path()).unwrap();
+        let records = lock(dir.path()).load().unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].name.as_deref(), Some("new"));
     }
@@ -590,6 +817,93 @@ mod tests {
         assert_eq!(e.record.filename, "sodium.jar"); // base filename rewritten by sha1 match
         assert_eq!(e.record.project_id.as_deref(), Some("p")); // identity preserved
         assert!(e.enabled);
+    }
+
+    /// Browse installs several mods into one server at once (a per-card busy
+    /// set, not a queue), and each install ends in `upsert` on its own
+    /// blocking-pool thread. Two writers that read one snapshot lose a row to
+    /// the later rename.
+    #[test]
+    fn concurrent_upserts_on_one_dir_keep_every_record() {
+        const WRITERS: usize = 16;
+        const PER_WRITER: usize = 25;
+        let dir = tempfile::tempdir().unwrap();
+        let start = std::sync::Barrier::new(WRITERS);
+        std::thread::scope(|s| {
+            for w in 0..WRITERS {
+                let (dir, start) = (dir.path(), &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..PER_WRITER {
+                        upsert(
+                            dir,
+                            rec(&format!("m{w}-{i}.jar"), &format!("{w:04x}{i:04x}")),
+                        )
+                        .unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            lock(dir.path()).load().unwrap().len(),
+            WRITERS * PER_WRITER,
+            "a concurrent upsert erased another writer's row"
+        );
+    }
+
+    /// Sets a flag when dropped, so a panicking writer thread still stops the
+    /// reader loop it races — the test fails instead of hanging.
+    struct StopOnDrop<'a>(&'a std::sync::atomic::AtomicBool);
+
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// An install lands its jar, then records its identity; the UI re-lists
+    /// meanwhile. A reconcile that interleaves with the upsert — or that scans
+    /// the dir before the jar lands and loads after the row does — saves the
+    /// row away, and the next pass re-adopts the jar with no identity.
+    #[test]
+    fn a_listing_racing_installs_never_strips_an_installed_identity() {
+        const INSTALLS: usize = 40;
+        let dir = tempfile::tempdir().unwrap();
+        let done = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                while !done.load(Ordering::SeqCst) {
+                    reconcile_on_list(dir.path()).unwrap();
+                }
+            });
+            s.spawn(|| {
+                let _stop = StopOnDrop(&done);
+                for i in 0..INSTALLS {
+                    let filename = format!("installed-{i}.jar");
+                    let sha1 = write_jar(dir.path(), &filename, format!("JAR {i}").as_bytes());
+                    upsert(
+                        dir.path(),
+                        ServerInstalledRecord {
+                            filename,
+                            sha1,
+                            ..rec("", "")
+                        },
+                    )
+                    .unwrap();
+                }
+            });
+        });
+        let entries = reconcile_on_list(dir.path()).unwrap();
+        assert_eq!(entries.len(), INSTALLS);
+        let stripped: Vec<&str> = entries
+            .iter()
+            .filter(|e| e.record.source.is_none())
+            .map(|e| e.record.filename.as_str())
+            .collect();
+        assert!(
+            stripped.is_empty(),
+            "a racing reconcile erased the installed identity of {stripped:?}"
+        );
     }
 
     #[test]

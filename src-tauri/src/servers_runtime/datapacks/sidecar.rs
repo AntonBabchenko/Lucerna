@@ -24,14 +24,20 @@ use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 /// * **Directories are listed but never adopted.** A folder pack has no bytes
 ///   to hash and no provenance to record; `listing` synthesizes an ephemeral
 ///   row for it instead.
+///
+/// Holds the sidecar lock for the whole pass, the dir listing included — same
+/// reason as `installed::reconcile_on_list`: a catalog install whose zip lands
+/// after an unlocked listing and whose row lands before the load would be
+/// pruned as "gone", and saved.
 pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
+    let sidecar = installed::lock(world_dir);
     let dp_dir = world_dir.join("datapacks");
     // An UNREADABLE sidecar (`load` discriminates that from an absent one,
     // which reads as empty) is ignorance, not absence: reconciling against it
     // would adopt every on-disk zip as a provenance-less row and persist that
     // wipe. Skip the pass entirely — the listing degrades to ephemeral rows
     // for one round and the next one retries.
-    let mut records = match installed::load(world_dir) {
+    let mut records = match sidecar.load() {
         Ok(records) => records,
         Err(e) => {
             crate::diag!(
@@ -106,7 +112,7 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
     if changed {
         // Best-effort: a read-only data root must not turn a good listing into
         // an error page. The in-memory rows are already correct.
-        if let Err(e) = installed::save(world_dir, &records) {
+        if let Err(e) = sidecar.save(&records) {
             crate::diag!("server datapacks: sidecar save failed: {e}");
         }
     }
@@ -120,21 +126,23 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
 /// Deliberately not `installed::upsert`, which dedups by sha1: the datapack
 /// case is one filename whose bytes just changed.
 pub fn upsert_by_filename(world_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
+    let sidecar = installed::lock(world_dir);
     let key = record.filename.to_lowercase();
-    let mut records = installed::load(world_dir)?;
+    let mut records = sidecar.load()?;
     records.retain(|r| r.filename.to_lowercase() != key);
     records.push(record);
-    installed::save(world_dir, &records)
+    sidecar.save(&records)
 }
 
 /// Drop the row for `filename`. Idempotent; writes only when something went.
 pub fn forget(world_dir: &Path, filename: &str) -> Result<()> {
+    let sidecar = installed::lock(world_dir);
     let key = filename.to_lowercase();
-    let mut records = installed::load(world_dir)?;
+    let mut records = sidecar.load()?;
     let before = records.len();
     records.retain(|r| r.filename.to_lowercase() != key);
     if records.len() != before {
-        installed::save(world_dir, &records)?;
+        sidecar.save(&records)?;
     }
     Ok(())
 }
@@ -205,7 +213,8 @@ mod tests {
             &td.path().join("datapacks").join("terralith.zip"),
         )
         .unwrap();
-        crate::servers_runtime::installed::save(td.path(), &[row("terralith.zip", &sha_v1)])
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("terralith.zip", &sha_v1)])
             .unwrap();
 
         std::fs::write(
@@ -222,9 +231,12 @@ mod tests {
     #[test]
     fn a_row_whose_file_is_gone_is_pruned() {
         let td = world_with(&[]);
-        crate::servers_runtime::installed::save(td.path(), &[row("gone.zip", "deadbeef")]).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("gone.zip", "deadbeef")])
+            .unwrap();
         assert!(reconcile(td.path()).is_empty());
-        assert!(crate::servers_runtime::installed::load(td.path())
+        assert!(crate::servers_runtime::installed::lock(td.path())
+            .load()
             .unwrap()
             .is_empty());
     }
@@ -250,7 +262,9 @@ mod tests {
         // sidecar row whose spelling drifted from the directory entry must be
         // retained with its provenance — not pruned and re-adopted bare.
         let td = world_with(&[("terralith.zip", b"v1")]);
-        crate::servers_runtime::installed::save(td.path(), &[row("Terralith.zip", "aa")]).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("Terralith.zip", "aa")])
+            .unwrap();
         let rows = reconcile(td.path());
         assert_eq!(rows.len(), 1, "one file must never yield two rows");
         assert_eq!(
@@ -269,11 +283,14 @@ mod tests {
         // No `datapacks/` dir at all, but a FILE by that name — read_dir on it
         // fails with NotADirectory, not NotFound.
         std::fs::write(td.path().join("datapacks"), b"not a dir").unwrap();
-        crate::servers_runtime::installed::save(td.path(), &[row("keep.zip", "aa")]).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("keep.zip", "aa")])
+            .unwrap();
         let rows = reconcile(td.path());
         assert_eq!(rows.len(), 1, "rows survive an unreadable dir");
         assert_eq!(
-            crate::servers_runtime::installed::load(td.path())
+            crate::servers_runtime::installed::lock(td.path())
+                .load()
                 .unwrap()
                 .len(),
             1
@@ -283,21 +300,59 @@ mod tests {
     #[test]
     fn upsert_by_filename_replaces_the_row_for_that_name_case_insensitively() {
         let td = world_with(&[]);
-        crate::servers_runtime::installed::save(td.path(), &[row("Пак.zip", "aa")]).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("Пак.zip", "aa")])
+            .unwrap();
         let mut next = row("пак.zip", "bb");
         next.version_id = Some("v2".into());
         upsert_by_filename(td.path(), next).unwrap();
-        let rows = crate::servers_runtime::installed::load(td.path()).unwrap();
+        let rows = crate::servers_runtime::installed::lock(td.path())
+            .load()
+            .unwrap();
         assert_eq!(rows.len(), 1, "NTFS folds Cyrillic — one file, one row");
         assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
+    }
+
+    /// The datapack browser installs several catalog packs at once (a per-card
+    /// busy set), each ending in `upsert_by_filename` on a tokio worker. Two
+    /// writers that read one snapshot lose a row — and its provenance — to the
+    /// later rename.
+    #[test]
+    fn concurrent_filename_upserts_keep_every_datapack_row() {
+        const WRITERS: usize = 16;
+        const PER_WRITER: usize = 25;
+        let td = world_with(&[]);
+        let start = std::sync::Barrier::new(WRITERS);
+        std::thread::scope(|s| {
+            for w in 0..WRITERS {
+                let (world, start) = (td.path(), &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..PER_WRITER {
+                        upsert_by_filename(world, row(&format!("pack-{w}-{i}.zip"), "aa")).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            crate::servers_runtime::installed::lock(td.path())
+                .load()
+                .unwrap()
+                .len(),
+            WRITERS * PER_WRITER,
+            "a concurrent upsert erased another pack's row"
+        );
     }
 
     #[test]
     fn forget_drops_the_row_for_a_name_and_is_idempotent() {
         let td = world_with(&[]);
-        crate::servers_runtime::installed::save(td.path(), &[row("a.zip", "aa")]).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("a.zip", "aa")])
+            .unwrap();
         forget(td.path(), "A.ZIP").unwrap();
-        assert!(crate::servers_runtime::installed::load(td.path())
+        assert!(crate::servers_runtime::installed::lock(td.path())
+            .load()
             .unwrap()
             .is_empty());
         forget(td.path(), "a.zip").unwrap();

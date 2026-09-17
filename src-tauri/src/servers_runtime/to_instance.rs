@@ -324,15 +324,14 @@ mod tests {
 
     /// Plant a provenance row for `filename` in the world's sidecar.
     fn write_sidecar_row(world: &std::path::Path, filename: &str, project: (&str, &str, &str)) {
-        use crate::servers_runtime::installed::{save, ServerInstalledRecord};
+        use crate::servers_runtime::installed::{lock, ServerInstalledRecord};
         let (source, project_id, version_id) = project;
         let source = match source {
             "modrinth" => crate::mods::platform::ModSource::Modrinth,
             _ => crate::mods::platform::ModSource::Curseforge,
         };
-        save(
-            world,
-            &[ServerInstalledRecord {
+        lock(world)
+            .save(&[ServerInstalledRecord {
                 filename: filename.to_string(),
                 sha1: String::new(),
                 source: Some(source),
@@ -341,9 +340,8 @@ mod tests {
                 name: None,
                 version_number: Some("1.2.3".to_string()),
                 enrich_attempted: true,
-            }],
-        )
-        .unwrap();
+            }])
+            .unwrap();
     }
 
     async fn library_rows(
