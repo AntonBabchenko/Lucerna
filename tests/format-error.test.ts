@@ -454,6 +454,7 @@ describe('formatError', () => {
       server_world_not_created: { kind: 'server_world_not_created' },
       server_upload_in_progress: { kind: 'server_upload_in_progress', id: 'srv-1' },
       server_maintenance_in_progress: { kind: 'server_maintenance_in_progress', id: 'srv-1' },
+      server_content_busy: { kind: 'server_content_busy', id: 'srv-1' },
       upload_cancelled: { kind: 'upload_cancelled' },
       server_not_running: { kind: 'server_not_running', id: 'srv-1' },
       server_mod_required_by_other: {

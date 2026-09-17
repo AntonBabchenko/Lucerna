@@ -263,6 +263,7 @@ export type TranslationKey =
   | 'errors.screenshotNotFound'
   | 'errors.screenshotPathInvalid'
   | 'errors.serverAlreadyRunning'
+  | 'errors.serverContentBusy'
   | 'errors.serverContentStale'
   | 'errors.serverCoreUnsupported'
   | 'errors.serverEulaNotAccepted'

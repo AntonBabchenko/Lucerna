@@ -255,6 +255,7 @@ fn preflight_diagnosis(
 #[tauri::command]
 #[specta::specta]
 pub fn server_accept_eula(app: AppHandle, id: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), true)?;
@@ -289,6 +290,7 @@ pub fn server_stop_orphan(app: AppHandle, id: String, pid: u32) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // The properties read/rewrite, the old-port lookup, the stale firewall-rule
     // removal (`remove_firewall_rule_for_port` waits on a `netsh … show rule`
@@ -516,6 +518,7 @@ fn remove_firewall_rules_on_delete(root: &std::path::Path, runtime: &std::path::
 #[tauri::command]
 #[specta::specta]
 pub async fn server_delete(app: AppHandle, id: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     // Cheap in-memory guard — stays on the calling thread, before any offload.
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
@@ -587,6 +590,7 @@ pub fn server_read_properties(app: AppHandle, id: String) -> Result<String> {
 #[tauri::command]
 #[specta::specta]
 pub fn server_write_properties(app: AppHandle, id: String, raw: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if raw.len() > 64 * 1024 {
         return Err(crate::error::Error::ServerInvalidProperty {
             key: "<file>".into(),
@@ -837,6 +841,7 @@ async fn enrich_server_dir(dir: &std::path::Path, use_cf: bool) -> Result<u32> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_enrich_mods(app: AppHandle, id: String) -> Result<u32> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let use_cf = crate::mods::curseforge::keyring::resolve().is_some();
@@ -848,6 +853,7 @@ pub async fn server_enrich_mods(app: AppHandle, id: String) -> Result<u32> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_enrich_plugins(app: AppHandle, id: String) -> Result<u32> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     enrich_server_dir(&p.plugins, /* use_cf = */ false).await
@@ -859,6 +865,7 @@ pub async fn server_enrich_plugins(app: AppHandle, id: String) -> Result<u32> {
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     // Match server_delete_plugin: never delete a jar out from under a running
     // server. Closes the gap the plugin twin's doc comment previously flagged.
     if crate::servers_runtime::runtime::is_running(&id) {
@@ -1189,6 +1196,7 @@ pub async fn server_remove_mods(
     filenames: Vec<String>,
     log_signature: Option<String>,
 ) -> Result<()> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     // Dependency safety: refuse to strip a mod another *remaining* mod requires.
@@ -1289,6 +1297,7 @@ pub fn server_lower_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -1311,6 +1320,7 @@ pub async fn server_disable_mods(
     filenames: Vec<String>,
     log_signature: Option<String>,
 ) -> Result<()> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -1377,6 +1387,7 @@ pub async fn server_install_missing_dep(
     id: String,
     mod_ids: Vec<String>,
 ) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -1406,6 +1417,7 @@ pub async fn server_install_missing_dep(
 #[tauri::command]
 #[specta::specta]
 pub async fn server_quarantine_client_mods(app: AppHandle, id: String) -> Result<QuarantineReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -1496,6 +1508,7 @@ pub async fn server_upload(
     password: Option<String>,
     resume: bool,
 ) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     if crate::servers_runtime::runtime::is_running(&id) {
@@ -1600,6 +1613,7 @@ pub async fn server_upload_preflight(
     accept_new_host_key: bool,
     skip_worlds: bool,
 ) -> Result<crate::servers_runtime::transfer::UploadPreflight> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
@@ -1641,6 +1655,7 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     // A live server holds world region files open and mutates them mid-write, so
     // zipping runtime/ while it runs can produce a torn archive. Refuse until the
     // server is stopped (parity with restore/upload, which also require stopped).
@@ -1716,6 +1731,7 @@ pub async fn server_create_client_instance(
     name: String,
     add_to_multiplayer: bool,
 ) -> Result<crate::servers_runtime::to_instance::ClientInstanceResult> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&server_id)?;
     crate::data_root::reject_if_fallen_back(&app)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::servers_runtime::to_instance::create_client_instance(
@@ -2215,6 +2231,7 @@ async fn resume_saves_after_backup(id: &str) {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_backup_create(app: AppHandle, id: String) -> Result<backup::BackupInfo> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let running = crate::servers_runtime::runtime::is_running(&id);
     if running {
@@ -2258,9 +2275,23 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
     // below, a Start click would otherwise pass its own guard and launch a JVM
     // over a half-written runtime/. `server_start`/`server_restart` reject with
     // ServerMaintenanceInProgress while the guard lives; a second concurrent
-    // restore is refused the same way (`maintenance_begin` is an atomic claim).
-    let Some(maintenance) = crate::servers_runtime::maintenance::maintenance_begin(&id) else {
-        return Err(Error::ServerMaintenanceInProgress { id });
+    // restore is refused the same way (`try_begin` is an atomic claim).
+    //
+    // The claim also refuses while a per-item content writer holds the server —
+    // the reverse direction, and the one the checks above cannot see: a mod
+    // install started from Add-ons is still downloading into runtime/mods/ long
+    // after the user has switched tabs, and `is_running` says nothing about it.
+    // `try_begin` reports WHICH of the two blocked us, decided under the same
+    // lock as the refusal, so the message names the operation the user actually
+    // has to wait for rather than a re-read that may have changed meanwhile.
+    let maintenance = match crate::servers_runtime::maintenance::try_begin(&id) {
+        Ok(guard) => guard,
+        Err(crate::servers_runtime::maintenance::Blocked::ContentWrite) => {
+            return Err(Error::ServerContentBusy { id })
+        }
+        Err(crate::servers_runtime::maintenance::Blocked::Maintenance) => {
+            return Err(Error::ServerMaintenanceInProgress { id })
+        }
     };
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Safety net: snapshot current state before overwriting it. If the snapshot
@@ -2433,6 +2464,7 @@ pub fn rearm_backup_schedulers(app: &AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn server_backup_delete(app: AppHandle, id: String, file_name: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     backup::delete_backup(&base, &id, &file_name)
 }
@@ -2572,6 +2604,7 @@ pub async fn server_whitelist_add(
     id: String,
     name: String,
 ) -> Result<Vec<whitelist::WhitelistEntry>> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
     let (uuid, canonical) = resolve_player_identity(&rt, &name).await?;
@@ -2591,6 +2624,7 @@ pub fn server_whitelist_remove(
     id: String,
     key: String,
 ) -> Result<Vec<whitelist::WhitelistEntry>> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
     whitelist::remove_whitelist(&rt, &key)
@@ -2613,6 +2647,7 @@ pub async fn server_ops_add(
     id: String,
     name: String,
 ) -> Result<Vec<whitelist::OpEntry>> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
     let (uuid, canonical) = resolve_player_identity(&rt, &name).await?;
@@ -2634,6 +2669,7 @@ pub fn server_ops_remove(
     id: String,
     key: String,
 ) -> Result<Vec<whitelist::OpEntry>> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
     whitelist::remove_op(&rt, &key)
@@ -2656,6 +2692,7 @@ pub async fn server_install_mod(
     project_id: String,
     version_id: String,
 ) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -2985,6 +3022,7 @@ pub async fn server_update_one(
     old_sha1: String,
     target: ModVersion,
 ) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3078,6 +3116,7 @@ pub async fn server_update_plugin_one(
     old_sha1: String,
     target: ModVersion,
 ) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3170,6 +3209,7 @@ pub async fn server_install_plugin(
     project_id: String,
     version_id: String,
 ) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3230,6 +3270,7 @@ pub async fn server_install_plugin(
 #[tauri::command]
 #[specta::specta]
 pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3277,6 +3318,7 @@ pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result
 #[tauri::command]
 #[specta::specta]
 pub fn server_disable_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3310,6 +3352,7 @@ pub fn server_disable_mod(app: AppHandle, id: String, filename: String) -> Resul
 #[tauri::command]
 #[specta::specta]
 pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) -> Result<String> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3462,6 +3505,7 @@ pub async fn server_install_plugin_local(
     id: String,
     jar_path: String,
 ) -> Result<String> {
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3493,6 +3537,7 @@ pub async fn server_install_plugin_local(
 #[tauri::command]
 #[specta::specta]
 pub fn server_enable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3535,6 +3580,7 @@ pub fn server_enable_plugin(app: AppHandle, id: String, filename: String) -> Res
 #[tauri::command]
 #[specta::specta]
 pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3569,6 +3615,7 @@ pub fn server_disable_plugin(app: AppHandle, id: String, filename: String) -> Re
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete_plugin(app: AppHandle, id: String, filename: String) -> Result<()> {
+    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -3647,6 +3694,7 @@ pub async fn server_switch_core(
     target: crate::servers_runtime::schema::ServerCore,
 ) -> Result<()> {
     use crate::servers_runtime::schema::{core_switch_allowed, ServerCore};
+    let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
