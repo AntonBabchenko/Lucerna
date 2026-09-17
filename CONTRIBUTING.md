@@ -66,6 +66,12 @@ If you touched `src/lib/i18n/locales/en.json`, also run `pnpm i18n:keys` and
 commit the regenerated `src/lib/i18n/keys.generated.ts` — CI runs
 `pnpm i18n:keys:check` and fails on a stale file.
 
+If you added or changed an entry in `CHANGELOG.md`, mirror it at the same
+position in `src/lib/changelog/locales/ru.md` — the launcher shows the
+changelog in the interface language, and `tests/changelog-parity.test.ts`
+fails when the Russian file drifts from the English one. See
+[`docs/TRANSLATING.md`](docs/TRANSLATING.md#translating-the-changelog).
+
 See [`docs/TESTING.md`](docs/TESTING.md) for the full test layout, including
 when a single-threaded run is required.
 

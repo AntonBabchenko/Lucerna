@@ -1,18 +1,24 @@
 <script lang="ts">
-  // "What's new" — renders the embedded, parsed CHANGELOG.md. Pure
-  // presentation: it receives the already-parsed model and only handles
-  // layout, heading localization, and opening a version's GitHub link.
+  // "What's new" — renders the embedded, parsed CHANGELOG.md in the interface
+  // language. Pure presentation over the English structure: the active
+  // locale's translation (./locales/<code>.md) is laid over it bullet by
+  // bullet, and wherever it is absent the English text is shown *and said to
+  // be English* — per version, or once for the whole panel when the locale
+  // has no changelog at all or it could not be loaded.
   import type { TranslationKey } from '$lib/i18n/keys.generated';
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon } from '$lib/ui/icons';
   import { parseInline } from './inline';
+  import { CHANGELOG_SOURCE_LOCALE } from './locales';
+  import { asSourceLanguage, localizeChangelog } from './localize';
+  import { changelogTranslations, ensureChangelogTranslation } from './translation.svelte';
   import type { Changelog, SectionKind } from './types';
 
   let { entries }: { entries: Changelog } = $props();
 
   // Localized labels for the known Keep-a-Changelog kinds. 'other' is absent
-  // on purpose — those sections render their verbatim heading.
+  // on purpose — those sections render their (possibly translated) heading.
   const SECTION_KEY: Record<Exclude<SectionKind, 'other'>, TranslationKey> = {
     added: 'settings.changelog.sections.added',
     changed: 'settings.changelog.sections.changed',
@@ -22,14 +28,47 @@
     security: 'settings.changelog.sections.security',
   };
 
+  const active = $derived($locale ?? CHANGELOG_SOURCE_LOCALE);
+  const isSource = $derived(active === CHANGELOG_SOURCE_LOCALE);
+  $effect(() => {
+    void ensureChangelogTranslation(active);
+  });
+  const load = $derived(isSource ? null : changelogTranslations[active]);
+
+  // English structure, the locale's text. Until the translation has loaded
+  // (`load` undefined) the English text shows with no note: nothing is known
+  // yet, so nothing is claimed.
+  const display = $derived(
+    isSource || !load
+      ? asSourceLanguage(entries)
+      : localizeChangelog(entries, load.status === 'ready' ? load.entries : null),
+  );
+
+  // When the locale has no changelog, or it failed to load, every version is
+  // English for one reason — say it once, not nineteen times.
+  const panelNote: TranslationKey | null = $derived(
+    !load || load.status === 'ready'
+      ? null
+      : load.status === 'missing'
+        ? 'settings.changelog.fallback.noTranslation'
+        : 'settings.changelog.fallback.loadFailed',
+  );
+
   // Versions with no content (e.g. an empty [Unreleased]) are dropped, and
   // each section's heading is pre-localized here so the markup stays simple
   // and reactive to locale changes (via the `$t` store dependency).
   const visible = $derived(
-    entries
+    display
       .filter((v) => v.sections.length > 0)
       .map((v) => ({
         ...v,
+        note: (panelNote
+          ? null
+          : v.coverage === 'none'
+            ? 'settings.changelog.fallback.versionUntranslated'
+            : v.coverage === 'partial'
+              ? 'settings.changelog.fallback.versionPartial'
+              : null) as TranslationKey | null,
         sections: v.sections.map((s) => ({
           ...s,
           label: s.kind === 'other' ? s.heading : $t(SECTION_KEY[s.kind]),
@@ -50,6 +89,9 @@
   {#if visible.length === 0}
     <p class="text-muted">{$t('settings.changelog.empty')}</p>
   {:else}
+    {#if panelNote}
+      <p class="text-xs text-muted" data-testid="changelog-fallback-note">{$t(panelNote)}</p>
+    {/if}
     {#each visible as ver (ver.version)}
       <article class="space-y-2">
         <header class="flex items-baseline justify-between gap-2">
@@ -70,6 +112,9 @@
           {/if}
           {#if ver.date}<span class="text-xs text-muted">{ver.date}</span>{/if}
         </header>
+        {#if ver.note}
+          <p class="text-xs text-muted" data-testid="changelog-version-note">{$t(ver.note)}</p>
+        {/if}
 
         {#each ver.sections as sec, si (si)}
           <div class="space-y-1">
@@ -79,7 +124,7 @@
             <ul class="list-disc space-y-1 pl-5 text-secondary">
               {#each sec.items as item, i (i)}
                 <li>
-                  {#each parseInline(item) as seg, k (k)}
+                  {#each parseInline(item.text) as seg, k (k)}
                     {#if seg.bold && seg.code}
                       <strong><code class="font-mono text-[0.9em]">{seg.value}</code></strong>
                     {:else if seg.bold}
