@@ -37,6 +37,7 @@ pub mod platform;
 pub mod preflight;
 pub mod project_cache;
 pub mod range_describe;
+pub(crate) mod registry_lock;
 pub mod render;
 pub mod store;
 pub mod summary_cache;
@@ -44,6 +45,7 @@ pub mod unsupported;
 pub mod updates;
 pub mod version_cache;
 pub mod version_range;
+pub mod version_support_matrix;
 pub mod word_segment;
 
 pub use platform::*;

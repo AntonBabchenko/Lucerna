@@ -104,6 +104,7 @@ export function createInstalledSelection(
     error = null;
     let ok = 0;
     let failed = 0;
+    const reasons = new Set<string>();
     for (const r of selectedRows) {
       if (r.installed.enabled === enable) {
         ok++;
@@ -112,8 +113,12 @@ export function createInstalledSelection(
       const res = enable
         ? await commands.modsEnable(id, r.installed.sha1)
         : await commands.modsDisable(id, r.installed.sha1);
-      if (res.status === 'error') failed++;
-      else ok++;
+      if (res.status === 'error') {
+        failed++;
+        reasons.add(formatError(res.error));
+      } else {
+        ok++;
+      }
     }
     busy = false;
     busyAction = null;
@@ -126,6 +131,9 @@ export function createInstalledSelection(
         }),
       );
     } else {
+      // The distinct reasons, not just a count: "Disabled 0 mods, 5 failed"
+      // alone cannot tell the user that a pack update holds the instance
+      // (every row refused the same way) from five unrelated failures.
       pushWarning(
         get(t)(
           enable ? 'mods.installed.toastEnabledFailed' : 'mods.installed.toastDisabledFailed',
@@ -134,7 +142,7 @@ export function createInstalledSelection(
             failed,
           },
         ),
-        [],
+        [...reasons],
       );
     }
   }
@@ -185,10 +193,15 @@ export function createInstalledSelection(
     error = null;
     let ok = 0;
     let failed = 0;
+    const reasons = new Set<string>();
     for (const sha1 of all) {
       const res = await commands.modsUninstall(id, sha1);
-      if (res.status === 'error') failed++;
-      else ok++;
+      if (res.status === 'error') {
+        failed++;
+        reasons.add(formatError(res.error));
+      } else {
+        ok++;
+      }
     }
     busy = false;
     busyAction = null;
@@ -197,7 +210,10 @@ export function createInstalledSelection(
     onMutated();
     await refresh();
     if (failed === 0) pushSuccess(get(t)('mods.installed.toastUninstalled', { count: ok }));
-    else pushWarning(get(t)('mods.installed.toastUninstalledFailed', { count: ok, failed }), []);
+    else
+      pushWarning(get(t)('mods.installed.toastUninstalledFailed', { count: ok, failed }), [
+        ...reasons,
+      ]);
   }
 
   function cancelUninstall() {

@@ -276,6 +276,10 @@ pub async fn modpack_status(
 /// onto the instance's `PackOrigin` so `modpack_status` reports the entry as
 /// `Substituted`. Idempotent. Errors `ModsNotFound` when the substitute jar is
 /// not in the registry yet, or the instance has no pack origin.
+///
+/// Under the shared maintenance claim: the upsert reads `pack_origin` and
+/// writes it back, so overlapping a pack update it would restore the OLD
+/// origin over the one the update just wrote.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_resolve_missing_with(
@@ -286,6 +290,7 @@ pub async fn modpack_resolve_missing_with(
     substitute_source: ModSource,
     substitute_project_id: String,
 ) -> crate::error::Result<()> {
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
     let sha1 = installed
@@ -299,25 +304,29 @@ pub async fn modpack_resolve_missing_with(
             platform: "substitute".into(),
         })?;
 
-    let mut origin = crate::mods::installed::get_pack_origin(&inst_root)
-        .await?
-        .ok_or_else(|| crate::error::Error::ModsNotFound {
-            platform: "pack_origin".into(),
-        })?;
-
-    // Upsert: one overlay row per (filename, mod_name).
-    origin.resolved_missing.retain(|r| {
-        !(r.filename.eq_ignore_ascii_case(&entry_filename) && r.mod_name == entry_mod_name)
-    });
-    origin
-        .resolved_missing
-        .push(crate::mods::installed::ResolvedMissing {
-            filename: entry_filename,
-            mod_name: entry_mod_name,
-            sha1,
+    // One locked edit, not get → set: two substitutes resolved back to back
+    // would otherwise both read the same origin, and the second write would
+    // erase the first one's overlay row.
+    let recorded = crate::mods::installed::update_pack_origin(&inst_root, |origin| {
+        // Upsert: one overlay row per (filename, mod_name).
+        origin.resolved_missing.retain(|r| {
+            !(r.filename.eq_ignore_ascii_case(&entry_filename) && r.mod_name == entry_mod_name)
         });
-
-    crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
+        origin
+            .resolved_missing
+            .push(crate::mods::installed::ResolvedMissing {
+                filename: entry_filename,
+                mod_name: entry_mod_name,
+                sha1,
+            });
+    })
+    .await?;
+    if !recorded {
+        return Err(crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        });
+    }
+    drop(write);
     Ok(())
 }
 
@@ -327,7 +336,7 @@ pub async fn modpack_resolve_missing_with(
 /// synthesises a `ModVersion` from the snapshot fields, and calls
 /// `install_one`. Errors `ModsNotFound { source: "pack_origin" }` if
 /// `sha1` is not in the origin (= caller has stale data, or the
-/// instance has no origin at all).
+/// instance has no origin at all). Under the shared maintenance claim.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_restore_file(
@@ -335,6 +344,9 @@ pub async fn modpack_restore_file(
     instance_id: String,
     sha1: String,
 ) -> crate::error::Result<()> {
+    // Taken before `pack_origin` is read: the file to restore is looked up in
+    // it, and a pack update overlapping this would have replaced that origin.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let origin = crate::mods::installed::get_pack_origin(&inst_root)
@@ -426,6 +438,7 @@ pub async fn modpack_restore_file(
         &inst_root,
         crate::journal::content(restored_action, file.name.clone()),
     );
+    drop(write);
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: file.sha1.clone(),
@@ -598,6 +611,12 @@ pub async fn modpack_compute_update(
 /// here aborts cleanly). Phase 2 removes the old files, installs the new
 /// ones from the warm cache, and rewrites `pack_origin` + the instance's
 /// version metadata. `overrides/`-bundled content is not touched.
+///
+/// The whole command runs under the instance's maintenance claim
+/// (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
+/// the game runs or starts, while another long operation — a world
+/// migration, a mod migration, a clone, another update — holds the instance,
+/// or while a single mod, asset or pack-file writer is still in flight.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_apply_update(
@@ -608,6 +627,17 @@ pub async fn modpack_apply_update(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateOutcome> {
+    // First, before anything is read. The diff, the carry-disabled snapshot
+    // and the instance's Minecraft/loader below all describe the tree phase 2
+    // rewrites; taken after them — or after phase 1's downloads, to keep Play
+    // available meanwhile — the claim would protect a write computed from a
+    // state a concurrent writer may already have changed. While it is held,
+    // everything that consults the maintenance gate refuses this instance —
+    // Play, world and datapack writers, a Minecraft-version change, a world
+    // migration, a mod migration apply, a clone, and every single mod, asset or
+    // pack-file writer (the shared claim). Every early `?` below releases it
+    // through `Drop`.
+    let claim = crate::instances::maintenance::claim_write(&instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -759,6 +789,8 @@ pub async fn modpack_apply_update(
             report_id: Some(task_id),
         },
     );
+    // The journal row was the last write; the instance is whole again.
+    drop(claim);
     // Phase marker only — the result rides the return value below.
     let _ = on_progress.send(ModpackProgress::Done);
     Ok(crate::mods::modpack::schema::ModpackUpdateOutcome {
@@ -1043,6 +1075,12 @@ mod apply_update_diff_tests {
 /// Re-fetch the instance's current modpack version and re-extract its
 /// `overrides/` — recovers bundled mods/files that a per-file Restore
 /// cannot. Modrinth pack instances only.
+///
+/// Runs under the instance's EXCLUSIVE maintenance claim
+/// (`instances::maintenance::claim_write`), like `modpack_apply_update`: it is
+/// a pack-level rewrite, not a per-item write, so it is refused with
+/// `InstanceBusy` while the game runs or starts, while another long operation
+/// holds the instance, or while a single mod or asset writer is in flight.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_reimport_overrides(
@@ -1050,6 +1088,14 @@ pub async fn modpack_reimport_overrides(
     instance_id: String,
     on_progress: Channel<ModpackProgress>,
 ) -> crate::error::Result<()> {
+    // Exclusive, and refusing a running game — unlike the per-item writers.
+    // `overrides/` carries `config/` and `options.txt`-class files the game
+    // rewrites on exit (a reimport under a live game is silently undone when
+    // it closes) and jars a live JVM may hold open; and the extraction
+    // overwrites across the whole tree, which a pack update, a mod migration
+    // or a clone must not interleave with. Taken before the instance's pack
+    // identity is read, since that decides which archive is re-extracted.
+    let claim = crate::instances::maintenance::claim_write(&instance_id)?;
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let (project_id, version_id) = match (
@@ -1101,11 +1147,17 @@ pub async fn modpack_reimport_overrides(
         inst.loader,
         &inst.mc_version,
     );
-    if let Some(mut origin) = crate::mods::installed::get_pack_origin(&inst_root).await? {
-        origin.skipped_overrides = outcome.skipped.clone();
-        origin.inert_loader_jars = inert_loader_jars.clone();
-        crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
-    }
+    // One locked edit rather than get → set, the spelling every partial origin
+    // edit uses. `false` — no pack origin — has nothing to refresh, exactly as
+    // before.
+    let skipped = outcome.skipped.clone();
+    crate::mods::installed::update_pack_origin(&inst_root, move |origin| {
+        origin.skipped_overrides = skipped;
+        origin.inert_loader_jars = inert_loader_jars;
+    })
+    .await?;
+    // `pack_origin` was the last write.
+    drop(claim);
 
     // Phase marker only. This path's caller (`ImportedDetailDrawer`'s
     // `reimportPackFiles`) discards the result and re-reads the instance, and

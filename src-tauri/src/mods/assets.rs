@@ -1,6 +1,10 @@
 //! Tracks resource packs and shaders installed into an instance, in
 //! `<instance_root>/installed-assets.json`. Parallel to `installed.rs`
 //! (mods) but simpler: no enable/disable, no dependency closure.
+//!
+//! Every read-modify-write of the file holds [`registry_lock`] — for the same
+//! lost-update reason `installed.rs` does. Readers (`list_all`, `list`) do not
+//! need it: the rename in `write_all` hands them a whole file.
 
 use std::path::Path;
 
@@ -8,6 +12,7 @@ use tokio::fs;
 
 use crate::error::Error;
 use crate::mods::platform::{ContentKind, InstalledAsset, ModSource};
+use crate::mods::registry_lock;
 
 fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
@@ -78,12 +83,16 @@ async fn write_all(instance_root: &Path, items: &[InstalledAsset]) -> Result<(),
     })?;
     // Atomic write (mirrors installed.rs): write to a temp file then rename
     // over the target, so a crash mid-write can't leave a truncated registry.
+    // One fixed temp name is safe only because every caller holds
+    // `registry_lock`; two unlocked writers would share it and one rename would
+    // fail (`installed::WRITE_SEQ` records that incident).
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, &json).await.map_err(|e| io_err(&tmp, e))?;
     fs::rename(&tmp, &path).await.map_err(|e| io_err(&path, e))
 }
 
 pub async fn add(instance_root: &Path, asset: InstalledAsset) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut items = list_all(instance_root).await?;
     items.retain(|a| !(a.kind == asset.kind && a.filename == asset.filename));
     items.push(asset);
@@ -91,6 +100,7 @@ pub async fn add(instance_root: &Path, asset: InstalledAsset) -> Result<(), Erro
 }
 
 pub async fn remove(instance_root: &Path, kind: ContentKind, filename: &str) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
     let mut items = list_all(instance_root).await?;
     items.retain(|a| !(a.kind == kind && a.filename == filename));
     write_all(instance_root, &items).await
@@ -136,13 +146,17 @@ pub fn make_asset(
 /// time — `PackOrigin` carries no per-import timestamp, so retro-fitted assets
 /// read as "installed now". Acceptable: the field only drives display/sort for
 /// these older instances, not correctness.
+///
+/// "Absent" is decided twice: once unlocked, so every listing after the first
+/// exits without queueing, and again under the registry lock right before the
+/// write — an `add` that landed in between created the file, and seeding over
+/// it would erase the asset it registered.
 pub async fn backfill_from_pack_origin_if_missing(instance_root: &Path) -> Result<(), Error> {
-    let path = registry_path(instance_root);
-    match fs::metadata(&path).await {
-        Ok(_) => return Ok(()), // registry already exists — leave it untouched
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io_err(&path, e)),
+    if !registry_absent(instance_root).await? {
+        return Ok(()); // registry already exists — leave it untouched
     }
+    // Read with NO asset guard held: `get_pack_origin` takes the mods
+    // registry's lock, and holding both at once would create an order to keep.
     let Some(origin) = crate::mods::installed::get_pack_origin(instance_root).await? else {
         return Ok(()); // not a pack-imported instance
     };
@@ -166,7 +180,23 @@ pub async fn backfill_from_pack_origin_if_missing(instance_root: &Path) -> Resul
     if items.is_empty() {
         return Ok(()); // nothing to seed — avoid writing an empty registry
     }
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    if !registry_absent(instance_root).await? {
+        return Ok(()); // an `add` created it since the check above — keep its row
+    }
     write_all(instance_root, &items).await
+}
+
+/// Whether the registry file does not exist yet. Only `NotFound` counts as
+/// absent: any other stat failure is an error, never a licence to seed over a
+/// registry that could not be seen.
+async fn registry_absent(instance_root: &Path) -> Result<bool, Error> {
+    let path = registry_path(instance_root);
+    match fs::metadata(&path).await {
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(io_err(&path, e)),
+    }
 }
 
 #[cfg(test)]
@@ -290,12 +320,11 @@ mod tests {
         assert_eq!(a.project_id.as_deref(), Some("pid"));
     }
 
-    #[tokio::test]
-    async fn backfill_seeds_assets_from_pack_origin_when_registry_absent() {
+    /// Record a pack origin holding one resource pack (`Faithful.zip`) and one
+    /// mod jar — the shape an imported pack leaves before assets were tracked.
+    async fn record_pack_origin_with_a_resource_pack(root: &Path) {
         use crate::mods::installed::{set_pack_origin, PackOrigin, PackOriginFile};
         use crate::mods::modpack::schema::EnvSupport;
-        let td = tempfile::tempdir().unwrap();
-        let root = td.path();
 
         let rp = PackOriginFile {
             sha1: "AABB".into(),
@@ -331,6 +360,13 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn backfill_seeds_assets_from_pack_origin_when_registry_absent() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        record_pack_origin_with_a_resource_pack(root).await;
 
         // Registry absent → backfill seeds only the resource pack.
         backfill_from_pack_origin_if_missing(root).await.unwrap();
@@ -343,6 +379,66 @@ mod tests {
         assert_eq!(
             list(root, ContentKind::ResourcePack).await.unwrap().len(),
             1
+        );
+    }
+
+    // ── concurrent read-modify-write ─────────────────────────────────────
+    //
+    // `add` / `remove` are read → mutate → write with `.await`s between, and
+    // `join_all` polls every future to its first await before any finishes —
+    // so without a lock they all read one snapshot and the last rename wins.
+
+    /// Several resource packs and shaders installing into one instance at once.
+    /// Every row must survive, and no writer may fail on a shared temp name.
+    #[tokio::test]
+    async fn concurrent_adds_keep_every_asset() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        let names: Vec<String> = (0..32).map(|i| format!("pack-{i:02}.zip")).collect();
+
+        let results = futures_util::future::join_all(
+            names
+                .iter()
+                .map(|n| add(root, sample(ContentKind::ResourcePack, n))),
+        )
+        .await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent add() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+
+        let mut kept: Vec<String> = list_all(root)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|a| a.filename)
+            .collect();
+        kept.sort();
+        assert_eq!(kept, names, "a concurrent add erased another add's row");
+    }
+
+    /// The backfill decides "registry absent" and writes the whole file later.
+    /// An asset installed in between was overwritten by the seeded list.
+    #[tokio::test]
+    async fn backfill_racing_an_add_keeps_the_added_asset() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        record_pack_origin_with_a_resource_pack(root).await;
+
+        let (seeded, added) = tokio::join!(
+            backfill_from_pack_origin_if_missing(root),
+            add(root, sample(ContentKind::Shader, "BSL.zip")),
+        );
+        seeded.unwrap();
+        added.unwrap();
+
+        let all = list_all(root).await.unwrap();
+        assert!(
+            all.iter().any(|a| a.filename == "BSL.zip"),
+            "the backfill erased an asset installed while it ran: {all:?}"
         );
     }
 }

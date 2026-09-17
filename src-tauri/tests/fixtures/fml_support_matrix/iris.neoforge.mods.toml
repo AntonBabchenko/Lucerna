@@ -1,0 +1,23 @@
+# Header, modId and every [[dependencies]] block of META-INF/neoforge.mods.toml
+# from iris-neoforge-1.8.14-beta.1+mc1.21.1.jar (All Of Create v2.1), verbatim; comments and descriptions dropped.
+modLoader = "javafml"
+loaderVersion = "*"
+license = "LGPL-3.0-only"
+
+[[mods]]
+modId = "iris"
+
+[[dependencies.iris]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21,1.21.1)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.iris]]
+modId = "embeddium"
+type = "incompatible"
+reason = "Iris and Embeddium cannot be used together. Please use Sodium 0.8 instead."
+versionRange = "[0.0.1,)"
+ordering = "NONE"
+side = "CLIENT"

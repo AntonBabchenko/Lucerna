@@ -60,6 +60,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   top-level folder under any name and restore it under the world's current one.
   An archive with no folder, or several, is still refused.
 
+- **Mods installed at the same time no longer lose their origin.** Installing
+  several mods into one instance at once, or while the mod list was being
+  refreshed, could drop a mod's record from the instance's registry. The jar
+  stayed in place and reappeared as a manually added mod — with no platform
+  link, no update checks and no dependency information. The same could erase a
+  resource pack or shader installed at the same time as another one, or a
+  replacement chosen for a pack's blocked mod when two were chosen back to back.
+  Every change to these registries now waits for the previous one to finish.
+
 ### Security
 
 - Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
