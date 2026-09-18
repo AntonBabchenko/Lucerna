@@ -185,9 +185,11 @@ describe('ManageInstancesModal — selecting a modpack instance does not prompt 
 
 // A macrotask drain — see the first test above.
 const flush = () => new Promise((r) => setTimeout(r, 0));
-const pressed = (name: string) =>
-  screen.getByRole('button', { name }).getAttribute('aria-pressed');
-const ioError = { status: 'error', error: { kind: 'io', path: 'instance.json', details: 'denied' } };
+const pressed = (name: string) => screen.getByRole('button', { name }).getAttribute('aria-pressed');
+const ioError = {
+  status: 'error',
+  error: { kind: 'io', path: 'instance.json', details: 'denied' },
+};
 
 function selectPackInstance() {
   const packRow = screen

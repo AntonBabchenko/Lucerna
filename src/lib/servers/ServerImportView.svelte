@@ -313,6 +313,8 @@
           onchange={(l, v) => {
             loader = l;
             loaderVersion = v;
+            // A draft edit is always accepted — nothing here can refuse it.
+            return true;
           }}
         />
       {/if}
