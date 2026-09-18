@@ -11,7 +11,7 @@
 // version is preserved → no onchange → no prompt).
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
 // Hoisted so the spies exist before the hoisted vi.mock factory runs, while
@@ -158,7 +158,7 @@ describe('ManageInstancesModal — selecting a modpack instance does not prompt 
     await new Promise((r) => setTimeout(r, 0));
 
     // No detach prompt, and nothing was committed/detached by a mere switch.
-    expect(screen.queryByText(/change a modpack instance/i)).toBeNull();
+    expect(screen.queryByText(/switch the loader to/i)).toBeNull();
     expect(setInstanceLoader).not.toHaveBeenCalled();
     expect(detachInstancePack).not.toHaveBeenCalled();
   });
@@ -177,46 +177,143 @@ describe('ManageInstancesModal — selecting a modpack instance does not prompt 
     const quiltBtn = screen.getByRole('button', { name: /^quilt$/i });
     await fireEvent.click(quiltBtn);
 
-    await waitFor(() => expect(screen.queryByText(/change a modpack instance/i)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/switch the loader to/i)).not.toBeNull());
     // Still gated behind the confirm — not committed yet.
     expect(setInstanceLoader).not.toHaveBeenCalled();
   });
 });
 
-describe('ManageInstancesModal — pack-detach dialog framing', () => {
-  async function openDetachPrompt() {
+// A macrotask drain — see the first test above.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const pressed = (name: string) =>
+  screen.getByRole('button', { name }).getAttribute('aria-pressed');
+const ioError = { status: 'error', error: { kind: 'io', path: 'instance.json', details: 'denied' } };
+
+function selectPackInstance() {
+  const packRow = screen
+    .getAllByRole('button')
+    .find((b) => b.textContent?.includes('Sodium Plus') && b.querySelector('.font-medium'));
+  return fireEvent.click(packRow as HTMLElement);
+}
+
+// Opens the prompt by switching the modpack instance (Fabric 0.16.0) to Quilt.
+async function openDetachPrompt() {
+  renderModal();
+  await waitFor(() => expect(listForgeLoaders).toHaveBeenCalled());
+  await selectPackInstance();
+  await waitFor(() => expect(listFabricLoaders).toHaveBeenCalled());
+  await fireEvent.click(screen.getByRole('button', { name: 'Quilt' }));
+  await waitFor(() => expect(screen.queryByText(/switch the loader to quilt\?/i)).not.toBeNull());
+}
+
+// The bug the maintainer reported: Cancel left the picker on the clicked loader
+// although nothing had been written, and clicking the real loader to "fix" the
+// highlight raised the prompt again. The same lie followed a failed write.
+describe('ManageInstancesModal — a refused loader change does not stay on screen', () => {
+  beforeEach(() => {
+    setInstanceLoader.mockReset();
+    detachInstancePack.mockReset();
+  });
+
+  it("Don't change: nothing is written and the picker goes back to the saved loader", async () => {
+    await openDetachPrompt();
+
+    await fireEvent.click(screen.getByRole('button', { name: "Don't change" }));
+
+    await waitFor(() => expect(screen.queryByText(/switch the loader to/i)).toBeNull());
+    await waitFor(() => {
+      expect(pressed('Fabric')).toBe('true');
+      expect(pressed('Quilt')).toBe('false');
+    });
+    // The pack's pinned NON-stable version is back too, not "recommended".
+    await waitFor(() =>
+      expect(screen.getByLabelText(/loader version/i).textContent).toContain('0.16.0'),
+    );
+    expect(setInstanceLoader).not.toHaveBeenCalled();
+    expect(detachInstancePack).not.toHaveBeenCalled();
+
+    // Clicking the loader the instance already has is not a change.
+    await fireEvent.click(screen.getByRole('button', { name: 'Fabric' }));
+    await flush();
+    expect(screen.queryByText(/switch the loader to/i)).toBeNull();
+    expect(setInstanceLoader).not.toHaveBeenCalled();
+  });
+
+  it('Keep the link: one loader write with the clicked ecosystem version, no detach', async () => {
+    setInstanceLoader.mockResolvedValue({
+      status: 'ok',
+      data: { ...packInstance, loader: 'quilt', loader_version: '0.30.0' },
+    });
+    await openDetachPrompt();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep the link' }));
+
+    await waitFor(() => expect(setInstanceLoader).toHaveBeenCalled());
+    await flush();
+    expect(setInstanceLoader).toHaveBeenCalledTimes(1);
+    expect(setInstanceLoader).toHaveBeenCalledWith('inst-pack', 'quilt', '0.30.0');
+    expect(detachInstancePack).not.toHaveBeenCalled();
+    expect(pressed('Quilt')).toBe('true');
+  });
+
+  it('a failed detach writes no loader and puts the picker back', async () => {
+    detachInstancePack.mockResolvedValue(ioError);
+    await openDetachPrompt();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Detach' }));
+
+    await waitFor(() => expect(detachInstancePack).toHaveBeenCalledWith('inst-pack'));
+    await waitFor(() => {
+      expect(pressed('Fabric')).toBe('true');
+      expect(pressed('Quilt')).toBe('false');
+    });
+    expect(setInstanceLoader).not.toHaveBeenCalled();
+  });
+
+  it('a failed loader write on a plain instance puts the picker back', async () => {
+    setInstanceLoader.mockResolvedValue(ioError);
     renderModal();
     await waitFor(() => expect(listForgeLoaders).toHaveBeenCalled());
-    const packRow = screen
-      .getAllByRole('button')
-      .find((b) => b.textContent?.includes('Sodium Plus') && b.querySelector('.font-medium'));
-    await fireEvent.click(packRow as HTMLElement);
-    await waitFor(() => expect(listFabricLoaders).toHaveBeenCalled());
-    const quiltBtn = screen.getByRole('button', { name: /^quilt$/i });
-    await fireEvent.click(quiltBtn);
-    await waitFor(() => expect(screen.queryByText(/change a modpack instance/i)).not.toBeNull());
-  }
 
+    // The Forge instance is not a modpack: the write goes straight out.
+    await fireEvent.click(screen.getByRole('button', { name: 'Fabric' }));
+
+    await waitFor(() => expect(setInstanceLoader).toHaveBeenCalled());
+    expect(setInstanceLoader).toHaveBeenCalledWith('inst-forge', 'fabric', '0.20.0');
+    await waitFor(() => {
+      expect(pressed('Forge')).toBe('true');
+      expect(pressed('Fabric')).toBe('false');
+    });
+  });
+});
+
+describe('ManageInstancesModal — pack-detach dialog framing', () => {
   it('weights the safe Keep action as primary and Detach as danger', async () => {
     await openDetachPrompt();
 
-    const keep = screen.getByRole('button', { name: 'Keep & continue' });
-    const detach = screen.getByRole('button', { name: 'Detach & continue' });
-    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    // EXACT names: the dialog's buttons carry the same words as the paragraphs
+    // that explain them, and role-name substrings collide with sidebar text.
+    const keep = screen.getByRole('button', { name: 'Keep the link' });
+    const detach = screen.getByRole('button', { name: 'Detach' });
+    const cancel = screen.getByRole('button', { name: "Don't change" });
 
-    // The safe, link-preserving path is emphasised; the irreversible one is danger.
+    // The link-preserving path is emphasised; the irreversible one is danger.
     expect(keep.className).toContain('btn-primary');
     expect(detach.className).toContain('btn-danger');
     expect(cancel.className).toContain('btn-secondary');
   });
 
-  it('frames the title as a question and explains both outcomes', async () => {
+  it('names the change in the title and says what each choice does', async () => {
     await openDetachPrompt();
 
-    // Title is a question, not a bare noun label.
-    expect(screen.getByText(/change a modpack instance\?/i)).toBeTruthy();
-    // Body explains the keep outcome AND the detach outcome (not just detach).
-    const body = screen.getByText(/keep it linked/i);
-    expect(body.textContent).toMatch(/detach/i);
+    const dialog = screen.getByRole('dialog', { name: /switch the loader to quilt\?/i });
+    const text = dialog.textContent ?? '';
+    // Keep: the change still happens and the pack stays updatable.
+    expect(text).toMatch(/the loader changes and the pack can still be updated/i);
+    // Detach: irreversible, and it does not touch the instance's files.
+    expect(text).toMatch(/cannot be undone/i);
+    expect(text).toMatch(/files are not touched/i);
+    // The dialog describes itself to assistive tech, not just its title.
+    expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
   });
 });
