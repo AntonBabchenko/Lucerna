@@ -31,6 +31,8 @@
     return formatError(e);
   }
 
+  type CommitOrigin = 'user' | 'auto';
+
   const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];
   // Unique per instance so two LoaderPickers on a page never collide on the
   // group-label or version-select ids.
@@ -53,7 +55,16 @@
     // props. The return is mandatory so a consumer cannot forget to answer.
     // Leave `onchange` out altogether (the create form, which `bind:`s) and the
     // picker edits the bound draft directly instead.
-    onchange?: (loader: LoaderKind, version: string | null) => boolean | Promise<boolean>;
+    //
+    // `origin` tells a click (`user`) from the picker's own correction of a
+    // committed version the loader no longer offers (`auto`). A parent that
+    // asks the user before changing something must not ask on `auto` — nobody
+    // clicked anything.
+    onchange?: (
+      loader: LoaderKind,
+      version: string | null,
+      origin: CommitOrigin,
+    ) => boolean | Promise<boolean>;
     disabled?: boolean;
   } = $props();
 
@@ -96,7 +107,7 @@
     if (!onchange && loaderVersion !== null) loaderVersion = null;
   }
 
-  function requestCommit(k: LoaderKind, v: string | null) {
+  function requestCommit(k: LoaderKind, v: string | null, origin: CommitOrigin) {
     if (!onchange) return;
     const seq = pickSeq;
     view = { kind: k, version: v, phase: 'requested' };
@@ -120,7 +131,7 @@
     };
     let verdict: boolean | Promise<boolean>;
     try {
-      verdict = onchange(k, v);
+      verdict = onchange(k, v, origin);
     } catch {
       // A handler that throws did not commit anything.
       settle(false);
@@ -187,7 +198,7 @@
     }
     // No MC + a modded loader is the parent's call to refuse (it owns the
     // "pick a Minecraft version first" message), so the request still goes.
-    if (view?.phase === 'draft') requestCommit(k, null);
+    if (view?.phase === 'draft') requestCommit(k, null, 'user');
   }
 
   async function load(k: LoaderKind, m: string, seq: number): Promise<void> {
@@ -234,7 +245,11 @@
     // A click always ends in exactly one request. Without a view only a
     // genuinely stale committed version is corrected — and committed: a valid
     // version on screen with an invalid one saved was the Forge-install 404.
-    if (view ? view.phase === 'draft' : next !== stored) requestCommit(k, next);
+    if (view) {
+      if (view.phase === 'draft') requestCommit(k, next, 'user');
+    } else if (next !== stored) {
+      requestCommit(k, next, 'auto');
+    }
   }
 
   function pickLoader(k: LoaderKind) {
@@ -273,7 +288,7 @@
     }
     if (v === shownVersion) return;
     pickSeq += 1;
-    requestCommit(shownLoader, v);
+    requestCommit(shownLoader, v, 'user');
   }
 
   // Mirror the previous <option> markup: stable entries carry the

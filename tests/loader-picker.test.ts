@@ -202,7 +202,7 @@ describe('LoaderPicker — commit requests (onchange)', () => {
     await waitFor(() => expect(onchange).toHaveBeenCalled());
     await flush();
     expect(onchange).toHaveBeenCalledTimes(1);
-    expect(onchange).toHaveBeenCalledWith('quilt', '0.20.0');
+    expect(onchange).toHaveBeenCalledWith('quilt', '0.20.0', 'user');
   });
 
   it('a refused commit puts the pressed loader and the version back to the props', async () => {
@@ -317,6 +317,25 @@ describe('LoaderPicker — commit requests (onchange)', () => {
     expect(onchange).not.toHaveBeenCalled();
   });
 
+  it('a stale committed version is corrected as an AUTO request, never as the user asking', async () => {
+    // The parent must be able to tell the picker's own housekeeping from a
+    // click: for a modpack instance the first is refused outright, because it
+    // would otherwise raise an irreversible keep/detach question nobody asked.
+    const onchange = vi.fn().mockResolvedValue(false);
+    const { getByRole, findByRole } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: 'gone-0.1', onchange },
+    });
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+    expect(onchange).toHaveBeenCalledWith('fabric', '0.16.0', 'auto');
+
+    // Refused → the picker does not pretend: Fabric stays pressed and the
+    // version control shows no selection rather than a build that is not saved.
+    await findByRole('button', { name: 'Fabric' });
+    await flush();
+    expect(pressed(getByRole('button', { name: 'Fabric' }))).toBe('true');
+    expect(onchange).toHaveBeenCalledTimes(1);
+  });
+
   it('a late refusal from an overtaken pick does not revert the newer pick', async () => {
     let answerFirst!: (accepted: boolean) => void;
     const onchange = vi
@@ -337,7 +356,7 @@ describe('LoaderPicker — commit requests (onchange)', () => {
     await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
     await fireEvent.click(getByRole('button', { name: 'Vanilla' }));
     await waitFor(() => expect(onchange).toHaveBeenCalledTimes(2));
-    expect(onchange).toHaveBeenLastCalledWith('vanilla', null);
+    expect(onchange).toHaveBeenLastCalledWith('vanilla', null, 'user');
 
     answerFirst(false);
     await flush();
@@ -357,7 +376,7 @@ describe('LoaderPicker — commit requests (onchange)', () => {
     await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
     await fireEvent.click(getByRole('button', { name: 'Fabric' }));
     await waitFor(() => expect(onchange).toHaveBeenCalledTimes(2));
-    expect(onchange).toHaveBeenLastCalledWith('fabric', '0.17.0-beta.1');
+    expect(onchange).toHaveBeenLastCalledWith('fabric', '0.17.0-beta.1', 'user');
   });
 
   it('a version pick is a commit request, and a refusal restores the committed version', async () => {
@@ -369,7 +388,7 @@ describe('LoaderPicker — commit requests (onchange)', () => {
 
     await fireEvent.click(trigger);
     await fireEvent.mouseDown(getByRole('option', { name: '0.17.0-beta.1' }));
-    await waitFor(() => expect(onchange).toHaveBeenCalledWith('fabric', '0.17.0-beta.1'));
+    await waitFor(() => expect(onchange).toHaveBeenCalledWith('fabric', '0.17.0-beta.1', 'user'));
     await waitFor(() => expect(getByLabelText(/loader version/i).textContent).toContain('0.16.0'));
   });
 });

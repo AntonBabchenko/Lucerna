@@ -252,6 +252,8 @@
         instanceId: string;
         loaderKind: LoaderKind;
         loaderVersion: string | null;
+        // Same loader, another build: the prompt must not claim the loader changes.
+        versionOnly: boolean;
         // Answers the LoaderPicker's commit request once the user has decided.
         settle: (accepted: boolean) => void;
       };
@@ -658,7 +660,11 @@
 
   // The LoaderPicker's commit request. The verdict is what lets the picker go
   // back to the saved loader when the change is refused, cancelled or fails.
-  function commitLoader(kind: LoaderKind, version: string | null): Promise<boolean> {
+  function commitLoader(
+    kind: LoaderKind,
+    version: string | null,
+    origin: 'user' | 'auto',
+  ): Promise<boolean> {
     if (!selected) return Promise.resolve(false);
     // Validate up front (selected is fresh here, pre-await) so a missing MC
     // version fails fast instead of after the detach prompt.
@@ -668,6 +674,13 @@
     }
     const id = selected.id;
     if (!selected.mrpack_name) return applyLoaderChange(id, kind, version);
+    // A modpack instance changes only on the user's say-so. `auto` is the
+    // picker correcting a saved version the loader no longer offers: rewriting a
+    // pack-pinned build silently is wrong, and so is raising an irreversible
+    // keep/detach question nobody asked. Refused, the picker shows the saved
+    // version as not on offer, and the user can pick one — which does ask.
+    if (origin === 'auto') return Promise.resolve(false);
+    const versionOnly = kind === selected.loader;
     return new Promise<boolean>((settle) => {
       takePending(false);
       pendingChange = {
@@ -675,6 +688,7 @@
         instanceId: id,
         loaderKind: kind,
         loaderVersion: version,
+        versionOnly,
         settle,
       };
     });
@@ -694,20 +708,25 @@
     const change = takePending(true);
     if (!change) return;
     const id = change.instanceId;
-    const detachResult = await commands.detachInstancePack(id);
-    if (detachResult.status === 'error' || isStale(id)) {
+    try {
+      const detachResult = await commands.detachInstancePack(id);
       // Not detached (or no longer on screen): the change it gated does not
-      // run, so the picker is told no.
-      if (change.kind === 'loader') change.settle(false);
-      if (detachResult.status === 'error' && !isStale(id)) {
+      // run. The `finally` tells the picker no.
+      if (isStale(id)) return;
+      if (detachResult.status === 'error') {
         modalError = ipcErrorMessage(detachResult.error);
+        return;
       }
-      return;
+      // The change is applied by id, so it does not wait for onChanged()'s
+      // refresh of `selected`.
+      onChanged();
+      await applyPending(change);
+    } finally {
+      // Every exit that did not reach applyPending's answer — an early return
+      // above, or the IPC call itself throwing — is a "no". A no-op once the
+      // real answer is in.
+      if (change.kind === 'loader') change.settle(false);
     }
-    // The change is applied by id, so it does not wait for onChanged()'s
-    // refresh of `selected`.
-    onChanged();
-    await applyPending(change);
   }
 
   async function keepAndContinue() {
@@ -1508,7 +1527,13 @@
       <h3 id="instance-pack-detach-title" class="font-semibold text-primary text-base">
         {pendingChange.kind === 'mc'
           ? $t('instance.packDetach.titleMc', { to: pendingChange.value })
-          : $t('instance.packDetach.titleLoader', { to: displayLoader(pendingChange.loaderKind) })}
+          : pendingChange.versionOnly
+            ? $t('instance.packDetach.titleLoaderVersion', {
+                to: pendingChange.loaderVersion ?? '',
+              })
+            : $t('instance.packDetach.titleLoader', {
+                to: displayLoader(pendingChange.loaderKind),
+              })}
       </h3>
       <!-- Each choice gets its own paragraph opening with the very words on its
            button, so "what does this button do" is answered next to it. -->
@@ -1516,9 +1541,7 @@
         <p>{$t('instance.packDetach.intro', { pack: selected.mrpack_name ?? '' })}</p>
         <p>
           <strong class="text-primary">{$t('instance.packDetach.keepLabel')}</strong> —
-          {pendingChange.kind === 'mc'
-            ? $t('instance.packDetach.keepBodyMc')
-            : $t('instance.packDetach.keepBodyLoader')}
+          {$t('instance.packDetach.keepBody')}
         </p>
         <p>
           <strong class="text-primary">{$t('instance.packDetach.detachLabel')}</strong> —

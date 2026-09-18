@@ -294,6 +294,63 @@ describe('ManageInstancesModal — a refused loader change does not stay on scre
   });
 });
 
+// The picker corrects a saved loader version the loader no longer offers. For
+// a plain instance that is housekeeping; for a modpack instance it used to
+// raise the keep/detach question with nobody having clicked anything — an
+// irreversible choice over a stale version string.
+describe('ManageInstancesModal — a modpack instance changes only on the user say-so', () => {
+  beforeEach(() => {
+    setInstanceLoader.mockReset();
+    detachInstancePack.mockReset();
+  });
+
+  it('a stale saved loader version raises no prompt and writes nothing', async () => {
+    const stalePack = makeInstance({
+      id: 'inst-stale-pack',
+      name: 'Stale Pack',
+      loader: 'fabric',
+      loader_version: '0.1.0-gone',
+      mrpack_name: 'Stale Pack',
+    });
+    listFabricLoaders.mockClear();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [stalePack],
+        activeInstance: stalePack,
+        versions: [makeVersion()],
+        onChanged: () => {},
+      },
+    });
+    await waitFor(() => expect(listFabricLoaders).toHaveBeenCalled());
+    await flush();
+
+    expect(screen.queryByRole('dialog', { name: /switch/i })).toBeNull();
+    expect(setInstanceLoader).not.toHaveBeenCalled();
+    expect(detachInstancePack).not.toHaveBeenCalled();
+    // And the picker does not show a build that is not saved.
+    expect(screen.getByLabelText(/loader version/i).textContent).not.toContain('0.20.0');
+  });
+
+  it('picking another version of the same loader asks about the VERSION, not the loader', async () => {
+    renderModal();
+    await waitFor(() => expect(listForgeLoaders).toHaveBeenCalled());
+    await selectPackInstance();
+    const trigger = await screen.findByLabelText(/loader version/i);
+    await waitFor(() => expect(trigger.textContent).toContain('0.16.0'));
+
+    await fireEvent.click(trigger);
+    await fireEvent.mouseDown(screen.getByRole('option', { name: /0\.20\.0/ }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: /switch the loader version to 0\.20\.0\?/i }),
+      ).not.toBeNull(),
+    );
+    expect(screen.queryByText(/switch the loader to/i)).toBeNull();
+  });
+});
+
 describe('ManageInstancesModal — pack-detach dialog framing', () => {
   it('weights the safe Keep action as primary and Detach as danger', async () => {
     await openDetachPrompt();
@@ -316,7 +373,7 @@ describe('ManageInstancesModal — pack-detach dialog framing', () => {
     const dialog = screen.getByRole('dialog', { name: /switch the loader to quilt\?/i });
     const text = dialog.textContent ?? '';
     // Keep: the change still happens and the pack stays updatable.
-    expect(text).toMatch(/the loader changes and the pack can still be updated/i);
+    expect(text).toMatch(/the pack can still be updated/i);
     // Detach: irreversible, and it does not touch the instance's files.
     expect(text).toMatch(/cannot be undone/i);
     expect(text).toMatch(/files are not touched/i);

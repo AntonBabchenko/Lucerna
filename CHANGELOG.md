@@ -89,7 +89,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   with a version of the loader you picked; it used to be written first with the
   previous loader's version, which stayed saved if the new loader's version
   list could not be loaded. The question itself now names the change and says
-  what keeping the link and detaching each do — detaching cannot be undone.
+  what keeping the link and detaching each do — detaching cannot be undone —
+  and it is only ever asked after you change something: a saved loader version
+  that is no longer on offer used to raise it the moment the instance was
+  opened.
 
 ### Security
 
