@@ -6,9 +6,14 @@
 // the new ecosystem's stable, and emitted onchange — which the parent committed,
 // raising the "Modpack instance / Detach & continue" prompt on a plain click.
 //
-// Fix: the detail-form LoaderPicker is wrapped in {#key selected.id}, so it
-// remounts per instance (prevLoader resets → loaderChanged=false → the saved
-// version is preserved → no onchange → no prompt).
+// Fix (then): the detail-form LoaderPicker is wrapped in {#key selected.id}, so
+// it remounts per instance. `prevLoader` is gone since — the picker now resets
+// to "recommended" only on a click — but the remount stays: the picker's
+// uncommitted view and pending verdicts belong to one instance.
+//
+// The second half of this file pins what happens AFTER the prompt: a cancelled
+// or failed change must not stay on screen, and the prompt must say what its
+// buttons do.
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

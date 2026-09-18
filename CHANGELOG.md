@@ -79,6 +79,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
   replacement chosen for a pack's blocked mod when two were chosen back to back.
   Every change to these registries now waits for the previous one to finish.
 
+- **The loader picker no longer shows a loader the instance does not have.**
+  Switching the loader of a modpack instance asks whether to keep its link to
+  the pack; backing out of that question left the picker on the loader you had
+  clicked, although nothing had been changed — and clicking the real loader to
+  put it right raised the question again. A loader change that failed to save
+  behaved the same way. The picker now returns to the saved loader and version
+  whenever a change is declined or fails. A loader change is also written once,
+  with a version of the loader you picked; it used to be written first with the
+  previous loader's version, which stayed saved if the new loader's version
+  list could not be loaded. The question itself now names the change and says
+  what keeping the link and detaching each do — detaching cannot be undone.
+
 ### Security
 
 - Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
