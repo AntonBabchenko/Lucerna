@@ -21,15 +21,26 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-- **The changelog in your language.** The **What's new** panel in Settings →
-  Updates and the dialog shown after an update now follow the interface
-  language. Russian ships complete, and a test keeps it in step with the
-  English file, so the Russian interface never lags behind a release. Other
-  languages have a place to land (`src/lib/changelog/locales/`, see
-  `docs/TRANSLATING.md`); until a version is translated, the launcher shows it
-  in English and says so, rather than hiding it or guessing.
+- **The loader picker no longer shows a loader the instance does not have.**
+  Switching the loader of a modpack instance asks whether to keep its link to
+  the pack; backing out of that question left the picker on the loader you had
+  clicked, although nothing had been changed — and clicking the real loader to
+  put it right raised the question again. A loader change that failed to save
+  behaved the same way. The picker now returns to the saved loader and version
+  whenever a change is declined or fails. A loader change is also written once,
+  with a version of the loader you picked; it used to be written first with the
+  previous loader's version, which stayed saved if the new loader's version
+  list could not be loaded. The question itself now names the change and says
+  what keeping the link and detaching each do — detaching cannot be undone —
+  and it is only ever asked after you change something: a saved loader version
+  that is no longer on offer used to raise it the moment the instance was
+  opened.
+
+## [0.24.0] — 2026-09-18
+
+### Added
 
 - **Move or copy a world to another instance.** A world's detail dialog has a
   new footer action that takes the world to any other instance — as a copy,
@@ -50,25 +61,29 @@ behaviour is worth knowing, it is stated as a property of the feature under
   that could not be moved — the original is never removed until the copy is
   complete, and nothing after that point is reported as an error to retry.
 
+- **The changelog in your language.** The **What's new** panel in Settings →
+  Updates and the dialog shown after an update now follow the interface
+  language. Russian ships complete, and a test keeps it in step with the
+  English file, so the Russian interface never lags behind a release. Other
+  languages have a place to land (`src/lib/changelog/locales/`, see
+  `docs/TRANSLATING.md`); until a version is translated, the launcher shows it
+  in English and says so, rather than hiding it or guessing.
+
+### Changed
+
+- **Play, the Installed tab and the compatibility check stop re-reading every
+  jar.** The dependency check that runs before every Play, and the
+  compatibility scan behind the Installed tab and its banner, opened and hashed
+  every enabled jar each time they ran — gigabytes on a large modpack, on every
+  instance switch and every press of Play. Both now read a jar once and keep
+  what they learned, keyed on the bytes actually on disk, so a jar replaced
+  under the same name is read again and one that has not changed is not. The
+  Installed list's own hashes survive a restart too, so a cold start is one
+  stat per file rather than a re-read of every jar. Verifying an instance
+  streams each file through the hash instead of loading it whole, so a verify
+  no longer holds several artefacts in memory at once.
+
 ### Fixed
-
-- **Server mods, plugins and datapacks installed at the same time keep their
-  origin.** Installing several of them into one server at once, or while its
-  content list was being refreshed, could drop an item's record from the
-  server's registry. The file stayed in place and came back as manually added —
-  with no platform link and no update checks; a datapack lost its catalog
-  provenance the same way. Updating a server mod or plugin also recorded the
-  swap as two separate changes, leaving a moment where the new file had no
-  record. Every change to these registries now waits for the previous one to
-  finish, and an update's swap is recorded as one change.
-
-- **Restoring a backup no longer fails when the world was renamed after the
-  backup was made.** A backup archive carries the world's folder name from the
-  time it was taken; if the folder was renamed since — in the file manager, or
-  because a migration had to give the world a suffixed name — both restore modes
-  rejected the archive as corrupt. They now accept an archive with a single
-  top-level folder under any name and restore it under the world's current one.
-  An archive with no folder, or several, is still refused.
 
 - **Mods installed at the same time no longer lose their origin.** Installing
   several mods into one instance at once, or while the mod list was being
@@ -79,24 +94,165 @@ behaviour is worth knowing, it is stated as a property of the feature under
   replacement chosen for a pack's blocked mod when two were chosen back to back.
   Every change to these registries now waits for the previous one to finish.
 
-- **The loader picker no longer shows a loader the instance does not have.**
-  Switching the loader of a modpack instance asks whether to keep its link to
-  the pack; backing out of that question left the picker on the loader you had
-  clicked, although nothing had been changed — and clicking the real loader to
-  put it right raised the question again. A loader change that failed to save
-  behaved the same way. The picker now returns to the saved loader and version
-  whenever a change is declined or fails. A loader change is also written once,
-  with a version of the loader you picked; it used to be written first with the
-  previous loader's version, which stayed saved if the new loader's version
-  list could not be loaded. The question itself now names the change and says
-  what keeping the link and detaching each do — detaching cannot be undone —
-  and it is only ever asked after you change something: a saved loader version
-  that is no longer on offer used to raise it the moment the instance was
-  opened.
+- **Updating a modpack, migrating mods to a new Minecraft version and cloning
+  an instance no longer race the installs started meanwhile.** All three
+  rewrite an instance for seconds to minutes, yet the pack update checked
+  nothing before starting, not even whether the game was running, and a mod
+  installed, toggled or removed while one of them ran could land in the middle
+  of it, unseen by either side. Each now holds the instance for its whole run
+  and refuses while the game is running or starting, and a single install,
+  update, toggle or removal still in flight makes the long operation refuse
+  rather than start over it. A bulk enable, disable or remove that is refused
+  this way says why, once, instead of "N failed".
+
+- **Mods that NeoForge and Forge actually load are no longer called
+  incompatible.** The loader does not measure a dependency range against the
+  running version alone: a mod declaring `minecraft [1.21,1.21.1)` loads on
+  NeoForge 1.21.1 because the loader's own version-support table says it may.
+  Lucerna's verdict ignored that table, so on a NeoForge 1.21.1 pack seven mods
+  the game runs were flagged in the Installed chips and banner, offered for
+  removal by the migration plan, and blocked Play in the pre-launch check. The
+  verdict now consults the same table, per loader build; where the build is
+  unknown a violation softens to "unknown", never to "fits". A Forge build
+  written as `1.20.1-47.4.10` is read as build 47.4.10, not as older than
+  everything.
+
+- **Restoring a backup no longer fails when the world was renamed after the
+  backup was made.** A backup archive carries the world's folder name from the
+  time it was taken; if the folder was renamed since — in the file manager, or
+  because a migration had to give the world a suffixed name — both restore modes
+  rejected the archive as corrupt. They now accept an archive with a single
+  top-level folder under any name and restore it under the world's current one.
+  An archive with no folder, or several, is still refused.
+
+- **Server mods, plugins and datapacks installed at the same time keep their
+  origin.** Installing several of them into one server at once, or while its
+  content list was being refreshed, could drop an item's record from the
+  server's registry. The file stayed in place and came back as manually added —
+  with no platform link and no update checks; a datapack lost its catalog
+  provenance the same way. Updating a server mod or plugin also recorded the
+  swap as two separate changes, leaving a moment where the new file had no
+  record. Every change to these registries now waits for the previous one to
+  finish, and an update's swap is recorded as one change.
+  A registry that cannot be read is no longer taken for an empty one, so a
+  transient read failure no longer strips every record either.
+
+- **Why a server jar was set aside is no longer lost.** The reason a client-only
+  mod was disabled on a server — the badge on its row — lived in a file that two
+  operations could rewrite at once, so setting several jars aside while
+  re-enabling another dropped reasons. When that file could not be read it was
+  taken for an empty one and written back that way, erasing every reason in one
+  go. A jar is now never disabled without its reason recorded first, an
+  unreadable file is an error rather than an empty list, and concurrent changes
+  wait for each other.
+
+- **A server's restore or import no longer races its own add-ons.** Restoring a
+  backup or committing an import rewrites the whole server folder, minutes on a
+  large server, and nothing stopped Start, an install or the Add-ons tab's
+  automatic provenance lookup from writing into the tree being replaced — nor a
+  restore from starting while an install was still downloading into it. Start
+  and Restart now refuse during a restore or import, every add-on writer waits
+  for it to finish, and a restore refuses while an install is in flight, naming
+  the operation it is waiting for rather than blaming a restore that is not
+  running.
+
+- **A read that fails no longer passes for a file that is absent, on the paths
+  that go on to write.** Six places treated any failure to read or stat as
+  "nothing there" and wrote accordingly: a transient failure reading
+  `server.properties` while changing the port replaced the whole file with a
+  single line; a world import whose name probe failed merged the import into
+  the existing world of that name and could roll that world back; deleting an
+  instance reported success when its folder could not be checked; a datapack
+  could be placed over one the launcher could not read, and a library install
+  could replace a pack it could not read in every world linked to it; and one
+  unreadable skin-library index followed by any change dropped every saved
+  skin. Each now tells "not found" from "could not tell" and stops on the
+  latter. The skin library still lists as empty when its index is corrupt, but
+  refuses to save over it.
+
+- **A cleanup that fails now says so, and names what it left behind.** A world
+  import whose copy failed removed the partial copy without checking that the
+  removal worked, so a half-copied world could sit in `saves/` looking playable
+  while the message said only that the import failed; an instance import did
+  the same with a half-built instance, and silently dropped the JVM arguments
+  it promised to carry over. A modpack update that could not remove an old jar
+  reported it removed, and the next listing re-adopted the jar as a manual mod.
+  Microsoft sign-in that could not open the browser waited out its five-minute
+  window and then reported a cancellation, for a page you were never shown.
+  Each now reports what happened: the leftover folder is named, a jar that
+  would not go is a failed row, and a browser that will not open fails sign-in
+  at once. The notice that a GPU preference was applied appears only when it
+  actually was.
+
+- **The window no longer freezes while the launcher does heavy work.** Sixteen
+  operations ran on the thread that draws the window: inspecting and committing
+  a server import (a full archive extraction, then multi-gigabyte copies),
+  exporting a server, deleting a server, an instance or a world, listing worlds
+  (two full walks of every world), annotating a log, saving or annotating a
+  screenshot, checking or adding a firewall rule and probing connectivity (each
+  a wait on a spawned `netsh` or `ipconfig`), changing a server port, validating
+  a new data location, and listing a server's datapacks. All of them now run off
+  that thread, so the window stays responsive for their whole duration. Listing
+  worlds also walks each world once instead of twice.
+
+- **Numbers, dates and units follow the interface language, not the operating
+  system's.** Download counts, the integrity "last checked" line, log file
+  times, modpack version dates, the journal clock, transfer rates, the
+  pre-launch RAM warning, heap labels on the memory slider (which a screen
+  reader announced with an English unit) and the storage panel's sizes each
+  formatted themselves from the OS locale or from hardcoded English, so an
+  English interface on a Russian Windows printed "12 345" and switching the
+  language moved nothing. All of them now take the app language, and the
+  Russian modpack warning that read "1 мод(ов)" uses a form correct for every
+  count.
+
+- **The reason a button is disabled reaches keyboard users, and a tour is not
+  painted over.** Why Import from URL is off while the data folder is
+  unavailable, why Optimise is off on a vanilla instance: each sat in a native
+  tooltip that a disabled button never shows and a keyboard never reaches, and
+  the (?) help trigger and the journal's truncated names used the same native
+  tooltip. They now use the launcher's own tooltip layer, which works on hover,
+  focus and touch. A dialog opened during the welcome tour no longer covers the
+  tour that was explaining it, and the tour's spotlight no longer re-animates
+  its geometry on every step.
+
+- **A failure the launcher knew about is no longer shown as nothing, or as
+  "{}".** A failed one-click repair in the server diagnosis banner rendered its
+  error as two braces. A failed read of the settings at startup silently brought
+  the launcher up on defaults — light theme, OS language, every hidden sidebar
+  button back — indistinguishable from wiped settings; it now says nothing on
+  disk was changed and offers Try again. A failed account switch left the
+  picker where it was and the next launch on the old account; it now warns. A
+  saved-servers file that could not be parsed was shown as "No saved servers
+  yet"; it now shows the error. A language change whose save failed kept
+  speaking that language until the next launch; it now rolls back. A failed
+  read of the hosting settings left Save enabled with guessed defaults it would
+  have written over the real ones; Save now waits for a read that succeeded.
 
 ### Security
 
+- **A tampered Forge or NeoForge installer can no longer write outside the
+  libraries folder.** Entries in the installer's `maven/` tree, and the legacy
+  era's `install.path` coordinate — which could expand to a rooted path that
+  discards the folder it is joined onto — are screened before anything is
+  extracted, and the whole archive is refused as corrupt.
+
+- **Links that come from mod and pack listings open only over https.** A pack's
+  manual-download link, a plugin's external page and the links inside a
+  description all reached the system opener with `http:` and `mailto:` still
+  permitted. Every such site now goes through one opener that opens https and
+  nothing else, and the description renderer no longer opens cleartext links.
+
+- **An export cannot be pointed at the launcher's own files.** The five commands
+  that write to a path you pick — modpack export, server export, translation
+  export and the two screenshot saves — accepted any path, including a relative
+  one resolved against the working directory or one inside the installation or
+  the data folder, under any file name. They now require an absolute path
+  outside both, with the extension the command actually writes; the screenshot
+  dialogs declare the `.png` filter so a name typed without it still saves.
+
 - Bumped `h2` 0.4.14 → 0.4.19 for RUSTSEC-2026-0258.
+
 - Bumped `rustls` 0.23.40 → 0.23.45 for RUSTSEC-2026-0285.
 
 ## [0.23.0] — 2026-08-13
@@ -1347,7 +1503,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.20.0...v0.21.0
