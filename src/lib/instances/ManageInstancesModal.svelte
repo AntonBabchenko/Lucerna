@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { get } from 'svelte/store';
   import {
     commands,
@@ -241,13 +242,40 @@
     lastScrolledError = modalError;
   });
 
-  // Pending pack-detach confirm state.
-  // Holds { kind: 'mc', value: string } or { kind: 'loader', loaderKind, loaderVersion }
-  // when awaiting the user's decision.
+  // Pending pack-detach confirm state, held while awaiting the user's decision.
+  // `instanceId` is fixed when the question is ASKED: the answer must land on
+  // the instance it was asked about, not on whatever `selected` is by then.
   type PendingChange =
-    | { kind: 'mc'; value: string }
-    | { kind: 'loader'; loaderKind: LoaderKind; loaderVersion: string | null };
+    | { kind: 'mc'; instanceId: string; value: string }
+    | {
+        kind: 'loader';
+        instanceId: string;
+        loaderKind: LoaderKind;
+        loaderVersion: string | null;
+        // Same loader, another build: the prompt must not claim the loader changes.
+        versionOnly: boolean;
+        // Answers the LoaderPicker's commit request once the user has decided.
+        settle: (accepted: boolean) => void;
+      };
   let pendingChange = $state<PendingChange | null>(null);
+
+  // Every way out of the prompt goes through here, so a picker waiting for its
+  // verdict is never left hanging. `proceed === false` answers it right away;
+  // on `true` the caller answers once the write it starts has an outcome.
+  function takePending(proceed: boolean): PendingChange | null {
+    const change = pendingChange;
+    pendingChange = null;
+    if (change?.kind === 'loader' && !proceed) change.settle(false);
+    return change;
+  }
+
+  // A prompt never outlives the instance it was asked about. The dialog is
+  // modal, so the UI cannot switch instances under it — but `selectedId` also
+  // follows props, and a dangling prompt would render over another instance.
+  $effect(() => {
+    void selectedId;
+    untrack(() => takePending(false));
+  });
 
   // Snapshot toggle for the MC version pickers. Off by default — most users
   // want stable releases. Deliberately shared across the create form and the
@@ -528,14 +556,23 @@
   // backend command itself cannot be aborted mid-write; muting its side
   // effects is the cancellable half.
   let cfgInFlight = false;
-  let cfgNext: (() => Promise<void>) | null = null;
+  type CfgChange = { run: () => Promise<void>; discard: () => void };
+  let cfgNext: CfgChange | null = null;
 
   // True while a NEWER change is queued behind the currently running one —
   // the running command reads this after its await to know it was overtaken.
   const cfgSuperseded = () => cfgNext !== null;
 
-  async function enqueueCfgChange(run: () => Promise<void>): Promise<void> {
-    cfgNext = run;
+  // NOTE the returned promise says nothing about `run`'s outcome: for a change
+  // queued behind another it resolves at once. A caller that needs the outcome
+  // resolves its own promise from inside `run`, and passes `discard` to learn
+  // that its entry was replaced before it ever ran.
+  async function enqueueCfgChange(
+    run: () => Promise<void>,
+    discard: () => void = () => {},
+  ): Promise<void> {
+    cfgNext?.discard();
+    cfgNext = { run, discard };
     if (cfgInFlight) return;
     cfgInFlight = true;
     try {
@@ -543,7 +580,7 @@
         const current = cfgNext;
         cfgNext = null;
         try {
-          await current();
+          await current.run();
         } catch {
           // Each entry surfaces its own errors; swallowing here only keeps a
           // rejected entry from wedging the loop for the change behind it.
@@ -579,76 +616,126 @@
   async function setMc(mc: string) {
     if (!selected) return;
     if (selected.mrpack_name) {
-      pendingChange = { kind: 'mc', value: mc };
+      takePending(false);
+      pendingChange = { kind: 'mc', instanceId: selected.id, value: mc };
       return;
     }
     await applyMcChange(selected.id, mc);
   }
 
-  async function applyLoaderChange(id: string, kind: LoaderKind, version: string | null) {
-    await enqueueCfgChange(async () => {
-      const result = await commands.setInstanceLoader(id, kind, version);
-      // See applyMcChange: an overtaken change is silenced entirely.
-      if (isStale(id) || cfgSuperseded()) return;
-      if (result.status === 'ok') {
-        onChanged();
-        await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
-      } else {
-        modalError = ipcErrorMessage(result.error);
-      }
+  // Resolves to whether the loader was WRITTEN — the LoaderPicker's verdict.
+  // The promise is tied to the queued entry itself, not to enqueueCfgChange's
+  // return: a discarded entry answers false, and an overtaken one still
+  // reports its real outcome while staying silent otherwise.
+  function applyLoaderChange(
+    id: string,
+    kind: LoaderKind,
+    version: string | null,
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      void enqueueCfgChange(
+        async () => {
+          try {
+            const result = await commands.setInstanceLoader(id, kind, version);
+            resolve(result.status === 'ok');
+            // See applyMcChange: an overtaken change is silenced entirely.
+            if (isStale(id) || cfgSuperseded()) return;
+            if (result.status === 'ok') {
+              onChanged();
+              await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
+            } else {
+              modalError = ipcErrorMessage(result.error);
+            }
+          } finally {
+            // Reached unanswered only if the IPC call itself threw: nothing
+            // was written as far as anyone can tell. (A no-op after the
+            // resolve above.)
+            resolve(false);
+          }
+        },
+        () => resolve(false),
+      );
     });
   }
 
-  async function commitLoader(kind: LoaderKind, version: string | null) {
-    if (!selected) return;
+  // The LoaderPicker's commit request. The verdict is what lets the picker go
+  // back to the saved loader when the change is refused, cancelled or fails.
+  function commitLoader(
+    kind: LoaderKind,
+    version: string | null,
+    origin: 'user' | 'auto',
+  ): Promise<boolean> {
+    if (!selected) return Promise.resolve(false);
     // Validate up front (selected is fresh here, pre-await) so a missing MC
     // version fails fast instead of after the detach prompt.
     if (kind !== 'vanilla' && !selected.mc_version) {
       modalError = get(t)('instance.error.pickMcFirst');
+      return Promise.resolve(false);
+    }
+    const id = selected.id;
+    if (!selected.mrpack_name) return applyLoaderChange(id, kind, version);
+    // A modpack instance changes only on the user's say-so. `auto` is the
+    // picker correcting a saved version the loader no longer offers: rewriting a
+    // pack-pinned build silently is wrong, and so is raising an irreversible
+    // keep/detach question nobody asked. Refused, the picker shows the saved
+    // version as not on offer, and the user can pick one — which does ask.
+    if (origin === 'auto') return Promise.resolve(false);
+    const versionOnly = kind === selected.loader;
+    return new Promise<boolean>((settle) => {
+      takePending(false);
+      pendingChange = {
+        kind: 'loader',
+        instanceId: id,
+        loaderKind: kind,
+        loaderVersion: version,
+        versionOnly,
+        settle,
+      };
+    });
+  }
+
+  async function applyPending(change: PendingChange) {
+    if (change.kind === 'mc') {
+      await applyMcChange(change.instanceId, change.value);
       return;
     }
-    if (selected.mrpack_name) {
-      pendingChange = { kind: 'loader', loaderKind: kind, loaderVersion: version };
-      return;
-    }
-    await applyLoaderChange(selected.id, kind, version);
+    change.settle(
+      await applyLoaderChange(change.instanceId, change.loaderKind, change.loaderVersion),
+    );
   }
 
   async function confirmDetachAndContinue() {
-    if (!selected || !pendingChange) return;
-    const id = selected.id;
-    const change = pendingChange;
-    pendingChange = null;
-    const detachResult = await commands.detachInstancePack(id);
-    if (isStale(id)) return;
-    if (detachResult.status === 'error') {
-      modalError = ipcErrorMessage(detachResult.error);
-      return;
-    }
-    // After detach onChanged() refreshes the instance list; but we need to
-    // apply the change against the updated selected. Trigger the change directly.
-    onChanged();
-    if (change.kind === 'mc') {
-      await applyMcChange(id, change.value);
-    } else {
-      await applyLoaderChange(id, change.loaderKind, change.loaderVersion);
+    const change = takePending(true);
+    if (!change) return;
+    const id = change.instanceId;
+    try {
+      const detachResult = await commands.detachInstancePack(id);
+      // Not detached (or no longer on screen): the change it gated does not
+      // run. The `finally` tells the picker no.
+      if (isStale(id)) return;
+      if (detachResult.status === 'error') {
+        modalError = ipcErrorMessage(detachResult.error);
+        return;
+      }
+      // The change is applied by id, so it does not wait for onChanged()'s
+      // refresh of `selected`.
+      onChanged();
+      await applyPending(change);
+    } finally {
+      // Every exit that did not reach applyPending's answer — an early return
+      // above, or the IPC call itself throwing — is a "no". A no-op once the
+      // real answer is in.
+      if (change.kind === 'loader') change.settle(false);
     }
   }
 
   async function keepAndContinue() {
-    if (!selected || !pendingChange) return;
-    const id = selected.id;
-    const change = pendingChange;
-    pendingChange = null;
-    if (change.kind === 'mc') {
-      await applyMcChange(id, change.value);
-    } else {
-      await applyLoaderChange(id, change.loaderKind, change.loaderVersion);
-    }
+    const change = takePending(true);
+    if (change) await applyPending(change);
   }
 
   function cancelPending() {
-    pendingChange = null;
+    takePending(false);
   }
 
   async function setMemory(mb: number) {
@@ -1067,11 +1154,11 @@
 
                   <!--
               Keyed on the instance id so the picker REMOUNTS when the user
-              switches the selected instance. LoaderPicker tracks the previous
-              loader in a non-reactive `prevLoader` to tell a user-driven loader
-              switch from a mount/MC tweak; without a remount that value leaks
-              across instances, so swapping to a modpack instance was mis-read as
-              a loader change and falsely raised the pack-detach prompt.
+              switches the selected instance: its uncommitted view, its pending
+              verdicts and its fetched list all belong to ONE instance, and none
+              of them may leak into the next. (Historically a leaked value made
+              swapping to a modpack instance read as a loader change and falsely
+              raised the pack-detach prompt.)
             -->
                   <div
                     data-focus-field="loader"
@@ -1093,11 +1180,7 @@
                           loader={selected.loader}
                           loaderVersion={selected.loader_version}
                           disabled={isRunning}
-                          onchange={async (l, v) => {
-                            if (l !== selected!.loader || v !== selected!.loader_version) {
-                              await commitLoader(l, v);
-                            }
-                          }}
+                          onchange={commitLoader}
                         />
                       {/key}
                     </span>
@@ -1437,26 +1520,43 @@
   {#if pendingChange !== null && selected}
     <Modal
       ariaLabelledby="instance-pack-detach-title"
+      ariaDescribedby="instance-pack-detach-desc"
       onClose={cancelPending}
-      panelClass="w-[460px] p-5 flex flex-col gap-3"
+      panelClass="w-[480px] p-5 flex flex-col gap-3"
     >
       <h3 id="instance-pack-detach-title" class="font-semibold text-primary text-base">
-        {$t('instance.packDetach.title')}
-      </h3>
-      <p class="text-sm text-secondary">
         {pendingChange.kind === 'mc'
-          ? $t('instance.packDetach.descriptionMc', { pack: selected.mrpack_name ?? '' })
-          : $t('instance.packDetach.descriptionLoader', { pack: selected.mrpack_name ?? '' })}
-      </p>
+          ? $t('instance.packDetach.titleMc', { to: pendingChange.value })
+          : pendingChange.versionOnly
+            ? $t('instance.packDetach.titleLoaderVersion', {
+                to: pendingChange.loaderVersion ?? '',
+              })
+            : $t('instance.packDetach.titleLoader', {
+                to: displayLoader(pendingChange.loaderKind),
+              })}
+      </h3>
+      <!-- Each choice gets its own paragraph opening with the very words on its
+           button, so "what does this button do" is answered next to it. -->
+      <div id="instance-pack-detach-desc" class="flex flex-col gap-2 text-sm text-secondary">
+        <p>{$t('instance.packDetach.intro', { pack: selected.mrpack_name ?? '' })}</p>
+        <p>
+          <strong class="text-primary">{$t('instance.packDetach.keepLabel')}</strong> —
+          {$t('instance.packDetach.keepBody')}
+        </p>
+        <p>
+          <strong class="text-primary">{$t('instance.packDetach.detachLabel')}</strong> —
+          {$t('instance.packDetach.detachBody')}
+        </p>
+      </div>
       <div class="flex justify-end gap-2 mt-2">
         <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
-          {$t('instance.manage.cancelBtn')}
+          {$t('instance.packDetach.cancelBtn')}
         </button>
         <button type="button" class="btn-primary btn-sm" onclick={keepAndContinue}>
-          {$t('instance.packDetach.keepBtn')}
+          {$t('instance.packDetach.keepLabel')}
         </button>
         <button type="button" class="btn-danger btn-sm" onclick={confirmDetachAndContinue}>
-          {$t('instance.packDetach.detachBtn')}
+          {$t('instance.packDetach.detachLabel')}
         </button>
       </div>
     </Modal>

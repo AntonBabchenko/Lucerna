@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+import LoaderPickerBound from './fixtures/LoaderPickerBound.svelte';
 
 // Mock the IPC commands module so the component doesn't try to call
 // real Tauri commands during unit tests. Fabric + Quilt mocks share
@@ -168,5 +169,252 @@ describe('LoaderPicker', () => {
       expect(trigger.textContent).toContain('0.20.0');
       expect(trigger.textContent).not.toContain('0.16.0');
     });
+  });
+});
+
+// A macrotask drain: covers the whole microtask queue in one wait, so a
+// (wrong) extra request has had every chance to fire before we count.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+const pressed = (el: HTMLElement) => el.getAttribute('aria-pressed');
+
+// With `onchange` the picker is in COMMIT MODE: the props are the parent's
+// committed truth, `onchange` is a request to change it, and its verdict
+// decides whether the clicked value stays on screen. The bug this pins: the
+// picker wrote the clicked loader into its own (one-way) prop before the parent
+// answered, so a cancelled pack-detach prompt or a failed write left the picker
+// showing a loader the instance did not have — and the request itself went out
+// twice, the first time carrying the PREVIOUS ecosystem's version.
+describe('LoaderPicker — commit requests (onchange)', () => {
+  const committed = { mc: '1.20.1', loader: 'fabric' as const, loaderVersion: '0.17.0-beta.1' };
+
+  it('a loader click requests exactly one commit, with the clicked ecosystem stable version', async () => {
+    const onchange = vi.fn().mockResolvedValue(true);
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    // Mount: the committed version is a real build → nothing to request.
+    await findByLabelText(/loader version/i);
+    await flush();
+    expect(onchange).not.toHaveBeenCalled();
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalled());
+    await flush();
+    expect(onchange).toHaveBeenCalledTimes(1);
+    expect(onchange).toHaveBeenCalledWith('quilt', '0.20.0', 'user');
+  });
+
+  it('a refused commit puts the pressed loader and the version back to the props', async () => {
+    const onchange = vi.fn().mockResolvedValue(false);
+    const { getByRole, getByLabelText, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => {
+      expect(pressed(getByRole('button', { name: 'Fabric' }))).toBe('true');
+      expect(pressed(getByRole('button', { name: 'Quilt' }))).toBe('false');
+    });
+    await waitFor(() =>
+      expect(getByLabelText(/loader version/i).textContent).toContain('0.17.0-beta.1'),
+    );
+  });
+
+  it('an onchange that throws is a refusal', async () => {
+    const onchange = vi.fn(() => {
+      throw new Error('handler blew up');
+    });
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pressed(getByRole('button', { name: 'Fabric' }))).toBe('true'));
+  });
+
+  it('requests nothing when the clicked loader list fails', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.listQuiltLoaders as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'loader_unavailable', loader: 'quilt', mc_version: '1.20.1' },
+    });
+    const onchange = vi.fn().mockResolvedValue(true);
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(getByRole('alert').textContent).toMatch(/does not support/i));
+    await flush();
+    // No valid (loader, version) pair exists, so there is nothing to write.
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('an empty list is reported as unavailable and requests nothing', async () => {
+    const onchange = vi.fn().mockResolvedValue(true);
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    // The Forge mock answers `ok` with an empty list.
+    await fireEvent.click(getByRole('button', { name: 'Forge' }));
+    await waitFor(() => expect(getByRole('alert').textContent).toMatch(/does not support/i));
+    await flush();
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('after a failed list, clicking the committed loader abandons the draft without a request', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.listQuiltLoaders as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'loader_unavailable', loader: 'quilt', mc_version: '1.20.1' },
+    });
+    const onchange = vi.fn().mockResolvedValue(true);
+    const { getByRole, getByLabelText, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(getByRole('alert').textContent).toMatch(/does not support/i));
+
+    await fireEvent.click(getByRole('button', { name: 'Fabric' }));
+    await waitFor(() => expect(pressed(getByRole('button', { name: 'Fabric' }))).toBe('true'));
+    // The pinned NON-stable version survives: going back is not a "switch".
+    await waitFor(() =>
+      expect(getByLabelText(/loader version/i).textContent).toContain('0.17.0-beta.1'),
+    );
+    await flush();
+    expect(onchange).not.toHaveBeenCalled();
+    expect(getByRole('alert').textContent).toBe('');
+  });
+
+  it('a parent-driven loader change keeps the version the parent passed and requests nothing', async () => {
+    // A pack restore writes the pack's own loader back and the parent refetches:
+    // that is not the user switching ecosystems, so nothing may be reset to
+    // "recommended" and committed over it. Quilt's list holds 0.16.0 as a
+    // NON-stable build — a (wrong) reset would land on 0.20.0.
+    const onchange = vi.fn().mockResolvedValue(true);
+    const { rerender, getByLabelText, findByLabelText } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: '0.16.0', onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await rerender({ mc: '1.20.1', loader: 'quilt', loaderVersion: '0.16.0', onchange });
+    await waitFor(() => {
+      const text = getByLabelText(/loader version/i).textContent ?? '';
+      expect(text).toContain('0.16.0');
+      expect(text).not.toContain('0.20.0');
+    });
+    await flush();
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('a stale committed version is corrected as an AUTO request, never as the user asking', async () => {
+    // The parent must be able to tell the picker's own housekeeping from a
+    // click: for a modpack instance the first is refused outright, because it
+    // would otherwise raise an irreversible keep/detach question nobody asked.
+    const onchange = vi.fn().mockResolvedValue(false);
+    const { getByRole, findByRole } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: 'gone-0.1', onchange },
+    });
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+    expect(onchange).toHaveBeenCalledWith('fabric', '0.16.0', 'auto');
+
+    // Refused → the picker does not pretend: Fabric stays pressed and the
+    // version control shows no selection rather than a build that is not saved.
+    await findByRole('button', { name: 'Fabric' });
+    await flush();
+    expect(pressed(getByRole('button', { name: 'Fabric' }))).toBe('true');
+    expect(onchange).toHaveBeenCalledTimes(1);
+  });
+
+  it('a late refusal from an overtaken pick does not revert the newer pick', async () => {
+    let answerFirst!: (accepted: boolean) => void;
+    const onchange = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            answerFirst = resolve;
+          }),
+      )
+      .mockResolvedValue(true);
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+    await fireEvent.click(getByRole('button', { name: 'Vanilla' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(2));
+    expect(onchange).toHaveBeenLastCalledWith('vanilla', null, 'user');
+
+    answerFirst(false);
+    await flush();
+    expect(pressed(getByRole('button', { name: 'Vanilla' }))).toBe('true');
+  });
+
+  it('while a commit is in flight, clicking the committed loader requests the committed pair', async () => {
+    // Last click wins: the Quilt write may still land, so "back to Fabric" has
+    // to be a real request — and for the pinned version, not for "recommended".
+    const onchange = vi.fn(() => new Promise<boolean>(() => {}));
+    const { getByRole, findByLabelText } = render(LoaderPicker, {
+      props: { ...committed, onchange },
+    });
+    await findByLabelText(/loader version/i);
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+    await fireEvent.click(getByRole('button', { name: 'Fabric' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledTimes(2));
+    expect(onchange).toHaveBeenLastCalledWith('fabric', '0.17.0-beta.1', 'user');
+  });
+
+  it('a version pick is a commit request, and a refusal restores the committed version', async () => {
+    const onchange = vi.fn().mockResolvedValue(false);
+    const { getByRole, getByLabelText, findByLabelText } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: '0.16.0', onchange },
+    });
+    const trigger = await findByLabelText(/loader version/i);
+
+    await fireEvent.click(trigger);
+    await fireEvent.mouseDown(getByRole('option', { name: '0.17.0-beta.1' }));
+    await waitFor(() => expect(onchange).toHaveBeenCalledWith('fabric', '0.17.0-beta.1', 'user'));
+    await waitFor(() => expect(getByLabelText(/loader version/i).textContent).toContain('0.16.0'));
+  });
+});
+
+// Without `onchange` (the create form) the picker edits the parent's draft
+// through `bind:`. Nothing can refuse a draft edit, but the draft must never
+// hold a cross-ecosystem pair: the create form enables Create whenever a
+// version is present, so (quilt, <a Fabric version>) was creatable for as long
+// as the Quilt list took to load.
+describe('LoaderPicker — bound draft (no onchange)', () => {
+  it('a loader click clears the bound version until the new list resolves', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    let resolveQuilt!: (v: unknown) => void;
+    (mod.commands.listQuiltLoaders as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveQuilt = resolve;
+      }),
+    );
+    const { getByRole, getByTestId, findByLabelText } = render(LoaderPickerBound);
+    await findByLabelText(/loader version/i);
+    expect(getByTestId('bound').textContent).toBe('fabric|0.16.0');
+
+    await fireEvent.click(getByRole('button', { name: 'Quilt' }));
+    await waitFor(() => expect(getByTestId('bound').textContent).toBe('quilt|null'));
+
+    resolveQuilt({ status: 'ok', data: [{ version: '0.20.0', stable: true }] });
+    await waitFor(() => expect(getByTestId('bound').textContent).toBe('quilt|0.20.0'));
   });
 });
