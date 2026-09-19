@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { get } from 'svelte/store';
   import {
     commands,
@@ -11,6 +12,7 @@
   import ActiveBadge from '$lib/instances/ActiveBadge.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
   import InstanceFolderRow from '$lib/instances/InstanceFolderRow.svelte';
+  import { buildInstanceMenuItems, deleteBlockedReason } from '$lib/instances/instance-menu';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
@@ -30,6 +32,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { fieldFlash } from '$lib/ui/field-flash';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
@@ -48,19 +51,34 @@
     activeInstance = $bindable<InstanceWithStatus | null>(),
     versions,
     onChanged,
-    isRunning = false,
+    isInstanceRunning = () => false,
+    anyRunning = false,
     initialSelectedId = null,
     focusField = null,
     onCloneRequest = () => {},
     onShortcutRequest,
     onTranslationsRequest,
+    onActivateRequest,
+    onExportRequest,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
     activeInstance: InstanceWithStatus | null;
     versions: VersionEntry[];
     onChanged: () => void;
-    isRunning?: boolean;
+    /** Whether THIS instance's game is up. The modal's selection is independent
+     *  of the active instance and the backend guards per instance, so one
+     *  "the active one is running" flag locks the wrong rows. */
+    isInstanceRunning?: (id: string) => boolean;
+    /** Verify/repair touch shared libraries and refuse while ANY game runs. */
+    anyRunning?: boolean;
+    /** Make this instance the active one. Resolves to an error message, or null
+     *  on success — the page's own error banner renders behind this modal.
+     *  Undefined on bare mounts — the menu item is then omitted. */
+    onActivateRequest?: (id: string) => Promise<string | null>;
+    /** Open the export dialog for this instance (hosted by the page).
+     *  Undefined on bare mounts — the menu item is then omitted. */
+    onExportRequest?: (id: string) => void;
     // Open the clone dialog for this instance (hosted by the page so the
     // sidebar entry point shares it). Defaults to a no-op for bare mounts.
     onCloneRequest?: (instanceId: string) => void;
@@ -85,6 +103,9 @@
   let selectedId = $state<string | null>(null);
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
+  const selectedRunning = $derived(selected ? isInstanceRunning(selected.id) : false);
+  // One source for the Delete button and the row menu's Delete item.
+  const deleteBlock = $derived(deleteBlockedReason(selectedRunning, instances.length <= 1));
 
   // Draggable list/detail split. Not persisted — reopening starts from the
   // default, same as the skin editor's panel.
@@ -148,7 +169,11 @@
   });
 
   let modalError = $state<string | null>(null);
-  let deleteConfirmOpen = $state(false);
+  // The instance the delete confirm is about (null = closed). An id rather than
+  // "the selected one": the row menu deletes without moving the selection, so
+  // the dialog has to name its own target.
+  let deleteTargetId = $state<string | null>(null);
+  const deleteTarget = $derived(instances.find((i) => i.id === deleteTargetId) ?? null);
   // Deleting an instance destroys ALL of its worlds (plus mods/configs), so the
   // gate is at least as strong as the single-world delete: the user must type
   // the literal word "Delete" to confirm. Mirrors DeleteWorldDialog.
@@ -685,9 +710,9 @@
     else modalError = ipcErrorMessage(result.error);
   }
 
-  async function openFolder() {
-    if (!selected) return;
-    const result = await commands.openInstanceFolder(selected.id);
+  async function openFolder(id: string | undefined = selected?.id) {
+    if (!id) return;
+    const result = await commands.openInstanceFolder(id);
     // Folder-open is not tied to a visible field, so a toast is the right
     // channel (ToastHost is aria-live=polite) rather than the inline alert.
     if (result.status === 'error')
@@ -703,15 +728,66 @@
       ]);
   }
 
-  async function deleteSelected() {
-    if (!selected) return;
-    if (instances.length <= 1) return; // belt-and-braces; the button is also disabled
-    const result = await commands.deleteInstance(selected.id);
+  async function openModsFolder(id: string) {
+    const result = await commands.openModsFolder(id);
+    if (result.status === 'error')
+      pushWarning(get(t)('instance.manage.openModsFolderFailed'), [ipcErrorMessage(result.error)]);
+  }
+
+  async function activate(id: string) {
+    const failure = await onActivateRequest?.(id);
+    if (failure) modalError = failure;
+  }
+
+  // Rename needs the detail form, so — unlike every other row action — it
+  // selects the row. tick() lets the form render (or leave create mode) first.
+  async function startRename(id: string) {
+    selectRow(id);
+    await tick();
+    const field = document.getElementById('detail-name') as HTMLInputElement | null;
+    field?.focus();
+    field?.select();
+  }
+
+  function requestDelete(id: string) {
+    deleteConfirmTyped = '';
+    deleteTargetId = id;
+  }
+
+  function menuFor(i: InstanceWithStatus): ContextMenuItem[] {
+    return buildInstanceMenuItems({
+      instance: i,
+      isActive: i.id === activeInstance?.id,
+      isRunning: isInstanceRunning(i.id),
+      isLast: instances.length <= 1,
+      testIdPrefix: 'manage-ctx',
+      t: $t,
+      handlers: {
+        onActivate: onActivateRequest ? (id) => void activate(id) : undefined,
+        onRename: (id) => void startRename(id),
+        onClone: onCloneRequest,
+        onShortcut: onShortcutRequest,
+        onTranslations: onTranslationsRequest,
+        onExport: onExportRequest,
+        onOpenFolder: (id) => void openFolder(id),
+        onOpenModsFolder: (id) => void openModsFolder(id),
+        onDelete: requestDelete,
+      },
+    });
+  }
+
+  async function deleteInstanceById(id: string) {
+    if (instances.length <= 1) return; // belt-and-braces; both entry points are also disabled
+    const result = await commands.deleteInstance(id);
     if (result.status === 'ok') {
-      selectedId = null;
-      lastNameSyncId = null;
-      lastHeapSyncId = null;
-      lastMinHeapSyncId = null;
+      // Only a deleted SELECTION needs re-seeding; deleting another row from
+      // its menu leaves the detail pane where it was.
+      if (id === selectedId) {
+        selectedId = null;
+        lastNameSyncId = null;
+        lastHeapSyncId = null;
+        lastMinHeapSyncId = null;
+      }
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -774,6 +850,7 @@
         activeId={activeInstance?.id ?? null}
         width={listWidth}
         {dataRootBlockedReason}
+        {menuFor}
         onSelect={selectRow}
         onCreate={openCreate}
       />
@@ -939,7 +1016,7 @@
                     <span
                       class="block mb-1"
                       use:tooltip={{
-                        text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                        text: selectedRunning ? $t('instance.manage.runningBlocked') : '',
                         describe: false,
                       }}
                     >
@@ -948,7 +1025,7 @@
                         class="w-full"
                         value={selected.mc_version}
                         options={mcVersionOptions}
-                        disabled={isRunning}
+                        disabled={selectedRunning}
                         onChange={(v) => setMc(String(v))}
                       />
                     </span>
@@ -977,7 +1054,7 @@
                     <span
                       class="block"
                       use:tooltip={{
-                        text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                        text: selectedRunning ? $t('instance.manage.runningBlocked') : '',
                         describe: false,
                       }}
                     >
@@ -986,7 +1063,7 @@
                           mc={selected.mc_version}
                           loader={selected.loader}
                           loaderVersion={selected.loader_version}
-                          disabled={isRunning}
+                          disabled={selectedRunning}
                           onchange={async (l, v) => {
                             if (l !== selected!.loader || v !== selected!.loader_version) {
                               await commitLoader(l, v);
@@ -1174,7 +1251,7 @@
                   >
                     <IntegritySection
                       instanceId={selected.id}
-                      {isRunning}
+                      isRunning={anyRunning}
                       name={selected.name}
                       status={selected.integrity}
                     />
@@ -1198,22 +1275,20 @@
             <span
               class="inline-flex"
               use:tooltip={{
-                text: isRunning
-                  ? $t('instance.manage.runningBlocked')
-                  : instances.length <= 1
-                    ? $t('instance.manage.cannotDeleteLast')
-                    : '',
+                text:
+                  deleteBlock === 'running'
+                    ? $t('instance.manage.runningBlocked')
+                    : deleteBlock === 'last'
+                      ? $t('instance.manage.cannotDeleteLast')
+                      : '',
                 describe: false,
               }}
             >
               <button
                 type="button"
                 class="btn-ghost-danger inline-flex items-center gap-1.5"
-                disabled={instances.length <= 1 || isRunning}
-                onclick={() => {
-                  deleteConfirmTyped = '';
-                  deleteConfirmOpen = true;
-                }}
+                disabled={deleteBlock !== null}
+                onclick={() => selected && requestDelete(selected.id)}
               >
                 <Icon name="trash" size={14} />
                 {$t('instance.manage.deleteBtn')}
@@ -1223,14 +1298,14 @@
               <span
                 class="inline-flex"
                 use:tooltip={{
-                  text: isRunning ? $t('instance.manage.runningBlocked') : '',
+                  text: selectedRunning ? $t('instance.manage.runningBlocked') : '',
                   describe: false,
                 }}
               >
                 <button
                   type="button"
                   class="btn-secondary btn-sm inline-flex items-center gap-1.5"
-                  disabled={isRunning}
+                  disabled={selectedRunning}
                   onclick={() => selected && onCloneRequest(selected.id)}
                   data-testid="clone-instance-btn"
                 >
@@ -1263,7 +1338,7 @@
               <button
                 type="button"
                 class="btn-secondary btn-sm inline-flex items-center gap-1.5"
-                onclick={openFolder}
+                onclick={() => void openFolder()}
               >
                 <Icon name="folderOpen" size={14} />
                 {$t('instance.manage.openFolderBtn')}
@@ -1279,17 +1354,17 @@
   </Modal>
   <ContextualTour id="manage" steps={MANAGE_STEPS} />
 
-  {#if deleteConfirmOpen && selected}
+  {#if deleteTarget}
     <Modal
       ariaLabelledby="instance-delete-confirm-title"
-      onClose={() => (deleteConfirmOpen = false)}
+      onClose={() => (deleteTargetId = null)}
       panelClass="w-[440px] p-5 flex flex-col gap-3"
     >
       <h3 id="instance-delete-confirm-title" class="font-semibold text-primary text-base">
         {$t('instance.delete.title')}
       </h3>
       <p class="text-sm text-secondary">
-        {$t('instance.delete.question', { name: selected.name })}
+        {$t('instance.delete.question', { name: deleteTarget.name })}
       </p>
       <p class="text-sm text-secondary">
         {$t('instance.delete.description')}
@@ -1306,11 +1381,7 @@
         data-testid="instance-delete-confirm-input"
       />
       <div class="flex justify-end gap-2 mt-2">
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onclick={() => (deleteConfirmOpen = false)}
-        >
+        <button type="button" class="btn-secondary btn-sm" onclick={() => (deleteTargetId = null)}>
           {$t('instance.manage.cancelBtn')}
         </button>
         <button
@@ -1318,8 +1389,9 @@
           class="btn-danger btn-sm"
           disabled={!canConfirmDelete}
           onclick={async () => {
-            deleteConfirmOpen = false;
-            await deleteSelected();
+            const id = deleteTarget.id;
+            deleteTargetId = null;
+            await deleteInstanceById(id);
           }}
         >
           {$t('instance.delete.confirmBtn')}
