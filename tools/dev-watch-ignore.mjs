@@ -51,8 +51,9 @@ function isAgentOrCargoDir(name) {
  * very bug this module replaced.
  *
  * @param {string} root absolute project root: the directory holding vite.config.js
- * @param {import('node:path').PlatformPath} [path] path flavour; injectable so the
- *   Windows behaviour is testable on a POSIX runner and vice versa
+ * @param {typeof nodePath} [path] path flavour (`path.win32` / `path.posix`, which
+ *   `@types/node` types as the `path` namespace itself); injectable so the Windows
+ *   behaviour is testable on a POSIX runner and vice versa
  * @returns {(watchedPath: string) => boolean} anymatch-compatible matcher; chokidar 3
  *   passes the path with forward slashes, native separators work just as well
  */
