@@ -375,11 +375,15 @@
       "confirmBtn": "Delete"
     },
     "packDetach": {
-      "title": "Change a modpack instance?",
-      "descriptionMc": "This instance came from {pack}. Keep it linked and it stays attached to the pack but will differ from it; detach to sever the link and manage it freely. Either way its Minecraft version changes.",
-      "descriptionLoader": "This instance came from {pack}. Keep it linked and it stays attached to the pack but will differ from it; detach to sever the link and manage it freely. Either way its loader changes.",
-      "keepBtn": "Keep & continue",
-      "detachBtn": "Detach & continue"
+      "titleLoader": "Switch the loader to {to}?",
+      "titleLoaderVersion": "Switch the loader version to {to}?",
+      "titleMc": "Switch Minecraft to {to}?",
+      "intro": "This instance was created from the modpack {pack}. The pack's mods were picked for its own loader and Minecraft version — after the switch some of them may not load. The launcher will check compatibility.",
+      "keepLabel": "Keep the link",
+      "keepBody": "the change is applied and the pack can still be updated. Updating or reinstalling the pack brings the pack's own loader and Minecraft version back.",
+      "detachLabel": "Detach",
+      "detachBody": "the launcher forgets this instance came from a modpack: no more pack updates or pack version switching. This cannot be undone. The instance's files are not touched.",
+      "cancelBtn": "Don't change"
     },
     "loader": {
       "label": "Loader",
