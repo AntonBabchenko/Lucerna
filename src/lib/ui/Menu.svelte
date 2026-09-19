@@ -45,6 +45,9 @@
   function onMenuKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.preventDefault();
+      // Stop here so a host Modal's `<svelte:window onkeydown>` does not close
+      // too — Escape dismisses only the menu, the way Select's dropdown does.
+      e.stopPropagation();
       onClose();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
