@@ -1,19 +1,14 @@
 <script lang="ts" module>
-  import type { IconName } from '$lib/ui/icons';
-  export interface ContextMenuItem {
-    label: string;
-    icon?: IconName;
-    danger?: boolean;
-    disabled?: boolean;
-    separatorBefore?: boolean;
-    testId?: string;
-    onSelect: () => void;
-  }
+  // The item model lives in a plain module so non-component code can build
+  // menus; re-exported here because this is where consumers import it from.
+  export type { ContextMenuItem } from '$lib/ui/menu-item';
 </script>
 
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Menu from '$lib/ui/Menu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
+  import { estimateMenuHeight } from '$lib/ui/menu-metrics';
 
   // Reusable right-click / Shift+F10 menu. Wraps a target (children) in a
   // display:contents div so it captures the contextmenu + keyboard-open events
@@ -28,7 +23,6 @@
 
   const WIDTH = 220;
   const MARGIN = 8;
-  const ROW = 34;
 
   let open = $state(false);
   let top = $state(0);
@@ -40,7 +34,7 @@
     // Remember where focus was so we can return it when the menu closes.
     returnFocusEl = document.activeElement as HTMLElement | null;
     left = Math.min(Math.max(x, MARGIN), Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN));
-    const estH = items.length * ROW + 10;
+    const estH = estimateMenuHeight(items);
     top = Math.min(Math.max(y, MARGIN), Math.max(MARGIN, window.innerHeight - estH - MARGIN));
     open = true;
   }

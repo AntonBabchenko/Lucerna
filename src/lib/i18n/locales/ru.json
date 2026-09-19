@@ -241,9 +241,6 @@
     "offlineNameUnsupported": "Этот ник не поддерживается Minecraft — в миры не зайти. Добавь аккаунт с латинским ником.",
     "contextHide": "Мне это не нужно",
     "contextMenuAria": "Действия с кнопкой",
-    "cloneInstance": "Клонировать…",
-    "createShortcut": "Создать ярлык на рабочем столе…",
-    "instanceMenuAria": "Действия с профилем",
     "hideConfirm": {
       "title": "Скрыть кнопку?",
       "body": "«{label}» исчезнет из боковой панели. Вернуть её можно в Настройках → Оформление.",
@@ -329,9 +326,19 @@
       "runningBlocked": "Сначала остановите запущенную игру.",
       "compatCheckUnavailable": "Не удалось проверить совместимость модов.",
       "openFolderFailed": "Не удалось открыть папку профиля.",
+      "openModsFolderFailed": "Не удалось открыть папку модов.",
       "openSourceFolderFailed": "Не удалось открыть исходную папку.",
       "cloneBtn": "Клонировать…",
       "translationsBtn": "Переводы"
+    },
+    "menu": {
+      "aria": "Действия для {name}",
+      "makeActive": "Сделать активным",
+      "rename": "Переименовать",
+      "createShortcut": "Создать ярлык на рабочем столе…",
+      "openFolder": "Открыть папку профиля",
+      "openModsFolder": "Открыть папку модов",
+      "reasonLast": "Лаунчеру нужен хотя бы один профиль."
     },
     "clone": {
       "title": "Клонировать {name}",
@@ -1225,6 +1232,7 @@
       "modeFull": "Полный (всё включено)",
       "contentLabel": "Содержимое",
       "modsCount": "Моды ({count})",
+      "nothingToExport": "В этом профиле нет модов — экспортировать нечего.",
       "configs": "Конфиги",
       "configsWarning": "Некоторые моды хранят API-ключи и токены в config/ — проверьте перед отправкой.",
       "resourcePacks": "Ресурспаки",

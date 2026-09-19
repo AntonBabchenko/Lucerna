@@ -244,7 +244,10 @@
   // hidden rather than offering a button that could only ever fail.
   let shortcutSupported = $state(false);
   let msSigningIn = $state(false);
-  let exportDialogOpen = $state(false);
+  // Instance the export dialog reports on (null = closed). An id, not a flag:
+  // the Manage row menu exports instances other than the active one.
+  let exportTargetId = $state<string | null>(null);
+  const exportTarget = $derived(instances.find((i) => i.id === exportTargetId) ?? null);
 
   // Per-instance Overview stats (installed-mod counts, incompatible count,
   // playtime, pack-missing mods) live in a dedicated rune composable. The page
@@ -700,7 +703,7 @@
       logsOpen ||
       screenshotsGalleryOpen ||
       settingsOpen.value !== null ||
-      exportDialogOpen ||
+      exportTargetId !== null ||
       msSigningIn;
     // Read compact state non-reactively (matches the activeInstance effect's
     // untrack idiom above): we react to overlays opening, not to our own
@@ -1174,15 +1177,21 @@
     instancesLoaded = true;
   }
 
-  async function onSelectInstance(id: string) {
+  // One activation path for the sidebar dropdown and the Manage row menu.
+  // Returns the formatted failure (or null) so a caller shown ABOVE the page's
+  // own banner can surface it where the user is looking.
+  async function activateInstance(id: string): Promise<string | null> {
     const result = await commands.setActiveInstance(id);
-    if (result.status === 'error') {
-      instancesError = formatError(result.error);
-      return;
-    }
+    if (result.status === 'error') return formatError(result.error);
     await refreshInstances();
     // The $effect watching activeInstance.id clears per-instance error
     // banners (installError, modsError, crashReport) automatically.
+    return null;
+  }
+
+  async function onSelectInstance(id: string) {
+    const failure = await activateInstance(id);
+    if (failure) instancesError = failure;
   }
 
   async function onInstall() {
@@ -1668,7 +1677,7 @@
                 manageFocus = field ?? null;
                 manageOpen = true;
               }}
-              onExport={() => (exportDialogOpen = true)}
+              onExport={() => (exportTargetId = activeInstance?.id ?? null)}
               onOpenPackDrawer={() => {
                 if (activeInstance)
                   modpacksNav.value = { openDrawerForInstance: activeInstance.id };
@@ -1740,7 +1749,8 @@
     bind:activeInstance
     versions={mcv.value}
     onChanged={refreshInstances}
-    isRunning={selectedRunning}
+    isInstanceRunning={isRunning}
+    anyRunning={runningCount > 0}
     initialSelectedId={manageInitialId}
     focusField={manageFocus}
     onCloneRequest={(id) => (cloneTargetId = id)}
@@ -1749,6 +1759,8 @@
       l10nTargetId = id;
       void openLocalization();
     }}
+    onActivateRequest={activateInstance}
+    onExportRequest={(id) => (exportTargetId = id)}
   />
 
   <LocalizationModal
@@ -1871,11 +1883,11 @@
       onConfirm={onLaunchWarningConfirm}
     />
   {/if}
-  {#if exportDialogOpen && activeInstance}
+  {#if exportTarget}
     <ExportPackDialog
-      instanceId={activeInstance.id}
-      instanceName={activeInstance.name}
-      onClose={() => (exportDialogOpen = false)}
+      instanceId={exportTarget.id}
+      instanceName={exportTarget.name}
+      onClose={() => (exportTargetId = null)}
     />
   {/if}
   {#if optimiseOpen && optimisePlan && activeInstance}

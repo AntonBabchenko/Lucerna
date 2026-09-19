@@ -113,11 +113,21 @@ describe('ExportPackDialog', () => {
     expect(screen.queryByText('Worlds')).toBeNull();
   });
 
-  it('disables Export when there are zero mods', async () => {
+  it('disables Export when there are zero mods, and says why', async () => {
     exportPreview.mockResolvedValue(ok(preview({ mods: [] })));
     renderDialog();
     expect(await screen.findByText('Format')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('export-nothing').textContent).toContain(
+      'This instance has no mods, so there is nothing to export.',
+    );
+  });
+
+  it('shows no empty-instance note when there is something to export', async () => {
+    exportPreview.mockResolvedValue(ok(preview()));
+    renderDialog();
+    expect(await screen.findByText('Format')).toBeTruthy();
+    expect(screen.queryByTestId('export-nothing')).toBeNull();
   });
 
   it('disables Export when the pack name is blank', async () => {

@@ -183,7 +183,10 @@ describe('ManageInstancesModal — memory slider', () => {
 });
 
 describe('ManageInstancesModal — running guard', () => {
-  function renderTwo(isRunning: boolean) {
+  // Alpha is the ACTIVE instance throughout. The lock must follow the instance
+  // on screen, which is not the same thing: the modal's selection is
+  // independent of the active instance, and the backend guards per instance.
+  function renderTwo(runningIds: string[]) {
     const a = makeInstance({ id: 'a', name: 'Alpha' });
     const b = makeInstance({ id: 'b', name: 'Beta' });
     return render(ManageInstancesModal, {
@@ -193,35 +196,42 @@ describe('ManageInstancesModal — running guard', () => {
         activeInstance: a,
         versions: [version],
         onChanged: () => {},
-        isRunning,
+        isInstanceRunning: (id: string) => runningIds.includes(id),
+        anyRunning: runningIds.length > 0,
       },
     });
   }
 
-  it('disables delete, MC version, and loader picker while running', async () => {
-    renderTwo(true);
-    await screen.findByDisplayValue('Alpha');
-
-    expect(
-      (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+  const locked = () => ({
+    del: (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
+    mc: (screen.getByRole('combobox') as HTMLButtonElement).disabled,
+    loader: (screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled,
   });
 
-  it('leaves delete, MC version, and loader picker enabled when not running', async () => {
-    renderTwo(false);
+  it('locks delete, MC version and loader picker while the selected instance runs', async () => {
+    renderTwo(['a']);
     await screen.findByDisplayValue('Alpha');
+    expect(locked()).toEqual({ del: true, mc: true, loader: true });
+  });
 
-    expect(
-      (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-    expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+  it('leaves delete, MC version, and loader picker enabled when nothing runs', async () => {
+    renderTwo([]);
+    await screen.findByDisplayValue('Alpha');
+    expect(locked()).toEqual({ del: false, mc: false, loader: false });
+  });
+
+  it('does not lock an idle instance because the ACTIVE one is running', async () => {
+    renderTwo(['a']);
+    await fireEvent.click(screen.getByTestId('manage-row-b'));
+    await screen.findByDisplayValue('Beta');
+    expect(locked()).toEqual({ del: false, mc: false, loader: false });
+  });
+
+  it('locks a running instance even though the active one is idle', async () => {
+    renderTwo(['b']);
+    await fireEvent.click(screen.getByTestId('manage-row-b'));
+    await screen.findByDisplayValue('Beta');
+    expect(locked()).toEqual({ del: true, mc: true, loader: true });
   });
 });
 

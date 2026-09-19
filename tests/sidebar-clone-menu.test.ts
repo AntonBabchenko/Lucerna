@@ -124,4 +124,26 @@ describe('Sidebar per-instance right-click menu', () => {
 
     expect(onSelectInstance).not.toHaveBeenCalled();
   });
+
+  // The Manage Clone button is disabled while that instance runs; offering the
+  // dialog here would only lead to a submit the backend refuses.
+  it('names its row, and disables Clone with the reason while that row runs', async () => {
+    const alt = instance({ id: 'inst-2', name: 'Other' });
+    render(Sidebar, {
+      props: {
+        ...baseProps,
+        isRunning: (id: string) => id === 'inst-2',
+        instances: [instance(), alt],
+        activeInstance: instance(),
+      },
+    });
+
+    await fireEvent.click(screen.getByRole('combobox', { name: /instance/i }));
+    await fireEvent.contextMenu(screen.getByRole('option', { name: /other/i }));
+
+    expect(screen.getByRole('menu').getAttribute('aria-label')).toBe('Actions for Other');
+    const clone = screen.getByTestId('sidebar-ctx-clone-instance') as HTMLButtonElement;
+    expect(clone.disabled).toBe(true);
+    expect(clone.textContent).toContain('Stop the running game first.');
+  });
 });
