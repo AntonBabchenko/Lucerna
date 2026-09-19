@@ -329,9 +329,19 @@
       "runningBlocked": "Stop the running game first.",
       "compatCheckUnavailable": "Couldn't check mod compatibility.",
       "openFolderFailed": "Couldn't open the instance folder.",
+      "openModsFolderFailed": "Couldn't open the mods folder.",
       "openSourceFolderFailed": "Couldn't open the source folder.",
       "cloneBtn": "Clone…",
       "translationsBtn": "Translations"
+    },
+    "menu": {
+      "aria": "Actions for {name}",
+      "makeActive": "Make active",
+      "rename": "Rename",
+      "createShortcut": "Create desktop shortcut…",
+      "openFolder": "Open instance folder",
+      "openModsFolder": "Open mods folder",
+      "reasonLast": "The launcher needs at least one instance."
     },
     "clone": {
       "title": "Clone {name}",
@@ -1221,6 +1231,7 @@
       "modeFull": "Full (bundle everything)",
       "contentLabel": "Content",
       "modsCount": "Mods ({count})",
+      "nothingToExport": "This instance has no mods, so there is nothing to export.",
       "configs": "Configs",
       "configsWarning": "Some mods keep API keys or tokens in config/ — review before sharing.",
       "resourcePacks": "Resource packs",
