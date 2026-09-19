@@ -8,7 +8,8 @@ const host = process.env.TAURI_DEV_HOST;
 // whichever checkout the server was started from: the main one, or an agent
 // worktree nested inside it. `import.meta.dirname` is the spelling that
 // survives all three loaders of this file: Vite's config bundler injects the
-// original value, Vitest and Node provide it natively.
+// original file's value, Vitest's module runner sets it on the `import.meta`
+// it hands to transformed modules, and Node has it natively.
 // `new URL(".", import.meta.url)` does not — Vite rewrites that pattern into
 // an asset URL in anything Vitest transforms.
 const projectRoot = import.meta.dirname;

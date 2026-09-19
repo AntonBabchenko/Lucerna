@@ -66,6 +66,32 @@ describe('createRootDirIgnore — Windows paths', () => {
     });
   });
 
+  describe('root spellings', () => {
+    test.each([
+      ['a trailing separator', 'C:\\Projects\\Lucerna\\', 'C:/Projects/Lucerna/.claude/a.ts'],
+      ['a UNC share', '\\\\srv\\share\\Lucerna', '//srv/share/Lucerna/.claude/a.ts'],
+      [
+        'an extended-length prefix on both sides',
+        '\\\\?\\C:\\Projects\\Lucerna',
+        '\\\\?\\C:\\Projects\\Lucerna\\.claude\\a.ts',
+      ],
+    ])('anchors to a root written with %s', (_label, root, watchedPath) => {
+      expect(createRootDirIgnore(root, path.win32)(watchedPath)).toBe(true);
+    });
+
+    // FAILURE DIRECTION, pinned on purpose. With the extended-length prefix on ONE side
+    // only, `path.relative` cannot relate the two and the matcher answers "not ignored".
+    // Over-watching fails loudly (tsconfig reload lines, then `respond is not a function`);
+    // answering "ignored" would fail silently, as the old globs did. Whoever teaches the
+    // matcher to strip the prefix flips these two expectations deliberately.
+    test.each([
+      ['C:\\Projects\\Lucerna', '\\\\?\\C:\\Projects\\Lucerna\\.claude\\a.ts'],
+      ['\\\\?\\C:\\Projects\\Lucerna', 'C:/Projects/Lucerna/.claude/a.ts'],
+    ])('a path it cannot relate to root %s is watched, not silently dropped', (root, watched) => {
+      expect(createRootDirIgnore(root, path.win32)(watched)).toBe(false);
+    });
+  });
+
   describe.each([
     ['.claude/worktrees', WORKTREE],
     ['.claude-worktrees', LEGACY_WORKTREE],

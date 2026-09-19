@@ -41,6 +41,15 @@ function isAgentOrCargoDir(name) {
  * deeper (`<root>/src/.claude/…`), and paths outside the root (Vite watches a few of those
  * explicitly — config dependencies, env files — and they must stay watched).
  *
+ * FAILURE DIRECTION: a path that cannot be related to the root is NOT ignored. That covers
+ * another volume, and also the same directory spelled in a different Windows form — an
+ * extended-length `\\?\C:\…` on one side only makes `path.relative` hand back the absolute
+ * path. Both values come from the same `process.cwd()`, so this should not happen; if it
+ * ever does, the watcher over-watches, which fails LOUDLY ("changed tsconfig file detected"
+ * in the log, then the `respond is not a function` 500s described in vite.config.js).
+ * Guessing "ignored" instead would fail silently — hot reload quietly off, which is the
+ * very bug this module replaced.
+ *
  * @param {string} root absolute project root: the directory holding vite.config.js
  * @param {import('node:path').PlatformPath} [path] path flavour; injectable so the
  *   Windows behaviour is testable on a POSIX runner and vice versa
