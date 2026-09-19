@@ -739,6 +739,12 @@
     if (failure) modalError = failure;
   }
 
+  // Double-click = the row menu's first action. The active row has no such
+  // item, so the gesture does nothing there either.
+  function activateOnDoubleClick(id: string) {
+    if (id !== activeInstance?.id) void activate(id);
+  }
+
   // Rename needs the detail form, so — unlike every other row action — it
   // selects the row. tick() lets the form render (or leave create mode) first.
   async function startRename(id: string) {
@@ -852,6 +858,7 @@
         {dataRootBlockedReason}
         {menuFor}
         onSelect={selectRow}
+        onActivate={onActivateRequest ? activateOnDoubleClick : undefined}
         onCreate={openCreate}
       />
       <!-- The list sits before the handle, so dragging right widens it. -->

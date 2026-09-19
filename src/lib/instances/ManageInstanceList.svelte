@@ -20,6 +20,7 @@
     dataRootBlockedReason,
     menuFor = () => [],
     onSelect,
+    onActivate,
     onCreate,
   }: {
     instances: InstanceWithStatus[];
@@ -33,6 +34,10 @@
      *  without one (ContextMenu stays inert). */
     menuFor?: (instance: InstanceWithStatus) => ContextMenuItem[];
     onSelect: (id: string) => void;
+    /** A row's default action, run on double-click: the first item of its
+     *  menu. Undefined where the host cannot do it — the gesture is then
+     *  just two clicks. */
+    onActivate?: (id: string) => void;
     onCreate: () => void;
   } = $props();
 
@@ -88,7 +93,8 @@
     {#each filteredInstances as i (i.id)}
       <!-- The menu acts on ITS row and leaves the selection alone, like the
            log-file rows and the sidebar's profile dropdown: a right-click is
-           not a click. -->
+           not a click. A double-click runs the row's default action — the
+           menu's first item — after its two clicks have selected the row. -->
       <ContextMenu items={menuFor(i)} ariaLabel={$t('instance.menu.aria', { name: i.name })}>
         <button
           class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
@@ -96,6 +102,7 @@
           aria-current={i.id === selectedId}
           data-testid="manage-row-{i.id}"
           onclick={() => onSelect(i.id)}
+          ondblclick={() => onActivate?.(i.id)}
         >
           <div class="font-medium flex items-center gap-1.5">
             <!-- Same 20px avatar the sidebar rows use, so an instance looks

@@ -25,8 +25,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **A right-click menu on the profile list in the Manage window.** Every action
   for a profile is one right-click away, without first selecting it — including
-  making it the active profile, which the window could not do before. An action
-  that is unavailable says why, under its name.
+  making it the active profile, which the window could not do before and which
+  a double-click on the profile now does too. An action that is unavailable
+  says why, under its name.
 
 ### Fixed
 

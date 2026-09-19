@@ -254,3 +254,45 @@ describe('ManageInstancesModal — row context menu', () => {
     expect(del.textContent).toContain('The launcher needs at least one instance.');
   });
 });
+
+describe('ManageInstancesModal — double-click a row', () => {
+  // The browser delivers a double-click as click, click, dblclick — fire the
+  // whole gesture, so the test covers what the two clicks do along the way.
+  async function doubleClick(id: string) {
+    const row = screen.getByTestId(`manage-row-${id}`);
+    await fireEvent.click(row);
+    await fireEvent.click(row);
+    await fireEvent.dblClick(row);
+  }
+
+  it('selects the row and makes it active — once', async () => {
+    const onActivateRequest = vi.fn().mockResolvedValue(null);
+    renderModal({ onActivateRequest });
+    await screen.findByDisplayValue('Alpha');
+    await doubleClick('b');
+    expect(onActivateRequest).toHaveBeenCalledTimes(1);
+    expect(onActivateRequest).toHaveBeenCalledWith('b');
+    expect(isCurrent('b')).toBe(true);
+  });
+
+  it('does nothing on the row that is already active', async () => {
+    const onActivateRequest = vi.fn().mockResolvedValue(null);
+    renderModal({ onActivateRequest });
+    await screen.findByDisplayValue('Alpha');
+    await doubleClick('a');
+    expect(onActivateRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows a failed activation inside the modal', async () => {
+    renderModal({ onActivateRequest: vi.fn().mockResolvedValue('boom') });
+    await doubleClick('b');
+    expect(await screen.findByText('boom')).toBeTruthy();
+  });
+
+  it('is just two clicks on a mount that cannot activate', async () => {
+    renderModal();
+    await screen.findByDisplayValue('Alpha');
+    await doubleClick('b');
+    expect(await screen.findByDisplayValue('Beta')).toBeTruthy();
+  });
+});
