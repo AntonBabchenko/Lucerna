@@ -25,6 +25,7 @@
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import { buildInstanceMenuItems } from '$lib/instances/instance-menu';
   import CountPill from '$lib/ui/cards/CountPill.svelte';
   import Menu from '$lib/ui/Menu.svelte';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
@@ -247,12 +248,41 @@
 
   // Right-click menu for a row in the profile dropdown (opened via the
   // Select's onOptionContextMenu hook; rendered with the shared Menu).
-  let instanceMenu = $state<{ id: string; top: number; left: number } | null>(null);
-  // Plain (non-reactive) snapshot of the menu's target id: Menu calls
-  // onClose() — which nulls `instanceMenu` — BEFORE onSelect(), so the item
-  // handler must not read the reactive state (a template `{@const}` re-derives
-  // at call time and crashes on null).
-  let instanceMenuTargetId = '';
+  //
+  // Everything the menu shows is computed ONCE, when it opens, and stored
+  // here: Menu calls onClose() — which nulls `instanceMenu` — BEFORE
+  // onSelect(), so nothing reached at select time may read this state (a
+  // template `{@const}` re-derives at call time and crashes on null). The
+  // builder's handlers close over the plain id for the same reason.
+  let instanceMenu = $state.raw<{
+    top: number;
+    left: number;
+    label: string;
+    items: ContextMenuItem[];
+  } | null>(null);
+
+  function openInstanceMenu(id: string, pos: { x: number; y: number }) {
+    const target = instances.find((i) => i.id === id);
+    instanceMenu = {
+      top: pos.y,
+      left: pos.x,
+      label: $t('instance.menu.aria', { name: target?.name ?? id }),
+      // The same builder as the Manage list, with the two actions this
+      // surface hosts. Create-shortcut is omitted entirely where the OS has no
+      // shortcut support (the page leaves the handler undefined) rather than
+      // shown disabled.
+      items: buildInstanceMenuItems({
+        // Unknown instance → 'vanilla', the answer that offers less.
+        instance: { id, loader: target?.loader ?? 'vanilla' },
+        isActive: id === activeInstance?.id,
+        isRunning: isRunning(id),
+        isLast: instances.length <= 1,
+        testIdPrefix: 'sidebar-ctx',
+        t: $t,
+        handlers: { onClone: onCloneInstance, onShortcut: onCreateShortcut },
+      }),
+    };
+  }
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
@@ -530,35 +560,13 @@
               optionLeading={instanceLeading}
               valueLeading={instanceLeading}
               optionTrailing={instanceTrailing}
-              onOptionContextMenu={(opt, pos) => {
-                instanceMenuTargetId = String(opt.value);
-                instanceMenu = { id: instanceMenuTargetId, top: pos.y, left: pos.x };
-              }}
+              onOptionContextMenu={(opt, pos) => openInstanceMenu(String(opt.value), pos)}
             />
           </div>
           {#if instanceMenu}
             <Menu
-              items={[
-                {
-                  label: $t('sidebar.cloneInstance'),
-                  icon: 'copy',
-                  testId: 'sidebar-ctx-clone-instance',
-                  onSelect: () => onCloneInstance(instanceMenuTargetId),
-                },
-                // Omitted entirely where the OS has no shortcut support (the page
-                // leaves the handler undefined) rather than shown disabled.
-                ...(onCreateShortcut
-                  ? [
-                      {
-                        label: $t('sidebar.createShortcut'),
-                        icon: 'monitor' as const,
-                        testId: 'sidebar-ctx-create-shortcut',
-                        onSelect: () => onCreateShortcut?.(instanceMenuTargetId),
-                      },
-                    ]
-                  : []),
-              ]}
-              ariaLabel={$t('sidebar.instanceMenuAria')}
+              items={instanceMenu.items}
+              ariaLabel={instanceMenu.label}
               top={instanceMenu.top}
               left={instanceMenu.left}
               width={220}

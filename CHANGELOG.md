@@ -21,6 +21,25 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **A right-click menu on the profile list in the Manage window.** Every action
+  for a profile is one right-click away, without first selecting it — including
+  making it the active profile, which the window could not do before and which
+  a double-click on the profile now does too. An action that is unavailable
+  says why, under its name.
+
+### Fixed
+
+- **The Manage window locked the wrong profile while a game was running.** The
+  lock followed the active profile rather than the one being edited: an idle
+  profile could not be changed or deleted while another one ran, and a running
+  one could — only for the launcher to refuse afterwards.
+- **Escape in a right-click menu also closed the window behind it**, for
+  example the Logs window.
+- **Exporting a profile without mods showed a dead button and no reason.** The
+  export window now says there is nothing to export.
+
 ## [0.24.0] — 2026-09-19
 
 ### Added

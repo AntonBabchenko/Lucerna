@@ -4,7 +4,8 @@
   import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
   import { t } from '$lib/i18n';
   import Menu from '$lib/ui/Menu.svelte';
-  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
+  import { estimateMenuHeight } from '$lib/ui/menu-metrics';
   import { commands } from '$lib/ipc/bindings';
   import {
     type EditAction,
@@ -44,7 +45,6 @@
   // itself, so an unclamped open near an edge puts the items out of reach.
   const MENU_WIDTH = 180;
   const MARGIN = 8;
-  const ROW = 34;
 
   let menuOpen = $state(false);
   let menuTop = $state(0);
@@ -74,7 +74,7 @@
       Math.max(e.clientX, MARGIN),
       Math.max(MARGIN, window.innerWidth - MENU_WIDTH - MARGIN),
     );
-    const estH = editItems.length * ROW + 10;
+    const estH = estimateMenuHeight(editItems);
     menuTop = Math.min(
       Math.max(e.clientY, MARGIN),
       Math.max(MARGIN, window.innerHeight - estH - MARGIN),
