@@ -2,7 +2,8 @@
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import Menu from '$lib/ui/Menu.svelte';
-  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
+  import { estimateMenuHeight } from '$lib/ui/menu-metrics';
 
   // Left-click overflow menu. A trigger button (⋯) opens a position:fixed menu
   // listing ContextMenuItems; the shared Menu owns the surface, keyboard nav, and
@@ -12,7 +13,6 @@
 
   const WIDTH = 230;
   const MARGIN = 8;
-  const ROW = 34;
 
   let open = $state(false);
   let top = $state(0);
@@ -35,7 +35,7 @@
       Math.max(desiredLeft, MARGIN),
       Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN),
     );
-    const estH = items.length * ROW + 10;
+    const estH = estimateMenuHeight(items);
     const desiredTop = r ? r.bottom + 4 : MARGIN;
     top = Math.min(desiredTop, Math.max(MARGIN, window.innerHeight - estH - MARGIN));
     open = true;

@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { Icon } from '$lib/ui/icons';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
-  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
 
   let {
     items,
@@ -109,18 +109,32 @@
     {#if it.separatorBefore}
       <div class="h-px bg-border-subtle my-1" aria-hidden="true"></div>
     {/if}
+    {@const reason = it.disabled ? it.disabledReason : undefined}
     <button
       type="button"
       role="menuitem"
       tabindex="-1"
       disabled={it.disabled}
       data-testid={it.testId ?? undefined}
-      class={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left disabled:opacity-50 ${it.danger ? 'text-danger' : 'text-secondary'} ${activeIndex === i ? 'bg-subtle' : 'hover:bg-subtle'}`}
+      class={`w-full flex gap-2 px-3 py-1.5 text-sm text-left ${reason ? 'items-start' : 'items-center disabled:opacity-50'} ${it.danger ? 'text-danger' : 'text-secondary'} ${activeIndex === i ? 'bg-subtle' : 'hover:bg-subtle'}`}
       onclick={() => select(it)}
       onmouseenter={() => (activeIndex = i)}
     >
-      {#if it.icon}<Icon name={it.icon} size={15} />{/if}
-      {it.label}
+      {#if it.icon}<Icon
+          name={it.icon}
+          size={15}
+          class={reason ? 'mt-0.5 shrink-0 opacity-50' : ''}
+        />{/if}
+      {#if reason}
+        <!-- The label dims like any disabled item; the reason stays at full
+             contrast — halving the whole button would make it unreadable. -->
+        <span class="min-w-0 flex-1">
+          <span class="block opacity-50">{it.label}</span>
+          <span class="block text-xs text-muted">{reason}</span>
+        </span>
+      {:else}
+        {it.label}
+      {/if}
     </button>
   {/each}
 </div>
