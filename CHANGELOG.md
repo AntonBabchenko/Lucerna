@@ -38,7 +38,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   that is no longer on offer used to raise it the moment the instance was
   opened.
 
-## [0.24.0] — 2026-09-18
+## [0.24.0] — 2026-09-19
 
 ### Added
 
