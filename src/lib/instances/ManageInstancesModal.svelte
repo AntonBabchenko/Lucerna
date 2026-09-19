@@ -8,12 +8,13 @@
     type Error as IpcError,
     type MemoryBounds,
   } from '$lib/ipc/bindings';
-  import InstanceAvatar from '$lib/instances/InstanceAvatar.svelte';
+  import ActiveBadge from '$lib/instances/ActiveBadge.svelte';
   import InstanceAvatarEdit from '$lib/instances/InstanceAvatarEdit.svelte';
   import InstanceFolderRow from '$lib/instances/InstanceFolderRow.svelte';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import ManageInstanceList from '$lib/instances/ManageInstanceList.svelte';
   import { shouldFocusField, type ManageFocusField } from '$lib/instances/manage-focus';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
@@ -33,7 +34,6 @@
   import Select from '$lib/ui/Select.svelte';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
-  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { clampPanelWidth } from '$lib/ui/splitter';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
@@ -86,11 +86,6 @@
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
 
-  // Local name filter for the sidebar list — only surfaces once the list is
-  // long enough that scanning becomes a chore. Display-only: filtering never
-  // changes the selection, so the detail panel keeps showing the selected
-  // instance even if it is hidden from the list.
-  const FILTER_THRESHOLD = 8;
   // Draggable list/detail split. Not persisted — reopening starts from the
   // default, same as the skin editor's panel.
   //
@@ -135,12 +130,11 @@
   // is the source of truth and rejects longer names; this only drives the input
   // maxlength + counter so the UI agrees with the validator.
   const NAME_MAX = 32;
-  let filterQuery = $state('');
-  let filteredInstances = $derived(
-    filterQuery.trim()
-      ? instances.filter((i) => i.name.toLowerCase().includes(filterQuery.trim().toLowerCase()))
-      : instances,
-  );
+
+  function selectRow(id: string) {
+    createMode = false;
+    selectedId = id;
+  }
 
   // When the modal opens, default the selection to the currently-active
   // instance (the one the user is playing on the main view). Otherwise
@@ -411,7 +405,6 @@
     draftLoaderVersion = null;
     createHeapDraft = null;
     modalError = null;
-    filterQuery = '';
   }
 
   async function submitCreate() {
@@ -739,28 +732,9 @@
     lastNameSyncId = null;
     lastHeapSyncId = null;
     lastMinHeapSyncId = null;
-    filterQuery = '';
     savedField = null;
   }
 </script>
-
-{#snippet activeChip()}
-  <!--
-    A WORD on a pill is a status, not a count — so this is a StatusBadge, not a
-    CountPill (§9: "`StatusBadge` is the single status pill"). `info` is the
-    accent-soft variant, which is what the hand-rolled `bg-accent` + white label
-    was reaching for. Exactly the migration KeyEditRow's STATE_VARIANT comment
-    records: "the hand-rolled tones this replaced had drifted off the design
-    system (raw `bg-success/10` where the token is `bg-success-bg`,
-    `rounded-full` and `text-[11px]` where every other status pill in the app is
-    `rounded` / `text-xs`)."
-  -->
-  <span class="shrink-0">
-    <StatusBadge variant="info" testid="manage-active-badge"
-      >{$t('instance.manage.activeBadge')}</StatusBadge
-    >
-  </span>
-{/snippet}
 
 {#snippet savedBadge(field: SavedField)}
   {#if savedField === field}
@@ -794,95 +768,15 @@
       <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
     </header>
     <div class="flex flex-1 overflow-hidden" use:observeRow>
-      <aside
-        class="shrink-0 p-2 flex flex-col gap-2"
-        style="width:{listWidth}px"
-        data-tour-ctx="manage-list"
-        aria-label={$t('instance.manage.listRegionLabel')}
-      >
-        {#if dataRootBlockedReason}
-          <span
-            class="inline-flex shrink-0 w-full"
-            use:tooltip={{ text: dataRootBlockedReason, describe: false }}
-          >
-            <button type="button" class="btn-primary btn-sm w-full" disabled>
-              {$t('instance.manage.newInstanceBtn')}
-            </button>
-          </span>
-        {:else}
-          <button type="button" class="shrink-0 btn-primary btn-sm w-full" onclick={openCreate}>
-            {$t('instance.manage.newInstanceBtn')}
-          </button>
-        {/if}
-        {#if instances.length > FILTER_THRESHOLD}
-          <input
-            type="text"
-            class="shrink-0 border rounded px-2 py-1 text-sm"
-            placeholder={$t('instance.manage.filterPlaceholder')}
-            aria-label={$t('instance.manage.filterPlaceholder')}
-            bind:value={filterQuery}
-          />
-        {/if}
-        <div class="flex-1 overflow-y-auto flex flex-col gap-1">
-          {#each filteredInstances as i (i.id)}
-            <button
-              class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
-              class:bg-accent-soft={i.id === selectedId}
-              aria-current={i.id === selectedId}
-              onclick={() => {
-                createMode = false;
-                selectedId = i.id;
-              }}
-            >
-              <div class="font-medium flex items-center gap-1.5">
-                <!-- Same 20px avatar the sidebar rows use, so an instance looks
-                     the same in both lists. The ready/download glyph stays: it
-                     carries the install status, not identity. -->
-                <InstanceAvatar instance={i} size={20} />
-                <Icon
-                  name={i.ready ? 'success' : 'download'}
-                  class="shrink-0"
-                  label={i.ready
-                    ? $t('instance.manage.iconReady')
-                    : $t('instance.manage.iconDownloadNeeded')}
-                />
-                <span
-                  class="truncate min-w-0 flex-1"
-                  use:tooltip={{ text: i.name, whenOverflowing: true }}>{i.name}</span
-                >
-                {#if i.integrity && !i.integrity.healthy}
-                  <!-- The span carries the hover tooltip (title); the icon
-                       carries the accessible name (label → role="img" +
-                       aria-label), so pointer and screen-reader users get
-                       the same "N problems" text. -->
-                  <span
-                    class="inline-flex shrink-0 text-warning-text"
-                    use:tooltip={$t('instance.integrity.statusProblems', {
-                      count: i.integrity.problem_count,
-                    })}
-                  >
-                    <Icon
-                      name="warning"
-                      label={$t('instance.integrity.statusProblems', {
-                        count: i.integrity.problem_count,
-                      })}
-                    />
-                  </span>
-                {/if}
-                {#if i.id === activeInstance?.id}
-                  {@render activeChip()}
-                {/if}
-              </div>
-              <div class="text-xs text-muted truncate">
-                {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
-              </div>
-            </button>
-          {/each}
-          {#if filterQuery.trim() && filteredInstances.length === 0}
-            <p class="text-xs text-muted px-2 py-1">{$t('instance.manage.filterNoMatches')}</p>
-          {/if}
-        </div>
-      </aside>
+      <ManageInstanceList
+        {instances}
+        {selectedId}
+        activeId={activeInstance?.id ?? null}
+        width={listWidth}
+        {dataRootBlockedReason}
+        onSelect={selectRow}
+        onCreate={openCreate}
+      />
       <!-- The list sits before the handle, so dragging right widens it. -->
       <SplitterHandle
         bind:width={listWidth}
@@ -989,7 +883,7 @@
                       testId="manage-avatar"
                       removeTestId="manage-avatar-remove"
                     />
-                    {#if selected.id === activeInstance?.id}{@render activeChip()}{/if}
+                    {#if selected.id === activeInstance?.id}<ActiveBadge />{/if}
                   </div>
 
                   <label for="detail-name" class="mb-1 flex justify-between text-xs text-secondary">
