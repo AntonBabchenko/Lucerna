@@ -19,9 +19,11 @@
 //! NeoForge 1.21.1 instance reads as incompatible although the game loads it.
 
 use crate::instances::schema::LoaderKind;
-use crate::mods::local::{DepSide, DependencyKind, DescriptorEra, DescriptorSource, ManifestDeps};
+use crate::mods::local::{
+    DeclaredDep, DepSide, DependencyKind, DescriptorEra, DescriptorSource, ManifestDeps,
+};
 use crate::mods::preflight::effective_rank;
-use crate::mods::version_range::{satisfies, RangeFamily, Satisfaction};
+use crate::mods::version_range::{is_upper_bounded, satisfies, RangeFamily, Satisfaction};
 use crate::mods::version_support_matrix::{overrides_for, widen};
 
 /// Which half of the platform a verdict is about. Two unit variants, no
@@ -128,44 +130,44 @@ fn holds(kind: DependencyKind, sat: Satisfaction) -> bool {
     )
 }
 
-/// Judge a jar's platform declarations against one instance.
-pub fn platform_verdict(
-    manifest: &ManifestDeps,
-    instance_mc: &str,
-    loader: LoaderKind,
-    loader_version: Option<&str>,
-    era: DescriptorEra,
-) -> PlatformVerdict {
-    let mut mc_violation: Option<PlatformVerdict> = None;
-    let mut loader_violation: Option<PlatformVerdict> = None;
-    let mut any_holds = false;
+/// One admitted platform declaration, measured the way the loader measures it.
+struct Decided<'a> {
+    decl: &'a DeclaredDep,
+    axis: PlatformAxis,
+    actual: &'a str,
+    sat: Satisfaction,
+}
 
-    for d in &manifest.platform {
+/// The declarations the loader will actually enforce for this jar on this
+/// instance. The ONE place admission is decided: `platform_verdict` and
+/// `mc_fit_is_bounded` both read it, so they cannot come to disagree.
+fn decided<'a>(
+    manifest: &'a ManifestDeps,
+    instance_mc: &'a str,
+    loader: LoaderKind,
+    loader_version: Option<&'a str>,
+    era: DescriptorEra,
+) -> impl Iterator<Item = Decided<'a>> + 'a {
+    manifest.platform.iter().filter_map(move |d| {
         // 1. Side first, matching resolve() and ModSorter.java:275 — a
         //    side-filtered declaration is invisible to every check.
         if d.side == DepSide::Server {
-            continue;
+            return None;
         }
         // 2. Only declarations from a descriptor this loader opens for this jar.
         if effective_rank(d.source, &manifest.sources_present, loader, era).is_none() {
-            continue;
+            return None;
         }
         // 3. The loader only logs a warning for `discouraged` and carries on.
-        //    Currently redundant: `fires`/`holds` below are exhaustive over
-        //    {Required, Optional, Incompatible}, so a `Discouraged` kind never
-        //    matches either and this `continue` cannot change any outcome
-        //    today. Kept as the structural counterpart to `resolve`'s own
-        //    filter, and as the guard that would matter if `fires`/`holds`
-        //    ever grow a `Discouraged` arm. `discouraged_declaration_never_gates`
-        //    pins the end-to-end property, not this line.
+        //    `fires`/`holds` are exhaustive over {Required, Optional,
+        //    Incompatible}, so this cannot change an outcome today; kept as the
+        //    structural counterpart to `resolve`'s own filter.
+        //    `discouraged_declaration_never_gates` pins the end-to-end property.
         if d.kind == DependencyKind::Discouraged {
-            continue;
+            return None;
         }
         // 4. Map the declared id onto what this instance provides.
-        let Some((axis, actual)) = actual_for(&d.dep_id, instance_mc, loader, loader_version)
-        else {
-            continue;
-        };
+        let (axis, actual) = actual_for(&d.dep_id, instance_mc, loader, loader_version)?;
         // 5. resolve()'s own (kind, satisfaction) arms, with satisfaction
         //    measured the way the loader measures it: FML also counts a Maven
         //    range as met when a version on its support matrix is inside it.
@@ -178,6 +180,34 @@ pub fn platform_verdict(
             ),
             RangeFamily::FabricPredicate | RangeFamily::QuiltPredicate => direct,
         };
+        Some(Decided {
+            decl: d,
+            axis,
+            actual,
+            sat,
+        })
+    })
+}
+
+/// Judge a jar's platform declarations against one instance.
+pub fn platform_verdict(
+    manifest: &ManifestDeps,
+    instance_mc: &str,
+    loader: LoaderKind,
+    loader_version: Option<&str>,
+    era: DescriptorEra,
+) -> PlatformVerdict {
+    let mut mc_violation: Option<PlatformVerdict> = None;
+    let mut loader_violation: Option<PlatformVerdict> = None;
+    let mut any_holds = false;
+
+    for Decided {
+        decl: d,
+        axis,
+        actual,
+        sat,
+    } in decided(manifest, instance_mc, loader, loader_version, era)
+    {
         if fires(d.kind, sat) {
             let v = PlatformVerdict::Violated {
                 axis,
@@ -192,10 +222,9 @@ pub fn platform_verdict(
             // `[[dependencies.<modid>]]` table, so a single `mods.toml`
             // bundling submodules can legitimately declare two different
             // `forge` ranges and have both admitted. The load-bearing
-            // property is the axis determination itself, not which
-            // declaration's strings win — `resolve`'s own semantics are an
-            // OR of violations, so the axis is order-independent regardless
-            // of which admitted declaration the loop reaches first (see
+            // property is the axis determination itself — `resolve`'s own
+            // semantics are an OR of violations, so the axis is
+            // order-independent (see
             // `same_axis_multiple_firing_declarations_is_order_independent`).
             match axis {
                 PlatformAxis::Minecraft if mc_violation.is_none() => mc_violation = Some(v),
@@ -216,15 +245,46 @@ pub fn platform_verdict(
     })
 }
 
-/// D5 of the 2026-09-20 spec — see the implementation commit.
+/// True when the jar makes an explicit, upper-bounded statement about
+/// Minecraft that HOLDS on this instance, and no `minecraft` declaration
+/// fires. D5 of the 2026-09-20 spec.
+///
+/// Why it exists: platform game-version tags are per exact version and authors
+/// under-tag (Eating Animations 6.0.1 is tagged `1.21`; its jar declares
+/// `[1.21.0,1.22)` and NeoForge 1.21.1 loads it). A bounded range is the
+/// author's own statement and is what the loader enforces, so it outranks a
+/// missing tag. An OPEN range (`[1.20.1,)`) says nothing, and is exactly what
+/// the 1.20.1 jars left behind on a 1.21 instance declare.
+///
+/// Only a POSITIVE declaration counts: an `incompatible` exclusion that holds
+/// and happens to be bounded says what the jar refuses, not what it supports.
 pub fn mc_fit_is_bounded(
-    _manifest: &ManifestDeps,
-    _instance_mc: &str,
-    _loader: LoaderKind,
-    _loader_version: Option<&str>,
-    _era: DescriptorEra,
+    manifest: &ManifestDeps,
+    instance_mc: &str,
+    loader: LoaderKind,
+    loader_version: Option<&str>,
+    era: DescriptorEra,
 ) -> bool {
-    false // stub — red round
+    let mut bounded = false;
+    for d in decided(manifest, instance_mc, loader, loader_version, era) {
+        if d.axis != PlatformAxis::Minecraft {
+            continue;
+        }
+        if fires(d.decl.kind, d.sat) {
+            return false;
+        }
+        let positive = matches!(
+            d.decl.kind,
+            DependencyKind::Required | DependencyKind::Optional
+        );
+        if positive
+            && matches!(d.sat, Satisfaction::Satisfied)
+            && is_upper_bounded(&d.decl.range, d.decl.family)
+        {
+            bounded = true;
+        }
+    }
+    bounded
 }
 
 #[cfg(test)]
