@@ -5,7 +5,7 @@
 //! being removed, and it was pulled in as some removed mod's dependency.
 //! Manual mods (no `project_id`) are never flagged. No network, no I/O.
 
-use crate::mods::platform::{InstalledMod, OrphanRef};
+use crate::mods::platform::{InstalledMod, ModVersion, OrphanRef};
 use std::collections::HashSet;
 
 pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<OrphanRef> {
@@ -40,6 +40,24 @@ pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<Or
             })
         })
         .collect()
+}
+
+/// The `requires` edge list to store on a primary's registry row.
+/// D5 of the 2026-09-20 spec — see the implementation commit.
+pub(crate) fn requires_edges<'a>(
+    _registry: &[InstalledMod],
+    _outgoing_sha1: Option<&str>,
+    pulled_in: impl IntoIterator<Item = &'a ModVersion>,
+) -> Vec<String> {
+    // Scaffold — red round: today's install rule. Nothing carried over from an
+    // outgoing row, nothing pruned against the registry.
+    let mut ids: Vec<String> = pulled_in
+        .into_iter()
+        .map(|v| v.project_id.clone())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 #[cfg(test)]
@@ -91,5 +109,83 @@ mod tests {
         let orphans = find_orphans(&mods, &["a".into()]);
         assert_eq!(orphans.len(), 1);
         assert_eq!(orphans[0].project_id, "D");
+    }
+
+    // ── requires_edges (2026-09-20 spec, D5) ─────────────────────────────────
+    use super::requires_edges;
+    use crate::mods::platform::{LoaderKind, ModFile, ModVersion};
+
+    fn pulled(project_id: &str) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: project_id.into(),
+            version_id: format!("{project_id}-v1"),
+            name: project_id.to_uppercase(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.21.1".into()],
+            loaders: vec![LoaderKind::NeoForge],
+            primary_file: ModFile {
+                filename: format!("{project_id}.jar"),
+                url: format!("https://cdn.modrinth.com/{project_id}.jar"),
+                sha1: Some("00".into()),
+                size: 1.0,
+                distribution_allowed: true,
+                sha256: None,
+            },
+            deps: Vec::new(),
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn a_fresh_install_records_what_it_pulled_in_sorted_and_deduplicated() {
+        // (pin) Today's install rule, verbatim — the install command must get
+        // the byte-identical list out of the shared helper.
+        let pulled_in = [pulled("zeta"), pulled("alpha"), pulled("zeta")];
+        assert_eq!(
+            requires_edges(&[], None, pulled_in.iter()),
+            vec!["alpha".to_string(), "zeta".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_update_keeps_the_edges_the_outgoing_row_carried() {
+        // Every «Update» removed the old row and wrote a new one with NO edges,
+        // so the libraries it had pulled in stopped being anyone's dependency
+        // and were never offered for removal again. SHA-1 match ignores case.
+        let registry = vec![
+            m("old", "P", &["lib-b", "lib-a"]),
+            m("a", "lib-a", &[]),
+            m("b", "lib-b", &[]),
+        ];
+        assert_eq!(
+            requires_edges(&registry, Some("OLD"), std::iter::empty::<&ModVersion>()),
+            vec!["lib-a".to_string(), "lib-b".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_dependency_that_was_already_installed_is_not_claimed() {
+        // The install path gets this from its pruned closure; an update resolves
+        // the target's deps UNPRUNED, so the helper has to say it: a library the
+        // user already had must not become this mod's orphan later.
+        let registry = vec![m("old", "P", &[]), m("l", "lib-present", &[])];
+        let pulled_in = [pulled("lib-present"), pulled("lib-new")];
+        assert_eq!(
+            requires_edges(&registry, Some("old"), pulled_in.iter()),
+            vec!["lib-new".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_unknown_outgoing_sha_carries_nothing() {
+        // (pin)
+        let registry = vec![m("other", "Q", &["lib-q"])];
+        assert!(requires_edges(
+            &registry,
+            Some("missing"),
+            std::iter::empty::<&ModVersion>()
+        )
+        .is_empty());
     }
 }
