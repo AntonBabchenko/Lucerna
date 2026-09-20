@@ -166,6 +166,13 @@ pub(crate) fn is_bare_maven_spec(range: &str) -> bool {
     !t.is_empty() && t != "*" && !t.starts_with('[') && !t.starts_with('(')
 }
 
+/// Does `range` close the version set from ABOVE in every group (Maven) /
+/// alternative (Fabric, Quilt)? Purely syntactic — it says nothing about
+/// whether any version satisfies the range.
+pub(crate) fn is_upper_bounded(_range: &str, _family: RangeFamily) -> bool {
+    false // stub — red round
+}
+
 fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
     let range = range.trim();
     // An omitted versionRange is FML's `UNBOUNDED` — itself a bare spec, i.e.
@@ -731,5 +738,79 @@ mod tests {
             satisfies("1.19.2-5.0.0", "(1.19-5.0.0,]", Maven),
             Satisfaction::Violated
         ); // equal, exclusive lower
+    }
+
+    #[test]
+    fn upper_bounded_maven_ranges() {
+        for r in [
+            "[1.21,1.22)",
+            "[1.21.0,1.22)",
+            "[1.21.1]",
+            "(,1.21.1]",
+            "[1.20,1.20.4],[1.21,1.22)",
+        ] {
+            assert!(is_upper_bounded(r, RangeFamily::Maven), "{r} is bounded");
+        }
+    }
+
+    #[test]
+    fn maven_ranges_that_are_not_upper_bounded() {
+        // (pin) open, soft, empty, wildcard, one open group among several, malformed.
+        for r in [
+            "[1.21,)",
+            "(1.20,)",
+            "1.21.1",
+            "",
+            "*",
+            "[1.20,1.20.4],[1.21,)",
+            "[1.21",
+        ] {
+            assert!(
+                !is_upper_bounded(r, RangeFamily::Maven),
+                "{r} is not bounded"
+            );
+        }
+    }
+
+    #[test]
+    fn upper_bounded_predicates() {
+        for r in [
+            ">=1.21 <1.22",
+            "~1.21",
+            "^1.21",
+            "1.21.1",
+            "<=1.21.1",
+            ">=1.21 <1.22 || =1.23",
+        ] {
+            assert!(
+                is_upper_bounded(r, RangeFamily::FabricPredicate),
+                "{r} is bounded"
+            );
+        }
+        // Quilt's bare version is a caret — bounded too.
+        assert!(is_upper_bounded("1.21.1", RangeFamily::QuiltPredicate));
+    }
+
+    #[test]
+    fn predicates_that_are_not_upper_bounded() {
+        // (pin)
+        for r in [
+            ">=1.21",
+            ">1.20",
+            "*",
+            "",
+            "1.21.x",
+            ">=1.21 <1.22 || >=1.23",
+            ">=1.21 ||",
+        ] {
+            assert!(
+                !is_upper_bounded(r, RangeFamily::FabricPredicate),
+                "{r} is not bounded"
+            );
+            assert!(
+                !is_upper_bounded(r, RangeFamily::QuiltPredicate),
+                "{r} is not bounded (quilt)"
+            );
+        }
     }
 }
