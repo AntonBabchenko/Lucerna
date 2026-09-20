@@ -223,6 +223,9 @@ fn real_xaero_loader_violation_routes_to_loader_too_old() {
         // The real jar is a Forge build judged on its own Forge instance —
         // the family axis is clean; this probe exercises the loader-VERSION arm.
         family_mismatch: false,
+        readable: true,
+        mc_fit_bounded: false,
+        availability: lucerna_lib::mods::compat::LiveAvailability::NotAsked,
     }]);
 
     println!(
