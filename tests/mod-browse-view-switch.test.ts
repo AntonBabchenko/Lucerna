@@ -207,10 +207,21 @@ describe('ModBrowseView — switching an installed mod to another version', () =
 
   it('recognises the installed build by its bytes when the registry has no version id', async () => {
     modsListInstalled.mockResolvedValue(ok([{ ...installedRow, version_id: null, sha1: 'H' }]));
-    modsVersions.mockResolvedValue(ok([version(), V2]));
+    // The two builds must differ in their BYTES: the shared `version()` fixture
+    // gives every build the same file sha1, and with that both rows would read
+    // «installed» — a test that cannot tell "matched by bytes" from "marks
+    // everything".
+    const otherBytes = version({
+      version_id: 'v2',
+      version_number: '2.0',
+      name: 'release-2.0',
+      primary_file: { ...version().primary_file, filename: 'sodium-2.jar', sha1: 'other' },
+    });
+    modsVersions.mockResolvedValue(ok([version(), otherBytes]));
     const modal = await openDrawer();
 
     expect(await within(modal).findByText('1.0 · installed')).toBeTruthy();
+    expect(within(modal).queryByText('2.0 · installed')).toBeNull();
   });
 });
 
