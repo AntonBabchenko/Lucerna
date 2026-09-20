@@ -173,7 +173,8 @@ mod tests {
         // stands in for a parallel sibling frozen mid-flight; a registry of our
         // own must not see it. Were `Registry` ever a front for shared state,
         // the emptiness assertions above would go back to failing now and then
-        // — this one fails every time instead.
+        // — this one fails every time instead. The `begin` is what makes it
+        // so: with no run held, shared state would look just as empty.
         let id = "inst-isolation";
         let _flag = begin(id);
         assert!(!Registry::default().any_active());

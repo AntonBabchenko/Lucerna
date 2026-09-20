@@ -213,8 +213,9 @@ once. What a test may assert about one depends on the kind of claim:
 
 The second rule was learned the usual way. `any_active_sees_a_run_on_any_instance`
 asserted emptiness on the shared static while two siblings in the same module
-registered runs on it; it failed roughly one run in sixty, and surfaced on
-`rust (ubuntu)`, on `main`, right after an unrelated merge. A test lock would
+registered runs on it. Compiled alone, that module failed 16 of 1,000 runs; in
+CI it surfaced on `rust (ubuntu)`, on `main`, right after an unrelated merge
+(after the fix: 0 of 5,000). A test lock would
 have repaired that module only for as long as every future test remembered to
 take it — the same hole as failure mode 1 of the env-race flake above, found
 the same way.
