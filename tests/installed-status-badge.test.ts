@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import InstalledModRow from '$lib/mods/installed/InstalledModRow.svelte';
 
 const summary = {
@@ -39,6 +40,7 @@ const base = () => ({
   checking: false,
   packChip: null,
   incompatibleTitle: null,
+  incompatKind: null,
   selected: false,
   onToggleExpand() {},
   onHover() {},
@@ -160,5 +162,35 @@ describe('dependency relation chip', () => {
     expect(chips).toHaveLength(1);
     expect(chips[0].textContent).toMatch(/required by 1/i);
     expect(chips[0].textContent).not.toMatch(/\bdep\b/i);
+  });
+});
+
+describe('compat badge wording', () => {
+  beforeAll(() => locale.set('en'));
+
+  it('says «Incompatible» for what the loader will reject', () => {
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        incompatibleTitle: 'This mod needs Minecraft [1.20,1.21); this profile runs 1.21.1',
+        incompatKind: 'proven',
+      },
+    });
+    expect(screen.getByTestId('incompat-badge').textContent).toContain('Incompatible');
+  });
+
+  it('says «No release» when only the mod page is the evidence', () => {
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        incompatibleTitle: "The mod's page lists no release for NeoForge 1.21.1.",
+        incompatKind: 'noRelease',
+      },
+    });
+    const badge = screen.getByTestId('incompat-badge').textContent ?? '';
+    expect(badge).toContain('No release');
+    expect(badge).not.toContain('Incompatible');
   });
 });

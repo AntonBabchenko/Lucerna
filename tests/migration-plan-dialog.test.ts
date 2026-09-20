@@ -38,9 +38,13 @@ function modVersion(projectId: string, versionId: string): ModVersion_Serialize 
 }
 
 // Three fits, one replaceable, one new dependency (needed by the replaceable
-// row), one stranded, and two unjudged — every number distinct so an
-// assertion that reads "3" can only mean fits, never stranded or unjudged.
-const PLAN: McMigrationPlan_Serialize = {
+// row), one stranded, one no-release, and two unjudged — every number distinct
+// so an assertion that reads "3" can only mean fits.
+//
+// `as unknown as`: the red round runs against the OLD bindings, where
+// `unjudged` is a number and `no_platform_build` does not exist. Task G10
+// removes the cast once the bindings are regenerated.
+const PLAN = {
   fits: [
     { sha1: 'f1', name: 'Fine Mod One' },
     { sha1: 'f2', name: 'Fine Mod Two' },
@@ -64,8 +68,12 @@ const PLAN: McMigrationPlan_Serialize = {
     },
   ],
   stranded: [{ sha1: 's1', name: 'Old Mod', reason: { kind: 'no_build_for_target' } }],
-  unjudged: 2,
-};
+  no_platform_build: [{ sha1: 'n1', name: 'Jade' }],
+  unjudged: [
+    { sha1: 'u1', name: 'Kiwi', reason: 'file_not_listed' },
+    { sha1: 'u2', name: 'Hand Dropped', reason: 'no_mod_page' },
+  ],
+} as unknown as McMigrationPlan_Serialize;
 
 function renderDialog(onApplied = vi.fn(), onClose = vi.fn()) {
   return render(MigrationPlanDialog, {
@@ -87,15 +95,23 @@ describe('MigrationPlanDialog', () => {
     expect(screen.getByTestId('migration-stranded-section').textContent).toContain('(1)');
   });
 
-  it('renders the unjudged count as its own line, distinct from — and not folded into — fits', async () => {
+  it('lists the unjudged mods by name with the true reason, apart from fits', async () => {
     modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
     renderDialog();
 
     await waitFor(() => expect(screen.getByTestId('migration-unjudged')).toBeTruthy());
-    // unjudged (2) is its own line...
-    expect(screen.getByTestId('migration-unjudged').textContent).toContain('2');
-    // ...while the summary line still reports the real fits count (3), not
-    // 3 + 2 and not 2.
+    const block = screen.getByTestId('migration-unjudged');
+    // The count is still its own line…
+    expect(block.querySelector('summary')?.textContent).toContain('2');
+    // …and the mods are no longer anonymous.
+    expect(screen.getByTestId('migration-unjudged-row-u1').textContent).toContain('Kiwi');
+    expect(screen.getByTestId('migration-unjudged-row-u1').textContent).toMatch(
+      /doesn't list this exact file/i,
+    );
+    expect(screen.getByTestId('migration-unjudged-row-u2').textContent).toMatch(
+      /isn't linked to a mod page/i,
+    );
+    // Fits stays the real fits count (3), never 3 + 2.
     const summaryText = screen.getByTestId('migration-summary').textContent ?? '';
     expect(summaryText).toContain('3 mods already fit');
     expect(summaryText).not.toContain('5 mods');
@@ -293,5 +309,91 @@ describe('MigrationPlanDialog', () => {
     await waitFor(() => expect(screen.getByTestId('migration-done-btn')).toBeTruthy());
     expect(onApplied).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('migration-result-summary').textContent).toContain('1 of 1');
+  });
+
+  it('shows «no release» mods in their own section, never under «needs your decision»', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-no-release-section')).toBeTruthy());
+    const section = screen.getByTestId('migration-no-release-section');
+    expect(section.textContent).toContain('(1)');
+    expect(section.textContent).toContain('Jade');
+    // Both outcomes are stated — «keep it» alone would be as dishonest as «remove it».
+    expect(section.textContent).toMatch(/may fail to load/i);
+    expect(section.textContent).toMatch(/keep it if the game runs/i);
+    expect(screen.getByTestId('migration-stranded-section').textContent).not.toContain('Jade');
+    expect(screen.getByTestId('migration-summary').textContent).toContain(
+      '1 have no release for this version',
+    );
+  });
+
+  it('sends an undecided no-release row as keep, inside selections.stranded', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    modsApplyMcMigration.mockResolvedValue({ status: 'ok', data: { outcomes: [] } });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-apply-btn')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Biomes O Plenty' }));
+    await fireEvent.click(screen.getByTestId('migration-apply-btn'));
+
+    await waitFor(() => expect(modsApplyMcMigration).toHaveBeenCalledTimes(1));
+    const selections = modsApplyMcMigration.mock.calls[0][1] as {
+      stranded: { sha1: string; disposition: string }[];
+    };
+    // Dropping the row from the payload would be silent; defaulting it to a
+    // destructive choice would be worse.
+    expect(selections.stranded).toContainEqual({ sha1: 'n1', disposition: 'keep' });
+  });
+
+  it('a decided no-release row carries its disposition and alone enables Apply', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    modsApplyMcMigration.mockResolvedValue({ status: 'ok', data: { outcomes: [] } });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-disposition-disable-n1')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-disposition-disable-n1'));
+    const applyBtn = screen.getByTestId('migration-apply-btn') as HTMLButtonElement;
+    expect(applyBtn.disabled).toBe(false);
+    await fireEvent.click(applyBtn);
+
+    await waitFor(() => expect(modsApplyMcMigration).toHaveBeenCalledTimes(1));
+    const selections = modsApplyMcMigration.mock.calls[0][1] as {
+      stranded: { sha1: string; disposition: string }[];
+    };
+    expect(selections.stranded).toContainEqual({ sha1: 'n1', disposition: 'disable' });
+  });
+
+  it('a plan with nothing but fits says so, and the summary names no release clause', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: {
+        fits: [{ sha1: 'f1', name: 'Fine Mod One' }],
+        replaceable: [],
+        new_dependencies: [],
+        stranded: [],
+        no_platform_build: [],
+        unjudged: [],
+      },
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-nothing-to-do')).toBeTruthy());
+    expect(screen.getByTestId('migration-summary').textContent).not.toMatch(/no release/i);
+    expect(screen.queryByTestId('migration-unjudged')).toBeNull();
+    expect(screen.queryByTestId('migration-no-release-section')).toBeNull();
+  });
+
+  it('reports the loaded plan to its opener, once, and only on success', async () => {
+    // D8 leg 3: the opener uses this to re-run the chip's live check AFTER the
+    // plan's own probes have warmed the shared version cache — one network
+    // burst, two surfaces answering from the same data.
+    const onPlanLoaded = vi.fn();
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: PLAN });
+    render(MigrationPlanDialog, {
+      props: { instanceId: 'inst-1', onClose: vi.fn(), onPlanLoaded },
+    });
+    await waitFor(() => expect(screen.getByTestId('migration-summary')).toBeTruthy());
+    expect(onPlanLoaded).toHaveBeenCalledTimes(1);
   });
 });
