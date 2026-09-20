@@ -3,24 +3,27 @@
 //! Pure logic — no I/O. The command layer in `commands.rs` is the thin
 //! orchestrator that calls the platform and feeds results here.
 
-use crate::error::Result;
 use crate::mods::platform::ModVersion;
 
-/// The compatibility status of one installed mod against a target
-/// Minecraft version + loader combination.
+/// The LIVE half of one installed mod's compatibility — the chip's projection
+/// of [`ModPlatformClass`] (see [`compat_status`]). The offline half
+/// (`loader_mismatch` / `platform_mismatch`) travels in [`ModLocalCompat`].
 #[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ModCompatStatus {
-    /// At least one platform version exists for the target (mc, loader).
-    /// `available_version` is the version number of the newest match when
-    /// present (versions are returned newest-first by the platform layer).
+    /// The mod fits: its jar says so, or it declares nothing and the platform
+    /// lists this exact file for the instance's (mc, loader).
+    /// `available_version` is the newest listed version number, when the
+    /// platform was asked and answered with any.
     Compatible { available_version: Option<String> },
-    /// The platform responded successfully but returned zero versions for
-    /// the target (mc, loader) — the mod has no release for that combination.
+    /// The mod's page lists no build for the instance's (mc, loader) AND the
+    /// jar makes no bounded statement of its own. Probable, never proven —
+    /// the UI words it as «no release», not as «the loader will reject it».
     Incompatible,
-    /// The platform query failed (network error, missing CurseForge key,
-    /// project delisted / 404). A fetch error must NOT be read as
-    /// incompatible — the user should be told we simply don't know.
+    /// Nothing to add from the live side: the query failed or was never made
+    /// (no identity, pack-owned, unreadable jar, Vanilla instance), builds
+    /// exist but not this file, or the offline scan already flags the jar. A
+    /// failed query must NOT be read as incompatible.
     Unknown,
 }
 
@@ -66,29 +69,188 @@ pub struct ModLocalCompat {
     pub platform_declared: Option<String>,
 }
 
-/// Classify a platform `.versions(...)` result for a target (mc, loader).
-///
-/// - Non-empty `Ok` → [`ModCompatStatus::Compatible`] with the version
-///   number of the newest entry (`versions[0].version_number`), since the
-///   platform returns versions newest-first.
-/// - Empty `Ok` → [`ModCompatStatus::Incompatible`] (platform confirmed no
-///   release for that combination).
-/// - `Err` → [`ModCompatStatus::Unknown`] (fetch failure; must not be
-///   read as incompatible).
-pub fn classify_compat(versions: Result<Vec<ModVersion>>) -> ModCompatStatus {
-    match versions {
-        Ok(v) if !v.is_empty() => ModCompatStatus::Compatible {
-            available_version: Some(v[0].version_number.clone()),
+// =========================================================================
+// One classifier behind the chip and the migration plan (2026-09-20 spec)
+// =========================================================================
+
+/// What the platform says about ONE installed file for the instance's
+/// platform. «Asked and failed» and «never asked» are different facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveAvailability {
+    /// This exact file is one of the builds listed for (mc, probe loader).
+    FileListed,
+    /// Builds are listed, this file is not among them.
+    OtherBuildsOnly,
+    /// The platform answered with no build at all.
+    NoBuilds,
+    /// Asked, and the query failed (offline, no CurseForge key, 404).
+    Unreachable,
+    /// Never asked: no identity, pack-owned, unreadable jar, Vanilla instance.
+    NotAsked,
+}
+
+/// The platform's raw answer, as the command layer holds it.
+pub enum ProbeAnswer<'a> {
+    NotAsked,
+    Failed,
+    Found(&'a [ModVersion]),
+}
+
+/// The file on disk, as far as it can be matched against a platform listing.
+pub struct InstalledFile<'a> {
+    /// `installed::on_disk_sha1` — lowercase hex, `None` = could not tell.
+    pub on_disk_sha1: Option<&'a str>,
+    /// The registry's EXPECTED digest for this record.
+    pub registry_sha1: &'a str,
+    pub registry_version_id: Option<&'a str>,
+}
+
+/// Why a mod can or cannot be asked about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityKind {
+    Project,
+    PackOwned,
+    NoModPage,
+}
+
+/// Why a mod could not be judged either way. Crosses IPC — each variant is a
+/// distinct real state with its own copy; a missing CurseForge key must never
+/// read as a claim about the mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum UnjudgedReason {
+    Unreadable,
+    PackOwned,
+    NoModPage,
+    NoLoader,
+    PlatformUnavailable,
+    FileNotListed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModPlatformClass {
+    /// Nothing on the instance opens the jar (offline-authoritative).
+    Rejected,
+    /// The jar declares a range the instance does not provide (offline-authoritative).
+    Violated,
+    /// The mod's page lists no build for this platform and the jar makes no
+    /// bounded statement of its own. Probable, never proven.
+    NoPlatformBuild,
+    Fits,
+    Unjudged(UnjudgedReason),
+}
+
+pub struct ClassifyFacts<'a> {
+    pub readable: bool,
+    pub rejected: bool,
+    pub verdict: &'a crate::mods::mc_compat::PlatformVerdict,
+    pub mc_fit_bounded: bool,
+    pub identity: IdentityKind,
+    pub availability: LiveAvailability,
+}
+
+/// D4. «Builds exist» is not a judgement on the FILE; «this file is one of
+/// them» is. Judged against a FRESH list for the instance's CURRENT platform —
+/// a stored `version_id` alone is never evidence: it was decided at enrich
+/// time and goes stale across the version change this feature exists for.
+pub fn live_availability(file: &InstalledFile<'_>, answer: ProbeAnswer<'_>) -> LiveAvailability {
+    let versions = match answer {
+        ProbeAnswer::NotAsked => return LiveAvailability::NotAsked,
+        ProbeAnswer::Failed => return LiveAvailability::Unreachable,
+        ProbeAnswer::Found([]) => return LiveAvailability::NoBuilds,
+        ProbeAnswer::Found(v) => v,
+    };
+    // (a) the primary file IS the file on disk. Case-insensitive: our digest
+    //     is lowercase hex, the platforms do not normalise theirs.
+    let by_sha = file.on_disk_sha1.is_some_and(|disk| {
+        versions.iter().any(|v| {
+            v.primary_file
+                .sha1
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(disk))
+        })
+    });
+    // (b) the registry's version is listed AND the record still describes the
+    //     bytes on disk. A full alternative, not a fallback: it is what covers
+    //     a non-primary file of a multi-file version and a CurseForge file
+    //     published without a sha1.
+    let record_describes_disk = file
+        .on_disk_sha1
+        .is_some_and(|disk| disk.eq_ignore_ascii_case(file.registry_sha1));
+    let by_version = record_describes_disk
+        && file
+            .registry_version_id
+            .is_some_and(|vid| versions.iter().any(|v| v.version_id == vid));
+    if by_sha || by_version {
+        LiveAvailability::FileListed
+    } else {
+        LiveAvailability::OtherBuildsOnly
+    }
+}
+
+/// Decide one enabled mod's class. Pure; the order of the arms IS the policy.
+pub fn classify(f: &ClassifyFacts<'_>) -> ModPlatformClass {
+    use crate::mods::mc_compat::PlatformVerdict;
+    // Nothing could be read: nothing may be claimed, in either direction.
+    if !f.readable {
+        return ModPlatformClass::Unjudged(UnjudgedReason::Unreadable);
+    }
+    // Offline proof outranks every live answer — a project-level «compatible»
+    // says nothing about the FILE that will actually be launched.
+    if f.rejected {
+        return ModPlatformClass::Rejected;
+    }
+    if matches!(f.verdict, PlatformVerdict::Violated { .. }) {
+        return ModPlatformClass::Violated;
+    }
+    // The page lists nothing for this platform AND the jar makes no bounded
+    // statement of its own (D5). Probable, never proven — shown as such.
+    if f.availability == LiveAvailability::NoBuilds && !f.mc_fit_bounded {
+        return ModPlatformClass::NoPlatformBuild;
+    }
+    if matches!(f.verdict, PlatformVerdict::Fits) {
+        // A failed or weak answer never relabels a fit mod.
+        return ModPlatformClass::Fits;
+    }
+    // `Unknown` verdict: the jar declares nothing decidable.
+    match f.availability {
+        LiveAvailability::FileListed => ModPlatformClass::Fits,
+        LiveAvailability::OtherBuildsOnly => {
+            ModPlatformClass::Unjudged(UnjudgedReason::FileNotListed)
+        }
+        LiveAvailability::Unreachable => {
+            ModPlatformClass::Unjudged(UnjudgedReason::PlatformUnavailable)
+        }
+        // Reached only with `mc_fit_bounded`, which an `Unknown` verdict never
+        // has (bounded requires a declaration that held, i.e. `Fits`). Kept for
+        // exhaustiveness, and it errs toward telling the user.
+        LiveAvailability::NoBuilds => ModPlatformClass::NoPlatformBuild,
+        LiveAvailability::NotAsked => ModPlatformClass::Unjudged(match f.identity {
+            IdentityKind::PackOwned => UnjudgedReason::PackOwned,
+            IdentityKind::NoModPage => UnjudgedReason::NoModPage,
+            // A known project that was not asked: only a Vanilla instance.
+            IdentityKind::Project => UnjudgedReason::NoLoader,
+        }),
+    }
+}
+
+/// The chip's projection of a class. `Rejected` / `Violated` are flagged by the
+/// OFFLINE scan, so their live status is deliberately silent.
+pub fn compat_status(class: ModPlatformClass, newest: Option<String>) -> ModCompatStatus {
+    match class {
+        ModPlatformClass::NoPlatformBuild => ModCompatStatus::Incompatible,
+        ModPlatformClass::Fits => ModCompatStatus::Compatible {
+            available_version: newest,
         },
-        Ok(_) => ModCompatStatus::Incompatible,
-        Err(_) => ModCompatStatus::Unknown,
+        ModPlatformClass::Rejected | ModPlatformClass::Violated | ModPlatformClass::Unjudged(_) => {
+            ModCompatStatus::Unknown
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Error;
     use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
 
     fn make_version(version_number: &str) -> ModVersion {
@@ -113,42 +275,223 @@ mod tests {
         }
     }
 
-    #[test]
-    fn compatible_when_versions_exist() {
-        let versions = vec![make_version("1.2.0"), make_version("1.1.0")];
-        let result = classify_compat(Ok(versions));
-        assert_eq!(
-            result,
-            ModCompatStatus::Compatible {
-                available_version: Some("1.2.0".into()),
-            }
-        );
+    // ── D4: live_availability ───────────────────────────────────────────────
+    const DISK: &str = "459b5f4c7297b2f7649d43137f3e5a069b69b707";
+
+    fn listed(version_id: &str, sha1: Option<&str>) -> ModVersion {
+        let mut v = make_version(version_id);
+        v.version_id = version_id.into();
+        v.primary_file.sha1 = sha1.map(str::to_string);
+        v
     }
 
-    #[test]
-    fn compatible_picks_first_version_as_newest() {
-        // Platforms return newest-first; .first() must be the newest.
-        let versions = vec![make_version("2.0.0"), make_version("1.0.0")];
-        match classify_compat(Ok(versions)) {
-            ModCompatStatus::Compatible { available_version } => {
-                assert_eq!(available_version, Some("2.0.0".into()));
-            }
-            other => panic!("expected Compatible, got {other:?}"),
+    fn file<'a>(on_disk: Option<&'a str>, version_id: Option<&'a str>) -> InstalledFile<'a> {
+        InstalledFile {
+            on_disk_sha1: on_disk,
+            registry_sha1: DISK,
+            registry_version_id: version_id,
         }
     }
 
     #[test]
-    fn incompatible_when_empty() {
-        let result = classify_compat(Ok(vec![]));
-        assert_eq!(result, ModCompatStatus::Incompatible);
+    fn a_listed_primary_file_is_matched_by_sha_ignoring_case() {
+        let vs = vec![listed(
+            "v1",
+            Some("459B5F4C7297B2F7649D43137F3E5A069B69B707"),
+        )];
+        assert_eq!(
+            live_availability(&file(Some(DISK), None), ProbeAnswer::Found(&vs)),
+            LiveAvailability::FileListed
+        );
     }
 
     #[test]
-    fn unknown_on_error() {
-        let result = classify_compat(Err(Error::Network {
-            url: "https://api.modrinth.com".into(),
-            details: "connection refused".into(),
-        }));
-        assert_eq!(result, ModCompatStatus::Unknown);
+    fn a_non_primary_or_hashless_file_is_matched_by_version_id() {
+        // Route (b): CurseForge may publish no sha1; a multi-file version's
+        // primary file may not be ours. The record must still describe the disk.
+        let vs = vec![listed("v1", None)];
+        assert_eq!(
+            live_availability(&file(Some(DISK), Some("v1")), ProbeAnswer::Found(&vs)),
+            LiveAvailability::FileListed
+        );
+    }
+
+    #[test]
+    fn a_stale_record_never_vouches_for_a_replaced_file() {
+        let vs = vec![listed("v1", None)];
+        let replaced = InstalledFile {
+            on_disk_sha1: Some("ffff"),
+            registry_sha1: DISK,
+            registry_version_id: Some("v1"),
+        };
+        assert_eq!(
+            live_availability(&replaced, ProbeAnswer::Found(&vs)),
+            LiveAvailability::OtherBuildsOnly
+        );
+        // No on-disk sha at all: could not tell, so nothing is confirmed.
+        assert_eq!(
+            live_availability(&file(None, Some("v1")), ProbeAnswer::Found(&vs)),
+            LiveAvailability::OtherBuildsOnly
+        );
+    }
+
+    #[test]
+    fn empty_failed_and_unasked_answers_stay_distinct() {
+        let other = vec![listed("v9", Some("aaaa"))];
+        let f = file(Some(DISK), Some("v1"));
+        assert_eq!(
+            live_availability(&f, ProbeAnswer::Found(&other)),
+            LiveAvailability::OtherBuildsOnly
+        );
+        assert_eq!(
+            live_availability(&f, ProbeAnswer::Found(&[])),
+            LiveAvailability::NoBuilds
+        );
+        assert_eq!(
+            live_availability(&f, ProbeAnswer::Failed),
+            LiveAvailability::Unreachable
+        );
+        assert_eq!(
+            live_availability(&f, ProbeAnswer::NotAsked),
+            LiveAvailability::NotAsked
+        ); // (pin under the stub)
+    }
+
+    // ── classify ────────────────────────────────────────────────────────────
+    use crate::mods::mc_compat::{PlatformAxis, PlatformVerdict};
+
+    fn violated() -> PlatformVerdict {
+        PlatformVerdict::Violated {
+            axis: PlatformAxis::Minecraft,
+            declared: "[1.20,1.21)".into(),
+            actual: "1.21.1".into(),
+            source: crate::mods::local::DescriptorSource::NeoForgeToml,
+            family: crate::mods::version_range::RangeFamily::Maven,
+        }
+    }
+
+    fn facts(verdict: &PlatformVerdict, availability: LiveAvailability) -> ClassifyFacts<'_> {
+        ClassifyFacts {
+            readable: true,
+            rejected: false,
+            verdict,
+            mc_fit_bounded: false,
+            identity: IdentityKind::Project,
+            availability,
+        }
+    }
+
+    #[test]
+    fn offline_proof_outranks_everything_live() {
+        let v = violated();
+        let fits = PlatformVerdict::Fits;
+        assert_eq!(
+            classify(&facts(&v, LiveAvailability::FileListed)),
+            ModPlatformClass::Violated
+        );
+        assert_eq!(
+            classify(&ClassifyFacts {
+                rejected: true,
+                ..facts(&fits, LiveAvailability::FileListed)
+            }),
+            ModPlatformClass::Rejected
+        );
+        assert_eq!(
+            classify(&ClassifyFacts {
+                readable: false,
+                ..facts(&fits, LiveAvailability::NoBuilds)
+            }),
+            ModPlatformClass::Unjudged(UnjudgedReason::Unreadable)
+        );
+    }
+
+    #[test]
+    fn no_builds_flags_only_a_jar_that_makes_no_bounded_statement() {
+        let fits = PlatformVerdict::Fits;
+        let unknown = PlatformVerdict::Unknown;
+        // Jade 1.20.1 on MC 1.21: open range, nothing published → flagged.
+        assert_eq!(
+            classify(&facts(&fits, LiveAvailability::NoBuilds)),
+            ModPlatformClass::NoPlatformBuild
+        );
+        assert_eq!(
+            classify(&facts(&unknown, LiveAvailability::NoBuilds)),
+            ModPlatformClass::NoPlatformBuild
+        );
+        // Eating Animations: `[1.21.0,1.22)` on 1.21.1, page tagged `1.21` only → fits.
+        assert_eq!(
+            classify(&ClassifyFacts {
+                mc_fit_bounded: true,
+                ..facts(&fits, LiveAvailability::NoBuilds)
+            }),
+            ModPlatformClass::Fits
+        );
+    }
+
+    #[test]
+    fn a_fits_verdict_is_never_relabelled_by_a_weak_or_failed_answer() {
+        // (pin under the stub)
+        let fits = PlatformVerdict::Fits;
+        for a in [
+            LiveAvailability::FileListed,
+            LiveAvailability::OtherBuildsOnly,
+            LiveAvailability::Unreachable,
+            LiveAvailability::NotAsked,
+        ] {
+            assert_eq!(classify(&facts(&fits, a)), ModPlatformClass::Fits, "{a:?}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_jar_is_judged_by_the_listing_and_otherwise_named_with_the_true_reason() {
+        let u = PlatformVerdict::Unknown;
+        assert_eq!(
+            classify(&facts(&u, LiveAvailability::FileListed)),
+            ModPlatformClass::Fits
+        );
+        assert_eq!(
+            classify(&facts(&u, LiveAvailability::OtherBuildsOnly)),
+            ModPlatformClass::Unjudged(UnjudgedReason::FileNotListed)
+        );
+        assert_eq!(
+            classify(&facts(&u, LiveAvailability::Unreachable)),
+            ModPlatformClass::Unjudged(UnjudgedReason::PlatformUnavailable)
+        );
+        for (identity, reason) in [
+            (IdentityKind::PackOwned, UnjudgedReason::PackOwned),
+            (IdentityKind::NoModPage, UnjudgedReason::NoModPage),
+            // A known project that was NOT asked: only a Vanilla instance does that.
+            (IdentityKind::Project, UnjudgedReason::NoLoader),
+        ] {
+            assert_eq!(
+                classify(&ClassifyFacts {
+                    identity,
+                    ..facts(&u, LiveAvailability::NotAsked)
+                }),
+                ModPlatformClass::Unjudged(reason)
+            );
+        }
+    }
+
+    #[test]
+    fn the_chip_flags_exactly_the_no_build_class() {
+        assert_eq!(
+            compat_status(ModPlatformClass::NoPlatformBuild, None),
+            ModCompatStatus::Incompatible
+        );
+        assert_eq!(
+            compat_status(ModPlatformClass::Fits, Some("1.2.0".into())),
+            ModCompatStatus::Compatible {
+                available_version: Some("1.2.0".into())
+            }
+        );
+        for c in [
+            ModPlatformClass::Rejected,
+            ModPlatformClass::Violated,
+            ModPlatformClass::Unjudged(UnjudgedReason::NoModPage),
+        ] {
+            assert_eq!(compat_status(c, None), ModCompatStatus::Unknown, "{c:?}");
+            // (pin under the stub)
+        }
     }
 }

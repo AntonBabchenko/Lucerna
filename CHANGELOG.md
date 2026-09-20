@@ -54,6 +54,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
   and it is only ever asked after you change something: a saved loader version
   that is no longer on offer used to raise it the moment the instance was
   opened.
+- **Mods that load fine were reported as incompatible.** Three separate causes:
+  a loader's name inside a mod's own name made the launcher throw away every
+  build of that mod, so it also could not be installed or updated on such an
+  instance; a mod whose page is tagged for a neighbouring Minecraft version was
+  flagged even though its own file says it supports the one in use; and Fabric
+  mods running through Sinytra Connector were checked against the wrong loader.
+  The compatibility count and the fix window now always judge the same mods the
+  same way. A mod whose page simply lists nothing for this version is shown as
+  exactly that, in a section of its own, instead of among the mods the game
+  will refuse. Mods that could not be verified are now listed by name, each
+  with the reason.
 
 ## [0.24.0] — 2026-09-19
 

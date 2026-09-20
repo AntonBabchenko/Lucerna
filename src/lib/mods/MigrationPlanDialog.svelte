@@ -13,6 +13,8 @@
   // stranded row has an explicit disable/remove/keep choice — the backend
   // cannot enforce this itself without re-running the plan, so it is this
   // dialog's job (see `McMigrationSelections`'s doc comment in migration.rs).
+  // `no_platform_build` rows are NOT proven incompatible — their section says
+  // so — but they settle the same way: no default, undecided = keep.
   import { onMount } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import {
@@ -22,14 +24,17 @@
     type McMigrationRowOutcome,
     type McMigrationSelections_Deserialize,
     type NewDependencyRow_Serialize,
+    type NoPlatformBuildRow,
     type StrandedDisposition,
     type StrandedReason,
     type StrandedRow,
+    type UnjudgedReason,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Icon from '$lib/ui/icons/Icon.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -41,6 +46,7 @@
     instanceId,
     onClose,
     onApplied,
+    onPlanLoaded,
   }: {
     instanceId: string;
     onClose: () => void;
@@ -48,6 +54,12 @@
     // dialog switches to its result view — the caller's cue to refresh
     // whatever mod/compat state it owns.
     onApplied?: () => void;
+    // Called once a plan has loaded successfully. The opener uses it to re-run
+    // the chip's live check: the chip's verdicts never expire within a platform
+    // triple while this plan is fetched fresh on every open, so without it the
+    // two could disagree on screen. Fired AFTER the load so the chip's check is
+    // served from the version cache this plan's probes just warmed.
+    onPlanLoaded?: () => void;
   } = $props();
 
   type Phase = 'loading' | 'error' | 'plan' | 'result';
@@ -126,6 +138,7 @@
     dispositions.clear();
     plan = res.data;
     phase = 'plan';
+    onPlanLoaded?.();
   }
 
   onMount(() => void loadPlan());
@@ -145,7 +158,8 @@
     plan !== null &&
       plan.replaceable.length === 0 &&
       plan.new_dependencies.length === 0 &&
-      plan.stranded.length === 0,
+      plan.stranded.length === 0 &&
+      plan.no_platform_build.length === 0,
   );
 
   // Plain-language copy per `StrandedReason` — a failed query must never
@@ -165,7 +179,26 @@
     }
   }
 
-  function dispositionOptions(row: StrandedRow) {
+  // One sentence per REAL state — a missing CurseForge key or an offline
+  // machine must never be worded as a claim about the mod.
+  function unjudgedReasonKey(reason: UnjudgedReason) {
+    switch (reason) {
+      case 'unreadable':
+        return 'mods.migration.unjudgedReason.unreadable' as const;
+      case 'pack_owned':
+        return 'mods.migration.unjudgedReason.packOwned' as const;
+      case 'no_mod_page':
+        return 'mods.migration.unjudgedReason.noModPage' as const;
+      case 'no_loader':
+        return 'mods.migration.unjudgedReason.noLoader' as const;
+      case 'platform_unavailable':
+        return 'mods.migration.unjudgedReason.platformUnavailable' as const;
+      case 'file_not_listed':
+        return 'mods.migration.unjudgedReason.fileNotListed' as const;
+    }
+  }
+
+  function dispositionOptions(row: StrandedRow | NoPlatformBuildRow) {
     return [
       {
         value: 'disable',
@@ -222,11 +255,13 @@
       new_dependencies: plan.new_dependencies
         .filter((row) => depIncluded(row))
         .map((row) => row.target),
-      stranded: plan.stranded.map((row) => ({
+      // No-release rows ride in the same list: the backend acts on any
+      // sha1 + disposition pair and never cross-checks it against the plan.
+      // Leaving them out would DROP the user's choice silently.
+      stranded: [...plan.stranded, ...plan.no_platform_build].map((row) => ({
         sha1: row.sha1,
-        // Undecided rows are kept — a no-op that leaves the jar in place. The
-        // user deferred them; never drop a stranded row from the payload, and
-        // never default it to a destructive disable/remove.
+        // Undecided rows are kept — a no-op that leaves the jar in place. Never
+        // drop a row from the payload, never default it to disable/remove.
         disposition: dispositions.get(row.sha1) ?? 'keep',
       })),
     };
@@ -296,12 +331,31 @@
           fits: plan.fits.length,
           replaceable: plan.replaceable.length,
           stranded: plan.stranded.length,
-        })}
+        })}{#if plan.no_platform_build.length > 0}
+          · {$t('mods.migration.summaryNoRelease', { count: plan.no_platform_build.length })}{/if}
       </p>
-      {#if plan.unjudged > 0}
-        <p class="text-xs text-muted mb-3" data-testid="migration-unjudged">
-          {$t('mods.migration.unjudgedLine', { count: plan.unjudged })}
-        </p>
+      {#if plan.unjudged.length > 0}
+        <!-- Native <details> + the shared `.disclosure-caret` rotation
+             (DESIGN.md:144,165); same shape inside the shared Modal as
+             QuickJoinDialog. Collapsed by default: these mods need nothing
+             from the user, they are listed so the count can be looked into. -->
+        <details class="mb-3" data-testid="migration-unjudged">
+          <summary class="flex cursor-pointer items-center gap-2 text-xs text-muted">
+            <span class="disclosure-caret"><Icon name="caret" size={14} /></span>
+            {$t('mods.migration.unjudgedLine', { count: plan.unjudged.length })}
+          </summary>
+          <ul class="mt-2 space-y-1">
+            {#each plan.unjudged as row (row.sha1)}
+              <li
+                class="rounded border border-border-subtle p-2"
+                data-testid={`migration-unjudged-row-${row.sha1}`}
+              >
+                <div class="text-sm text-primary">{row.name}</div>
+                <p class="text-xs text-muted">{$t(unjudgedReasonKey(row.reason))}</p>
+              </li>
+            {/each}
+          </ul>
+        </details>
       {/if}
 
       {#if nothingToDo}
@@ -395,7 +449,10 @@
         {/if}
 
         {#if plan.stranded.length > 0}
-          <section data-testid="migration-stranded-section">
+          <section
+            class={plan.no_platform_build.length > 0 ? 'mb-4' : ''}
+            data-testid="migration-stranded-section"
+          >
             <h3 class="mb-2 text-xs uppercase tracking-wide text-muted">
               {$t('mods.migration.strandedHeading', { count: plan.stranded.length })}
             </h3>
@@ -419,6 +476,33 @@
                       {$t(reasonKey(row.reason))}
                     {/if}
                   </p>
+                  <ToggleChipGroup
+                    options={dispositionOptions(row)}
+                    value={dispositions.get(row.sha1) ?? ''}
+                    ariaLabel={$t('mods.migration.dispositionAriaLabel', { name: row.name })}
+                    onChange={(v) => dispositions.set(row.sha1, v as StrandedDisposition)}
+                  />
+                </li>
+              {/each}
+            </ul>
+          </section>
+        {/if}
+
+        {#if plan.no_platform_build.length > 0}
+          <!-- Deliberately NOT under «needs your decision»: nothing here is
+               proven. The intro states both outcomes. -->
+          <section data-testid="migration-no-release-section">
+            <h3 class="mb-1 text-xs uppercase tracking-wide text-muted">
+              {$t('mods.migration.noReleaseHeading', { count: plan.no_platform_build.length })}
+            </h3>
+            <p class="mb-2 text-xs text-muted">{$t('mods.migration.noReleaseIntro')}</p>
+            <ul class="space-y-2">
+              {#each plan.no_platform_build as row (row.sha1)}
+                <li
+                  class="rounded border border-border-subtle p-2"
+                  data-testid={`migration-no-release-row-${row.sha1}`}
+                >
+                  <div class="mb-1.5 text-sm text-primary">{row.name}</div>
                   <ToggleChipGroup
                     options={dispositionOptions(row)}
                     value={dispositions.get(row.sha1) ?? ''}

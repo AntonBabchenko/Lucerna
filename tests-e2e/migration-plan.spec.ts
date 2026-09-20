@@ -98,7 +98,8 @@ const migrationPlan = {
     },
     { sha1: 'sha-old', name: 'Old Mod', reason: { kind: 'no_build_for_target' } },
   ],
-  unjudged: 0,
+  no_platform_build: [],
+  unjudged: [],
 };
 
 const installedMods = [

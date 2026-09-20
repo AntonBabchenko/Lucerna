@@ -1274,6 +1274,94 @@ pub(crate) fn jar_is_connector(jar_bytes: &[u8]) -> bool {
         .any(is_connector)
 }
 
+/// How (whether) an instance will open a jar. D3 of the 2026-09-20 spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JarAdmission {
+    /// The instance's own loader opens one of the jar's descriptors.
+    Native,
+    /// Only Sinytra Connector does — a Fabric-family jar on a Forge-family instance.
+    ViaConnector,
+    /// Nothing on this instance opens it; the loader skips the file.
+    Rejected,
+}
+
+pub fn jar_admission(
+    jar: &JarMeta,
+    instance_loader: LoaderKind,
+    instance_mc: &str,
+    connector_present: bool,
+) -> JarAdmission {
+    // A Vanilla instance has no family, and a descriptor-less jar (coremod /
+    // library / Jar-in-Jar container) gives no evidence: neither is ever
+    // `Rejected` — this module's rule for "not confident" is to stay silent.
+    let Some(inf) = instance_family(instance_loader) else {
+        return JarAdmission::Native;
+    };
+    if jar.families.is_empty() {
+        return JarAdmission::Native;
+    }
+    // Sinytra Connector loads Fabric jars on a Forge-family instance — both
+    // when the jar is fabric-only (foreign family) and when a multi-loader
+    // jar's forge-side descriptor is the dead one.
+    let connector_fabric = connector_present
+        && inf == LoaderFamily::Forge
+        && jar.families.contains(&LoaderFamily::Fabric);
+    // Family first, then (spec D7 / audit #6) the descriptor the instance's
+    // ACTUAL loader opens: the families fold Forge∪NeoForge and Fabric∪Quilt,
+    // which is how ten neoforge-only jars on a Forge instance stayed invisible
+    // while the game died on «Invalid mod file found».
+    let native = jar.families.contains(&inf) && {
+        // A cached `JarMeta` from before the descriptor bools deserializes to
+        // all-false; a real jar with a non-empty family set always has at
+        // least one set. Skip the sub-family check rather than false-positive
+        // on stale cache entries (fail-open).
+        let descriptors_known = jar.has_fabric_json
+            || jar.has_quilt_json
+            || jar.has_forge_toml
+            || jar.has_neoforge_toml
+            || jar.has_mcmod_info;
+        !descriptors_known
+            || match instance_loader {
+                LoaderKind::Fabric => jar.has_fabric_json,
+                LoaderKind::Quilt => jar.has_fabric_json || jar.has_quilt_json,
+                LoaderKind::Forge => jar.has_forge_toml || jar.has_mcmod_info,
+                LoaderKind::NeoForge => {
+                    jar.has_neoforge_toml
+                        || (neoforge_reads_forge_toml(instance_mc) && jar.has_forge_toml)
+                }
+                // Unreachable: a Vanilla instance has no family.
+                LoaderKind::Vanilla => true,
+            }
+    };
+    // `Native` wins when both would admit: a jar the instance's own loader
+    // opens is asked about under that loader.
+    if native {
+        JarAdmission::Native
+    } else if connector_fabric {
+        JarAdmission::ViaConnector
+    } else {
+        JarAdmission::Rejected
+    }
+}
+
+/// The loader to ask the PLATFORM about for this jar. A Fabric-only project
+/// has nothing under `neoforge`, however well Connector runs it.
+pub fn probe_loader(
+    jar: &JarMeta,
+    admission: JarAdmission,
+    instance_loader: LoaderKind,
+) -> LoaderKind {
+    match admission {
+        // The Fabric ∪ Quilt family fold is admission's business; the platform
+        // tags the two separately.
+        JarAdmission::ViaConnector if !jar.has_fabric_json && jar.has_quilt_json => {
+            LoaderKind::Quilt
+        }
+        JarAdmission::ViaConnector => LoaderKind::Fabric,
+        JarAdmission::Native | JarAdmission::Rejected => instance_loader,
+    }
+}
+
 /// Judge a jar's loader-FAMILY compatibility with an instance. Conservative:
 /// a mismatch is reported only when both sides are confidently known and
 /// they differ — absent or ambiguous metadata never produces a warning.
@@ -1305,59 +1393,9 @@ pub fn compat_verdict(
     instance_mc: &str,
     connector_present: bool,
 ) -> CompatVerdict {
-    // Mismatch when the jar declares loader families AND none of them is the
-    // instance's family — or (spec D7 / audit #6) the family matches but the
-    // instance's ACTUAL loader cannot open any descriptor the jar ships: the
-    // families fold Forge∪NeoForge and Fabric∪Quilt, which is exactly how ten
-    // neoforge-only jars on a Forge instance stayed invisible while the game
-    // died on «Invalid mod file found». A multi-loader jar that includes an
-    // openable descriptor is compatible; a descriptor-less jar (empty
-    // families) never flags.
-    let loader_mismatch = match instance_family(instance_loader) {
-        Some(inf) => {
-            if jar.families.is_empty() {
-                false
-            } else {
-                let family_ok = jar.families.contains(&inf);
-                // Sinytra Connector loads Fabric jars on a Forge-family
-                // instance — both when the jar is fabric-only (foreign
-                // family) and when a multi-loader jar's forge-side
-                // descriptor is the dead one.
-                let connector_fabric = connector_present
-                    && inf == LoaderFamily::Forge
-                    && jar.families.contains(&LoaderFamily::Fabric);
-                if !family_ok {
-                    !connector_fabric
-                } else {
-                    // A cached `JarMeta` from before the descriptor bools
-                    // deserializes to all-false; a real jar with a non-empty
-                    // family set always has at least one bool set. Skip the
-                    // sub-family check rather than false-positive on stale
-                    // cache entries (fail-open).
-                    let descriptors_known = jar.has_fabric_json
-                        || jar.has_quilt_json
-                        || jar.has_forge_toml
-                        || jar.has_neoforge_toml
-                        || jar.has_mcmod_info;
-                    let accepted = !descriptors_known
-                        || match instance_loader {
-                            LoaderKind::Fabric => jar.has_fabric_json,
-                            LoaderKind::Quilt => jar.has_fabric_json || jar.has_quilt_json,
-                            LoaderKind::Forge => jar.has_forge_toml || jar.has_mcmod_info,
-                            LoaderKind::NeoForge => {
-                                jar.has_neoforge_toml
-                                    || (neoforge_reads_forge_toml(instance_mc)
-                                        && jar.has_forge_toml)
-                            }
-                            // Unreachable: a Vanilla instance has no family.
-                            LoaderKind::Vanilla => true,
-                        };
-                    !(accepted || connector_fabric)
-                }
-            }
-        }
-        None => false,
-    };
+    // One derivation (`jar_admission`) — the probe loader reads the same one.
+    let loader_mismatch = jar_admission(jar, instance_loader, instance_mc, connector_present)
+        == JarAdmission::Rejected;
     CompatVerdict {
         detected_loader: jar.loader_label.clone(),
         detected_name: jar.display_name.clone(),
@@ -1410,6 +1448,90 @@ pub fn inspect_jar(
     verdict
 }
 
+/// Reads installed jars' parsed facts through the shared jar-scan cache. ONE
+/// reader for the offline scan, the live check and the migration plan: they
+/// judge the same descriptors, which is one leg of «the chip and the plan
+/// agree» (2026-09-20 spec, D8).
+pub(crate) struct JarFactsReader<'a> {
+    dir: &'a Path,
+    cache_path: Option<&'a Path>,
+    cached: crate::mods::jar_scan_cache::ScanCache,
+    fresh: Vec<(String, crate::mods::jar_scan_cache::CachedScan)>,
+}
+
+impl<'a> JarFactsReader<'a> {
+    /// One read of a small JSON for the whole pass, then a map lookup per jar.
+    pub(crate) fn open(dir: &'a Path, cache_path: Option<&'a Path>) -> Self {
+        use crate::mods::jar_scan_cache::ScanCache;
+        Self {
+            dir,
+            cache_path,
+            cached: cache_path.map(ScanCache::load).unwrap_or_default(),
+            fresh: Vec::new(),
+        }
+    }
+
+    /// `(on-disk sha1, parsed facts)`. Either half is `None` on "could not
+    /// tell" and they fail independently.
+    pub(crate) async fn read(
+        &mut self,
+        filename: &str,
+    ) -> (Option<String>, Option<(JarMeta, ManifestDeps)>) {
+        use crate::mods::jar_scan_cache::CachedScan;
+        // Keyed on the bytes on disk, never on the registry's sha1: the
+        // registry keeps a record's EXPECTED digest when the file under that
+        // name was replaced. See `installed::on_disk_sha1`.
+        let cache_key = installed::on_disk_sha1(self.dir, filename).await;
+        // BOTH halves or neither. A record written by the dependency pre-flight
+        // carries a manifest and no `meta`, and a `JarMeta::default()` conjured
+        // for the missing half reads as "no recognised descriptor" — which
+        // silences a true loader mismatch rather than raising a false one, but
+        // silences it just the same.
+        let hit = cache_key
+            .as_deref()
+            .and_then(|k| self.cached.get(k))
+            .and_then(|h| Some((h.meta.clone()?, h.manifest.clone()?)));
+        if hit.is_some() {
+            return (cache_key, hit);
+        }
+        // Read the jar bytes ONCE, parse both verdicts out of them.
+        let parsed = match read_jar_for(self.dir, filename).await {
+            Some(bytes) => read_meta_and_manifest(bytes).await,
+            None => None,
+        };
+        if let (Some(k), Some((meta, manifest))) = (cache_key.as_deref(), parsed.as_ref()) {
+            self.fresh.push((
+                k.to_string(),
+                CachedScan {
+                    meta: Some(meta.clone()),
+                    manifest: Some(manifest.clone()),
+                    // Neither reader runs here. `None`, not an empty vector —
+                    // the pre-flight is the only caller that can say whether
+                    // these are empty.
+                    legacy_deps: None,
+                    jij_provided: None,
+                },
+            ));
+        }
+        (cache_key, parsed)
+    }
+
+    /// One save for the whole pass, under the cache's disk lock.
+    pub(crate) fn finish(self) {
+        use crate::mods::jar_scan_cache::ScanCache;
+        if let Some(path) = self.cache_path {
+            if !self.fresh.is_empty() {
+                let fresh = self.fresh;
+                ScanCache::update(path, |c| {
+                    for (sha, entry) in fresh {
+                        c.merge(&sha, entry);
+                    }
+                });
+            }
+        }
+    }
+}
+
 /// Offline loader-family + platform compatibility scan of an instance's
 /// installed mods. Layer 1 of the proactive incompatibility check: judges
 /// EVERY mod — hand-dropped (`source = None`), platform-installed, and
@@ -1417,7 +1539,7 @@ pub fn inspect_jar(
 /// against the instance. Pack membership does not guarantee the right family
 /// (FCAP: a Forge pack shipped a pure-Fabric jar the loader silently
 /// ignores), so pack mods are judged too; they are not live-checkable
-/// (`eligible_identity` excludes them), which makes their descriptor verdict
+/// (`replaceable_identity` excludes them), which makes their descriptor verdict
 /// final — the same evidence standard as import-time inert-jar detection.
 /// For platform mods the offline verdict is only a SUSPECT pre-filter — the
 /// `live_checkable` flag tells the frontend to auto-run an authoritative live
@@ -1441,8 +1563,7 @@ pub async fn scan_instance(
     mc: &str,
     loader_version: Option<&str>,
 ) -> Result<Vec<ModLocalCompat>, Error> {
-    use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
-    use crate::mods::updates::eligible_identity;
+    use crate::mods::updates::replaceable_identity;
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
     let dir = installed::mods_dir(instance_root);
@@ -1450,53 +1571,14 @@ pub async fn scan_instance(
     // jar's verdict depends on this one fact.
     let connector = connector_installed(&dir, &mods).await;
     let era = descriptor_era(mc);
-    // One read of a small JSON for the whole scan, then a map lookup per jar.
-    let cached = cache_path.map(ScanCache::load).unwrap_or_default();
-    let mut fresh: Vec<(String, CachedScan)> = Vec::new();
+    let mut reader = JarFactsReader::open(&dir, cache_path);
     let mut out = Vec::with_capacity(mods.len());
     // Disabled mods are out of scope for every detector (locked decision,
     // 2026-08-03): the loader never opens a `.disabled` jar, so a verdict on it
     // is noise the user already resolved. Filtering at the scan source means the
     // chip, the Overview count and the row badges all inherit the exclusion.
     for m in mods.iter().filter(|m| m.enabled) {
-        // Keyed on the bytes on disk, never on `m.sha1`: the registry keeps a
-        // record's EXPECTED digest when the file under that name was replaced.
-        // See `installed::on_disk_sha1`.
-        let cache_key = installed::on_disk_sha1(&dir, &m.filename).await;
-        // BOTH halves or neither. A record written by the dependency pre-flight
-        // carries a manifest and no `meta`, and a `JarMeta::default()` conjured
-        // for the missing half reads as "no recognised descriptor" — which
-        // silences a true loader mismatch rather than raising a false one, but
-        // silences it just the same.
-        let hit = cache_key
-            .as_deref()
-            .and_then(|k| cached.get(k))
-            .and_then(|h| Some((h.meta.clone()?, h.manifest.clone()?)));
-        let scanned = match hit {
-            Some(v) => Some(v),
-            None => {
-                // Read the jar bytes ONCE, parse both verdicts out of them.
-                let parsed = match read_jar_for(&dir, &m.filename).await {
-                    Some(bytes) => read_meta_and_manifest(bytes).await,
-                    None => None,
-                };
-                if let (Some(k), Some((meta, manifest))) = (cache_key.as_deref(), parsed.as_ref()) {
-                    fresh.push((
-                        k.to_string(),
-                        CachedScan {
-                            meta: Some(meta.clone()),
-                            manifest: Some(manifest.clone()),
-                            // Neither reader runs here. `None`, not an empty
-                            // vector — the pre-flight is the only caller that
-                            // can say whether these are empty.
-                            legacy_deps: None,
-                            jij_provided: None,
-                        },
-                    ));
-                }
-                parsed
-            }
-        };
+        let (_, scanned) = reader.read(&m.filename).await;
         // Judge loader-family for ALL mods, pack-bundled included — the
         // conservative verdict (descriptor-less / family-inclusive jars never
         // flag) is the false-positive guard, not pack membership.
@@ -1516,22 +1598,19 @@ pub async fn scan_instance(
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
             detected_loader: verdict.and_then(|v| v.detected_loader),
-            live_checkable: eligible_identity(m, pack_origin.as_ref()).is_some(),
+            // D2: a known PROJECT is enough to ask the platform about. The
+            // stricter `eligible_identity` also wants a `version_id`, which
+            // `enrich` drops exactly when the matched version's tags do not
+            // fit the instance — so it skipped precisely the disputed mods
+            // while the migration plan (project-only) probed them.
+            live_checkable: replaceable_identity(m, pack_origin.as_ref()).is_some(),
             platform_mismatch,
             platform_axis,
             platform_declared,
         });
     }
     // One save for the whole scan, under the cache's disk lock.
-    if let Some(path) = cache_path {
-        if !fresh.is_empty() {
-            ScanCache::update(path, |c| {
-                for (sha, entry) in fresh {
-                    c.merge(&sha, entry);
-                }
-            });
-        }
-    }
+    reader.finish();
     Ok(out)
 }
 
@@ -3357,6 +3436,52 @@ modId=\"evilseagull\"
         );
     }
 
+    #[tokio::test]
+    async fn scan_marks_a_project_only_identity_as_live_checkable() {
+        // D2. `enrich` drops a Modrinth `version_id` exactly when the matched
+        // version's tags do not fit the instance — so demanding one here made
+        // the live check skip precisely the mods whose tags disagree, while the
+        // migration plan (project-only identity) probed them: chip 1, plan 5.
+        use crate::mods::installed::{add, mods_dir};
+        use crate::mods::platform::{InstalledMod, ModSource};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &bytes).await.unwrap();
+        let sha = hex::encode(Sha1::digest(&bytes));
+        add(
+            td.path(),
+            InstalledMod {
+                filename: "x.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("xxx".into()),
+                version_id: None,
+                name: "X".into(),
+                version_number: None,
+                installed_at: chrono::Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: true,
+                requires: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.21.1", None)
+            .await
+            .unwrap();
+        let m = out
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert!(
+            m.live_checkable,
+            "a known project is enough to ask the platform about"
+        );
+    }
+
     /// Locked decision 3 (2026-08-03): disabled mods are out of scope for every
     /// detector. The filter lives HERE, at the scan source, so the chip, the
     /// Overview count and the row badges all inherit it — observed live
@@ -3894,6 +4019,156 @@ loaderVersion="[61,)"
             m.provided[0].version, None,
             "unresolvable ${{file.jarVersion}} must yield None, got {:?}",
             m.provided[0].version
+        );
+    }
+
+    // ── D3: admission + the loader the platform is asked about ──────────────
+    // Named `admission_meta` — this file's tests module already has a `meta`
+    // helper (line ~2600) with a different signature (family + mc_version).
+    fn admission_meta(
+        families: Vec<LoaderFamily>,
+        fabric: bool,
+        quilt: bool,
+        forge: bool,
+        neo: bool,
+    ) -> JarMeta {
+        JarMeta {
+            families,
+            has_fabric_json: fabric,
+            has_quilt_json: quilt,
+            has_forge_toml: forge,
+            has_neoforge_toml: neo,
+            ..Default::default()
+        }
+    }
+
+    fn admission_table() -> Vec<JarMeta> {
+        vec![
+            admission_meta(vec![LoaderFamily::Forge], false, false, false, true), // neoforge-only
+            admission_meta(vec![LoaderFamily::Forge], false, false, true, false), // forge-toml only
+            admission_meta(vec![LoaderFamily::Fabric], true, false, false, false), // fabric-only
+            admission_meta(vec![LoaderFamily::Fabric], false, true, false, false), // quilt-only
+            admission_meta(
+                vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+                true,
+                false,
+                false,
+                true,
+            ), // neo + fabric
+            admission_meta(
+                vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+                true,
+                false,
+                true,
+                false,
+            ), // dead forge side + fabric
+            admission_meta(vec![], false, false, false, false),                   // descriptor-less
+            admission_meta(vec![LoaderFamily::Forge], false, false, false, false), // stale cache: family, no bools
+        ]
+    }
+
+    #[test]
+    fn admission_agrees_with_the_verdict_everywhere() {
+        // The structural guarantee: `loader_mismatch` IS `Rejected`. One
+        // derivation, so the chip's offline half and the probe cannot drift.
+        for jar in admission_table() {
+            for loader in [
+                LoaderKind::NeoForge,
+                LoaderKind::Forge,
+                LoaderKind::Fabric,
+                LoaderKind::Quilt,
+                LoaderKind::Vanilla,
+            ] {
+                for connector in [false, true] {
+                    let v = compat_verdict(&jar, loader, "1.21.1", connector);
+                    let a = jar_admission(&jar, loader, "1.21.1", connector);
+                    assert_eq!(
+                        v.loader_mismatch,
+                        a == JarAdmission::Rejected,
+                        "{jar:?} {loader:?} connector={connector}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fabric_jar_is_admitted_only_through_connector() {
+        let fabric = admission_meta(vec![LoaderFamily::Fabric], true, false, false, false);
+        assert_eq!(
+            jar_admission(&fabric, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::ViaConnector
+        );
+        assert_eq!(
+            jar_admission(&fabric, LoaderKind::NeoForge, "1.21.1", false),
+            JarAdmission::Rejected
+        );
+        // NeoForge 1.21.1 no longer reads mods.toml: the forge side is dead,
+        // and Connector is what opens the jar.
+        let dead_forge = admission_meta(
+            vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(
+            jar_admission(&dead_forge, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::ViaConnector
+        );
+    }
+
+    #[test]
+    fn native_wins_when_both_would_admit_and_no_evidence_means_native() {
+        // (pin)
+        let both = admission_meta(
+            vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+            true,
+            false,
+            false,
+            true,
+        );
+        assert_eq!(
+            jar_admission(&both, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::Native
+        );
+        let none = admission_meta(vec![], false, false, false, false);
+        assert_eq!(
+            jar_admission(&none, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::Native
+        );
+        let stale = admission_meta(vec![LoaderFamily::Forge], false, false, false, false);
+        assert_eq!(
+            jar_admission(&stale, LoaderKind::NeoForge, "1.21.1", false),
+            JarAdmission::Native
+        );
+        assert_eq!(
+            jar_admission(&both, LoaderKind::Vanilla, "1.21.1", true),
+            JarAdmission::Native
+        );
+    }
+
+    #[test]
+    fn the_platform_is_asked_about_the_loader_that_opens_the_jar() {
+        let fabric = admission_meta(vec![LoaderFamily::Fabric], true, false, false, false);
+        let quilt = admission_meta(vec![LoaderFamily::Fabric], false, true, false, false);
+        let neo = admission_meta(vec![LoaderFamily::Forge], false, false, false, true);
+        assert_eq!(
+            probe_loader(&fabric, JarAdmission::ViaConnector, LoaderKind::NeoForge),
+            LoaderKind::Fabric
+        );
+        // The Fabric ∪ Quilt family fold is admission's business, not the probe's.
+        assert_eq!(
+            probe_loader(&quilt, JarAdmission::ViaConnector, LoaderKind::NeoForge),
+            LoaderKind::Quilt
+        );
+        assert_eq!(
+            probe_loader(&neo, JarAdmission::Native, LoaderKind::NeoForge),
+            LoaderKind::NeoForge
+        );
+        assert_eq!(
+            probe_loader(&fabric, JarAdmission::Rejected, LoaderKind::NeoForge),
+            LoaderKind::NeoForge
         );
     }
 }

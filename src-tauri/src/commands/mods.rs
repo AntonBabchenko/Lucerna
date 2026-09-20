@@ -1983,6 +1983,169 @@ pub async fn mods_install_local(
     Ok(inst)
 }
 
+/// Everything the compat classifier needs about one ENABLED installed mod.
+struct GatheredMod {
+    readable: bool,
+    admission: crate::mods::local::JarAdmission,
+    verdict: crate::mods::mc_compat::PlatformVerdict,
+    mc_fit_bounded: bool,
+    /// The jar's declared `minecraft` range, verbatim — message-only.
+    declared_mc: Option<String>,
+    identity: Result<(ModSource, String), crate::mods::migration::Ineligible>,
+    availability: crate::mods::compat::LiveAvailability,
+    /// Newest listed version number, when the platform answered with any.
+    newest: Option<String>,
+}
+
+impl GatheredMod {
+    fn class(&self) -> crate::mods::compat::ModPlatformClass {
+        use crate::mods::compat::{classify, ClassifyFacts, IdentityKind};
+        use crate::mods::migration::Ineligible;
+        classify(&ClassifyFacts {
+            readable: self.readable,
+            rejected: self.admission == crate::mods::local::JarAdmission::Rejected,
+            verdict: &self.verdict,
+            mc_fit_bounded: self.mc_fit_bounded,
+            identity: match &self.identity {
+                Ok(_) => IdentityKind::Project,
+                Err(Ineligible::PackOrigin) => IdentityKind::PackOwned,
+                Err(Ineligible::NoProject) => IdentityKind::NoModPage,
+            },
+            availability: self.availability,
+        })
+    }
+}
+
+/// The ONE I/O pass behind both the compatibility chip's live half and the
+/// migration plan (2026-09-20 spec, D8): jar facts through the shared reader,
+/// one identity predicate (D2), one probe per askable mod under the loader
+/// that actually opens the jar (D3), weighed per file (D4) — index-aligned
+/// with `installed`, which the caller has already filtered to enabled mods.
+async fn gather_compat_facts(
+    inst_root: &std::path::Path,
+    cache_path: Option<&std::path::Path>,
+    installed: &[crate::mods::platform::InstalledMod],
+    pack_origin: Option<&crate::mods::installed::PackOrigin>,
+    mc: &str,
+    loader: LoaderKind,
+    loader_version: Option<&str>,
+) -> Vec<GatheredMod> {
+    use crate::mods::compat::{live_availability, InstalledFile, LiveAvailability, ProbeAnswer};
+    use crate::mods::local::{jar_admission, probe_loader, JarAdmission, JarFactsReader};
+    use crate::mods::mc_compat::{mc_fit_is_bounded, platform_verdict, PlatformVerdict};
+    use crate::mods::migration::Ineligible;
+    use crate::mods::updates::{is_pack_origin_mod, replaceable_identity};
+    use futures_util::stream::{self, StreamExt};
+
+    // Same bound as `mods_check_updates` — dozens of simultaneous requests
+    // intermittently trip per-IP rate limits.
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
+    let dir = crate::mods::installed::mods_dir(inst_root);
+    let era = crate::mods::local::descriptor_era(mc);
+    // Once for the whole pass: on a Connector profile every Fabric jar's
+    // admission depends on this one fact.
+    let connector = crate::mods::local::connector_installed(&dir, installed).await;
+
+    // 1. Offline facts, sequentially — one blocking zip read at a time.
+    let mut reader = JarFactsReader::open(&dir, cache_path);
+    let mut out: Vec<GatheredMod> = Vec::with_capacity(installed.len());
+    let mut asks: Vec<(usize, ModSource, String, LoaderKind, Option<String>)> = Vec::new();
+    for (i, m) in installed.iter().enumerate() {
+        let (disk_sha, facts) = reader.read(&m.filename).await;
+        let identity = if is_pack_origin_mod(m, pack_origin) {
+            Err(Ineligible::PackOrigin)
+        } else {
+            replaceable_identity(m, pack_origin).ok_or(Ineligible::NoProject)
+        };
+        let (readable, admission, verdict, mc_fit_bounded, declared_mc, ask_loader) = match &facts {
+            Some((meta, manifest)) => {
+                let admission = jar_admission(meta, loader, mc, connector);
+                (
+                    true,
+                    admission,
+                    platform_verdict(manifest, mc, loader, loader_version, era),
+                    mc_fit_is_bounded(manifest, mc, loader, loader_version, era),
+                    manifest
+                        .platform
+                        .iter()
+                        .find(|d| d.dep_id == "minecraft")
+                        .map(|d| d.range.clone()),
+                    probe_loader(meta, admission, loader),
+                )
+            }
+            // Could not read the jar: nothing is claimed and nothing is asked.
+            None => (
+                false,
+                JarAdmission::Native,
+                PlatformVerdict::Unknown,
+                false,
+                None,
+                loader,
+            ),
+        };
+        // Ask only where the answer can change the class: a readable jar the
+        // instance opens, whose own declarations do not already condemn it.
+        // Never on a Vanilla instance — nothing loads there, the instance-level
+        // banner says so, and «no release for Vanilla» per jar would be noise.
+        let askable = readable
+            && loader != LoaderKind::Vanilla
+            && admission != JarAdmission::Rejected
+            && !matches!(verdict, PlatformVerdict::Violated { .. });
+        if let (true, Ok((source, project_id))) = (askable, &identity) {
+            asks.push((i, *source, project_id.clone(), ask_loader, disk_sha));
+        }
+        out.push(GatheredMod {
+            readable,
+            admission,
+            verdict,
+            mc_fit_bounded,
+            declared_mc,
+            identity,
+            availability: LiveAvailability::NotAsked,
+            newest: None,
+        });
+    }
+    reader.finish();
+
+    // 2. Bounded-concurrency existence probes through the SHARED version cache
+    //    — the same cache for the chip and the plan, keyed by loader, so a
+    //    Fabric and a NeoForge question about one project cannot collide.
+    let answers: Vec<(usize, LiveAvailability, Option<String>)> = stream::iter(asks)
+        .map(|(i, source, project_id, ask_loader, disk_sha)| {
+            let mc = mc.to_string();
+            let m = &installed[i];
+            async move {
+                let platform = platform_for(source);
+                let answer =
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, ask_loader).await;
+                let file = InstalledFile {
+                    on_disk_sha1: disk_sha.as_deref(),
+                    registry_sha1: &m.sha1,
+                    registry_version_id: m.version_id.as_deref(),
+                };
+                match answer {
+                    Ok(versions) => (
+                        i,
+                        live_availability(&file, ProbeAnswer::Found(&versions)),
+                        versions.first().map(|v| v.version_number.clone()),
+                    ),
+                    // A failed query must never read as «no build»; it gets its
+                    // own availability and its own words.
+                    Err(_) => (i, live_availability(&file, ProbeAnswer::Failed), None),
+                }
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    for (i, availability, newest) in answers {
+        out[i].availability = availability;
+        out[i].newest = newest;
+    }
+    out
+}
+
 /// For each installed mod in `id`, report whether any platform version
 /// exists for the given target `mc` + `loader`. Non-destructive — no
 /// files are modified.
@@ -1992,6 +2155,9 @@ pub async fn mods_install_local(
 /// failure becomes [`ModCompatStatus::Unknown`] for that mod — the
 /// command fails wholesale only on a catastrophic error (instance
 /// missing, registry unreadable).
+///
+/// Both this command and `mods_plan_mc_migration` are projections of
+/// `gather_compat_facts` — see the 2026-09-20 spec, D8.
 #[tauri::command]
 #[specta::specta]
 pub async fn check_instance_mod_compat(
@@ -2000,66 +2166,48 @@ pub async fn check_instance_mod_compat(
     mc: String,
     loader: crate::instances::schema::LoaderKind,
 ) -> crate::error::Result<Vec<crate::mods::compat::ModCompat>> {
-    use crate::mods::updates::eligible_identity;
-    use futures_util::stream::{self, StreamExt};
-
-    // Same bound as `mods_check_updates` — dozens of simultaneous requests
-    // intermittently trip per-IP rate limits.
-    const CHECK_UPDATES_CONCURRENCY: usize = 6;
-
     let inst_root = instance_root(&app, &id)?;
+    let inst = crate::instances::read_instance(&app, &id)?;
     // Disabled mods are out of scope for every detector (locked decision,
-    // 2026-08-03) — the loader never opens them, so their projects are not
-    // worth a platform round-trip and their verdicts would only re-light
-    // alarms the user already resolved by disabling.
+    // 2026-08-03) — the loader never opens them.
     let installed: Vec<_> = crate::mods::installed::list(&inst_root)
         .await?
         .into_iter()
         .filter(|m| m.enabled)
         .collect();
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
-
-    // Every mod starts Unknown; the bounded poll below overwrites the ones
-    // with a platform identity. Output order == installed order by index.
-    let mut out: Vec<crate::mods::compat::ModCompat> = installed
+    // The loader VERSION is the record's — and only while the record still
+    // describes the platform the frontend asked about. Mid-change they differ,
+    // and measuring a range against another loader's number line would
+    // manufacture violations; `None` makes the loader axis go silent instead.
+    let loader_version = if inst.mc_version == mc && inst.loader == loader {
+        inst.loader_version.clone()
+    } else {
+        None
+    };
+    let cache = jar_scan_cache_path(&app);
+    let gathered = gather_compat_facts(
+        &inst_root,
+        cache.as_deref(),
+        &installed,
+        pack_origin.as_ref(),
+        &mc,
+        loader,
+        loader_version.as_deref(),
+    )
+    .await;
+    Ok(installed
         .iter()
-        .map(|m| crate::mods::compat::ModCompat {
-            sha1: m.sha1.clone(),
-            name: m.name.clone(),
-            status: crate::mods::compat::ModCompatStatus::Unknown,
-        })
-        .collect();
-
-    let eligible: Vec<(usize, ModSource, String)> = installed
-        .iter()
-        .enumerate()
-        .filter_map(|(i, m)| {
-            eligible_identity(m, pack_origin.as_ref())
-                .map(|(source, project_id, _vid)| (i, source, project_id))
-        })
-        .collect();
-
-    // Bounded-concurrency platform poll — same shape as `mods_check_updates`.
-    // The prior sequential loop paid one round-trip per mod, which on a large
-    // pack with a cold version cache was minutes of serial waiting.
-    let results: Vec<(usize, crate::mods::compat::ModCompatStatus)> = stream::iter(eligible)
-        .map(|(i, source, project_id)| {
-            let mc = mc.clone();
-            async move {
-                let platform = platform_for(source);
-                let status = crate::mods::compat::classify_compat(
-                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader).await,
-                );
-                (i, status)
+        .zip(gathered)
+        .map(|(m, g)| {
+            let class = g.class();
+            crate::mods::compat::ModCompat {
+                sha1: m.sha1.clone(),
+                name: m.name.clone(),
+                status: crate::mods::compat::compat_status(class, g.newest),
             }
         })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
-    for (i, status) in results {
-        out[i].status = status;
-    }
-    Ok(out)
+        .collect())
 }
 
 /// Offline loader-compatibility + platform scan of an instance's installed
@@ -2099,12 +2247,12 @@ pub async fn scan_instance_mod_compat(
 /// loader; each replaceable target's declared required deps are then asked
 /// for too (same shape again), so anything a later apply would ALSO need to
 /// pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
-/// is visible in the plan before anything is installed. Fits/Unknown mods
-/// with an identity additionally get an EXISTENCE probe through the shared
-/// version cache (option A, 2026-08-10 spec): a project publishing no build
-/// for this platform strands the mod instead of filing it under "fits", which
-/// is what kept the plan's count below the chip's. Never applies anything:
-/// this command only reads and queries.
+/// is visible in the plan before anything is installed. Fits/Unknown mods are
+/// weighed by `gather_compat_facts` — the same pass the compatibility chip
+/// runs — and bucketed by `compat::classify`: a page listing THIS file
+/// confirms an undeclared jar, a page listing nothing flags only a jar that
+/// makes no bounded statement of its own. Never applies anything: this command
+/// only reads and queries.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_plan_mc_migration(
@@ -2114,10 +2262,9 @@ pub async fn mods_plan_mc_migration(
     use crate::mods::deps::ProjectKey;
     use crate::mods::mc_compat::PlatformVerdict;
     use crate::mods::migration::{
-        build_migration_plan, fold_new_dependencies, CandidateQuery, Ineligible, ModMigrationInput,
+        build_migration_plan, fold_new_dependencies, CandidateQuery, ModMigrationInput,
         TargetRequirement,
     };
-    use crate::mods::updates::{is_pack_origin_mod, replaceable_identity};
     use futures_util::stream::{self, StreamExt};
 
     // Same bound as `check_instance_mod_compat` / `mods_check_updates` —
@@ -2141,82 +2288,53 @@ pub async fn mods_plan_mc_migration(
 
     let mc = inst.mc_version.clone();
     let loader = inst.loader;
-    let loader_version = inst.loader_version.clone();
-    let era = crate::mods::local::descriptor_era(&mc);
-    let dir = crate::mods::installed::mods_dir(&inst_root);
-    // Once for the whole plan, exactly like `scan_instance`: the family
-    // verdict below is Connector-aware (spec D5).
-    let connector = crate::mods::local::connector_installed(&dir, &installed).await;
+    let cache = jar_scan_cache_path(&app);
 
-    // 1. Offline per-mod verdict + identity. No network — mirrors what
-    //    `local::scan_instance` does internally to read each jar's platform
-    //    declarations, but keeps the full three-way `PlatformVerdict` instead
-    //    of collapsing it to a bool.
-    let mut inputs: Vec<ModMigrationInput> = Vec::with_capacity(installed.len());
-    for m in &installed {
-        let bytes = crate::mods::local::read_jar_for(&dir, &m.filename).await;
-        let manifest = bytes
-            .as_deref()
-            .and_then(|b| crate::mods::local::read_jar_manifest_deps(b).ok());
-        let verdict = manifest
-            .as_ref()
-            .map(|man| {
-                crate::mods::mc_compat::platform_verdict(
-                    man,
-                    &mc,
-                    loader,
-                    loader_version.as_deref(),
-                    era,
-                )
-            })
-            .unwrap_or(PlatformVerdict::Unknown);
-        // The version the jar itself declares it was built for — its `minecraft`
-        // platform declaration, verbatim. Only for a loader-axis `LoaderTooOld`
-        // message ("built for 1.21.1"); never re-evaluated for bucketing.
-        let declared_mc = manifest.as_ref().and_then(|man| {
-            man.platform
-                .iter()
-                .find(|d| d.dep_id == "minecraft")
-                .map(|d| d.range.clone())
-        });
-        let identity = if is_pack_origin_mod(m, pack_origin.as_ref()) {
-            Err(Ineligible::PackOrigin)
-        } else {
-            replaceable_identity(m, pack_origin.as_ref()).ok_or(Ineligible::NoProject)
-        };
-        // The same Connector-aware family verdict `scan_instance` computes —
-        // a Forge jar on a Fabric instance is silently skipped by the loader,
-        // and the plan must route it by THAT fact, not by its (inapplicable)
-        // platform ranges. Spec D5.
-        let family_mismatch = bytes
-            .as_deref()
-            .and_then(|b| crate::mods::local::read_jar_meta(b).ok())
-            .map(|meta| {
-                crate::mods::local::compat_verdict(&meta, loader, &mc, connector).loader_mismatch
-            })
-            .unwrap_or(false);
-        inputs.push(ModMigrationInput {
+    // 1 + 2b. Offline facts and existence probes — the SAME pass the chip's
+    //    live check runs, so the two surfaces judge the same mods by the same
+    //    facts (2026-09-20 spec, D8).
+    let gathered = gather_compat_facts(
+        &inst_root,
+        cache.as_deref(),
+        &installed,
+        pack_origin.as_ref(),
+        &mc,
+        loader,
+        inst.loader_version.as_deref(),
+    )
+    .await;
+    let mut inputs: Vec<ModMigrationInput> = installed
+        .iter()
+        .zip(gathered)
+        .map(|(m, g)| ModMigrationInput {
             sha1: m.sha1.clone(),
             name: m.name.clone(),
-            verdict,
-            identity,
+            family_mismatch: g.admission == crate::mods::local::JarAdmission::Rejected,
+            readable: g.readable,
+            mc_fit_bounded: g.mc_fit_bounded,
+            availability: g.availability,
+            declared_mc: g.declared_mc,
+            identity: g.identity,
+            verdict: g.verdict,
             candidate: None,
-            declared_mc,
-            family_mismatch,
-        });
-    }
+        })
+        .collect();
 
-    // 2. Bounded-concurrency platform poll: for every VIOLATED mod with an
-    //    identity, ask the platform for builds at the instance's CURRENT
-    //    mc + loader. Same shape as `check_instance_mod_compat`.
+    // 2. REPLACEMENT queries — uncached, because the answer picks a concrete
+    //    install target — for every mod the loader will reject (`Violated`, or
+    //    rejected by family) that has a project to ask. Always the instance's
+    //    own loader: the launcher does not propose Fabric builds for a
+    //    Connector instance.
     let queries: Vec<(usize, ModSource, String)> = inputs
         .iter()
         .enumerate()
-        .filter_map(|(i, inp)| match (&inp.verdict, &inp.identity) {
-            (PlatformVerdict::Violated { .. }, Ok((source, project_id))) => {
-                Some((i, *source, project_id.clone()))
+        .filter_map(|(i, inp)| {
+            let broken =
+                inp.family_mismatch || matches!(inp.verdict, PlatformVerdict::Violated { .. });
+            match (broken, &inp.identity) {
+                (true, Ok((source, project_id))) => Some((i, *source, project_id.clone())),
+                _ => None,
             }
-            _ => None,
         })
         .collect();
 
@@ -2238,48 +2356,6 @@ pub async fn mods_plan_mc_migration(
         .collect()
         .await;
     for (i, q) in results {
-        inputs[i].candidate = Some(q);
-    }
-
-    // 2b. Existence probes for FITS/UNKNOWN mods that still have a platform
-    //     identity (option A of the 2026-08-10 live-availability spec): a jar
-    //     with a permissive declared range is offline-Fits yet the project may
-    //     publish NO build for this platform at all — the live check's
-    //     «Несовместим», which the plan used to file under "already fit"
-    //     (the 7↔3 gap). Deliberately via `cached_versions` — the SAME cache
-    //     and question as the chip's live check — so the two surfaces cannot
-    //     disagree even when the cache is stale. Violated mods above keep the
-    //     uncached query: their result picks a concrete replacement target.
-    let probes: Vec<(usize, ModSource, String)> = inputs
-        .iter()
-        .enumerate()
-        .filter_map(|(i, inp)| match (&inp.verdict, &inp.identity) {
-            (PlatformVerdict::Fits | PlatformVerdict::Unknown, Ok((source, project_id))) => {
-                Some((i, *source, project_id.clone()))
-            }
-            _ => None,
-        })
-        .collect();
-    let probe_results: Vec<(usize, CandidateQuery)> =
-        stream::iter(probes)
-            .map(|(i, source, project_id)| {
-                let mc = mc.clone();
-                async move {
-                    let platform = platform_for(source);
-                    let query =
-                        match cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
-                            .await
-                        {
-                            Ok(versions) => CandidateQuery::Found(versions),
-                            Err(_) => CandidateQuery::Failed,
-                        };
-                    (i, query)
-                }
-            })
-            .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-            .collect()
-            .await;
-    for (i, q) in probe_results {
         inputs[i].candidate = Some(q);
     }
 

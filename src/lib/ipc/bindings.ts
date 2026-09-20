@@ -812,6 +812,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  failure becomes [`ModCompatStatus::Unknown`] for that mod — the
 	 *  command fails wholesale only on a catastrophic error (instance
 	 *  missing, registry unreadable).
+	 * 
+	 *  Both this command and `mods_plan_mc_migration` are projections of
+	 *  `gather_compat_facts` — see the 2026-09-20 spec, D8.
 	 */
 	checkInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModCompat[], Error>(__TAURI_INVOKE("check_instance_mod_compat", { id, mc, loader })),
 	/**
@@ -836,12 +839,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  loader; each replaceable target's declared required deps are then asked
 	 *  for too (same shape again), so anything a later apply would ALSO need to
 	 *  pull in — e.g. BiomesOPlenty's mandatory `terrablender` + `glitchcore` —
-	 *  is visible in the plan before anything is installed. Fits/Unknown mods
-	 *  with an identity additionally get an EXISTENCE probe through the shared
-	 *  version cache (option A, 2026-08-10 spec): a project publishing no build
-	 *  for this platform strands the mod instead of filing it under "fits", which
-	 *  is what kept the plan's count below the chip's. Never applies anything:
-	 *  this command only reads and queries.
+	 *  is visible in the plan before anything is installed. Fits/Unknown mods are
+	 *  weighed by `gather_compat_facts` — the same pass the compatibility chip
+	 *  runs — and bucketed by `compat::classify`: a page listing THIS file
+	 *  confirms an undeclared jar, a page listing nothing flags only a jar that
+	 *  makes no bounded statement of its own. Never applies anything: this command
+	 *  only reads and queries.
 	 */
 	modsPlanMcMigration: (instanceId: string) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId })),
 	/**
@@ -4494,15 +4497,13 @@ export type McMigrationPlan_Deserialize = {
 	 *  row carries WHY.
 	 */
 	stranded: StrandedRow[],
+	/**  See [`NoPlatformBuildRow`]. */
+	no_platform_build: NoPlatformBuildRow[],
 	/**
 	 *  Verdict was `Unknown` — surfaced in the summary, never folded into
 	 *  `fits`. A check that did not run must not read as a check that passed.
-	 *  `u32` not `usize`: specta forbids exporting BigInt-style types to TS
-	 *  (see the same rule applied to every other count field in this
-	 *  codebase — `usize`/`u64` counters are cast down, byte sizes go to
-	 *  `f64`); a bounded per-instance mod count never approaches `u32::MAX`.
 	 */
-	unjudged: number,
+	unjudged: UnjudgedRow[],
 };
 
 export type McMigrationPlan_Serialize = {
@@ -4524,15 +4525,13 @@ export type McMigrationPlan_Serialize = {
 	 *  row carries WHY.
 	 */
 	stranded: StrandedRow[],
+	/**  See [`NoPlatformBuildRow`]. */
+	no_platform_build: NoPlatformBuildRow[],
 	/**
 	 *  Verdict was `Unknown` — surfaced in the summary, never folded into
 	 *  `fits`. A check that did not run must not read as a check that passed.
-	 *  `u32` not `usize`: specta forbids exporting BigInt-style types to TS
-	 *  (see the same rule applied to every other count field in this
-	 *  codebase — `usize`/`u64` counters are cast down, byte sizes go to
-	 *  `f64`); a bounded per-instance mod count never approaches `u32::MAX`.
 	 */
-	unjudged: number,
+	unjudged: UnjudgedRow[],
 };
 
 /**
@@ -4806,25 +4805,29 @@ export type ModCompat = {
 };
 
 /**
- *  The compatibility status of one installed mod against a target
- *  Minecraft version + loader combination.
+ *  The LIVE half of one installed mod's compatibility — the chip's projection
+ *  of [`ModPlatformClass`] (see [`compat_status`]). The offline half
+ *  (`loader_mismatch` / `platform_mismatch`) travels in [`ModLocalCompat`].
  */
 export type ModCompatStatus = 
 /**
- *  At least one platform version exists for the target (mc, loader).
- *  `available_version` is the version number of the newest match when
- *  present (versions are returned newest-first by the platform layer).
+ *  The mod fits: its jar says so, or it declares nothing and the platform
+ *  lists this exact file for the instance's (mc, loader).
+ *  `available_version` is the newest listed version number, when the
+ *  platform was asked and answered with any.
  */
 { status: "compatible"; available_version: string | null } | 
 /**
- *  The platform responded successfully but returned zero versions for
- *  the target (mc, loader) — the mod has no release for that combination.
+ *  The mod's page lists no build for the instance's (mc, loader) AND the
+ *  jar makes no bounded statement of its own. Probable, never proven —
+ *  the UI words it as «no release», not as «the loader will reject it».
  */
 { status: "incompatible" } | 
 /**
- *  The platform query failed (network error, missing CurseForge key,
- *  project delisted / 404). A fetch error must NOT be read as
- *  incompatible — the user should be told we simply don't know.
+ *  Nothing to add from the live side: the query failed or was never made
+ *  (no identity, pack-owned, unreadable jar, Vanilla instance), builds
+ *  exist but not this file, or the offline scan already flags the jar. A
+ *  failed query must NOT be read as incompatible.
  */
 { status: "unknown" };
 
@@ -5604,6 +5607,17 @@ export type NewDependencyRow_Serialize = {
 	 *  this project.
 	 */
 	needed_by: string[],
+};
+
+/**
+ *  The mod's page lists no build for the instance's platform, and the jar
+ *  itself makes no bounded statement. Probable, never proven — deliberately
+ *  NOT a `StrandedRow`: «needs your decision» is for what the loader WILL
+ *  reject.
+ */
+export type NoPlatformBuildRow = {
+	sha1: string,
+	name: string,
 };
 
 /**  Why a pack instance cannot be update-checked (structural, not transient). */
@@ -7090,6 +7104,20 @@ export type ThemePreference = "system" | "light" | "dark";
  *  validation question — same shape as `ModsAuthKind` in `error.rs`.
  */
 export type UiErrorLevel = "error" | "warn";
+
+/**
+ *  Why a mod could not be judged either way. Crosses IPC — each variant is a
+ *  distinct real state with its own copy; a missing CurseForge key must never
+ *  read as a claim about the mod.
+ */
+export type UnjudgedReason = "unreadable" | "pack_owned" | "no_mod_page" | "no_loader" | "platform_unavailable" | "file_not_listed";
+
+/**  A mod that could not be judged either way — named, with the true reason. */
+export type UnjudgedRow = {
+	sha1: string,
+	name: string,
+	reason: UnjudgedReason,
+};
 
 /**
  *  Why a version verdict could not be reached (§6). Typed so the dialog

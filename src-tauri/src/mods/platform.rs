@@ -138,10 +138,35 @@ pub fn loader_in_filename(filename: &str) -> Option<LoaderKind> {
     }
 }
 
-/// Drop versions whose primary-file filename names a loader different from the
-/// requested one. Versions whose filename names no loader are kept (trust the
-/// platform tag). No-op when no loader was requested (e.g. the "show all
-/// versions" path). Forge and NeoForge are distinct here.
+/// True when a filename's loader word `found` should overrule the platform's
+/// own tags for a `want` request.
+///
+/// The filename outranks the tag only where the tag is known-unreliable or
+/// genuinely ambiguous: no tags at all; a version ALSO tagged `found` (one
+/// version, several files, and the primary one is the other loader's jar); or
+/// the Forge/NeoForge pair, the documented mis-tag this heuristic was written
+/// for (Xaero's Minimap 1.20.4). Otherwise a loader word in the filename is
+/// taken for what it usually is — part of the project's NAME
+/// (`forgified-fabric-api-….jar`, tagged `neoforge` only, 36 builds of it).
+///
+/// Accepted trade-off: a version tagged for exactly one loader whose file is in
+/// truth another loader's jar is now trusted. No such mis-tag is documented;
+/// the opposite failure is measured.
+fn filename_overrules_tags(found: LoaderKind, want: LoaderKind, tags: &[LoaderKind]) -> bool {
+    if found == want {
+        return false;
+    }
+    let forge_pair = matches!(
+        (found, want),
+        (LoaderKind::Forge, LoaderKind::NeoForge) | (LoaderKind::NeoForge, LoaderKind::Forge)
+    );
+    tags.is_empty() || tags.contains(&found) || forge_pair
+}
+
+/// Drop versions whose primary-file filename names a loader that contradicts
+/// the request — see [`filename_overrules_tags`] for when a filename is
+/// allowed to contradict. Versions whose filename names no loader are kept
+/// (trust the platform tag). No-op when no loader was requested.
 pub fn drop_filename_loader_mismatches(
     versions: Vec<ModVersion>,
     want: Option<LoaderKind>,
@@ -150,7 +175,7 @@ pub fn drop_filename_loader_mismatches(
         Some(want) => versions
             .into_iter()
             .filter(|v| match loader_in_filename(&v.primary_file.filename) {
-                Some(found) => found == want,
+                Some(found) => !filename_overrules_tags(found, want, &v.loaders),
                 None => true,
             })
             .collect(),
@@ -777,6 +802,61 @@ mod tests {
             version_with_filename("x-forge-1.jar"),
         ];
         assert_eq!(drop_filename_loader_mismatches(mixed, None).len(), 2);
+    }
+
+    fn version_tagged(filename: &str, loaders: Vec<LoaderKind>) -> ModVersion {
+        let mut v = version_with_filename(filename);
+        v.loaders = loaders;
+        v
+    }
+
+    #[test]
+    fn a_loader_word_in_the_projects_own_name_does_not_drop_the_version() {
+        // Live data, 2026-09-20: Modrinth lists 36 Forgified Fabric API builds
+        // for 1.21.1 + neoforge — every one tagged `neoforge` ONLY, every one
+        // named `forgified-fabric-api-…`. The token `fabric` is the project's
+        // name, not a build marker; dropping on it made the project look
+        // version-less on every NeoForge instance.
+        let versions = vec![version_tagged(
+            "forgified-fabric-api-0.116.7+2.2.4+1.21.1.jar",
+            vec![LoaderKind::NeoForge],
+        )];
+        let kept = drop_filename_loader_mismatches(versions, Some(LoaderKind::NeoForge));
+        assert_eq!(
+            kept.len(),
+            1,
+            "a single-loader tag outranks a loader WORD in the name"
+        );
+    }
+
+    #[test]
+    fn a_multi_loader_version_whose_primary_file_is_the_other_loaders_jar_is_dropped() {
+        // (pin) One version, two files, tagged for both loaders; the primary
+        // file is the Fabric jar. Installing it on Forge is the wrong jar.
+        let versions = vec![version_tagged(
+            "mod-fabric-1.0.jar",
+            vec![LoaderKind::Forge, LoaderKind::Fabric],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Forge)).is_empty());
+    }
+
+    #[test]
+    fn an_untagged_version_with_a_foreign_filename_is_dropped() {
+        // (pin) No tags at all: the filename is the only signal left.
+        let versions = vec![version_tagged("mod-fabric-1.0.jar", vec![])];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Forge)).is_empty());
+    }
+
+    #[test]
+    fn a_fabric_named_file_is_still_dropped_for_a_quilt_request() {
+        // (pin) Deliberate NON-change. Quilt loads Fabric jars, so this drop is
+        // arguably wrong — but fixing it changes which jar gets INSTALLED on
+        // Quilt instances and was never verified live. Backlog, own spec.
+        let versions = vec![version_tagged(
+            "sodium-fabric-0.5.jar",
+            vec![LoaderKind::Fabric, LoaderKind::Quilt],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Quilt)).is_empty());
     }
 
     #[test]

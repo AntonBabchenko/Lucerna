@@ -13,6 +13,7 @@ vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e)
 import { invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
 import {
   __resetLiveVerdictsForTests,
+  compatKindOf,
   createCompatCheck,
 } from '$lib/mods/installed/compat-check.svelte';
 
@@ -227,5 +228,15 @@ describe('createCompatCheck two-stage pipeline', () => {
     await c.runOfflineScan();
     expect([...c.incompatibleShas].sort()).toEqual(['checkable', 'not-checkable']);
     c.dispose();
+  });
+});
+
+describe('compatKindOf', () => {
+  it('separates what the loader will reject from what only the mod page suggests', () => {
+    expect(compatKindOf(null)).toBeNull();
+    expect(compatKindOf({ key: 'noRelease' })).toBe('noRelease');
+    expect(compatKindOf({ key: 'loader', detected: 'Fabric' })).toBe('proven');
+    expect(compatKindOf({ key: 'platformMc', declared: '[1.20,1.21)' })).toBe('proven');
+    expect(compatKindOf({ key: 'platformLoader', declared: '[52,)' })).toBe('proven');
   });
 });

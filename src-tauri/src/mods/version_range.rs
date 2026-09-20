@@ -166,6 +166,43 @@ pub(crate) fn is_bare_maven_spec(range: &str) -> bool {
     !t.is_empty() && t != "*" && !t.starts_with('[') && !t.starts_with('(')
 }
 
+/// Does `range` close the version set from ABOVE in every group (Maven) /
+/// alternative (Fabric, Quilt)? Purely syntactic — it says nothing about
+/// whether any version satisfies the range. Conservative: an open group among
+/// several, a bare Maven soft spec, a wildcard, `*`, the empty range and
+/// anything unparseable are all "not bounded".
+pub(crate) fn is_upper_bounded(range: &str, family: RangeFamily) -> bool {
+    let range = range.trim();
+    if range.is_empty() || range == "*" {
+        return false;
+    }
+    match family {
+        RangeFamily::Maven => {
+            if is_bare_maven_spec(range) {
+                return false;
+            }
+            match parse_maven_restrictions(range) {
+                Some(rs) if !rs.is_empty() => rs.iter().all(|r| r.upper.is_some()),
+                _ => false,
+            }
+        }
+        RangeFamily::FabricPredicate => predicate_is_upper_bounded(range, false),
+        RangeFamily::QuiltPredicate => predicate_is_upper_bounded(range, true),
+    }
+}
+
+/// Every `||` alternative must carry at least one term that bounds from above.
+fn predicate_is_upper_bounded(pred: &str, is_quilt: bool) -> bool {
+    pred.split("||").all(|alt| {
+        let alt = alt.trim();
+        !alt.is_empty()
+            && alt.split_whitespace().any(|term| {
+                let (op, ver) = split_predicate_term(term, is_quilt);
+                !is_wildcard_version(ver) && matches!(op, "=" | "<" | "<=" | "^" | "~")
+            })
+    })
+}
+
 fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
     let range = range.trim();
     // An omitted versionRange is FML's `UNBOUNDED` — itself a bare spec, i.e.
@@ -731,5 +768,79 @@ mod tests {
             satisfies("1.19.2-5.0.0", "(1.19-5.0.0,]", Maven),
             Satisfaction::Violated
         ); // equal, exclusive lower
+    }
+
+    #[test]
+    fn upper_bounded_maven_ranges() {
+        for r in [
+            "[1.21,1.22)",
+            "[1.21.0,1.22)",
+            "[1.21.1]",
+            "(,1.21.1]",
+            "[1.20,1.20.4],[1.21,1.22)",
+        ] {
+            assert!(is_upper_bounded(r, RangeFamily::Maven), "{r} is bounded");
+        }
+    }
+
+    #[test]
+    fn maven_ranges_that_are_not_upper_bounded() {
+        // (pin) open, soft, empty, wildcard, one open group among several, malformed.
+        for r in [
+            "[1.21,)",
+            "(1.20,)",
+            "1.21.1",
+            "",
+            "*",
+            "[1.20,1.20.4],[1.21,)",
+            "[1.21",
+        ] {
+            assert!(
+                !is_upper_bounded(r, RangeFamily::Maven),
+                "{r} is not bounded"
+            );
+        }
+    }
+
+    #[test]
+    fn upper_bounded_predicates() {
+        for r in [
+            ">=1.21 <1.22",
+            "~1.21",
+            "^1.21",
+            "1.21.1",
+            "<=1.21.1",
+            ">=1.21 <1.22 || =1.23",
+        ] {
+            assert!(
+                is_upper_bounded(r, RangeFamily::FabricPredicate),
+                "{r} is bounded"
+            );
+        }
+        // Quilt's bare version is a caret — bounded too.
+        assert!(is_upper_bounded("1.21.1", RangeFamily::QuiltPredicate));
+    }
+
+    #[test]
+    fn predicates_that_are_not_upper_bounded() {
+        // (pin)
+        for r in [
+            ">=1.21",
+            ">1.20",
+            "*",
+            "",
+            "1.21.x",
+            ">=1.21 <1.22 || >=1.23",
+            ">=1.21 ||",
+        ] {
+            assert!(
+                !is_upper_bounded(r, RangeFamily::FabricPredicate),
+                "{r} is not bounded"
+            );
+            assert!(
+                !is_upper_bounded(r, RangeFamily::QuiltPredicate),
+                "{r} is not bounded (quilt)"
+            );
+        }
     }
 }
