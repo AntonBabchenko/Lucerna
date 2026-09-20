@@ -40,11 +40,7 @@ function modVersion(projectId: string, versionId: string): ModVersion_Serialize 
 // Three fits, one replaceable, one new dependency (needed by the replaceable
 // row), one stranded, one no-release, and two unjudged — every number distinct
 // so an assertion that reads "3" can only mean fits.
-//
-// `as unknown as`: the red round runs against the OLD bindings, where
-// `unjudged` is a number and `no_platform_build` does not exist. Task G10
-// removes the cast once the bindings are regenerated.
-const PLAN = {
+const PLAN: McMigrationPlan_Serialize = {
   fits: [
     { sha1: 'f1', name: 'Fine Mod One' },
     { sha1: 'f2', name: 'Fine Mod Two' },
@@ -73,7 +69,7 @@ const PLAN = {
     { sha1: 'u1', name: 'Kiwi', reason: 'file_not_listed' },
     { sha1: 'u2', name: 'Hand Dropped', reason: 'no_mod_page' },
   ],
-} as unknown as McMigrationPlan_Serialize;
+};
 
 function renderDialog(onApplied = vi.fn(), onClose = vi.fn()) {
   return render(MigrationPlanDialog, {
@@ -186,7 +182,10 @@ describe('MigrationPlanDialog', () => {
     expect(modsApplyMcMigration).toHaveBeenCalledWith('inst-1', {
       replace: [{ old_sha1: 'r1', target: PLAN.replaceable[0]?.target }],
       new_dependencies: [PLAN.new_dependencies[0]?.target],
-      stranded: [{ sha1: 's1', disposition: 'keep' }],
+      stranded: [
+        { sha1: 's1', disposition: 'keep' },
+        { sha1: 'n1', disposition: 'keep' },
+      ],
     });
   });
 
@@ -236,7 +235,10 @@ describe('MigrationPlanDialog', () => {
     expect(modsApplyMcMigration).toHaveBeenCalledWith('inst-1', {
       replace: [],
       new_dependencies: [],
-      stranded: [{ sha1: 's1', disposition: 'remove' }],
+      stranded: [
+        { sha1: 's1', disposition: 'remove' },
+        { sha1: 'n1', disposition: 'keep' },
+      ],
     });
   });
 
