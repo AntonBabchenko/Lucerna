@@ -312,7 +312,7 @@ describe('remediatePickedVersion + violationKey', () => {
     const r = await remediatePickedVersion('inst', v, chosen);
     expect(mocks.modsInstallWithDeps).toHaveBeenCalled();
     expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
-    expect(r).toEqual({ ok: false });
+    expect(r).toEqual({ ok: false, error: 'disk full' });
   });
 
   // 2026-09-20 spec, D5 + D6.

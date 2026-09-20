@@ -3,11 +3,13 @@ import {
   type DepProjectRef,
   type DepViolation,
   type InstallMissingOutcome,
+  type Error as IpcError,
   type LoaderKind,
   type ModVersion,
   type PreflightReport,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import type { InstallOpts } from '$lib/tasks/adapters/mod-install';
 import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { preflightCache } from './preflight-cache';
 
@@ -167,26 +169,38 @@ export function violationKey(v: DepViolation): string {
 
 /**
  * Install a user-chosen version for a violation (manual pick / downgrade from
- * the version picker). Routes through `mods_update_one` (in-place replace) when
- * the provider jar is tracked, else a fresh install. Never throws; returns the
- * installed `version_number` on success for the toast.
+ * the version picker). Never throws; returns the installed `version_number` on
+ * success for the toast, and the typed error on failure so the caller can ASK
+ * about a build that is not for this instance instead of toasting a failure no
+ * retry could fix.
+ *
+ * The jar to replace is the tracked provider when the preflight knows it
+ * (`provider_sha1`), else the build the CALLER found installed for the chosen
+ * project (`opts.installedSha1`) — this helper cannot see the instance. With
+ * either, the pick is a version switch and goes through `mods_update_one`:
+ * one command that downloads the new build before it removes the old one.
+ * With neither it is a fresh install.
  */
 export async function remediatePickedVersion(
   instanceId: string,
   v: DepViolation,
   chosen: ModVersion,
-): Promise<{ ok: boolean; installedVersion?: string }> {
-  const res = v.provider_sha1
-    ? await updateMod(instanceId, chosen.name, v.provider_sha1, chosen)
+  opts: InstallOpts & { installedSha1?: string | null } = {},
+): Promise<{ ok: boolean; installedVersion?: string; error?: IpcError }> {
+  const oldSha1 = v.provider_sha1 ?? opts.installedSha1 ?? null;
+  const install: InstallOpts = { allowOffPlatform: opts.allowOffPlatform === true };
+  const res = oldSha1
+    ? await updateMod(instanceId, chosen.name, oldSha1, chosen, install)
     : await installModWithDeps(
         instanceId,
         chosen.name,
         { source: chosen.source, project_id: chosen.project_id, version_id: chosen.version_id },
         [],
+        install,
       );
   return res.status === 'ok'
     ? { ok: true, installedVersion: chosen.version_number }
-    : { ok: false };
+    : { ok: false, error: res.error };
 }
 
 /**
