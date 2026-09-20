@@ -351,7 +351,9 @@ describe('MigrationPlanDialog', () => {
     modsApplyMcMigration.mockResolvedValue({ status: 'ok', data: { outcomes: [] } });
     renderDialog();
 
-    await waitFor(() => expect(screen.getByTestId('migration-disposition-disable-n1')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId('migration-disposition-disable-n1')).toBeTruthy(),
+    );
     await fireEvent.click(screen.getByTestId('migration-disposition-disable-n1'));
     const applyBtn = screen.getByTestId('migration-apply-btn') as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(false);
