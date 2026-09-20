@@ -168,9 +168,39 @@ pub(crate) fn is_bare_maven_spec(range: &str) -> bool {
 
 /// Does `range` close the version set from ABOVE in every group (Maven) /
 /// alternative (Fabric, Quilt)? Purely syntactic — it says nothing about
-/// whether any version satisfies the range.
-pub(crate) fn is_upper_bounded(_range: &str, _family: RangeFamily) -> bool {
-    false // stub — red round
+/// whether any version satisfies the range. Conservative: an open group among
+/// several, a bare Maven soft spec, a wildcard, `*`, the empty range and
+/// anything unparseable are all "not bounded".
+pub(crate) fn is_upper_bounded(range: &str, family: RangeFamily) -> bool {
+    let range = range.trim();
+    if range.is_empty() || range == "*" {
+        return false;
+    }
+    match family {
+        RangeFamily::Maven => {
+            if is_bare_maven_spec(range) {
+                return false;
+            }
+            match parse_maven_restrictions(range) {
+                Some(rs) if !rs.is_empty() => rs.iter().all(|r| r.upper.is_some()),
+                _ => false,
+            }
+        }
+        RangeFamily::FabricPredicate => predicate_is_upper_bounded(range, false),
+        RangeFamily::QuiltPredicate => predicate_is_upper_bounded(range, true),
+    }
+}
+
+/// Every `||` alternative must carry at least one term that bounds from above.
+fn predicate_is_upper_bounded(pred: &str, is_quilt: bool) -> bool {
+    pred.split("||").all(|alt| {
+        let alt = alt.trim();
+        !alt.is_empty()
+            && alt.split_whitespace().any(|term| {
+                let (op, ver) = split_predicate_term(term, is_quilt);
+                !is_wildcard_version(ver) && matches!(op, "=" | "<" | "<=" | "^" | "~")
+            })
+    })
 }
 
 fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
