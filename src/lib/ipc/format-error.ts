@@ -46,6 +46,12 @@ export function withDetailTail(headline: string, raw: string | null | undefined)
   return `${headline}: ${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}… (${hint})`;
 }
 
+/** A platform tag list inside a sentence. An empty list reads as an em dash,
+ *  never as a gap — CurseForge files may carry no loader tag at all. */
+function listOrDash(items: string[]): string {
+  return items.length > 0 ? items.join(', ') : '—';
+}
+
 export type ErrorClass = 'clean' | 'transport' | 'opaque';
 
 /**
@@ -128,6 +134,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_platform_auth: 'clean',
   mods_distribution_disabled: 'clean',
   mods_not_found: 'clean',
+  mod_version_not_for_instance: 'clean',
   mods_platform_unsupported: 'clean',
   changelog_unsupported: 'clean',
   mods_sha1_unavailable: 'clean',
@@ -509,6 +516,18 @@ export function formatError(e: IpcError): string {
       return translate('errors.modsDistributionDisabled', { source: e.source });
     case 'mods_not_found':
       return translate('errors.modsNotFound', { source: e.source });
+    case 'mod_version_not_for_instance':
+      // Normally never shown: the three paths that can install such a build
+      // open a confirmation from these same fields instead. This is the text
+      // for every OTHER surface the refusal can reach (a repair card, the
+      // dependency graph, «Update») — and it is true, unlike «no longer
+      // available».
+      return translate('errors.modVersionNotForInstance', {
+        versionMc: listOrDash(e.version_mc),
+        versionLoaders: listOrDash(e.version_loaders.map(displayLoader)),
+        instanceMc: e.instance_mc,
+        instanceLoader: displayLoader(e.instance_loader),
+      });
     case 'mods_platform_unsupported':
       return translate('errors.modsPlatformUnsupported', { source: e.source });
     case 'mods_decode':

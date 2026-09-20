@@ -190,6 +190,7 @@ describe('remediateViolation', () => {
       'inst-1',
       { source: 'modrinth', project_id: 'core-id', version_id: 'v-new' },
       [],
+      false,
     );
   });
 
@@ -220,7 +221,7 @@ describe('remediateViolation', () => {
     const v = { ...modrinthViolation, provider_sha1: 'OLDSHA' };
     const r = await remediateViolation('inst', v as any, '1.20.1', 'forge');
     expect(r.ok).toBe(true);
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLDSHA', fakeVersion);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLDSHA', fakeVersion, false);
     expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
   });
 
@@ -258,7 +259,7 @@ describe('remediateViolation', () => {
       '0.5.11',
       'fabric_predicate',
     );
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'old', v511);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'old', v511, false);
     expect(r).toEqual({ ok: true, installedVersion: '0.5.11' });
   });
 
@@ -299,7 +300,7 @@ describe('remediatePickedVersion + violationKey', () => {
     const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
     const v = { ...modrinthViolation, provider_sha1: 'OLD' };
     const r = await remediatePickedVersion('inst', v, chosen);
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen, false);
     expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
     expect(r).toEqual({ ok: true, installedVersion: '0.6.0' });
   });
