@@ -223,6 +223,37 @@ describe('mod-install adapter', () => {
       .sort();
     expect(kinds).toEqual(['mod-install', 'mod-update']);
   });
+
+  // The consent flag (2026-09-20 spec, D4): explicit, carried end to end, never
+  // inferred. The wrapper ALWAYS hands the command a boolean, so a call site
+  // that does not opt in can never reach the backend as `undefined`.
+  it('always sends an explicit consent flag, false unless the caller opted in', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    } as never);
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as never);
+
+    await installModWithDeps('i', 'X', primary, []);
+    await updateMod('i', 'X', 'sha1', target);
+
+    expect(commands.modsInstallWithDeps).toHaveBeenCalledWith('i', primary, [], false);
+    expect(commands.modsUpdateOne).toHaveBeenCalledWith('i', 'sha1', target, false);
+  });
+
+  it('passes the consent through when the caller opted in', async () => {
+    vi.mocked(commands.modsInstallWithDeps).mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'X', installed_dependencies: [], details: [] },
+    } as never);
+    vi.mocked(commands.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as never);
+
+    await installModWithDeps('i', 'X', primary, [], { allowOffPlatform: true });
+    await updateMod('i', 'X', 'sha1', target, { allowOffPlatform: true });
+
+    expect(commands.modsInstallWithDeps).toHaveBeenCalledWith('i', primary, [], true);
+    expect(commands.modsUpdateOne).toHaveBeenCalledWith('i', 'sha1', target, true);
+  });
 });
 
 // A failed progress subscription must not cost the user the install. This

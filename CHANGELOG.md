@@ -65,6 +65,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   exactly that, in a section of its own, instead of among the mods the game
   will refuse. Mods that could not be verified are now listed by name, each
   with the reason.
+- **Installing a build made for another Minecraft version failed with a false
+  reason.** Picking such a build from a mod's full version list ended in a
+  message claiming the mod had been removed from the platform. The list now
+  marks the builds the platform does not offer for the profile, and installing
+  one asks first, naming what differs, and then installs it. Switching an
+  installed mod to another version also no longer removes the old version
+  before the new one has been downloaded, so a failed download leaves the mod
+  as it was; and updating a mod no longer forgets which libraries were
+  installed for it.
 - **A server could be started while it was being uploaded to a host.** Starting
   it within a moment of beginning the upload let both through, and an upload
   begun while the server was still starting up was simply allowed. Either way

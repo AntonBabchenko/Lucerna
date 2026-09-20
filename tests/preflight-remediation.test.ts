@@ -190,6 +190,7 @@ describe('remediateViolation', () => {
       'inst-1',
       { source: 'modrinth', project_id: 'core-id', version_id: 'v-new' },
       [],
+      false,
     );
   });
 
@@ -220,7 +221,7 @@ describe('remediateViolation', () => {
     const v = { ...modrinthViolation, provider_sha1: 'OLDSHA' };
     const r = await remediateViolation('inst', v as any, '1.20.1', 'forge');
     expect(r.ok).toBe(true);
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLDSHA', fakeVersion);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLDSHA', fakeVersion, false);
     expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
   });
 
@@ -258,7 +259,7 @@ describe('remediateViolation', () => {
       '0.5.11',
       'fabric_predicate',
     );
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'old', v511);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'old', v511, false);
     expect(r).toEqual({ ok: true, installedVersion: '0.5.11' });
   });
 
@@ -299,7 +300,7 @@ describe('remediatePickedVersion + violationKey', () => {
     const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
     const v = { ...modrinthViolation, provider_sha1: 'OLD' };
     const r = await remediatePickedVersion('inst', v, chosen);
-    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen, false);
     expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
     expect(r).toEqual({ ok: true, installedVersion: '0.6.0' });
   });
@@ -311,7 +312,68 @@ describe('remediatePickedVersion + violationKey', () => {
     const r = await remediatePickedVersion('inst', v, chosen);
     expect(mocks.modsInstallWithDeps).toHaveBeenCalled();
     expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
-    expect(r).toEqual({ ok: false });
+    expect(r).toEqual({ ok: false, error: 'disk full' });
+  });
+
+  // 2026-09-20 spec, D5 + D6.
+  it('replaces the installed build in place when the caller found one, even without provider_sha1', async () => {
+    // The preflight only knows `provider_sha1` for a TRACKED provider. When the
+    // view finds another build of the same project installed, the pick is still
+    // a version switch, and a switch is ONE command that downloads before it
+    // removes anything.
+    mocks.modsUpdateOne.mockResolvedValue({ status: 'ok', data: null });
+    // Answered too, so that TODAY'S code (which installs) completes and the
+    // test fails on the assertion below, not on an undefined result.
+    mocks.modsInstallWithDeps.mockResolvedValue({ status: 'ok', data: {} });
+    const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
+    const v = { ...modrinthViolation, provider_sha1: null };
+
+    const r = await remediatePickedVersion('inst', v, chosen, { installedSha1: 'INSTALLED' });
+
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'INSTALLED', chosen, false);
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+    expect(r).toEqual({ ok: true, installedVersion: '0.6.0' });
+  });
+
+  it('carries the consent to whichever command runs', async () => {
+    mocks.modsUpdateOne.mockResolvedValue({ status: 'ok', data: null });
+    mocks.modsInstallWithDeps.mockResolvedValue({ status: 'ok', data: {} });
+    const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
+
+    await remediatePickedVersion('inst', { ...modrinthViolation, provider_sha1: 'OLD' }, chosen, {
+      allowOffPlatform: true,
+    });
+    await remediatePickedVersion('inst', { ...modrinthViolation, provider_sha1: null }, chosen, {
+      allowOffPlatform: true,
+    });
+
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen, true);
+    expect(mocks.modsInstallWithDeps).toHaveBeenCalledWith(
+      'inst',
+      { source: 'modrinth', project_id: 'core-id', version_id: 'vChosen' },
+      [],
+      true,
+    );
+  });
+
+  it('hands the typed error back so the caller can ask instead of toasting', async () => {
+    const refusal = {
+      kind: 'mod_version_not_for_instance',
+      version_mc: ['1.20.1'],
+      version_loaders: ['fabric'],
+      instance_mc: '1.21.1',
+      instance_loader: 'neoforge',
+    };
+    mocks.modsUpdateOne.mockResolvedValue({ status: 'error', error: refusal });
+    const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
+
+    const r = await remediatePickedVersion(
+      'inst',
+      { ...modrinthViolation, provider_sha1: 'OLD' },
+      chosen,
+    );
+
+    expect(r).toEqual({ ok: false, error: refusal });
   });
 });
 

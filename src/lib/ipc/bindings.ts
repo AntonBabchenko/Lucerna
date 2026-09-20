@@ -711,12 +711,17 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  doesn't need to keep a heavy struct around — we re-fetch from the
 	 *  platform here. This also re-validates against the live API.
 	 * 
+	 *  `allow_off_platform` is the user's explicit yes to a build the platform
+	 *  does not list for this instance's Minecraft + loader (see `find_version`).
+	 *  Without it such a build is refused with `ModVersionNotForInstance` before
+	 *  anything is resolved, downloaded or written.
+	 * 
 	 *  Runs under the instance's SHARED maintenance claim
 	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
 	 *  while a long operation holds the instance, admitted alongside other item
 	 *  writers and while the game runs.
 	 */
-	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[]) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps })),
+	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[], allowOffPlatform: boolean) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps, allowOffPlatform })),
 	/**
 	 *  Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
 	 *  listed (with synthesized metadata if it wasn't installed via the
@@ -901,10 +906,20 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  on error. Optional dependencies are intentionally not installed —
 	 *  see the spec ("Dependencies on update").
 	 * 
+	 *  `target` is re-resolved through `find_version` — the same gate, the same
+	 *  typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
+	 *  as `mods_install_with_deps` — so every network step happens before the old
+	 *  jar is touched. What this does NOT give: `update_one`'s second phase is
+	 *  still uninstall-then-install with no restore; a local filesystem failure
+	 *  there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
+	 * 
+	 *  After the swap the new row inherits the outgoing row's `requires` edges
+	 *  plus whatever this update pulled in (`orphans::requires_edges`).
+	 * 
 	 *  Under the shared maintenance claim for the whole update, as
 	 *  `mods_install_with_deps`.
 	 */
-	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
+	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize, allowOffPlatform: boolean) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target, allowOffPlatform })),
 	modsFindOrphans: (instanceId: string, removing: string[]) => typedError<OrphanRef[], Error>(__TAURI_INVOKE("mods_find_orphans", { instanceId, removing })),
 	/**
 	 *  Build a full nested dependency graph for all platform-identified mods in
@@ -3208,7 +3223,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  fixes one, and only relocating the data root fixes the other. The UI
  *  shows a different message and a different action for each.
  */
-{ kind: "path_not_launchable"; data_root: boolean } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
+{ kind: "path_not_launchable"; data_root: boolean } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | 
+/**
+ *  The build EXISTS on the platform, but the platform does not list it for
+ *  this instance's Minecraft + loader. Deliberately not `ModsNotFound`:
+ *  «absent from the platform» and «present, but not for this instance» are
+ *  different facts (Fallback discipline, question 2), and only the first may
+ *  say the mod is gone. Carries the build's own tags so the UI can name
+ *  what differs and ask before installing it anyway — the fields are typed,
+ *  never pre-formatted, so the sentence is built in the user's language.
+ */
+{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
 /**
  *  A restore failed AND the rollback could not put the world back. The world
  *  is intact in a dot-prefixed sibling directory that every listing filters

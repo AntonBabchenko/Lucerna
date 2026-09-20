@@ -234,6 +234,23 @@ pub enum Error {
         platform: String,
     },
 
+    /// The build EXISTS on the platform, but the platform does not list it for
+    /// this instance's Minecraft + loader. Deliberately not `ModsNotFound`:
+    /// «absent from the platform» and «present, but not for this instance» are
+    /// different facts (Fallback discipline, question 2), and only the first may
+    /// say the mod is gone. Carries the build's own tags so the UI can name
+    /// what differs and ask before installing it anyway — the fields are typed,
+    /// never pre-formatted, so the sentence is built in the user's language.
+    #[error(
+        "This build targets Minecraft {version_mc:?} on {version_loaders:?}; the instance runs {instance_mc} on {instance_loader:?}"
+    )]
+    ModVersionNotForInstance {
+        version_mc: Vec<String>,
+        version_loaders: Vec<crate::instances::schema::LoaderKind>,
+        instance_mc: String,
+        instance_loader: crate::instances::schema::LoaderKind,
+    },
+
     #[error("Mod source {platform:?} has no per-mod browser — it is a modpack-only source")]
     ModsPlatformUnsupported {
         // Rust field named `platform` (not `source`) to avoid thiserror v2
@@ -1200,6 +1217,31 @@ mod tests {
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_platform_auth""#), "got: {j}");
         assert!(j.contains(r#""kind_detail":"missing""#), "got: {j}");
+    }
+
+    #[test]
+    fn mod_version_not_for_instance_carries_both_sides_typed() {
+        // (pin) The wire format the frontend's confirmation is built from.
+        // Loaders cross as the snake_case `LoaderKind` tags, never as display
+        // names — the UI owns capitalisation and language.
+        let e = Error::ModVersionNotForInstance {
+            version_mc: vec!["1.20.1".into(), "1.20.2".into()],
+            version_loaders: vec![crate::instances::schema::LoaderKind::Fabric],
+            instance_mc: "1.21.1".into(),
+            instance_loader: crate::instances::schema::LoaderKind::NeoForge,
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(
+            j.contains(r#""kind":"mod_version_not_for_instance""#),
+            "got: {j}"
+        );
+        assert!(
+            j.contains(r#""version_mc":["1.20.1","1.20.2"]"#),
+            "got: {j}"
+        );
+        assert!(j.contains(r#""version_loaders":["fabric"]"#), "got: {j}");
+        assert!(j.contains(r#""instance_mc":"1.21.1""#), "got: {j}");
+        assert!(j.contains(r#""instance_loader":"neoforge""#), "got: {j}");
     }
 
     #[test]
