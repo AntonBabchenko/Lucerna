@@ -426,14 +426,9 @@ pub async fn l10n_prefill_estimate(
 /// two at once would race each other's pack rebuild, and the second would
 /// silently pay for strings the first was already buying.
 ///
-/// The refusal is a check followed by a registration, not one atomic step, so
-/// two invocations landing on different worker threads within the same
-/// instant can both pass it — the same shape `server_cancel_upload`'s registry
-/// has. The damage is bounded rather than absent: each flush re-reads the
-/// namespace file before saving, so neither run can delete the other's
-/// entries; what the loser costs is duplicate spend and a pack rebuilt twice.
-/// Closing the window means a check-and-insert under one lock in
-/// `prefill::cancel`, which is worth doing the next time that module is open.
+/// The refusal and the registration are one step — a claim — so two
+/// invocations landing together cannot both start; the same claim
+/// `server_upload` takes.
 ///
 /// A failure part-way through is reported ON the returned summary
 /// (`RunSummary::failed`), not in place of it — everything written before the
@@ -452,30 +447,26 @@ pub async fn l10n_prefill_start(
     // `options.txt` — the same files `l10n_apply` refuses to write while the
     // game is running, for the same reason.
     apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
-    if crate::l10n::prefill::cancel::is_active(&instance_id) {
-        return Err(crate::error::Error::L10nPrefillBusy);
-    }
     validate_prefill_scope(namespace.as_deref(), &lang)?;
 
-    let cancel = crate::l10n::prefill::cancel::begin(&instance_id);
-    let outcome = crate::l10n::prefill::run::run(
+    // Held to the end of the function: its drop de-registers the instance on
+    // EVERY path — success, a failed run, a panic unwinding out of it — or one
+    // bad run would leave the instance "busy" until the launcher restarts.
+    let claim = crate::l10n::prefill::cancel::try_begin(&instance_id)
+        .ok_or(crate::error::Error::L10nPrefillBusy)?;
+    crate::l10n::prefill::run::run(
         &app,
         &instance_id,
         &lang,
         namespace.as_deref(),
-        &cancel,
+        claim.flag(),
         &|tick| {
             // A closed channel (the dialog was dismissed) is not a reason to
             // stop translating — the run's own cancel flag is.
             let _ = on_progress.send(tick);
         },
     )
-    .await;
-    // Not `?` on the line above, and not a guard object either: the flag has to
-    // be de-registered on EVERY path, or one failed run leaves the instance
-    // permanently "busy" until the launcher restarts.
-    crate::l10n::prefill::cancel::end(&instance_id);
-    outcome
+    .await
 }
 
 /// Ask the in-flight pre-fill run for `instance_id` to stop. A no-op when

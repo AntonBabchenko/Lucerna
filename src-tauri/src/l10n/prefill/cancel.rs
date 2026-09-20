@@ -1,72 +1,30 @@
-//! Per-instance cancellation flags for an in-flight pre-fill run. A run
-//! registers a flag on start (`begin`) and de-registers on return (`end`).
-//! `cancel` flips the flag; the batch loop polls it between batches.
-//! `is_active` powers the "a pre-fill is already running" start-guard
-//! (`Error::L10nPrefillBusy`).
+//! Which instances have an AI pre-fill run in flight, and the flag that
+//! cancels each. A run takes a claim on start ([`try_begin`]) and holds it
+//! until it returns; dropping the claim de-registers the instance. [`cancel`]
+//! flips the flag; the batch loop polls it between batches. [`is_active`]
+//! powers the "a pre-fill is already running" listing, and a refused
+//! [`try_begin`] is the start-guard (`Error::L10nPrefillBusy`).
 //!
-//! Same shape as `servers_runtime::upload_control` — deliberately, so the two
-//! cancellable long-running operations behave identically.
-//!
-//! The flags live in an owned [`Registry`] and the public functions delegate
-//! to one process-wide instance of it — the arrangement `launch::spawn` has
-//! with `process::registry::ProcessRegistry`. The split is there for
-//! [`any_active`]: it is a claim about the WHOLE registry, and `cargo test`
-//! runs this crate's tests on parallel threads inside one process, so "nothing
-//! is registered" can only be asserted on an instance no other test can reach.
-//! Folding the struct back into a bare `static` brings the intermittent test
-//! failure back (`docs/TESTING.md`, "Process-global registries in unit tests").
+//! The process-wide instance of [`CancelRegistry`] for pre-fill runs. Same
+//! type as `servers_runtime::upload_control`, so the two cancellable
+//! long-running operations behave identically. The claim's atomicity and its
+//! release on every exit path — a panic included — are properties of that type
+//! and are tested there, on private instances.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::OnceLock;
 
-#[derive(Default)]
-struct Registry {
-    flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+use crate::cancel_registry::{CancelClaim, CancelRegistry};
+
+fn registry() -> &'static CancelRegistry {
+    static R: OnceLock<CancelRegistry> = OnceLock::new();
+    R.get_or_init(CancelRegistry::default)
 }
 
-impl Registry {
-    /// Poison-tolerant: the lock is only ever held for one map operation,
-    /// never across caller code, so a poisoned mutex still guards a
-    /// consistent map.
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
-        self.flags.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    fn begin(&self, instance_id: &str) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        self.lock().insert(instance_id.to_string(), flag.clone());
-        flag
-    }
-
-    fn cancel(&self, instance_id: &str) {
-        if let Some(flag) = self.lock().get(instance_id) {
-            flag.store(true, Ordering::SeqCst);
-        }
-    }
-
-    fn is_active(&self, instance_id: &str) -> bool {
-        self.lock().contains_key(instance_id)
-    }
-
-    fn any_active(&self) -> bool {
-        !self.lock().is_empty()
-    }
-
-    fn end(&self, instance_id: &str) {
-        self.lock().remove(instance_id);
-    }
-}
-
-fn registry() -> &'static Registry {
-    static R: OnceLock<Registry> = OnceLock::new();
-    R.get_or_init(Registry::default)
-}
-
-/// Register a fresh cancel flag (false) for `instance_id`, replacing any stale
-/// entry — a re-run must not inherit the previous run's cancellation.
-pub fn begin(instance_id: &str) -> Arc<AtomicBool> {
-    registry().begin(instance_id)
+/// Claim the pre-fill run for `instance_id`. `None` while one is already in
+/// flight on it. The claim carries the run's cancel flag and de-registers the
+/// instance when dropped: bind it to a named local for the whole run.
+pub fn try_begin(instance_id: &str) -> Option<CancelClaim<'static>> {
+    registry().try_begin(instance_id)
 }
 
 /// Request cancellation of `instance_id`'s in-flight run (no-op if none).
@@ -87,97 +45,46 @@ pub fn any_active() -> bool {
     registry().any_active()
 }
 
-/// De-register `instance_id` (always called when the run returns, success or
-/// not).
-pub fn end(instance_id: &str) {
-    registry().end(instance_id);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
 
     #[test]
-    fn begin_cancel_end_is_scoped_to_one_instance() {
-        let reg = Registry::default();
-        let a = reg.begin("inst-a");
-        let b = reg.begin("inst-b");
-        assert!(reg.is_active("inst-a"));
-        reg.cancel("inst-a");
-        assert!(a.load(Ordering::SeqCst));
-        assert!(!b.load(Ordering::SeqCst), "cancelling A must not stop B");
-        reg.end("inst-a");
-        reg.end("inst-b");
-        assert!(!reg.is_active("inst-a"));
-    }
-
-    #[test]
-    fn cancelling_an_unknown_instance_is_a_no_op() {
-        Registry::default().cancel("never-started");
-    }
-
-    #[test]
-    fn begin_replaces_a_stale_flag_so_a_rerun_does_not_start_cancelled() {
-        let reg = Registry::default();
-        let first = reg.begin("inst-c");
-        reg.cancel("inst-c");
-        assert!(first.load(Ordering::SeqCst));
-        let second = reg.begin("inst-c");
-        assert!(!second.load(Ordering::SeqCst));
-        reg.end("inst-c");
-    }
-
-    #[test]
-    fn any_active_sees_a_run_on_any_instance() {
-        // A registry of its own: "nothing is registered" is a claim about the
-        // whole registry, which a test sharing the process-wide one with its
-        // parallel siblings cannot make.
-        let reg = Registry::default();
-        assert!(!reg.any_active());
-        let _first = reg.begin("inst-any");
-        assert!(reg.any_active());
-        let _second = reg.begin("inst-other");
-        reg.end("inst-any");
-        assert!(
-            reg.any_active(),
-            "a run on another instance is still in flight"
-        );
-        reg.end("inst-other");
-        assert!(!reg.any_active());
-    }
-
-    #[test]
     fn the_public_functions_reach_one_process_wide_registry() {
-        // The one test that goes through the process-wide registry, which it
-        // shares with every other test in this binary. So it uses an id nothing
-        // else uses and asserts only what holds whatever a parallel test does.
-        // In particular it never asserts `!any_active()`: that is true only if
-        // no other thread has a run registered, which no test here can know.
+        // Goes through the process-wide registry, which it shares with every
+        // other test in this binary. So it uses an id nothing else uses and
+        // asserts only what holds whatever a parallel test does. In particular
+        // it never asserts `!any_active()`: that is true only if no other
+        // thread has a run registered, which no test here can know
+        // (`docs/TESTING.md`, "Process-global registries in unit tests").
         let id = "inst-process-wide";
-        let flag = begin(id);
+        let claim = try_begin(id).expect("nothing else uses this id");
         assert!(is_active(id));
         assert!(any_active(), "our own run is registered, so this holds");
+        assert!(
+            try_begin(id).is_none(),
+            "a second run on the instance must be refused"
+        );
         cancel(id);
-        assert!(flag.load(Ordering::SeqCst));
-        end(id);
+        assert!(claim.flag().load(Ordering::SeqCst));
+        drop(claim);
         assert!(
             !is_active(id),
-            "`end` must de-register, or the instance stays busy"
+            "dropping the claim must de-register, or the instance stays busy"
         );
     }
 
     #[test]
     fn a_private_registry_cannot_see_a_process_wide_run() {
-        // What the tests above rest on. A run held in the process-wide registry
-        // stands in for a parallel sibling frozen mid-flight; a registry of our
-        // own must not see it. Were `Registry` ever a front for shared state,
-        // the emptiness assertions above would go back to failing now and then
-        // — this one fails every time instead. The `begin` is what makes it
-        // so: with no run held, shared state would look just as empty.
-        let id = "inst-isolation";
-        let _flag = begin(id);
-        assert!(!Registry::default().any_active());
-        end(id);
+        // A run held in the process-wide registry stands in for a parallel
+        // sibling frozen mid-flight; a registry of our own must not see it.
+        // Were the registries ever a front for shared state, every
+        // whole-registry assertion in `cancel_registry`'s tests would go back
+        // to failing now and then — this one fails every time instead. The
+        // claim is what makes it so: with no run held, shared state would look
+        // just as empty.
+        let _claim = try_begin("inst-isolation").expect("nothing else uses this id");
+        assert!(!CancelRegistry::default().any_active());
     }
 }

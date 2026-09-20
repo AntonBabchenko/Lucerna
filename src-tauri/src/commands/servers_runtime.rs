@@ -1511,11 +1511,25 @@ pub async fn server_upload(
     crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    if crate::servers_runtime::runtime::is_running(&id) {
+    // Claim first, look second — the Dekker pairing `runtime::start` has the
+    // other half of: it claims the start slot and only then tests
+    // `upload_is_active`. Each side sets its own flag before reading the
+    // other's, so whichever way a Start click and an Upload click interleave,
+    // at least one is refused. Looking first left a window — the config read
+    // and the OS keyring call below — in which a start slipped in and the
+    // upload then shipped `runtime/` from under a booting JVM.
+    //
+    // Held to the end of the function: its drop de-registers the server on
+    // every path, a panic included. A registration that outlived its upload
+    // would refuse every later Start until the launcher restarts.
+    let claim = crate::servers_runtime::upload_control::upload_try_begin(&id)
+        .ok_or_else(|| crate::error::Error::ServerUploadInProgress { id: id.clone() })?;
+    // `is_starting` as well: `is_running` stays false for the whole of
+    // `start()`'s Java resolution and possible JRE download.
+    if crate::servers_runtime::runtime::is_running(&id)
+        || crate::servers_runtime::runtime::is_starting(&id)
+    {
         return Err(crate::error::Error::ServerAlreadyRunning { id });
-    }
-    if crate::servers_runtime::upload_control::upload_is_active(&id) {
-        return Err(crate::error::Error::ServerUploadInProgress { id });
     }
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let cfg = file
@@ -1525,8 +1539,7 @@ pub async fn server_upload(
     let stored =
         crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
     let secret = resolve_upload_secret(auth.method, password, stored)?;
-    let cancel = crate::servers_runtime::upload_control::upload_begin(&id);
-    let result = crate::servers_runtime::transfer::upload_server(
+    crate::servers_runtime::transfer::upload_server(
         &app,
         &id,
         &cfg,
@@ -1534,12 +1547,10 @@ pub async fn server_upload(
         &secret,
         accept_new_host_key,
         skip_worlds,
-        &cancel,
+        claim.flag(),
         resume,
     )
-    .await;
-    crate::servers_runtime::upload_control::upload_end(&id);
-    result
+    .await
 }
 
 /// Resumable-upload snapshot for the Hosting tab. `resumable` is true iff an

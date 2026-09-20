@@ -2117,14 +2117,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  two at once would race each other's pack rebuild, and the second would
 	 *  silently pay for strings the first was already buying.
 	 * 
-	 *  The refusal is a check followed by a registration, not one atomic step, so
-	 *  two invocations landing on different worker threads within the same
-	 *  instant can both pass it — the same shape `server_cancel_upload`'s registry
-	 *  has. The damage is bounded rather than absent: each flush re-reads the
-	 *  namespace file before saving, so neither run can delete the other's
-	 *  entries; what the loser costs is duplicate spend and a pack rebuilt twice.
-	 *  Closing the window means a check-and-insert under one lock in
-	 *  `prefill::cancel`, which is worth doing the next time that module is open.
+	 *  The refusal and the registration are one step — a claim — so two
+	 *  invocations landing together cannot both start; the same claim
+	 *  `server_upload` takes.
 	 * 
 	 *  A failure part-way through is reported ON the returned summary
 	 *  (`RunSummary::failed`), not in place of it — everything written before the

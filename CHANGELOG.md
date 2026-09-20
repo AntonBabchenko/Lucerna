@@ -65,6 +65,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
   exactly that, in a section of its own, instead of among the mods the game
   will refuse. Mods that could not be verified are now listed by name, each
   with the reason.
+- **A server could be started while it was being uploaded to a host.** Starting
+  it within a moment of beginning the upload let both through, and an upload
+  begun while the server was still starting up was simply allowed. Either way
+  the host received a copy of a world the game was writing to at that moment,
+  and the upload reported success. The launcher now refuses whichever of the
+  two came second. An upload or an AI translation run that crashed part-way
+  also left its server or instance marked busy until the launcher was
+  restarted — a server in that state could not be started at all; both now
+  free themselves however they end. And two AI translation runs begun at the
+  same instant on one instance can no longer both go ahead and pay twice for
+  the same strings.
 
 ## [0.24.0] — 2026-09-19
 

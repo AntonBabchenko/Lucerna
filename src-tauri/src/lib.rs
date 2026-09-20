@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod cancel_registry;
 pub mod cli;
 mod commands;
 pub mod data_root;
