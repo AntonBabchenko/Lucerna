@@ -558,16 +558,11 @@ pub async fn mods_install_with_deps(
             // Project IDs of the primary's transitive required closure plus any
             // manifest-discovered extras — persisted onto the primary's registry entry
             // for offline orphan detection.
-            let primary_required_ids: Vec<String> = {
-                let mut ids: Vec<String> = primary_required
-                    .iter()
-                    .chain(extra_install.iter())
-                    .map(|v| v.project_id.clone())
-                    .collect();
-                ids.sort();
-                ids.dedup();
-                ids
-            };
+            let primary_required_ids = crate::mods::orphans::requires_edges(
+                &installed_mods,
+                None,
+                primary_required.iter().chain(extra_install.iter()),
+            );
 
             // For each chosen optional: resolve it to a full version, then compute its
             // transitive sub-closure (excluding installed + already-collected deps).
@@ -1772,6 +1767,16 @@ pub async fn mods_enrich_pack_mods(
 /// on error. Optional dependencies are intentionally not installed —
 /// see the spec ("Dependencies on update").
 ///
+/// `target` is re-resolved through `find_version` — the same gate, the same
+/// typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
+/// as `mods_install_with_deps` — so every network step happens before the old
+/// jar is touched. What this does NOT give: `update_one`'s second phase is
+/// still uninstall-then-install with no restore; a local filesystem failure
+/// there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
+///
+/// After the swap the new row inherits the outgoing row's `requires` edges
+/// plus whatever this update pulled in (`orphans::requires_edges`).
+///
 /// Under the shared maintenance claim for the whole update, as
 /// `mods_install_with_deps`.
 #[tauri::command]
@@ -1781,6 +1786,7 @@ pub async fn mods_update_one(
     instance_id: String,
     old_sha1: String,
     target: ModVersion,
+    allow_off_platform: bool,
 ) -> crate::error::Result<()> {
     // Held across the download and the swap: an exclusive claim taken between
     // them would rewrite `mods/` while this removes the old jar.
@@ -1791,8 +1797,27 @@ pub async fn mods_update_one(
             let dd = data_dir(&app)?;
             let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
+            // The same gate as an install: the target is resolved by its id
+            // BEFORE anything is fetched or touched, a build the platform does
+            // not list for this instance is refused unless the user agreed, and
+            // from here on `target` is the PLATFORM'S record of that id — not
+            // whatever the caller sent.
+            let mut platform = platform_for(target.source);
+            let target_ref = VersionRef {
+                source: target.source,
+                project_id: target.project_id.clone(),
+                version_id: target.version_id.clone(),
+            };
+            let target = find_version(
+                &mut platform,
+                &target_ref,
+                &mc_version,
+                loader,
+                allow_off_platform,
+            )
+            .await?;
+
             // Required dependencies of the target version (optional deps skipped).
-            let platform = platform_for(target.source);
             let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
             let required_deps: Vec<ModVersion> =
                 resolved.required.into_iter().map(|r| r.version).collect();
@@ -1843,8 +1868,21 @@ pub async fn mods_update_one(
             });
 
             let target_project_id = target.project_id.clone();
-            // The outgoing version, read before the swap removes its registry row.
-            let previous = mod_identity(&inst_root, &old_sha1).await;
+            // ONE registry snapshot, taken before the swap removes the old row:
+            // the outgoing version's name for the journal, its `requires` edges,
+            // and which projects were already installed. An unreadable registry
+            // stops the update HERE, with nothing touched — `update_one` would
+            // fail on the very same read a moment later.
+            let registry_before = crate::mods::installed::list(&inst_root).await?;
+            let previous = registry_before
+                .iter()
+                .find(|m| m.sha1.eq_ignore_ascii_case(&old_sha1))
+                .map(|m| (m.name.clone(), m.version_number.clone()));
+            let requires = crate::mods::orphans::requires_edges(
+                &registry_before,
+                Some(old_sha1.as_str()),
+                required_deps.iter(),
+            );
             let target_name = target.name.clone();
             let target_version = target.version_number.clone();
             match crate::mods::install::update_one(
@@ -1868,6 +1906,7 @@ pub async fn mods_update_one(
                             Some(target_version),
                         ),
                     );
+                    let new_sha1 = outcome.primary.sha1.clone();
                     let _ = ModUninstalled {
                         instance_id: instance_id.clone(),
                         sha1: outcome.removed_sha1,
@@ -1882,6 +1921,12 @@ pub async fn mods_update_one(
                         }
                         .emit(&app);
                     }
+                    // Written LAST and allowed to fail the command, exactly as
+                    // the install path does: the swap is durably on disk and
+                    // already journalled and announced, so a registry write
+                    // failure is reported as itself — it must not erase the
+                    // record of a change that really happened.
+                    crate::mods::installed::set_requires(&inst_root, &new_sha1, requires).await?;
                     Ok(())
                 }
                 Err(e) => {

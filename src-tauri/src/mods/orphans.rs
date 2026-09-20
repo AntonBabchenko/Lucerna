@@ -4,6 +4,9 @@
 //! its `project_id` appears in NO remaining mod's `requires`, it is not itself
 //! being removed, and it was pulled in as some removed mod's dependency.
 //! Manual mods (no `project_id`) are never flagged. No network, no I/O.
+//!
+//! `requires_edges` is the one place a row's `requires` list is computed — by
+//! install and by update alike.
 
 use crate::mods::platform::{InstalledMod, ModVersion, OrphanRef};
 use std::collections::HashSet;
@@ -42,18 +45,48 @@ pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<Or
         .collect()
 }
 
-/// The `requires` edge list to store on a primary's registry row.
-/// D5 of the 2026-09-20 spec — see the implementation commit.
+/// The `requires` edge list to store on a primary's registry row: the edges
+/// the OUTGOING row already carried, plus the projects this operation pulled
+/// in that were not installed before it ran. Sorted, deduplicated.
+///
+/// One rule for both writers, because they had drifted: a fresh install
+/// recorded its pulled-in closure, while `mods_update_one` recorded nothing —
+/// and since an update removes the old row and writes a new one, every
+/// «Update» silently emptied the list. `find_orphans` then no longer knew why
+/// a library was there and never offered it for removal again.
+///
+/// - `registry` is the snapshot taken BEFORE the operation touched anything.
+/// - `outgoing_sha1` is the row being replaced; `None` for a fresh install.
+///   An update must not forget why a library is there, so its edges carry
+///   over — including transitive ones the update itself never resolves.
+/// - `pulled_in` are the dependencies the operation installs. One that was
+///   already in the registry (same source + project) is NOT claimed: the user
+///   had it first, and claiming it would later offer it as this mod's orphan.
+///   The install path's closure is already pruned this way, so for it the
+///   filter changes nothing; the update path resolves its deps unpruned.
 pub(crate) fn requires_edges<'a>(
-    _registry: &[InstalledMod],
-    _outgoing_sha1: Option<&str>,
+    registry: &[InstalledMod],
+    outgoing_sha1: Option<&str>,
     pulled_in: impl IntoIterator<Item = &'a ModVersion>,
 ) -> Vec<String> {
-    // Scaffold — red round: today's install rule. Nothing carried over from an
-    // outgoing row, nothing pruned against the registry.
-    let mut ids: Vec<String> = pulled_in
+    let carried = outgoing_sha1
+        .and_then(|sha| registry.iter().find(|m| m.sha1.eq_ignore_ascii_case(sha)))
+        .map(|m| m.requires.clone())
+        .unwrap_or_default();
+    let already_installed = |v: &ModVersion| {
+        registry.iter().any(|m| {
+            m.source == Some(v.source) && m.project_id.as_deref() == Some(v.project_id.as_str())
+        })
+    };
+    let mut ids: Vec<String> = carried
         .into_iter()
-        .map(|v| v.project_id.clone())
+        .chain(
+            pulled_in
+                .into_iter()
+                // `filter` hands out `&&ModVersion`; deref once, explicitly.
+                .filter(|v| !already_installed(*v))
+                .map(|v| v.project_id.clone()),
+        )
         .collect();
     ids.sort();
     ids.dedup();
