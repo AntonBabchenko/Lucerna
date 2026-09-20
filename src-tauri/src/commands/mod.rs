@@ -499,6 +499,8 @@ async fn find_version(
     vr: &VersionRef,
     mc: &str,
     loader: LoaderKind,
+    // Accepted and ignored in the red round (Task G1 gives it meaning).
+    _allow_off_platform: bool,
 ) -> crate::error::Result<ModVersion> {
     let vs = platform
         .versions(&vr.project_id, Some(mc), Some(loader))
@@ -1113,6 +1115,238 @@ mod tests {
     #[test]
     fn is_staged_summary_sidecar_rejects_plain_json() {
         assert!(!is_staged_summary_sidecar("/tmp/pack.json"));
+    }
+
+    // ── find_version: absent ≠ foreign ≠ lookup failed (2026-09-20 spec, D4) ──
+
+    /// One Modrinth version object, in the shape both
+    /// `/v2/project/{id}/version` and `/v2/versions?ids=` return. The filename
+    /// names no loader on purpose: `drop_filename_loader_mismatches` must have
+    /// no say in these tests.
+    fn mr_version_json(id: &str, project: &str, mc: &str, loader: &str) -> String {
+        format!(
+            r#"{{
+                "id": "{id}",
+                "project_id": "{project}",
+                "name": "FerriteCore {id}",
+                "version_number": "{id}",
+                "game_versions": ["{mc}"],
+                "loaders": ["{loader}"],
+                "date_published": "2026-05-01T00:00:00Z",
+                "files": [{{
+                    "url": "https://cdn.modrinth.com/ferritecore-{id}.jar",
+                    "filename": "ferritecore-{id}.jar",
+                    "hashes": {{"sha1": "459b5f4c7297b2f7649d43137f3e5a069b69b707"}},
+                    "size": 2048,
+                    "primary": true
+                }}],
+                "dependencies": []
+            }}"#
+        )
+    }
+
+    /// The build the platform lists for a NeoForge 1.21.1 instance.
+    fn fits_build() -> String {
+        mr_version_json("fits-build", "ferrite", "1.21.1", "neoforge")
+    }
+
+    /// A build of the SAME project made for another Minecraft and loader.
+    fn foreign_build() -> String {
+        mr_version_json("foreign-build", "ferrite", "1.20.1", "fabric")
+    }
+
+    fn json_list(items: &[String]) -> wiremock::ResponseTemplate {
+        wiremock::ResponseTemplate::new(200).set_body_string(format!("[{}]", items.join(",")))
+    }
+
+    fn ferrite_ref(version_id: &str) -> VersionRef {
+        VersionRef {
+            source: ModSource::Modrinth,
+            project_id: "ferrite".into(),
+            version_id: version_id.into(),
+        }
+    }
+
+    /// A Modrinth double: `filtered` answers the instance-filtered listing,
+    /// `by_id` the unfiltered lookup by version id.
+    async fn ferrite_server(
+        filtered: wiremock::ResponseTemplate,
+        by_id: wiremock::ResponseTemplate,
+    ) -> wiremock::MockServer {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/ferrite/version"))
+            .respond_with(filtered)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v2/versions"))
+            .respond_with(by_id)
+            .mount(&server)
+            .await;
+        server
+    }
+
+    async fn resolve_ferrite(
+        server: &wiremock::MockServer,
+        version_id: &str,
+        allow_off_platform: bool,
+    ) -> crate::error::Result<ModVersion> {
+        let mut platform: Box<dyn ModPlatform> = Box::new(ModrinthClient::with_base(server.uri()));
+        find_version(
+            &mut platform,
+            &ferrite_ref(version_id),
+            "1.21.1",
+            LoaderKind::NeoForge,
+            allow_off_platform,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_foreign_build_is_refused_with_its_own_tags_and_not_called_missing() {
+        // The report: FerriteCore's 1.20.1 build, picked from «all versions» on a
+        // 1.21.1 instance, failed with «this mod is no longer available on
+        // modrinth». The mod is there. What is true is that this BUILD is not
+        // for this instance — and the error must carry what differs.
+        let server =
+            ferrite_server(json_list(&[fits_build()]), json_list(&[foreign_build()])).await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let err = resolve_ferrite(&server, "foreign-build", false)
+            .await
+            .unwrap_err();
+
+        match err {
+            Error::ModVersionNotForInstance {
+                version_mc,
+                version_loaders,
+                instance_mc,
+                instance_loader,
+            } => {
+                assert_eq!(version_mc, vec!["1.20.1".to_string()]);
+                assert_eq!(version_loaders, vec![LoaderKind::Fabric]);
+                assert_eq!(instance_mc, "1.21.1");
+                assert_eq!(instance_loader, LoaderKind::NeoForge);
+            }
+            other => panic!("expected ModVersionNotForInstance, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_foreign_build_is_returned_once_the_caller_consented() {
+        let server =
+            ferrite_server(json_list(&[fits_build()]), json_list(&[foreign_build()])).await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let v = resolve_ferrite(&server, "foreign-build", true)
+            .await
+            .unwrap();
+
+        // The platform's own record of that id — not whatever the caller sent.
+        assert_eq!(v.version_id, "foreign-build");
+        assert_eq!(v.project_id, "ferrite");
+        assert_eq!(v.mc_versions, vec!["1.20.1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_by_id_stays_a_network_error() {
+        // «Could not tell» must never be worded as «absent»: a retry is
+        // meaningful for this one and meaningless for a real not-found.
+        let server = ferrite_server(
+            json_list(&[fits_build()]),
+            wiremock::ResponseTemplate::new(500),
+        )
+        .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let err = resolve_ferrite(&server, "foreign-build", true)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::ModsNetwork { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn an_id_the_platform_does_not_know_is_not_found() {
+        // (pin) After the change this is the ONLY road to ModsNotFound besides
+        // the wrong-project case below — which is what makes the message true.
+        let server = ferrite_server(json_list(&[fits_build()]), json_list(&[])).await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let err = resolve_ferrite(&server, "no-such-build", true)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::ModsNotFound { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn an_id_that_belongs_to_another_project_is_not_found_even_with_consent() {
+        // (pin) Consent covers «another Minecraft», never «another mod»: a ref
+        // whose version id resolves to a different project is a wrong ref.
+        let stranger = mr_version_json("foreign-build", "some-other-project", "1.20.1", "fabric");
+        let server = ferrite_server(json_list(&[fits_build()]), json_list(&[stranger])).await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let err = resolve_ferrite(&server, "foreign-build", true)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::ModsNotFound { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_listed_build_is_returned_without_a_lookup_by_id() {
+        // (pin) Step 1 is today's path and must stay the whole story for every
+        // ordinary install: no second request, no consent needed.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/ferrite/version"))
+            .respond_with(json_list(&[fits_build()]))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v2/versions"))
+            .respond_with(json_list(&[]))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let v = resolve_ferrite(&server, "fits-build", false).await.unwrap();
+
+        assert_eq!(v.version_id, "fits-build");
+        // `expect(0)` is verified when `server` drops at the end of the test.
+    }
+
+    #[tokio::test]
+    async fn a_failed_filtered_listing_propagates_unchanged() {
+        // (pin) A network failure in step 1 is reported as itself and the
+        // by-id lookup is never used to paper over it.
+        let server = ferrite_server(
+            wiremock::ResponseTemplate::new(500),
+            json_list(&[foreign_build()]),
+        )
+        .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let err = resolve_ferrite(&server, "foreign-build", true)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::ModsNetwork { .. }), "got {err:?}");
     }
 }
 

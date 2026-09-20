@@ -354,7 +354,8 @@ pub async fn mods_install_with_deps(
 
             // Two handles: Box for find_version calls, Arc for make_fetch closure.
             let mut platform_box = platform_for(primary.source);
-            let primary_v = find_version(&mut platform_box, &primary, &mc_version, loader).await?;
+            let primary_v =
+                find_version(&mut platform_box, &primary, &mc_version, loader, false).await?;
 
             // Build the set of already-installed mods so resolve_closure can prune
             // them. Two views: by source-specific ProjectKey, and by lowercased jar
@@ -562,7 +563,7 @@ pub async fn mods_install_with_deps(
             let mut chosen_optionals: Vec<ModVersion> = Vec::new();
             // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
             for opt in &optional_deps {
-                let ov = find_version(&mut platform_box, opt, &mc_version, loader).await?;
+                let ov = find_version(&mut platform_box, opt, &mc_version, loader, false).await?;
                 let mut excl = installed.clone();
                 for v in &dep_versions {
                     excl.insert(ProjectKey::of_version(v));
@@ -859,7 +860,7 @@ pub(crate) async fn install_version_into_dir(
             version_id,
         };
         let mut platform_box = platform_for(source);
-        let primary_v = find_version(&mut platform_box, &vr, mc_version, loader).await?;
+        let primary_v = find_version(&mut platform_box, &vr, mc_version, loader, false).await?;
 
         // 2. Prune deps already present in `dest` (by lowercased filename only —
         //    servers keep no installed-mods registry, so the ProjectKey set is empty).
