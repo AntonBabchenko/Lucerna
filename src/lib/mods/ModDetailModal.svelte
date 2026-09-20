@@ -10,9 +10,14 @@
     type RangeFamily,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { displayLoader } from '$lib/instances/loader-display';
+  import { offPlatformLabel, offPlatformRows } from '$lib/mods/off-platform';
+  import { isInstalledBuild } from '$lib/mods/version-switch';
+  import type { InstallOpts } from '$lib/tasks/adapters/mod-install';
   import { modProjectUrl } from '$lib/mods/project-url';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import CompatWarningDialog from './CompatWarningDialog.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
@@ -26,7 +31,10 @@
   // description + install-recommended) and Versions (full list with the
   // compatibility-off toggle). The owning ModBrowseView mounts/unmounts
   // this to open/close. Every command returns the tauri-specta
-  // { status, data | error } shape — we branch explicitly.
+  // { status, data | error } shape — we branch explicitly. In show-all mode a
+  // mod build the platform does not list for the instance is badged, and
+  // installing it asks first (CompatWarningDialog) — the answer travels to the
+  // opener as `onInstall(v, { allowOffPlatform: true })`.
 
   let {
     source,
@@ -35,6 +43,7 @@
     loader,
     kind = 'mod',
     installedVersionId = null,
+    installedSha1 = null,
     installingVersionId = null,
     needed = null,
     family = null,
@@ -52,6 +61,11 @@
     // loader requirement.
     kind?: ContentKind;
     installedVersionId?: string | null;
+    // SHA-1 of the jar installed for this project, when there is one. The
+    // registry's `version_id` is null for exactly the mods whose platform tags
+    // disagree with the instance (`enrich` refuses to record a misleading
+    // version), so the installed build is ALSO recognised by its bytes.
+    installedSha1?: string | null;
     // version_id whose install is currently in flight; parent-owned. The
     // matching version row / recommended CTA renders as a busy spinner.
     installingVersionId?: string | null;
@@ -61,7 +75,10 @@
     needed?: string | null;
     family?: RangeFamily | null;
     onClose: () => void;
-    onInstall: (v: ModVersion) => void;
+    // `opts.allowOffPlatform` is set ONLY after the user confirmed, in this
+    // modal, a build the platform does not list for the instance. One-argument
+    // handlers (assets, datapacks) stay valid.
+    onInstall: (v: ModVersion, opts?: InstallOpts) => void;
   } = $props();
 
   type TabId = 'overview' | 'versions';
@@ -75,6 +92,15 @@
   // Full (unfiltered) list, fetched lazily only when show-all is enabled.
   let allVersions = $state<ModVersion[] | null>(null);
   let showAll = $state(false);
+  // Ids of the builds the platform lists for THIS instance — the one rule for
+  // «is this build for this instance» (the backend asks the same question as
+  // step 1 of its resolution). `null` = NOT KNOWN: still loading, the fetch
+  // failed, or there is no instance to be foreign to. `compatibleVersions`
+  // cannot carry that — it collapses a failed fetch to `[]`, and badging
+  // against an empty list would mark every row of a list we never saw.
+  let compatibleIds = $state<Set<string> | null>(null);
+  // The foreign build the user is being asked about; null = no question open.
+  let confirmForeign = $state<ModVersion | null>(null);
   let error = $state<string | null>(null);
 
   const gallery = $derived<GalleryImage[]>(project?.gallery ?? []);
@@ -98,6 +124,7 @@
 
   async function load() {
     error = null;
+    compatibleIds = null;
     const p = await commands.modsProject(source, projectId);
     if (p.status === 'ok') {
       project = p.data;
@@ -135,6 +162,7 @@
       if (mcVersion && loader && loader !== 'vanilla') {
         const v = await commands.modsVersions(source, projectId, mcVersion, loader);
         compatibleVersions = v.status === 'ok' ? v.data : [];
+        if (v.status === 'ok') compatibleIds = new Set(v.data.map((x) => x.version_id));
         if (v.status === 'error') error = formatError(v.error);
       } else {
         compatibleVersions = [];
@@ -184,6 +212,40 @@
       cancelled = true;
     };
   });
+
+  // D2: only mods, only in show-all mode, only once this instance's own list
+  // is KNOWN. When it is not known nothing is marked — the modal does not know,
+  // so it does not say; the backend still refuses without consent, and the
+  // opening view turns that refusal into the same question.
+  function isForeign(v: ModVersion): boolean {
+    return kind === 'mod' && showAll && compatibleIds !== null && !compatibleIds.has(v.version_id);
+  }
+
+  // D3: nothing is uninstalled, resolved or downloaded before the answer.
+  function requestInstall(v: ModVersion) {
+    if (isForeign(v)) {
+      confirmForeign = v;
+      return;
+    }
+    onInstall(v);
+  }
+
+  // `compatibleIds !== null` implies the mods branch ran, i.e. mcVersion and a
+  // non-vanilla loader are set; the guard is for the type checker.
+  const confirmRows = $derived(
+    confirmForeign && mcVersion && loader
+      ? offPlatformRows(
+          offPlatformLabel(confirmForeign.name, confirmForeign.version_number),
+          {
+            versionMc: confirmForeign.mc_versions,
+            versionLoaders: confirmForeign.loaders,
+            instanceMc: mcVersion,
+            instanceLoader: loader,
+          },
+          $t,
+        )
+      : [],
+  );
 
   function openExternal(url: string) {
     if (!url) return;
@@ -292,9 +354,10 @@
           </div>
         {:else}
           {#each versionList as v (v.version_id)}
-            {@const isInstalled = v.version_id === installedVersionId}
+            {@const isInstalled = isInstalledBuild(v, installedVersionId, installedSha1)}
             {@const hasOtherInstalled =
-              installedVersionId !== null && installedVersionId !== v.version_id}
+              (installedVersionId !== null || installedSha1 !== null) && !isInstalled}
+            {@const foreign = isForeign(v)}
             {@const distAllowed = v.primary_file.distribution_allowed}
             {@const rowTooltip = isInstalled
               ? $t('common.installed')
@@ -312,7 +375,25 @@
                 <div class="truncate font-medium">
                   {v.version_number}{isInstalled ? $t('mods.detail.versionInstalled') : ''}
                 </div>
-                <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
+                <!-- A foreign row also names the loaders it was built for; every
+                     other row keeps the plain line it always had. -->
+                <div class="text-xs text-muted truncate">
+                  {foreign && v.loaders.length > 0
+                    ? $t('mods.detail.versionTargets', {
+                        mc: v.mc_versions.join(', '),
+                        loaders: v.loaders.map(displayLoader).join(', '),
+                      })
+                    : `MC: ${v.mc_versions.join(', ')}`}
+                </div>
+                {#if foreign}
+                  <!-- Same badge slot and warning tone as the picker's
+                       «out of range» badge below. -->
+                  <span
+                    class="mt-0.5 inline-block text-[10px] px-1 rounded bg-warning-text/10 text-warning-text"
+                  >
+                    {$t('mods.detail.offPlatformBadge')}
+                  </span>
+                {/if}
                 {#if needed}
                   <span
                     class="mt-0.5 inline-block text-[10px] px-1 rounded {satisfyingIds.has(
@@ -335,7 +416,7 @@
                   }`}
                   disabled={!distAllowed || isInstalled}
                   aria-label={rowTooltip}
-                  onclick={() => onInstall(v)}
+                  onclick={() => requestInstall(v)}
                 >
                   {#if isInstalled}
                     <Icon name="success" size={15} />
@@ -361,7 +442,7 @@
   {#if tab === 'overview' && compatibleVersions !== null}
     <div class="shrink-0 border-t border-border-subtle p-4 py-3">
       {#if canInstall && recommended}
-        {@const isInstalled = recommended.version_id === installedVersionId}
+        {@const isInstalled = isInstalledBuild(recommended, installedVersionId, installedSha1)}
         <BusyButton
           busy={installingVersionId === recommended.version_id}
           class="btn-primary w-full"
@@ -396,3 +477,19 @@
     </div>
   {/if}
 </Modal>
+
+<!-- A sibling of the modal, not a child: its own focus trap, and the shared
+     Modal's open-stack makes Escape / backdrop close only this one. The
+     EXISTING jar-drop dialog — heading, «skip» and «install anyway» are its
+     own keys. Declining closes the question and leaves the modal open. -->
+{#if confirmForeign}
+  <CompatWarningDialog
+    rows={confirmRows}
+    onConfirm={() => {
+      const v = confirmForeign;
+      confirmForeign = null;
+      if (v) onInstall(v, { allowOffPlatform: true });
+    }}
+    onCancel={() => (confirmForeign = null)}
+  />
+{/if}
