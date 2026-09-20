@@ -779,6 +779,61 @@ mod tests {
         assert_eq!(drop_filename_loader_mismatches(mixed, None).len(), 2);
     }
 
+    fn version_tagged(filename: &str, loaders: Vec<LoaderKind>) -> ModVersion {
+        let mut v = version_with_filename(filename);
+        v.loaders = loaders;
+        v
+    }
+
+    #[test]
+    fn a_loader_word_in_the_projects_own_name_does_not_drop_the_version() {
+        // Live data, 2026-09-20: Modrinth lists 36 Forgified Fabric API builds
+        // for 1.21.1 + neoforge — every one tagged `neoforge` ONLY, every one
+        // named `forgified-fabric-api-…`. The token `fabric` is the project's
+        // name, not a build marker; dropping on it made the project look
+        // version-less on every NeoForge instance.
+        let versions = vec![version_tagged(
+            "forgified-fabric-api-0.116.7+2.2.4+1.21.1.jar",
+            vec![LoaderKind::NeoForge],
+        )];
+        let kept = drop_filename_loader_mismatches(versions, Some(LoaderKind::NeoForge));
+        assert_eq!(
+            kept.len(),
+            1,
+            "a single-loader tag outranks a loader WORD in the name"
+        );
+    }
+
+    #[test]
+    fn a_multi_loader_version_whose_primary_file_is_the_other_loaders_jar_is_dropped() {
+        // (pin) One version, two files, tagged for both loaders; the primary
+        // file is the Fabric jar. Installing it on Forge is the wrong jar.
+        let versions = vec![version_tagged(
+            "mod-fabric-1.0.jar",
+            vec![LoaderKind::Forge, LoaderKind::Fabric],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Forge)).is_empty());
+    }
+
+    #[test]
+    fn an_untagged_version_with_a_foreign_filename_is_dropped() {
+        // (pin) No tags at all: the filename is the only signal left.
+        let versions = vec![version_tagged("mod-fabric-1.0.jar", vec![])];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Forge)).is_empty());
+    }
+
+    #[test]
+    fn a_fabric_named_file_is_still_dropped_for_a_quilt_request() {
+        // (pin) Deliberate NON-change. Quilt loads Fabric jars, so this drop is
+        // arguably wrong — but fixing it changes which jar gets INSTALLED on
+        // Quilt instances and was never verified live. Backlog, own spec.
+        let versions = vec![version_tagged(
+            "sodium-fabric-0.5.jar",
+            vec![LoaderKind::Fabric, LoaderKind::Quilt],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Quilt)).is_empty());
+    }
+
     #[test]
     fn content_kind_round_trips_snake_case() {
         assert_eq!(
