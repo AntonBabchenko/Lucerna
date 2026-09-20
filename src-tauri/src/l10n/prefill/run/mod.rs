@@ -107,8 +107,9 @@ const CACHE_STEM: &str = "answers";
 /// Fill in an instance's missing translations for one language.
 ///
 /// `namespace` scopes the run to a single resource namespace; `None` covers
-/// the whole instance. `cancel` is the flag `prefill::cancel::begin` handed
-/// the caller — passed in rather than looked up, so the run reads the very
+/// the whole instance. `cancel` is the flag of the claim
+/// `prefill::cancel::try_begin` handed the caller — passed in rather than
+/// looked up, so the run reads the very
 /// flag its own command registered instead of racing the registry. It is an
 /// `Arc` because every in-flight batch task holds a clone: a cancel that only
 /// the dispatch loop can see still lets ten running batches queue up to

@@ -201,8 +201,9 @@ once. What a test may assert about one depends on the kind of claim:
   an owned struct, test it on a private instance, and leave the `static` as a
   thin wrapper:
   [`process::registry::ProcessRegistry`](../src-tauri/src/process/registry.rs)
-  behind `launch::spawn`, and `Registry` in
-  [`l10n::prefill::cancel`](../src-tauri/src/l10n/prefill/cancel.rs). A test
+  behind `launch::spawn`, and
+  [`cancel_registry::CancelRegistry`](../src-tauri/src/cancel_registry.rs)
+  behind `l10n::prefill::cancel` and `servers_runtime::upload_control`. A test
   that must still go through the shared static asserts only what holds whatever
   another thread does — `any_active()` while its own entry is registered, never
   `!any_active()`.

@@ -347,6 +347,17 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
         });
     }
 
+    // The same pairing with `server_upload`, which claims its upload and only
+    // then tests `is_running || is_starting`. `server_start` and
+    // `server_restart` also test this before calling in — the cheap early
+    // answer — but that test runs before the claim above, so on its own it
+    // cannot see an upload that registers in between.
+    if crate::servers_runtime::upload_control::upload_is_active(server_id) {
+        return Err(Error::ServerUploadInProgress {
+            id: server_id.to_string(),
+        });
+    }
+
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, server_id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;

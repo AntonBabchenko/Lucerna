@@ -74,6 +74,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
   before the new one has been downloaded, so a failed download leaves the mod
   as it was; and updating a mod no longer forgets which libraries were
   installed for it.
+- **A server could be started while it was being uploaded to a host.** Starting
+  it within a moment of beginning the upload let both through, and an upload
+  begun while the server was still starting up was simply allowed. Either way
+  the host received a copy of a world the game was writing to at that moment,
+  and the upload reported success. The launcher now refuses whichever of the
+  two came second. An upload or an AI translation run that crashed part-way
+  also left its server or instance marked busy until the launcher was
+  restarted — a server in that state could not be started at all; both now
+  free themselves however they end. And two uploads of one server, or two AI
+  translation runs on one instance, begun at the same instant can no longer
+  both go ahead — writing the same files on the host twice over, or paying
+  twice for the same strings.
 
 ## [0.24.0] — 2026-09-19
 
