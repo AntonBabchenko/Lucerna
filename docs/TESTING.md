@@ -185,6 +185,41 @@ guard fails the build if `set_var`/`remove_var` ever creeps back in. Integration
 tests keep their file-local `test_lock()` (it serializes global caches, not just
 env) and add the seam guard alongside it.
 
+## Process-global registries in unit tests
+
+`cargo test` runs every test of one binary on parallel threads **inside one
+process**, so a `static` registry is shared by every unit test in the crate at
+once. What a test may assert about one depends on the kind of claim:
+
+- **A claim about one key** (`is_active(id)`, `maintenance_is_active(id)`) is
+  safe on the shared static as long as the id is unique to that test — nothing
+  else can disturb it. This is the `inst-maint-1` … `inst-maint-20b` convention
+  in [`instances::maintenance`](../src-tauri/src/instances/maintenance.rs).
+- **A claim about the whole registry** (`any_active()`, `is_any_running()`) is
+  not. "Nothing is registered" is false whenever any sibling sits between its
+  register and its de-register, and a unique id does not help. Keep the state in
+  an owned struct, test it on a private instance, and leave the `static` as a
+  thin wrapper:
+  [`process::registry::ProcessRegistry`](../src-tauri/src/process/registry.rs)
+  behind `launch::spawn`, and `Registry` in
+  [`l10n::prefill::cancel`](../src-tauri/src/l10n/prefill/cancel.rs). A test
+  that must still go through the shared static asserts only what holds whatever
+  another thread does — `any_active()` while its own entry is registered, never
+  `!any_active()`.
+- **A single process-wide flag** (`verify::RepairGuard`,
+  `datapacks::guard::DatapackUpdateGuard`) has no key to make unique. Exactly
+  one test may touch it; say so in a comment on that test, as
+  `datapacks::guard`'s does.
+
+The second rule was learned the usual way. `any_active_sees_a_run_on_any_instance`
+asserted emptiness on the shared static while two siblings in the same module
+registered runs on it. Compiled alone, that module failed 16 of 1,000 runs; in
+CI it surfaced on `rust (ubuntu)`, on `main`, right after an unrelated merge
+(after the fix: 0 of 5,000). A test lock would
+have repaired that module only for as long as every future test remembered to
+take it — the same hole as failure mode 1 of the env-race flake above, found
+the same way.
+
 ## Testing external source integrations (mods, modpacks)
 
 Wiremock unit/integration tests are the right layer for source clients
