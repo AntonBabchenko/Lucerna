@@ -2433,7 +2433,7 @@
     "serverUploadInProgress": "An upload is already running for this server — wait for it to finish or cancel it first",
     "serverMaintenanceInProgress": "A restore or import is still running for this server — wait for it to finish",
     "serverContentBusy": "Add-ons are still being installed or updated for this server — wait for that to finish, then try again",
-    "serverTreeBusy": "A backup, export or upload of this server is still running — wait for it to finish, then try again",
+    "serverTreeBusy": "This server's files are still being copied — a backup, export, upload or a similar operation is running. Wait for it to finish, then try again",
     "uploadCancelled": "Upload cancelled",
     "serverImportUnsupportedSource": "Pick a .zip file or a server folder to import.",
     "serverImportInvalidArchive": "The server archive couldn't be read",

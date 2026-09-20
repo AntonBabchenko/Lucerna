@@ -150,16 +150,18 @@ const CLAIM_SPELLINGS: &[&str] = &[
     CLAIM_GATE,
 ];
 
-/// `(file, fn, why)` — claim takers excused from rule 3's "before the first
-/// `.await`" half, and only that half: the claim must still be bound. A timer
-/// loop sleeps first by construction and claims once per tick; what has to hold
-/// for it is that the claim precedes that TICK's first read of `runtime/`, which
-/// is an ordering question this lexical scan cannot answer and review owns.
-const CLAIM_AFTER_AWAIT_OK: &[(&str, &str, &str)] = &[(
+/// `(file, fn, must-precede, why)` — claim takers for which rule 3's "before the
+/// first `.await`" cannot hold, and what is pinned in its place. A timer loop
+/// sleeps first by construction and claims once per tick, so "first `.await`"
+/// is the sleep. What has to hold instead is that the claim precedes everything
+/// that TICK does to the server — named here as call-site spellings, each of
+/// which must sit BELOW the claim. The claim must still be bound.
+const CLAIM_AFTER_AWAIT_OK: &[(&str, &str, &[&str], &str)] = &[(
     "commands/servers_runtime.rs",
     "spawn_backup_scheduler",
+    &["pause_saves_for_backup(", "spawn_blocking("],
     "a timer loop: `sleep(interval).await` opens every iteration, and the claim is taken \
-     per tick, before `pause_saves_for_backup` and the zip",
+     per tick, before the save pause and before the zip is handed to a blocking thread",
 )];
 
 /// `(path relative to src/, fn name, required spelling, why it needs the gate)`.
@@ -779,11 +781,27 @@ fn a_claim_is_bound_to_a_named_local_before_the_first_await() {
 
         // (b) it must come before the body's first `.await`: a claim taken after
         //     the download has already started protects only the tail. A timer
-        //     loop is excused from THIS half only — see `CLAIM_AFTER_AWAIT_OK`.
-        if CLAIM_AFTER_AWAIT_OK
+        //     loop cannot meet this; `CLAIM_AFTER_AWAIT_OK` names what its claim
+        //     must precede instead.
+        if let Some((_, _, must_precede, _)) = CLAIM_AFTER_AWAIT_OK
             .iter()
-            .any(|(f, n, _)| f == file && n == name)
+            .find(|(f, n, _, _)| f == file && n == name)
         {
+            for needle in *must_precede {
+                match code_lines_with(&lines, sig, end, needle).first() {
+                    Some(&line) if line > claim_line => {}
+                    Some(&line) => problems.push(format!(
+                        "{file}:{} `{name}` takes the claim AFTER `{needle}` (line {}). \
+                         Everything the tick does before it runs unprotected.",
+                        claim_line + 1,
+                        line + 1
+                    )),
+                    None => problems.push(format!(
+                        "{file} `{name}` no longer carries `{needle}`, which its claim is \
+                         pinned ahead of — update CLAIM_AFTER_AWAIT_OK with what it does now"
+                    )),
+                }
+            }
             continue;
         }
         let first_await = code_lines_with(&lines, sig, end, ".await")
@@ -814,7 +832,7 @@ fn a_claim_is_bound_to_a_named_local_before_the_first_await() {
 #[test]
 fn the_await_exemption_list_is_not_stale() {
     let mut problems: Vec<String> = Vec::new();
-    for (file, name, _) in CLAIM_AFTER_AWAIT_OK {
+    for (file, name, _, _) in CLAIM_AFTER_AWAIT_OK {
         let Some((_, _, spelling, _)) = GATED
             .iter()
             .find(|(f, n, s, _)| f == file && n == name && CLAIM_SPELLINGS.contains(s))
