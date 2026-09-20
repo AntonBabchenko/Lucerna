@@ -673,6 +673,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_dependency_named_after_another_loader_still_resolves() {
+        // RC1's blast radius, proven rather than asserted: the filename filter
+        // sits inside `versions()`, so Forgified Fabric API could not be
+        // resolved as a dependency on ANY NeoForge instance.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
+        use crate::mods::modrinth::ModrinthClient;
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "hits": [{
+                        "project_id": "Aqlf1Shp",
+                        "slug": "forgified-fabric-api",
+                        "title": "Forgified Fabric API",
+                        "description": "Fabric API implemented on top of NeoForge",
+                        "icon_url": null,
+                        "downloads": 5000000,
+                        "author": "Sinytra",
+                        "date_modified": "2026-05-01T00:00:00Z"
+                    }],
+                    "total_hits": 1,
+                    "offset": 0,
+                    "limit": 5
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/project/Aqlf1Shp/version"))
+            .and(query_param("loaders", r#"["neoforge"]"#))
+            .and(query_param("game_versions", r#"["1.21.1"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "id": "7nHK7hMg",
+                    "project_id": "Aqlf1Shp",
+                    "name": "Forgified Fabric API 0.116.7+2.2.4+1.21.1",
+                    "version_number": "0.116.7+2.2.4+1.21.1",
+                    "game_versions": ["1.21.1"],
+                    "loaders": ["neoforge"],
+                    "date_published": "2026-05-01T00:00:00Z",
+                    "files": [{
+                        "url": "https://cdn.modrinth.com/forgified-fabric-api-0.116.7+2.2.4+1.21.1.jar",
+                        "filename": "forgified-fabric-api-0.116.7+2.2.4+1.21.1.jar",
+                        "hashes": {"sha1": "459b5f4c7297b2f7649d43137f3e5a069b69b707"},
+                        "size": 2048,
+                        "primary": true
+                    }],
+                    "dependencies": []
+                }]"#,
+            ))
+            .mount(&s)
+            .await;
+
+        let mr = ModrinthClient::with_base(s.uri());
+        let cited = vec![CitedMod {
+            id: "forgified-fabric-api".into(),
+            version: None,
+            kind: CitedKind::Missing,
+        }];
+
+        let out = resolve(&cited, "1.21.1", LoaderKind::NeoForge, &mr, &mr, &[]).await;
+
+        assert_eq!(out.len(), 1);
+        match &out[0].tier {
+            ResolveTier::Exact { candidate } => {
+                assert_eq!(candidate.target.version_id, "7nHK7hMg");
+            }
+            other => panic!("expected Exact, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn unknown_mod_resolves_to_unresolved() {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
