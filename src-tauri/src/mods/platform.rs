@@ -138,10 +138,35 @@ pub fn loader_in_filename(filename: &str) -> Option<LoaderKind> {
     }
 }
 
-/// Drop versions whose primary-file filename names a loader different from the
-/// requested one. Versions whose filename names no loader are kept (trust the
-/// platform tag). No-op when no loader was requested (e.g. the "show all
-/// versions" path). Forge and NeoForge are distinct here.
+/// True when a filename's loader word `found` should overrule the platform's
+/// own tags for a `want` request.
+///
+/// The filename outranks the tag only where the tag is known-unreliable or
+/// genuinely ambiguous: no tags at all; a version ALSO tagged `found` (one
+/// version, several files, and the primary one is the other loader's jar); or
+/// the Forge/NeoForge pair, the documented mis-tag this heuristic was written
+/// for (Xaero's Minimap 1.20.4). Otherwise a loader word in the filename is
+/// taken for what it usually is — part of the project's NAME
+/// (`forgified-fabric-api-….jar`, tagged `neoforge` only, 36 builds of it).
+///
+/// Accepted trade-off: a version tagged for exactly one loader whose file is in
+/// truth another loader's jar is now trusted. No such mis-tag is documented;
+/// the opposite failure is measured.
+fn filename_overrules_tags(found: LoaderKind, want: LoaderKind, tags: &[LoaderKind]) -> bool {
+    if found == want {
+        return false;
+    }
+    let forge_pair = matches!(
+        (found, want),
+        (LoaderKind::Forge, LoaderKind::NeoForge) | (LoaderKind::NeoForge, LoaderKind::Forge)
+    );
+    tags.is_empty() || tags.contains(&found) || forge_pair
+}
+
+/// Drop versions whose primary-file filename names a loader that contradicts
+/// the request — see [`filename_overrules_tags`] for when a filename is
+/// allowed to contradict. Versions whose filename names no loader are kept
+/// (trust the platform tag). No-op when no loader was requested.
 pub fn drop_filename_loader_mismatches(
     versions: Vec<ModVersion>,
     want: Option<LoaderKind>,
@@ -150,7 +175,7 @@ pub fn drop_filename_loader_mismatches(
         Some(want) => versions
             .into_iter()
             .filter(|v| match loader_in_filename(&v.primary_file.filename) {
-                Some(found) => found == want,
+                Some(found) => !filename_overrules_tags(found, want, &v.loaders),
                 None => true,
             })
             .collect(),
