@@ -73,9 +73,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   two came second. An upload or an AI translation run that crashed part-way
   also left its server or instance marked busy until the launcher was
   restarted — a server in that state could not be started at all; both now
-  free themselves however they end. And two AI translation runs begun at the
-  same instant on one instance can no longer both go ahead and pay twice for
-  the same strings.
+  free themselves however they end. And two uploads of one server, or two AI
+  translation runs on one instance, begun at the same instant can no longer
+  both go ahead — writing the same files on the host twice over, or paying
+  twice for the same strings.
 
 ## [0.24.0] — 2026-09-19
 
