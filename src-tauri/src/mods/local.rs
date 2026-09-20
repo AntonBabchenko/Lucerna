@@ -1274,6 +1274,35 @@ pub(crate) fn jar_is_connector(jar_bytes: &[u8]) -> bool {
         .any(is_connector)
 }
 
+/// How (whether) an instance will open a jar. D3 of the 2026-09-20 spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JarAdmission {
+    /// The instance's own loader opens one of the jar's descriptors.
+    Native,
+    /// Only Sinytra Connector does — a Fabric-family jar on a Forge-family instance.
+    ViaConnector,
+    /// Nothing on this instance opens it; the loader skips the file.
+    Rejected,
+}
+
+pub fn jar_admission(
+    _jar: &JarMeta,
+    _instance_loader: LoaderKind,
+    _instance_mc: &str,
+    _connector_present: bool,
+) -> JarAdmission {
+    JarAdmission::Native // stub — red round
+}
+
+/// The loader to ask the PLATFORM about for this jar.
+pub fn probe_loader(
+    _jar: &JarMeta,
+    _admission: JarAdmission,
+    instance_loader: LoaderKind,
+) -> LoaderKind {
+    instance_loader // stub — red round
+}
+
 /// Judge a jar's loader-FAMILY compatibility with an instance. Conservative:
 /// a mismatch is reported only when both sides are confidently known and
 /// they differ — absent or ambiguous metadata never produces a warning.
@@ -3940,6 +3969,156 @@ loaderVersion="[61,)"
             m.provided[0].version, None,
             "unresolvable ${{file.jarVersion}} must yield None, got {:?}",
             m.provided[0].version
+        );
+    }
+
+    // ── D3: admission + the loader the platform is asked about ──────────────
+    // Named `admission_meta` — this file's tests module already has a `meta`
+    // helper (line ~2600) with a different signature (family + mc_version).
+    fn admission_meta(
+        families: Vec<LoaderFamily>,
+        fabric: bool,
+        quilt: bool,
+        forge: bool,
+        neo: bool,
+    ) -> JarMeta {
+        JarMeta {
+            families,
+            has_fabric_json: fabric,
+            has_quilt_json: quilt,
+            has_forge_toml: forge,
+            has_neoforge_toml: neo,
+            ..Default::default()
+        }
+    }
+
+    fn admission_table() -> Vec<JarMeta> {
+        vec![
+            admission_meta(vec![LoaderFamily::Forge], false, false, false, true), // neoforge-only
+            admission_meta(vec![LoaderFamily::Forge], false, false, true, false), // forge-toml only
+            admission_meta(vec![LoaderFamily::Fabric], true, false, false, false), // fabric-only
+            admission_meta(vec![LoaderFamily::Fabric], false, true, false, false), // quilt-only
+            admission_meta(
+                vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+                true,
+                false,
+                false,
+                true,
+            ), // neo + fabric
+            admission_meta(
+                vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+                true,
+                false,
+                true,
+                false,
+            ), // dead forge side + fabric
+            admission_meta(vec![], false, false, false, false),                   // descriptor-less
+            admission_meta(vec![LoaderFamily::Forge], false, false, false, false), // stale cache: family, no bools
+        ]
+    }
+
+    #[test]
+    fn admission_agrees_with_the_verdict_everywhere() {
+        // The structural guarantee: `loader_mismatch` IS `Rejected`. One
+        // derivation, so the chip's offline half and the probe cannot drift.
+        for jar in admission_table() {
+            for loader in [
+                LoaderKind::NeoForge,
+                LoaderKind::Forge,
+                LoaderKind::Fabric,
+                LoaderKind::Quilt,
+                LoaderKind::Vanilla,
+            ] {
+                for connector in [false, true] {
+                    let v = compat_verdict(&jar, loader, "1.21.1", connector);
+                    let a = jar_admission(&jar, loader, "1.21.1", connector);
+                    assert_eq!(
+                        v.loader_mismatch,
+                        a == JarAdmission::Rejected,
+                        "{jar:?} {loader:?} connector={connector}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fabric_jar_is_admitted_only_through_connector() {
+        let fabric = admission_meta(vec![LoaderFamily::Fabric], true, false, false, false);
+        assert_eq!(
+            jar_admission(&fabric, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::ViaConnector
+        );
+        assert_eq!(
+            jar_admission(&fabric, LoaderKind::NeoForge, "1.21.1", false),
+            JarAdmission::Rejected
+        );
+        // NeoForge 1.21.1 no longer reads mods.toml: the forge side is dead,
+        // and Connector is what opens the jar.
+        let dead_forge = admission_meta(
+            vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(
+            jar_admission(&dead_forge, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::ViaConnector
+        );
+    }
+
+    #[test]
+    fn native_wins_when_both_would_admit_and_no_evidence_means_native() {
+        // (pin)
+        let both = admission_meta(
+            vec![LoaderFamily::Forge, LoaderFamily::Fabric],
+            true,
+            false,
+            false,
+            true,
+        );
+        assert_eq!(
+            jar_admission(&both, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::Native
+        );
+        let none = admission_meta(vec![], false, false, false, false);
+        assert_eq!(
+            jar_admission(&none, LoaderKind::NeoForge, "1.21.1", true),
+            JarAdmission::Native
+        );
+        let stale = admission_meta(vec![LoaderFamily::Forge], false, false, false, false);
+        assert_eq!(
+            jar_admission(&stale, LoaderKind::NeoForge, "1.21.1", false),
+            JarAdmission::Native
+        );
+        assert_eq!(
+            jar_admission(&both, LoaderKind::Vanilla, "1.21.1", true),
+            JarAdmission::Native
+        );
+    }
+
+    #[test]
+    fn the_platform_is_asked_about_the_loader_that_opens_the_jar() {
+        let fabric = admission_meta(vec![LoaderFamily::Fabric], true, false, false, false);
+        let quilt = admission_meta(vec![LoaderFamily::Fabric], false, true, false, false);
+        let neo = admission_meta(vec![LoaderFamily::Forge], false, false, false, true);
+        assert_eq!(
+            probe_loader(&fabric, JarAdmission::ViaConnector, LoaderKind::NeoForge),
+            LoaderKind::Fabric
+        );
+        // The Fabric ∪ Quilt family fold is admission's business, not the probe's.
+        assert_eq!(
+            probe_loader(&quilt, JarAdmission::ViaConnector, LoaderKind::NeoForge),
+            LoaderKind::Quilt
+        );
+        assert_eq!(
+            probe_loader(&neo, JarAdmission::Native, LoaderKind::NeoForge),
+            LoaderKind::NeoForge
+        );
+        assert_eq!(
+            probe_loader(&fabric, JarAdmission::Rejected, LoaderKind::NeoForge),
+            LoaderKind::NeoForge
         );
     }
 }
