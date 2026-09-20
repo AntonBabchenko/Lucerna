@@ -3,24 +3,27 @@
 //! Pure logic — no I/O. The command layer in `commands.rs` is the thin
 //! orchestrator that calls the platform and feeds results here.
 
-use crate::error::Result;
 use crate::mods::platform::ModVersion;
 
-/// The compatibility status of one installed mod against a target
-/// Minecraft version + loader combination.
+/// The LIVE half of one installed mod's compatibility — the chip's projection
+/// of [`ModPlatformClass`] (see [`compat_status`]). The offline half
+/// (`loader_mismatch` / `platform_mismatch`) travels in [`ModLocalCompat`].
 #[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ModCompatStatus {
-    /// At least one platform version exists for the target (mc, loader).
-    /// `available_version` is the version number of the newest match when
-    /// present (versions are returned newest-first by the platform layer).
+    /// The mod fits: its jar says so, or it declares nothing and the platform
+    /// lists this exact file for the instance's (mc, loader).
+    /// `available_version` is the newest listed version number, when the
+    /// platform was asked and answered with any.
     Compatible { available_version: Option<String> },
-    /// The platform responded successfully but returned zero versions for
-    /// the target (mc, loader) — the mod has no release for that combination.
+    /// The mod's page lists no build for the instance's (mc, loader) AND the
+    /// jar makes no bounded statement of its own. Probable, never proven —
+    /// the UI words it as «no release», not as «the loader will reject it».
     Incompatible,
-    /// The platform query failed (network error, missing CurseForge key,
-    /// project delisted / 404). A fetch error must NOT be read as
-    /// incompatible — the user should be told we simply don't know.
+    /// Nothing to add from the live side: the query failed or was never made
+    /// (no identity, pack-owned, unreadable jar, Vanilla instance), builds
+    /// exist but not this file, or the offline scan already flags the jar. A
+    /// failed query must NOT be read as incompatible.
     Unknown,
 }
 
@@ -64,25 +67,6 @@ pub struct ModLocalCompat {
     pub platform_axis: Option<crate::mods::mc_compat::PlatformAxis>,
     /// The range the jar declared, for the row hint.
     pub platform_declared: Option<String>,
-}
-
-/// Classify a platform `.versions(...)` result for a target (mc, loader).
-///
-/// - Non-empty `Ok` → [`ModCompatStatus::Compatible`] with the version
-///   number of the newest entry (`versions[0].version_number`), since the
-///   platform returns versions newest-first.
-/// - Empty `Ok` → [`ModCompatStatus::Incompatible`] (platform confirmed no
-///   release for that combination).
-/// - `Err` → [`ModCompatStatus::Unknown`] (fetch failure; must not be
-///   read as incompatible).
-pub fn classify_compat(versions: Result<Vec<ModVersion>>) -> ModCompatStatus {
-    match versions {
-        Ok(v) if !v.is_empty() => ModCompatStatus::Compatible {
-            available_version: Some(v[0].version_number.clone()),
-        },
-        Ok(_) => ModCompatStatus::Incompatible,
-        Err(_) => ModCompatStatus::Unknown,
-    }
 }
 
 // =========================================================================
@@ -267,7 +251,6 @@ pub fn compat_status(class: ModPlatformClass, newest: Option<String>) -> ModComp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Error;
     use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
 
     fn make_version(version_number: &str) -> ModVersion {
@@ -290,45 +273,6 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
-    }
-
-    #[test]
-    fn compatible_when_versions_exist() {
-        let versions = vec![make_version("1.2.0"), make_version("1.1.0")];
-        let result = classify_compat(Ok(versions));
-        assert_eq!(
-            result,
-            ModCompatStatus::Compatible {
-                available_version: Some("1.2.0".into()),
-            }
-        );
-    }
-
-    #[test]
-    fn compatible_picks_first_version_as_newest() {
-        // Platforms return newest-first; .first() must be the newest.
-        let versions = vec![make_version("2.0.0"), make_version("1.0.0")];
-        match classify_compat(Ok(versions)) {
-            ModCompatStatus::Compatible { available_version } => {
-                assert_eq!(available_version, Some("2.0.0".into()));
-            }
-            other => panic!("expected Compatible, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn incompatible_when_empty() {
-        let result = classify_compat(Ok(vec![]));
-        assert_eq!(result, ModCompatStatus::Incompatible);
-    }
-
-    #[test]
-    fn unknown_on_error() {
-        let result = classify_compat(Err(Error::Network {
-            url: "https://api.modrinth.com".into(),
-            details: "connection refused".into(),
-        }));
-        assert_eq!(result, ModCompatStatus::Unknown);
     }
 
     // ── D4: live_availability ───────────────────────────────────────────────

@@ -4805,25 +4805,29 @@ export type ModCompat = {
 };
 
 /**
- *  The compatibility status of one installed mod against a target
- *  Minecraft version + loader combination.
+ *  The LIVE half of one installed mod's compatibility — the chip's projection
+ *  of [`ModPlatformClass`] (see [`compat_status`]). The offline half
+ *  (`loader_mismatch` / `platform_mismatch`) travels in [`ModLocalCompat`].
  */
 export type ModCompatStatus = 
 /**
- *  At least one platform version exists for the target (mc, loader).
- *  `available_version` is the version number of the newest match when
- *  present (versions are returned newest-first by the platform layer).
+ *  The mod fits: its jar says so, or it declares nothing and the platform
+ *  lists this exact file for the instance's (mc, loader).
+ *  `available_version` is the newest listed version number, when the
+ *  platform was asked and answered with any.
  */
 { status: "compatible"; available_version: string | null } | 
 /**
- *  The platform responded successfully but returned zero versions for
- *  the target (mc, loader) — the mod has no release for that combination.
+ *  The mod's page lists no build for the instance's (mc, loader) AND the
+ *  jar makes no bounded statement of its own. Probable, never proven —
+ *  the UI words it as «no release», not as «the loader will reject it».
  */
 { status: "incompatible" } | 
 /**
- *  The platform query failed (network error, missing CurseForge key,
- *  project delisted / 404). A fetch error must NOT be read as
- *  incompatible — the user should be told we simply don't know.
+ *  Nothing to add from the live side: the query failed or was never made
+ *  (no identity, pack-owned, unreadable jar, Vanilla instance), builds
+ *  exist but not this file, or the offline scan already flags the jar. A
+ *  failed query must NOT be read as incompatible.
  */
 { status: "unknown" };
 
