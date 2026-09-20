@@ -131,7 +131,10 @@ describe('FindAlternativeDialog', () => {
       'inst-1',
       { source: 'modrinth', project_id: 'abc', version_id: 'v1' },
       [],
+      false,
     );
+    // The consent flag is ALWAYS sent, and nobody consented here.
+    expect(modsInstallWithDeps.mock.calls[0]).toHaveLength(4);
     expect(onInstalled).toHaveBeenCalledWith({ source: 'modrinth', projectId: 'abc' });
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });

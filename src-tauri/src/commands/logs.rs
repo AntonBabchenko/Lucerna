@@ -598,7 +598,8 @@ pub async fn execute_repair(
                     ),
                 );
             }
-            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
+            // `false`: a log repair is not a confirmation of an off-platform build.
+            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![], false).await?;
         }
         RepairChoice::InstallFixMod {
             source,
@@ -614,7 +615,8 @@ pub async fn execute_repair(
                 project_id,
                 version_id,
             };
-            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
+            // `false`: a log repair is not a confirmation of an off-platform build.
+            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![], false).await?;
         }
     }
 

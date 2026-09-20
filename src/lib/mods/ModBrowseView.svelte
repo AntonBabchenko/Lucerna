@@ -34,7 +34,14 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { installFailureToast } from '$lib/mods/install-failure';
-  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
+  import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
+  import {
+    offPlatformFactsOfError,
+    offPlatformLabel,
+    offPlatformRows,
+    type OffPlatformRow,
+  } from '$lib/mods/off-platform';
+  import { switchTarget } from '$lib/mods/version-switch';
   import { dismiss, pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
@@ -44,6 +51,7 @@
     modBrowseOpenProject,
     settingsOpen,
   } from '$lib/settings/state.svelte';
+  import CompatWarningDialog from './CompatWarningDialog.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
   import FindAlternativeDialog from './FindAlternativeDialog.svelte';
@@ -208,7 +216,28 @@
     // anyway will leave a jar in the mods folder that Minecraft can't
     // load. Surfaced as a red warning row in the dialog.
     loaderMismatch: { instanceLoader: string; modLoaders: LoaderKind[] } | null;
+    // The user's yes to a build the platform does not list for this instance,
+    // given in the detail modal BEFORE this dialog opened. It rides on the
+    // prompt because a fresh foreign install can still pass through here
+    // (`decideModInstall` opens this dialog on a loader mismatch).
+    allowOffPlatform: boolean;
   } | null>(null);
+
+  // The safety net (2026-09-20 spec, D6) — see InstalledModsView's twin. The
+  // backend refuses a build the platform does not list for this instance
+  // unless the user said yes; when the refusal reaches this view, ASK from the
+  // error's own fields instead of raising a «Retry» toast that cannot succeed.
+  let offPlatformPrompt = $state<{ rows: OffPlatformRow[]; proceed: () => void } | null>(null);
+
+  function askOffPlatform(err: IpcError, v: ModVersion, proceed: () => void): boolean {
+    const facts = offPlatformFactsOfError(err);
+    if (!facts) return false;
+    offPlatformPrompt = {
+      rows: offPlatformRows(offPlatformLabel(v.name, v.version_number), facts, get(t)),
+      proceed,
+    };
+    return true;
+  }
 
   let needsCfKey = $state(false);
   // Track which Modrinth / CurseForge projects are already installed
@@ -988,6 +1017,7 @@
     return () => {
       for (const id of installFailureToastIds) dismiss(id);
       installFailureToastIds = [];
+      offPlatformPrompt = null;
     };
   });
 
@@ -1014,9 +1044,15 @@
           project_id: v.project_id,
           version_id: v.version_id,
         })),
+        { allowOffPlatform: prompt.allowOffPlatform },
       );
       if (installed.status === 'error') {
         if (
+          !askOffPlatform(
+            installed.error,
+            prompt.primary,
+            () => void confirmDepInstall({ ...prompt, allowOffPlatform: true }, chosenOptional),
+          ) &&
           !reportInstallError(
             installed.error,
             prompt.primaryProjectName,
@@ -1025,7 +1061,9 @@
           )
         ) {
           showInstallFailure(prompt.primaryProjectName, installed.error, () => {
-            void confirmDepInstall(prompt, chosenOptional);
+            // A retry never inherits consent: if the build needs a yes, the
+            // refusal comes back and the question is asked again.
+            void confirmDepInstall({ ...prompt, allowOffPlatform: false }, chosenOptional);
           });
         }
         // The backend rolled the partial install back — re-sync the
@@ -1049,7 +1087,11 @@
     }
   }
 
-  async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+  async function startInstall(
+    card: ModSummary,
+    pinnedVersion?: ModVersion,
+    opts: InstallOpts = {},
+  ) {
     // Datapacks take the library path (+ world picker); resource packs and
     // shaders take the asset path; mods keep the dependency-aware flow below
     // untouched. Both branches set their own busy flag, so we return before
@@ -1097,15 +1139,40 @@
         primary = versions.data[0]!;
       }
 
-      // If a different version of the same project is already installed,
-      // remove it first so the new version replaces it (version switch).
-      const existing = installedFor(card);
-      if (existing && existing.version_id !== primary.version_id) {
-        const removed = await commands.modsUninstall(instanceId, existing.sha1);
-        if (removed.status === 'error') {
-          error = formatError(removed.error);
-          return;
+      // Another build of this project is installed: a version switch. It is ONE
+      // command that downloads the new build before it removes the old one. It
+      // used to be a removal and then the install flow below, as separate IPC
+      // calls — any failure after the removal (resolution, download,
+      // verification) left the user with no version of the mod at all. Like
+      // «Update», a switch does not offer optional dependencies.
+      const oldSha1 = switchTarget(installedFor(card), primary);
+      if (oldSha1) {
+        const switchName =
+          installedMods.find((r) => r.installed.sha1 === oldSha1)?.projectName ?? card.name;
+        const swapped = await updateMod(instanceId, switchName, oldSha1, primary, opts);
+        if (swapped.status === 'error') {
+          if (
+            !askOffPlatform(
+              swapped.error,
+              primary,
+              () => void startInstall(card, pinnedVersion, { allowOffPlatform: true }),
+            ) &&
+            !reportInstallError(
+              swapped.error,
+              switchName,
+              primary.source,
+              card.slug ?? card.project_id,
+            )
+          ) {
+            showInstallFailure(switchName, swapped.error, () => {
+              void startInstall(card, pinnedVersion);
+            });
+          }
+        } else {
+          pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: switchName }), []);
         }
+        await refreshInstalled();
+        return;
       }
       const plan = await commands.modsResolveInstallPlan(instanceId, primary, mcVersion, loader);
       if (plan.status === 'error') {
@@ -1138,9 +1205,15 @@
             version_id: primary.version_id,
           },
           [],
+          opts,
         );
         if (installed.status === 'error') {
           if (
+            !askOffPlatform(
+              installed.error,
+              primary,
+              () => void startInstall(card, pinnedVersion, { allowOffPlatform: true }),
+            ) &&
             !reportInstallError(
               installed.error,
               primaryProjectName,
@@ -1162,7 +1235,7 @@
           await refreshInstalled();
         }
       } else {
-        depPrompt = decision.prompt;
+        depPrompt = { ...decision.prompt, allowOffPlatform: opts.allowOffPlatform === true };
       }
     } finally {
       installingProjectIds.delete(card.project_id);
@@ -1279,9 +1352,14 @@
         : (installedMods.find(
             (r) => r.installed.source === source && r.installed.project_id === drawerProject,
           )?.installed.version_id ?? null)}
+      installedSha1={isMod
+        ? (installedMods.find(
+            (r) => r.installed.source === source && r.installed.project_id === drawerProject,
+          )?.installed.sha1 ?? null)
+        : null}
       {installingVersionId}
       onClose={() => (drawerProject = null)}
-      onInstall={(v) => {
+      onInstall={(v, opts) => {
         // Drawer passes the explicit version the user picked. We
         // re-use startInstall — it now accepts a pinnedVersion arg so
         // we skip the latest-version lookup and install exactly what
@@ -1306,6 +1384,7 @@
             updated_at: null,
           },
           v,
+          opts,
         ).finally(() => {
           installingVersionId = null;
           drawerProject = null;
@@ -1338,6 +1417,17 @@
       instanceId={findAlt.instanceId}
       curseForgeUrl={findAlt.curseForgeUrl}
       onClose={() => (findAlt = null)}
+    />
+  {/if}
+  {#if offPlatformPrompt}
+    <CompatWarningDialog
+      rows={offPlatformPrompt.rows}
+      onConfirm={() => {
+        const proceed = offPlatformPrompt?.proceed;
+        offPlatformPrompt = null;
+        proceed?.();
+      }}
+      onCancel={() => (offPlatformPrompt = null)}
     />
   {/if}
   {#if pickerTarget && instanceId}

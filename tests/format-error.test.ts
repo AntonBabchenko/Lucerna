@@ -41,6 +41,31 @@ describe('formatError', () => {
     expect(msg).toBe('NeoForge does not support Minecraft 1.20.1');
   });
 
+  it('names both sides of a build that is not for this instance', () => {
+    const msg = formatError({
+      kind: 'mod_version_not_for_instance',
+      version_mc: ['1.20.1', '1.20.2'],
+      version_loaders: ['fabric', 'quilt'],
+      instance_mc: '1.21.1',
+      instance_loader: 'neoforge',
+    });
+    expect(msg).toBe(
+      'This build is for Minecraft 1.20.1, 1.20.2 (Fabric, Quilt); this profile runs 1.21.1 on NeoForge.',
+    );
+  });
+
+  it('never leaves a gap where a build carries no tags', () => {
+    // CurseForge files may publish no loader tag at all.
+    const msg = formatError({
+      kind: 'mod_version_not_for_instance',
+      version_mc: [],
+      version_loaders: [],
+      instance_mc: '1.21.1',
+      instance_loader: 'forge',
+    });
+    expect(msg).toBe('This build is for Minecraft — (—); this profile runs 1.21.1 on Forge.');
+  });
+
   it('formats instance_name_too_long with actual and max', () => {
     const msg = formatError({
       kind: 'instance_name_too_long',
@@ -287,6 +312,13 @@ describe('formatError', () => {
         project_id: '1',
       },
       mods_not_found: { kind: 'mods_not_found', source: 'modrinth' },
+      mod_version_not_for_instance: {
+        kind: 'mod_version_not_for_instance',
+        version_mc: ['1.20.1'],
+        version_loaders: ['fabric'],
+        instance_mc: '1.21.1',
+        instance_loader: 'neoforge',
+      },
       mods_platform_unsupported: { kind: 'mods_platform_unsupported', source: 'ftb' },
       changelog_unsupported: { kind: 'changelog_unsupported' },
       mods_decode: { kind: 'mods_decode', source: 'modrinth', details: 'd' },

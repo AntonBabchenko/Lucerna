@@ -3,13 +3,14 @@
     commands,
     events,
     type DepViolation,
+    type Error as IpcError,
     type LoaderKind,
     type ModSource,
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
+  import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
@@ -19,6 +20,7 @@
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
   import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
+  import CompatWarningDialog from '../CompatWarningDialog.svelte';
   import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
@@ -38,6 +40,13 @@
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
   import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
+  import {
+    offPlatformFactsOfError,
+    offPlatformLabel,
+    offPlatformRows,
+    type OffPlatformRow,
+  } from '$lib/mods/off-platform';
+  import { switchTarget } from '$lib/mods/version-switch';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
@@ -143,6 +152,24 @@
   let pickerViolation = $state<DepViolation | null>(null);
   let findAltViolation = $state<DepViolation | null>(null);
 
+  // The safety net (2026-09-20 spec, D6). The backend refuses a build the
+  // platform does not list for this instance unless the user said yes. When
+  // that refusal reaches this view — the modal could not tell, or the pick
+  // never went through it — ASK, from the error's own fields; a failure toast
+  // would describe something no retry can fix. The consent is never stored:
+  // `proceed` re-runs the one action the user was just asked about.
+  let offPlatformPrompt = $state<{ rows: OffPlatformRow[]; proceed: () => void } | null>(null);
+
+  function askOffPlatform(err: IpcError, v: ModVersion, proceed: () => void): boolean {
+    const facts = offPlatformFactsOfError(err);
+    if (!facts) return false;
+    offPlatformPrompt = {
+      rows: offPlatformRows(offPlatformLabel(v.name, v.version_number), facts, get(t)),
+      proceed,
+    };
+    return true;
+  }
+
   // Human names for the missing dependencies in the current report, keyed by
   // dep_id. Resolved once per report through the platform metadata of the mod
   // that declared each dependency; anything unresolved simply stays absent and
@@ -194,6 +221,7 @@
     preflightDeadEnd.clear();
     pickerViolation = null;
     findAltViolation = null;
+    offPlatformPrompt = null;
   });
 
   async function refreshAfterRemediate(): Promise<void> {
@@ -254,10 +282,33 @@
   };
 
   // Install a user-chosen version from the picker (manual pick / downgrade).
-  const onPreflightPickInstall = async (chosen: ModVersion): Promise<void> => {
+  // `opts` carries the modal's confirmation of a build the platform does not
+  // list for this instance.
+  const onPreflightPickInstall = async (
+    chosen: ModVersion,
+    opts: InstallOpts = {},
+  ): Promise<void> => {
     if (!instanceId || !pickerViolation) return;
-    const v = pickerViolation;
-    const r = await remediatePickedVersion(instanceId, v, chosen);
+    await runPickedInstall(instanceId, pickerViolation, chosen, opts);
+  };
+
+  async function runPickedInstall(
+    id: string,
+    v: DepViolation,
+    chosen: ModVersion,
+    opts: InstallOpts,
+  ): Promise<void> {
+    // Another build of the same project can be installed although the
+    // preflight has no `provider_sha1` for it: the pick is then a version
+    // switch, and a switch never installs beside the old jar.
+    const existing =
+      data.rows.find(
+        (x) => x.installed.source === chosen.source && x.installed.project_id === chosen.project_id,
+      )?.installed ?? null;
+    const r = await remediatePickedVersion(id, v, chosen, {
+      ...opts,
+      installedSha1: switchTarget(existing, chosen),
+    });
     if (r.ok) {
       preflightDeadEnd.delete(violationKey(v));
       pickerViolation = null;
@@ -268,10 +319,20 @@
         }),
       );
       await refreshAfterRemediate();
-    } else {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'));
+      return;
     }
-  };
+    if (
+      r.error &&
+      askOffPlatform(
+        r.error,
+        chosen,
+        () => void runPickedInstall(id, v, chosen, { allowOffPlatform: true }),
+      )
+    ) {
+      return;
+    }
+    pushWarning(get(t)('mods.browse.toastInstallFailed'));
+  }
 
   // One-click install of a missing required dependency from the pre-flight
   // panel. Resolves the dep by its loader mod-id and installs it; on success
@@ -401,42 +462,74 @@
       base: version_id,
     };
   }
-  const detailInstalledVersionId = $derived.by(() => {
+  // The installed build of the project the detail modal shows: its version id
+  // AND its bytes. `enrich` leaves `version_id` null for exactly the mods whose
+  // platform tags disagree with the instance, and those are recognised by sha1.
+  const detailInstalled = $derived.by(() => {
     if (!detail) return null;
     const r = data.rows.find(
       (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
     );
-    return r?.installed.version_id ?? null;
+    return r?.installed ?? null;
   });
-  async function installDetailVersion(v: ModVersion) {
+
+  async function installDetailVersion(v: ModVersion, opts: InstallOpts = {}) {
     if (!instanceId || !detail) return;
     const existing = data.rows.find(
       (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
     );
+    const name = existing?.summary?.name ?? existing?.installed.name ?? v.name;
     detail = null;
+    await runVersionInstall(
+      instanceId,
+      name,
+      switchTarget(existing?.installed ?? null, v),
+      v,
+      opts,
+    );
+  }
+
+  // `oldSha1` set = a version switch: ONE command that downloads the new build
+  // before it removes the old one. It used to be a removal and then an install,
+  // as two IPC calls — any failure of the second (resolution, download,
+  // verification) left the user with no version of the mod at all. Like
+  // «Update», a switch does not offer optional dependencies.
+  // (The removal command is deliberately not NAMED here:
+  // tests/installed-version-switch-wiring.test.ts greps this handler for it.)
+  async function runVersionInstall(
+    id: string,
+    name: string,
+    oldSha1: string | null,
+    v: ModVersion,
+    opts: InstallOpts,
+  ) {
     shellBusy = true;
     data.error = null;
-    if (existing && existing.installed.version_id !== v.version_id) {
-      const removed = await commands.modsUninstall(instanceId, existing.installed.sha1);
-      if (removed.status === 'error') {
-        data.error = formatError(removed.error);
-        shellBusy = false;
+    const res = oldSha1
+      ? await updateMod(id, name, oldSha1, v, opts)
+      : await installModWithDeps(
+          id,
+          name,
+          { source: v.source, project_id: v.project_id, version_id: v.version_id },
+          [],
+          opts,
+        );
+    shellBusy = false;
+    if (res.status === 'error') {
+      // Refused before anything was touched — nothing to refresh.
+      if (
+        askOffPlatform(
+          res.error,
+          v,
+          () => void runVersionInstall(id, name, oldSha1, v, { allowOffPlatform: true }),
+        )
+      ) {
         return;
       }
-    }
-    const res = await installModWithDeps(
-      instanceId,
-      existing?.summary?.name ?? existing?.installed.name ?? v.name,
-      { source: v.source, project_id: v.project_id, version_id: v.version_id },
-      [],
-    );
-    const name = existing?.summary?.name ?? existing?.installed.name ?? v.name;
-    if (res.status === 'error') {
       pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
     } else {
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name }));
     }
-    shellBusy = false;
     deps.invalidateGraph();
     preflight.invalidate();
     await data.refresh();
@@ -674,7 +767,8 @@
       projectId={detail.projectId}
       {mcVersion}
       {loader}
-      installedVersionId={detailInstalledVersionId}
+      installedVersionId={detailInstalled?.version_id ?? null}
+      installedSha1={detailInstalled?.sha1 ?? null}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}
     />
@@ -700,6 +794,7 @@
       {mcVersion}
       {loader}
       installedVersionId={null}
+      installedSha1={pickerViolation.provider_sha1}
       needed={pickerViolation.needed}
       family={pickerViolation.family}
       onClose={() => (pickerViolation = null)}
@@ -715,6 +810,18 @@
       {instanceId}
       onClose={() => (findAltViolation = null)}
       onInstalled={onPreflightAltInstalled}
+    />
+  {/if}
+
+  {#if offPlatformPrompt}
+    <CompatWarningDialog
+      rows={offPlatformPrompt.rows}
+      onConfirm={() => {
+        const proceed = offPlatformPrompt?.proceed;
+        offPlatformPrompt = null;
+        proceed?.();
+      }}
+      onCancel={() => (offPlatformPrompt = null)}
     />
   {/if}
 

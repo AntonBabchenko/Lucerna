@@ -205,6 +205,8 @@ describe('MissingModsRepairCard', () => {
     expect(modsVersions).toHaveBeenCalledWith('modrinth', 'p1', '1.20.1', 'forge');
     expect(modsResolveInstallPlan).toHaveBeenCalled();
     expect(decideModInstall).toHaveBeenCalled();
-    expect(modsInstallWithDeps).toHaveBeenCalledWith('i1', makeVersionRef('p1'), []);
+    expect(modsInstallWithDeps).toHaveBeenCalledWith('i1', makeVersionRef('p1'), [], false);
+    // The consent flag is ALWAYS sent, and nobody consented here.
+    expect(modsInstallWithDeps.mock.calls[0]).toHaveLength(4);
   });
 });

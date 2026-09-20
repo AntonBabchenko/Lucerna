@@ -68,6 +68,16 @@ function progressFor(current: number, total: number): TaskProgress | null {
   return { current, total, unit: 'files' };
 }
 
+/** What a caller may say about an install or update beyond WHAT to install.
+ *
+ *  `allowOffPlatform` is the user's explicit yes to a build the platform does
+ *  not list for this instance's Minecraft + loader. It is consent carried end
+ *  to end: set only by the code path that asked the user, never inferred,
+ *  never stored. Absent means no — and the wrappers below ALWAYS hand the
+ *  command an explicit boolean, so «absent» can never cross IPC as
+ *  `undefined`. */
+export type InstallOpts = { allowOffPlatform?: boolean };
+
 /** Attach the progress listener for exactly the span of one call, filtered
  *  to `instanceId` so a concurrent install/update on a DIFFERENT instance
  *  can never move this task's counter. Mirrors `installGame`'s
@@ -105,12 +115,14 @@ async function withModInstallProgress<T>(
  *  adapter takes for the task's display title — see `installGame`), so a
  *  caller can swap `commands.modsInstallWithDeps(instanceId, primary,
  *  optionalDeps)` for `installModWithDeps(instanceId, name, primary,
- *  optionalDeps)` with no other change. */
+ *  optionalDeps)` with no other change. The trailing `opts` is the one
+ *  addition; every existing call site omits it and stays strict. */
 export async function installModWithDeps(
   instanceId: string,
   name: string,
   primary: VersionRef,
   optionalDeps: VersionRef[],
+  opts: InstallOpts = {},
 ): ReturnType<typeof commands.modsInstallWithDeps> {
   const id = `mod-install-${crypto.randomUUID()}`;
   start({
@@ -125,7 +137,12 @@ export async function installModWithDeps(
 
   try {
     const r = await withModInstallProgress(id, instanceId, () =>
-      commands.modsInstallWithDeps(instanceId, primary, optionalDeps),
+      commands.modsInstallWithDeps(
+        instanceId,
+        primary,
+        optionalDeps,
+        opts.allowOffPlatform === true,
+      ),
     );
     if (r.status === 'ok') {
       // `InstallSummary.details` is the same `TaskDetail[]` shape the
@@ -158,12 +175,15 @@ export async function installModWithDeps(
  *  Same signature shape and EXACT same return type as
  *  `commands.modsUpdateOne` (plus the `name` display title), so a caller can
  *  swap `commands.modsUpdateOne(instanceId, oldSha1, target)` for
- *  `updateMod(instanceId, name, oldSha1, target)` with no other change. */
+ *  `updateMod(instanceId, name, oldSha1, target)` with no other change. The
+ *  trailing `opts` is the one addition; every existing call site omits it and
+ *  stays strict. */
 export async function updateMod(
   instanceId: string,
   name: string,
   oldSha1: string,
   target: ModVersion_Deserialize,
+  opts: InstallOpts = {},
 ): ReturnType<typeof commands.modsUpdateOne> {
   const id = `mod-update-${crypto.randomUUID()}`;
   start({
@@ -178,7 +198,7 @@ export async function updateMod(
 
   try {
     const r = await withModInstallProgress(id, instanceId, () =>
-      commands.modsUpdateOne(instanceId, oldSha1, target),
+      commands.modsUpdateOne(instanceId, oldSha1, target, opts.allowOffPlatform === true),
     );
     finish(id, { state: r.status === 'ok' ? 'ok' : 'failed' });
     return r;
