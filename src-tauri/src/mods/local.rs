@@ -3357,6 +3357,52 @@ modId=\"evilseagull\"
         );
     }
 
+    #[tokio::test]
+    async fn scan_marks_a_project_only_identity_as_live_checkable() {
+        // D2. `enrich` drops a Modrinth `version_id` exactly when the matched
+        // version's tags do not fit the instance — so demanding one here made
+        // the live check skip precisely the mods whose tags disagree, while the
+        // migration plan (project-only identity) probed them: chip 1, plan 5.
+        use crate::mods::installed::{add, mods_dir};
+        use crate::mods::platform::{InstalledMod, ModSource};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &bytes).await.unwrap();
+        let sha = hex::encode(Sha1::digest(&bytes));
+        add(
+            td.path(),
+            InstalledMod {
+                filename: "x.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("xxx".into()),
+                version_id: None,
+                name: "X".into(),
+                version_number: None,
+                installed_at: chrono::Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: true,
+                requires: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let out = scan_instance(td.path(), None, LoaderKind::Fabric, "1.21.1", None)
+            .await
+            .unwrap();
+        let m = out
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert!(
+            m.live_checkable,
+            "a known project is enough to ask the platform about"
+        );
+    }
+
     /// Locked decision 3 (2026-08-03): disabled mods are out of scope for every
     /// detector. The filter lives HERE, at the scan source, so the chip, the
     /// Overview count and the row badges all inherit it — observed live
