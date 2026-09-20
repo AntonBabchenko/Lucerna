@@ -41,7 +41,7 @@
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
-  import { createCompatCheck } from './compat-check.svelte';
+  import { compatKindOf, createCompatCheck } from './compat-check.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
@@ -631,6 +631,9 @@
           incompatibleTitle={compat.incompatibleShas.has(row.installed.sha1)
             ? compatTitle(row.installed.sha1)
             : null}
+          incompatKind={compat.incompatibleShas.has(row.installed.sha1)
+            ? compatKindOf(compat.hintFor(row.installed.sha1))
+            : null}
           selected={selection.selected.has(row.installed.sha1)}
           {outOfRangeKeys}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
@@ -719,6 +722,7 @@
     <MigrationPlanDialog
       {instanceId}
       onClose={() => (migrationDialogOpen = false)}
+      onPlanLoaded={() => void compat.runLiveCheck()}
       onApplied={() => {
         // Same refresh set the explicit uninstall/toggle handlers already
         // trigger — belt-and-suspenders alongside the mod-installed /

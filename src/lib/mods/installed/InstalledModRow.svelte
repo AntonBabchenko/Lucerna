@@ -17,6 +17,7 @@
   import type { RequiredByEntry } from './dep-graph.svelte';
   import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
   import { changelogSupported } from '$lib/mods/changelog-supported';
+  import type { CompatKind } from './compat-check.svelte';
 
   let {
     summary,
@@ -33,6 +34,7 @@
     checking,
     packChip,
     incompatibleTitle,
+    incompatKind = null,
     selected,
     outOfRangeKeys = new Set(),
     onToggleExpand,
@@ -64,6 +66,7 @@
     checking: boolean;
     packChip: string | null;
     incompatibleTitle: string | null;
+    incompatKind?: CompatKind | null;
     selected: boolean;
     outOfRangeKeys?: Set<string>;
     onToggleExpand: () => void;
@@ -185,10 +188,18 @@
           <!-- Badge only: the remediation entry is the single instance-wide
                "Fix incompatible mods" button in the compat panel header. A
                per-row button here opened that same unscoped dialog, so N of
-               them were N identical controls posing as a per-mod action. -->
+               them were N identical controls posing as a per-mod action.
+               The WORD follows the evidence: `noRelease` is what the mod's
+               page shows, not something the loader will do. Tone and the
+               accent strip are unchanged (spec D6; DESIGN.md:238's `danger`
+               for incompatible is a separate backlog item). -->
           <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
             <StatusBadge variant="warning" icon="warning">
-              {$t('mods.installed.badgeIncompatible')}
+              {$t(
+                incompatKind === 'noRelease'
+                  ? 'mods.installed.badgeNoRelease'
+                  : 'mods.installed.badgeIncompatible',
+              )}
             </StatusBadge>
           </span>
         {/if}

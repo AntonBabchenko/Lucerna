@@ -15,6 +15,18 @@ export type CompatHint =
   | { key: 'platformMc'; declared: string }
   | { key: 'platformLoader'; declared: string };
 
+// What a flag is WORTH, for the row's wording. `proven` = read off the jar that
+// will be launched: the loader will reject or skip it. `noRelease` = only the
+// mod's page is the evidence, and only that it lists nothing for this
+// platform; the file itself makes no bounded statement. Probable, not proven —
+// so the row says what is known («No release»), not what is inferred.
+export type CompatKind = 'proven' | 'noRelease';
+
+export function compatKindOf(hint: CompatHint | null): CompatKind | null {
+  if (!hint) return null;
+  return hint.key === 'noRelease' ? 'noRelease' : 'proven';
+}
+
 type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
 
 // Live verdicts, held once for the whole app and keyed by the FULL platform
