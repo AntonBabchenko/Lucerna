@@ -325,6 +325,11 @@ pub async fn optimise_resolve(
 /// doesn't need to keep a heavy struct around — we re-fetch from the
 /// platform here. This also re-validates against the live API.
 ///
+/// `allow_off_platform` is the user's explicit yes to a build the platform
+/// does not list for this instance's Minecraft + loader (see `find_version`).
+/// Without it such a build is refused with `ModVersionNotForInstance` before
+/// anything is resolved, downloaded or written.
+///
 /// Runs under the instance's SHARED maintenance claim
 /// (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
 /// while a long operation holds the instance, admitted alongside other item
@@ -336,6 +341,7 @@ pub async fn mods_install_with_deps(
     instance_id: String,
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
+    allow_off_platform: bool,
 ) -> crate::error::Result<crate::mods::platform::InstallSummary> {
     // Held from before the installed list is read (the dependency pruning is
     // computed from it) until the batch, the journal row and the `requires`
@@ -354,8 +360,14 @@ pub async fn mods_install_with_deps(
 
             // Two handles: Box for find_version calls, Arc for make_fetch closure.
             let mut platform_box = platform_for(primary.source);
-            let primary_v =
-                find_version(&mut platform_box, &primary, &mc_version, loader, false).await?;
+            let primary_v = find_version(
+                &mut platform_box,
+                &primary,
+                &mc_version,
+                loader,
+                allow_off_platform,
+            )
+            .await?;
 
             // Build the set of already-installed mods so resolve_closure can prune
             // them. Two views: by source-specific ProjectKey, and by lowercased jar
@@ -563,6 +575,9 @@ pub async fn mods_install_with_deps(
             let mut chosen_optionals: Vec<ModVersion> = Vec::new();
             // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
             for opt in &optional_deps {
+                // Strict on purpose: the user's consent was about the PRIMARY build.
+                // An optional dependency nobody confirmed stays on the platform's
+                // own filtered answer.
                 let ov = find_version(&mut platform_box, opt, &mc_version, loader, false).await?;
                 let mut excl = installed.clone();
                 for v in &dep_versions {
@@ -860,6 +875,8 @@ pub(crate) async fn install_version_into_dir(
             version_id,
         };
         let mut platform_box = platform_for(source);
+        // Strict on purpose: the server browse-and-install flow has no
+        // confirmation step, so nothing here could have consented.
         let primary_v = find_version(&mut platform_box, &vr, mc_version, loader, false).await?;
 
         // 2. Prune deps already present in `dest` (by lowercased filename only —

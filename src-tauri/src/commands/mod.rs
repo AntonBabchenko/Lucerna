@@ -492,32 +492,77 @@ pub(crate) fn read_active_mc_and_loader(
     Ok((instance.mc_version, instance.loader))
 }
 
-/// Resolve a `VersionRef` to a full `ModVersion` by querying the platform
-/// for the project's available versions (filtered by MC + loader).
+/// `ModsNotFound` for `source`. Returned ONLY when the platform was asked about
+/// the exact build and does not have it — never as a stand-in for «not in the
+/// filtered list» or «the lookup failed».
+fn mods_not_found(source: ModSource) -> crate::error::Error {
+    crate::error::Error::ModsNotFound {
+        platform: match source {
+            ModSource::Modrinth => "modrinth",
+            ModSource::Curseforge => "curseforge",
+            ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
+            ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
+            ModSource::Hangar => "hangar",
+            ModSource::VanillaTweaks => "vanillatweaks", // VT: built on demand, no per-mod browser.
+        }
+        .into(),
+    }
+}
+
+/// Resolve a `VersionRef` to the PLATFORM'S own `ModVersion`, and decide
+/// whether that build may go into an instance running `mc` + `loader`.
+///
+/// 1. The instance-filtered listing. A build is «for this instance» iff the
+///    platform's own filtered answer contains it — no tag predicate of ours
+///    (an exact-tag rule would call CurseForge files with an empty `loaders`
+///    list foreign although CurseForge returns them). Found ⇒ returned; this
+///    is the whole story for every ordinary install. A failure here
+///    propagates as itself.
+/// 2. Otherwise the build is looked up BY ID, unfiltered. A failure stays what
+///    it is — `ModsNetwork`, `ModsPlatformAuth` — never «not found»: a retry
+///    is meaningful for those and meaningless for a build that does not exist.
+/// 3. Not returned, or returned under another project ⇒ `ModsNotFound`, which
+///    is now a true statement. (`vr.project_id` must be the platform's id, as
+///    every caller takes it from a `ModVersion`; a slug would land here.)
+/// 4. Returned and the caller carries the user's consent ⇒ the build.
+/// 5. Returned without consent ⇒ `ModVersionNotForInstance`, with the build's
+///    own tags. This also covers a build the filename heuristic dropped from
+///    step 1 although its tags fit: it needs a yes too.
+///
+/// `allow_off_platform` is explicit consent carried end to end — never
+/// inferred here, never defaulted to `true` by a caller nobody asked.
+///
+/// Sources without a by-id endpoint (the trait default returns an empty list)
+/// reach step 3, exactly where they ended before this function had a step 2.
 async fn find_version(
     platform: &mut Box<dyn ModPlatform>,
     vr: &VersionRef,
     mc: &str,
     loader: LoaderKind,
-    // Accepted and ignored in the red round (Task G1 gives it meaning).
-    _allow_off_platform: bool,
+    allow_off_platform: bool,
 ) -> crate::error::Result<ModVersion> {
-    let vs = platform
+    let listed = platform
         .versions(&vr.project_id, Some(mc), Some(loader))
         .await?;
-    vs.into_iter()
-        .find(|v| v.version_id == vr.version_id)
-        .ok_or_else(|| crate::error::Error::ModsNotFound {
-            platform: match vr.source {
-                ModSource::Modrinth => "modrinth",
-                ModSource::Curseforge => "curseforge",
-                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
-                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
-                ModSource::Hangar => "hangar",
-                ModSource::VanillaTweaks => "vanillatweaks", // VT: built on demand, no per-mod browser.
-            }
-            .into(),
-        })
+    if let Some(v) = listed.into_iter().find(|v| v.version_id == vr.version_id) {
+        return Ok(v);
+    }
+    let by_id = platform.versions_by_ids(&[vr.version_id.as_str()]).await?;
+    let Some(found) = by_id
+        .into_iter()
+        .find(|v| v.version_id == vr.version_id && v.project_id == vr.project_id)
+    else {
+        return Err(mods_not_found(vr.source));
+    };
+    if allow_off_platform {
+        return Ok(found);
+    }
+    Err(crate::error::Error::ModVersionNotForInstance {
+        version_mc: found.mc_versions,
+        version_loaders: found.loaders,
+        instance_mc: mc.to_string(),
+        instance_loader: loader,
+    })
 }
 
 fn version_matches(v: &ModVersion, vr: &VersionRef) -> bool {
