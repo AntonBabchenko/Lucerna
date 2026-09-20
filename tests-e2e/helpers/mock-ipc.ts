@@ -286,7 +286,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           replaceable: [],
           new_dependencies: [],
           stranded: [],
-          unjudged: 0,
+          no_platform_build: [],
+          unjudged: [],
         },
         migration_report: { outcomes: [] },
       };
