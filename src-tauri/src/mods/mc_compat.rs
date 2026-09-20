@@ -216,6 +216,17 @@ pub fn platform_verdict(
     })
 }
 
+/// D5 of the 2026-09-20 spec — see the implementation commit.
+pub fn mc_fit_is_bounded(
+    _manifest: &ManifestDeps,
+    _instance_mc: &str,
+    _loader: LoaderKind,
+    _loader_version: Option<&str>,
+    _era: DescriptorEra,
+) -> bool {
+    false // stub — red round
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,6 +915,135 @@ mod tests {
                 }
             ),
             "{v2:?}"
+        );
+    }
+
+    // ── D5: a bounded, satisfied minecraft declaration ──────────────────────
+    fn neo(deps: Vec<DeclaredDep>) -> ManifestDeps {
+        manifest(deps, vec![DescriptorSource::NeoForgeToml])
+    }
+
+    fn mc(range: &str) -> DeclaredDep {
+        dep(
+            "minecraft",
+            range,
+            DescriptorSource::NeoForgeToml,
+            RangeFamily::Maven,
+        )
+    }
+
+    fn bounded(m: &ManifestDeps) -> bool {
+        mc_fit_is_bounded(
+            m,
+            "1.21.1",
+            LoaderKind::NeoForge,
+            Some("21.1.229"),
+            DescriptorEra::Modern,
+        )
+    }
+
+    fn verdict(m: &ManifestDeps) -> PlatformVerdict {
+        platform_verdict(
+            m,
+            "1.21.1",
+            LoaderKind::NeoForge,
+            Some("21.1.229"),
+            DescriptorEra::Modern,
+        )
+    }
+
+    #[test]
+    fn a_bounded_satisfied_minecraft_range_is_a_bounded_fit() {
+        // Eating Animations 6.0.1 and GML 6.0.2, measured: tagged `1.21` on
+        // Modrinth, declaring `[1.21.0,1.22)` — and NeoForge 1.21.1 loads them.
+        assert!(bounded(&neo(vec![mc("[1.21.0,1.22)")])));
+    }
+
+    #[test]
+    fn statements_that_are_not_a_bounded_fit() {
+        // (pin) open · soft · wildcard-free but unbounded · nothing declared.
+        for r in ["[1.20.1,)", "1.21.1", "*"] {
+            assert!(!bounded(&neo(vec![mc(r)])), "{r}");
+        }
+        assert!(!bounded(&neo(vec![])));
+    }
+
+    #[test]
+    fn a_bounded_incompatible_exclusion_is_not_a_positive_statement() {
+        // (pin) `incompatible [1.19,1.20)` HOLDS on 1.21.1 (the exclusion does
+        // not fire) and is bounded — but it says what the jar refuses, not
+        // what it supports.
+        let mut d = mc("[1.19,1.20)");
+        d.kind = DependencyKind::Incompatible;
+        assert!(!bounded(&neo(vec![d])));
+    }
+
+    #[test]
+    fn filtered_declarations_never_make_a_bounded_fit() {
+        // (pin) server-side · discouraged · a descriptor this loader never opens.
+        let mut server = mc("[1.21.0,1.22)");
+        server.side = DepSide::Server;
+        let mut discouraged = mc("[1.21.0,1.22)");
+        discouraged.kind = DependencyKind::Discouraged;
+        let fabric = manifest(
+            vec![dep(
+                "minecraft",
+                ">=1.21 <1.22",
+                DescriptorSource::FabricJson,
+                RangeFamily::FabricPredicate,
+            )],
+            vec![DescriptorSource::FabricJson],
+        );
+        assert!(!bounded(&neo(vec![server])));
+        assert!(!bounded(&neo(vec![discouraged])));
+        assert!(!bounded(&fabric));
+    }
+
+    #[test]
+    fn one_firing_minecraft_declaration_cancels_a_bounded_sibling() {
+        // (pin) One mods.toml can bundle submodules with different ranges.
+        let m = neo(vec![mc("[1.21.0,1.22)"), mc("[1.20,1.21)")]);
+        assert!(!bounded(&m));
+        assert!(matches!(
+            verdict(&m),
+            PlatformVerdict::Violated {
+                axis: PlatformAxis::Minecraft,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_bounded_fit_never_coexists_with_a_minecraft_violation() {
+        // The joint invariant: the two predicates share one iterator, and this
+        // is what keeps a later edit to either from letting them drift.
+        let table = vec![
+            neo(vec![mc("[1.21.0,1.22)")]),
+            neo(vec![mc("[1.21.1]")]),
+            neo(vec![mc("[1.20.1,)")]),
+            neo(vec![mc("[1.20,1.21)")]),
+            neo(vec![mc("[1.21.0,1.22)"), mc("[1.20,1.21)")]),
+            neo(vec![]),
+        ];
+        let mut any_bounded = false;
+        for m in &table {
+            if bounded(m) {
+                any_bounded = true;
+                assert!(
+                    !matches!(
+                        verdict(m),
+                        PlatformVerdict::Violated {
+                            axis: PlatformAxis::Minecraft,
+                            ..
+                        }
+                    ),
+                    "{m:?}"
+                );
+            }
+        }
+        assert!(
+            any_bounded,
+            "the table must exercise the invariant, not skip it"
         );
     }
 }
