@@ -282,6 +282,7 @@ export type TranslationKey =
   | 'errors.serverNameInvalid'
   | 'errors.serverNotRunning'
   | 'errors.serverSpawnFailed'
+  | 'errors.serverTreeBusy'
   | 'errors.serverUploadInProgress'
   | 'errors.serverWorldNotCreated'
   | 'errors.serversDatParse'

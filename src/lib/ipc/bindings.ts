@@ -3338,6 +3338,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  different waits and different things to look at.
  */
 { kind: "server_content_busy"; id: string } | 
+/**
+ *  The other reverse of `ServerMaintenanceInProgress`: a restore was asked
+ *  for, but a long reader of this server's `runtime/` — an upload, an
+ *  export, a backup, or another copy of the tree — is still in flight, and
+ *  replacing the tree under it would tear the copy it is making.
+ * 
+ *  Distinct from `ServerContentBusy` for the reason that one is distinct
+ *  from `ServerMaintenanceInProgress`: "add-ons are still being installed"
+ *  is not what an upload is, and the user has a different thing to wait for.
+ */
+{ kind: "server_tree_busy"; id: string } | 
 /**  The hosting upload was cancelled by the user. */
 { kind: "upload_cancelled" } | 
 /**  The operation requires a running server, but it is not running. */

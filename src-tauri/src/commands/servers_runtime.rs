@@ -1508,7 +1508,12 @@ pub async fn server_upload(
     password: Option<String>,
     resume: bool,
 ) -> Result<()> {
-    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
+    // Held for the whole upload — minutes to hours — so a backup restore that
+    // starts meanwhile sees a reader and refuses, instead of replacing the tree
+    // under an upload that would then ship half of each and report success.
+    // Independent of the upload claim below: that one answers Start and a
+    // second upload; this one answers the restore.
+    let _read = crate::servers_runtime::maintenance::claim_shared_read(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     // Claim first, look second — the Dekker pairing `runtime::start` has the
@@ -1624,7 +1629,8 @@ pub async fn server_upload_preflight(
     accept_new_host_key: bool,
     skip_worlds: bool,
 ) -> Result<crate::servers_runtime::transfer::UploadPreflight> {
-    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
+    // Held for the whole walk: the plan it builds is what the upload trusts.
+    let _read = crate::servers_runtime::maintenance::claim_shared_read(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
@@ -1666,7 +1672,9 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
-    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
+    // Held for the whole zip, so a restore that starts meanwhile refuses rather
+    // than hand the user an archive torn between two trees.
+    let read = crate::servers_runtime::maintenance::claim_shared_read(&id)?;
     // A live server holds world region files open and mutates them mid-write, so
     // zipping runtime/ while it runs can produce a torn archive. Refuse until the
     // server is stopped (parity with restore/upload, which also require stopped).
@@ -1679,6 +1687,8 @@ pub async fn server_export_zip(app: AppHandle, id: String, dest_path: String) ->
     // Sync walk + deflate of a potentially GB-scale runtime — off the async
     // runtime and the main thread (same shape as server_backup_create).
     tokio::task::spawn_blocking(move || {
+        // Moved in so it lives exactly as long as the blocking zip does.
+        let _read = read;
         crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
     })
     .await
@@ -1742,7 +1752,8 @@ pub async fn server_create_client_instance(
     name: String,
     add_to_multiplayer: bool,
 ) -> Result<crate::servers_runtime::to_instance::ClientInstanceResult> {
-    crate::servers_runtime::maintenance::not_under_maintenance(&server_id)?;
+    // Held for the whole copy of the server's mod set out of `runtime/mods/`.
+    let _read = crate::servers_runtime::maintenance::claim_shared_read(&server_id)?;
     crate::data_root::reject_if_fallen_back(&app)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::servers_runtime::to_instance::create_client_instance(
@@ -2242,7 +2253,11 @@ async fn resume_saves_after_backup(id: &str) {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_backup_create(app: AppHandle, id: String) -> Result<backup::BackupInfo> {
-    crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
+    // Held for the whole zip, so a restore that starts meanwhile sees a reader
+    // and refuses instead of replacing the tree under it — which would put a
+    // torn snapshot into the backup set and, through the keep-N prune, could
+    // evict a good one in its favour.
+    let read = crate::servers_runtime::maintenance::claim_shared_read(&id)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let running = crate::servers_runtime::runtime::is_running(&id);
     if running {
@@ -2253,9 +2268,15 @@ pub async fn server_backup_create(app: AppHandle, id: String) -> Result<backup::
     let res = {
         let base = base.clone();
         let id_task = id.clone();
-        tokio::task::spawn_blocking(move || backup::create_backup(&base, &id_task, &stamp))
-            .await
-            .map_err(|e| Error::io("<server_backup_create>", format!("join: {e}")))?
+        tokio::task::spawn_blocking(move || {
+            // The claim moves INTO the blocking closure, as the restore's own
+            // does: it is released when the zip actually ends, even if this
+            // command's future were dropped while the blocking task runs on.
+            let _read = read;
+            backup::create_backup(&base, &id_task, &stamp)
+        })
+        .await
+        .map_err(|e| Error::io("<server_backup_create>", format!("join: {e}")))?
     };
     if running {
         resume_saves_after_backup(&id).await;
@@ -2292,13 +2313,19 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
     // the reverse direction, and the one the checks above cannot see: a mod
     // install started from Add-ons is still downloading into runtime/mods/ long
     // after the user has switched tabs, and `is_running` says nothing about it.
-    // `try_begin` reports WHICH of the two blocked us, decided under the same
+    // The same goes for a long READER: an upload, an export or a backup walks
+    // `runtime/` for minutes to hours, and replacing the tree under it tears the
+    // copy it is making — which it would then report as a success.
+    // `try_begin` reports WHICH of these blocked us, decided under the same
     // lock as the refusal, so the message names the operation the user actually
     // has to wait for rather than a re-read that may have changed meanwhile.
     let maintenance = match crate::servers_runtime::maintenance::try_begin(&id) {
         Ok(guard) => guard,
         Err(crate::servers_runtime::maintenance::Blocked::ContentWrite) => {
             return Err(Error::ServerContentBusy { id })
+        }
+        Err(crate::servers_runtime::maintenance::Blocked::TreeRead) => {
+            return Err(Error::ServerTreeBusy { id })
         }
         Err(crate::servers_runtime::maintenance::Blocked::Maintenance) => {
             return Err(Error::ServerMaintenanceInProgress { id })
@@ -2407,6 +2434,20 @@ fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_
             let Ok(base) = crate::paths::app_dir(&app) else {
                 continue;
             };
+            // The same read claim `server_backup_create` takes. A scheduled zip
+            // of a large world outlives a Stop click, after which Restore is
+            // admitted by its running check — this is what makes it refuse.
+            // Refused itself only while a restore or import holds the server:
+            // skip the tick rather than snapshot a half-written tree. Nothing
+            // is lost — the next tick tries again — and no command is in flight
+            // to show a message to, so it goes to the diagnostic log.
+            let read = match crate::servers_runtime::maintenance::claim_shared_read(&id) {
+                Ok(read) => read,
+                Err(e) => {
+                    crate::diag!("auto-backup: {id}: tick skipped: {e}");
+                    continue;
+                }
+            };
             let t = chrono::Utc::now();
             let now = t.timestamp_millis() as f64;
             let stamp = format!("auto-{}", t.format("%Y%m%d-%H%M%S"));
@@ -2415,6 +2456,8 @@ fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_
                 let base = base.clone();
                 let id_task = id.clone();
                 match tokio::task::spawn_blocking(move || {
+                    // Moved in so it lives exactly as long as the blocking zip.
+                    let _read = read;
                     crate::servers_runtime::backup::maybe_auto_backup(&base, &id_task, now, &stamp)
                 })
                 .await
