@@ -394,11 +394,12 @@ pub struct GeneralSettings {
     /// user-supplied host while this is false.
     #[serde(default)]
     pub allow_server_ping: bool,
-    /// Opt-in OS registration of the `lucerna://` link scheme, so an
-    /// "Open in Lucerna" link from a browser opens the import dialog.
-    /// `#[serde(default)]` → false for app.json written before this field: the
-    /// launcher never writes to the user's registry unasked, and pasting a URL
-    /// into the import dialog works without it.
+    /// LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
+    /// registration of the `lucerna://` link scheme; that toggle was retired.
+    /// The only reader is `url_scheme_retire`, which uses it to decide whether a
+    /// leftover registry key is ours to remove, and then clears it. Nothing
+    /// sets it to `true` any more. Safe to delete together with
+    /// `url_scheme_retire` once enough releases have passed (see ROADMAP).
     #[serde(default)]
     pub register_url_scheme: bool,
     /// Opt-in permission for the AI translation pre-fill to reach a model

@@ -32,11 +32,6 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     // CurseForgeKeyForm
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'missing' }),
-    // UrlSchemeSection (rendered alongside CurseForgeKeyForm in Integrations)
-    urlSchemeKey: vi.fn().mockResolvedValue('HKCU\\Software\\Classes\\lucerna'),
-    urlSchemeState: vi.fn().mockResolvedValue({ status: 'ok', data: 'not_registered' }),
-    urlSchemeRegister: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    urlSchemeUnregister: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsSetCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsClearCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // AiTranslationSection (the third Integrations block) reads the stored-key
@@ -179,6 +174,20 @@ describe('SettingsModal — all tabs have aria-selected', () => {
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }
+  });
+});
+
+// ── SettingsModal — the retired lucerna:// Links section is gone ─────────────
+
+describe('SettingsModal — Integrations no longer offers lucerna:// registration', () => {
+  it('renders the CurseForge block but no url-scheme toggle', async () => {
+    settingsOpen.value = { tab: 'integrations' };
+    render(SettingsModal);
+    // Wait for the tab's async mounts to settle, so an absence is a real
+    // absence and not "not rendered yet".
+    await screen.findAllByRole('button', { name: /save key/i });
+    expect(screen.queryByTestId('url-scheme-toggle')).toBeNull();
+    expect(screen.queryByText(/lucerna:\/\//i)).toBeNull();
   });
 });
 

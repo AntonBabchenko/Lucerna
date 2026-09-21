@@ -1,7 +1,7 @@
 //! Structural guard: OS-divergent primitives are confined to `platform::`.
 //! `PermissionsExt` (exec bits), `WaitForInputIdle` (window detect),
 //! `libc::kill` (process signal), and the registry-mutating `Reg*` call
-//! families (GPU-preference writes, `lucerna://` scheme registration) must
+//! families (GPU-preference writes, `lucerna://` scheme-key removal) must
 //! not appear outside `src/platform/`, so
 //! adding macOS later means editing one module — not hunting the codebase.
 //! Subprocess spawning is governed separately by structural_no_raw_spawn.rs.
@@ -40,7 +40,7 @@ const NEEDLES: &[&str] = &[
     // Also covers `RegDeleteKeyValueW` by substring.
     "RegDeleteKey",
     "RegDeleteValue",
-    // URL-scheme registration (platform::protocol) deletes its whole key
+    // URL-scheme retirement (platform::protocol) deletes the whole key
     // tree; listed so a future caller can't move that write out of platform::.
     "RegDeleteTree",
 ];

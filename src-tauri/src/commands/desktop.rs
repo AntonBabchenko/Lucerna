@@ -1,6 +1,7 @@
 // =========================================================================
-// Desktop integration (Session 4): inbound launch intents, `lucerna://`
-// scheme registration, and desktop launch shortcuts.
+// Desktop integration (Session 4): inbound launch intents and desktop
+// launch shortcuts. (`lucerna://` scheme registration was retired — see
+// `crate::url_scheme_retire`.)
 // =========================================================================
 
 /// Drain the pending launch intent, if any.
@@ -33,41 +34,6 @@ pub fn take_pending_intent(app: tauri::AppHandle) -> Option<crate::cli::LaunchIn
         },
         other => other,
     })
-}
-
-/// Registry key the scheme registration writes, so the Settings row can show the
-/// user exactly what changes on their machine rather than asking for trust.
-#[tauri::command]
-#[specta::specta]
-pub fn url_scheme_key() -> String {
-    format!("HKCU\\{}", crate::platform::protocol::SCHEME_KEY)
-}
-
-/// Current OS registration state of the `lucerna://` scheme.
-#[tauri::command]
-#[specta::specta]
-pub fn url_scheme_state() -> crate::error::Result<crate::platform::protocol::SchemeState> {
-    Ok(crate::platform::protocol::state(&current_exe()?))
-}
-
-/// Register the `lucerna://` scheme for the current user. Explicit user action
-/// only — never called on a first run or an update without the setting on.
-#[tauri::command]
-#[specta::specta]
-pub fn url_scheme_register() -> crate::error::Result<()> {
-    crate::platform::protocol::register(&current_exe()?)
-        .map_err(|e| crate::error::Error::io("<url-scheme>", e))
-}
-
-/// Remove the current user's `lucerna://` registration.
-#[tauri::command]
-#[specta::specta]
-pub fn url_scheme_unregister() -> crate::error::Result<()> {
-    crate::platform::protocol::unregister().map_err(|e| crate::error::Error::io("<url-scheme>", e))
-}
-
-fn current_exe() -> crate::error::Result<std::path::PathBuf> {
-    std::env::current_exe().map_err(|e| crate::error::Error::io("<current_exe>", e))
 }
 
 /// Whether this OS supports desktop shortcuts. The UI hides the entry point when
