@@ -16,6 +16,7 @@
 // never subscribe — several suites mock the bindings without the progress event and reach
 // `init()` through StoragePanel.
 
+import { untrack } from 'svelte';
 import {
   commands,
   type DataLocationStatus,
@@ -62,7 +63,12 @@ function relocationOf(s: DataLocationStatus | null): RelocationStatus {
 
 async function refresh(): Promise<void> {
   loading = true;
-  const watchedRun = !owned && relocationOf(status).kind === 'running';
+  // Untracked on purpose. This runs synchronously inside whoever called us, and StoragePanel
+  // reaches it from its mount `$effect` (through `init()`). A tracked read of `owned` / `status`
+  // here would subscribe THAT effect to the store; the `status = r.data` below would then re-run
+  // it, and every mount-time load in the panel (cache size, retention, data-root size, the
+  // restart gate) would fire a second time.
+  const watchedRun = untrack(() => !owned && relocationOf(status).kind === 'running');
   const r = await commands.getDataLocation();
   loading = false;
   if (r.status === 'ok') {
