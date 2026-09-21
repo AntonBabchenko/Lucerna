@@ -18,7 +18,6 @@ export type SettingsAnchor =
   | 'game.serverPing'
   | 'game.gpu'
   | 'integrations.curseforgeKey'
-  | 'integrations.urlScheme'
   | 'integrations.aiTranslation'
   | 'storage.cache'
   | 'storage.logRetention'
@@ -108,12 +107,6 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     tab: 'integrations',
     labelKey: 'settings.search.labels.integrations.curseforgeKey',
     keywordsKey: 'settings.search.keywords.integrations.curseforgeKey',
-  },
-  'integrations.urlScheme': {
-    anchor: 'integrations.urlScheme',
-    tab: 'integrations',
-    labelKey: 'settings.search.labels.integrations.urlScheme',
-    keywordsKey: 'settings.search.keywords.integrations.urlScheme',
   },
   'integrations.aiTranslation': {
     anchor: 'integrations.aiTranslation',

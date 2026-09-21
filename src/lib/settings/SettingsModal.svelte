@@ -8,7 +8,6 @@
   import AppearancePanel from './AppearancePanel.svelte';
   import GamePanel from './GamePanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
-  import UrlSchemeSection from './UrlSchemeSection.svelte';
   import AiTranslationSection from './AiTranslationSection.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import UpdatesPanel from './UpdatesPanel.svelte';
@@ -134,11 +133,6 @@
             <SettingsField anchor="integrations.curseforgeKey">
               <CurseForgeKeyForm />
             </SettingsField>
-            <div class="border-t pt-4">
-              <SettingsField anchor="integrations.urlScheme">
-                <UrlSchemeSection />
-              </SettingsField>
-            </div>
             <div class="border-t pt-4">
               <SettingsField anchor="integrations.aiTranslation">
                 <AiTranslationSection />

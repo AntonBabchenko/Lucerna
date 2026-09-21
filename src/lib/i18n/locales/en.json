@@ -2523,7 +2523,6 @@
         },
         "integrations": {
           "curseforgeKey": "CurseForge API key",
-          "urlScheme": "URL scheme handler",
           "aiTranslation": "AI translation"
         },
         "storage": {
@@ -2559,7 +2558,6 @@
         },
         "integrations": {
           "curseforgeKey": "curseforge api key token",
-          "urlScheme": "url scheme protocol deep link handler",
           "aiTranslation": "ai translation translate provider model api key token gemini anthropic openai groq"
         },
         "storage": {
@@ -2630,16 +2628,6 @@
         "installing": "Installing…",
         "openReleasePage": "Open release page",
         "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page."
-      },
-      "urlScheme": {
-        "title": "Links",
-        "label": "Open lucerna:// links with Lucerna",
-        "description": "Lets an \"Open in Lucerna\" link from your browser open the modpack import dialog. A link can only open the dialog — it can never install a pack or start the game on its own.",
-        "registryHint": "Writes one registry key for your user only: {key}. Turning this off removes it.",
-        "unsupported": "Link handling isn't supported on this platform yet. You can still paste a link into the modpack import dialog.",
-        "repointed": "Links currently open a different copy of Lucerna — point them at this one?",
-        "reassert": "Point at this copy",
-        "failed": "Couldn't change the link registration: {message}"
       },
       "onboarding": {
         "title": "Onboarding",
