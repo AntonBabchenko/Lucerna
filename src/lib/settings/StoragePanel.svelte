@@ -10,28 +10,26 @@
   // Both IPC calls (modsCacheSizeBytes / modsClearCache) follow the
   // result-status pattern (typedError) — no try/catch around them.
   //
-  // The "Data location" block (bottom) lets the user relocate the WHOLE data
-  // root (instances, caches, accounts — everything under the app-data dir) to
-  // a folder of their choice. See data-location.svelte.ts for the shared
-  // status rune (also read by the fallback banner + create/Play gating in
-  // +page.svelte) and DataLocationConfirmDialog / DataLocationProgressDialog
-  // for the two modals this flow drives.
+  // The "Data location" block (bottom) lets the user relocate the WHOLE data root (instances,
+  // caches, accounts — everything under the app-data dir) to a folder of their choice. This panel
+  // only PLANS (backend classification), CONFIRMS (DataLocationConfirmDialog) and STARTS a move.
+  // The progress / final dialog is owned by the app-level DataMoveHost, driven by the shared
+  // data-location.svelte.ts rune (also read by the fallback banner and the create/Play gating in
+  // +page.svelte), so it survives a reload.
   import { open as openDirectory } from '@tauri-apps/plugin-dialog';
-  import {
-    commands,
-    events,
-    type DataMigrationProgress,
-    type LogRetentionPolicy,
-  } from '$lib/ipc/bindings';
+  import { tick } from 'svelte';
+  import { commands, type LogRetentionPolicy, type RestartBlock } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
-  import DataLocationProgressDialog from '$lib/settings/DataLocationProgressDialog.svelte';
   import SettingsField from './SettingsField.svelte';
 
   let bytes = $state<number | null>(null);
@@ -134,18 +132,23 @@
     }
   }
 
-  // Data-root size, loaded lazily through its own async command — split from
-  // getDataLocation so the full-tree walk (seconds on a cold FS cache) never
-  // runs on the startup path, only when this panel is open. null = loading.
+  // Data-root size, loaded lazily through its own async command — split from getDataLocation so
+  // the full-tree walk (seconds on a cold FS cache) never runs on the startup path, only when
+  // this panel is open. Three states: loading, known (a measured 0 is a real "0 B"), unknown
+  // (null — the call failed or answered null). Unknown is never rendered as a size.
   let dataRootSize = $state<number | null>(null);
+  let dataRootSizeLoading = $state(true);
   let dataRootSizeError = $state<string | null>(null);
 
   async function refreshDataRootSize() {
+    dataRootSizeLoading = true;
     dataRootSizeError = null;
     const result = await commands.dataRootSizeBytes();
+    dataRootSizeLoading = false;
     if (result.status === 'ok') {
-      dataRootSize = result.data;
+      dataRootSize = bytesOrNull(result.data);
     } else {
+      dataRootSize = null;
       dataRootSizeError = formatError(result.error);
     }
   }
@@ -155,33 +158,84 @@
     void loadRetention();
     void dataLocation.init();
     void refreshDataRootSize();
+    void recheckBlocked();
   });
 
   // ── Data-root relocation ────────────────────────────────────────────────
-  // pendingTarget: null while no picker/confirm/progress flow is in
-  // progress. 'reset' = reset-to-default confirm; otherwise the
-  // backend-classified plan for the picked folder (adopt = repoint only,
-  // migrate = copy+verify+delete move).
-  let pendingTarget = $state<{ kind: 'adopt' | 'migrate'; path: string } | 'reset' | null>(null);
-  // True from picker open until the plan classification settles. Guards the
-  // window where the OS dialog is gone but planDataLocationChange (fs probes
-  // that can stall on a flaky drive) hasn't resolved: without it a second
-  // pick could race the first and silently swap an open confirm dialog's
-  // target between the user reading it and clicking confirm.
-  let planning = $state(false);
-  let migrating = $state(false);
-  let migrationError = $state<string | null>(null);
-  let migrationProgress = $state<DataMigrationProgress | null>(null);
-  let progressUnlisten: (() => void) | null = null;
+  type Bytes = number | null;
+  type PendingTarget =
+    | { kind: 'adopt'; path: string }
+    | { kind: 'move'; path: string; requiredBytes: Bytes; freeBytes: Bytes }
+    | { kind: 'reset'; path: string; pointerOnly: boolean; requiredBytes: Bytes; freeBytes: Bytes };
 
-  const pendingIsAdopt = $derived(
-    pendingTarget !== null && pendingTarget !== 'reset' && pendingTarget.kind === 'adopt',
+  // null while no confirm dialog is open; otherwise the backend's plan.
+  let pendingTarget = $state<PendingTarget | null>(null);
+  // True from picker open / reset click until the plan settles. Guards the window where the OS
+  // dialog is gone but the plan command (fs probes that can stall on a flaky drive) hasn't
+  // resolved: without it a second pick could race the first and silently swap an open confirm
+  // dialog's target between the user reading it and clicking confirm. Shared by both buttons.
+  let planning = $state(false);
+  /** Which button shows the spinner while `planning`. */
+  let planningReset = $state(false);
+  /** A redirect-only commit (adopt, pointer-only reset) is in flight: the confirm dialog stays up
+   *  with its busy spinner — a sub-second redirect write has no copy and no progress to show. */
+  let committing = $state(false);
+  let migrationError = $state<string | null>(null);
+  let moveNotice = $state<string | null>(null);
+  let resetBlockers = $state<{ path: string; entries: string[] } | null>(null);
+  let sectionEl = $state<HTMLDivElement | null>(null);
+
+  // The move is offered only when the backend said exactly 'none' (spec §4.7): a pending call, a
+  // rejection, null or a token this build does not know all count as "could not tell", which is
+  // the blocked answer.
+  type RestartGate = RestartBlock | 'checking';
+  let restartBlock = $state<RestartGate>('checking');
+  // Plain counter, NOT $state: recheckBlocked() runs inside the mount $effect, and a tracked read
+  // there would make the effect re-run itself.
+  let blockQuerySeq = 0;
+
+  const BLOCK_REASON_KEYS: Record<Exclude<RestartGate, 'none'>, TranslationKey> = {
+    checking: 'settings.storage.dataLocation.blocked.checking',
+    running: 'settings.storage.dataLocation.blocked.running',
+    busy: 'settings.storage.dataLocation.blocked.busy',
+    unknown: 'settings.storage.dataLocation.blocked.unknown',
+  };
+  const moveBlocked = $derived(restartBlock !== 'none');
+  const blockedReason = $derived(
+    restartBlock === 'none' ? null : $t(BLOCK_REASON_KEYS[restartBlock]),
   );
 
-  async function pickLocation() {
-    if (planning) return;
-    planning = true;
+  async function recheckBlocked() {
+    const seq = ++blockQuerySeq;
+    restartBlock = 'checking';
+    let next: RestartBlock = 'unknown';
+    try {
+      const answer: unknown = await commands.restartBlocked();
+      if (answer === 'none' || answer === 'running' || answer === 'busy') next = answer;
+    } catch {
+      // `restartBlocked` is not wrapped in typedError, so a rejection lands here. "Could not
+      // ask" is "could not tell": stay blocked.
+      next = 'unknown';
+    }
+    // A slower, older query must not overwrite a newer answer.
+    if (seq === blockQuerySeq) restartBlock = next;
+  }
+
+  /** specta renders f64 as `number | null`; treat anything else as unknown. */
+  function bytesOrNull(v: number | null | undefined): Bytes {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+  }
+
+  function clearMoveMessages() {
     migrationError = null;
+    moveNotice = null;
+    resetBlockers = null;
+  }
+
+  async function pickLocation() {
+    if (planning || moveBlocked) return;
+    planning = true;
+    clearMoveMessages();
     try {
       // Open the picker at the current data root's PARENT rather than wherever
       // the last OS dialog left off (which could be an unrelated folder such
@@ -198,22 +252,59 @@
       // to nest LucernaData\LucernaData and abandon the real data.
       const plan = await commands.planDataLocationChange(picked);
       if (plan.status !== 'ok') {
+        // Includes the links refusal — shown here, BEFORE any confirm dialog.
         migrationError = formatError(plan.error);
+        void recheckBlocked();
         return;
       }
       if (plan.data.kind === 'already_current') {
         migrationError = $t('settings.storage.dataLocation.alreadyCurrent');
         return;
       }
-      pendingTarget = { kind: plan.data.kind, path: plan.data.path };
+      pendingTarget =
+        plan.data.kind === 'adopt'
+          ? { kind: 'adopt', path: plan.data.path }
+          : {
+              kind: 'move',
+              path: plan.data.path,
+              requiredBytes: bytesOrNull(plan.data.required_bytes),
+              freeBytes: bytesOrNull(plan.data.free_bytes),
+            };
     } finally {
       planning = false;
     }
   }
 
-  function requestReset() {
-    migrationError = null;
-    pendingTarget = 'reset';
+  async function requestReset() {
+    if (planning || moveBlocked) return;
+    planning = true;
+    planningReset = true;
+    clearMoveMessages();
+    try {
+      const plan = await commands.planDataLocationReset();
+      if (plan.status !== 'ok') {
+        migrationError = formatError(plan.error);
+        void recheckBlocked();
+        return;
+      }
+      if (plan.data.blocking_entries.length > 0) {
+        // Leftovers of an earlier move still sit in the default folder. A reset cannot succeed
+        // until the user removes them — list them and open no dialog that would promise otherwise.
+        resetBlockers = { path: plan.data.path, entries: plan.data.blocking_entries };
+        return;
+      }
+      const pointerOnly = plan.data.pointer_only;
+      pendingTarget = {
+        kind: 'reset',
+        path: plan.data.path,
+        pointerOnly,
+        requiredBytes: pointerOnly ? null : bytesOrNull(plan.data.required_bytes),
+        freeBytes: pointerOnly ? null : bytesOrNull(plan.data.free_bytes),
+      };
+    } finally {
+      planning = false;
+      planningReset = false;
+    }
   }
 
   function cancelPending() {
@@ -222,42 +313,41 @@
 
   async function confirmPending() {
     const target = pendingTarget;
-    if (target === null) return;
-    migrating = true;
-    migrationProgress = null;
+    if (target === null || committing) return;
     migrationError = null;
-    const isAdopt = target !== 'reset' && target.kind === 'adopt';
-    // Progress events only stream for migrate/reset (a real copy); adopt is
-    // a redirect write + restart, so there is nothing to listen for.
-    if (!isAdopt) {
-      progressUnlisten = await events.dataMigrationProgress.listen((event) => {
-        migrationProgress = event.payload;
-      });
+    moveNotice = null;
+    if (target.kind === 'adopt' || (target.kind === 'reset' && target.pointerOnly)) {
+      committing = true;
+    } else {
+      // A real copy: hand the screen to the app-level dialog ("Preparing…") now, before the first
+      // progress tick can arrive.
+      dataLocation.moveStarted();
+      pendingTarget = null;
     }
     const result =
-      target === 'reset'
-        ? await commands.setDataLocation(null)
-        : target.kind === 'adopt'
-          ? await commands.adoptDataLocation(target.path)
-          : await commands.setDataLocation(target.path);
-    // On success neither command returns (the backend calls app.restart());
-    // reaching here means it failed before that point.
-    progressUnlisten?.();
-    progressUnlisten = null;
-    migrating = false;
-    migrationProgress = null;
+      target.kind === 'adopt'
+        ? await commands.adoptDataLocation(target.path)
+        : await commands.setDataLocation(target.kind === 'reset' ? null : target.path);
+    // A clean move or adopt never returns — the backend restarts the app. Reaching here means it
+    // failed, was cancelled, or switched folders and now needs a restart. Read the outcome BEFORE
+    // resetting anything: `restart_required` must leave the app-level final dialog standing.
+    const outcome = target.kind !== 'adopt' && result.status === 'ok' ? result.data : null;
+    await dataLocation.moveSettled(outcome);
+    committing = false;
     pendingTarget = null;
-    if (result.status === 'error') {
-      migrationError = formatError(result.error);
-      await dataLocation.refresh();
-      // A failed migration may still have touched disk — re-measure.
-      void refreshDataRootSize();
-    }
+    if (outcome?.kind === 'restart_required') return;
+    if (result.status === 'error') migrationError = formatError(result.error);
+    else if (outcome?.kind === 'cancelled')
+      moveNotice = $t('settings.storage.dataLocation.moveCancelled');
+    // The attempt may have touched disk, and what blocks a move may have changed while it ran —
+    // re-measure and re-ask.
+    void refreshDataRootSize();
+    await recheckBlocked();
+    // The blocking dialog's opener (the confirm button) is gone, so focus fell to <body>, outside
+    // SettingsModal's panel-scoped Tab handler. Give it back.
+    await tick();
+    sectionEl?.focus();
   }
-
-  $effect(() => () => {
-    progressUnlisten?.();
-  });
 
   async function clear() {
     clearing = true;
@@ -404,7 +494,12 @@
   </SettingsField>
 
   <SettingsField anchor="storage.dataLocation">
-    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
+    <div
+      bind:this={sectionEl}
+      tabindex="-1"
+      class="flex flex-col gap-3 border-t mt-4 pt-4 outline-none"
+      data-testid="data-location-section"
+    >
       <h3 class="font-medium text-sm text-primary">
         {$t('settings.storage.dataLocation.heading')}
       </h3>
@@ -416,7 +511,10 @@
         </div>
       {/if}
       {#if migrationError}
-        <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
+        <div
+          class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 selectable"
+          role="alert"
+        >
           {migrationError}
         </div>
       {/if}
@@ -432,6 +530,27 @@
         </div>
       {/if}
 
+      {#if resetBlockers}
+        <div
+          class="rounded border border-warning-text/40 bg-warning-bg p-3 text-sm text-warning-text"
+          role="alert"
+          data-testid="data-reset-blockers"
+        >
+          <p>
+            {$t('settings.storage.dataLocation.resetBlocked.intro', {
+              count: resetBlockers.entries.length,
+              path: resetBlockers.path,
+            })}
+          </p>
+          <ul class="mt-1 list-disc pl-5 font-mono text-xs selectable">
+            {#each resetBlockers.entries as name (name)}
+              <li>{name}</li>
+            {/each}
+          </ul>
+          <p class="mt-2 font-medium">{$t('settings.storage.dataLocation.keepRedirectNote')}</p>
+        </div>
+      {/if}
+
       {#if dataLocation.status}
         <div class="text-sm">
           <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
@@ -439,8 +558,12 @@
         </div>
         <div class="text-sm flex items-center gap-1">
           <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
-          {#if dataRootSize === null && !dataRootSizeError}
+          {#if dataRootSizeLoading}
             <Spinner size="sm" class="text-muted" />
+          {:else if dataRootSize === null}
+            <span class="ml-1 text-warning-text"
+              >{$t('settings.storage.dataLocation.sizeUnknown')}</span
+            >
           {:else}
             <span class="font-medium ml-1"
               >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
@@ -456,47 +579,69 @@
         <p class="text-xs text-muted">…</p>
       {/if}
 
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          disabled={planning || dataLocation.status?.fell_back}
-          onclick={() => void pickLocation()}
-        >
-          {$t('settings.storage.dataLocation.changeBtn')}
-        </button>
-        {#if dataLocation.status?.configured}
-          <!-- Deliberately NOT disabled while fell_back: a reset in that state
-               is pointer-only (the redirect is removed, nothing is copied) and
-               is the ONLY in-app recovery from a configured folder that will
-               never come back. -->
-          <button type="button" class="btn-secondary btn-sm" onclick={requestReset}>
-            {$t('settings.storage.dataLocation.resetBtn')}
-          </button>
-        {/if}
+      <div class="flex flex-col gap-2">
+        <div class="flex flex-wrap gap-2">
+          <BusyButton
+            type="button"
+            class="btn-secondary btn-sm"
+            busy={planning && !planningReset}
+            disabled={planning || moveBlocked || (dataLocation.status?.fell_back ?? false)}
+            onclick={() => void pickLocation()}
+          >
+            {$t('settings.storage.dataLocation.changeBtn')}
+          </BusyButton>
+          {#if dataLocation.status?.configured}
+            <!-- Deliberately NOT disabled while fell_back: a reset in that state is pointer-only
+                 (the redirect is removed, nothing is copied) and is the ONLY in-app recovery from
+                 a configured folder that will never come back. -->
+            <BusyButton
+              type="button"
+              class="btn-secondary btn-sm"
+              busy={planningReset}
+              disabled={planning || moveBlocked}
+              onclick={() => void requestReset()}
+            >
+              {$t('settings.storage.dataLocation.resetBtn')}
+            </BusyButton>
+          {/if}
+          {#if restartBlock !== 'none' && restartBlock !== 'checking'}
+            <button
+              type="button"
+              class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+              onclick={() => void recheckBlocked()}
+            >
+              <Icon name="refresh" class="icon-spin-hover" />
+              {$t('settings.storage.dataLocation.blocked.recheckBtn')}
+            </button>
+          {/if}
+        </div>
+        <!-- ONE inline reason for both disabled buttons: a tooltip would not reach a keyboard
+             user (docs/DESIGN.md §8). -->
+        <StatusMessage
+          message={blockedReason}
+          tone={restartBlock === 'checking' ? 'info' : 'warning'}
+          withIcon={restartBlock !== 'checking'}
+        />
+        <StatusMessage message={moveNotice} tone="info" />
       </div>
     </div>
   </SettingsField>
 </div>
 
-{#if pendingTarget !== null && (!migrating || pendingIsAdopt)}
-  <!-- While an adopt is committing, the confirm dialog stays up with its busy
-       spinner instead of flashing the progress dialog, which would show a
-       meaningless "Preparing…" for a sub-second redirect write. -->
+{#if pendingTarget !== null}
+  <!-- Stays up with its busy spinner while a redirect-only commit (adopt, pointer-only reset) is
+       in flight. A real copy closes it at once: the app-level DataMoveHost dialog takes over. -->
   <DataLocationConfirmDialog
-    mode={pendingTarget === 'reset' ? 'reset' : pendingTarget.kind === 'adopt' ? 'adopt' : 'move'}
-    targetPath={pendingTarget === 'reset'
-      ? (dataLocation.status?.configured ?? '')
-      : pendingTarget.path}
-    pointerOnly={pendingTarget === 'reset' && (dataLocation.status?.fell_back ?? false)}
-    currentPath={dataLocation.status?.effective ?? ''}
-    sizeLabel={formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}
-    busy={migrating}
+    mode={pendingTarget.kind}
+    fromPath={dataLocation.status?.effective ?? ''}
+    toPath={pendingTarget.path}
+    detachedPath={dataLocation.status?.configured ?? ''}
+    pointerOnly={pendingTarget.kind === 'reset' && pendingTarget.pointerOnly}
+    requiredBytes={pendingTarget.kind === 'adopt' ? null : pendingTarget.requiredBytes}
+    freeBytes={pendingTarget.kind === 'adopt' ? null : pendingTarget.freeBytes}
+    currentSizeBytes={dataRootSize}
+    busy={committing}
     onCancel={cancelPending}
     onConfirm={() => void confirmPending()}
   />
-{/if}
-
-{#if migrating && !pendingIsAdopt}
-  <DataLocationProgressDialog progress={migrationProgress} />
 {/if}
