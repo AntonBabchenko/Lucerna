@@ -35,6 +35,18 @@ pub fn default_app_data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()
 }
 
+/// Where recovery sessions keep their throwaway roots
+/// (`data_root::recovery`): under the app's CACHE dir — per-user on every OS,
+/// and already planned by the uninstaller. If even that cannot be resolved,
+/// the OS temp dir.
+pub fn recovery_parent(app: &tauri::AppHandle) -> PathBuf {
+    crate::data_root::recovery::parent_in(
+        &app.path()
+            .app_cache_dir()
+            .unwrap_or_else(|_| std::env::temp_dir().join("lucerna-recovery")),
+    )
+}
+
 /// `<default app-data>/data-location.json` — bootstrap redirect, fixed location.
 pub fn redirect_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(default_app_data_dir(app)?.join("data-location.json"))

@@ -31,14 +31,18 @@ pub enum PointerRead {
 
 /// Read the pointer file.
 pub fn read_state(file: &Path) -> PointerRead {
-    // RED STUB (push 1): reproduces the old contract — everything that is not
-    // a well-formed pointer reads as "absent".
-    match std::fs::read_to_string(file) {
-        Ok(raw) => match serde_json::from_str::<Redirect>(&raw) {
-            Ok(redirect) => PointerRead::Present(redirect),
-            Err(_) => PointerRead::Absent,
-        },
-        Err(_) => PointerRead::Absent,
+    // Bytes, not a string: `read_to_string` reports non-UTF-8 garbage as an
+    // I/O error, which would make a corrupt file look unreadable.
+    let bytes = match std::fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return PointerRead::Absent,
+        Err(e) => return PointerRead::Unreadable(e.to_string()),
+    };
+    match serde_json::from_slice::<Redirect>(&bytes) {
+        // An empty or relative path parses, but is no pointer: it would be
+        // probed relative to the working directory.
+        Ok(redirect) if redirect.path.is_absolute() => PointerRead::Present(redirect),
+        Ok(_) | Err(_) => PointerRead::Corrupt,
     }
 }
 
@@ -47,9 +51,23 @@ pub fn read_state(file: &Path) -> PointerRead {
 /// absent or perfectly readable). Every failure is an error: the caller is
 /// about to destroy the original.
 pub fn set_aside_unusable(file: &Path) -> Result<Option<PathBuf>> {
-    // RED STUB (push 1).
-    let _ = file;
-    Ok(None)
+    match read_state(file) {
+        PointerRead::Absent | PointerRead::Present(_) => return Ok(None),
+        PointerRead::Unreadable(_) | PointerRead::Corrupt => {}
+    }
+    let aside = file.with_file_name(SET_ASIDE_FILE);
+    // `rename` replaces an existing FILE on every platform, but not a
+    // directory, and an older set-aside entry may be one (an unreadable
+    // pointer can be a directory). Clear the slot first; a failure here stops
+    // the caller before it destroys anything.
+    match std::fs::symlink_metadata(&aside) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(Error::io(aside.display().to_string(), e)),
+        Ok(_) => crate::data_root::recovery::remove_no_follow(&aside)
+            .map_err(|e| Error::io(aside.display().to_string(), e))?,
+    }
+    std::fs::rename(file, &aside).map_err(|e| Error::io(file.display().to_string(), e))?;
+    Ok(Some(aside))
 }
 
 /// Atomically write the redirect (tmp + rename), creating the parent if needed.

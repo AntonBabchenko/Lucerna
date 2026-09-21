@@ -176,19 +176,28 @@ const WRITE_PROBE_FILE: &str = ".lucerna-write-probe";
 
 /// Probe `dir`: does it exist, is it a directory, can we write into it?
 pub fn probe(dir: &Path) -> Availability {
-    // RED STUB (push 1): the old two-valued answer.
-    if !dir.exists() {
-        return Availability::Missing;
+    // `metadata`, not `symlink_metadata`: a data folder reached through a
+    // junction or a symlink the user made is a legitimate setup.
+    match std::fs::metadata(dir) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Availability::NotADirectory,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Availability::Missing,
+        Err(e) => return Availability::Unknown(e.to_string()),
     }
     let probe = dir.join(WRITE_PROBE_FILE);
     match std::fs::write(&probe, b"") {
         Ok(()) => {
-            // Best-effort: a leftover probe file changes nothing about the
-            // answer, which is already known.
-            let _ = std::fs::remove_file(&probe);
+            if let Err(e) = std::fs::remove_file(&probe) {
+                // The answer is already known and does not depend on this: the
+                // folder IS writable. Said, not swallowed — the file stays behind.
+                crate::diag!(
+                    "[data-root] write probe left behind in {}: {e}",
+                    dir.display()
+                );
+            }
             Availability::Available
         }
-        Err(_) => Availability::Missing,
+        Err(e) => Availability::NotWritable(e.to_string()),
     }
 }
 

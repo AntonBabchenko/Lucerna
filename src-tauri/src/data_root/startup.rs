@@ -71,8 +71,7 @@ pub fn resolve_at_startup(inputs: &StartupInputs) -> Resolved {
 /// dialog must name THIS folder: with a clean default folder a Windows
 /// release install lands next to the exe, not in the default folder.
 pub fn resolve_without_pointer(inputs: &StartupInputs) -> Resolved {
-    // RED STUB (push 1): ignores the instruction and reads the real pointer.
-    resolve_at_startup(inputs)
+    resolve_with(inputs, PointerRead::Absent)
 }
 
 fn resolve_with(inputs: &StartupInputs, pointer: PointerRead) -> Resolved {

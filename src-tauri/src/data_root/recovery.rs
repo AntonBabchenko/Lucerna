@@ -51,9 +51,37 @@ pub fn session_path(parent: &Path, pid: u32) -> PathBuf {
 /// Create this process's session dir, exclusively. A stale dir with the same
 /// pid (pid reuse after a kill) is removed first — never reused with its content.
 pub fn create(parent: &Path, pid: u32) -> (Option<RecoveryDir>, Vec<String>) {
-    // RED STUB (push 1).
-    let _ = (parent, pid);
-    (None, Vec::new())
+    let path = session_path(parent, pid);
+    let failed = |what: &str, e: std::io::Error| {
+        (
+            None,
+            vec![format!(
+                "[recovery] session dir could not be created ({what}: {e}); every write under {} will fail",
+                path.display()
+            )],
+        )
+    };
+    if let Err(e) = std::fs::create_dir_all(parent) {
+        return failed("parent", e);
+    }
+    match std::fs::symlink_metadata(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return failed("stat", e),
+        // Same pid as a session that was killed: never reuse its content.
+        Ok(_) => {
+            if let Err(e) = remove_no_follow(&path) {
+                return failed("stale dir with this pid", e);
+            }
+        }
+    }
+    // EXCLUSIVE: `create_dir` fails if anything appeared in between.
+    match crate::platform::create_private_dir(&path) {
+        Ok(()) => (
+            Some(RecoveryDir { path: path.clone() }),
+            vec![format!("[recovery] session dir: {}", path.display())],
+        ),
+        Err(e) => failed("create", e),
+    }
 }
 
 /// Remove every session dir under `parent` except `keep`. Runs on EVERY start:
@@ -66,9 +94,40 @@ pub fn sweep(
     keep: Option<&Path>,
     remove: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Vec<String> {
-    // RED STUB (push 1).
-    let _ = (parent, keep, remove);
-    Vec::new()
+    let children = match std::fs::read_dir(parent) {
+        Ok(children) => children,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            return vec![format!(
+                "[recovery] stale session dirs not swept, {} is unreadable: {e}",
+                parent.display()
+            )]
+        }
+    };
+    let mut lines = Vec::new();
+    for child in children {
+        let path = match child {
+            Ok(child) => child.path(),
+            Err(e) => {
+                lines.push(format!(
+                    "[recovery] an entry of {} is unreadable: {e}",
+                    parent.display()
+                ));
+                continue;
+            }
+        };
+        if keep.is_some_and(|keep| keep == path) {
+            continue;
+        }
+        lines.push(match remove(&path) {
+            Ok(()) => format!("[recovery] stale session dir removed: {}", path.display()),
+            Err(e) => format!(
+                "[recovery] stale session dir NOT removed ({e}), the next start retries: {}",
+                path.display()
+            ),
+        });
+    }
+    lines
 }
 
 /// Exit cleanup. Takes a `RecoveryDir` and nothing else, on purpose.
@@ -86,9 +145,7 @@ pub fn remove_at_exit(dir: &RecoveryDir, remove: &dyn Fn(&Path) -> std::io::Resu
 /// become root-shaped (a preference write creates `app.json`), and it is
 /// deleted at exit — it must never be adopted as a data folder.
 pub fn is_inside_parent(parent: &Path, target: &Path) -> bool {
-    // RED STUB (push 1).
-    let _ = (parent, target);
-    false
+    crate::data_root::migrate::is_same_or_nested(parent, target)
 }
 
 /// Remove `path` without ever following a link: a link (symlink, or a Windows

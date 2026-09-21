@@ -25,6 +25,10 @@ pub struct DataLocationStatus {
     pub effective: String,
     pub configured: Option<String>,
     pub fell_back: bool,
+    /// WHY the configured folder is not in use; `None` outside a recovery
+    /// session. `fell_back` is derived from it and stays for older consumers.
+    /// While this is set, `effective` is a throwaway session dir — never show it.
+    pub fallback: Option<crate::data_root::Fallback>,
     /// The OS-default data folder — where "Reset to default" moves the data.
     pub default_dir: String,
     /// Survives a page reload: the UI re-shows the move dialog from this.
@@ -118,15 +122,19 @@ fn wire_phase(phase: Phase) -> MovePhase {
 
 /// Would the NEXT start resolve to `target`, and is `target` an available,
 /// complete root right now? Anything but a confident yes is a no.
-fn lands_on_target(default: &Path, redirect_file: &Path, target: &Path) -> bool {
-    let next = startup::resolve_at_startup(&startup::StartupInputs {
+fn startup_inputs(default: &Path, redirect_file: &Path) -> startup::StartupInputs {
+    startup::StartupInputs {
         default_root: default.to_path_buf(),
         redirect_file: Some(redirect_file.to_path_buf()),
         exe_dir: std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf)),
         portable_allowed: startup::portable_allowed(),
-    });
+    }
+}
+
+fn lands_on_target(default: &Path, redirect_file: &Path, target: &Path) -> bool {
+    let next = startup::resolve_at_startup(&startup_inputs(default, redirect_file));
     !next.fell_back()
         && migrate::is_same_path(&next.root, target)
         && migrate::is_available(target)
@@ -162,6 +170,7 @@ pub fn get_data_location(app: AppHandle) -> Result<DataLocationStatus> {
             .as_ref()
             .map(|p| p.display().to_string()),
         fell_back: st.resolved.fell_back(),
+        fallback: st.resolved.fallback.clone(),
         default_dir: default_dir.display().to_string(),
         relocation: state::global().status(),
     })
@@ -191,12 +200,23 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
 #[specta::specta]
 pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result<DataLocationPlan> {
     let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let fell_back = app
+        .state::<crate::data_root::DataRoot>()
+        .resolved
+        .fell_back();
+    let recovery_parent = crate::paths::recovery_parent(&app);
     tokio::task::spawn_blocking(move || -> Result<DataLocationPlan> {
         use crate::data_root::plan::{plan_change, PlanKind};
         let plan = plan_change(&PathBuf::from(picked), &looks_like_data_root);
         let path = match &plan {
             PlanKind::Adopt(p) | PlanKind::Migrate(p) => p.clone(),
         };
+        // A session dir can look like a data root (a saved preference creates
+        // its `app.json`), and it is deleted at exit.
+        if crate::data_root::recovery::is_inside_parent(&recovery_parent, &path) {
+            return Err(invalid(Invalid::RecoverySessionDir));
+        }
+        let plan = plan_in_fallback(fell_back, plan).map_err(invalid)?;
         let shown = path.display().to_string();
         if migrate::is_same_path(&path, &current) {
             return Ok(DataLocationPlan::AlreadyCurrent { path: shown });
@@ -223,8 +243,19 @@ pub async fn plan_data_location_reset(app: AppHandle) -> Result<DataResetPlan> {
         crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
     let shown = default.display().to_string();
     if root.fell_back() {
+        // Detaching removes the pointer; where the NEXT start lands is the
+        // resolver's call, not an assumption. With a default folder that was
+        // never seeded, a Windows release install lands next to the exe — and
+        // the dialog must name the folder the launcher will really use.
+        let redirect_file =
+            crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+        let landing = tokio::task::spawn_blocking(move || {
+            startup::resolve_without_pointer(&startup_inputs(&default, &redirect_file)).root
+        })
+        .await
+        .map_err(|e| task_failed("<plan_data_location_reset>", e))?;
         return Ok(DataResetPlan {
-            path: shown,
+            path: landing.display().to_string(),
             pointer_only: true,
             required_bytes: 0.0,
             free_bytes: None,
@@ -304,6 +335,10 @@ pub async fn set_data_location(
         // It is the only in-app recovery from a folder that will never return.
         FallbackGate::PointerOnlyReset => {
             refuse_if_blocked(&app)?;
+            // A pointer that cannot be read is set aside, never destroyed: it
+            // may be the only record of where the data lives. Its failure stops
+            // the detach.
+            redirect::set_aside_unusable(&redirect_file)?;
             redirect::remove(&redirect_file)?;
             session.park_running();
             app.restart();
@@ -490,22 +525,30 @@ pub async fn open_data_move_leftovers(app: AppHandle) -> Result<()> {
 #[specta::specta]
 pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
     let session = state::global().begin().ok_or(Error::DataLocationBusy)?;
-    if app
+    // Allowed in a recovery session — it is the one-step way back when a drive
+    // letter changed or the pointer went bad: nothing is copied or deleted, so
+    // the throwaway session root is never the source of anything.
+    let fell_back = app
         .state::<crate::data_root::DataRoot>()
         .resolved
-        .fell_back()
-    {
-        return Err(Error::DataLocationBusy);
-    }
+        .fell_back();
     refuse_if_blocked(&app)?;
 
     let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let default =
         crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
     let target = PathBuf::from(path);
+    let recovery_parent = crate::paths::recovery_parent(&app);
 
     let target_probe = target.clone();
+    let default_probe = default.clone();
     let adopting_default = tokio::task::spawn_blocking(move || {
+        // A session dir can look like a data root (a saved preference creates
+        // its `app.json`), and it is deleted at exit.
+        if crate::data_root::recovery::is_inside_parent(&recovery_parent, &target_probe) {
+            return Err(Invalid::RecoverySessionDir);
+        }
+        let default = default_probe;
         classify_adopt(
             &target_probe,
             &current,
@@ -521,10 +564,23 @@ pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
 
     let redirect_file =
         crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+    // A pointer that cannot be read is set aside, never destroyed: it may be
+    // the only record of where the data lives. Its failure stops the adopt.
+    redirect::set_aside_unusable(&redirect_file)?;
     if adopting_default {
         redirect::remove(&redirect_file)?;
     } else {
         redirect::write(&redirect_file, &Redirect { path: target })?;
+    }
+    if fell_back && !adopting_default {
+        // The recovery session's WebView2 profile lives in `<default>/webview`
+        // and the next start will use the adopted folder's: note it, so the
+        // next NORMAL start sweeps it instead of leaving ~100 MB behind.
+        // Best-effort by design — the adopt itself has already succeeded, and
+        // a profile left behind blocks nothing (`webview` is launcher-owned).
+        if let Err(e) = cleanup_note::append(&default, &default.join(WEBVIEW_DIR)) {
+            crate::diag!("[data-location] recovery webview not noted for cleanup: {e}");
+        }
     }
     session.park_running();
     app.restart();
@@ -655,9 +711,11 @@ fn plan_in_fallback(
     fell_back: bool,
     plan: crate::data_root::plan::PlanKind,
 ) -> std::result::Result<crate::data_root::plan::PlanKind, Invalid> {
-    // RED STUB (push 1).
-    let _ = fell_back;
-    Ok(plan)
+    use crate::data_root::plan::PlanKind;
+    match plan {
+        PlanKind::Migrate(_) if fell_back => Err(Invalid::FallbackAdoptOnly),
+        PlanKind::Adopt(_) | PlanKind::Migrate(_) => Ok(plan),
+    }
 }
 
 /// What `set_data_location` may do given the fallback state. Pure so the

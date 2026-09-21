@@ -2877,6 +2877,12 @@ export type DataLocationStatus = {
 	effective: string,
 	configured: string | null,
 	fell_back: boolean,
+	/**
+	 *  WHY the configured folder is not in use; `None` outside a recovery
+	 *  session. `fell_back` is derived from it and stays for older consumers.
+	 *  While this is set, `effective` is a throwaway session dir — never show it.
+	 */
+	fallback: Fallback | null,
 	/**  The OS-default data folder — where "Reset to default" moves the data. */
 	default_dir: string,
 	/**  Survives a page reload: the UI re-shows the move dialog from this. */
@@ -3614,6 +3620,23 @@ export type ExportPreview = {
 	 */
 	saves_size_bytes: number | null,
 };
+
+/**
+ *  Why the launcher is not running from the user's data folder. The reason
+ *  travels to the log, the IPC status and the copy: "reconnect it" is a lie
+ *  about a folder that is plugged in and merely read-only.
+ */
+export type Fallback = 
+/**  The pointer names a folder that is not there. */
+{ kind: "root_missing" } | 
+/**  The folder is there but cannot be written to (or is not a folder). */
+{ kind: "root_not_writable"; details: string } | 
+/**  The folder could not be checked. Same restrictive answer. */
+{ kind: "root_unknown"; details: string } | 
+/**  `data-location.json` exists and could not be read. */
+{ kind: "pointer_unreadable"; details: string } | 
+/**  `data-location.json` was read and is not a usable pointer. */
+{ kind: "pointer_corrupt" };
 
 /**
  *  Whether a file's bytes were pulled over the network for this task, or were

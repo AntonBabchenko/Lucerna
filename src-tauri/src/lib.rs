@@ -599,12 +599,16 @@ pub fn run() {
                     portable_allowed: crate::data_root::startup::portable_allowed(),
                 },
             );
+            // Lines produced before the log exists. `diag!` only reaches
+            // stderr until `diag::init` runs, and the Windows GUI build
+            // discards stderr — they are emitted right after init instead.
+            let mut early_lines: Vec<String> = Vec::new();
             if resolved.must_create {
                 if let Err(e) = std::fs::create_dir_all(&resolved.root) {
-                    crate::diag!(
+                    early_lines.push(format!(
                         "[setup] cannot create portable data root {}: {e} — using OS default",
                         resolved.root.display()
-                    );
+                    ));
                     resolved = crate::data_root::Resolved {
                         root: default_root.clone(),
                         configured: None,
@@ -621,7 +625,7 @@ pub fn run() {
                 "[data-root] root={} ({})",
                 resolved.root.display(),
                 if resolved.fell_back() {
-                    "configured root unavailable, temporary default"
+                    "the configured data folder cannot be used — recovery session"
                 } else if resolved.configured.is_some() {
                     "configured redirect"
                 } else if resolved.must_create {
@@ -632,15 +636,46 @@ pub fn run() {
                     "OS default"
                 }
             );
+            // The reason, not just the fact: "reconnect the drive" and "fix the
+            // folder permissions" are different answers.
+            if let Some(reason) = &resolved.fallback {
+                early_lines.push(format!("[data-root] recovery session because: {reason:?}"));
+            }
+            let recovery_parent = crate::paths::recovery_parent(app.handle());
+            let data_root = if resolved.fell_back() {
+                // A recovery session never runs on the default folder: whatever
+                // it wrote there — a seeded `app.json` first of all — would
+                // later make "Reset to default" refuse. When the dir cannot be
+                // created the session KEEPS the path: writes fail loudly rather
+                // than fall through to the default folder.
+                let (recovery, lines) =
+                    crate::data_root::recovery::create(&recovery_parent, std::process::id());
+                early_lines.extend(lines);
+                crate::data_root::DataRoot {
+                    launcher_dir: default_root.clone(),
+                    session_root: Some(crate::data_root::recovery::session_path(
+                        &recovery_parent,
+                        std::process::id(),
+                    )),
+                    recovery,
+                    resolved,
+                }
+            } else {
+                crate::data_root::DataRoot::normal(resolved)
+            };
+            let seed_allowed = crate::data_root::should_seed(&data_root.resolved);
             {
                 use tauri::Manager;
-                app.manage(crate::data_root::DataRoot::normal(resolved));
+                app.manage(data_root);
             }
 
             // Open the launcher's own diagnostic log (lucerna.log) first, so
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
             crate::diag!("{resolution_note}");
+            for line in early_lines {
+                crate::diag!("{line}");
+            }
 
             // The main window is created here rather than in tauri.conf.json
             // (the config's `windows` array is empty) so that in release
@@ -687,17 +722,25 @@ pub fn run() {
             // `app.json` renamed to `app.json.moved` (a rollback that could
             // neither rename nor copy it back). Put it back BEFORE the seed
             // below writes a fresh one over the user's settings.
-            if let Ok(root) = crate::paths::app_dir(app.handle()) {
-                if let Some(line) = crate::data_root::relocate::restore_hidden_app_json(&root) {
-                    crate::diag!("{line}");
+            //
+            // Neither runs in a recovery session: it has no root of the user's
+            // to heal or seed, and a seed written into the default folder is
+            // what later makes "Reset to default" refuse.
+            if seed_allowed {
+                if let Ok(root) = crate::paths::app_dir(app.handle()) {
+                    if let Some(line) = crate::data_root::relocate::restore_hidden_app_json(&root) {
+                        crate::diag!("{line}");
+                    }
                 }
-            }
 
-            // One-shot instance migration. Non-fatal on error — the UI has
-            // an empty-state fallback that lets the user manually recover
-            // by creating an instance through the Manage modal.
-            if let Err(e) = instances::migrate::migrate_or_seed(app.handle()) {
-                crate::diag!("[setup] instances::migrate_or_seed failed: {e}");
+                // One-shot instance migration. Non-fatal on error — the UI has
+                // an empty-state fallback that lets the user manually recover
+                // by creating an instance through the Manage modal.
+                if let Err(e) = instances::migrate::migrate_or_seed(app.handle()) {
+                    crate::diag!("[setup] instances::migrate_or_seed failed: {e}");
+                }
+            } else {
+                crate::diag!("[setup] recovery session: nothing is seeded or healed");
             }
             builder.mount_events(app);
 
@@ -740,19 +783,37 @@ pub fn run() {
             // its old root (they were in use by that process). Delayed: the
             // previous process's WebView2 children may still be exiting. Off
             // the startup path; failures are retried on the next start.
+            //
+            // The same thread sweeps stale recovery-session dirs — on EVERY
+            // start, because the start after a killed recovery session is
+            // usually a normal one.
             {
                 use tauri::Manager;
-                let effective_root = app
-                    .state::<crate::data_root::DataRoot>()
-                    .launcher_dir
-                    .clone();
+                let state = app.state::<crate::data_root::DataRoot>();
+                // In a recovery session the profile IN USE is
+                // `<default>/webview`, which a pending note may well name —
+                // and with a throwaway root the sweep's own-profile guard would
+                // not recognise it. The note is kept for the next normal start.
+                let sweep_webviews = !state.resolved.fell_back();
+                let own_profile_dir = state.launcher_dir.clone();
+                let own_session_dir = state.session_root.clone();
                 let default_dir = default_root.clone();
+                let recovery_parent = recovery_parent.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(10));
-                    for line in crate::data_root::cleanup_note::sweep(
-                        &default_dir,
-                        &effective_root,
-                        &|dir| std::fs::remove_dir_all(dir),
+                    if sweep_webviews {
+                        for line in crate::data_root::cleanup_note::sweep(
+                            &default_dir,
+                            &own_profile_dir,
+                            &|dir| std::fs::remove_dir_all(dir),
+                        ) {
+                            crate::diag!("{line}");
+                        }
+                    }
+                    for line in crate::data_root::recovery::sweep(
+                        &recovery_parent,
+                        own_session_dir.as_deref(),
+                        &crate::data_root::recovery::remove_no_follow,
                     ) {
                         crate::diag!("{line}");
                     }
@@ -826,6 +887,23 @@ pub fn run() {
                 crate::launch::spawn::kill_all_running();
                 if let Ok(dir) = crate::paths::servers_dir(app_handle) {
                     crate::servers_runtime::runtime::kill_persisted_orphans(&dir);
+                }
+            }
+            // A recovery session's throwaway root goes with the process. Only a
+            // dir this process actually created can be named here (the type
+            // guarantees it); a leftover is swept by the next start. `Exit`
+            // is delivered on window close, `app.exit()` and an OFF-main-thread
+            // `app.restart()` — every command that restarts is async.
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                if let Some(state) = app_handle.try_state::<crate::data_root::DataRoot>() {
+                    if let Some(dir) = &state.recovery {
+                        let line = crate::data_root::recovery::remove_at_exit(
+                            dir,
+                            &crate::data_root::recovery::remove_no_follow,
+                        );
+                        crate::diag!("{line}");
+                    }
                 }
             }
         });

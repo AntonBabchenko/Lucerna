@@ -128,30 +128,41 @@ pub fn resolve_root(
     pointer: PointerRead,
     probe: impl Fn(&Path) -> Availability,
 ) -> Resolved {
-    // RED STUB (push 1): an unusable pointer behaves as "absent", and every
-    // failed probe is reported as a missing folder.
-    let pointer = match pointer {
-        PointerRead::Present(redirect) => Some(redirect),
-        PointerRead::Absent | PointerRead::Unreadable(_) | PointerRead::Corrupt => None,
+    // Rule 1. A pointer that EXISTS is the user's explicit choice whether or
+    // not it can be used: every way of not being able to use it is a recovery
+    // session on the default folder, and none of them falls through to the
+    // portable rules — the launcher does not switch roots behind the user's back.
+    let fall_back = |configured: Option<PathBuf>, reason: Fallback, default: PathBuf| Resolved {
+        root: default,
+        configured,
+        fallback: Some(reason),
+        must_create: false,
     };
-    if let Some(Redirect { path }) = pointer {
-        return match probe(&path) {
-            Availability::Available => Resolved {
-                root: path.clone(),
-                configured: Some(path),
-                fallback: None,
-                must_create: false,
-            },
-            Availability::Missing
-            | Availability::NotADirectory
-            | Availability::NotWritable(_)
-            | Availability::Unknown(_) => Resolved {
-                root: default,
-                configured: Some(path),
-                fallback: Some(Fallback::RootMissing),
-                must_create: false,
-            },
-        };
+    match pointer {
+        PointerRead::Absent => {}
+        PointerRead::Unreadable(details) => {
+            return fall_back(None, Fallback::PointerUnreadable { details }, default)
+        }
+        PointerRead::Corrupt => return fall_back(None, Fallback::PointerCorrupt, default),
+        PointerRead::Present(Redirect { path }) => {
+            let reason = match probe(&path) {
+                Availability::Available => {
+                    return Resolved {
+                        root: path.clone(),
+                        configured: Some(path),
+                        fallback: None,
+                        must_create: false,
+                    }
+                }
+                Availability::Missing => Fallback::RootMissing,
+                Availability::NotADirectory => Fallback::RootNotWritable {
+                    details: "not a folder".into(),
+                },
+                Availability::NotWritable(details) => Fallback::RootNotWritable { details },
+                Availability::Unknown(details) => Fallback::RootUnknown { details },
+            };
+            return fall_back(Some(path), reason, default);
+        }
     }
     if let Some(candidate) = portable {
         match candidate.state {
@@ -200,9 +211,7 @@ pub fn resolve_root(
 /// the root? Never in a recovery session: it has no root of the user's, and a
 /// seed written into the default folder is what later blocks "Reset to default".
 pub fn should_seed(resolved: &Resolved) -> bool {
-    // RED STUB (push 1).
-    let _ = resolved;
-    true
+    !resolved.fell_back()
 }
 
 /// Tauri managed state: where this process keeps things.

@@ -134,13 +134,14 @@ impl Lang {
 pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
     let redirect_file = input.default_dir.join("data-location.json");
     use crate::data_root::redirect::PointerRead;
-    // RED STUB (push 1): an unusable pointer still reads as "no custom root".
+    // An unusable pointer is NOT "no custom root": a custom root may exist
+    // that this plan cannot name. Nothing of it can be planned, and the file
+    // itself must survive — it is the only record of where the data lives.
     let (configured_root, pointer_unreadable) =
         match crate::data_root::redirect::read_state(&redirect_file) {
             PointerRead::Present(redirect) => (Some(redirect.path), false),
-            PointerRead::Absent | PointerRead::Unreadable(_) | PointerRead::Corrupt => {
-                (None, false)
-            }
+            PointerRead::Absent => (None, false),
+            PointerRead::Unreadable(_) | PointerRead::Corrupt => (None, true),
         };
     let (custom_root, unreachable_root) = match configured_root {
         Some(p) if p.is_dir() => (Some(p), None),
@@ -322,6 +323,16 @@ pub fn inventory_block(plan: &CleanupPlan, lang: Lang) -> Option<String> {
             Lang::Ru => {
                 format!("Настроенное хранилище сейчас недоступно и НЕ будет удалено: {path}")
             }
+        });
+    }
+    if plan.pointer_unreadable {
+        lines.push(match lang {
+            Lang::En => "The data-location setting (data-location.json) could not be read. \
+                         It is kept, and a custom data folder — if there is one — is NOT deleted."
+                .to_string(),
+            Lang::Ru => "Настройку расположения данных (data-location.json) не удалось прочитать. \
+                         Она сохранится, а пользовательская папка данных — если она есть — НЕ будет удалена."
+                .to_string(),
         });
     }
     Some(lines.join("\r\n"))
