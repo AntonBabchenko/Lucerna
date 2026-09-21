@@ -23,15 +23,19 @@ const MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// The append target for the launcher log. Small wrapper so the write path is
 /// unit-testable without the global sink.
 struct Appender {
-    file: File,
+    /// `None` after [`release_file`]: lines then go to stderr only.
+    file: Option<File>,
 }
 
 impl Appender {
     /// Append one `"{ts} {msg}\n"` line. Best-effort — write/flush errors are
     /// swallowed (a broken log must never disrupt the launcher).
     fn write_line(&mut self, ts: &str, msg: &str) {
-        let _ = writeln!(self.file, "{ts} {msg}");
-        let _ = self.file.flush();
+        let Some(file) = self.file.as_mut() else {
+            return;
+        };
+        let _ = writeln!(file, "{ts} {msg}");
+        let _ = file.flush();
     }
 }
 
@@ -79,7 +83,7 @@ fn try_init(app: &AppHandle) -> std::io::Result<()> {
         env!("CARGO_PKG_VERSION"),
     );
     let _ = file.flush();
-    let _ = SINK.set(Mutex::new(Appender { file }));
+    let _ = SINK.set(Mutex::new(Appender { file: Some(file) }));
     Ok(())
 }
 
@@ -92,6 +96,18 @@ pub fn _write(msg: &str) {
     if let Some(sink) = SINK.get() {
         if let Ok(mut appender) = sink.lock() {
             appender.write_line(&now_stamp(), msg);
+        }
+    }
+}
+
+/// Close the launcher-log file for the rest of this process. Called right
+/// before a data-root move deletes the old root: on volumes without POSIX
+/// delete semantics (exFAT, FAT, SMB) an open `lucerna.log` would make `logs/`
+/// a leftover on every single move. `diag!` keeps printing to stderr.
+pub fn release_file() {
+    if let Some(sink) = SINK.get() {
+        if let Ok(mut appender) = sink.lock() {
+            appender.file = None;
         }
     }
 }
@@ -134,7 +150,7 @@ mod tests {
                 .append(true)
                 .open(&path)
                 .unwrap();
-            let mut a = Appender { file };
+            let mut a = Appender { file: Some(file) };
             a.write_line("2026-06-16 00:00:00.000", "[enrich] hello world");
             a.write_line("2026-06-16 00:00:01.000", "second line");
         }
@@ -143,5 +159,22 @@ mod tests {
         assert!(s.contains("2026-06-16 00:00:00.000 [enrich] hello world"));
         assert!(s.contains("2026-06-16 00:00:01.000 second line"));
         assert_eq!(s.lines().count(), 2);
+    }
+    #[test]
+    fn a_released_appender_drops_lines_instead_of_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lucerna.log");
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        let mut appender = Appender { file: Some(file) };
+        appender.write_line("ts", "before");
+        appender.file = None;
+        appender.write_line("ts", "after");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("before") && !text.contains("after"), "{text}");
+        std::fs::remove_file(&path).expect("nothing holds the file any more");
     }
 }

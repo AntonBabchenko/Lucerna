@@ -91,6 +91,57 @@ pub fn probe_server_dir(
     }
 }
 
+/// One probe per directory under `servers_root`. Non-directories (`.DS_Store`)
+/// are ignored; an entry that cannot be inspected is `Unknown`.
+pub(crate) fn probe_all(servers_root: &Path) -> Result<Vec<PidProbe>, ()> {
+    let children = match crate::data_root::walk::real_list_dir(servers_root) {
+        Ok(children) => children,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => {
+            crate::diag!(
+                "[blockers] cannot enumerate {}: {e}",
+                servers_root.display()
+            );
+            return Err(());
+        }
+    };
+    Ok(children
+        .iter()
+        .filter_map(|child| match std::fs::symlink_metadata(child) {
+            Ok(meta) if meta.is_dir() => Some(probe_server_dir(
+                child,
+                &crate::platform::process_alive,
+                &|pid| crate::platform::process_image_probe(pid, "java"),
+            )),
+            Ok(_) => None,
+            Err(_) => Some(PidProbe::Unknown),
+        })
+        .collect())
+}
+
+/// What, if anything, stops a data-root change or a restart right now.
+pub fn observe(app: &tauri::AppHandle) -> RestartBlock {
+    let server_dirs = match crate::paths::servers_dir(app) {
+        Ok(dir) => probe_all(&dir),
+        Err(e) => {
+            crate::diag!("[blockers] cannot resolve the servers dir: {e}");
+            Err(())
+        }
+    };
+    classify(&Observed {
+        client_running_or_starting: crate::launch::spawn::is_any_running()
+            || crate::launch::spawn::is_any_starting(),
+        server_running_or_starting: !crate::servers_runtime::runtime::running_ids_snapshot()
+            .is_empty()
+            || crate::servers_runtime::runtime::is_any_starting(),
+        server_dirs,
+        claim_held: crate::instances::maintenance::any_active()
+            || crate::servers_runtime::maintenance::any_active()
+            || crate::servers_runtime::upload_control::upload_any_active()
+            || crate::l10n::prefill::cancel::any_active(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +300,15 @@ mod tests {
             serde_json::to_string(&RestartBlock::Unknown).unwrap(),
             r#""unknown""#
         );
+    }
+    #[test]
+    fn probe_all_ignores_files_and_treats_a_missing_root_as_no_servers() {
+        let d = tempdir().unwrap();
+        assert_eq!(probe_all(&d.path().join("servers")), Ok(Vec::new()));
+
+        let root = d.path().join("servers");
+        std::fs::create_dir_all(root.join("alpha").join("runtime")).unwrap();
+        std::fs::write(root.join(".DS_Store"), b"x").unwrap();
+        assert_eq!(probe_all(&root), Ok(vec![PidProbe::NoPid]));
     }
 }

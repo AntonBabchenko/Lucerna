@@ -40,6 +40,11 @@ pub fn upload_is_active(id: &str) -> bool {
     registry().is_active(id)
 }
 
+/// True iff ANY upload is currently registered.
+pub fn upload_any_active() -> bool {
+    registry().any_active()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +79,11 @@ mod tests {
     #[test]
     fn cancel_absent_is_noop() {
         upload_cancel("ctl-absent-never-registered"); // must not panic
+    }
+    #[test]
+    fn upload_any_active_sees_a_claim() {
+        let claim = upload_try_begin("any-active-u").expect("free id");
+        assert!(upload_any_active());
+        drop(claim);
     }
 }

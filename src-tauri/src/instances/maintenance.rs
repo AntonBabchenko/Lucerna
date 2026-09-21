@@ -138,6 +138,14 @@ pub fn maintenance_is_active(id: &str) -> bool {
     lock_slots().held.contains(id)
 }
 
+/// True iff ANY id holds an exclusive claim or has a shared writer in flight.
+/// The data-root move refuses while this is true: a claim means something is
+/// writing under the root that is about to be copied and deleted.
+pub fn any_active() -> bool {
+    let slots = lock_slots();
+    !slots.held.is_empty() || !slots.sharing.is_empty()
+}
+
 /// RAII shared claim of a per-item content writer. Any number may be held on
 /// one instance at once; while at least one is, every exclusive claim on that
 /// instance is refused. `Drop` releases it on every exit path.
@@ -586,5 +594,14 @@ mod tests {
         ));
         drop(claim);
         drop(install);
+    }
+    #[test]
+    fn any_active_sees_an_exclusive_and_a_shared_claim() {
+        let exclusive = maintenance_begin("any-active-x").expect("free id");
+        assert!(any_active());
+        drop(exclusive);
+        let shared = claim_shared_write("any-active-s").expect("free id");
+        assert!(any_active());
+        drop(shared);
     }
 }

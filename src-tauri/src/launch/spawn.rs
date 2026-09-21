@@ -83,6 +83,11 @@ pub fn is_any_running() -> bool {
     registry().is_any_running()
 }
 
+/// True iff ANY instance is mid-launch (see [`is_starting`]).
+pub fn is_any_starting() -> bool {
+    registry().is_any_starting()
+}
+
 /// `(instance_id, pid, max_heap_mb)` for every running instance.
 pub fn running_snapshot() -> Vec<(String, u32, u32)> {
     registry()
