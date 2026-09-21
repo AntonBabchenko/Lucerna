@@ -7,7 +7,9 @@
 //! costs disk space, never data.
 
 use crate::data_root::transient::{CLEANUP_NOTE_FILE, WEBVIEW_DIR};
+use crate::data_root::{migrate, walk};
 use crate::error::{Error, Result};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -33,30 +35,137 @@ pub enum Verdict {
     Unclear,
 }
 
+enum NoteRead {
+    Absent,
+    Loaded(Note),
+    Corrupt,
+    Unreadable(std::io::Error),
+}
+
+fn read(path: &Path) -> NoteRead {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => match serde_json::from_str::<Note>(&raw) {
+            Ok(note) => NoteRead::Loaded(note),
+            Err(_) => NoteRead::Corrupt,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => NoteRead::Absent,
+        Err(e) => NoteRead::Unreadable(e),
+    }
+}
+
+/// Atomic write (tmp + rename), creating the parent if needed — the same
+/// shape as `redirect::write`.
+fn write(path: &Path, note: &Note) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
+    }
+    let json =
+        serde_json::to_string_pretty(note).map_err(|e| Error::io(path.display().to_string(), e))?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, json).map_err(|e| Error::io(tmp.display().to_string(), e))?;
+    std::fs::rename(&tmp, path).map_err(|e| Error::io(path.display().to_string(), e))
+}
+
 /// Add `webview_dir` to the note (idempotent). An unreadable note is an
 /// error; a corrupt one is replaced.
-pub fn append(_default_dir: &Path, _webview_dir: &Path) -> Result<()> {
-    // RED stub — Task 14 replaces it
-    Err(Error::io("<pending-cleanup>", "stub"))
+pub fn append(default_dir: &Path, webview_dir: &Path) -> Result<()> {
+    let path = note_path(default_dir);
+    let mut note = match read(&path) {
+        NoteRead::Loaded(note) => note,
+        NoteRead::Absent | NoteRead::Corrupt => Note::default(),
+        NoteRead::Unreadable(e) => return Err(Error::io(path.display().to_string(), e)),
+    };
+    if !note.webview_dirs.iter().any(|dir| dir == webview_dir) {
+        note.webview_dirs.push(webview_dir.to_path_buf());
+    }
+    write(&path, &note)
 }
 
 /// Guards for one noted directory. `effective_root` is the root this process runs from.
-pub fn judge(_entry: &Path, _effective_root: &Path) -> Verdict {
-    Verdict::Gone // RED stub — Task 14 replaces it (Gone, so the "passes" tests are red too)
+pub fn judge(entry: &Path, effective_root: &Path) -> Verdict {
+    if !entry.is_absolute() {
+        return Verdict::Rejected("not an absolute path");
+    }
+    if entry.file_name() != Some(OsStr::new(WEBVIEW_DIR)) {
+        return Verdict::Rejected("not a webview directory");
+    }
+    match std::fs::symlink_metadata(entry) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Verdict::Rejected("not a directory"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Verdict::Gone,
+        Err(_) => return Verdict::Unclear,
+    }
+    if migrate::is_same_path(entry, &effective_root.join(WEBVIEW_DIR)) {
+        return Verdict::Rejected("the running launcher's own profile");
+    }
+    if migrate::is_same_or_nested(entry, effective_root) {
+        return Verdict::Rejected("the running launcher's data root is inside it");
+    }
+    match walk::real_list_dir(entry) {
+        Ok(children) if children.is_empty() || entry.join("EBWebView").is_dir() => Verdict::Remove,
+        Ok(_) => Verdict::Rejected("does not look like a WebView2 profile"),
+        Err(_) => Verdict::Unclear,
+    }
 }
 
 /// Process the note. `remove` is injected (production: `std::fs::remove_dir_all`).
 /// Returns one human-readable line per entry for the launcher log.
 pub fn sweep(
-    _default_dir: &Path,
-    _effective_root: &Path,
-    _remove: &dyn Fn(&Path) -> std::io::Result<()>,
+    default_dir: &Path,
+    effective_root: &Path,
+    remove: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Vec<String> {
-    Vec::new() // RED stub — Task 14 replaces it
-}
+    let path = note_path(default_dir);
+    let note = match read(&path) {
+        NoteRead::Absent => return Vec::new(),
+        NoteRead::Loaded(note) => note,
+        NoteRead::Unreadable(e) => {
+            return vec![format!(
+                "[cleanup] note unreadable, kept for the next start: {e}"
+            )]
+        }
+        NoteRead::Corrupt => {
+            let removed = std::fs::remove_file(&path);
+            return vec![format!("[cleanup] corrupt note removed: {removed:?}")];
+        }
+    };
 
-// `WEBVIEW_DIR` is used by the final `judge`; referenced here so push 1 compiles warning-free.
-const _: &str = WEBVIEW_DIR;
+    let mut lines = Vec::new();
+    let mut keep = Vec::new();
+    for dir in note.webview_dirs {
+        let shown = dir.display().to_string();
+        match judge(&dir, effective_root) {
+            Verdict::Gone => lines.push(format!("[cleanup] {shown}: already gone")),
+            Verdict::Rejected(why) => lines.push(format!("[cleanup] {shown}: dropped — {why}")),
+            Verdict::Unclear => {
+                lines.push(format!(
+                    "[cleanup] {shown}: could not be inspected, will retry"
+                ));
+                keep.push(dir);
+            }
+            Verdict::Remove => match remove(&dir) {
+                Ok(()) => lines.push(format!("[cleanup] {shown}: removed")),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    lines.push(format!("[cleanup] {shown}: already gone"))
+                }
+                Err(e) => {
+                    lines.push(format!("[cleanup] {shown}: still in use, will retry — {e}"));
+                    keep.push(dir);
+                }
+            },
+        }
+    }
+
+    let updated = if keep.is_empty() {
+        std::fs::remove_file(&path).map_err(|e| Error::io(path.display().to_string(), e))
+    } else {
+        write(&path, &Note { webview_dirs: keep })
+    };
+    if let Err(e) = updated {
+        lines.push(format!("[cleanup] the note could not be updated: {e}"));
+    }
+    lines
+}
 
 #[cfg(test)]
 mod tests {
