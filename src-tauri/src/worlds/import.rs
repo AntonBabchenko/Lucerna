@@ -219,7 +219,7 @@ pub(crate) fn pick_free_world_name(saves: &Path, base: &str) -> Result<String> {
 ///
 /// `on_file(bytes)` is called once per regular file, AFTER its `fs::copy`
 /// succeeded, with the byte count `fs::copy` reported for it — the same
-/// contract as `data_root::migrate::copy_tree`'s `on_bytes`, so a caller's
+/// contract as `data_root::walk::copy_tree`'s `on_bytes`, so a caller's
 /// progress counter only ever counts bytes that are on disk in `dst`. It is
 /// never called for a skipped symlink, for a directory, or for a file the
 /// caps rejected. Import passes a no-op (it has no progress channel);

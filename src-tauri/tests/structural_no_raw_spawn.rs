@@ -81,6 +81,7 @@ fn no_command_constructed_outside_process_module() {
 /// enumerable as the `Command` surface.
 const OPENER_ALLOWLIST: &[&str] = &[
     // Folder-open commands — spawn the OS file manager (explorer.exe et al.).
+    "commands/data_location.rs",
     "commands/logs.rs",
     "commands/instance_import_cmds.rs",
     "commands/servers_runtime.rs",
