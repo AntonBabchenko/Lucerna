@@ -95,8 +95,11 @@ pub enum Outcome {
     Cancelled,
 }
 
-/// The move did not happen: the launcher still runs from, and will restart
-/// into, `current`.
+/// The move did not happen: the launcher still runs from `current`, and will
+/// restart into it as it was — UNLESS `restore_incomplete` is set, in which case
+/// a rollback step failed and `reason` names exactly what is left in which
+/// state. (An `app.json` left hidden is put back by
+/// [`restore_hidden_app_json`] on the next start.)
 #[derive(Debug, PartialEq, Eq)]
 pub struct NotSwitched {
     pub phase: Phase,
@@ -232,6 +235,38 @@ fn copy_app_json(current: &Path, target: &Path, io: &Io<'_>) -> Result<(), Strin
     Ok(())
 }
 
+/// Put a root's `app.json` back under its own name. A handle without
+/// delete-sharing (antivirus scanning a just-touched file is the realistic
+/// Windows case) refuses a rename but not a read, so a failed rename falls back
+/// to a COPY. The `app.json.moved` that then stays behind is harmless: nothing
+/// reads it while `app.json` exists.
+///
+/// Why this matters more than it looks: with the pointer rolled back and
+/// `app.json` still hidden, the next start lands on a root without `app.json`
+/// and `migrate_or_seed` writes a fresh one over the user's settings.
+fn unhide_app_json(root: &Path, io: &Io<'_>) -> Result<(), String> {
+    let hidden = root.join(HIDDEN_APP_JSON);
+    let visible = root.join(APP_JSON);
+    let rename_error = match (io.rename_entry)(&hidden, &visible) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    match (io.copy_file)(&hidden, &visible) {
+        Ok(_) => {
+            crate::diag!(
+                "[data-move] {} restored by copy (rename refused: {rename_error})",
+                visible.display()
+            );
+            Ok(())
+        }
+        Err(copy_error) => Err(format!(
+            "{} is still named {HIDDEN_APP_JSON} — rename it back to {APP_JSON} \
+             (rename: {rename_error}; copy: {copy_error})",
+            hidden.display()
+        )),
+    }
+}
+
 /// The next start would NOT land on the target: undo the switch, each step
 /// checked, and report exactly what could not be restored.
 fn roll_back(
@@ -244,11 +279,8 @@ fn roll_back(
 ) -> NotSwitched {
     let mut problems = Vec::new();
     if old_root_was_hidden {
-        if let Err(e) = (io.rename_entry)(&current.join(HIDDEN_APP_JSON), &current.join(APP_JSON)) {
-            problems.push(format!(
-                "{} is still named {HIDDEN_APP_JSON} — rename it back to {APP_JSON}: {e}",
-                current.join(HIDDEN_APP_JSON).display()
-            ));
+        if let Err(problem) = unhide_app_json(current, io) {
+            problems.push(problem);
         }
     }
     if let Err(e) = (hooks.rollback_pointer)() {
@@ -448,8 +480,33 @@ pub fn relocate(
 /// (the rollback could neither rename nor copy it back, or the process died
 /// between the two) still has it as `app.json.moved`. Put it back BEFORE
 /// anything seeds a fresh one. Returns a log line when it acted or failed.
-pub fn restore_hidden_app_json(_root: &Path) -> Option<String> {
-    None // RED stub — the next commit implements it
+pub fn restore_hidden_app_json(root: &Path) -> Option<String> {
+    let visible = root.join(APP_JSON);
+    let hidden = root.join(HIDDEN_APP_JSON);
+    // Act only when `app.json` is ABSENT. "Could not tell" leaves everything
+    // alone: a root that has its `app.json` must never be overwritten from a
+    // stale hidden copy.
+    match std::fs::symlink_metadata(&visible) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) | Err(_) => return None,
+    }
+    match std::fs::symlink_metadata(&hidden) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            return Some(format!(
+                "[data-root] cannot inspect {}: {e}",
+                hidden.display()
+            ))
+        }
+    }
+    Some(match unhide_app_json(root, &Io::real()) {
+        Ok(()) => format!(
+            "[data-root] restored {} from {HIDDEN_APP_JSON}, left hidden by an unfinished data move",
+            visible.display()
+        ),
+        Err(problem) => format!("[data-root] {problem}"),
+    })
 }
 
 /// Try again to remove `names` (top-level entries of `old_root`) after a move

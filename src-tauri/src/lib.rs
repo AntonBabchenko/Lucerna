@@ -684,6 +684,16 @@ pub fn run() {
                 }
             }
 
+            // An unfinished data-folder move may have left this root's
+            // `app.json` renamed to `app.json.moved` (a rollback that could
+            // neither rename nor copy it back). Put it back BEFORE the seed
+            // below writes a fresh one over the user's settings.
+            if let Ok(root) = crate::paths::app_dir(app.handle()) {
+                if let Some(line) = crate::data_root::relocate::restore_hidden_app_json(&root) {
+                    crate::diag!("{line}");
+                }
+            }
+
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
             // by creating an instance through the Manage modal.
