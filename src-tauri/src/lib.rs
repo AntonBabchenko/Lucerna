@@ -35,6 +35,7 @@ pub mod test_seam;
 pub mod tray;
 pub mod uninstall_cleanup;
 pub mod update;
+pub mod url_scheme_retire;
 pub mod verify;
 pub mod versions;
 pub mod window;

@@ -97,6 +97,26 @@ pub fn state(exe: &Path) -> SchemeState {
     }
 }
 
+/// What the one-time retirement of the scheme registration should do for one
+/// (consent flag, OS state) pair. The table and its reasoning live in the design
+/// spec `2026-09-21-retire-url-scheme-design.md` §5.1; the orchestration is
+/// `crate::url_scheme_retire`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetireAction {
+    /// Touch nothing: there is no key, or the key is not provably ours.
+    Nothing,
+    /// No key to remove, but the consent flag is still set — settle the record.
+    ClearFlagOnly,
+    /// Remove the key, then clear the consent flag if it was set.
+    RemoveKey,
+}
+
+pub fn retire_action(opted_in: bool, state: SchemeState) -> RetireAction {
+    // RED stub (Task 1): always Nothing. Replaced in Task 2.
+    let _ = (opted_in, state);
+    RetireAction::Nothing
+}
+
 #[cfg(not(windows))]
 fn unsupported_io() -> std::io::Error {
     std::io::Error::new(
@@ -281,5 +301,57 @@ mod tests {
         );
         assert!(register(Path::new("/usr/bin/lucerna")).is_err());
         assert!(unregister().is_err());
+    }
+
+    #[test]
+    fn a_key_pointing_at_this_exe_is_removed_whatever_the_flag_says() {
+        // The command has the exact shape we wrote and names this binary, so it
+        // is provably ours even when the consent record was lost or reset.
+        assert_eq!(
+            retire_action(true, SchemeState::Registered),
+            RetireAction::RemoveKey
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Registered),
+            RetireAction::RemoveKey
+        );
+    }
+
+    #[test]
+    fn a_key_pointing_elsewhere_is_removed_only_with_recorded_consent() {
+        assert_eq!(
+            retire_action(true, SchemeState::RegisteredToOtherPath),
+            RetireAction::RemoveKey
+        );
+        // No consent on record and the key names another binary: it may belong
+        // to another product or another copy with its own settings. Leave it.
+        assert_eq!(
+            retire_action(false, SchemeState::RegisteredToOtherPath),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn with_no_key_only_a_stale_consent_flag_is_settled() {
+        assert_eq!(
+            retire_action(true, SchemeState::NotRegistered),
+            RetireAction::ClearFlagOnly
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::NotRegistered),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn unsupported_platforms_are_never_touched() {
+        assert_eq!(
+            retire_action(true, SchemeState::Unsupported),
+            RetireAction::Nothing
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Unsupported),
+            RetireAction::Nothing
+        );
     }
 }
