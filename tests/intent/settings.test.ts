@@ -66,10 +66,19 @@ vi.mock('$lib/ipc/bindings', () => ({
     // StoragePanel calls dataLocation.init() -> getDataLocation() on mount.
     getDataLocation: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { effective: '/data', configured: null, fell_back: false },
+      data: {
+        effective: '/data',
+        configured: null,
+        fell_back: false,
+        default_dir: '/default',
+        relocation: { kind: 'idle' },
+      },
     }),
     dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
-    setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The move buttons are enabled only on an exact 'none'.
+    restartBlocked: vi.fn().mockResolvedValue('none'),
+    // A clean move never returns (the backend restarts the app).
+    setDataLocation: vi.fn().mockReturnValue(new Promise(() => {})),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
