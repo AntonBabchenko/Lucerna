@@ -1811,62 +1811,62 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverCoreVersions: (core: ServerCore) => typedError<string[], Error>(__TAURI_INVOKE("server_core_versions", { core })),
 	/**
-	 *  Current effective data-root location and its configured (possibly
-	 *  unavailable) target. Deliberately cheap — a plain read of the resolved
-	 *  `DataRoot` state. The on-disk size lives in `data_root_size_bytes`
-	 *  instead: this command runs on the startup path (fallback gating reads
-	 *  `fell_back` at mount), and as a sync command it executes on the main
-	 *  thread, so it must never touch the filesystem tree.
+	 *  Current effective data-root location, its configured (possibly
+	 *  unavailable) target, and the state of a move. Deliberately cheap — plain
+	 *  reads of in-process state: this command is sync (main thread) and runs on
+	 *  the startup path, so it must never touch the filesystem tree.
 	 */
 	getDataLocation: () => typedError<DataLocationStatus, Error>(__TAURI_INVOKE("get_data_location")),
 	/**
-	 *  Total size in bytes of everything under the effective data root. Split
-	 *  out of `get_data_location` because the recursive walk (assets, libraries,
-	 *  versions, every instance's mods — easily tens of thousands of files)
-	 *  takes seconds on a cold FS cache. Async + `spawn_blocking` so it never
-	 *  runs on the main thread and never stalls the async runtime; the Storage
-	 *  panel fetches it lazily when opened.
+	 *  Total size in bytes of everything under the effective data root (display
+	 *  estimate). Async + `spawn_blocking`: the walk takes seconds on a cold cache.
 	 *  f64 not u64: specta forbids exporting BigInt-style types to TS.
 	 */
 	dataRootSizeBytes: () => typedError<number | null, Error>(__TAURI_INVOKE("data_root_size_bytes")),
 	/**
-	 *  Relocate the data root to `new_path`, or reset to the OS default when
-	 *  `None`. Copies the current root to the target, verifies the copy,
-	 *  repoints the bootstrap redirect, deletes the old data, then restarts the
-	 *  app so every chokepoint re-resolves `paths::app_dir` against the new root.
+	 *  Relocate the data root to `new_path`, or back to the OS default when
+	 *  `None`. See `data_root::relocate` for the pipeline and its guarantees.
 	 * 
-	 *  Rejected while any game/server is running (`Error::DataLocationBusy`), while
-	 *  the launcher is already running from a fallback root (`DataLocationBusy` —
-	 *  the temporary root is unsafe to move), when a second relocation is already
-	 *  in progress (`DataLocationBusy`), or when the target fails validation
-	 *  (`Error::DataLocationInvalid`). A copy or verify failure surfaces as
-	 *  `Error::DataLocationMigrationFailed` — the original data is left untouched
-	 *  because the redirect is written and the old data deleted only after a
-	 *  complete, verified copy.
+	 *  A clean move restarts the app and never returns. It returns `Cancelled`
+	 *  when the user cancelled while copying, and `RestartRequired` when the move
+	 *  is committed but something of the old root could not be removed — this
+	 *  process then still runs from the old root, and every create/launch command
+	 *  refuses until the restart (`data_root::reject_if_root_unusable`).
+	 * 
+	 *  Errors: `DataLocationBusy` (something runs, is claimed, or could not be
+	 *  checked; a move is already in flight; fallen back and not a reset),
+	 *  `DataLocationInvalid`, and `DataLocationMigrationFailed` — which always
+	 *  means the launcher still runs from, and will restart into, the ORIGINAL
+	 *  folder.
 	 */
-	setDataLocation: (newPath: string | null) => typedError<null, Error>(__TAURI_INVOKE("set_data_location", { newPath })),
+	setDataLocation: (newPath: string | null) => typedError<DataMoveOutcome, Error>(__TAURI_INVOKE("set_data_location", { newPath })),
 	/**
-	 *  Classify a picked directory into adopt / migrate / already-current.
-	 *  Read-only (fs probes only) — commit-time validation still happens in
-	 *  `set_data_location` / [`adopt_data_location`], so a race between planning
-	 *  and confirming can never skip a guard. Probes run on a blocking thread: a
-	 *  stat on a flaky removable drive can stall for seconds.
+	 *  Classify a picked directory into adopt / migrate / already-current, and —
+	 *  for a migration — refuse a tree with links up front and report the size it
+	 *  needs and the space the target volume has. Read-only; commit-time
+	 *  validation still happens in `set_data_location` / `adopt_data_location`.
 	 */
 	planDataLocationChange: (picked: string) => typedError<DataLocationPlan, Error>(__TAURI_INVOKE("plan_data_location_change", { picked })),
 	/**
 	 *  Point the data root at `path` — an EXISTING Lucerna data root — without
-	 *  copying, verifying, or deleting anything. Writes the bootstrap redirect
-	 *  (or removes it when `path` IS the default root, keeping `configured`
-	 *  clean) and restarts the app. The current root's data stays on disk
-	 *  untouched; the confirm dialog says so explicitly.
-	 * 
-	 *  Shares `set_data_location`'s guards: rejected while a game/server runs,
-	 *  while running from a fallback root, or while another change is in flight
-	 *  (`DataLocationBusy`). Validation failures surface as
-	 *  `DataLocationInvalid` with the reasons produced by [`classify_adopt`]
-	 *  (`not_absolute` / `not_a_data_root` / `same` / `not_writable`).
+	 *  copying, verifying, or deleting anything, then restart. The current root's
+	 *  data stays on disk untouched (including its `webview/`).
 	 */
 	adoptDataLocation: (path: string) => typedError<null, Error>(__TAURI_INVOKE("adopt_data_location", { path })),
+	/**  What "Reset to default" would do. While fallen back it is pointer-only. */
+	planDataLocationReset: () => typedError<DataResetPlan, Error>(__TAURI_INVOKE("plan_data_location_reset")),
+	/**
+	 *  Ask the running move to stop. A request: it is honoured while files are
+	 *  being copied or verified and ignored once the switch has started.
+	 */
+	cancelDataLocationMove: () => __TAURI_INVOKE<void>("cancel_data_location_move"),
+	/**  Try again to remove what a committed move left in the old root. */
+	retryDataMoveCleanup: () => typedError<RelocationStatus, Error>(__TAURI_INVOKE("retry_data_move_cleanup")),
+	/**
+	 *  Open the old root of the move this process committed. Takes no path: the
+	 *  frontend never tells the backend what to open.
+	 */
+	openDataMoveLeftovers: () => typedError<null, Error>(__TAURI_INVOKE("open_data_move_leftovers")),
 	/**
 	 *  Drain the pending launch intent, if any.
 	 * 
@@ -2266,22 +2266,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openLauncherLogFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_launcher_log_folder")),
 	/**
-	 *  True when a restart would drop the running-process registry. The crash
-	 *  screen renders its "can't restart right now" reason from this rather than
-	 *  attempting the action and showing a failure.
-	 * 
-	 *  Deliberately its own command instead of letting the UI derive the state:
-	 *  the frontend's `running_instances` covers CLIENTS only, while
-	 *  [`any_game_running`] also folds in `server_list().running`. Re-deriving it
-	 *  there would produce a button that stays enabled while a server runs.
+	 *  What, if anything, stops a data-root change or a restart right now. The
+	 *  frontend enables its buttons only on an exact `none`.
 	 */
-	restartBlocked: () => __TAURI_INVOKE<boolean>("restart_blocked"),
+	restartBlocked: () => __TAURI_INVOKE<RestartBlock>("restart_blocked"),
 	/**
-	 *  Restart the launcher process. Refuses while a game or server is live, for
-	 *  the same reason `set_data_location` does — the restart tears down the
-	 *  process registry and the launcher would stop tracking the live game.
-	 * 
-	 *  On success this never returns: `app.restart()` ends the process.
+	 *  Restart the launcher process. After a committed move this is the way out
+	 *  and skips the running check: nothing could have started (the gate refuses),
+	 *  and scanning the emptied old root may only answer "unknown". While a move
+	 *  runs it refuses; otherwise it refuses when anything runs, is claimed, or
+	 *  could not be checked. On success this never returns.
 	 */
 	restartLauncher: () => typedError<null, Error>(__TAURI_INVOKE("restart_launcher")),
 };
@@ -2866,20 +2860,16 @@ export type CropFrac = {
 	h: number | null,
 };
 
-/**
- *  A classified data-location change for a user-picked directory. Returned by
- *  [`plan_data_location_change`]; the frontend shows the dialog matching the
- *  kind and then commits via `set_data_location` (migrate) or
- *  [`adopt_data_location`] (adopt).
- */
+/**  A classified data-location change for a user-picked directory. */
 export type DataLocationPlan = 
 /**  `path` is an existing Lucerna data root — offer to point at it. */
 { kind: "adopt"; path: string } | 
 /**
  *  `path` is the effective migration target (the `LucernaData` subfolder
- *  applied exactly once).
+ *  applied exactly once). `required_bytes` is an estimate of what the copy
+ *  needs; `free_bytes` is `None` when it could not be checked.
  */
-{ kind: "migrate"; path: string } | 
+{ kind: "migrate"; path: string; required_bytes: number | null; free_bytes: number | null } | 
 /**  The pick resolves to the current effective root — nothing to change. */
 { kind: "already_current"; path: string };
 
@@ -2887,14 +2877,36 @@ export type DataLocationStatus = {
 	effective: string,
 	configured: string | null,
 	fell_back: boolean,
+	/**  The OS-default data folder — where "Reset to default" moves the data. */
+	default_dir: string,
+	/**  Survives a page reload: the UI re-shows the move dialog from this. */
+	relocation: RelocationStatus,
 };
 
 /**  Streamed progress for a data-root relocation. */
 export type DataMigrationProgress = {
 	copied_bytes: number | null,
 	total_bytes: number | null,
-	/**  "copying" | "verifying" | "deleting" */
-	phase: string,
+	phase: MovePhase,
+};
+
+/**
+ *  What `set_data_location` returns when it returns at all — a clean move
+ *  restarts the app instead.
+ */
+export type DataMoveOutcome = { kind: "cancelled" } | 
+/**  Committed; details are in `DataLocationStatus::relocation`. */
+{ kind: "restart_required" };
+
+export type DataResetPlan = {
+	/**  The OS-default folder the data would move back to. */
+	path: string,
+	/**  While fallen back: only the redirect is removed, nothing is copied. */
+	pointer_only: boolean,
+	required_bytes: number | null,
+	free_bytes: number | null,
+	/**  Top-level names in `path` that make a reset impossible. */
+	blocking_entries: string[],
 };
 
 /**  One row of the instance-level library screen. */
@@ -3369,12 +3381,27 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "sftp_host_key_mismatch"; expected: string; got: string } | 
 /**  A failure during SFTP file transfer (directory creation / write). */
 { kind: "sftp_transfer_failed"; details: string } | 
-/**  A data-root relocation was requested while a game or server is running. */
+/**
+ *  A data-root change was refused because a game or server is running,
+ *  a long operation holds a claim, or that could not be checked.
+ */
 { kind: "data_location_busy" } | 
 /**  The chosen target folder is invalid (relative / nested / non-empty / same). */
 { kind: "data_location_invalid"; reason: string } | 
-/**  The move failed partway; the original data is intact. */
-{ kind: "data_location_migration_failed"; reason: string } | 
+/**
+ *  The move did not happen: the launcher still runs from, and will restart
+ *  into, the ORIGINAL folder. `partial_copy_left` names a target the
+ *  cleanup could not remove; `restore_incomplete` is true when a rollback
+ *  step itself failed (the `reason` then says what is left in which state).
+ */
+{ kind: "data_location_migration_failed"; reason: string; partial_copy_left: string | null; restore_incomplete: boolean } | 
+/**
+ *  A data-creating or launching command was invoked while the data folder
+ *  is being moved (`restart_required: false`) or after it was moved and the
+ *  launcher has not restarted yet (`true`). This process still runs from a
+ *  root that is being, or has been, emptied.
+ */
+{ kind: "data_relocation_in_progress"; restart_required: boolean } | 
 /**
  *  A data-creating or launching command was invoked while the configured
  *  data root is unavailable and the launcher is running from the temporary
@@ -5545,6 +5572,8 @@ export type ModsReconciled = {
 	instance_id: string,
 };
 
+export type MovePhase = "copying" | "verifying" | "switching" | "deleting";
+
 /**  Translation coverage for one resource namespace. */
 export type NamespaceCoverage = {
 	namespace: string,
@@ -6119,6 +6148,25 @@ export type ReleaseAsset = {
 	size: number | null,
 };
 
+export type RelocationStatus = { kind: "idle" } | { kind: "running"; phase: MovePhase } | { kind: "restart_required"; old_root: string; new_root: string; 
+/**  Top-level entry names still in `old_root`. */
+leftovers: string[]; 
+/**  Nothing was deleted: the old folder is still a complete copy. */
+old_root_intact: boolean; 
+/**
+ *  `old_root` is the OS-default dir, which also holds the bootstrap
+ *  redirect: the UI must never tell the user to delete that folder
+ *  wholesale. Decided here (canonical compare), not by comparing path
+ *  strings in the frontend.
+ */
+old_root_is_default: boolean; 
+/**
+ *  A retry can remove something: at least one leftover is not an entry
+ *  the running launcher owns (an un-swept `webview` stays until the
+ *  restart whatever is tried).
+ */
+retry_possible: boolean };
+
 /**  The user's confirmed choice, sent back to `execute_repair`. */
 export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 
 /**
@@ -6303,6 +6351,14 @@ export type ResolvedMod = {
 	cited: CitedMod,
 	tier: ResolveTier,
 };
+
+export type RestartBlock = "none" | 
+/**  A game or server process is live or starting. */
+"running" | 
+/**  A long operation holds a claim (maintenance, shared write, upload, AI pre-fill). */
+"busy" | 
+/**  It could not be checked. Refuses, like the other two. */
+"unknown";
 
 export type RestoreMode = "replace" | "as_copy";
 

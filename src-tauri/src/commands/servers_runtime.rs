@@ -344,7 +344,7 @@ pub async fn server_create(
     eula_accepted: bool,
     created_from_instance: Option<String>,
 ) -> Result<ServerCreated> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Trim + reject empty/duplicate names at the boundary (the wizard also gates
     // this, but two concurrent creates could still collide on the same name).
@@ -437,7 +437,7 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
@@ -468,7 +468,7 @@ pub fn server_kill(app: AppHandle, id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     if crate::servers_runtime::upload_control::upload_is_active(&id) {
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
@@ -1743,7 +1743,7 @@ pub async fn server_create_client_instance(
     add_to_multiplayer: bool,
 ) -> Result<crate::servers_runtime::to_instance::ClientInstanceResult> {
     crate::servers_runtime::maintenance::not_under_maintenance(&server_id)?;
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::servers_runtime::to_instance::create_client_instance(
         &app,
@@ -1996,7 +1996,7 @@ pub async fn server_import_commit(
     max_heap_mb: u32,
     eula_accepted: bool,
 ) -> Result<ServerWithStatus> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Enforce name validation at the IPC boundary (parity with server_create):

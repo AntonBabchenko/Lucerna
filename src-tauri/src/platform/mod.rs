@@ -310,6 +310,19 @@ pub fn process_alive(pid: u32) -> bool {
     }
 }
 
+/// Does a PID's executable look like ours? Tri-state on purpose:
+/// `process_image_matches` answers `false` both for "a different program" and
+/// for "could not be queried" (always, on macOS), which is fine for offering a
+/// fix and wrong for a safety gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageMatch {
+    Yes,
+    No,
+    /// No image source on this platform, access denied, or the process
+    /// exited mid-query.
+    Unknown,
+}
+
 /// Best-effort check that PID's executable image path contains `needle`
 /// (case-insensitive), e.g. "java". Guards against PID recycling: a recycled
 /// PID belonging to an unrelated program must not be treated as our server.
@@ -335,6 +348,38 @@ pub fn process_image_matches(pid: u32, needle: &str) -> bool {
     {
         let _ = (pid, needle);
         false
+    }
+}
+
+/// Tri-state sibling of [`process_image_matches`]: is `pid`'s executable image
+/// one whose path contains `needle` (case-insensitive)?
+pub fn process_image_probe(pid: u32, needle: &str) -> ImageMatch {
+    let needle = needle.to_ascii_lowercase();
+    let verdict = |image: &str| {
+        if image.to_ascii_lowercase().contains(&needle) {
+            ImageMatch::Yes
+        } else {
+            ImageMatch::No
+        }
+    };
+    #[cfg(target_os = "windows")]
+    {
+        match query_image_path_windows(pid) {
+            Some(path) => verdict(&path),
+            None => ImageMatch::Unknown,
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match std::fs::read_link(format!("/proc/{pid}/exe")) {
+            Ok(path) => verdict(&path.to_string_lossy()),
+            Err(_) => ImageMatch::Unknown,
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (pid, verdict);
+        ImageMatch::Unknown
     }
 }
 
@@ -478,6 +523,15 @@ pub fn free_disk_mb(path: &Path) -> Option<u64> {
     }
     #[allow(unreachable_code)]
     None
+}
+
+/// Free space, in bytes, on the volume that will hold `path`: walks up to the
+/// nearest existing directory first (`free_disk_mb` only tries the immediate
+/// parent, and a move target's parent may not exist yet either). `None` =
+/// could not tell. Whole-MiB granularity; an ESTIMATE for a warning, never a gate.
+pub fn free_disk_bytes_nearest(path: &Path) -> Option<u64> {
+    let existing = path.ancestors().find(|p| p.is_dir())?;
+    free_disk_mb(existing).map(|mb| mb.saturating_mul(1024 * 1024))
 }
 
 /// Block until the spawned process has created its top-level window (input
@@ -728,5 +782,34 @@ mod tests {
             appimage_path_from(Some(f.clone().into_os_string())),
             Some(f)
         );
+    }
+    #[test]
+    fn image_probe_of_this_very_process_is_never_a_confident_no_for_its_own_name() {
+        let exe = std::env::current_exe().unwrap();
+        let stem = exe.file_stem().unwrap().to_string_lossy().to_string();
+        let got = super::process_image_probe(std::process::id(), &stem);
+        assert_ne!(
+            got,
+            super::ImageMatch::No,
+            "our own image must match or be unknown"
+        );
+    }
+
+    #[test]
+    fn image_probe_of_a_dead_pid_cannot_tell() {
+        // u32::MAX - 7 is not a live PID on any supported OS.
+        assert_eq!(
+            super::process_image_probe(u32::MAX - 7, "java"),
+            super::ImageMatch::Unknown
+        );
+    }
+
+    #[test]
+    fn free_disk_bytes_nearest_walks_up_to_an_existing_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let deep = dir.path().join("not").join("yet").join("there");
+        let here = super::free_disk_bytes_nearest(dir.path()).expect("temp dir has a volume");
+        let there = super::free_disk_bytes_nearest(&deep).expect("walks up to the temp dir");
+        assert!(here > 0 && there > 0);
     }
 }

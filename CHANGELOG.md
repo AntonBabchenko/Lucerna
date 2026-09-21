@@ -86,6 +86,19 @@ behaviour is worth knowing, it is stated as a property of the feature under
   translation runs on one instance, begun at the same instant can no longer
   both go ahead — writing the same files on the host twice over, or paying
   twice for the same strings.
+- **Moving the data folder could leave it half-deleted and still say your data
+  was intact.** The old folder was emptied before Lucerna had switched to the
+  new one, so a file it could not remove — on Windows, usually one the launcher
+  itself keeps open — stopped the move with part of the old data gone and
+  nothing pointing at the finished copy; after the next start the profiles
+  looked lost. Lucerna now switches to the verified copy first and only then
+  cleans up. Anything it cannot remove is listed by name, with a way to retry,
+  open the folder and restart. A failed or cancelled copy is cleared away
+  instead of being offered later as existing data. The move can be cancelled
+  while files are being copied; it warns when the target drive looks too small;
+  it is switched off — with the reason shown — while a game, a server or
+  another operation is running; and its window comes back after the page is
+  reloaded.
 
 ### Removed
 

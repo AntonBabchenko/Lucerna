@@ -126,6 +126,9 @@ describe('phaseLabel', () => {
     expect(phaseLabel(tr, { ...base, kind: 'data-migration', phase: 'verifying' })).toBe(
       'Verifying copy…',
     );
+    expect(phaseLabel(tr, { ...base, kind: 'data-migration', phase: 'switching' })).toBe(
+      "Switching to the new folder… It's too late to cancel now.",
+    );
     expect(phaseLabel(tr, { ...base, kind: 'data-migration', phase: 'deleting' })).toBe(
       'Removing old data…',
     );

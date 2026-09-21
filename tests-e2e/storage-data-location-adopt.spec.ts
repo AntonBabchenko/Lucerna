@@ -73,6 +73,9 @@ test('picking a plain folder keeps the classic move flow', async ({ page }) => {
   await expect(page.getByText('Move data folder?')).toBeVisible();
   await page.getByRole('button', { name: 'Move and restart' }).click();
   await expect(page.getByText('Move data folder?')).toBeHidden();
+  // The app-level dialog took over. A hidden confirm alone would also pass on a dialog that
+  // simply vanished — this is what proves the move is on screen.
+  await expect(page.getByText('Moving data folder…')).toBeVisible();
 
   const calls = await page.evaluate(
     () =>
@@ -83,4 +86,19 @@ test('picking a plain folder keeps the classic move flow', async ({ page }) => {
   expect(migrate).toHaveLength(1);
   expect(migrate[0]?.args).toMatchObject({ newPath: 'D:\\Games\\LucernaData' });
   expect(calls.some((c) => c.cmd === 'adopt_data_location')).toBe(false);
+});
+
+test('the move is switched off, with the reason, while something is running', async ({ page }) => {
+  await installMockIpc(page, {
+    accounts: [offlineAccount],
+    active_account_id: 'of-1',
+    instances: [makeInstance({ id: 'inst-1', name: 'Default' })],
+    active_instance_id: 'inst-1',
+    restart_block: 'running',
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('dialog').getByRole('tab', { name: 'Storage' }).click();
+  await expect(page.getByRole('button', { name: 'Change location…' })).toBeDisabled();
+  await expect(page.getByText(/A game or server is running/)).toBeVisible();
 });

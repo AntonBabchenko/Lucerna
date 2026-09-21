@@ -292,7 +292,7 @@ fn discard_empty_stage(stage: &Path, cause: Error) -> Error {
 /// Read-only size verification of the copy, mirroring `copy_tree`'s own
 /// classification: symlinks are skipped at EVERY depth (`copy_tree` skips
 /// them at every depth, and they are reported in `links_skipped`), only
-/// regular files are compared. `data_root::migrate::verify_copy` was not
+/// regular files are compared. `data_root::walk::verify_tree` was not
 /// reused because its `skip` applies at the tree root only.
 fn verify_stage(src: &Path, dst: &Path) -> Result<()> {
     for entry in std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))? {

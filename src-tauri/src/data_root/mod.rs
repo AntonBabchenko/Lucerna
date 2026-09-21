@@ -1,8 +1,15 @@
 //! Data-root location: bootstrap redirect file + resolution + migration.
+pub mod blockers;
+pub mod cleanup_note;
 pub mod migrate;
 pub mod plan;
 pub mod redirect;
+pub mod relocate;
+pub mod startup;
+pub mod state;
+pub mod transient;
 pub mod validate;
+pub mod walk;
 
 use redirect::Redirect;
 use std::path::{Path, PathBuf};
@@ -158,16 +165,24 @@ pub fn resolve_root(
 /// Tauri managed state holding the resolution result.
 pub struct DataRoot(pub Resolved);
 
-/// Integrity chokepoint: reject a data-creating or launching command when the
-/// configured data root is unavailable and we are running from the default
-/// fallback. The UI already gates these actions, but a direct IPC call could
-/// bypass that and write into the wrong root — so every create/launch command
-/// calls this at its top as a defence-in-depth backstop.
-pub fn reject_if_fallen_back(app: &tauri::AppHandle) -> crate::error::Result<()> {
+/// Integrity chokepoint for every data-creating or launching command. Refuses
+/// when this process must not write into — or start anything from — the root
+/// it is running on:
+///
+/// - the configured root is unavailable and we run from the temporary default
+///   (`DataLocationUnavailable`): new data would land in the wrong root;
+/// - a data-root move is in progress, or has been committed and the launcher
+///   has not restarted yet (`DataRelocationInProgress`): this root is being,
+///   or has been, emptied.
+///
+/// The UI gates these actions too, but a direct IPC call, a shortcut's
+/// `--launch` arriving through single-instance, or a page reload must not be
+/// able to bypass that.
+pub fn reject_if_root_unusable(app: &tauri::AppHandle) -> crate::error::Result<()> {
     if app.state::<DataRoot>().0.fell_back {
         return Err(crate::error::Error::DataLocationUnavailable);
     }
-    Ok(())
+    state::global().check_usable()
 }
 
 #[cfg(test)]

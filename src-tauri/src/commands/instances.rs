@@ -19,7 +19,7 @@ pub async fn install_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<Vec<crate::tasks::TaskDetail>, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     crate::versions::install_version(&effective_id, &app).await
 }
@@ -39,7 +39,7 @@ pub async fn launch_instance(
     instance_id: String,
     quick_play: Option<crate::launch::QuickPlay>,
 ) -> Result<u32, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
     // library/client jars — the JVM could read a half-written file and crash.
     // Same reasoning for a datapack update mid-flight: it is a download plus
@@ -333,7 +333,7 @@ pub fn create_instance(
     loader_version: Option<String>,
     max_heap_mb: Option<u32>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     validate_instance_name(&name)?;
     crate::instances::create_instance(
         &app,
@@ -385,7 +385,7 @@ pub fn rename_instance_dir(
     id: String,
     new_name: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     // Running, starting, or under a maintenance claim (a world migration holds
     // every path under this root) — the shared gate every writer opens with.
     // Plus the repair guard `launch_instance` also checks: a repair is
@@ -613,7 +613,7 @@ pub async fn clone_instance(
     options: crate::instances::clone::CloneOptions,
     on_progress: tauri::ipc::Channel<crate::instances::clone::CloneProgress>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     validate_instance_name(&new_name)?;
     // Copying files a live JVM is writing produces torn saves; copying saves/
     // while a world migration is staging a world in it clones a half-copied
@@ -786,7 +786,7 @@ pub fn pre_launch_check(
     instance_id: String,
 ) -> Result<PreLaunchCheck, crate::error::Error> {
     // Advisory read-only check: intentionally does NOT call
-    // data_root::reject_if_fallen_back — the real launch_instance still gates on it.
+    // data_root::reject_if_root_unusable — the real launch_instance still gates on it.
     let inst = crate::instances::read_instance(&app, &instance_id)?;
     // `total_system_ram_mb` is `Option<u64>` (None when the OS query fails).
     // `clamp_heap_mb` consumes the Option directly; `ram_warning` wants a plain

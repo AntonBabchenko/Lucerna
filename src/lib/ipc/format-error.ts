@@ -214,6 +214,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
   data_location_unavailable: 'clean',
+  // Built from one boolean — there is no raw text to truncate.
+  data_relocation_in_progress: 'clean',
   // Built entirely from structured fields (filename + typed reason) — see
   // `datapackRejectionKey` below for why the reason is a typed lookup rather
   // than a raw string.
@@ -254,6 +256,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
  * `not_absolute` | `nested` | `same` | `not_empty`) to a translated,
  * human-readable clause. Never echoes the raw token to the user; an
  * unrecognized token falls back to a generic "not a valid location" clause.
+ * `contains_links` never reaches this function — formatError gives it a sentence of its own.
  */
 function dataLocationInvalidReason(reason: string): string {
   const translate = get(t);
@@ -273,6 +276,32 @@ function dataLocationInvalidReason(reason: string): string {
     default:
       return translate('errors.dataLocationInvalidReason.unknown');
   }
+}
+
+/**
+ * `data_location_migration_failed` stays `opaque`: a short headline, the raw `reason` as the
+ * truncated tail, then structured sentences. It always means the launcher still runs from the
+ * ORIGINAL folder — but only `!restore_incomplete` lets us say that folder is unchanged; when a
+ * rollback step failed, "unchanged" would be a lie, so that sentence is swapped out rather than
+ * appended to. (Deliberately not `clean` like `world_restore_stranded`: that one has no raw tail.)
+ */
+function dataLocationMigrationFailed(
+  e: Extract<IpcError, { kind: 'data_location_migration_failed' }>,
+): string {
+  const translate = get(t);
+  const head = withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
+  const sentences = [
+    translate(
+      e.restore_incomplete
+        ? 'errors.dataLocationRestoreIncomplete'
+        : 'errors.dataLocationMigrationUnchanged',
+    ),
+  ];
+  if (e.partial_copy_left) {
+    sentences.push(translate('errors.dataLocationPartialCopyLeft', { path: e.partial_copy_left }));
+  }
+  // A backend reason may already end in a full stop; never render "..".
+  return `${head.replace(/[.\s]+$/, '')}. ${sentences.join(' ')}`;
 }
 
 /**
@@ -763,13 +792,22 @@ export function formatError(e: IpcError): string {
     case 'data_location_busy':
       return translate('errors.dataLocationBusy');
     case 'data_location_invalid':
+      // `contains_links` is about the CURRENT data, not the picked folder, so the
+      // "That folder can't be used: …" frame would blame the wrong thing.
+      if (e.reason === 'contains_links') return translate('errors.dataLocationContainsLinks');
       return translate('errors.dataLocationInvalid', {
         reason: dataLocationInvalidReason(e.reason),
       });
     case 'data_location_migration_failed':
-      return withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
+      return dataLocationMigrationFailed(e);
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
+    case 'data_relocation_in_progress':
+      return translate(
+        e.restart_required
+          ? 'errors.dataRelocationRestartRequired'
+          : 'errors.dataRelocationInProgress',
+      );
     case 'changelog_unsupported':
       return translate('errors.changelogUnsupported');
     case 'datapack_invalid':
