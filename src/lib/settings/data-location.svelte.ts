@@ -26,7 +26,7 @@ import {
   type MovePhase,
   type RelocationStatus,
 } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import { describeStoreError, formatError } from '$lib/ipc/format-error';
 
 type RestartRequired = Extract<RelocationStatus, { kind: 'restart_required' }>;
 
@@ -43,7 +43,11 @@ const IDLE_VIEW: RelocationView = { kind: 'idle' };
 let status = $state<DataLocationStatus | null>(null);
 let error = $state<string | null>(null);
 let loading = $state(false);
+/** Plain on purpose: `init()` runs inside callers' mount effects and must not subscribe them to the
+ *  store. Set only by a read that SUCCEEDED; the reactive twin is the `loaded` getter. */
 let loaded = false;
+/** The read `init()` is waiting on, shared by every concurrent caller. */
+let initInFlight: Promise<void> | null = null;
 
 /** Latest `dataMigrationProgress` payload; null until the first tick. */
 let progress = $state<DataMigrationProgress | null>(null);
@@ -69,11 +73,26 @@ async function refresh(): Promise<void> {
   // it, and every mount-time load in the panel (cache size, retention, data-root size, the
   // restart gate) would fire a second time.
   const watchedRun = untrack(() => !owned && relocationOf(status).kind === 'running');
-  const r = await commands.getDataLocation();
+  let r: Awaited<ReturnType<typeof commands.getDataLocation>>;
+  try {
+    r = await commands.getDataLocation();
+  } catch (e) {
+    // typedError rethrows real Error instances (a transport-level failure). Same outcome as a
+    // typed error: the last known status stands, and `loaded` stays false so the next caller —
+    // and the host's retry — asks again.
+    loading = false;
+    error = describeStoreError(e);
+    return;
+  }
   loading = false;
   if (r.status === 'ok') {
     status = r.data;
     error = null;
+    // Only a SUCCESSFUL read counts as loaded. A failed first read used to latch `loaded`, so
+    // `init()` never asked again and "could not tell" read as "no move" for the whole session —
+    // while the backend might be sitting in `restart_required`, refusing every launch, with the
+    // dialog that offers Restart never shown.
+    loaded = true;
     const now = relocationOf(r.data).kind;
     if (now !== 'running') progress = null;
     if (now === 'restart_required') restartUnconfirmed = false;
@@ -83,7 +102,6 @@ async function refresh(): Promise<void> {
   } else {
     error = formatError(r.error);
   }
-  loaded = true;
 }
 
 /** Subscribe to the progress event. Returns the dispose function; the caller (DataMoveHost) owns
@@ -165,6 +183,7 @@ export const dataLocation = {
    *  never returns). Order matters: the status is re-read while `owned` still holds the dialog
    *  up, so it never flickers through idle on its way to the final state. */
   async moveSettled(outcome: DataMoveOutcome | null): Promise<void> {
+    // `refresh()` never throws (a failed read lands in `error`), so `owned` is always released.
     await refresh();
     if (outcome?.kind === 'restart_required' && relocationOf(status).kind !== 'restart_required') {
       restartUnconfirmed = true;
@@ -180,7 +199,15 @@ export const dataLocation = {
    * load (the host polls it while a move runs; the Storage panel re-reads through `moveSettled`). */
   async init(): Promise<void> {
     if (loaded) return;
-    await refresh();
+    // +page.svelte and DataMoveHost both call this on mount; share one read.
+    initInFlight ??= refresh().finally(() => {
+      initInFlight = null;
+    });
+    await initInFlight;
+  },
+  /** False until a status read has SUCCEEDED. The host retries while this is false. */
+  get loaded(): boolean {
+    return status !== null;
   },
   refresh,
 };

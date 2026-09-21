@@ -18,6 +18,10 @@
    *  event, and a reloaded page has nobody awaiting the command — without the poll its dialog
    *  would never learn that the move ended. */
   const POLL_MS = 1500;
+  /** How often to ask again while NO status read has succeeded yet. Until one does, "could not
+   *  tell" must not settle as "no move": the backend may be sitting in `restart_required`,
+   *  refusing every launch, and this dialog is the only way to restart. */
+  const FIRST_READ_RETRY_MS = 3000;
 
   let cancelling = $state(false);
   let retrying = $state(false);
@@ -41,6 +45,13 @@
   $effect(() => {
     if (!running) return;
     const id = setInterval(() => void dataLocation.refresh(), POLL_MS);
+    return () => clearInterval(id);
+  });
+
+  $effect(() => {
+    if (dataLocation.loaded) return;
+    // `init()`, not `refresh()`: it shares a read that is already in flight.
+    const id = setInterval(() => void dataLocation.init(), FIRST_READ_RETRY_MS);
     return () => clearInterval(id);
   });
 
