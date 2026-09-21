@@ -15,9 +15,13 @@
 //!   the strength of a record we could not read) and reported, not folded into
 //!   `false` silently. A key pointing at this exe is still removed — that row of
 //!   the table does not depend on the flag.
+//! - the registry unreadable (`SchemeState::Unknown`) → neither the key nor the
+//!   flag is touched. "Could not tell" is not "no key": clearing the flag here
+//!   would orphan a key that is really there, because the next start would see
+//!   the flag off and never look again.
 //! - `unregister` fails → the flag is left as it is, so the next start retries.
-//! - the flag write fails → reported; the next start sees "no key + flag set"
-//!   and retries by itself.
+//! - the flag write fails → reported; `app.json` is unchanged on disk, so the
+//!   next start sees the same state and retries by itself.
 
 use crate::error::Error;
 use crate::instances::schema::{AppFile, GeneralSettings};
@@ -227,6 +231,71 @@ mod tests {
         assert!(!called.get(), "there is no key to remove");
         assert!(matches!(report.outcome, RetireOutcome::FlagCleared));
         assert!(!flag(&app_json));
+    }
+
+    #[test]
+    fn an_unreadable_registry_keeps_the_consent_flag_for_the_next_start() {
+        let dir = tempdir().unwrap();
+        let app_json = dir.path().join("app.json");
+        write_settings(&app_json, true);
+        let before = std::fs::read(&app_json).unwrap();
+        let called = Cell::new(false);
+
+        let report = retire_url_scheme(&app_json, SchemeState::Unknown, || {
+            called.set(true);
+            Ok(())
+        });
+
+        assert!(!called.get(), "nothing is removed on a failed read");
+        assert!(matches!(report.outcome, RetireOutcome::Nothing));
+        // The flag is the only record that lets a later start finish the job.
+        assert_eq!(std::fs::read(&app_json).unwrap(), before);
+    }
+
+    /// `write_app_json` is atomic via `<stem>.tmp` + rename, so a directory
+    /// squatting on that tmp path makes the write fail on every OS while the
+    /// read still succeeds. If the tmp naming ever changes these tests go red
+    /// (outcome `Removed` / `FlagCleared`) rather than passing vacuously.
+    fn block_settings_writes(app_json: &Path) {
+        std::fs::create_dir(app_json.with_extension("tmp")).unwrap();
+    }
+
+    #[test]
+    fn a_failed_flag_write_after_a_removal_is_reported_and_keeps_the_flag() {
+        let dir = tempdir().unwrap();
+        let app_json = dir.path().join("app.json");
+        write_settings(&app_json, true);
+        block_settings_writes(&app_json);
+
+        let report = retire_url_scheme(&app_json, SchemeState::Registered, || Ok(()));
+
+        assert!(matches!(
+            report.outcome,
+            RetireOutcome::FlagWriteFailed {
+                key_removed: true,
+                ..
+            }
+        ));
+        assert!(flag(&app_json), "a failed write must not half-apply");
+    }
+
+    #[test]
+    fn a_failed_flag_write_with_no_key_is_reported_and_keeps_the_flag() {
+        let dir = tempdir().unwrap();
+        let app_json = dir.path().join("app.json");
+        write_settings(&app_json, true);
+        block_settings_writes(&app_json);
+
+        let report = retire_url_scheme(&app_json, SchemeState::NotRegistered, || Ok(()));
+
+        assert!(matches!(
+            report.outcome,
+            RetireOutcome::FlagWriteFailed {
+                key_removed: false,
+                ..
+            }
+        ));
+        assert!(flag(&app_json));
     }
 
     #[test]

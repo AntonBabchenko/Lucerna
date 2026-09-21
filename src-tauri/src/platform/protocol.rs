@@ -27,9 +27,12 @@ pub enum SchemeState {
     /// Registered with a command that names a different path — a moved or
     /// reinstalled Lucerna, a portable copy, or a command we did not write.
     RegisteredToOtherPath,
-    /// No key — or the registry could not be read; `win::read_default_sz` does
-    /// not tell the two apart, and both resolve to "do not delete anything".
+    /// The registry answered, and there is no key.
     NotRegistered,
+    /// The registry could not be read (access denied, policy, a transient
+    /// failure). Deliberately NOT folded into `NotRegistered`: "could not tell"
+    /// must not be acted on as "absent" — see `retire_action`.
+    Unknown,
     /// This OS has no per-user scheme registration we ever supported.
     Unsupported,
 }
@@ -101,10 +104,13 @@ pub fn retire_action(opted_in: bool, state: SchemeState) -> RetireAction {
         // Not provably ours: another product named Lucerna, or another copy
         // with its own settings. When we cannot tell, we do not delete.
         (SchemeState::RegisteredToOtherPath, false) => RetireAction::Nothing,
-        // `NotRegistered` also covers "the registry read failed" — see
-        // `win::read_default_sz`. Both resolve to not deleting anything.
         (SchemeState::NotRegistered, true) => RetireAction::ClearFlagOnly,
         (SchemeState::NotRegistered, false) => RetireAction::Nothing,
+        // RED step of the review fix: `Unknown` deliberately inherits what the
+        // old code did when it folded a failed read into `NotRegistered`, so the
+        // new tests fail first. Corrected in the next commit.
+        (SchemeState::Unknown, true) => RetireAction::ClearFlagOnly,
+        (SchemeState::Unknown, false) => RetireAction::Nothing,
         (SchemeState::Unsupported, _) => RetireAction::Nothing,
     }
 }
@@ -114,7 +120,7 @@ mod win {
     use super::{exe_from_command_value, SchemeState};
     use std::io;
     use std::path::Path;
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_SUCCESS};
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
         KEY_READ,
@@ -127,20 +133,32 @@ mod win {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Read a key's default REG_SZ value. `None` on any error (absent key,
-    /// absent value, wrong type, access denied) — callers treat `None` as "no
-    /// registration", which makes them do nothing: the restrictive direction.
-    fn read_default_sz(subkey: &str) -> Option<String> {
+    /// What reading a key's default string value found. Three answers, because
+    /// "the key is absent" and "the registry would not tell us" lead to
+    /// different actions (Fallback discipline: discrimination).
+    enum DefaultSz {
+        /// The key does not exist.
+        Absent,
+        /// The key exists. The string is empty when it has no default value or
+        /// one longer than any command we ever wrote — i.e. present, not ours.
+        Present(String),
+        /// The registry could not be read.
+        Failed,
+    }
+
+    fn read_default_sz(subkey: &str) -> DefaultSz {
         let subkey_w = wide(subkey);
         // SAFETY: standard Win32 registry FFI. Every pointer is to a local that
         // outlives its call, `len` is a byte count as the API expects, and the
         // opened key is closed before returning.
         unsafe {
             let mut hkey: HKEY = std::ptr::null_mut();
-            if RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey)
-                != ERROR_SUCCESS
-            {
-                return None;
+            let rc = RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey);
+            if rc == ERROR_FILE_NOT_FOUND {
+                return DefaultSz::Absent;
+            }
+            if rc != ERROR_SUCCESS {
+                return DefaultSz::Failed;
             }
             let mut buf = [0u16; 1024];
             let mut len = (buf.len() * 2) as u32;
@@ -153,12 +171,18 @@ mod win {
                 &mut len,
             );
             RegCloseKey(hkey);
+            if rc == ERROR_FILE_NOT_FOUND || rc == ERROR_MORE_DATA {
+                // The key is there, but it has no default value, or one that
+                // does not fit a buffer far larger than any path we wrote.
+                // Either way: a key exists and its command is not ours.
+                return DefaultSz::Present(String::new());
+            }
             if rc != ERROR_SUCCESS {
-                return None;
+                return DefaultSz::Failed;
             }
             // `len` counts bytes including the NUL terminator; drop it.
             let chars = (len as usize / 2).saturating_sub(1);
-            Some(String::from_utf16_lossy(&buf[..chars]))
+            DefaultSz::Present(String::from_utf16_lossy(&buf[..chars]))
         }
     }
 
@@ -176,8 +200,10 @@ mod win {
     }
 
     pub fn state(exe: &Path) -> SchemeState {
-        let Some(command) = read_default_sz(COMMAND_KEY) else {
-            return SchemeState::NotRegistered;
+        let command = match read_default_sz(COMMAND_KEY) {
+            DefaultSz::Absent => return SchemeState::NotRegistered,
+            DefaultSz::Failed => return SchemeState::Unknown,
+            DefaultSz::Present(command) => command,
         };
         match exe_from_command_value(&command) {
             // Windows paths are case-insensitive, so a case difference is the
@@ -207,7 +233,7 @@ mod tests {
     #[test]
     fn a_command_value_we_did_not_write_yields_no_exe() {
         // Unquoted, empty, and non-command values must not be mistaken for ours
-        // — `state` treats "no exe" as a stale registration to re-assert.
+        // — `state` reports "no exe" as a key that points somewhere else.
         assert_eq!(exe_from_command_value("lucerna.exe %1"), None);
         assert_eq!(exe_from_command_value(""), None);
         assert_eq!(exe_from_command_value("\"\" \"%1\""), None);
@@ -260,6 +286,21 @@ mod tests {
         );
         assert_eq!(
             retire_action(false, SchemeState::NotRegistered),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn an_unreadable_registry_touches_neither_the_key_nor_the_flag() {
+        // "Could not tell" is not "absent". Clearing the consent flag on a failed
+        // read would orphan a key that is really there: the next start would see
+        // flag=false and never look at it again.
+        assert_eq!(
+            retire_action(true, SchemeState::Unknown),
+            RetireAction::Nothing
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Unknown),
             RetireAction::Nothing
         );
     }
