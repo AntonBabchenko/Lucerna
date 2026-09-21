@@ -1896,20 +1896,6 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modpackResolveUrl: (url: string) => typedError<ResolvedImportUrl, Error>(__TAURI_INVOKE("modpack_resolve_url", { url })),
 	/**
-	 *  Registry key the scheme registration writes, so the Settings row can show the
-	 *  user exactly what changes on their machine rather than asking for trust.
-	 */
-	urlSchemeKey: () => __TAURI_INVOKE<string>("url_scheme_key"),
-	/**  Current OS registration state of the `lucerna://` scheme. */
-	urlSchemeState: () => typedError<SchemeState, Error>(__TAURI_INVOKE("url_scheme_state")),
-	/**
-	 *  Register the `lucerna://` scheme for the current user. Explicit user action
-	 *  only — never called on a first run or an update without the setting on.
-	 */
-	urlSchemeRegister: () => typedError<null, Error>(__TAURI_INVOKE("url_scheme_register")),
-	/**  Remove the current user's `lucerna://` registration. */
-	urlSchemeUnregister: () => typedError<null, Error>(__TAURI_INVOKE("url_scheme_unregister")),
-	/**
 	 *  Whether this OS supports desktop shortcuts. The UI hides the entry point when
 	 *  it does not, rather than offering a button that can only ever fail.
 	 */
@@ -3770,11 +3756,12 @@ export type GeneralSettings = {
 	 */
 	allow_server_ping?: boolean,
 	/**
-	 *  Opt-in OS registration of the `lucerna://` link scheme, so an
-	 *  "Open in Lucerna" link from a browser opens the import dialog.
-	 *  `#[serde(default)]` → false for app.json written before this field: the
-	 *  launcher never writes to the user's registry unasked, and pasting a URL
-	 *  into the import dialog works without it.
+	 *  LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
+	 *  registration of the `lucerna://` link scheme; that toggle was retired.
+	 *  The only reader is `url_scheme_retire`, which uses it to decide whether a
+	 *  leftover registry key is ours to remove, and then clears it. Nothing
+	 *  sets it to `true` any more. Safe to delete together with
+	 *  `url_scheme_retire` once enough releases have passed (see ROADMAP).
 	 */
 	register_url_scheme?: boolean,
 	/**
@@ -6408,18 +6395,6 @@ export type SavedServer = {
 	name: string,
 	address: string,
 };
-
-export type SchemeState = 
-/**  Registered, pointing at this exe. */
-"registered" | 
-/**
- *  Registered by a Lucerna at a different path — moved, reinstalled, or a
- *  portable copy. Distinguished from `Registered` so the app can re-assert
- *  the key instead of leaving links pointing at a stale binary.
- */
-"registered_to_other_path" | "not_registered" | 
-/**  This OS has no per-user scheme registration we support. */
-"unsupported";
 
 /**
  *  One screenshot file, surfaced to the UI. `instance_name` is filled for both
