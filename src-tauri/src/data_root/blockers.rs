@@ -47,17 +47,48 @@ pub struct Observed {
 
 /// Pure decision. Precedence: Running > Busy > Unknown > None — the most
 /// actionable reason wins; all three refuse.
-pub fn classify(_observed: &Observed) -> RestartBlock {
-    RestartBlock::None // RED stub — Task 13 replaces it
+pub fn classify(observed: &Observed) -> RestartBlock {
+    let dirs = observed.server_dirs.as_deref();
+    let any_dir_is = |wanted: PidProbe| dirs.is_ok_and(|probes| probes.contains(&wanted));
+    if observed.client_running_or_starting
+        || observed.server_running_or_starting
+        || any_dir_is(PidProbe::Ours)
+    {
+        RestartBlock::Running
+    } else if observed.claim_held {
+        RestartBlock::Busy
+    } else if dirs.is_err() || any_dir_is(PidProbe::Unknown) {
+        RestartBlock::Unknown
+    } else {
+        RestartBlock::None
+    }
 }
 
 /// Probe `<server_dir>/runtime/server.pid` without touching `server.json`.
 pub fn probe_server_dir(
-    _server_dir: &Path,
-    _alive: &dyn Fn(u32) -> bool,
-    _image: &dyn Fn(u32) -> ImageMatch,
+    server_dir: &Path,
+    alive: &dyn Fn(u32) -> bool,
+    image: &dyn Fn(u32) -> ImageMatch,
 ) -> PidProbe {
-    PidProbe::NoPid // RED stub — Task 13 replaces it
+    let pid_file = server_dir.join("runtime").join("server.pid");
+    let raw = match std::fs::read_to_string(&pid_file) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return PidProbe::NoPid,
+        // Unreadable is not absent.
+        Err(_) => return PidProbe::Unknown,
+    };
+    // Garbage cannot name a process, so there is nothing to find alive.
+    let Ok(pid) = raw.trim().parse::<u32>() else {
+        return PidProbe::NoPid;
+    };
+    if !alive(pid) {
+        return PidProbe::NotOurs;
+    }
+    match image(pid) {
+        ImageMatch::Yes => PidProbe::Ours,
+        ImageMatch::No => PidProbe::NotOurs,
+        ImageMatch::Unknown => PidProbe::Unknown,
+    }
 }
 
 #[cfg(test)]
