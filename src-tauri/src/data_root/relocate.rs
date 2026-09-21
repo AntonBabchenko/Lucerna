@@ -570,10 +570,6 @@ mod tests {
         assert_eq!(failure.phase, Phase::Copying);
         assert!(failure.reason.contains("disk full"), "{}", failure.reason);
         assert_eq!(failure.partial_copy_left, None);
-        assert!(
-            events.iter().any(|e| e.starts_with("copy:")),
-            "copying had started: {events:?}"
-        );
         assert!(!events.iter().any(|e| e == "commit"), "{events:?}");
         assert_eq!(listing(&r.current), before);
         assert!(!r.target.exists());
@@ -734,6 +730,11 @@ mod tests {
         let (result, events) = run(&current, &target, &script);
         let failure = result.expect_err("the move must not happen");
         assert_eq!(failure.partial_copy_left, None, "{events:?}");
+        // The failure is the scripted one from inside the copy — without this
+        // the test passes on a pipeline that never touches the target. (No
+        // assertion on WHICH files were copied first: directory order is
+        // filesystem-specific.)
+        assert!(failure.reason.contains("disk full"), "{}", failure.reason);
         let after = listing(&target);
         for kept in &before {
             assert!(after.contains(kept), "{kept} was removed: {after:?}");
