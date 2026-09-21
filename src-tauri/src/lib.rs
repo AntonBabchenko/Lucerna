@@ -713,31 +713,31 @@ pub fn run() {
             }
             builder.mount_events(app);
 
-            // Self-heal the `lucerna://` registration ONLY if the user opted in
-            // and the recorded command points at a different exe (moved install,
-            // update, portable copy) — otherwise links would open a binary that
-            // is no longer there. With the setting off we touch nothing at all:
-            // not the key, not a cleanup, no registry write of any kind.
-            if let Ok(settings) = crate::paths::app_file(app.handle())
-                .map_err(|e| crate::error::Error::io("<app_file>", e))
-                .and_then(|p| crate::instances::store::read_app_json(&p))
-            {
-                if settings.general.register_url_scheme {
-                    if let Ok(exe) = std::env::current_exe() {
-                        if crate::platform::protocol::state(&exe)
-                            == crate::platform::protocol::SchemeState::RegisteredToOtherPath
-                        {
-                            match crate::platform::protocol::register(&exe) {
-                                Ok(()) => crate::diag!(
-                                    "[setup] re-pointed lucerna:// registration at {}",
-                                    exe.display()
-                                ),
-                                Err(e) => crate::diag!(
-                                    "[setup] failed to re-point lucerna:// registration: {e}"
-                                ),
-                            }
-                        }
-                    }
+            // Retire the `lucerna://` scheme registration. Versions 0.21.0–0.24.x
+            // had an opt-in toggle for it; the toggle is gone, so anyone who had
+            // turned it on would be left with a registry key and no off switch.
+            // Remove a key that is provably ours and settle the consent flag —
+            // see `url_scheme_retire`. For everyone else this is one registry
+            // read and no write. Without the exe path `state` cannot tell "ours"
+            // from "someone else's", so a failure to resolve either input skips
+            // the run (the restrictive answer) and says so.
+            match (
+                crate::paths::app_file(app.handle()),
+                std::env::current_exe(),
+            ) {
+                (Ok(app_json), Ok(exe)) => {
+                    let report = crate::url_scheme_retire::retire_url_scheme(
+                        &app_json,
+                        crate::platform::protocol::state(&exe),
+                        crate::platform::protocol::unregister,
+                    );
+                    crate::url_scheme_retire::log_report(&report);
+                }
+                (Err(e), _) => {
+                    crate::diag!("[setup] lucerna:// retirement skipped: app_file: {e}")
+                }
+                (_, Err(e)) => {
+                    crate::diag!("[setup] lucerna:// retirement skipped: current_exe: {e}")
                 }
             }
 

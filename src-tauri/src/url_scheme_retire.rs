@@ -54,12 +54,74 @@ pub fn retire_url_scheme(
     state: SchemeState,
     unregister: impl FnOnce() -> std::io::Result<()>,
 ) -> RetireReport {
-    // RED stub (Task 1): does nothing. Replaced in Task 2.
-    let _ = (app_json, state);
-    drop(unregister);
+    let (settings, settings_read_error) = match read_app_json(app_json) {
+        Ok(file) => (Some(file), None),
+        Err(e) => (None, Some(e)),
+    };
+    // `Some` only when the user is on record as having opted in. A missing file
+    // reads as defaults (flag off), an unreadable one as "no record".
+    let opted_in_file = settings.filter(|f| f.general.register_url_scheme);
+
+    let outcome = match (retire_action(opted_in_file.is_some(), state), opted_in_file) {
+        (RetireAction::Nothing, _) => RetireOutcome::Nothing,
+        (RetireAction::ClearFlagOnly, Some(file)) => clear_flag(app_json, file, false),
+        // `retire_action` answers ClearFlagOnly only for opted_in == true, which
+        // is exactly `Some`. Kept total instead of unwrapping.
+        (RetireAction::ClearFlagOnly, None) => RetireOutcome::Nothing,
+        (RetireAction::RemoveKey, file) => match unregister() {
+            // Leave the flag alone: the next start sees the same state and retries.
+            Err(e) => RetireOutcome::RemoveFailed(e),
+            Ok(()) => match file {
+                Some(file) => clear_flag(app_json, file, true),
+                // Never opted in (or no readable record): nothing to write, and
+                // app.json is neither rewritten nor created.
+                None => RetireOutcome::Removed,
+            },
+        },
+    };
+
     RetireReport {
-        outcome: RetireOutcome::Nothing,
-        settings_read_error: None,
+        outcome,
+        settings_read_error,
+    }
+}
+
+fn clear_flag(app_json: &Path, file: AppFile, key_removed: bool) -> RetireOutcome {
+    let cleared = AppFile {
+        general: GeneralSettings {
+            register_url_scheme: false,
+            ..file.general
+        },
+        ..file
+    };
+    match write_app_json(app_json, &cleared) {
+        Ok(()) if key_removed => RetireOutcome::Removed,
+        Ok(()) => RetireOutcome::FlagCleared,
+        Err(error) => RetireOutcome::FlagWriteFailed { key_removed, error },
+    }
+}
+
+/// One `diag!` line per thing that actually happened. A run that did nothing —
+/// every start after the first, and every start for users who never opted in —
+/// logs nothing.
+pub fn log_report(report: &RetireReport) {
+    if let Some(e) = &report.settings_read_error {
+        crate::diag!("[url-scheme] app.json unreadable, treated as not opted in: {e}");
+    }
+    match &report.outcome {
+        RetireOutcome::Nothing => {}
+        RetireOutcome::Removed => {
+            crate::diag!("[url-scheme] removed the retired lucerna:// registration")
+        }
+        RetireOutcome::FlagCleared => {
+            crate::diag!("[url-scheme] cleared the retired lucerna:// setting (no key present)")
+        }
+        RetireOutcome::RemoveFailed(e) => crate::diag!(
+            "[url-scheme] could not remove the lucerna:// registration, will retry next start: {e}"
+        ),
+        RetireOutcome::FlagWriteFailed { key_removed, error } => crate::diag!(
+            "[url-scheme] could not clear the lucerna:// setting (key removed: {key_removed}), will retry next start: {error}"
+        ),
     }
 }
 

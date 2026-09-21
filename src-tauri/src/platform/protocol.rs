@@ -112,9 +112,23 @@ pub enum RetireAction {
 }
 
 pub fn retire_action(opted_in: bool, state: SchemeState) -> RetireAction {
-    // RED stub (Task 1): always Nothing. Replaced in Task 2.
-    let _ = (opted_in, state);
-    RetireAction::Nothing
+    // Exhaustive over `SchemeState` on purpose (no `_` arm on the state): a new
+    // variant must be given an answer here rather than inheriting one.
+    match (state, opted_in) {
+        // The command has the exact shape we wrote and names this binary.
+        (SchemeState::Registered, _) => RetireAction::RemoveKey,
+        // The user consented through this data root, and the old startup
+        // self-heal would have overwritten this key anyway.
+        (SchemeState::RegisteredToOtherPath, true) => RetireAction::RemoveKey,
+        // Not provably ours: another product named Lucerna, or another copy
+        // with its own settings. When we cannot tell, we do not delete.
+        (SchemeState::RegisteredToOtherPath, false) => RetireAction::Nothing,
+        // `NotRegistered` also covers "the registry read failed" — see
+        // `win::read_default_sz`. Both resolve to not deleting anything.
+        (SchemeState::NotRegistered, true) => RetireAction::ClearFlagOnly,
+        (SchemeState::NotRegistered, false) => RetireAction::Nothing,
+        (SchemeState::Unsupported, _) => RetireAction::Nothing,
+    }
 }
 
 #[cfg(not(windows))]
