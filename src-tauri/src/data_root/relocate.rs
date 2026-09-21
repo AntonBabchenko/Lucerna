@@ -107,30 +107,358 @@ pub struct NotSwitched {
     pub restore_incomplete: bool,
 }
 
-pub fn relocate(
-    _current: &Path,
-    _target: &Path,
-    _io: &Io<'_>,
-    _hooks: &mut Hooks<'_>,
+enum Why {
+    Cancelled,
+    Failed(String),
+}
+
+impl From<WalkStop> for Why {
+    fn from(stop: WalkStop) -> Self {
+        match stop {
+            WalkStop::Cancelled => Why::Cancelled,
+            WalkStop::Failed(e) => Why::Failed(e.to_string()),
+        }
+    }
+}
+
+/// What `target` held before this run touched it.
+struct TargetBefore {
+    existed: bool,
+    names: HashSet<OsString>,
+}
+
+impl TargetBefore {
+    fn snapshot(target: &Path, io: &Io<'_>) -> Result<Self, String> {
+        match (io.list_dir)(target) {
+            Ok(children) => Ok(Self {
+                existed: true,
+                names: children
+                    .iter()
+                    .filter_map(|c| c.file_name().map(OsString::from))
+                    .collect(),
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self {
+                existed: false,
+                names: HashSet::new(),
+            }),
+            Err(e) => Err(format!("{}: {e}", target.display())),
+        }
+    }
+}
+
+fn remove_tolerating_absence(io: &Io<'_>, path: &Path) -> Result<(), String> {
+    match (io.remove_entry)(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Remove what THIS run created in `target`. `app.json` goes first, by direct
+/// path, so that whatever else fails the remnant is never root-shaped.
+fn clean_target(target: &Path, before: &TargetBefore, io: &Io<'_>) -> Result<(), String> {
+    if !before.names.contains(&OsString::from(APP_JSON)) {
+        remove_tolerating_absence(io, &target.join(APP_JSON))?;
+    }
+    if !before.existed {
+        return remove_tolerating_absence(io, target);
+    }
+    let children = match (io.list_dir)(target) {
+        Ok(children) => children,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", target.display())),
+    };
+    for child in children {
+        let created_by_us = child
+            .file_name()
+            .is_some_and(|name| !before.names.contains(name));
+        if created_by_us {
+            remove_tolerating_absence(io, &child)?;
+        }
+    }
+    Ok(())
+}
+
+/// Give up before the switch: clean the target, then say what happened.
+fn abort(
+    why: Why,
+    phase: Phase,
+    target: &Path,
+    before: &TargetBefore,
+    io: &Io<'_>,
 ) -> Result<Outcome, NotSwitched> {
-    // RED stub — Task 11 replaces it
-    Err(NotSwitched {
+    match (why, clean_target(target, before, io)) {
+        (Why::Cancelled, Ok(())) => Ok(Outcome::Cancelled),
+        (Why::Cancelled, Err(detail)) => Err(NotSwitched {
+            phase,
+            reason: format!(
+                "the move was cancelled, but the partial copy could not be removed: {detail}"
+            ),
+            partial_copy_left: Some(target.to_path_buf()),
+            restore_incomplete: false,
+        }),
+        (Why::Failed(reason), Ok(())) => Err(NotSwitched {
+            phase,
+            reason,
+            partial_copy_left: None,
+            restore_incomplete: false,
+        }),
+        (Why::Failed(reason), Err(detail)) => Err(NotSwitched {
+            phase,
+            reason: format!("{reason}; the partial copy could not be removed: {detail}"),
+            partial_copy_left: Some(target.to_path_buf()),
+            restore_incomplete: false,
+        }),
+    }
+}
+
+/// Copy `app.json` — the file that makes the target root-shaped — and verify it.
+fn copy_app_json(current: &Path, target: &Path, io: &Io<'_>) -> Result<(), String> {
+    let from = current.join(APP_JSON);
+    let to = target.join(APP_JSON);
+    let from_len = std::fs::metadata(&from)
+        .map_err(|e| format!("{}: {e}", from.display()))?
+        .len();
+    (io.copy_file)(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    let to_len = std::fs::metadata(&to)
+        .map_err(|e| format!("{}: {e}", to.display()))?
+        .len();
+    if from_len != to_len {
+        return Err(format!(
+            "verification failed for {}: source is {from_len} bytes but the copy is {to_len} bytes",
+            from.display()
+        ));
+    }
+    Ok(())
+}
+
+/// The next start would NOT land on the target: undo the switch, each step
+/// checked, and report exactly what could not be restored.
+fn roll_back(
+    current: &Path,
+    target: &Path,
+    before: &TargetBefore,
+    io: &Io<'_>,
+    hooks: &mut Hooks<'_>,
+    old_root_was_hidden: bool,
+) -> NotSwitched {
+    let mut problems = Vec::new();
+    if old_root_was_hidden {
+        if let Err(e) = (io.rename_entry)(&current.join(HIDDEN_APP_JSON), &current.join(APP_JSON)) {
+            problems.push(format!(
+                "{} is still named {HIDDEN_APP_JSON} — rename it back to {APP_JSON}: {e}",
+                current.join(HIDDEN_APP_JSON).display()
+            ));
+        }
+    }
+    if let Err(e) = (hooks.rollback_pointer)() {
+        problems.push(format!(
+            "the data-folder setting could not be restored: {e}"
+        ));
+    }
+    let partial_copy_left = clean_target(target, before, io)
+        .err()
+        .map(|_| target.to_path_buf());
+    let headline = "Lucerna could not confirm that the next start would use the new folder";
+    NotSwitched {
+        phase: Phase::Switching,
+        reason: if problems.is_empty() {
+            headline.to_string()
+        } else {
+            format!("{headline}; {}", problems.join("; "))
+        },
+        partial_copy_left,
+        restore_incomplete: !problems.is_empty(),
+    }
+}
+
+/// Remove one top-level entry of the old root. `Some(name)` = it is still there.
+fn remove_old_entry(child: &Path, canonical_target: &Path, io: &Io<'_>) -> Option<String> {
+    let name = child.file_name()?;
+    if transient::is_skipped_top_level(name) {
+        return None;
+    }
+    let leftover = Some(name.to_string_lossy().into_owned());
+    // Defence in depth: never delete an entry that is, or contains, the target.
+    // Same/nested targets were rejected before the copy; this holds under any
+    // path-spelling edge case. "Could not tell" keeps the entry.
+    let canonical_child = match std::fs::canonicalize(child) {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => return leftover,
+    };
+    if canonical_target == canonical_child || canonical_target.starts_with(&canonical_child) {
+        return leftover;
+    }
+    match (io.remove_entry)(child) {
+        Ok(()) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            crate::diag!("[data-move] could not remove {}: {e}", child.display());
+            leftover
+        }
+    }
+}
+
+/// Delete the old root's top-level entries. `None` = nothing was deleted
+/// (the target could not be canonicalized, or the old root not enumerated).
+fn delete_old_root(current: &Path, target: &Path, io: &Io<'_>) -> Option<Vec<String>> {
+    let canonical_target = match std::fs::canonicalize(target) {
+        Ok(p) => p,
+        Err(e) => {
+            crate::diag!(
+                "[data-move] old data kept: cannot canonicalize {}: {e}",
+                target.display()
+            );
+            return None;
+        }
+    };
+    let children = match (io.list_dir)(current) {
+        Ok(children) => children,
+        Err(e) => {
+            crate::diag!(
+                "[data-move] old data kept: cannot enumerate {}: {e}",
+                current.display()
+            );
+            return None;
+        }
+    };
+    Some(
+        children
+            .iter()
+            .filter_map(|child| remove_old_entry(child, &canonical_target, io))
+            .collect(),
+    )
+}
+
+pub fn relocate(
+    current: &Path,
+    target: &Path,
+    io: &Io<'_>,
+    hooks: &mut Hooks<'_>,
+) -> Result<Outcome, NotSwitched> {
+    let refuse = |reason: String| NotSwitched {
         phase: Phase::Copying,
-        reason: "stub".into(),
+        reason,
         partial_copy_left: None,
         restore_incomplete: false,
+    };
+    if let Err(e) = std::fs::metadata(current.join(APP_JSON)) {
+        return Err(refuse(format!(
+            "the current data folder has no readable {APP_JSON}: {e}"
+        )));
+    }
+    let before = TargetBefore::snapshot(target, io).map_err(refuse)?;
+
+    // Phases 2-3: everything except app.json, which would make the target
+    // root-shaped before it is complete and verified.
+    let rule = |rel: &Path| {
+        if rel == Path::new(APP_JSON) {
+            EntryRule::Skip
+        } else {
+            transient::classify(rel)
+        }
+    };
+    let walk = Walk {
+        rule: &rule,
+        list_dir: io.list_dir,
+        copy_file: io.copy_file,
+        cancelled: hooks.is_cancelled,
+    };
+    let mut copied = 0u64;
+    (hooks.on_progress)(Phase::Copying, 0);
+    let copy_result = {
+        let on_progress = &mut *hooks.on_progress;
+        walk::copy_tree(
+            current,
+            target,
+            &walk,
+            &mut |bytes| on_progress(Phase::Copying, bytes),
+            &mut copied,
+        )
+    };
+    if let Err(stop) = copy_result {
+        return abort(stop.into(), Phase::Copying, target, &before, io);
+    }
+    (hooks.on_progress)(Phase::Verifying, copied);
+    if let Err(stop) = walk::verify_tree(current, target, &walk) {
+        return abort(stop.into(), Phase::Verifying, target, &before, io);
+    }
+    if !(hooks.still_safe_to_switch)() {
+        let why = Why::Failed(
+            "a game, a server or another operation started while the data was being copied"
+                .to_string(),
+        );
+        return abort(why, Phase::Verifying, target, &before, io);
+    }
+
+    // Phases 5-6: the switch. From the commit on there is no cancel.
+    (hooks.on_progress)(Phase::Switching, copied);
+    if let Err(reason) = copy_app_json(current, target, io) {
+        return abort(Why::Failed(reason), Phase::Switching, target, &before, io);
+    }
+    if let Err(reason) = (hooks.commit_pointer)() {
+        let why = Why::Failed(format!(
+            "the data-folder setting could not be updated: {reason}"
+        ));
+        return abort(why, Phase::Switching, target, &before, io);
+    }
+    let hidden = (io.rename_entry)(&current.join(APP_JSON), &current.join(HIDDEN_APP_JSON));
+    if !(hooks.lands_on_target)() {
+        return Err(roll_back(
+            current,
+            target,
+            &before,
+            io,
+            hooks,
+            hidden.is_ok(),
+        ));
+    }
+    if let Err(e) = hidden {
+        // The redirect is authoritative, so the move holds — but the old root
+        // is still root-shaped. Delete nothing: a gutted folder that still
+        // looks like a data root is worse than a complete duplicate.
+        crate::diag!(
+            "[data-move] old data kept: could not hide {}: {e}",
+            current.join(APP_JSON).display()
+        );
+        return Ok(Outcome::MovedWithLeftovers {
+            entries: Vec::new(),
+            old_root_intact: true,
+        });
+    }
+
+    // Phase 7.
+    (hooks.on_switched)();
+    (hooks.on_progress)(Phase::Deleting, copied);
+    Ok(match delete_old_root(current, target, io) {
+        None => Outcome::MovedWithLeftovers {
+            entries: Vec::new(),
+            old_root_intact: true,
+        },
+        Some(leftovers) if leftovers.is_empty() => Outcome::Moved,
+        Some(leftovers) => Outcome::MovedWithLeftovers {
+            entries: leftovers,
+            old_root_intact: false,
+        },
     })
 }
 
 /// Try again to remove `names` (top-level entries of `old_root`) after a move
 /// that left them behind. Returns the names that are STILL there.
 pub fn retry_leftovers(
-    _old_root: &Path,
-    _target: &Path,
+    old_root: &Path,
+    target: &Path,
     names: &[String],
-    _io: &Io<'_>,
+    io: &Io<'_>,
 ) -> Vec<String> {
-    names.to_vec() // RED stub — Task 11 replaces it
+    let Ok(canonical_target) = std::fs::canonicalize(target) else {
+        return names.to_vec();
+    };
+    names
+        .iter()
+        .filter_map(|name| remove_old_entry(&old_root.join(name), &canonical_target, io))
+        .collect()
 }
 
 #[cfg(test)]
