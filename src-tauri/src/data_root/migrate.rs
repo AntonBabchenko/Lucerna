@@ -51,20 +51,109 @@ pub fn target_is_empty(dir: &Path) -> bool {
 }
 
 /// True if `dir` does not exist, or exists and contains no entries other than
-/// the launcher-transient top-level names in `safe`. Used for the reset target
-/// (the OS-default dir legitimately holds `data-location.json`, `logs`, and
-/// `updates` even when it holds no user data).
+/// the launcher-owned top-level names in `safe` (the OS-default dir
+/// legitimately holds them even when it holds no user data). An entry that
+/// cannot be read is NOT "safe": could-not-tell resolves to "not empty".
 pub fn empty_or_only_safe(dir: &Path, safe: &[&str]) -> bool {
-    match std::fs::read_dir(dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
-        Ok(it) => it.flatten().all(|e| {
-            e.file_name()
-                .to_str()
-                .map(|n| safe.contains(&n))
-                .unwrap_or(false)
-        }),
+    match blocking_entries(dir, safe) {
+        Ok(blocking) => blocking.is_empty(),
         Err(_) => false,
     }
+}
+
+/// Top-level names in `dir` that are not in `safe`, sorted. A missing `dir`
+/// has none. Used to tell the user WHAT makes a reset impossible.
+pub fn blocking_entries(dir: &Path, safe: &[&str]) -> Result<Vec<String>> {
+    let children = match crate::data_root::walk::real_list_dir(dir) {
+        Ok(children) => children,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(Error::io(dir.display().to_string(), e)),
+    };
+    let mut blocking: Vec<String> = children
+        .iter()
+        .filter_map(|child| child.file_name())
+        .filter(|name| !safe.iter().any(|s| *name == *s))
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect();
+    blocking.sort();
+    Ok(blocking)
+}
+
+/// A CUSTOM move target must be empty — except for a `webview/` left by an
+/// earlier move away from it, which the sweep has not removed yet.
+pub fn target_is_empty_or_transient(dir: &Path) -> bool {
+    empty_or_only_safe(dir, &[crate::data_root::transient::WEBVIEW_DIR])
+}
+
+/// Strict, skip-aware size of `root` in bytes. Unlike [`dir_size`] (a display
+/// estimate that counts an unreadable entry as 0) any error aborts: the move
+/// itself would abort on the same entry, so failing early is the honest answer.
+/// `skip_top` filters TOP-LEVEL names only.
+pub fn dir_size_strict(root: &Path, skip_top: &dyn Fn(&std::ffi::OsStr) -> bool) -> Result<u64> {
+    size_strict(root, skip_top, 0)
+}
+
+fn size_strict(dir: &Path, skip_top: &dyn Fn(&std::ffi::OsStr) -> bool, depth: u32) -> Result<u64> {
+    let mut total = 0u64;
+    for (child, meta) in strict_children(dir, skip_top, depth)? {
+        total += if meta.is_dir() {
+            size_strict(&child, skip_top, depth + 1)?
+        } else {
+            meta.len()
+        };
+    }
+    Ok(total)
+}
+
+/// Strict, skip-aware sibling of [`contains_reparse_point`]: an entry that
+/// cannot be inspected, and a tree deeper than the cap, are ERRORS — not "no
+/// links". (`contains_reparse_point` keeps its lenient semantics for world
+/// migration.)
+pub fn contains_link_strict(
+    root: &Path,
+    skip_top: &dyn Fn(&std::ffi::OsStr) -> bool,
+) -> Result<bool> {
+    link_strict(root, skip_top, 0)
+}
+
+fn link_strict(
+    dir: &Path,
+    skip_top: &dyn Fn(&std::ffi::OsStr) -> bool,
+    depth: u32,
+) -> Result<bool> {
+    for (child, meta) in strict_children(dir, skip_top, depth)? {
+        if meta.file_type().is_symlink()
+            || (meta.is_dir() && link_strict(&child, skip_top, depth + 1)?)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn strict_children(
+    dir: &Path,
+    skip_top: &dyn Fn(&std::ffi::OsStr) -> bool,
+    depth: u32,
+) -> Result<Vec<(PathBuf, std::fs::Metadata)>> {
+    if depth >= MAX_SCAN_DEPTH {
+        return Err(Error::data_move_failed(format!(
+            "{} is nested more than {MAX_SCAN_DEPTH} directories deep",
+            dir.display()
+        )));
+    }
+    let mut out = Vec::new();
+    for child in crate::data_root::walk::real_list_dir(dir)
+        .map_err(|e| Error::io(dir.display().to_string(), e))?
+    {
+        if depth == 0 && child.file_name().is_some_and(|name| skip_top(name)) {
+            continue;
+        }
+        let meta = std::fs::symlink_metadata(&child)
+            .map_err(|e| Error::io(child.display().to_string(), e))?;
+        out.push((child, meta));
+    }
+    Ok(out)
 }
 
 /// Exists and is writable (creates + removes a probe file).
@@ -191,99 +280,6 @@ fn contains_reparse_point_depth(root: &Path, depth: u32) -> Result<bool> {
     Ok(false)
 }
 
-/// Recursively copy `src` → `dst`, invoking `on_bytes(copied_so_far)` after each
-/// file. `skip(name)` returning true omits that entry — but ONLY at the tree
-/// root (depth 0), so the redirect file at the default location is left out of
-/// the move while a nested user file that happens to share its name is copied.
-pub fn copy_tree(
-    src: &Path,
-    dst: &Path,
-    skip: &dyn Fn(&Path) -> bool,
-    on_bytes: &mut dyn FnMut(u64),
-    copied: &mut u64,
-) -> Result<()> {
-    copy_tree_depth(src, dst, skip, on_bytes, copied, 0)
-}
-
-fn copy_tree_depth(
-    src: &Path,
-    dst: &Path,
-    skip: &dyn Fn(&Path) -> bool,
-    on_bytes: &mut dyn FnMut(u64),
-    copied: &mut u64,
-    depth: u32,
-) -> Result<()> {
-    std::fs::create_dir_all(dst).map_err(|e| Error::io(dst.display().to_string(), e))?;
-    let entries = std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        // The skip predicate anchors to the root's direct children only.
-        if depth == 0 && skip(Path::new(&name)) {
-            continue;
-        }
-        let from = entry.path();
-        let to = dst.join(&name);
-        if from.is_dir() {
-            copy_tree_depth(&from, &to, skip, on_bytes, copied, depth + 1)?;
-        } else {
-            let bytes =
-                std::fs::copy(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
-            *copied += bytes;
-            on_bytes(*copied);
-        }
-    }
-    Ok(())
-}
-
-/// Verify a completed copy: every file under `src` (applying the same depth-0
-/// `skip` as [`copy_tree`]) must exist under `dst` with an identical byte
-/// length. Unlike a whole-directory size delta, this is independent of any
-/// content already present in `dst`, so it stays correct for a reset that
-/// copies into a non-empty default dir and OVERWRITES pre-existing
-/// safe-overlap files (e.g. `logs/lucerna.log`) — an overwrite changes no byte
-/// total the way a delta expects, but leaves each file matching its source.
-pub fn verify_copy(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<()> {
-    verify_copy_depth(src, dst, skip, 0)
-}
-
-fn verify_copy_depth(
-    src: &Path,
-    dst: &Path,
-    skip: &dyn Fn(&Path) -> bool,
-    depth: u32,
-) -> Result<()> {
-    let entries = std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        if depth == 0 && skip(Path::new(&name)) {
-            continue;
-        }
-        let from = entry.path();
-        let to = dst.join(&name);
-        if from.is_dir() {
-            verify_copy_depth(&from, &to, skip, depth + 1)?;
-        } else {
-            let src_len = std::fs::metadata(&from)
-                .map_err(|e| Error::io(from.display().to_string(), e))?
-                .len();
-            let dst_len = std::fs::metadata(&to)
-                .map_err(|e| Error::io(to.display().to_string(), e))?
-                .len();
-            if src_len != dst_len {
-                return Err(Error::DataLocationMigrationFailed {
- partial_copy_left: None,
- restore_incomplete: false,
-                    reason: format!(
-                        "verification failed for {}: source is {src_len} bytes but the copy is {dst_len} bytes",
-                        from.display()
-                    ),
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,73 +316,6 @@ mod tests {
         assert!(!empty_or_only_safe(&root, &safe));
         // Missing dir → ok (treated as empty).
         assert!(empty_or_only_safe(&d.path().join("nope"), &safe));
-    }
-
-    #[test]
-    fn copy_tree_copies_and_skips_root_only_and_reports_progress() {
-        let d = tempdir().unwrap();
-        let src = d.path().join("src");
-        std::fs::create_dir_all(src.join("sub")).unwrap();
-        std::fs::write(src.join("keep.txt"), b"12345").unwrap();
-        std::fs::write(src.join("data-location.json"), b"{}").unwrap();
-        std::fs::write(src.join("sub/x.txt"), b"ab").unwrap();
-        // A nested file coincidentally named like the redirect must NOT be
-        // skipped — the skip predicate is anchored to the root.
-        std::fs::write(src.join("sub/data-location.json"), b"zz").unwrap();
-        let dst = d.path().join("dst");
-        let skip = |p: &Path| p == Path::new("data-location.json");
-        let mut ticks = Vec::new();
-        let mut copied = 0;
-        copy_tree(&src, &dst, &skip, &mut |c| ticks.push(c), &mut copied).unwrap();
-        assert!(dst.join("keep.txt").is_file());
-        assert!(dst.join("sub/x.txt").is_file());
-        assert!(
-            !dst.join("data-location.json").exists(),
-            "root redirect must be skipped"
-        );
-        assert!(
-            dst.join("sub/data-location.json").is_file(),
-            "nested same-named file must be copied, not skipped"
-        );
-        assert_eq!(copied, 9); // 5 + 2 + 2, root json skipped
-        assert_eq!(ticks.last(), Some(&9));
-    }
-
-    #[test]
-    fn verify_copy_passes_despite_overwritten_and_extra_target_files() {
-        // Models a reset: the target (default dir) already holds a stale
-        // logs/lucerna.log of a DIFFERENT size, plus an unrelated pre-existing
-        // file. copy_tree overwrites logs/lucerna.log with the source's copy;
-        // verify_copy must still pass (each source file matches its copy),
-        // where a whole-dir size delta would have false-failed.
-        let d = tempdir().unwrap();
-        let src = d.path().join("src");
-        std::fs::create_dir_all(src.join("logs")).unwrap();
-        std::fs::write(src.join("logs/lucerna.log"), b"NEW-LOG-CONTENT").unwrap();
-        std::fs::write(src.join("a.txt"), b"hello").unwrap();
-
-        let dst = d.path().join("dst");
-        std::fs::create_dir_all(dst.join("logs")).unwrap();
-        std::fs::write(dst.join("logs/lucerna.log"), b"old").unwrap(); // different size
-        std::fs::write(dst.join("stale-unrelated.tmp"), b"leftover").unwrap();
-
-        let skip = |_: &Path| false;
-        let mut copied = 0;
-        copy_tree(&src, &dst, &skip, &mut |_| {}, &mut copied).unwrap();
-        // Overwrite happened; a size delta of the whole dir would not equal `copied`.
-        verify_copy(&src, &dst, &skip).expect("verify tolerates overwrite + extra target files");
-    }
-
-    #[test]
-    fn verify_copy_fails_when_a_source_file_is_missing_in_target() {
-        let d = tempdir().unwrap();
-        let src = d.path().join("src");
-        std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("a.txt"), b"hello").unwrap();
-        let dst = d.path().join("dst");
-        std::fs::create_dir_all(&dst).unwrap(); // empty target — copy never ran
-        let skip = |_: &Path| false;
-        assert!(verify_copy(&src, &dst, &skip).is_err());
     }
 
     #[test]
@@ -507,5 +436,81 @@ mod tests {
         std::fs::create_dir_all(&target).unwrap();
         std::os::unix::fs::symlink(&target, root.join("link")).unwrap();
         assert!(contains_reparse_point(&root).unwrap());
+    }
+    #[test]
+    fn strict_size_and_link_scans_skip_top_level_names_only() {
+        let d = tempdir().unwrap();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(root.join("webview")).unwrap();
+        std::fs::create_dir_all(root.join("instances/webview")).unwrap();
+        std::fs::write(root.join("webview/cache.bin"), vec![0u8; 100]).unwrap();
+        std::fs::write(root.join("instances/webview/keep.bin"), vec![0u8; 7]).unwrap();
+        std::fs::write(root.join("a.txt"), b"hello").unwrap();
+
+        let skip = |name: &std::ffi::OsStr| name == "webview";
+        assert_eq!(dir_size_strict(&root, &skip).unwrap(), 12);
+        assert_eq!(dir_size_strict(&root, &|_| false).unwrap(), 112);
+        assert!(!contains_link_strict(&root, &skip).unwrap());
+    }
+
+    #[test]
+    fn strict_scans_fail_on_a_missing_root_instead_of_answering_zero() {
+        let d = tempdir().unwrap();
+        let gone = d.path().join("nope");
+        assert!(dir_size_strict(&gone, &|_| false).is_err());
+        assert!(contains_link_strict(&gone, &|_| false).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_inside_a_skipped_top_level_dir_is_not_the_moves_business() {
+        let d = tempdir().unwrap();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(root.join("webview")).unwrap();
+        std::fs::create_dir_all(root.join("jres")).unwrap();
+        std::os::unix::fs::symlink("/tmp", root.join("webview/link")).unwrap();
+        let skip = |name: &std::ffi::OsStr| name == "webview";
+        assert!(!contains_link_strict(&root, &skip).unwrap());
+        std::os::unix::fs::symlink("/tmp", root.join("jres/link")).unwrap();
+        assert!(contains_link_strict(&root, &skip).unwrap());
+    }
+
+    #[test]
+    fn blocking_entries_names_what_stands_in_the_way_of_a_reset() {
+        let d = tempdir().unwrap();
+        let root = d.path().join("default");
+        let safe = crate::data_root::transient::SAFE_OVERLAP;
+        assert_eq!(
+            blocking_entries(&root, &safe).unwrap(),
+            Vec::<String>::new()
+        );
+
+        std::fs::create_dir_all(root.join("logs")).unwrap();
+        std::fs::create_dir_all(root.join("webview")).unwrap();
+        std::fs::write(root.join("data-location.json"), b"{}").unwrap();
+        std::fs::write(root.join("pending-cleanup.json"), b"{}").unwrap();
+        assert!(empty_or_only_safe(&root, &safe));
+
+        std::fs::create_dir_all(root.join("libraries")).unwrap();
+        std::fs::write(root.join("account.json"), b"{}").unwrap();
+        assert_eq!(
+            blocking_entries(&root, &safe).unwrap(),
+            vec!["account.json".to_string(), "libraries".to_string()]
+        );
+        assert!(!empty_or_only_safe(&root, &safe));
+    }
+
+    #[test]
+    fn a_custom_target_may_hold_only_an_old_webview() {
+        let d = tempdir().unwrap();
+        let target = d.path().join("LucernaData");
+        assert!(target_is_empty_or_transient(&target), "missing = empty");
+        std::fs::create_dir_all(target.join("webview")).unwrap();
+        assert!(target_is_empty_or_transient(&target));
+        std::fs::create_dir_all(target.join("logs")).unwrap();
+        assert!(
+            !target_is_empty_or_transient(&target),
+            "logs is safe for a RESET target only"
+        );
     }
 }

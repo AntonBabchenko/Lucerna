@@ -11,6 +11,9 @@ pub enum Invalid {
     /// Adopt target failed the write probe; restarting into it would land
     /// straight in the fallback banner.
     NotWritable,
+    /// The current data folder contains a symbolic link or junction; moving it
+    /// could follow a link out of the tree or loop.
+    ContainsLinks,
 }
 
 impl Invalid {
@@ -25,6 +28,7 @@ impl Invalid {
             Invalid::NotEmpty => "not_empty",
             Invalid::NotADataRoot => "not_a_data_root",
             Invalid::NotWritable => "not_writable",
+            Invalid::ContainsLinks => "contains_links",
         }
     }
 }
@@ -115,5 +119,6 @@ mod tests {
         assert_eq!(Invalid::NotEmpty.reason_key(), "not_empty");
         assert_eq!(Invalid::NotADataRoot.reason_key(), "not_a_data_root");
         assert_eq!(Invalid::NotWritable.reason_key(), "not_writable");
+        assert_eq!(Invalid::ContainsLinks.reason_key(), "contains_links");
     }
 }
