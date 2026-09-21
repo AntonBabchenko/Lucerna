@@ -511,6 +511,17 @@ describe('StoragePanel — every way a started move can come back', () => {
     expect(dataLocation.relocation.kind).toBe('idle');
   });
 
+  it('a REJECTED command (transport failure) still releases the app-level dialog and says why', async () => {
+    // typedError rethrows real Error instances. Without a catch the store keeps `owned` forever:
+    // a bare "Preparing…" dialog with no Cancel and no Restart — the one state a user cannot leave.
+    mock(commands.setDataLocation).mockRejectedValue(new Error('ipc channel closed'));
+    await mountPanel();
+    await confirmMove();
+    expect(dataLocation.relocation.kind).toBe('idle');
+    expect(screen.getByText(/ipc channel closed/)).toBeTruthy();
+    expect(commands.restartBlocked).toHaveBeenCalledTimes(2);
+  });
+
   it('leaves restart_required to the app-level dialog: no error, no notice, state kept', async () => {
     mock(commands.setDataLocation).mockResolvedValue({
       status: 'ok',

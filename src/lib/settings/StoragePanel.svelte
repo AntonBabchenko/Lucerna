@@ -19,7 +19,7 @@
   import { open as openDirectory } from '@tauri-apps/plugin-dialog';
   import { tick } from 'svelte';
   import { commands, type LogRetentionPolicy, type RestartBlock } from '$lib/ipc/bindings';
-  import { formatError } from '$lib/ipc/format-error';
+  import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
@@ -324,19 +324,33 @@
       dataLocation.moveStarted();
       pendingTarget = null;
     }
-    const result =
-      target.kind === 'adopt'
-        ? await commands.adoptDataLocation(target.path)
-        : await commands.setDataLocation(target.kind === 'reset' ? null : target.path);
+    let result:
+      | Awaited<ReturnType<typeof commands.setDataLocation>>
+      | Awaited<ReturnType<typeof commands.adoptDataLocation>>
+      | null = null;
+    let thrown: string | null = null;
+    try {
+      result =
+        target.kind === 'adopt'
+          ? await commands.adoptDataLocation(target.path)
+          : await commands.setDataLocation(target.kind === 'reset' ? null : target.path);
+    } catch (e) {
+      // typedError rethrows real Error instances (a transport-level IPC failure). Swallowing the
+      // settle below would leave the store "owned" forever: a bare "Preparing…" dialog with no
+      // Cancel and no Restart. `moveSettled` re-reads the backend, so if the move DID start or
+      // finish behind the failed call, the app-level dialog shows that instead.
+      thrown = describeStoreError(e);
+    }
     // A clean move or adopt never returns — the backend restarts the app. Reaching here means it
     // failed, was cancelled, or switched folders and now needs a restart. Read the outcome BEFORE
     // resetting anything: `restart_required` must leave the app-level final dialog standing.
-    const outcome = target.kind !== 'adopt' && result.status === 'ok' ? result.data : null;
+    const outcome = target.kind !== 'adopt' && result?.status === 'ok' ? result.data : null;
     await dataLocation.moveSettled(outcome);
     committing = false;
     pendingTarget = null;
     if (outcome?.kind === 'restart_required') return;
-    if (result.status === 'error') migrationError = formatError(result.error);
+    if (thrown !== null) migrationError = thrown;
+    else if (result?.status === 'error') migrationError = formatError(result.error);
     else if (outcome?.kind === 'cancelled')
       moveNotice = $t('settings.storage.dataLocation.moveCancelled');
     // The attempt may have touched disk, and what blocks a move may have changed while it ran —
