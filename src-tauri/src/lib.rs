@@ -608,7 +608,7 @@ pub fn run() {
                     resolved = crate::data_root::Resolved {
                         root: default_root.clone(),
                         configured: None,
-                        fell_back: false,
+                        fallback: None,
                         must_create: false,
                     };
                 }
@@ -620,7 +620,7 @@ pub fn run() {
             let resolution_note = format!(
                 "[data-root] root={} ({})",
                 resolved.root.display(),
-                if resolved.fell_back {
+                if resolved.fell_back() {
                     "configured root unavailable, temporary default"
                 } else if resolved.configured.is_some() {
                     "configured redirect"
@@ -634,7 +634,7 @@ pub fn run() {
             );
             {
                 use tauri::Manager;
-                app.manage(crate::data_root::DataRoot(resolved));
+                app.manage(crate::data_root::DataRoot::normal(resolved));
             }
 
             // Open the launcher's own diagnostic log (lucerna.log) first, so
@@ -660,8 +660,7 @@ pub fn run() {
                     use tauri::Manager;
                     main_window = main_window.data_directory(
                         app.state::<crate::data_root::DataRoot>()
-                            .0
-                            .root
+                            .launcher_dir
                             .join("webview"),
                     );
                 }
@@ -743,7 +742,10 @@ pub fn run() {
             // the startup path; failures are retried on the next start.
             {
                 use tauri::Manager;
-                let effective_root = app.state::<crate::data_root::DataRoot>().0.root.clone();
+                let effective_root = app
+                    .state::<crate::data_root::DataRoot>()
+                    .launcher_dir
+                    .clone();
                 let default_dir = default_root.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(10));

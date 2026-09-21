@@ -156,19 +156,45 @@ fn strict_children(
     Ok(out)
 }
 
-/// Exists and is writable (creates + removes a probe file).
-pub fn is_available(dir: &Path) -> bool {
+/// What probing a folder told us. A `bool` cannot say "present but not
+/// writable", and `Path::exists()` answers `false` for ANY stat failure — so
+/// the copy used to tell the owner of a read-only folder to "reconnect" it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Availability {
+    Available,
+    /// `NotFound` — and only `NotFound`.
+    Missing,
+    /// Something is there, and it is not a directory.
+    NotADirectory,
+    /// The directory exists; the write probe failed. Rendered error.
+    NotWritable(String),
+    /// The stat failed with anything but `NotFound`: could not tell.
+    Unknown(String),
+}
+
+const WRITE_PROBE_FILE: &str = ".lucerna-write-probe";
+
+/// Probe `dir`: does it exist, is it a directory, can we write into it?
+pub fn probe(dir: &Path) -> Availability {
+    // RED STUB (push 1): the old two-valued answer.
     if !dir.exists() {
-        return false;
+        return Availability::Missing;
     }
-    let probe = dir.join(".lucerna-write-probe");
+    let probe = dir.join(WRITE_PROBE_FILE);
     match std::fs::write(&probe, b"") {
         Ok(()) => {
+            // Best-effort: a leftover probe file changes nothing about the
+            // answer, which is already known.
             let _ = std::fs::remove_file(&probe);
-            true
+            Availability::Available
         }
-        Err(_) => false,
+        Err(_) => Availability::Missing,
     }
+}
+
+/// Exists and is writable. For callers that only need yes / no.
+pub fn is_available(dir: &Path) -> bool {
+    matches!(probe(dir), Availability::Available)
 }
 
 /// Canonicalize `path` even when it does not fully exist: walk up to the
@@ -284,6 +310,54 @@ fn contains_reparse_point_depth(root: &Path, depth: u32) -> Result<bool> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn a_missing_folder_is_missing() {
+        let d = tempdir().unwrap();
+        assert_eq!(probe(&d.path().join("nope")), Availability::Missing);
+    }
+
+    #[test]
+    fn a_writable_folder_is_available_and_the_probe_file_is_gone() {
+        let d = tempdir().unwrap();
+        assert_eq!(probe(d.path()), Availability::Available);
+        assert!(!d.path().join(WRITE_PROBE_FILE).exists());
+    }
+
+    #[test]
+    fn a_file_where_a_folder_is_expected_is_not_a_directory() {
+        let d = tempdir().unwrap();
+        let f = d.path().join("LucernaData");
+        std::fs::write(&f, b"not a folder").unwrap();
+        assert_eq!(probe(&f), Availability::NotADirectory);
+    }
+
+    /// Unix only: a read-only bit on a Windows directory does not stop file
+    /// creation inside it (the Windows case is a live check, spec §10.3).
+    /// Permissions are saved and restored — never `set_readonly(false)`, which
+    /// would widen the mode — and restored BEFORE the assertion so the tempdir
+    /// cleans up even when it fails. `set_readonly` rather than a mode literal:
+    /// the mode-bit extension trait is confined to `platform::` by
+    /// `structural_platform_chokepoint`.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_folder_is_not_writable_not_missing() {
+        let d = tempdir().unwrap();
+        let ro = d.path().join("ro");
+        std::fs::create_dir(&ro).unwrap();
+        let original = std::fs::metadata(&ro).unwrap().permissions();
+        let mut read_only = original.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&ro, read_only).unwrap();
+
+        let answer = probe(&ro);
+
+        std::fs::set_permissions(&ro, original).unwrap();
+        // root ignores mode bits; CI runners are not root, a dev container might be.
+        if answer != Availability::Available {
+            assert!(matches!(answer, Availability::NotWritable(_)), "{answer:?}");
+        }
+    }
 
     #[test]
     fn size_and_empty_and_available() {

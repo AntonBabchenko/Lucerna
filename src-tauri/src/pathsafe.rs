@@ -105,10 +105,11 @@ pub fn is_safe_filename(name: &str) -> bool {
 ///   checked or the rule has a hole exactly where relocation put it. Nothing
 ///   under either is an export target: `account.json`, every instance's
 ///   `instance.json`, the shared mod store. `data-location.json` is the
-///   sharpest case — [`crate::data_root::redirect::read`] treats an
-///   unparseable file as "no redirect", so truncating it raises no error at
-///   all; it silently strands a relocated data root and sends the launcher
-///   back to the default one with the user's instances nowhere in sight.
+///   sharpest case — truncating it strands a relocated data root: the next
+///   start cannot name the folder any more and comes up as a recovery
+///   session ([`crate::data_root::redirect::read_state`] reports it as
+///   `Corrupt`), with the user's instances nowhere in sight until they point
+///   the launcher at the folder again.
 /// - A filename whose **extension is not one this command actually writes**.
 ///   Everywhere outside the three roots above is fair game for a file the
 ///   user asked for — but "a file the user asked for" has a name the command
@@ -402,9 +403,9 @@ mod tests {
     /// The rule the program-directory check does NOT cover: on a stock
     /// install the data root is a different tree from the exe dir, so every
     /// one of these was reachable while only the program directory was
-    /// screened. `data-location.json` is the one that fails silently —
-    /// `redirect::read` reads an unparseable file as "no redirect", so a
-    /// truncated one strands a relocated data root with no error anywhere.
+    /// screened. `data-location.json` is the costly one — a truncated
+    /// pointer strands a relocated data root: the next start is a recovery
+    /// session until the user points the launcher at the folder again.
     #[test]
     fn export_dest_refuses_writing_into_the_data_root() {
         let inst = Install::new(false);

@@ -7,7 +7,7 @@
 //! `RelocationState` and the IPC contract.
 
 use crate::data_root::blockers::{self, RestartBlock};
-use crate::data_root::redirect::{self, Redirect};
+use crate::data_root::redirect::{self, PointerRead, Redirect};
 use crate::data_root::relocate::{self, Hooks, Io, NotSwitched, Outcome, Phase};
 use crate::data_root::state::{self, MovePhase, RelocationStatus};
 use crate::data_root::transient::{self, SAFE_OVERLAP, WEBVIEW_DIR};
@@ -127,7 +127,7 @@ fn lands_on_target(default: &Path, redirect_file: &Path, target: &Path) -> bool 
             .and_then(|exe| exe.parent().map(Path::to_path_buf)),
         portable_allowed: startup::portable_allowed(),
     });
-    !next.fell_back
+    !next.fell_back()
         && migrate::is_same_path(&next.root, target)
         && migrate::is_available(target)
         && looks_like_data_root(target)
@@ -155,9 +155,13 @@ pub fn get_data_location(app: AppHandle) -> Result<DataLocationStatus> {
     let default_dir =
         crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
     Ok(DataLocationStatus {
-        effective: st.0.root.display().to_string(),
-        configured: st.0.configured.as_ref().map(|p| p.display().to_string()),
-        fell_back: st.0.fell_back,
+        effective: st.root().display().to_string(),
+        configured: st
+            .resolved
+            .configured
+            .as_ref()
+            .map(|p| p.display().to_string()),
+        fell_back: st.resolved.fell_back(),
         default_dir: default_dir.display().to_string(),
         relocation: state::global().status(),
     })
@@ -169,7 +173,10 @@ pub fn get_data_location(app: AppHandle) -> Result<DataLocationStatus> {
 #[tauri::command]
 #[specta::specta]
 pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
-    let root = app.state::<crate::data_root::DataRoot>().0.root.clone();
+    let root = app
+        .state::<crate::data_root::DataRoot>()
+        .root()
+        .to_path_buf();
     let size = tokio::task::spawn_blocking(move || migrate::dir_size(&root))
         .await
         .map_err(|e| task_failed("<data_root_size>", e))?;
@@ -211,11 +218,11 @@ pub async fn plan_data_location_change(app: AppHandle, picked: String) -> Result
 #[tauri::command]
 #[specta::specta]
 pub async fn plan_data_location_reset(app: AppHandle) -> Result<DataResetPlan> {
-    let root = app.state::<crate::data_root::DataRoot>().0.clone();
+    let root = app.state::<crate::data_root::DataRoot>().resolved.clone();
     let default =
         crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
     let shown = default.display().to_string();
-    if root.fell_back {
+    if root.fell_back() {
         return Ok(DataResetPlan {
             path: shown,
             pointer_only: true,
@@ -282,7 +289,10 @@ pub async fn set_data_location(
     // One move at a time. Dropping the session on any early return frees it.
     let session = state::global().begin().ok_or(Error::DataLocationBusy)?;
 
-    let fell_back = app.state::<crate::data_root::DataRoot>().0.fell_back;
+    let fell_back = app
+        .state::<crate::data_root::DataRoot>()
+        .resolved
+        .fell_back();
     let is_reset = new_path.is_none();
     let redirect_file =
         crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
@@ -309,9 +319,11 @@ pub async fn set_data_location(
         Some(p) => PathBuf::from(p),
         None => default.clone(),
     };
-    // An unreadable redirect is a reason not to start: a rollback could not
-    // restore it. (A corrupt one reads as "none", which is also how startup reads it.)
-    let previous = redirect::read(&redirect_file)?;
+    // A pointer that cannot be read or parsed is a reason not to start: a
+    // rollback could not restore it. (Startup treats both as a recovery
+    // session, so reaching this line with either means the file went bad
+    // DURING this session.)
+    let previous = previous_pointer(redirect::read_state(&redirect_file), &redirect_file)?;
 
     // Commit-time validation is filesystem work over the whole tree.
     let (current_v, target_v) = (current.clone(), target.clone());
@@ -478,7 +490,11 @@ pub async fn open_data_move_leftovers(app: AppHandle) -> Result<()> {
 #[specta::specta]
 pub async fn adopt_data_location(app: AppHandle, path: String) -> Result<()> {
     let session = state::global().begin().ok_or(Error::DataLocationBusy)?;
-    if app.state::<crate::data_root::DataRoot>().0.fell_back {
+    if app
+        .state::<crate::data_root::DataRoot>()
+        .resolved
+        .fell_back()
+    {
         return Err(Error::DataLocationBusy);
     }
     refuse_if_blocked(&app)?;
@@ -619,6 +635,31 @@ fn run_move(job: &MoveJob) -> std::result::Result<Outcome, NotSwitched> {
     relocate::relocate(&job.current, &job.target, &Io::real(), &mut hooks)
 }
 
+/// The pointer a failed move must be able to put back. `None` = there was none.
+fn previous_pointer(read: PointerRead, file: &Path) -> Result<Option<Redirect>> {
+    match read {
+        PointerRead::Absent => Ok(None),
+        PointerRead::Present(redirect) => Ok(Some(redirect)),
+        PointerRead::Unreadable(details) => Err(Error::io(file.display().to_string(), details)),
+        PointerRead::Corrupt => Err(Error::io(
+            file.display().to_string(),
+            "not a usable data-location file",
+        )),
+    }
+}
+
+/// While fallen back the only change of location that makes sense is pointing
+/// at an EXISTING Lucerna data folder: a move would copy the throwaway
+/// session root — the wrong tree.
+fn plan_in_fallback(
+    fell_back: bool,
+    plan: crate::data_root::plan::PlanKind,
+) -> std::result::Result<crate::data_root::plan::PlanKind, Invalid> {
+    // RED STUB (push 1).
+    let _ = fell_back;
+    Ok(plan)
+}
+
 /// What `set_data_location` may do given the fallback state. Pure so the
 /// gating truth-table is unit-testable without an `AppHandle`.
 #[derive(Debug, PartialEq, Eq)]
@@ -678,9 +719,44 @@ fn classify_adopt(
 #[cfg(test)]
 mod tests {
     use super::classify_adopt;
-    use super::{fallback_gate, FallbackGate};
+    use super::{fallback_gate, plan_in_fallback, previous_pointer, FallbackGate};
+    use crate::data_root::plan::PlanKind;
+    use crate::data_root::redirect::{PointerRead, Redirect};
     use crate::data_root::validate::Invalid;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn a_migrate_plan_is_refused_while_fallen_back() {
+        let plan = PlanKind::Migrate(abs("new/LucernaData"));
+        assert_eq!(
+            plan_in_fallback(true, plan.clone()),
+            Err(Invalid::FallbackAdoptOnly)
+        );
+        assert_eq!(plan_in_fallback(false, plan.clone()), Ok(plan));
+    }
+
+    #[test]
+    fn an_adopt_plan_passes_while_fallen_back() {
+        let plan = PlanKind::Adopt(abs("E/LucernaData"));
+        assert_eq!(plan_in_fallback(true, plan.clone()), Ok(plan));
+    }
+
+    #[test]
+    fn a_move_refuses_to_start_over_a_pointer_it_could_not_restore() {
+        let file = abs("appdata/data-location.json");
+        assert!(previous_pointer(PointerRead::Absent, &file)
+            .unwrap()
+            .is_none());
+        let r = Redirect {
+            path: abs("custom"),
+        };
+        assert_eq!(
+            previous_pointer(PointerRead::Present(r.clone()), &file).unwrap(),
+            Some(r)
+        );
+        assert!(previous_pointer(PointerRead::Unreadable("denied".into()), &file).is_err());
+        assert!(previous_pointer(PointerRead::Corrupt, &file).is_err());
+    }
 
     #[test]
     fn fallback_gate_truth_table() {

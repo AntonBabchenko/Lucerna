@@ -12,7 +12,19 @@ use tauri::Manager;
 /// back to the OS-default app-data dir so no caller ever panics.
 pub fn app_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     if let Some(state) = app.try_state::<crate::data_root::DataRoot>() {
-        return Ok(state.0.root.clone());
+        return Ok(state.root().to_path_buf());
+    }
+    default_app_data_dir(app)
+}
+
+/// Where the launcher's OWN files live: `logs/`, `updates/`, `webview/`. The
+/// data root in a normal session; the OS-default folder in a recovery session,
+/// whose data root is thrown away at exit — the log of the session in which
+/// the drive vanished is the one worth keeping, and an update installed from
+/// such a session must not lose its installer with the session dir.
+pub fn launcher_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    if let Some(state) = app.try_state::<crate::data_root::DataRoot>() {
+        return Ok(state.launcher_dir.clone());
     }
     default_app_data_dir(app)
 }
@@ -36,7 +48,7 @@ pub fn versions_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// from the per-instance `instance_logs_dir` (which holds the captured game
 /// console output). Surfaced as the "Launcher logs" group in the Logs viewer.
 pub fn app_logs_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("logs"))
+    Ok(launcher_dir(app)?.join("logs"))
 }
 
 pub fn jres_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
@@ -151,7 +163,7 @@ pub fn skin_library_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// Scratch directory for downloaded update installers + bundles.
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("updates"))
+    Ok(launcher_dir(app)?.join("updates"))
 }
 
 /// Все пути одного сервера, выведенные из базовой app-data директории.
