@@ -20,7 +20,9 @@
   // starts walking the page behind the dialog. BusyButton disables natively while busy, so every
   // handler parks focus on the body wrapper BEFORE telling the host (which flips the flag); the
   // plain button uses `aria-disabled` + a click guard. Focus goes to Restart when the final state
-  // appears and when a retry or a failed restart settles.
+  // appears and when a retry or a failed restart settles. Cancel is REMOVED when the switch starts
+  // — and as the running dialog's only control it usually holds focus — so that transition parks
+  // focus on the body wrapper too.
   import { tick } from 'svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
@@ -112,6 +114,16 @@
     const busyNow = actionBusy;
     if (wasBusy && !busyNow) void focusRestart();
     wasBusy = busyNow;
+  });
+
+  // Plain variable: an effect-local memory, not state anyone renders.
+  let couldCancel = false;
+  $effect(() => {
+    const can = canCancel;
+    // Runs after the DOM update: a focused Cancel that was just removed has dropped focus to
+    // <body>. Only then — focus the user has put elsewhere in the dialog is left alone.
+    if (couldCancel && !can && !bodyEl?.contains(document.activeElement)) parkFocus();
+    couldCancel = can;
   });
 
   function cancelClick(): void {

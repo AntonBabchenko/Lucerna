@@ -85,6 +85,17 @@ describe('DataLocationProgressDialog — running', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(screen.getByTestId('data-move-body'));
   });
+
+  it('keeps focus inside the dialog when Cancel leaves with the phase', async () => {
+    // Cancel is the running dialog's only control, so it normally HOLDS focus. When the switch
+    // starts it is removed from the DOM; focus must not fall to <body>, where Tab would walk the
+    // page behind a dialog that cannot be dismissed.
+    const { rerender } = mount(running('verifying'));
+    (button('Cancel move') as HTMLButtonElement).focus();
+    await rerender({ view: running('switching') });
+    expect(button('Cancel move')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('data-move-body'));
+  });
 });
 
 describe('DataLocationProgressDialog — final state', () => {
