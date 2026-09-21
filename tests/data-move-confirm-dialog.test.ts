@@ -5,7 +5,7 @@ import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.s
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
 const base = {
-  mode: 'move',
+  mode: 'move' as const,
   fromPath: 'C:\\Old',
   toPath: 'D:\\Games\\LucernaData',
   requiredBytes: 4096,

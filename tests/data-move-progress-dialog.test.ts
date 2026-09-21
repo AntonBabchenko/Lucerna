@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import DataLocationProgressDialog from '$lib/settings/DataLocationProgressDialog.svelte';
 import type { RelocationView } from '$lib/settings/data-location.svelte';
 
+// The dialog never renders `idle`: its `view` prop excludes it, and so do these builders.
+type ActiveView = Exclude<RelocationView, { kind: 'idle' }>;
 const running = (phase: string | null, progress: unknown = null) =>
-  ({ kind: 'running', phase, progress }) as RelocationView;
+  ({ kind: 'running', phase, progress }) as ActiveView;
 // The full generated `restart_required` shape. `old_root_is_default` and `retry_possible` are the
 // BACKEND's verdicts (a canonical path compare; "some leftover is not launcher-owned") — the dialog
 // reads them and derives neither from paths nor from the list.
@@ -21,9 +23,9 @@ const final = (over: Record<string, unknown> = {}) =>
       retry_possible: true,
       ...over,
     },
-  }) as RelocationView;
+  }) as ActiveView;
 
-function mount(view: RelocationView, over: Record<string, unknown> = {}) {
+function mount(view: ActiveView, over: Record<string, unknown> = {}) {
   const handlers = {
     onCancel: vi.fn(),
     onRetry: vi.fn(),

@@ -64,8 +64,8 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess }));
 
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { commands } from '$lib/ipc/bindings';
-import StoragePanel from '$lib/settings/StoragePanel.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
+import StoragePanel from '$lib/settings/StoragePanel.svelte';
 
 describe('StoragePanel', () => {
   it('shows size, clears cache, pushes a success toast, and disables Clear once empty', async () => {
