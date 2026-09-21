@@ -39,8 +39,11 @@ export type TaskState = 'queued' | 'running' | 'ok' | 'partial' | 'failed' | 'ca
  * - `concurrent` — runs alongside anything else (game install, mod
  *   install/update, server upload).
  * - `modal` — owns a blocking dialog; registered for the record, never
- *   cancellable, and may terminate by app restart/exit rather than by
- *   reaching a terminal state (data-root migration, launcher self-update).
+ *   cancellable from the operations strip or panel (the owning dialog may
+ *   offer its own cancel while that is safe — the data-root move does, during
+ *   its copy and verify phases), and may terminate by app restart/exit rather
+ *   than by reaching a terminal state (data-root migration, launcher
+ *   self-update).
  */
 export type TaskLane = 'serial' | 'concurrent' | 'modal';
 
