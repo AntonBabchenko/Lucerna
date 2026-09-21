@@ -87,6 +87,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   both go ahead — writing the same files on the host twice over, or paying
   twice for the same strings.
 
+### Removed
+
+- **The setting that let web links open Lucerna.** Nothing ever offered such
+  links, so the switch in the Integrations settings asked for a change to your
+  Windows registry in exchange for nothing. If you had turned it on, the
+  registry entry is removed by itself the next time Lucerna starts. Importing a
+  modpack by link is unaffected: paste the pack's page address into the import
+  dialog on the Modpacks screen, exactly as before.
+
 ## [0.24.0] — 2026-09-19
 
 ### Added
