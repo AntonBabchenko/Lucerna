@@ -9,7 +9,7 @@
 //! `RelocationState` is an owned type with a `global()` instance, so tests
 //! build their own and never race on a process-wide static.
 
-use crate::error::Result; // Task 12 widens this to `{Error, Result}`
+use crate::error::{Error, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
@@ -77,13 +77,34 @@ impl RelocationState {
 
     /// Claim the move. `None` unless the state is `Idle`.
     pub fn begin(&self) -> Option<MoveSession<'_>> {
-        None // RED stub — Task 12 replaces it
+        let mut status = self.lock();
+        if *status != RelocationStatus::Idle {
+            return None;
+        }
+        *status = RelocationStatus::Running {
+            phase: MovePhase::Copying,
+        };
+        self.cancel.store(false, Ordering::SeqCst);
+        Some(MoveSession {
+            state: self,
+            parked: false,
+        })
+    }
+
+    /// Report the phase of the running move. Ignored unless a move is `Running`.
+    pub fn set_phase(&self, phase: MovePhase) {
+        let mut status = self.lock();
+        if matches!(*status, RelocationStatus::Running { .. }) {
+            *status = RelocationStatus::Running { phase };
+        }
     }
 
     /// Ask the running move to stop. No-op unless a move is `Running`; the
     /// pipeline stops polling once the switch starts.
     pub fn request_cancel(&self) {
-        // RED stub — Task 12 replaces it
+        if matches!(*self.lock(), RelocationStatus::Running { .. }) {
+            self.cancel.store(true, Ordering::SeqCst);
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -92,19 +113,35 @@ impl RelocationState {
 
     /// `Ok` only while `Idle`.
     pub fn check_usable(&self) -> Result<()> {
-        Ok(()) // RED stub — Task 12 replaces it
+        let status = self.lock();
+        match &*status {
+            RelocationStatus::Idle => Ok(()),
+            RelocationStatus::Running { .. } => Err(Error::DataRelocationInProgress {
+                restart_required: false,
+            }),
+            RelocationStatus::RestartRequired { .. } => Err(Error::DataRelocationInProgress {
+                restart_required: true,
+            }),
+        }
     }
 
     /// Replace the leftovers of a `RestartRequired` state (after a retry) and
     /// return the new status. Any other state is returned unchanged.
-    pub fn replace_leftovers(&self, _leftovers: Vec<String>) -> RelocationStatus {
-        self.status() // RED stub — Task 12 replaces it
+    pub fn replace_leftovers(&self, leftovers: Vec<String>) -> RelocationStatus {
+        let mut status = self.lock();
+        if let RelocationStatus::RestartRequired {
+            leftovers: current, ..
+        } = &mut *status
+        {
+            *current = leftovers;
+        }
+        status.clone()
     }
 }
 
 impl MoveSession<'_> {
-    pub fn set_phase(&self, _phase: MovePhase) {
-        // RED stub — Task 12 replaces it
+    pub fn set_phase(&self, phase: MovePhase) {
+        self.state.set_phase(phase);
     }
 
     /// Keep the claim for the life of the process: a clean move, an adopt or a
@@ -116,12 +153,18 @@ impl MoveSession<'_> {
     /// The move is committed but this process still runs from the old root.
     pub fn park_restart_required(
         mut self,
-        _old_root: String,
-        _new_root: String,
-        _leftovers: Vec<String>,
-        _old_root_intact: bool,
+        old_root: String,
+        new_root: String,
+        leftovers: Vec<String>,
+        old_root_intact: bool,
     ) {
-        self.parked = true; // RED stub — Task 12 also sets the status
+        *self.state.lock() = RelocationStatus::RestartRequired {
+            old_root,
+            new_root,
+            leftovers,
+            old_root_intact,
+        };
+        self.parked = true;
     }
 }
 
