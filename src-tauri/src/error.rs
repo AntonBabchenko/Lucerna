@@ -572,6 +572,17 @@ pub enum Error {
     #[error("server content write in progress: {id}")]
     ServerContentBusy { id: String },
 
+    /// The other reverse of `ServerMaintenanceInProgress`: a restore was asked
+    /// for, but a long reader of this server's `runtime/` — an upload, an
+    /// export, a backup, or another copy of the tree — is still in flight, and
+    /// replacing the tree under it would tear the copy it is making.
+    ///
+    /// Distinct from `ServerContentBusy` for the reason that one is distinct
+    /// from `ServerMaintenanceInProgress`: "add-ons are still being installed"
+    /// is not what an upload is, and the user has a different thing to wait for.
+    #[error("server tree read in progress: {id}")]
+    ServerTreeBusy { id: String },
+
     /// The hosting upload was cancelled by the user.
     #[error("upload cancelled")]
     UploadCancelled,

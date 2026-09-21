@@ -28,13 +28,35 @@
 //!
 //! So per-item writers take a SHARED claim ([`claim_shared_write`]) and long
 //! rewrites take the EXCLUSIVE one ([`maintenance_begin`] / [`try_begin`]).
-//! Both halves live under one mutex, so the two kinds are checked against each
-//! other atomically and need no Dekker pairing between themselves:
 //!
-//! | held \ requested | exclusive | shared | [`not_under_maintenance`] | Start/Restart |
-//! |------------------|-----------|--------|---------------------------|---------------|
-//! | exclusive        | refused   | refused| refused                   | refused       |
-//! | shared (n >= 1)  | refused   | admitted| admitted                 | admitted      |
+//! The same sentence — only a slot that is HELD is visible to an operation that
+//! begins later — applies to a long READER, and for a while it did not get the
+//! same treatment. An upload, an export, a backup, an upload preflight and the
+//! "client instance from this server" copy all walk `runtime/` for seconds to
+//! hours, and each used to open with the [`not_under_maintenance`] snapshot and
+//! then hold nothing. A restore started meanwhile claimed unopposed and replaced
+//! the tree under them; the copy that came out was part old tree, part new, part
+//! missing, and was reported as a success. So they take a SHARED READ claim
+//! ([`claim_shared_read`]).
+//!
+//! All three kinds live under one mutex, so they are checked against each other
+//! atomically and need no Dekker pairing between themselves:
+//!
+//! | held \ requested    | exclusive | shared write | shared read | snapshot | Start/Restart |
+//! |---------------------|-----------|--------------|-------------|----------|---------------|
+//! | exclusive           | refused   | refused      | refused     | refused  | refused       |
+//! | shared write (n>=1) | refused   | admitted     | admitted    | admitted | admitted      |
+//! | shared read (n>=1)  | refused   | admitted     | admitted    | admitted | admitted      |
+//!
+//! ("snapshot" is [`not_under_maintenance`].)
+//!
+//! A reader and a writer do not exclude each other: a backup taken while a mod
+//! installs was admitted before this module knew about readers, and refusing it
+//! would be a behaviour change nobody decided. The read claim is a kind of its
+//! own rather than a second use of the write claim — the matrix rows are the
+//! same — because [`Blocked`] exists so that a refused restore names what
+//! actually blocked it, and "add-ons are being installed" is not what an upload
+//! is.
 //!
 //! Shared rather than exclusive because the server Mods browser deliberately
 //! runs two installs on one server at once (`ServerModBrowser.svelte`: "installs
@@ -79,6 +101,24 @@ struct Slots {
     /// while its count is at least one, so `contains_key` IS "a writer is in
     /// flight".
     sharing: HashMap<String, usize>,
+    /// In-flight long readers per server — operations whose product is a copy
+    /// of `runtime/`. Same counting rule as `sharing`.
+    reading: HashMap<String, usize>,
+}
+
+/// Release one shared claim on `id`: count down, and remove the key with the
+/// last holder so `contains_key` keeps meaning "someone is in flight". The key
+/// is always present when a guard drops — a guard exists only after its
+/// increment and only its own drop decrements it — and were it absent there
+/// would be nothing to release.
+fn release_shared(counts: &mut HashMap<String, usize>, id: &str) {
+    let remaining = counts.get_mut(id).map(|count| {
+        *count = count.saturating_sub(1);
+        *count
+    });
+    if remaining == Some(0) {
+        counts.remove(id);
+    }
 }
 
 fn registry() -> &'static Mutex<Slots> {
@@ -105,6 +145,9 @@ pub enum Blocked {
     /// A per-item content writer (install, update, toggle, enrichment) is
     /// still in flight on this server.
     ContentWrite,
+    /// A long reader — an upload, an export, a backup, or another copy of
+    /// `runtime/` — is still in flight on this server.
+    TreeRead,
 }
 
 /// RAII claim on a server's maintenance slot. Held for the full duration of
@@ -138,28 +181,38 @@ pub struct SharedWriteGuard {
 
 impl Drop for SharedWriteGuard {
     fn drop(&mut self) {
-        // Poison-tolerant for the reason `MaintenanceGuard::drop` gives. The
-        // key is always present here: a guard exists only after its increment
-        // and only its own drop decrements it — and were it absent, there would
-        // be nothing to release.
-        let mut slots = lock_slots();
-        let remaining = slots.sharing.get_mut(&self.id).map(|count| {
-            *count = count.saturating_sub(1);
-            *count
-        });
-        if remaining == Some(0) {
-            // The last writer on this id: remove the key, so `contains_key`
-            // keeps meaning "a writer is in flight".
-            slots.sharing.remove(&self.id);
-        }
+        // Poison-tolerant for the reason `MaintenanceGuard::drop` gives.
+        release_shared(&mut lock_slots().sharing, &self.id);
+    }
+}
+
+/// RAII shared claim of a long reader of `runtime/`. Any number may be held on
+/// one server at once, alongside per-item writers; while at least one is, every
+/// exclusive claim on that server is refused. `Drop` releases it on every exit
+/// path.
+#[must_use = "dropping the guard immediately ends the read's claim before the work runs"]
+pub struct SharedReadGuard {
+    id: String,
+}
+
+impl Drop for SharedReadGuard {
+    fn drop(&mut self) {
+        // Poison-tolerant for the reason `MaintenanceGuard::drop` gives.
+        release_shared(&mut lock_slots().reading, &self.id);
     }
 }
 
 /// Atomically claim the maintenance slot for `id`, or say what blocked it.
 /// Refused while another restore/import holds the server, and refused while a
-/// per-item content writer ([`claim_shared_write`]) is still in flight on it —
-/// the direction that was missing: a restore must not start on top of a mod
-/// install that is still downloading into `runtime/mods/`.
+/// per-item content writer ([`claim_shared_write`]) or a long reader
+/// ([`claim_shared_read`]) is still in flight on it — the direction that was
+/// missing: a restore must not start on top of a mod install that is still
+/// downloading into `runtime/mods/`, nor replace the tree under an upload that
+/// is still shipping it.
+///
+/// When a writer AND a reader are in flight the writer is the one named: both
+/// reasons are true, the answer has to be the same every time, and the writer's
+/// is the refusal users already know.
 pub fn try_begin(id: &str) -> std::result::Result<MaintenanceGuard, Blocked> {
     let mut slots = lock_slots();
     if slots.held.contains(id) {
@@ -167,6 +220,9 @@ pub fn try_begin(id: &str) -> std::result::Result<MaintenanceGuard, Blocked> {
     }
     if slots.sharing.contains_key(id) {
         return Err(Blocked::ContentWrite);
+    }
+    if slots.reading.contains_key(id) {
+        return Err(Blocked::TreeRead);
     }
     slots.held.insert(id.to_string());
     Ok(MaintenanceGuard { id: id.to_string() })
@@ -189,12 +245,16 @@ pub fn maintenance_is_active(id: &str) -> bool {
     lock_slots().held.contains(id)
 }
 
-/// True iff ANY id holds an exclusive claim or has a shared writer in flight.
-/// The data-root move refuses while this is true: a claim means something is
-/// writing under the root that is about to be copied and deleted.
+/// True iff ANY id holds an exclusive claim, or has a shared writer or a long
+/// reader in flight. The data-root move refuses while this is true: a claim
+/// means something is working under the root that is about to be copied and
+/// then deleted. A reader counts as much as a writer — an export or a backup of
+/// a stopped server is visible to nothing else the move looks at (no process,
+/// no upload claim), it would be left walking a tree that vanishes under it, and
+/// a backup is also still writing its zip under that very root.
 pub fn any_active() -> bool {
     let slots = lock_slots();
-    !slots.held.is_empty() || !slots.sharing.is_empty()
+    !slots.held.is_empty() || !slots.sharing.is_empty() || !slots.reading.is_empty()
 }
 
 /// The maintenance term of the server write gate, for a writer that performs
@@ -239,6 +299,30 @@ pub fn claim_shared_write(id: &str) -> Result<SharedWriteGuard> {
     }
     *slots.sharing.entry(id.to_string()).or_insert(0) += 1;
     Ok(SharedWriteGuard { id: id.to_string() })
+}
+
+/// The gate for a long READER of `runtime/` — an operation whose product is a
+/// copy of the tree: an upload, an export, a backup (manual or scheduled), the
+/// upload preflight's walk, a client instance built from the server's mods.
+/// Refuses with `ServerMaintenanceInProgress` while a restore or import holds
+/// the server — a copy of a half-restored tree is worse than a refusal;
+/// otherwise admits the reader alongside any writers and other readers.
+///
+/// It replaces the [`not_under_maintenance`] snapshot these operations used to
+/// open with, and is that check plus the half a snapshot cannot give: the
+/// returned guard is what a restore starting LATER sees. Bind it to a named
+/// local for the whole read (never `let _ =`). Where the read runs in
+/// `spawn_blocking`, move the guard into the closure, so it lives exactly as
+/// long as the blocking work even if the command's future is dropped first.
+///
+/// Running and starting are not consulted here — see the module doc.
+pub fn claim_shared_read(id: &str) -> Result<SharedReadGuard> {
+    let mut slots = lock_slots();
+    if slots.held.contains(id) {
+        return Err(Error::ServerMaintenanceInProgress { id: id.to_string() });
+    }
+    *slots.reading.entry(id.to_string()).or_insert(0) += 1;
+    Ok(SharedReadGuard { id: id.to_string() })
 }
 
 #[cfg(test)]
@@ -445,6 +529,116 @@ mod tests {
         );
         drop(a);
     }
+
+    // --- the shared READ claim: an upload, export, backup or other copy of
+    // --- `runtime/` still in flight must be visible to a restore that starts
+    // --- later. A snapshot at the reader's entry cannot give that.
+
+    #[test]
+    fn a_reader_in_flight_refuses_the_exclusive_claim_and_says_so() {
+        // Upload started, user switches to Backups and clicks Restore.
+        let id = "maint-15";
+        let upload = claim_shared_read(id).expect("an idle server admits a reader");
+        assert_eq!(
+            try_begin(id).err(),
+            Some(Blocked::TreeRead),
+            "the restore must be refused, and told it is a copy in flight"
+        );
+        drop(upload);
+        assert!(try_begin(id).is_ok(), "the reader finished");
+    }
+
+    #[test]
+    fn a_reader_is_refused_under_an_exclusive_claim() {
+        let id = "maint-16";
+        let restore = maintenance_begin(id).expect("claimed");
+        assert!(matches!(
+            claim_shared_read(id),
+            Err(Error::ServerMaintenanceInProgress { .. })
+        ));
+        drop(restore);
+        assert!(claim_shared_read(id).is_ok());
+    }
+
+    #[test]
+    fn every_reader_must_finish_before_an_exclusive_claim_is_admitted() {
+        // A backup and an upload of one server at once: releasing the first
+        // must not look like the tree is free.
+        let id = "maint-17";
+        let backup = claim_shared_read(id).expect("first reader");
+        let upload = claim_shared_read(id).expect("readers run alongside each other");
+        drop(backup);
+        assert_eq!(try_begin(id).err(), Some(Blocked::TreeRead));
+        drop(upload);
+        assert!(try_begin(id).is_ok());
+    }
+
+    #[test]
+    fn a_reader_and_a_writer_coexist_in_either_order() {
+        // Shipped behaviour, deliberately kept: a backup taken during a mod
+        // install is admitted, and so is an install during a backup.
+        let id = "maint-18";
+        let reader = claim_shared_read(id).expect("reader first");
+        let writer = claim_shared_write(id).expect("a writer beside a reader");
+        drop(reader);
+        drop(writer);
+
+        let writer = claim_shared_write(id).expect("writer first");
+        let reader = claim_shared_read(id).expect("a reader beside a writer");
+        drop(writer);
+        drop(reader);
+        assert!(try_begin(id).is_ok(), "both released");
+    }
+
+    #[test]
+    fn a_refused_reader_leaves_no_residue() {
+        // A refusal that still counted the reader would refuse every restore
+        // of this server until the launcher restarts.
+        let id = "maint-19";
+        let restore = maintenance_begin(id).expect("claimed");
+        for _ in 0..3 {
+            assert!(claim_shared_read(id).is_err());
+        }
+        drop(restore);
+        assert!(try_begin(id).is_ok(), "three refusals left no read count");
+    }
+
+    #[test]
+    fn a_panic_inside_a_reader_releases_its_slot() {
+        let id = "maint-20";
+        let result = std::panic::catch_unwind(|| {
+            let _read = claim_shared_read(id).expect("claim");
+            panic!("the upload panicked");
+        });
+        assert!(result.is_err());
+        assert!(try_begin(id).is_ok());
+    }
+
+    #[test]
+    fn a_reader_does_not_make_maintenance_active() {
+        // Start/Restart read `maintenance_is_active`. Whether a server may be
+        // started during a backup or an export is per-command policy and is not
+        // decided here; the upload has its own Start guard (`upload_control`).
+        let id = "maint-21";
+        let reader = claim_shared_read(id).expect("claim");
+        assert!(!maintenance_is_active(id));
+        assert!(not_under_maintenance(id).is_ok());
+        drop(reader);
+    }
+
+    #[test]
+    fn a_writer_is_named_before_a_reader_when_both_block_a_restore() {
+        // Both are true; the message must be one of them and always the same
+        // one. The writer wins: it is the refusal users already know.
+        let id = "maint-22";
+        let writer = claim_shared_write(id).expect("writer");
+        let reader = claim_shared_read(id).expect("reader");
+        assert_eq!(try_begin(id).err(), Some(Blocked::ContentWrite));
+        drop(writer);
+        assert_eq!(try_begin(id).err(), Some(Blocked::TreeRead));
+        drop(reader);
+    }
+
     #[test]
     fn any_active_sees_an_exclusive_and_a_shared_claim() {
         let exclusive = maintenance_begin("any-active-x").expect("free id");
@@ -453,5 +647,17 @@ mod tests {
         let shared = claim_shared_write("any-active-s").expect("free id");
         assert!(any_active());
         drop(shared);
+    }
+
+    #[test]
+    fn any_active_sees_a_long_reader() {
+        // The data-root move copies the root and then DELETES the old one. An
+        // export or a backup of a stopped server is covered by nothing else the
+        // move looks at — no process, no upload claim — and would be left
+        // walking a tree that vanishes under it; a backup is also still writing
+        // its zip under that very root.
+        let reader = claim_shared_read("any-active-r").expect("free id");
+        assert!(any_active());
+        drop(reader);
     }
 }

@@ -21,6 +21,14 @@
 //!     Restore is disabled only on the live process. The restore claimed
 //!     unopposed, because a writer in flight registered nothing anywhere.
 //!
+//! A third one stayed open after that, for the same reason the REVERSE one had
+//! been: the commands whose PRODUCT is a copy of the tree — upload, export,
+//! backup, the upload preflight, a client instance built from the server's
+//! mods, and the backup scheduler, which took no gate at all — opened with the
+//! snapshot and then held nothing, for seconds to hours. A restore started
+//! meanwhile replaced the tree under them and the copy came out torn and
+//! reported as a success. They take a shared READ claim now; rule 3 covers it.
+//!
 //! Why a test and not a comment: the identical rule on the CLIENT side lived as
 //! prose in `datapacks::guard`'s module doc before
 //! `structural_maintenance_gate.rs` pinned it — and this module is where that
@@ -96,6 +104,16 @@ const SNAPSHOT_GATE: &str = "maintenance::not_under_maintenance(";
 /// exclusive claim, and refusing every exclusive claim while held.
 const SHARED_WRITE_GATE: &str = "maintenance::claim_shared_write(";
 
+/// A long reader's SHARED READ claim:
+/// `crate::servers_runtime::maintenance::claim_shared_read(id)` — for an
+/// operation whose PRODUCT is a copy of `runtime/` (upload, export, backup, the
+/// preflight walk, a client instance built from the server's mods). Same matrix
+/// row as the write claim; a kind of its own so a refused restore can say it was
+/// a copy in flight and not an add-on install. It replaces the snapshot these
+/// commands used to open with, which saw a restore already running and was
+/// invisible to one that started later.
+const SHARED_READ_GATE: &str = "maintenance::claim_shared_read(";
+
 /// The exclusive claim, in its cause-reporting spelling:
 /// `crate::servers_runtime::maintenance::try_begin(id)` — the restore's.
 const TRY_BEGIN_GATE: &str = "maintenance::try_begin(";
@@ -117,6 +135,7 @@ const DATAPACKS_DELEGATE: &str = "guard::gate(&";
 const GATE_SPELLINGS: &[&str] = &[
     SNAPSHOT_GATE,
     SHARED_WRITE_GATE,
+    SHARED_READ_GATE,
     TRY_BEGIN_GATE,
     CLAIM_GATE,
     ACTIVE_GATE,
@@ -124,7 +143,26 @@ const GATE_SPELLINGS: &[&str] = &[
 ];
 
 /// The spellings that TAKE a claim — the entries rule 3 applies to.
-const CLAIM_SPELLINGS: &[&str] = &[SHARED_WRITE_GATE, TRY_BEGIN_GATE, CLAIM_GATE];
+const CLAIM_SPELLINGS: &[&str] = &[
+    SHARED_WRITE_GATE,
+    SHARED_READ_GATE,
+    TRY_BEGIN_GATE,
+    CLAIM_GATE,
+];
+
+/// `(file, fn, must-precede, why)` — claim takers for which rule 3's "before the
+/// first `.await`" cannot hold, and what is pinned in its place. A timer loop
+/// sleeps first by construction and claims once per tick, so "first `.await`"
+/// is the sleep. What has to hold instead is that the claim precedes everything
+/// that TICK does to the server — named here as call-site spellings, each of
+/// which must sit BELOW the claim. The claim must still be bound.
+const CLAIM_AFTER_AWAIT_OK: &[(&str, &str, &[&str], &str)] = &[(
+    "commands/servers_runtime.rs",
+    "spawn_backup_scheduler",
+    &["pause_saves_for_backup(", "spawn_blocking("],
+    "a timer loop: `sleep(interval).await` opens every iteration, and the claim is taken \
+     per tick, before the save pause and before the zip is handed to a blocking thread",
+)];
 
 /// `(path relative to src/, fn name, required spelling, why it needs the gate)`.
 const GATED: &[(&str, &str, &str, &str)] = &[
@@ -138,9 +176,23 @@ const GATED: &[(&str, &str, &str, &str)] = &[
     ),
     (
         "servers_runtime/maintenance.rs",
+        "try_begin",
+        "reading.contains_key(",
+        "the exclusive claim must refuse while a long reader is in flight — a restore that \
+         replaces the tree under an upload, an export or a backup tears the copy being made",
+    ),
+    (
+        "servers_runtime/maintenance.rs",
         "claim_shared_write",
         "held.contains(",
         "a per-item writer must refuse while a restore or import holds the server",
+    ),
+    (
+        "servers_runtime/maintenance.rs",
+        "claim_shared_read",
+        "held.contains(",
+        "a long reader must refuse while a restore or import holds the server — a copy of a \
+         half-restored tree is worse than a refusal",
     ),
     (
         "servers_runtime/maintenance.rs",
@@ -392,10 +444,23 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "remove_dir_all of the server root a restore is rewriting inside",
     ),
     // --- reads whose PRODUCT is a copy of the tree ---------------------------
+    // Each reason below is the FORWARD half (the reader starts mid-restore) and
+    // is why the claim refuses under an exclusive one. The reverse half is the
+    // same for all of them and is why it is a CLAIM and not the snapshot it used
+    // to be: they walk `runtime/` for seconds to hours, and a restore that
+    // starts meanwhile must be able to see them.
+    (
+        "commands/servers_runtime.rs",
+        "spawn_backup_scheduler",
+        SHARED_READ_GATE,
+        "the timer twin of server_backup_create — not a #[tauri::command], so the ratchet \
+         cannot see it, and until it was listed here it took no gate at all: a scheduled zip \
+         outlives a Stop click, after which Restore is admitted by its running check",
+    ),
     (
         "commands/servers_runtime.rs",
         "server_backup_create",
-        SNAPSHOT_GATE,
+        SHARED_READ_GATE,
         "zips runtime/ — mid-restore it would snapshot a torn tree AND, through the \
          keep-N prune, evict a good snapshot in favour of it",
     ),
@@ -408,25 +473,25 @@ const GATED: &[(&str, &str, &str, &str)] = &[
     (
         "commands/servers_runtime.rs",
         "server_export_zip",
-        SNAPSHOT_GATE,
+        SHARED_READ_GATE,
         "hands the user a zip of the tree; mid-restore that zip is torn and says nothing about it",
     ),
     (
         "commands/servers_runtime.rs",
         "server_upload",
-        SNAPSHOT_GATE,
+        SHARED_READ_GATE,
         "ships runtime/ to the user's host — uploading a half-restored tree is worse than refusing",
     ),
     (
         "commands/servers_runtime.rs",
         "server_upload_preflight",
-        SNAPSHOT_GATE,
+        SHARED_READ_GATE,
         "walks runtime/ to build the upload plan the upload then trusts",
     ),
     (
         "commands/servers_runtime.rs",
         "server_create_client_instance",
-        SNAPSHOT_GATE,
+        SHARED_READ_GATE,
         "copies the server's mod set into a new client instance",
     ),
 ];
@@ -715,7 +780,30 @@ fn a_claim_is_bound_to_a_named_local_before_the_first_await() {
         }
 
         // (b) it must come before the body's first `.await`: a claim taken after
-        //     the download has already started protects only the tail.
+        //     the download has already started protects only the tail. A timer
+        //     loop cannot meet this; `CLAIM_AFTER_AWAIT_OK` names what its claim
+        //     must precede instead.
+        if let Some((_, _, must_precede, _)) = CLAIM_AFTER_AWAIT_OK
+            .iter()
+            .find(|(f, n, _, _)| f == file && n == name)
+        {
+            for needle in *must_precede {
+                match code_lines_with(&lines, sig, end, needle).first() {
+                    Some(&line) if line > claim_line => {}
+                    Some(&line) => problems.push(format!(
+                        "{file}:{} `{name}` takes the claim AFTER `{needle}` (line {}). \
+                         Everything the tick does before it runs unprotected.",
+                        claim_line + 1,
+                        line + 1
+                    )),
+                    None => problems.push(format!(
+                        "{file} `{name}` no longer carries `{needle}`, which its claim is \
+                         pinned ahead of — update CLAIM_AFTER_AWAIT_OK with what it does now"
+                    )),
+                }
+            }
+            continue;
+        }
         let first_await = code_lines_with(&lines, sig, end, ".await")
             .first()
             .copied()
@@ -734,6 +822,43 @@ fn a_claim_is_bound_to_a_named_local_before_the_first_await() {
         "claim not held for the write.\n\n{}\n\nThe guard IS the protection: it is what a \
          restore starting later can see. Bind it to a named local at the top of the command \
          and let it drop at the end of scope.",
+        problems.join("\n")
+    );
+}
+
+/// An exemption nobody needs any more is a hole waiting for the next fn of that
+/// name: every [`CLAIM_AFTER_AWAIT_OK`] entry must still be a listed claim taker
+/// whose claim really does sit below its first `.await`.
+#[test]
+fn the_await_exemption_list_is_not_stale() {
+    let mut problems: Vec<String> = Vec::new();
+    for (file, name, _, _) in CLAIM_AFTER_AWAIT_OK {
+        let Some((_, _, spelling, _)) = GATED
+            .iter()
+            .find(|(f, n, s, _)| f == file && n == name && CLAIM_SPELLINGS.contains(s))
+        else {
+            problems.push(format!(
+                "{file} `{name}` is excused but is not a listed claim taker"
+            ));
+            continue;
+        };
+        let lines = read_lines(file);
+        let Some((sig, end)) = locate_fn(&lines, name) else {
+            problems.push(format!("{file} `{name}` is excused but no longer exists"));
+            continue;
+        };
+        let claim = code_lines_with(&lines, sig, end, spelling).first().copied();
+        let first_await = code_lines_with(&lines, sig, end, ".await").first().copied();
+        if !matches!((claim, first_await), (Some(c), Some(a)) if c > a) {
+            problems.push(format!(
+                "{file} `{name}` no longer takes its claim after an `.await` — drop the \
+                 exemption so rule 3 applies to it in full"
+            ));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "stale await exemption.\n\n{}",
         problems.join("\n")
     );
 }

@@ -99,6 +99,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   it is switched off — with the reason shown — while a game, a server or
   another operation is running; and its window comes back after the page is
   reloaded.
+- **Restoring a backup could start on top of an upload, an export, a backup or
+  another copy of the same server that was still being made.** It replaced the
+  server's files underneath them, and what came out was a copy made half of
+  the old files and half of the new — reported as a success. A backup was the
+  worst case: the damaged snapshot went into the set and could push a good one
+  out of it. The restore is now refused until such an operation finishes, and
+  says what it is actually waiting for. The same goes for scheduled automatic
+  backups, which used to coordinate with nothing at all.
 
 ### Removed
 

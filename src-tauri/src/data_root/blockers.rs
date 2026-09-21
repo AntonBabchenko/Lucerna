@@ -14,7 +14,7 @@ pub enum RestartBlock {
     None,
     /// A game or server process is live or starting.
     Running,
-    /// A long operation holds a claim (maintenance, shared write, upload, AI pre-fill).
+    /// A long operation holds a claim (maintenance, shared write or read, upload, AI pre-fill).
     Busy,
     /// It could not be checked. Refuses, like the other two.
     Unknown,

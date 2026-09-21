@@ -195,6 +195,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_upload_in_progress: 'clean',
   server_maintenance_in_progress: 'clean',
   server_content_busy: 'clean',
+  server_tree_busy: 'clean',
   upload_cancelled: 'clean',
   server_not_running: 'clean',
   server_mod_required_by_other: 'clean',
@@ -747,6 +748,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverMaintenanceInProgress');
     case 'server_content_busy':
       return translate('errors.serverContentBusy');
+    case 'server_tree_busy':
+      return translate('errors.serverTreeBusy');
     case 'upload_cancelled':
       return translate('errors.uploadCancelled');
     case 'server_not_running':
