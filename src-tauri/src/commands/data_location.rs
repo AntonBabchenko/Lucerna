@@ -240,10 +240,14 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
         // form a cycle.
         if crate::data_root::migrate::contains_reparse_point(&current_probe).map_err(|e| {
             Error::DataLocationMigrationFailed {
+ partial_copy_left: None,
+ restore_incomplete: false,
                 reason: e.to_string(),
             }
         })? {
             return Err(Error::DataLocationMigrationFailed {
+ partial_copy_left: None,
+ restore_incomplete: false,
                 reason:
                     "the data folder contains a symbolic link or junction, which cannot be safely moved"
                         .into(),
@@ -274,6 +278,8 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
     })
     .await
     .map_err(|e| Error::DataLocationMigrationFailed {
+        partial_copy_left: None,
+        restore_incomplete: false,
         reason: format!("migration task panicked: {e}"),
     })??;
 
@@ -497,6 +503,8 @@ fn run_migration(
             &mut copied,
         )
         .map_err(|e| Error::DataLocationMigrationFailed {
+            partial_copy_left: None,
+            restore_incomplete: false,
             reason: e.to_string(),
         })?;
     }
@@ -551,6 +559,8 @@ fn run_migration(
             if let Err(e) = result {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(Error::DataLocationMigrationFailed {
+                        partial_copy_left: None,
+                        restore_incomplete: false,
                         reason: format!("failed to remove old data at {}: {e}", path.display()),
                     });
                 }

@@ -271,6 +271,8 @@ fn verify_copy_depth(
                 .len();
             if src_len != dst_len {
                 return Err(Error::DataLocationMigrationFailed {
+ partial_copy_left: None,
+ restore_incomplete: false,
                     reason: format!(
                         "verification failed for {}: source is {src_len} bytes but the copy is {dst_len} bytes",
                         from.display()

@@ -651,7 +651,8 @@ pub enum Error {
     #[error("SFTP transfer failed: {details}")]
     SftpTransferFailed { details: String },
 
-    /// A data-root relocation was requested while a game or server is running.
+    /// A data-root change was refused because a game or server is running,
+    /// a long operation holds a claim, or that could not be checked.
     #[error("stop running games and servers before moving the data folder")]
     DataLocationBusy,
 
@@ -659,9 +660,23 @@ pub enum Error {
     #[error("invalid data location: {reason}")]
     DataLocationInvalid { reason: String },
 
-    /// The move failed partway; the original data is intact.
+    /// The move did not happen: the launcher still runs from, and will restart
+    /// into, the ORIGINAL folder. `partial_copy_left` names a target the
+    /// cleanup could not remove; `restore_incomplete` is true when a rollback
+    /// step itself failed (the `reason` then says what is left in which state).
     #[error("data location migration failed: {reason}")]
-    DataLocationMigrationFailed { reason: String },
+    DataLocationMigrationFailed {
+        reason: String,
+        partial_copy_left: Option<String>,
+        restore_incomplete: bool,
+    },
+
+    /// A data-creating or launching command was invoked while the data folder
+    /// is being moved (`restart_required: false`) or after it was moved and the
+    /// launcher has not restarted yet (`true`). This process still runs from a
+    /// root that is being, or has been, emptied.
+    #[error("the data folder is being moved; wait for it to finish or restart Lucerna")]
+    DataRelocationInProgress { restart_required: bool },
 
     /// A data-creating or launching command was invoked while the configured
     /// data root is unavailable and the launcher is running from the temporary
@@ -861,6 +876,15 @@ impl Error {
         Self::Io {
             path: path.into(),
             details: cause.to_string(),
+        }
+    }
+
+    /// A move failure that left nothing behind and needed no rollback.
+    pub fn data_move_failed(reason: impl Into<String>) -> Self {
+        Self::DataLocationMigrationFailed {
+            reason: reason.into(),
+            partial_copy_left: None,
+            restore_incomplete: false,
         }
     }
 
@@ -1385,9 +1409,11 @@ mod tests {
     }
 
     #[test]
-    fn data_location_migration_failed_carries_reason() {
+    fn data_location_migration_failed_carries_reason_and_the_two_recovery_facts() {
         let e = Error::DataLocationMigrationFailed {
             reason: "copy interrupted".into(),
+            partial_copy_left: Some("D:\\Games\\LucernaData".into()),
+            restore_incomplete: true,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(
@@ -1398,6 +1424,35 @@ mod tests {
             json.contains(r#""reason":"copy interrupted""#),
             "got: {json}"
         );
+        assert!(
+            json.contains(r#""partial_copy_left":"D:\\Games\\LucernaData""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""restore_incomplete":true"#), "got: {json}");
+    }
+
+    #[test]
+    fn data_move_failed_constructor_means_nothing_was_left_behind() {
+        let e = Error::data_move_failed("verify mismatch");
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""partial_copy_left":null"#), "got: {json}");
+        assert!(
+            json.contains(r#""restore_incomplete":false"#),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn data_relocation_in_progress_says_whether_a_restart_is_required() {
+        let e = Error::DataRelocationInProgress {
+            restart_required: true,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"data_relocation_in_progress""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""restart_required":true"#), "got: {json}");
     }
 
     #[test]
