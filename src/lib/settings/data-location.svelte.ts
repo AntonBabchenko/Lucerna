@@ -27,6 +27,7 @@ import {
   type RelocationStatus,
 } from '$lib/ipc/bindings';
 import { describeStoreError, formatError } from '$lib/ipc/format-error';
+import { fallbackOf } from './fallback-message';
 
 type RestartRequired = Extract<RelocationStatus, { kind: 'restart_required' }>;
 
@@ -146,6 +147,11 @@ export const dataLocation = {
    * blocks on an unknown state before startup has had a chance to report it. */
   get fellBack() {
     return status?.fell_back ?? false;
+  },
+  /** WHY this is a recovery session; null when it is not one (or not known yet). While set,
+   *  `status.effective` is a throwaway session dir and must never be shown or used. */
+  get fallback() {
+    return fallbackOf(status);
   },
   /** The OS-default data folder (where "Reset to default" moves the data); null until loaded. */
   get defaultDir(): string | null {

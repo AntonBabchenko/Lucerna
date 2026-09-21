@@ -195,6 +195,7 @@
     "account": "Account",
     "compactPersistFailed": "Couldn't remember compact mode — Lucerna will open in the previous mode next time",
     "noAccounts": "No accounts yet — add one below.",
+    "noAccountsFallback": "Your accounts are in the data folder, which is unavailable right now.",
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "offline",
     "addOffline": "Add offline",
@@ -204,6 +205,7 @@
     "sectionContent": "Content",
     "sectionView": "View",
     "noInstances": "No instances yet.",
+    "noInstancesFallback": "Your instances are in the data folder, which is unavailable right now.",
     "createInstance": "+ Create",
     "pickMcVersion": "(pick MC)",
     "manage": "Manage",
@@ -2458,7 +2460,9 @@
     "dataLocationContainsLinks": "Lucerna can't move this data folder yet: it contains symbolic links (a Java runtime installed on Linux or macOS uses them). Move the folder yourself with your file manager, then pick it here — Lucerna will switch to it without copying.",
     "dataRelocationInProgress": "The data folder is being moved. Wait for the move to finish.",
     "dataRelocationRestartRequired": "The data folder has been moved. Restart Lucerna to continue.",
-    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching.",
+    "dataLocationUnavailable": "Your data folder is unavailable, so Lucerna can't do that right now. Settings → Storage says why.",
+    "dataLocationFallbackAdoptOnly": "While your data folder is unavailable, you can only point Lucerna at a folder that already holds Lucerna data. Moving data is not possible right now.",
+    "dataLocationRecoverySessionDir": "That folder belongs to Lucerna's temporary session and is deleted when Lucerna closes. Pick the folder that holds your data.",
     "datapackInvalid": "\"{filename}\" isn't a usable datapack. {reason}",
     "datapackInvalidReason": {
       "notAZip": "Minecraft only loads folders and .zip files from a world's datapacks folder.",
@@ -2501,6 +2505,7 @@
     "title": "Settings",
     "closeLabel": "Close settings",
     "closeBackdropLabel": "Close Settings",
+    "fallbackNotice": "Your data folder is unavailable. This is a temporary session: settings changed here are not saved to your data folder.",
     "sections": {
       "appearance": "Appearance",
       "game": "Game",
@@ -2685,7 +2690,10 @@
         "sizeUnknown": "couldn't be measured",
         "changeBtn": "Change location…",
         "resetBtn": "Reset to default",
-        "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected. If the folder is gone for good, press \"Reset to default\" below to detach it — nothing on it is deleted.",
+        "fallbackNotice": "To get back to your data: reconnect or fix the folder and restart Lucerna; or press \"Change location…\" and pick the folder that holds your Lucerna data; or press \"Reset to default\" to detach it — nothing in it is deleted.",
+        "fallbackDetails": "Details: {details}",
+        "temporarySession": "Temporary session",
+        "openLogFolderBtn": "Open log folder",
         "alreadyCurrent": "That folder is already your current data folder.",
         "moveCancelled": "Move cancelled. Nothing was changed.",
         "orphanEnded": "The data folder move stopped before the switch. Your data is still in \"{path}\".",
@@ -2703,7 +2711,8 @@
         "confirm": {
           "moveTitle": "Move data folder?",
           "resetTitle": "Reset to the default location?",
-          "resetPointerOnlyBody": "This detaches the unavailable folder \"{path}\". Nothing on it is deleted — if it ever comes back, its data will still be there. Lucerna will keep using the default location.",
+          "resetPointerOnlyBody": "This detaches the unavailable folder \"{path}\". Nothing in it is deleted — if it ever comes back, its data will still be there. Lucerna will start from \"{landing}\".",
+          "resetPointerOnlyBodyNoPath": "This removes the data-folder setting that couldn't be read (a copy is kept next to it as data-location.corrupt.json). Nothing in your data folder is deleted. Lucerna will start from \"{landing}\".",
           "resetPointerOnlyConfirmBtn": "Detach and restart",
           "resetPointerOnlyRestartNote": "Nothing is copied. The app restarts right away.",
           "moveIntro": "Lucerna will copy your data to the new folder, check the copy, and only then remove it from the current folder.",
@@ -2883,9 +2892,16 @@
       "dismissAriaLabel": "Dismiss crash report banner"
     },
     "dataRootFallback": {
-      "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then. If the folder is gone for good, detach it via Settings → Storage → \"Reset to default\" (nothing on it is deleted).",
+      "reason": {
+        "rootMissing": "Your data folder \"{path}\" can't be found. If it is on a removable drive, reconnect it, then restart Lucerna.",
+        "rootNotWritable": "Lucerna can't use your data folder \"{path}\": it can't be written to. Check the folder, then restart Lucerna.",
+        "rootUnknown": "Lucerna couldn't check your data folder \"{path}\". Restart Lucerna to try again.",
+        "pointerUnusable": "Lucerna couldn't read where your data folder is. Point it at the folder again in Storage settings."
+      },
+      "temporary": "Until then this is a temporary session — nothing here is saved to your data folder.",
+      "storageBtn": "Storage settings",
       "createDisabledReason": "Creating and moving instance data is disabled while the data folder is unavailable.",
-      "playDisabledReason": "Playing is disabled while the data folder is unavailable. Reconnect it and restart Lucerna."
+      "playDisabledReason": "Playing is disabled while the data folder is unavailable."
     },
     "modpackImport": {
       "alreadyInProgress": "A modpack import is already in progress",
