@@ -53,7 +53,7 @@ pub fn shortcut_create(
     target: crate::shortcuts::ShortcutTarget,
     label: String,
 ) -> crate::error::Result<String> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::shortcuts::create(&app, &target, &label)
 }
 

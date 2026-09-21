@@ -170,7 +170,7 @@ pub struct DataRoot(pub Resolved);
 /// fallback. The UI already gates these actions, but a direct IPC call could
 /// bypass that and write into the wrong root — so every create/launch command
 /// calls this at its top as a defence-in-depth backstop.
-pub fn reject_if_fallen_back(app: &tauri::AppHandle) -> crate::error::Result<()> {
+pub fn reject_if_root_unusable(app: &tauri::AppHandle) -> crate::error::Result<()> {
     if app.state::<DataRoot>().0.fell_back {
         return Err(crate::error::Error::DataLocationUnavailable);
     }

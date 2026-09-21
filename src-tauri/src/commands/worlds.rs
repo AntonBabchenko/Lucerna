@@ -182,7 +182,7 @@ pub async fn world_import(
     // Same gate as `backup_world` — see there: running, starting, or under a
     // maintenance claim all refuse.
     crate::instances::maintenance::write_allowed(&instance_id)?;
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     let source = std::path::PathBuf::from(source_path);
     tokio::task::spawn_blocking(move || crate::worlds::import::import_into_saves(&saves, &source))
@@ -323,7 +323,7 @@ pub async fn world_migration_plan(
     world_folder: String,
     to_instance: String,
 ) -> Result<crate::worlds::migrate::MigrationPlan, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     // Defence in depth, same as `open_backups_folder`: the core re-validates
     // through `world_dir_at`, but a dot-name or path-shaped segment is refused
     // here before any listing or library read happens.
@@ -371,7 +371,7 @@ pub async fn world_migrate(
     mode: crate::worlds::migrate::MigrationMode,
     on_progress: tauri::ipc::Channel<crate::worlds::migrate::MigrationProgress>,
 ) -> Result<crate::worlds::migrate::MigrationOutcome, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     // Defence in depth, same as `open_backups_folder`: the core re-validates
     // through `world_dir_at`, but a dot-name or path-shaped segment must never
     // reach the maintenance claim.
