@@ -310,6 +310,19 @@ pub fn process_alive(pid: u32) -> bool {
     }
 }
 
+/// Does a PID's executable look like ours? Tri-state on purpose:
+/// `process_image_matches` answers `false` both for "a different program" and
+/// for "could not be queried" (always, on macOS), which is fine for offering a
+/// fix and wrong for a safety gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageMatch {
+    Yes,
+    No,
+    /// No image source on this platform, access denied, or the process
+    /// exited mid-query.
+    Unknown,
+}
+
 /// Best-effort check that PID's executable image path contains `needle`
 /// (case-insensitive), e.g. "java". Guards against PID recycling: a recycled
 /// PID belonging to an unrelated program must not be treated as our server.
