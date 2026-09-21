@@ -2743,7 +2743,7 @@
           "title": "Data moved — restart to finish",
           "movedTo": "Your data was moved to \"{path}\".",
           "leftoversIntro": "Lucerna could not remove {count, plural, one {# item} other {# items}} from the old folder \"{path}\":",
-          "ownLeftoversNote": "Some of these may belong to the running launcher itself (webview, for example) — Lucerna removes those on its own after the restart.",
+          "ownLeftoversNote": "What is left belongs to the running launcher itself and can't be removed while it is open — Lucerna removes it on its own after the restart.",
           "cleaned": "The leftovers in \"{path}\" have been removed.",
           "intact": "The old copy in \"{path}\" is still complete. You can delete that whole folder.",
           "intactDefaultDir": "The old copy in \"{path}\" is still complete. You can delete everything in that folder except data-location.json.",
