@@ -152,7 +152,7 @@
   // same data-root key as import — a migration writes into ANOTHER instance's
   // saves, which would land in the temporary root while fallen back — and
   // "stop the source first" while it is running. The backend refuses both
-  // regardless (reject_if_fallen_back / WorldMigrateInstanceRunning, which
+  // regardless (reject_if_root_unusable / WorldMigrateInstanceRunning, which
   // also covers a merely STARTING source this tab does not know about); this
   // only keeps the button honest about why it will not work.
   const migrateDisabledReason = $derived.by(() => {

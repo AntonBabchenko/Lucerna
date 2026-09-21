@@ -131,6 +131,16 @@ impl<T> ProcessRegistry<T> {
             .is_empty()
     }
 
+    /// True iff ANY id is mid-start — the window `is_any_running` cannot see,
+    /// which spans Java resolution and a possible JRE download.
+    pub fn is_any_starting(&self) -> bool {
+        !self
+            .starting
+            .lock()
+            .expect("registry starting poisoned")
+            .is_empty()
+    }
+
     pub fn pid_of(&self, id: &str) -> Option<u32> {
         self.running
             .lock()
@@ -209,5 +219,15 @@ mod tests {
         let mut snap = reg.snapshot();
         snap.sort_by_key(|(id, _, _)| id.clone());
         assert_eq!(snap, vec![("a".into(), 1, 2048), ("b".into(), 2, 4096)]);
+    }
+    #[test]
+    fn a_start_claim_is_visible_as_starting_until_it_is_dropped() {
+        let registry: ProcessRegistry<()> = ProcessRegistry::new();
+        assert!(!registry.is_any_starting());
+        let claim = registry.claim_start("inst-1").expect("free id");
+        assert!(registry.is_any_starting());
+        assert!(!registry.is_any_running());
+        drop(claim);
+        assert!(!registry.is_any_starting());
     }
 }

@@ -164,12 +164,8 @@ switch, a relocatable data root, and a guided tour the first time you visit
 Manage / Add-ons / Logs / Modpacks / Worlds / Servers / server management.
 Desktop shortcuts can be created for an instance — or straight into a world
 or onto a saved server — carrying the instance's own picture as their icon.
-`lucerna://` links (Windows only for now) are off until you turn them on in
-Settings → Integrations, which names the exact registry key it writes and
-removes it again when you turn them off; a link can only ever *open* the
-modpack import dialog, never install or launch anything by itself. Showing
-player counts for your saved servers is a separate permission, off by default:
-leave it off and the launcher sends nothing to those hosts.
+Showing player counts for your saved servers is a separate permission, off by
+default: leave it off and the launcher sends nothing to those hosts.
 
 **Transparency** — every outbound HTTP request goes through a single
 chokepoint with a static host allowlist. Every subprocess the launcher

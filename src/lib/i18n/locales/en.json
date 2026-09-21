@@ -2440,7 +2440,7 @@
     "serverImportTooLarge": "That server is too large to import.",
     "serverImportNotAServer": "That folder doesn't look like a Minecraft server (no server jar, loader files, or server.properties).",
     "serverImportStagingExpired": "This import session expired — start the import again.",
-    "dataLocationBusy": "Stop running games and servers before moving the data folder.",
+    "dataLocationBusy": "Lucerna can't do that right now: a game or server is running, another operation is still in progress, or it couldn't check. Stop games and servers, wait for running operations to finish, then try again.",
     "dataLocationInvalid": "That folder can't be used: {reason}",
     "dataLocationInvalidReason": {
       "notAbsolute": "the path must be an absolute folder",
@@ -2451,7 +2451,13 @@
       "notWritable": "it can't be written to",
       "unknown": "it is not a valid location"
     },
-    "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact.",
+    "dataLocationMigrationFailed": "Moving the data folder failed",
+    "dataLocationMigrationUnchanged": "Your data is unchanged in its current folder.",
+    "dataLocationRestoreIncomplete": "Lucerna could not fully undo the switch — check both folders before you restart.",
+    "dataLocationPartialCopyLeft": "A copy of the data was left at \"{path}\". Delete it before trying again.",
+    "dataLocationContainsLinks": "Lucerna can't move this data folder yet: it contains symbolic links (a Java runtime installed on Linux or macOS uses them). Move the folder yourself with your file manager, then pick it here — Lucerna will switch to it without copying.",
+    "dataRelocationInProgress": "The data folder is being moved. Wait for the move to finish.",
+    "dataRelocationRestartRequired": "The data folder has been moved. Restart Lucerna to continue.",
     "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching.",
     "datapackInvalid": "\"{filename}\" isn't a usable datapack. {reason}",
     "datapackInvalidReason": {
@@ -2524,7 +2530,6 @@
         },
         "integrations": {
           "curseforgeKey": "CurseForge API key",
-          "urlScheme": "URL scheme handler",
           "aiTranslation": "AI translation"
         },
         "storage": {
@@ -2560,7 +2565,6 @@
         },
         "integrations": {
           "curseforgeKey": "curseforge api key token",
-          "urlScheme": "url scheme protocol deep link handler",
           "aiTranslation": "ai translation translate provider model api key token gemini anthropic openai groq"
         },
         "storage": {
@@ -2632,16 +2636,6 @@
         "openReleasePage": "Open release page",
         "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page."
       },
-      "urlScheme": {
-        "title": "Links",
-        "label": "Open lucerna:// links with Lucerna",
-        "description": "Lets an \"Open in Lucerna\" link from your browser open the modpack import dialog. A link can only open the dialog — it can never install a pack or start the game on its own.",
-        "registryHint": "Writes one registry key for your user only: {key}. Turning this off removes it.",
-        "unsupported": "Link handling isn't supported on this platform yet. You can still paste a link into the modpack import dialog.",
-        "repointed": "Links currently open a different copy of Lucerna — point them at this one?",
-        "reassert": "Point at this copy",
-        "failed": "Couldn't change the link registration: {message}"
-      },
       "onboarding": {
         "title": "Onboarding",
         "replayBtn": "Replay onboarding tour",
@@ -2685,34 +2679,80 @@
       "cleared": "Cache cleared ({freed} freed)",
       "dataLocation": {
         "heading": "Data location",
-        "description": "Everything Lucerna stores (instances, servers, downloads, accounts) lives under this folder. Moving it copies your existing data to the new location.",
+        "description": "Everything Lucerna stores (instances, servers, downloads, accounts) lives under this folder. Changing the location moves your existing data to the new folder.",
         "currentLabel": "Current folder:",
         "sizeLabel": "Size on disk:",
+        "sizeUnknown": "couldn't be measured",
         "changeBtn": "Change location…",
         "resetBtn": "Reset to default",
         "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected. If the folder is gone for good, press \"Reset to default\" below to detach it — nothing on it is deleted.",
         "alreadyCurrent": "That folder is already your current data folder.",
+        "moveCancelled": "Move cancelled. Nothing was changed.",
+        "orphanEnded": "The data folder move stopped before the switch. Your data is still in \"{path}\".",
+        "keepRedirectNote": "Keep data-location.json there — it tells Lucerna where your data is.",
+        "blocked": {
+          "checking": "Checking whether the data folder can be moved right now…",
+          "running": "A game or server is running. Stop it before moving the data folder.",
+          "busy": "Lucerna is still busy with another operation — an install, a backup, an upload or a translation. Wait for it to finish before moving the data folder.",
+          "unknown": "Lucerna couldn't check whether a game or server is running, so moving the data folder is turned off for now.",
+          "recheckBtn": "Check again"
+        },
+        "resetBlocked": {
+          "intro": "The default folder \"{path}\" still holds {count, plural, one {# item} other {# items}} left over from an earlier move. Delete them yourself, then reset again:"
+        },
         "confirm": {
           "moveTitle": "Move data folder?",
-          "moveBody": "Lucerna will copy {size} of data to \"{path}\", then remove it from the current location.",
           "resetTitle": "Reset to the default location?",
-          "resetBody": "Lucerna will copy {size} of data back to the default folder, then remove it from the current location.",
           "resetPointerOnlyBody": "This detaches the unavailable folder \"{path}\". Nothing on it is deleted — if it ever comes back, its data will still be there. Lucerna will keep using the default location.",
           "resetPointerOnlyConfirmBtn": "Detach and restart",
+          "resetPointerOnlyRestartNote": "Nothing is copied. The app restarts right away.",
+          "moveIntro": "Lucerna will copy your data to the new folder, check the copy, and only then remove it from the current folder.",
+          "resetIntro": "Lucerna will copy your data back to the default folder, check the copy, and only then remove it from the current folder.",
+          "fromLabel": "From:",
+          "toLabel": "To:",
+          "copySizeLabel": "To copy:",
+          "copySizeValue": "about {size}",
+          "freeLabel": "Free there:",
+          "freeUnknown": "Lucerna couldn't check how much free space the target drive has.",
+          "lowSpace": "The target drive may not have enough room: about {required} to copy, {free} free. You can still try — a copy that fails is cleaned up. Or move the folder yourself and then pick it here to switch without copying.",
+          "cancelNote": "You can cancel while files are being copied. After that Lucerna finishes the switch and restarts.",
+          "lucernaDataNote": "Your data goes into a LucernaData subfolder of the folder you picked, so it never mixes with other files there.",
           "adoptTitle": "Use existing data folder?",
           "adoptBody": "\"{path}\" already contains Lucerna data. Lucerna will switch to it without copying, moving, or deleting anything.",
           "adoptCurrentNote": "Your current data ({size} at \"{current}\") will stay on disk but will no longer be used.",
+          "adoptCurrentNoteNoSize": "Your current data (at \"{current}\") will stay on disk but will no longer be used.",
           "adoptRestartNote": "The app will restart to switch to the selected folder.",
           "adoptConfirmBtn": "Switch and restart",
-          "restartNote": "The app will restart once the move finishes.",
           "confirmBtn": "Move and restart"
         },
         "progress": {
           "title": "Moving data folder…",
+          "cancelBtn": "Cancel move",
+          "cancelTooLate": "The copy had already finished, so the move is being completed instead of cancelled.",
+          "cancelFailed": "Couldn't cancel the move: {error}",
+          "barLabel": "Copy progress",
           "preparing": "Preparing…",
           "copying": "Copying files…",
           "verifying": "Verifying copy…",
+          "switching": "Switching to the new folder… It's too late to cancel now.",
           "deleting": "Removing old data…"
+        },
+        "final": {
+          "title": "Data moved — restart to finish",
+          "movedTo": "Your data was moved to \"{path}\".",
+          "leftoversIntro": "Lucerna could not remove {count, plural, one {# item} other {# items}} from the old folder \"{path}\":",
+          "ownLeftoversNote": "What is left belongs to the running launcher itself and can't be removed while it is open — Lucerna removes it on its own after the restart.",
+          "cleaned": "The leftovers in \"{path}\" have been removed.",
+          "intact": "The old copy in \"{path}\" is still complete. You can delete that whole folder.",
+          "intactDefaultDir": "The old copy in \"{path}\" is still complete. You can delete everything in that folder except data-location.json.",
+          "detailsUnknown": "Your data was moved, but Lucerna couldn't load the details of the move.",
+          "restartHint": "Restart Lucerna to start using the new folder.",
+          "retryBtn": "Try again",
+          "openFolderBtn": "Open old folder",
+          "restartBtn": "Restart",
+          "retryFailed": "Couldn't remove the leftovers: {error}",
+          "openFolderFailed": "Couldn't open the folder: {error}",
+          "restartFailed": "Couldn't restart: {error} Close Lucerna and open it again."
         }
       }
     },

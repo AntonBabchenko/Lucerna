@@ -245,6 +245,18 @@ pub fn maintenance_is_active(id: &str) -> bool {
     lock_slots().held.contains(id)
 }
 
+/// True iff ANY id holds an exclusive claim, or has a shared writer or a long
+/// reader in flight. The data-root move refuses while this is true: a claim
+/// means something is working under the root that is about to be copied and
+/// then deleted. A reader counts as much as a writer — an export or a backup of
+/// a stopped server is visible to nothing else the move looks at (no process,
+/// no upload claim), it would be left walking a tree that vanishes under it, and
+/// a backup is also still writing its zip under that very root.
+pub fn any_active() -> bool {
+    let slots = lock_slots();
+    !slots.held.is_empty() || !slots.sharing.is_empty() || !slots.reading.is_empty()
+}
+
 /// The maintenance term of the server write gate, for a writer that performs
 /// ONE short write (a rename, a single `fs::write`) rather than holding the
 /// server across downloads. Refuses with `ServerMaintenanceInProgress` while a
@@ -624,6 +636,28 @@ mod tests {
         assert_eq!(try_begin(id).err(), Some(Blocked::ContentWrite));
         drop(writer);
         assert_eq!(try_begin(id).err(), Some(Blocked::TreeRead));
+        drop(reader);
+    }
+
+    #[test]
+    fn any_active_sees_an_exclusive_and_a_shared_claim() {
+        let exclusive = maintenance_begin("any-active-x").expect("free id");
+        assert!(any_active());
+        drop(exclusive);
+        let shared = claim_shared_write("any-active-s").expect("free id");
+        assert!(any_active());
+        drop(shared);
+    }
+
+    #[test]
+    fn any_active_sees_a_long_reader() {
+        // The data-root move copies the root and then DELETES the old one. An
+        // export or a backup of a stopped server is covered by nothing else the
+        // move looks at — no process, no upload claim — and would be left
+        // walking a tree that vanishes under it; a backup is also still writing
+        // its zip under that very root.
+        let reader = claim_shared_read("any-active-r").expect("free id");
+        assert!(any_active());
         drop(reader);
     }
 }

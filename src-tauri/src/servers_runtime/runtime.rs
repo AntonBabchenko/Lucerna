@@ -110,6 +110,14 @@ pub fn is_starting(id: &str) -> bool {
         .contains(id)
 }
 
+/// True while ANY server's `start` holds its claim (see [`is_starting`]).
+pub fn is_any_starting() -> bool {
+    !starting()
+        .lock()
+        .expect("server starting set poisoned")
+        .is_empty()
+}
+
 /// In-process subscribers to a server's console output, keyed by server id.
 /// `spawn_pump` forwards every line here in addition to the `ServerLogLine`
 /// UI event, so backend code can await a specific console response — e.g. the

@@ -166,9 +166,12 @@ function clonePhase(tr: Translate, task: Task): string | null {
  *  `DataLocationProgressDialog.svelte` (the modal a `data-migration` task
  *  already owns; that component is NOT one of the two being deleted). Its
  *  `null`-phase "preparing" case corresponds exactly to a `data-migration`
- *  task before its first tick: `DataMigrationProgress.phase` is always a
- *  populated string once a tick arrives, so `Task.phase === null` here only
- *  ever means "not ticked yet".
+ *  task before its first tick: `DataMigrationProgress.phase` is the
+ *  `MovePhase` union (`copying | verifying | switching | deleting`) once a
+ *  tick arrives, so `Task.phase === null` here only ever means "not ticked
+ *  yet". `Task.phase` is a plain string, so a new `MovePhase` member must be
+ *  added to this switch by hand; `DataLocationProgressDialog.svelte` is the
+ *  compile-checked consumer.
  *
  *  No adapter currently produces a `data-migration` task — the migration is a
  *  blocking modal that owns the screen, so surfacing it in the strip as well
@@ -183,6 +186,8 @@ function dataMigrationPhase(tr: Translate, task: Task): string | null {
       return tr('settings.storage.dataLocation.progress.copying');
     case 'verifying':
       return tr('settings.storage.dataLocation.progress.verifying');
+    case 'switching':
+      return tr('settings.storage.dataLocation.progress.switching');
     case 'deleting':
       return tr('settings.storage.dataLocation.progress.deleting');
     default:

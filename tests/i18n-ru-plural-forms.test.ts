@@ -240,3 +240,35 @@ describe('page.modpackImport.partialFailure', () => {
     );
   });
 });
+
+// The data-folder move lists what it could not remove ("N items"). «элемент» is masculine like
+// «файл», but the reset-blocked sentence also conjugates its VERB with the count («остался 1» /
+// «осталось 2»), which a noun-only plural would get wrong.
+const MOVE_ITEM_FORMS: ReadonlyArray<[count: number, noun: string, verb: string]> = [
+  [1, 'элемент', 'остался'],
+  [2, 'элемента', 'осталось'],
+  [5, 'элементов', 'осталось'],
+  [11, 'элементов', 'осталось'], // 11-14 take the genitive plural
+  [21, 'элемент', 'остался'],
+];
+
+describe('settings.storage.dataLocation — leftover counts', () => {
+  it.each(MOVE_ITEM_FORMS)('agrees in Russian at %i (%s)', (count, noun, verb) => {
+    locale.set('ru');
+    const tr = get(t);
+    expect(
+      tr('settings.storage.dataLocation.final.leftoversIntro', { count, path: 'D:\\Old' }),
+    ).toBe(`Lucerna не смогла удалить ${count} ${noun} из старой папки «D:\\Old»:`);
+    expect(tr('settings.storage.dataLocation.resetBlocked.intro', { count, path: 'C:\\Def' })).toBe(
+      `В папке по умолчанию «C:\\Def» ${verb} ${count} ${noun} от прошлого переноса. Удалите их вручную и повторите сброс:`,
+    );
+  });
+
+  it('keeps the English singular/plural pair', () => {
+    locale.set('en');
+    const intro = (count: number) =>
+      get(t)('settings.storage.dataLocation.final.leftoversIntro', { count, path: 'D:\\Old' });
+    expect(intro(1)).toBe('Lucerna could not remove 1 item from the old folder "D:\\Old":');
+    expect(intro(3)).toBe('Lucerna could not remove 3 items from the old folder "D:\\Old":');
+  });
+});

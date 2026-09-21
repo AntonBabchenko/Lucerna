@@ -1,53 +1,44 @@
-//! `lucerna://` URL-scheme registration with the OS.
+//! `lucerna://` URL-scheme key: detection and removal only.
 //!
-//! Windows only in v1 (see the design spec §4.5): per-user
-//! `HKCU\Software\Classes\lucerna`, matching the installer's current-user
-//! install mode — no elevation, no machine-wide change. Linux needs a
-//! `.desktop` handler plus a MIME-database refresh and varies by desktop
-//! environment; macOS needs `CFBundleURLTypes` in `Info.plist`. Neither can be
-//! verified on the maintainer's machine, so both report `Unsupported` rather
-//! than shipping untested OS integration.
+//! Versions 0.21.0–0.24.x offered an opt-in toggle (Settings → Integrations)
+//! that registered the scheme per-user under `HKCU\Software\Classes\lucerna`.
+//! Nothing ever produced such links, so the toggle was retired. This module
+//! contains no code that creates or updates the key — it can only tell whether a
+//! key exists and whom it points at (`state`), remove it (`unregister`), and
+//! decide whether removal is ours to do (`retire_action`). The orchestration
+//! lives in `crate::url_scheme_retire`.
 //!
-//! Registration is **opt-in** (Settings → General, default off). Writing to a
-//! user's registry unasked is the kind of surprise this project refuses, and the
-//! paste-a-URL half of import-by-link works with no registration at all.
+//! The receiving side is unaffected: `cli::parse` still demotes any command
+//! line carrying a `lucerna:` token to an untrusted `OpenUrl`, so a key that is
+//! still present on some machine keeps opening the import dialog and nothing
+//! more.
+//!
+//! Windows only; every other OS reports `Unsupported`.
 
-use serde::Serialize;
-use specta::Type;
 use std::path::Path;
 
-/// Registry key (under `HKCU`) that owns the scheme. Named here so the Settings
-/// UI can show the user exactly what gets written.
+/// Registry key (under `HKCU`) that owned the scheme.
 pub const SCHEME_KEY: &str = "Software\\Classes\\lucerna";
 
-/// Human-readable key description Explorer shows for the scheme.
-const SCHEME_DESCRIPTION: &str = "URL:Lucerna modpack link";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemeState {
     /// Registered, pointing at this exe.
     Registered,
-    /// Registered by a Lucerna at a different path — moved, reinstalled, or a
-    /// portable copy. Distinguished from `Registered` so the app can re-assert
-    /// the key instead of leaving links pointing at a stale binary.
+    /// Registered with a command that names a different path — a moved or
+    /// reinstalled Lucerna, a portable copy, or a command we did not write.
     RegisteredToOtherPath,
+    /// The registry answered, and there is no key.
     NotRegistered,
-    /// This OS has no per-user scheme registration we support.
+    /// The registry could not be read (access denied, policy, a transient
+    /// failure). Deliberately NOT folded into `NotRegistered`: "could not tell"
+    /// must not be acted on as "absent" — see `retire_action`.
+    Unknown,
+    /// This OS has no per-user scheme registration we ever supported.
     Unsupported,
 }
 
-/// The exact `shell\open\command` value. `%1` is the URL the shell substitutes;
-/// both it and the exe path are quoted so a URL (or an install path) containing
-/// a space cannot split into extra argv entries. Pure, so it is asserted on
-/// every platform.
-pub fn command_value(exe: &Path) -> String {
-    format!("\"{}\" \"%1\"", exe.display())
-}
-
 /// The exe path recorded inside a `shell\open\command` value, if the value has
-/// the shape [`command_value`] writes. Lets `state` tell `Registered` from
-/// `RegisteredToOtherPath` without a second parser.
+/// the shape the old registration wrote: `"<exe>" "%1"`.
 pub fn exe_from_command_value(value: &str) -> Option<&str> {
     let rest = value.strip_prefix('"')?;
     let end = rest.find('"')?;
@@ -56,19 +47,6 @@ pub fn exe_from_command_value(value: &str) -> Option<&str> {
         return None;
     }
     Some(exe)
-}
-
-/// Register the scheme for the current user, pointing at `exe`. Idempotent.
-pub fn register(exe: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    {
-        win::register(exe)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = exe;
-        Err(unsupported_io())
-    }
 }
 
 /// Remove the scheme registration for the current user. Succeeds when the key
@@ -80,7 +58,10 @@ pub fn unregister() -> std::io::Result<()> {
     }
     #[cfg(not(windows))]
     {
-        Err(unsupported_io())
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "URL-scheme registration was Windows-only",
+        ))
     }
 }
 
@@ -97,86 +78,87 @@ pub fn state(exe: &Path) -> SchemeState {
     }
 }
 
-#[cfg(not(windows))]
-fn unsupported_io() -> std::io::Error {
-    std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "URL-scheme registration is Windows-only in this version",
-    )
+/// What the one-time retirement of the scheme registration should do for one
+/// (consent flag, OS state) pair. The table and its reasoning live in the design
+/// spec `2026-09-21-retire-url-scheme-design.md` §5.1; the orchestration is
+/// `crate::url_scheme_retire`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetireAction {
+    /// Touch nothing: there is no key, or the key is not provably ours.
+    Nothing,
+    /// No key to remove, but the consent flag is still set — settle the record.
+    ClearFlagOnly,
+    /// Remove the key, then clear the consent flag if it was set.
+    RemoveKey,
+}
+
+pub fn retire_action(opted_in: bool, state: SchemeState) -> RetireAction {
+    // Exhaustive over `SchemeState` on purpose (no `_` arm on the state): a new
+    // variant must be given an answer here rather than inheriting one.
+    match (state, opted_in) {
+        // The command has the exact shape we wrote and names this binary.
+        (SchemeState::Registered, _) => RetireAction::RemoveKey,
+        // The user consented through this data root, and the old startup
+        // self-heal would have overwritten this key anyway.
+        (SchemeState::RegisteredToOtherPath, true) => RetireAction::RemoveKey,
+        // Not provably ours: another product named Lucerna, or another copy
+        // with its own settings. When we cannot tell, we do not delete.
+        (SchemeState::RegisteredToOtherPath, false) => RetireAction::Nothing,
+        (SchemeState::NotRegistered, true) => RetireAction::ClearFlagOnly,
+        (SchemeState::NotRegistered, false) => RetireAction::Nothing,
+        // "Could not tell" is not "absent". Deleting is obviously out — but so is
+        // clearing the flag: it is the only record that lets a later start
+        // finish the job, and once it reads `false` a key that is really there
+        // would never be looked at again. Touch nothing; the next start retries.
+        (SchemeState::Unknown, _) => RetireAction::Nothing,
+        (SchemeState::Unsupported, _) => RetireAction::Nothing,
+    }
 }
 
 #[cfg(windows)]
 mod win {
-    use super::{command_value, exe_from_command_value, SchemeState, SCHEME_DESCRIPTION};
+    use super::{exe_from_command_value, SchemeState};
     use std::io;
     use std::path::Path;
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_SUCCESS};
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyW, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW,
-        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, REG_SZ,
+        RegCloseKey, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+        KEY_READ,
     };
 
     const SCHEME_KEY: &str = super::SCHEME_KEY;
-    const ICON_KEY: &str = "Software\\Classes\\lucerna\\DefaultIcon";
     const COMMAND_KEY: &str = "Software\\Classes\\lucerna\\shell\\open\\command";
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Write one REG_SZ value (`name = None` → the key's default value) into
-    /// `HKCU\<subkey>`, creating the key and any missing parents.
-    ///
-    /// SAFETY (applies to the whole body): standard Win32 registry FFI. Every
-    /// pointer is to a local that outlives its call, sizes are passed in bytes
-    /// as the API expects, and the key opened by `RegCreateKeyW` is closed on
-    /// both the success and error paths.
-    fn write_sz(subkey: &str, name: Option<&str>, value: &str) -> io::Result<()> {
-        let subkey_w = wide(subkey);
-        let name_w = name.map(wide);
-        let data = wide(value);
-        unsafe {
-            let mut hkey: HKEY = std::ptr::null_mut();
-            // RegCreateKeyW creates all missing intermediate keys and needs no
-            // Win32_Security feature (same reason gpu.rs uses it).
-            let rc = RegCreateKeyW(HKEY_CURRENT_USER, subkey_w.as_ptr(), &mut hkey);
-            if rc != ERROR_SUCCESS {
-                return Err(io::Error::from_raw_os_error(rc as i32));
-            }
-            // REG_SZ byte count includes the NUL terminator `wide` appended.
-            let bytes = (data.len() * 2) as u32;
-            let rc = RegSetValueExW(
-                hkey,
-                name_w
-                    .as_ref()
-                    .map(|n| n.as_ptr())
-                    .unwrap_or(std::ptr::null()),
-                0,
-                REG_SZ,
-                data.as_ptr() as *const u8,
-                bytes,
-            );
-            RegCloseKey(hkey);
-            if rc == ERROR_SUCCESS {
-                Ok(())
-            } else {
-                Err(io::Error::from_raw_os_error(rc as i32))
-            }
-        }
+    /// What reading a key's default string value found. Three answers, because
+    /// "the key is absent" and "the registry would not tell us" lead to
+    /// different actions (Fallback discipline: discrimination).
+    enum DefaultSz {
+        /// The key does not exist.
+        Absent,
+        /// The key exists. The string is empty when it has no default value or
+        /// one longer than any command we ever wrote — i.e. present, not ours.
+        Present(String),
+        /// The registry could not be read.
+        Failed,
     }
 
-    /// Read a key's default REG_SZ value. `None` on any error (absent key,
-    /// absent value, wrong type).
-    fn read_default_sz(subkey: &str) -> Option<String> {
+    fn read_default_sz(subkey: &str) -> DefaultSz {
         let subkey_w = wide(subkey);
-        // SAFETY: as `write_sz` — locals outlive the calls, `len` is a byte
-        // count, and the opened key is closed before returning.
+        // SAFETY: standard Win32 registry FFI. Every pointer is to a local that
+        // outlives its call, `len` is a byte count as the API expects, and the
+        // opened key is closed before returning.
         unsafe {
             let mut hkey: HKEY = std::ptr::null_mut();
-            if RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey)
-                != ERROR_SUCCESS
-            {
-                return None;
+            let rc = RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey);
+            if rc == ERROR_FILE_NOT_FOUND {
+                return DefaultSz::Absent;
+            }
+            if rc != ERROR_SUCCESS {
+                return DefaultSz::Failed;
             }
             let mut buf = [0u16; 1024];
             let mut len = (buf.len() * 2) as u32;
@@ -189,25 +171,19 @@ mod win {
                 &mut len,
             );
             RegCloseKey(hkey);
+            if rc == ERROR_FILE_NOT_FOUND || rc == ERROR_MORE_DATA {
+                // The key is there, but it has no default value, or one that
+                // does not fit a buffer far larger than any path we wrote.
+                // Either way: a key exists and its command is not ours.
+                return DefaultSz::Present(String::new());
+            }
             if rc != ERROR_SUCCESS {
-                return None;
+                return DefaultSz::Failed;
             }
             // `len` counts bytes including the NUL terminator; drop it.
             let chars = (len as usize / 2).saturating_sub(1);
-            Some(String::from_utf16_lossy(&buf[..chars]))
+            DefaultSz::Present(String::from_utf16_lossy(&buf[..chars]))
         }
-    }
-
-    pub fn register(exe: &Path) -> io::Result<()> {
-        // Order matters only for tidiness: the scheme key itself first, so a
-        // half-written registration is still recognisable as ours.
-        write_sz(SCHEME_KEY, None, SCHEME_DESCRIPTION)?;
-        // `URL Protocol` is the empty-string marker that makes the shell treat
-        // this key as a URL scheme handler at all.
-        write_sz(SCHEME_KEY, Some("URL Protocol"), "")?;
-        write_sz(ICON_KEY, None, &format!("{},0", exe.display()))?;
-        write_sz(COMMAND_KEY, None, &command_value(exe))?;
-        Ok(())
     }
 
     pub fn unregister() -> io::Result<()> {
@@ -224,12 +200,14 @@ mod win {
     }
 
     pub fn state(exe: &Path) -> SchemeState {
-        let Some(command) = read_default_sz(COMMAND_KEY) else {
-            return SchemeState::NotRegistered;
+        let command = match read_default_sz(COMMAND_KEY) {
+            DefaultSz::Absent => return SchemeState::NotRegistered,
+            DefaultSz::Failed => return SchemeState::Unknown,
+            DefaultSz::Present(command) => command,
         };
         match exe_from_command_value(&command) {
             // Windows paths are case-insensitive, so a case difference is the
-            // same binary, not a stale registration.
+            // same binary, not a different registration.
             Some(registered) if registered.eq_ignore_ascii_case(&exe.display().to_string()) => {
                 SchemeState::Registered
             }
@@ -243,33 +221,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_value_quotes_the_exe_and_the_url_placeholder() {
-        let v = command_value(Path::new(r"C:\Program Files\Lucerna\lucerna.exe"));
-        assert_eq!(v, r#""C:\Program Files\Lucerna\lucerna.exe" "%1""#);
-    }
-
-    #[test]
-    fn exe_round_trips_out_of_a_command_value() {
-        // A path with a space is the case the quoting exists for.
-        let exe = r"C:\Users\A B\lucerna.exe";
-        let v = command_value(Path::new(exe));
-        assert_eq!(exe_from_command_value(&v), Some(exe));
+    fn exe_is_read_out_of_a_command_value_with_a_space_in_the_path() {
+        // The shape the retired registration wrote: both halves quoted so a
+        // path with a space stays one token.
+        assert_eq!(
+            exe_from_command_value(r#""C:\Users\A B\lucerna.exe" "%1""#),
+            Some(r"C:\Users\A B\lucerna.exe")
+        );
     }
 
     #[test]
     fn a_command_value_we_did_not_write_yields_no_exe() {
         // Unquoted, empty, and non-command values must not be mistaken for ours
-        // — `state` treats "no exe" as a stale registration to re-assert.
+        // — `state` reports "no exe" as a key that points somewhere else.
         assert_eq!(exe_from_command_value("lucerna.exe %1"), None);
         assert_eq!(exe_from_command_value(""), None);
         assert_eq!(exe_from_command_value("\"\" \"%1\""), None);
         assert_eq!(exe_from_command_value("\"unterminated"), None);
-    }
-
-    #[test]
-    fn the_documented_key_matches_what_register_writes() {
-        // The Settings UI shows SCHEME_KEY to the user; it must be the real key.
-        assert_eq!(SCHEME_KEY, "Software\\Classes\\lucerna");
     }
 
     #[cfg(not(windows))]
@@ -279,7 +247,73 @@ mod tests {
             state(Path::new("/usr/bin/lucerna")),
             SchemeState::Unsupported
         );
-        assert!(register(Path::new("/usr/bin/lucerna")).is_err());
         assert!(unregister().is_err());
+    }
+
+    #[test]
+    fn a_key_pointing_at_this_exe_is_removed_whatever_the_flag_says() {
+        // The command has the exact shape we wrote and names this binary, so it
+        // is provably ours even when the consent record was lost or reset.
+        assert_eq!(
+            retire_action(true, SchemeState::Registered),
+            RetireAction::RemoveKey
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Registered),
+            RetireAction::RemoveKey
+        );
+    }
+
+    #[test]
+    fn a_key_pointing_elsewhere_is_removed_only_with_recorded_consent() {
+        assert_eq!(
+            retire_action(true, SchemeState::RegisteredToOtherPath),
+            RetireAction::RemoveKey
+        );
+        // No consent on record and the key names another binary: it may belong
+        // to another product or another copy with its own settings. Leave it.
+        assert_eq!(
+            retire_action(false, SchemeState::RegisteredToOtherPath),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn with_no_key_only_a_stale_consent_flag_is_settled() {
+        assert_eq!(
+            retire_action(true, SchemeState::NotRegistered),
+            RetireAction::ClearFlagOnly
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::NotRegistered),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn an_unreadable_registry_touches_neither_the_key_nor_the_flag() {
+        // "Could not tell" is not "absent". Clearing the consent flag on a failed
+        // read would orphan a key that is really there: the next start would see
+        // flag=false and never look at it again.
+        assert_eq!(
+            retire_action(true, SchemeState::Unknown),
+            RetireAction::Nothing
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Unknown),
+            RetireAction::Nothing
+        );
+    }
+
+    #[test]
+    fn unsupported_platforms_are_never_touched() {
+        assert_eq!(
+            retire_action(true, SchemeState::Unsupported),
+            RetireAction::Nothing
+        );
+        assert_eq!(
+            retire_action(false, SchemeState::Unsupported),
+            RetireAction::Nothing
+        );
     }
 }

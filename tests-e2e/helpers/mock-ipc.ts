@@ -168,12 +168,29 @@ export type MockState = {
   installed_mods?: MockInstalledMod[];
   /** Servers returned by server_list; defaults to empty. */
   servers?: ServerWithStatus_Serialize[];
-  /** get_data_location result (Settings → Storage). */
-  data_location?: { effective: string; configured: string | null; fell_back: boolean };
+  /** get_data_location result (Settings → Storage). `default_dir` and `relocation` are filled in
+   *  by the handler when a spec leaves them out. A spec that sets a `restart_required`
+   *  relocation must give the FULL generated shape, including `old_root_is_default` and
+   *  `retry_possible` — the final dialog reads both. */
+  data_location?: {
+    effective: string;
+    configured: string | null;
+    fell_back: boolean;
+    default_dir?: string;
+    relocation?: unknown;
+  };
   /** plugin:dialog|open result (the OS directory picker). null = cancelled. */
   picked_directory?: string | null;
-  /** plan_data_location_change result; null = command unused by the spec. */
-  data_location_plan?: { kind: 'adopt' | 'migrate' | 'already_current'; path: string } | null;
+  /** plan_data_location_change result; null = command unused by the spec. A `migrate` plan gets
+   *  `required_bytes` / `free_bytes` from the handler when it leaves them out. */
+  data_location_plan?: {
+    kind: 'adopt' | 'migrate' | 'already_current';
+    path: string;
+    required_bytes?: number;
+    free_bytes?: number | null;
+  } | null;
+  /** restart_blocked answer. The move buttons are enabled only on an exact 'none'. */
+  restart_block?: 'none' | 'running' | 'busy' | 'unknown';
   /**
    * `scan_instance_mod_compat` result — the shared offline compat scan
    * (ModLocalCompat[]). An entry with `platform_mismatch: true` makes the
@@ -280,6 +297,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         data_location: { effective: 'C:\\Default\\Data', configured: null, fell_back: false },
         picked_directory: null,
         data_location_plan: null,
+        restart_block: 'none',
         compat_scan: [],
         migration_plan: {
           fits: [],
@@ -470,11 +488,30 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // Data-root location (Settings → Storage). `open` is the
         // plugin:dialog|open directory picker — the prefix stripper below
         // reduces it to its bare name.
-        get_data_location: () => m.data_location,
+        get_data_location: () => ({
+          default_dir: 'C:\\Default\\Data',
+          relocation: { kind: 'idle' },
+          ...m.data_location,
+        }),
         data_root_size_bytes: () => 4096,
-        plan_data_location_change: () => m.data_location_plan,
+        restart_blocked: () => m.restart_block,
+        plan_data_location_change: () =>
+          m.data_location_plan?.kind === 'migrate'
+            ? { required_bytes: 4096, free_bytes: 64 * 1024 ** 3, ...m.data_location_plan }
+            : m.data_location_plan,
+        plan_data_location_reset: () => ({
+          path: 'C:\\Default\\Data',
+          pointer_only: false,
+          required_bytes: 4096,
+          free_bytes: 64 * 1024 ** 3,
+          blocking_entries: [],
+        }),
         adopt_data_location: () => null,
-        set_data_location: () => null,
+        // A clean move never returns — the backend restarts the app. Resolving `null` here would
+        // make the UI throw on `data.kind`.
+        set_data_location: () => new Promise(() => {}),
+        cancel_data_location_move: () => null,
+        open_data_move_leftovers: () => null,
         open: () => m.picked_directory,
 
         // Log files / diagnoser — return empty/null so the Logs popover

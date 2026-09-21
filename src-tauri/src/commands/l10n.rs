@@ -363,7 +363,7 @@ pub async fn l10n_apply(
     instance_id: String,
     lang: String,
 ) -> Result<bool, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
     crate::l10n::apply::rebuild_pack(&app, &instance_id, &lang).await
 }
@@ -442,7 +442,7 @@ pub async fn l10n_prefill_start(
     namespace: Option<String>,
     on_progress: Channel<PrefillProgress>,
 ) -> Result<RunSummary, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     // The run finishes by rebuilding the pack inside the instance and touching
     // `options.txt` — the same files `l10n_apply` refuses to write while the
     // game is running, for the same reason.
@@ -565,7 +565,7 @@ pub async fn l10n_revert_machine(
     lang: String,
     namespace: String,
 ) -> Result<u32, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     apply_write_allowed(crate::launch::spawn::is_running(&instance_id))?;
     validate_override_identifiers(&namespace, &lang)?;
 
@@ -784,7 +784,7 @@ pub async fn l10n_export(
     note: String,
     dest_path: String,
 ) -> Result<(), crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     validate_override_identifiers("", &lang)?;
     if namespaces.is_empty() {
         return Err(crate::error::Error::L10nShareNothingToExport);
@@ -862,7 +862,7 @@ pub async fn l10n_import_bundle(
     path: String,
     policy: ConflictPolicy,
 ) -> Result<ImportResult, crate::error::Error> {
-    crate::data_root::reject_if_fallen_back(&app)?;
+    crate::data_root::reject_if_root_unusable(&app)?;
     if crate::l10n::prefill::cancel::any_active() {
         return Err(crate::error::Error::L10nSharePrefillActive);
     }

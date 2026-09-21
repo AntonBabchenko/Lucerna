@@ -27,18 +27,30 @@ vi.mock('$lib/ipc/bindings', () => ({
     // StoragePanel calls dataLocation.init() -> getDataLocation() on mount.
     getDataLocation: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { effective: '/data', configured: null, fell_back: false },
+      data: {
+        effective: '/data',
+        configured: null,
+        fell_back: false,
+        default_dir: '/default',
+        relocation: { kind: 'idle' },
+      },
     }),
-    // Data-root size is loaded lazily via its own command (split from
-    // getDataLocation so startup never walks the whole tree).
+    // Data-root size is loaded lazily via its own command (split from getDataLocation so startup
+    // never walks the whole tree).
     dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 4096 }),
-    setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    // The picker flow asks the backend to classify the picked folder before
-    // any dialog opens; adopt commits through its own command.
+    // The move buttons are enabled ONLY on an exact 'none'.
+    restartBlocked: vi.fn().mockResolvedValue('none'),
+    // A clean move never returns — the backend restarts the app. A resolved `null` (the old
+    // mock) would now throw on `data.kind`.
+    setDataLocation: vi.fn().mockReturnValue(new Promise(() => {})),
+    // Both flows ask the backend for a plan before any dialog opens; adopt commits through its
+    // own command.
     planDataLocationChange: vi.fn(),
+    planDataLocationReset: vi.fn(),
     adoptDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
-  // confirmPending subscribes to migration progress for migrate/reset.
+  // Kept although the panel no longer subscribes: the dataLocation store imports `events`, and
+  // only the app-level host ever calls attach().
   events: {
     dataMigrationProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
   },
@@ -50,6 +62,9 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 const { pushSuccess } = vi.hoisted(() => ({ pushSuccess: vi.fn() }));
 vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess }));
 
+import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
+import { commands } from '$lib/ipc/bindings';
+import { dataLocation } from '$lib/settings/data-location.svelte';
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
 
 describe('StoragePanel', () => {
@@ -206,7 +221,12 @@ describe('StoragePanel — data location change planning', () => {
   it('keeps the classic move flow when the backend plans a migration', async () => {
     const mod = await pickAndPlan('D:\\Games', {
       status: 'ok',
-      data: { kind: 'migrate', path: 'D:\\Games\\LucernaData' },
+      data: {
+        kind: 'migrate',
+        path: 'D:\\Games\\LucernaData',
+        required_bytes: 4096,
+        free_bytes: 1024 ** 4,
+      },
     });
     expect(screen.getByText('Move data folder?')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Move and restart' }));
@@ -229,8 +249,10 @@ describe('StoragePanel — data location change planning', () => {
 
     render(StoragePanel);
     await new Promise((r) => setTimeout(r, 0));
+    // Regex name: the button is a BusyButton now, and while the plan is in flight its Spinner
+    // (role="status", "Loading…") joins the accessible name.
     const changeBtn = () =>
-      screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement;
+      screen.getByRole('button', { name: /Change location…/ }) as HTMLButtonElement;
     await fireEvent.click(changeBtn());
     await new Promise((r) => setTimeout(r, 0));
     // The button is disabled for the whole planning window, and a re-click
@@ -266,12 +288,24 @@ describe('StoragePanel — data location change planning', () => {
         effective: 'C:\\Users\\u\\AppData\\Roaming\\com.lucerna.app',
         configured: 'C:\\Games\\LucernaData',
         fell_back: true,
+        default_dir: 'C:\\Users\\u\\AppData\\Roaming\\com.lucerna.app',
+        relocation: { kind: 'idle' },
+      },
+    });
+    // Reset plans first: while fallen back the backend answers "pointer only".
+    (mod.commands.planDataLocationReset as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        path: 'C:\\Users\\u\\AppData\\Roaming\\com.lucerna.app',
+        pointer_only: true,
+        required_bytes: 0,
+        free_bytes: null,
+        blocking_entries: [],
       },
     });
     // The dataLocation store is a module singleton whose init() no-ops after
     // the first load — earlier tests already loaded configured:null. Force a
     // refresh so this test's status is actually applied.
-    const { dataLocation } = await import('$lib/settings/data-location.svelte');
     await dataLocation.refresh();
 
     render(StoragePanel);
@@ -289,6 +323,8 @@ describe('StoragePanel — data location change planning', () => {
     ).toBe(true);
 
     await fireEvent.click(resetBtn);
+    // The dialog opens once the reset plan has resolved.
+    await new Promise((r) => setTimeout(r, 0));
     // Pointer-only copy: names the dead folder and promises no data move —
     // the normal reset body ("will copy … back") would be a lie here. The
     // path shows up twice by design: the fallback notice AND the dialog body.
@@ -298,5 +334,276 @@ describe('StoragePanel — data location change planning', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Detach and restart' }));
     await new Promise((r) => setTimeout(r, 0));
     expect(mod.commands.setDataLocation).toHaveBeenCalledWith(null);
+  });
+});
+
+const mock = (f: unknown) => f as ReturnType<typeof vi.fn>;
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const GIB = 1024 ** 3;
+// The full generated `restart_required` shape (both verdicts are the backend's).
+const FINAL = {
+  kind: 'restart_required',
+  old_root: 'C:\\Old',
+  new_root: 'D:\\Games\\LucernaData',
+  leftovers: ['logs'],
+  old_root_intact: false,
+  old_root_is_default: false,
+  retry_possible: true,
+};
+const MOVE_PLAN = {
+  kind: 'migrate',
+  path: 'D:\\Games\\LucernaData',
+  required_bytes: 4096,
+  free_bytes: 10 * GIB,
+};
+const RESET_PLAN = {
+  path: 'C:\\Default',
+  pointer_only: false,
+  required_bytes: 4096,
+  free_bytes: 10 * GIB,
+  blocking_entries: [] as string[],
+};
+const LINKS = {
+  status: 'error',
+  error: { kind: 'data_location_invalid', reason: 'contains_links' },
+};
+const status = (over: Record<string, unknown> = {}) => ({
+  status: 'ok',
+  data: {
+    effective: 'C:\\Old',
+    configured: 'C:\\Old',
+    fell_back: false,
+    default_dir: 'C:\\Default',
+    relocation: { kind: 'idle' },
+    ...over,
+  },
+});
+
+// `dataLocation` is a module singleton and earlier tests leave persistent mockResolvedValues
+// behind — start every case from one known state.
+async function resetIpc() {
+  vi.clearAllMocks();
+  mock(commands.modsCacheSizeBytes).mockResolvedValue({ status: 'ok', data: 0 });
+  mock(commands.getDataLocation).mockResolvedValue(status());
+  mock(commands.dataRootSizeBytes).mockResolvedValue({ status: 'ok', data: 4096 });
+  mock(commands.restartBlocked).mockResolvedValue('none');
+  mock(commands.setDataLocation).mockReturnValue(new Promise(() => {}));
+  mock(commands.planDataLocationChange).mockResolvedValue({ status: 'ok', data: MOVE_PLAN });
+  mock(commands.planDataLocationReset).mockResolvedValue({ status: 'ok', data: RESET_PLAN });
+  mock(dialogOpen).mockResolvedValue('D:\\Games');
+  await dataLocation.refresh();
+}
+
+// Regex names: both are BusyButtons, and a busy one holds its Spinner (role="status",
+// "Loading…"), which joins the accessible name while the plan is in flight.
+const change = () => screen.getByRole('button', { name: /Change location…/ }) as HTMLButtonElement;
+const reset = () => screen.getByRole('button', { name: /Reset to default/ }) as HTMLButtonElement;
+const settled = async () => {
+  await flush();
+  await flush();
+};
+
+async function mountPanel() {
+  render(StoragePanel);
+  await settled();
+}
+
+async function confirmMove() {
+  await fireEvent.click(change());
+  await settled();
+  await fireEvent.click(screen.getByRole('button', { name: 'Move and restart' }));
+  await settled();
+}
+
+describe('StoragePanel — the move is enabled only on an exact "none"', () => {
+  beforeEach(resetIpc);
+
+  it('enables both buttons and shows no reason', async () => {
+    await mountPanel();
+    expect(change().disabled || reset().disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
+  });
+
+  it.each([
+    ['running', /A game or server is running/],
+    ['busy', /still busy with another operation/],
+    ['unknown', /couldn't check whether a game or server is running/],
+    ['a_token_from_the_future', /couldn't check whether/],
+    [true, /couldn't check whether/], // the pre-change boolean
+    [null, /couldn't check whether/],
+  ])('blocks both buttons with one reason when the answer is %s', async (answer, reason) => {
+    mock(commands.restartBlocked).mockResolvedValue(answer);
+    await mountPanel();
+    expect(change().disabled && reset().disabled).toBe(true);
+    expect(screen.getByText(reason)).toBeTruthy();
+  });
+
+  it('reads a rejection as "could not tell" — the binding is not wrapped in typedError', async () => {
+    mock(commands.restartBlocked).mockRejectedValue(new Error('ipc down'));
+    await mountPanel();
+    expect(change().disabled).toBe(true);
+    expect(screen.getByText(/couldn't check whether/)).toBeTruthy();
+  });
+
+  it('stays blocked, and says why, while the answer is pending', async () => {
+    mock(commands.restartBlocked).mockReturnValue(new Promise(() => {}));
+    await mountPanel();
+    expect(change().disabled).toBe(true);
+    expect(screen.getByText(/Checking whether the data folder can be moved/)).toBeTruthy();
+  });
+
+  it('asks again on demand, so stopping the game needs no trip out of Settings', async () => {
+    mock(commands.restartBlocked).mockResolvedValueOnce('running').mockResolvedValue('none');
+    await mountPanel();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await flush();
+    expect(change().disabled).toBe(false);
+  });
+});
+
+describe('StoragePanel — every way a started move can come back', () => {
+  beforeEach(resetIpc);
+
+  it('hands a clean move to the app-level dialog and resets nothing while it runs', async () => {
+    let settle: (v: unknown) => void = () => {};
+    mock(commands.setDataLocation).mockReturnValue(
+      new Promise((r) => {
+        settle = r;
+      }),
+    );
+    await mountPanel();
+    await confirmMove();
+    expect(commands.setDataLocation).toHaveBeenCalledWith('D:\\Games\\LucernaData');
+    expect(screen.queryByText('Move data folder?')).toBeNull();
+    expect(dataLocation.relocation.kind).toBe('running');
+    expect(screen.queryByText(/Move cancelled/)).toBeNull();
+    // Release the singleton for the tests that follow.
+    settle({ status: 'ok', data: { kind: 'cancelled' } });
+    await settled();
+    expect(dataLocation.relocation.kind).toBe('idle');
+  });
+
+  it('says a cancelled move changed nothing, re-queries the gate, and takes focus back', async () => {
+    mock(commands.setDataLocation).mockResolvedValue({ status: 'ok', data: { kind: 'cancelled' } });
+    await mountPanel();
+    await confirmMove();
+    expect(screen.getByText('Move cancelled. Nothing was changed.')).toBeTruthy();
+    expect(commands.restartBlocked).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(screen.getByTestId('data-location-section'));
+  });
+
+  it('shows a failure with the leftover copy, re-measures and re-queries', async () => {
+    mock(commands.setDataLocation).mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'data_location_migration_failed',
+        reason: 'disk full',
+        partial_copy_left: 'D:\\Games\\LucernaData',
+        restore_incomplete: false,
+      },
+    });
+    await mountPanel();
+    await confirmMove();
+    expect(screen.getByText(/Moving the data folder failed: disk full\./)).toBeTruthy();
+    expect(screen.getByText(/copy of the data was left at "D:\\Games\\LucernaData"/)).toBeTruthy();
+    expect(commands.restartBlocked).toHaveBeenCalledTimes(2);
+    expect(commands.dataRootSizeBytes).toHaveBeenCalledTimes(2);
+    expect(dataLocation.relocation.kind).toBe('idle');
+  });
+
+  it('a REJECTED command (transport failure) still releases the app-level dialog and says why', async () => {
+    // typedError rethrows real Error instances. Without a catch the store keeps `owned` forever:
+    // a bare "Preparing…" dialog with no Cancel and no Restart — the one state a user cannot leave.
+    mock(commands.setDataLocation).mockRejectedValue(new Error('ipc channel closed'));
+    await mountPanel();
+    await confirmMove();
+    expect(dataLocation.relocation.kind).toBe('idle');
+    expect(screen.getByText(/ipc channel closed/)).toBeTruthy();
+    expect(commands.restartBlocked).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves restart_required to the app-level dialog: no error, no notice, state kept', async () => {
+    mock(commands.setDataLocation).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'restart_required' },
+    });
+    await mountPanel();
+    // init() no-ops after the first load, so this only feeds the settle-time read — the one that
+    // carries the details.
+    mock(commands.getDataLocation).mockResolvedValue(status({ relocation: FINAL }));
+    await confirmMove();
+    expect(dataLocation.relocation.kind).toBe('restart_required');
+    expect(screen.queryByText(/Move cancelled|failed/)).toBeNull();
+  });
+});
+
+describe('StoragePanel — reset goes through its own plan', () => {
+  beforeEach(resetIpc);
+
+  it('shows a spinner on Reset and locks Change while the plan is in flight', async () => {
+    mock(commands.planDataLocationReset).mockReturnValue(new Promise(() => {}));
+    await mountPanel();
+    await fireEvent.click(reset());
+    await flush();
+    expect(reset().getAttribute('aria-busy')).toBe('true');
+    expect(change().disabled).toBe(true);
+  });
+
+  it('confirms a real reset against the default folder and commits with null', async () => {
+    await mountPanel();
+    await fireEvent.click(reset());
+    await flush();
+    expect(screen.getByText('Reset to the default location?')).toBeTruthy();
+    expect(screen.getByTestId('data-move-to').textContent?.trim()).toBe('C:\\Default');
+    await fireEvent.click(screen.getByRole('button', { name: 'Move and restart' }));
+    await flush();
+    expect(commands.setDataLocation).toHaveBeenCalledWith(null);
+  });
+
+  it('lists what blocks the reset instead of opening a dialog', async () => {
+    mock(commands.planDataLocationReset).mockResolvedValue({
+      status: 'ok',
+      data: { ...RESET_PLAN, blocking_entries: ['instances', 'servers'] },
+    });
+    await mountPanel();
+    await fireEvent.click(reset());
+    await flush();
+    const box = screen.getByTestId('data-reset-blockers');
+    expect(box.textContent).toContain('"C:\\Default" still holds 2 items');
+    expect([...box.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'instances',
+      'servers',
+    ]);
+    expect(box.textContent).toContain('Keep data-location.json there');
+    expect(screen.queryByText('Reset to the default location?')).toBeNull();
+  });
+
+  it.each([
+    ['Reset', () => mock(commands.planDataLocationReset), reset],
+    ['Change', () => mock(commands.planDataLocationChange), change],
+  ])('refuses a tree with links on %s — before any confirm dialog', async (_label, cmd, btn) => {
+    cmd().mockResolvedValue(LINKS);
+    await mountPanel();
+    await fireEvent.click(btn());
+    await settled();
+    expect(screen.getByText(/contains symbolic links/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Move and restart' })).toBeNull();
+    expect(commands.setDataLocation).not.toHaveBeenCalled();
+  });
+});
+
+describe('StoragePanel — an unknown size is not "0 B"', () => {
+  beforeEach(resetIpc);
+
+  it('shows an error state in the size row when the size call fails', async () => {
+    mock(commands.dataRootSizeBytes).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '<data_root_size>', details: 'access denied' },
+    });
+    await mountPanel();
+    const row = screen.getByText('Size on disk:').closest('div') as HTMLElement;
+    expect(row.textContent).toContain("couldn't be measured");
+    expect(row.textContent).not.toContain('0 B');
+    expect(screen.getByText(/access denied/)).toBeTruthy();
   });
 });

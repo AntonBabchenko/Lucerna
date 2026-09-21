@@ -521,8 +521,11 @@ describe('formatError', () => {
       data_location_migration_failed: {
         kind: 'data_location_migration_failed',
         reason: 'disk full',
+        partial_copy_left: null,
+        restore_incomplete: false,
       },
       data_location_unavailable: { kind: 'data_location_unavailable' },
+      data_relocation_in_progress: { kind: 'data_relocation_in_progress', restart_required: false },
       datapack_invalid: {
         kind: 'datapack_invalid',
         filename: 'MyPack.rar',
@@ -685,6 +688,69 @@ describe('formatError', () => {
     expect(formatError({ kind: 'data_location_invalid', reason: 'not_writable' })).toContain(
       "can't be written to",
     );
+  });
+
+  describe('data-folder move errors', () => {
+    type MoveFailed = Extract<IpcError, { kind: 'data_location_migration_failed' }>;
+    const failed = (over: Partial<MoveFailed>) =>
+      formatError({
+        kind: 'data_location_migration_failed',
+        reason: 'disk full',
+        partial_copy_left: null,
+        restore_incomplete: false,
+        ...over,
+      });
+
+    it('keeps the raw reason as the tail and says the data is unchanged', () => {
+      expect(failed({})).toBe(
+        'Moving the data folder failed: disk full. Your data is unchanged in its current folder.',
+      );
+      expect(failed({ reason: '' })).toBe(
+        'Moving the data folder failed. Your data is unchanged in its current folder.',
+      );
+      expect(failed({ reason: 'disk full.' })).not.toContain('..');
+    });
+
+    it('names the copy that was left behind — after a rolled-back switch it may be complete', () => {
+      const msg = failed({ partial_copy_left: 'D:\\Games\\LucernaData' });
+      expect(msg).toContain('Your data is unchanged');
+      expect(msg).not.toContain('incomplete');
+      expect(msg).toContain('Delete it before trying again.');
+      expect(msg).toContain('A copy of the data was left at "D:\\Games\\LucernaData"');
+    });
+
+    it('never claims "unchanged" when the rollback did not complete', () => {
+      const msg = failed({ restore_incomplete: true });
+      expect(msg).not.toContain('unchanged');
+      expect(msg).toContain('could not fully undo the switch');
+    });
+
+    it('gives the relocation gate two texts, keyed on restart_required, classed clean', () => {
+      expect(formatError({ kind: 'data_relocation_in_progress', restart_required: false })).toBe(
+        'The data folder is being moved. Wait for the move to finish.',
+      );
+      expect(formatError({ kind: 'data_relocation_in_progress', restart_required: true })).toBe(
+        'The data folder has been moved. Restart Lucerna to continue.',
+      );
+      expect(ERROR_CLASS.data_relocation_in_progress).toBe('clean');
+    });
+
+    it('does not blame the picked folder for links in the CURRENT data', () => {
+      const msg = formatError({ kind: 'data_location_invalid', reason: 'contains_links' });
+      expect(msg).toContain('symbolic links');
+      expect(msg).not.toContain("That folder can't be used");
+    });
+
+    it('words the busy refusal so it is true for running, busy and unknown alike', () => {
+      const msg = formatError({ kind: 'data_location_busy' });
+      for (const part of [
+        'a game or server is running',
+        'another operation is still in progress',
+        "couldn't check",
+      ]) {
+        expect(msg).toContain(part);
+      }
+    });
   });
 
   describe('withDetailTail', () => {

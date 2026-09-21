@@ -18,6 +18,9 @@ pub async fn update_check() -> crate::error::Result<crate::update::UpdateInfo> {
 #[tauri::command]
 #[specta::specta]
 pub async fn update_install(app: tauri::AppHandle) -> crate::error::Result<()> {
+    // The installer ends in `app.exit(0)`. During a move that kills the copy
+    // with no cleanup; after one, the launcher must restart first anyway.
+    crate::data_root::state::global().check_usable()?;
     // In-app install runs on Windows and on Linux AppImage builds; a .deb/.rpm
     // or macOS run is check-and-notify (the UI opens the release page instead).
     // Refuse rather than attempt a no-asset install.

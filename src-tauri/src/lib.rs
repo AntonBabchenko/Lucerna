@@ -35,6 +35,7 @@ pub mod test_seam;
 pub mod tray;
 pub mod uninstall_cleanup;
 pub mod update;
+pub mod url_scheme_retire;
 pub mod verify;
 pub mod versions;
 pub mod window;
@@ -363,13 +364,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_data_location,
             commands::plan_data_location_change,
             commands::adopt_data_location,
-            // Desktop integration (inbound intents, lucerna:// scheme, shortcuts):
+            commands::plan_data_location_reset,
+            commands::cancel_data_location_move,
+            commands::retry_data_move_cleanup,
+            commands::open_data_move_leftovers,
+            // Desktop integration (inbound intents, shortcuts):
             commands::take_pending_intent,
             commands::modpack_resolve_url,
-            commands::url_scheme_key,
-            commands::url_scheme_state,
-            commands::url_scheme_register,
-            commands::url_scheme_unregister,
             commands::shortcut_supported,
             commands::shortcut_create,
             commands::shortcut_default_name,
@@ -568,56 +569,35 @@ pub fn run() {
             }
             slot
         })
+        .on_window_event(|_window, event| {
+            // Closing the window mid-move would kill the copy with no cleanup.
+            // After the switch (`RestartRequired`) closing is fine: the next
+            // start lands on the new root.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if matches!(
+                    crate::data_root::state::global().status(),
+                    crate::data_root::state::RelocationStatus::Running { .. }
+                ) {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(move |app| {
             // Resolve the effective data root before anything else touches app_dir.
             let default_root = crate::paths::default_app_data_dir(app.handle())
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let redirect = crate::paths::redirect_file(app.handle())
-                .ok()
-                .and_then(|f| crate::data_root::redirect::read(&f).ok().flatten());
-            // Portable candidate (`<exe dir>\LucernaData`): WINDOWS release
-            // builds only, and only when no explicit redirect exists. Dev must
-            // never adopt `target/debug/LucernaData`; the install dir must not
-            // be write-probed when the user's explicit choice wins anyway; and
-            // macOS is excluded deliberately — a `.app` bundle dir is often
-            // writable, but the only macOS update path is Finder's
-            // drag-replace, which DELETES the old bundle wholesale: data
-            // created inside it would be lost on every update. (Linux is
-            // naturally safe — AppImage mounts read-only, deb/rpm install to
-            // root-owned paths — but stays excluded until portable mode is
-            // designed for it.)
-            let portable = if !cfg!(all(windows, not(debug_assertions))) || redirect.is_some() {
-                None
-            } else {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
-                    .map(|exe_dir| {
-                        let path = exe_dir.join("LucernaData");
-                        let state = if !path.is_dir() {
-                            crate::data_root::PortableState::Absent {
-                                // Probe writability only when creation could
-                                // actually happen.
-                                creatable: crate::data_root::migrate::is_available(&exe_dir),
-                            }
-                        } else if crate::data_root::looks_like_data_root(&path) {
-                            crate::data_root::PortableState::Root
-                        } else if crate::data_root::migrate::target_is_empty(&path) {
-                            crate::data_root::PortableState::EmptyDir
-                        } else {
-                            crate::data_root::PortableState::Foreign
-                        };
-                        crate::data_root::PortableCandidate { path, state }
-                    })
-            };
-            let default_has_data =
-                default_root.join("app.json").is_file() || default_root.join("instances").is_dir();
-            let mut resolved = crate::data_root::resolve_root(
-                default_root.clone(),
-                default_has_data,
-                portable,
-                redirect,
-                |p| crate::data_root::migrate::is_available(p),
+            // One function decides the root — shared with the data-root move,
+            // which asks it where the NEXT start will land before it deletes
+            // anything (`data_root::startup`).
+            let mut resolved = crate::data_root::startup::resolve_at_startup(
+                &crate::data_root::startup::StartupInputs {
+                    default_root: default_root.clone(),
+                    redirect_file: crate::paths::redirect_file(app.handle()).ok(),
+                    exe_dir: std::env::current_exe()
+                        .ok()
+                        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+                    portable_allowed: crate::data_root::startup::portable_allowed(),
+                },
             );
             if resolved.must_create {
                 if let Err(e) = std::fs::create_dir_all(&resolved.root) {
@@ -704,6 +684,16 @@ pub fn run() {
                 }
             }
 
+            // An unfinished data-folder move may have left this root's
+            // `app.json` renamed to `app.json.moved` (a rollback that could
+            // neither rename nor copy it back). Put it back BEFORE the seed
+            // below writes a fresh one over the user's settings.
+            if let Ok(root) = crate::paths::app_dir(app.handle()) {
+                if let Some(line) = crate::data_root::relocate::restore_hidden_app_json(&root) {
+                    crate::diag!("{line}");
+                }
+            }
+
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
             // by creating an instance through the Manage modal.
@@ -712,31 +702,31 @@ pub fn run() {
             }
             builder.mount_events(app);
 
-            // Self-heal the `lucerna://` registration ONLY if the user opted in
-            // and the recorded command points at a different exe (moved install,
-            // update, portable copy) — otherwise links would open a binary that
-            // is no longer there. With the setting off we touch nothing at all:
-            // not the key, not a cleanup, no registry write of any kind.
-            if let Ok(settings) = crate::paths::app_file(app.handle())
-                .map_err(|e| crate::error::Error::io("<app_file>", e))
-                .and_then(|p| crate::instances::store::read_app_json(&p))
-            {
-                if settings.general.register_url_scheme {
-                    if let Ok(exe) = std::env::current_exe() {
-                        if crate::platform::protocol::state(&exe)
-                            == crate::platform::protocol::SchemeState::RegisteredToOtherPath
-                        {
-                            match crate::platform::protocol::register(&exe) {
-                                Ok(()) => crate::diag!(
-                                    "[setup] re-pointed lucerna:// registration at {}",
-                                    exe.display()
-                                ),
-                                Err(e) => crate::diag!(
-                                    "[setup] failed to re-point lucerna:// registration: {e}"
-                                ),
-                            }
-                        }
-                    }
+            // Retire the `lucerna://` scheme registration. Versions 0.21.0–0.24.x
+            // had an opt-in toggle for it; the toggle is gone, so anyone who had
+            // turned it on would be left with a registry key and no off switch.
+            // Remove a key that is provably ours and settle the consent flag —
+            // see `url_scheme_retire`. For everyone else this is one registry
+            // read and no write. Without the exe path `state` cannot tell "ours"
+            // from "someone else's", so a failure to resolve either input skips
+            // the run (the restrictive answer) and says so.
+            match (
+                crate::paths::app_file(app.handle()),
+                std::env::current_exe(),
+            ) {
+                (Ok(app_json), Ok(exe)) => {
+                    let report = crate::url_scheme_retire::retire_url_scheme(
+                        &app_json,
+                        crate::platform::protocol::state(&exe),
+                        crate::platform::protocol::unregister,
+                    );
+                    crate::url_scheme_retire::log_report(&report);
+                }
+                (Err(e), _) => {
+                    crate::diag!("[setup] lucerna:// retirement skipped: app_file: {e}")
+                }
+                (_, Err(e)) => {
+                    crate::diag!("[setup] lucerna:// retirement skipped: current_exe: {e}")
                 }
             }
 
@@ -746,6 +736,26 @@ pub fn run() {
             // restart until the user re-saves settings. Best-effort; spawns its
             // own tasks internally.
             crate::commands::rearm_backup_schedulers(app.handle());
+
+            // Remove `webview/` profiles that an earlier data-root move left in
+            // its old root (they were in use by that process). Delayed: the
+            // previous process's WebView2 children may still be exiting. Off
+            // the startup path; failures are retried on the next start.
+            {
+                use tauri::Manager;
+                let effective_root = app.state::<crate::data_root::DataRoot>().0.root.clone();
+                let default_dir = default_root.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    for line in crate::data_root::cleanup_note::sweep(
+                        &default_dir,
+                        &effective_root,
+                        &|dir| std::fs::remove_dir_all(dir),
+                    ) {
+                        crate::diag!("{line}");
+                    }
+                });
+            }
 
             // Idle refresh task: scan accounts and refresh any Microsoft account
             // whose access token is within 5 minutes of expiry. Mirrors Mojang

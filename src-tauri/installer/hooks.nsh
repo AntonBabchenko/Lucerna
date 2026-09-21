@@ -16,6 +16,11 @@
 ;   POSTUNINSTALL — if the app-data checkbox was ticked while game data was
 ;                   kept, restore the stashed data-location.json so a
 ;                   reinstall can still find the relocated data root.
+;                   Also removes a leftover `lucerna://` URL-scheme key
+;                   (HKCU\Software\Classes\lucerna) when its command points
+;                   into this install. Versions 0.21.0-0.24.x could register
+;                   it; the launcher now removes it on its next start, and
+;                   this covers an uninstall that happens before such a start.
 
 Var LucernaCleanupChoice
 
@@ -93,6 +98,31 @@ Var LucernaCleanupChoice
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; Retired-feature cleanup. Not tied to the data-deletion consent: a registry
+  ; pointer to the exe that was just removed is not user data, so it goes in
+  ; silent and passive uninstalls too. Skipped in update mode, like everything
+  ; else here. "Provably ours" only: the command must start with
+  ; "<this install dir>\ (LogicLib == is case-insensitive, which is what
+  ; Windows paths need). A key pointing anywhere else is left alone.
+  ${If} $UpdateMode <> 1
+    Push $0
+    Push $1
+    Push $2
+    Push $3
+    ReadRegStr $0 HKCU "Software\Classes\lucerna\shell\open\command" ""
+    StrCpy $1 '"$INSTDIR\'
+    StrLen $2 $1
+    StrCpy $3 $0 $2
+    ${If} $0 != ""
+    ${AndIf} $3 == $1
+      DeleteRegKey HKCU "Software\Classes\lucerna"
+    ${EndIf}
+    Pop $3
+    Pop $2
+    Pop $1
+    Pop $0
+  ${EndIf}
+
   ; The app-data checkbox deleted %APPDATA%\<id> (including the redirect file)
   ; while game data survived — either the user kept it ("0") or the wipe was
   ; partial / deliberately kept the pointer ("2"). Restore the pointer so the

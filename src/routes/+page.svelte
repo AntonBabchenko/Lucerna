@@ -119,6 +119,7 @@
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
+  import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
 
   // How long the startup "new version available" toast stays before it
   // auto-hides. It only hides (reappears next launch); the durable path
@@ -1955,3 +1956,8 @@
     msSigningIn = false;
   }}
 />
+<!-- Last on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and the
+     data-folder move is started from SettingsModal: its blocking dialog has to paint above
+     everything already open. Self-gating like WhatsNewModal — it renders nothing until a move
+     runs or has left a restart pending. -->
+<DataMoveHost />
