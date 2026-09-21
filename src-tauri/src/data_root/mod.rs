@@ -1,8 +1,15 @@
 //! Data-root location: bootstrap redirect file + resolution + migration.
+pub mod blockers;
+pub mod cleanup_note;
 pub mod migrate;
 pub mod plan;
 pub mod redirect;
+pub mod relocate;
+pub mod startup;
+pub mod state;
+pub mod transient;
 pub mod validate;
+pub mod walk;
 
 use redirect::Redirect;
 use std::path::{Path, PathBuf};
