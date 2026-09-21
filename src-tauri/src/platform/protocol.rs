@@ -106,11 +106,11 @@ pub fn retire_action(opted_in: bool, state: SchemeState) -> RetireAction {
         (SchemeState::RegisteredToOtherPath, false) => RetireAction::Nothing,
         (SchemeState::NotRegistered, true) => RetireAction::ClearFlagOnly,
         (SchemeState::NotRegistered, false) => RetireAction::Nothing,
-        // RED step of the review fix: `Unknown` deliberately inherits what the
-        // old code did when it folded a failed read into `NotRegistered`, so the
-        // new tests fail first. Corrected in the next commit.
-        (SchemeState::Unknown, true) => RetireAction::ClearFlagOnly,
-        (SchemeState::Unknown, false) => RetireAction::Nothing,
+        // "Could not tell" is not "absent". Deleting is obviously out — but so is
+        // clearing the flag: it is the only record that lets a later start
+        // finish the job, and once it reads `false` a key that is really there
+        // would never be looked at again. Touch nothing; the next start retries.
+        (SchemeState::Unknown, _) => RetireAction::Nothing,
         (SchemeState::Unsupported, _) => RetireAction::Nothing,
     }
 }
