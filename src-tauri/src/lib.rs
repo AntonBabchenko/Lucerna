@@ -364,13 +364,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_data_location,
             commands::plan_data_location_change,
             commands::adopt_data_location,
-            // Desktop integration (inbound intents, lucerna:// scheme, shortcuts):
+            // Desktop integration (inbound intents, shortcuts):
             commands::take_pending_intent,
             commands::modpack_resolve_url,
-            commands::url_scheme_key,
-            commands::url_scheme_state,
-            commands::url_scheme_register,
-            commands::url_scheme_unregister,
             commands::shortcut_supported,
             commands::shortcut_create,
             commands::shortcut_default_name,

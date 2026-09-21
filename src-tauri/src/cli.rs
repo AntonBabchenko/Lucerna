@@ -16,9 +16,11 @@ use crate::launch::QuickPlay;
 use serde::Serialize;
 use specta::Type;
 
-/// The URL scheme Lucerna owns. Registered with the OS only on explicit opt-in
-/// (Settings → General). Deliberately not `curseforge://` or `modrinth://` —
-/// those belong to those vendors' apps.
+/// The URL scheme Lucerna answers to. Lucerna no longer registers it with the
+/// OS (the opt-in toggle of 0.21.0–0.24.x was retired), but a registration can
+/// still be present on a machine, so everything below stays load-bearing.
+/// Deliberately not `curseforge://` or `modrinth://` — those belong to those
+/// vendors' apps.
 pub const URL_SCHEME: &str = "lucerna";
 
 /// Something the launcher was asked to do at startup, or by a second launch
