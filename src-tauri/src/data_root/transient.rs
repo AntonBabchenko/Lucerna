@@ -56,8 +56,19 @@ pub enum EntryRule {
 }
 
 /// The rule for `rel`, a path RELATIVE to the data root.
-pub fn classify(_rel: &Path) -> EntryRule {
-    EntryRule::Normal // RED stub — Task 9 replaces it
+pub fn classify(rel: &Path) -> EntryRule {
+    let mut parts = rel.components();
+    let Some(first) = parts.next() else {
+        return EntryRule::Normal;
+    };
+    let first = first.as_os_str();
+    match (parts.next(), parts.next()) {
+        (None, _) if SKIPPED_TOP_LEVEL.iter().any(|name| first == *name) => EntryRule::Skip,
+        (Some(second), None) if first == LIVE_LOG_DIR && second.as_os_str() == LIVE_LOG_FILE => {
+            EntryRule::ExistenceOnly
+        }
+        _ => EntryRule::Normal,
+    }
 }
 
 /// True when the top-level `name` is in the skipped set.

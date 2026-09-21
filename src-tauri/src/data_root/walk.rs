@@ -46,23 +46,127 @@ pub fn real_copy_file(from: &Path, to: &Path) -> std::io::Result<u64> {
     std::fs::copy(from, to)
 }
 
+fn io_at(path: &Path, e: std::io::Error) -> Error {
+    Error::io(path.display().to_string(), e)
+}
+
+fn too_deep(dir: &Path) -> Error {
+    Error::data_move_failed(format!(
+        "{} is nested more than {MAX_DEPTH} directories deep",
+        dir.display()
+    ))
+}
+
+/// The children of `dir` that the rules do not skip, each with its path
+/// relative to the tree root.
+fn kept_children(
+    dir: &Path,
+    rel: &Path,
+    walk: &Walk<'_>,
+) -> Result<Vec<(PathBuf, PathBuf, EntryRule)>, WalkStop> {
+    let mut kept = Vec::new();
+    for child in (walk.list_dir)(dir).map_err(|e| io_at(dir, e))? {
+        let Some(name) = child.file_name() else {
+            // `read_dir` never yields a nameless path; an injected lister that
+            // does is a bug worth failing on rather than skipping.
+            return Err(WalkStop::Failed(Error::data_move_failed(format!(
+                "{} has an entry without a name",
+                dir.display()
+            ))));
+        };
+        let rel_child = rel.join(name);
+        let rule = (walk.rule)(&rel_child);
+        if rule != EntryRule::Skip {
+            kept.push((child, rel_child, rule));
+        }
+    }
+    Ok(kept)
+}
+
 /// Copy `src` into `dst`, honouring `walk.rule`. `on_bytes(total_so_far)` is
 /// called after every file.
 pub fn copy_tree(
-    _src: &Path,
-    _dst: &Path,
-    _walk: &Walk<'_>,
-    _on_bytes: &mut dyn FnMut(u64),
-    _copied: &mut u64,
+    src: &Path,
+    dst: &Path,
+    walk: &Walk<'_>,
+    on_bytes: &mut dyn FnMut(u64),
+    copied: &mut u64,
 ) -> Result<(), WalkStop> {
-    Ok(()) // RED stub — Task 10 replaces it
+    copy_dir(src, dst, Path::new(""), walk, on_bytes, copied, 0)
+}
+
+fn copy_dir(
+    src_dir: &Path,
+    dst_dir: &Path,
+    rel: &Path,
+    walk: &Walk<'_>,
+    on_bytes: &mut dyn FnMut(u64),
+    copied: &mut u64,
+    depth: u32,
+) -> Result<(), WalkStop> {
+    if depth >= MAX_DEPTH {
+        return Err(WalkStop::Failed(too_deep(src_dir)));
+    }
+    std::fs::create_dir_all(dst_dir).map_err(|e| io_at(dst_dir, e))?;
+    for (from, rel_child, _rule) in kept_children(src_dir, rel, walk)? {
+        let to = dst_dir.join(from.file_name().unwrap_or_default());
+        let is_dir = std::fs::symlink_metadata(&from)
+            .map_err(|e| io_at(&from, e))?
+            .is_dir();
+        if is_dir {
+            copy_dir(&from, &to, &rel_child, walk, on_bytes, copied, depth + 1)?;
+            continue;
+        }
+        if (walk.cancelled)() {
+            return Err(WalkStop::Cancelled);
+        }
+        let bytes = (walk.copy_file)(&from, &to).map_err(|e| io_at(&to, e))?;
+        *copied += bytes;
+        on_bytes(*copied);
+    }
+    Ok(())
 }
 
 /// Every file under `src` that the rules copy must exist under `dst` — with an
 /// identical length (`Normal`) or at all (`ExistenceOnly`). Walks the SOURCE,
 /// so content already present in `dst` never matters.
-pub fn verify_tree(_src: &Path, _dst: &Path, _walk: &Walk<'_>) -> Result<(), WalkStop> {
-    Ok(()) // RED stub — Task 10 replaces it
+pub fn verify_tree(src: &Path, dst: &Path, walk: &Walk<'_>) -> Result<(), WalkStop> {
+    verify_dir(src, dst, Path::new(""), walk, 0)
+}
+
+fn verify_dir(
+    src_dir: &Path,
+    dst_dir: &Path,
+    rel: &Path,
+    walk: &Walk<'_>,
+    depth: u32,
+) -> Result<(), WalkStop> {
+    if depth >= MAX_DEPTH {
+        return Err(WalkStop::Failed(too_deep(src_dir)));
+    }
+    for (from, rel_child, rule) in kept_children(src_dir, rel, walk)? {
+        let to = dst_dir.join(from.file_name().unwrap_or_default());
+        let from_meta = std::fs::symlink_metadata(&from).map_err(|e| io_at(&from, e))?;
+        if from_meta.is_dir() {
+            verify_dir(&from, &to, &rel_child, walk, depth + 1)?;
+            continue;
+        }
+        if (walk.cancelled)() {
+            return Err(WalkStop::Cancelled);
+        }
+        let to_len = std::fs::metadata(&to).map_err(|e| io_at(&to, e))?.len();
+        if rule == EntryRule::ExistenceOnly {
+            continue;
+        }
+        let from_len = std::fs::metadata(&from).map_err(|e| io_at(&from, e))?.len();
+        if from_len != to_len {
+            return Err(WalkStop::Failed(Error::data_move_failed(format!(
+                "verification failed for {}: source is {from_len} bytes but the copy is {to_len} bytes",
+                from.display()
+            ))));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
