@@ -2701,9 +2701,7 @@
         },
         "confirm": {
           "moveTitle": "Move data folder?",
-          "moveBody": "Lucerna will copy {size} of data to \"{path}\", then remove it from the current location.",
           "resetTitle": "Reset to the default location?",
-          "resetBody": "Lucerna will copy {size} of data back to the default folder, then remove it from the current location.",
           "resetPointerOnlyBody": "This detaches the unavailable folder \"{path}\". Nothing on it is deleted — if it ever comes back, its data will still be there. Lucerna will keep using the default location.",
           "resetPointerOnlyConfirmBtn": "Detach and restart",
           "resetPointerOnlyRestartNote": "Nothing is copied. The app restarts right away.",
@@ -2724,7 +2722,6 @@
           "adoptCurrentNoteNoSize": "Your current data (at \"{current}\") will stay on disk but will no longer be used.",
           "adoptRestartNote": "The app will restart to switch to the selected folder.",
           "adoptConfirmBtn": "Switch and restart",
-          "restartNote": "The app will restart once the move finishes.",
           "confirmBtn": "Move and restart"
         },
         "progress": {
