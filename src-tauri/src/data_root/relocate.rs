@@ -444,6 +444,14 @@ pub fn relocate(
     })
 }
 
+/// Startup self-heal: a root that lost its `app.json` to an unfinished move
+/// (the rollback could neither rename nor copy it back, or the process died
+/// between the two) still has it as `app.json.moved`. Put it back BEFORE
+/// anything seeds a fresh one. Returns a log line when it acted or failed.
+pub fn restore_hidden_app_json(_root: &Path) -> Option<String> {
+    None // RED stub — the next commit implements it
+}
+
 /// Try again to remove `names` (top-level entries of `old_root`) after a move
 /// that left them behind. Returns the names that are STILL there.
 pub fn retry_leftovers(
@@ -595,7 +603,11 @@ mod tests {
             Ok(children)
         };
         let copy_file = |from: &Path, to: &Path| -> std::io::Result<u64> {
-            assert_not_adoptable_yet("copy_file");
+            // The one copy made AFTER the switch is the rollback restoring the
+            // source's own `app.json`; the target is complete by then.
+            if name_of(from) != HIDDEN_APP_JSON {
+                assert_not_adoptable_yet("copy_file");
+            }
             if s.fail_copy_of.is_some_and(|n| name_of(from) == n) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -836,9 +848,11 @@ mod tests {
                 rollback_fails: true,
                 ..Script::default()
             },
+            // The rename back fails AND so does the copy that stands in for it.
             Script {
                 does_not_land: true,
                 fail_unhide: true,
+                fail_copy_of: Some(HIDDEN_APP_JSON),
                 ..Script::default()
             },
         ] {
@@ -858,6 +872,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_rename_back_that_fails_is_replaced_by_a_copy_so_the_source_stays_a_root() {
+        // Review finding: pointer rolled back + `app.json` still hidden = the
+        // next start lands on a root without `app.json` and seeds a fresh one.
+        // A handle without delete-sharing (antivirus) blocks a rename but not a
+        // read, so the rollback falls back to copying the hidden file back.
+        let r = rig();
+        let script = Script {
+            does_not_land: true,
+            fail_unhide: true,
+            ..Script::default()
+        };
+        let (result, events) = run(&r.current, &r.target, &script);
+        let failure = result.expect_err("the move must not happen");
+        assert!(!failure.restore_incomplete, "{failure:?}");
+        assert!(looks_like_data_root(&r.current), "{events:?}");
+        assert_eq!(std::fs::read(r.current.join(APP_JSON)).unwrap(), b"{}");
+        position(&events, "rollback");
+    }
+
+    #[test]
+    fn startup_restores_an_app_json_that_a_move_left_hidden() {
+        let d = tempdir().unwrap();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(root.join("instances")).unwrap();
+        std::fs::write(root.join(HIDDEN_APP_JSON), b"{\"real\":true}").unwrap();
+
+        let line = restore_hidden_app_json(&root).expect("something was restored");
+        assert!(line.contains(HIDDEN_APP_JSON), "{line}");
+        assert_eq!(
+            std::fs::read(root.join(APP_JSON)).unwrap(),
+            b"{\"real\":true}"
+        );
+        assert!(looks_like_data_root(&root));
+    }
+
+    #[test]
+    fn startup_never_touches_a_root_that_has_its_app_json() {
+        let d = tempdir().unwrap();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(APP_JSON), b"{\"current\":true}").unwrap();
+        std::fs::write(root.join(HIDDEN_APP_JSON), b"{\"stale\":true}").unwrap();
+
+        assert_eq!(restore_hidden_app_json(&root), None);
+        assert_eq!(
+            std::fs::read(root.join(APP_JSON)).unwrap(),
+            b"{\"current\":true}"
+        );
+        assert!(
+            root.join(HIDDEN_APP_JSON).exists(),
+            "a stale copy is left alone"
+        );
+
+        // Nothing hidden, nothing to do — including on a root that does not exist.
+        assert_eq!(restore_hidden_app_json(&d.path().join("fresh")), None);
     }
 
     #[test]
