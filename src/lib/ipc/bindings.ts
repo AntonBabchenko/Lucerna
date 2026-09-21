@@ -6152,7 +6152,20 @@ export type RelocationStatus = { kind: "idle" } | { kind: "running"; phase: Move
 /**  Top-level entry names still in `old_root`. */
 leftovers: string[]; 
 /**  Nothing was deleted: the old folder is still a complete copy. */
-old_root_intact: boolean };
+old_root_intact: boolean; 
+/**
+ *  `old_root` is the OS-default dir, which also holds the bootstrap
+ *  redirect: the UI must never tell the user to delete that folder
+ *  wholesale. Decided here (canonical compare), not by comparing path
+ *  strings in the frontend.
+ */
+old_root_is_default: boolean; 
+/**
+ *  A retry can remove something: at least one leftover is not an entry
+ *  the running launcher owns (an un-swept `webview` stays until the
+ *  restart whatever is tried).
+ */
+retry_possible: boolean };
 
 /**  The user's confirmed choice, sent back to `execute_repair`. */
 export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 

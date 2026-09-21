@@ -337,6 +337,9 @@ pub async fn set_data_location(
 
     let committed = Arc::new(AtomicBool::new(false));
     let note_failed = Arc::new(AtomicBool::new(false));
+    // Decided here with a canonical compare, so the UI never has to compare path
+    // strings to know that the old folder also holds the bootstrap redirect.
+    let old_root_is_default = migrate::is_same_path(&current, &default);
     let job = MoveJob {
         app: app.clone(),
         current: current.clone(),
@@ -351,8 +354,11 @@ pub async fn set_data_location(
     };
     let joined = tokio::task::spawn_blocking(move || run_move(&job)).await;
 
-    let old_root = current.display().to_string();
-    let new_root = target.display().to_string();
+    let moved = state::CommittedMove {
+        old_root: current.display().to_string(),
+        new_root: target.display().to_string(),
+        old_root_is_default,
+    };
     let with_unswept_webview = |mut entries: Vec<String>| {
         if note_failed.load(Ordering::SeqCst) && current.join(WEBVIEW_DIR).is_dir() {
             entries.push(WEBVIEW_DIR.to_string());
@@ -366,19 +372,14 @@ pub async fn set_data_location(
                 session.park_running();
                 app.restart();
             }
-            session.park_restart_required(old_root, new_root, leftovers, false);
+            session.park_restart_required(moved, leftovers, false);
             Ok(DataMoveOutcome::RestartRequired)
         }
         Ok(Ok(Outcome::MovedWithLeftovers {
             entries,
             old_root_intact,
         })) => {
-            session.park_restart_required(
-                old_root,
-                new_root,
-                with_unswept_webview(entries),
-                old_root_intact,
-            );
+            session.park_restart_required(moved, with_unswept_webview(entries), old_root_intact);
             Ok(DataMoveOutcome::RestartRequired)
         }
         // The session drops here → Idle.
@@ -398,7 +399,7 @@ pub async fn set_data_location(
         Err(e) if committed.load(Ordering::SeqCst) => {
             crate::diag!("[data-move] the move task stopped after the switch: {e}");
             let leftovers = with_unswept_webview(remaining_entries(&current));
-            session.park_restart_required(old_root, new_root, leftovers, false);
+            session.park_restart_required(moved, leftovers, false);
             Ok(DataMoveOutcome::RestartRequired)
         }
         Err(e) => Err(Error::DataLocationMigrationFailed {
@@ -427,7 +428,8 @@ pub async fn retry_data_move_cleanup() -> Result<RelocationStatus> {
         old_root,
         new_root,
         leftovers,
-        old_root_intact: false,
+        retry_possible: true,
+        ..
     } = state::global().status()
     else {
         return Ok(state::global().status());

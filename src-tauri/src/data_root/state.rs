@@ -36,7 +36,30 @@ pub enum RelocationStatus {
         leftovers: Vec<String>,
         /// Nothing was deleted: the old folder is still a complete copy.
         old_root_intact: bool,
+        /// `old_root` is the OS-default dir, which also holds the bootstrap
+        /// redirect: the UI must never tell the user to delete that folder
+        /// wholesale. Decided here (canonical compare), not by comparing path
+        /// strings in the frontend.
+        old_root_is_default: bool,
+        /// A retry can remove something: at least one leftover is not an entry
+        /// the running launcher owns (an un-swept `webview` stays until the
+        /// restart whatever is tried).
+        retry_possible: bool,
     },
+}
+
+/// What a committed move is, as opposed to what it left behind.
+pub struct CommittedMove {
+    pub old_root: String,
+    pub new_root: String,
+    pub old_root_is_default: bool,
+}
+
+fn retry_can_remove_something(leftovers: &[String], old_root_intact: bool) -> bool {
+    !old_root_intact
+        && leftovers.iter().any(|name| {
+            !crate::data_root::transient::is_skipped_top_level(std::ffi::OsStr::new(name))
+        })
 }
 
 pub struct RelocationState {
@@ -130,9 +153,13 @@ impl RelocationState {
     pub fn replace_leftovers(&self, leftovers: Vec<String>) -> RelocationStatus {
         let mut status = self.lock();
         if let RelocationStatus::RestartRequired {
-            leftovers: current, ..
+            leftovers: current,
+            old_root_intact,
+            retry_possible,
+            ..
         } = &mut *status
         {
+            *retry_possible = retry_can_remove_something(&leftovers, *old_root_intact);
             *current = leftovers;
         }
         status.clone()
@@ -153,16 +180,18 @@ impl MoveSession<'_> {
     /// The move is committed but this process still runs from the old root.
     pub fn park_restart_required(
         mut self,
-        old_root: String,
-        new_root: String,
+        moved: CommittedMove,
         leftovers: Vec<String>,
         old_root_intact: bool,
     ) {
+        let retry_possible = retry_can_remove_something(&leftovers, old_root_intact);
         *self.state.lock() = RelocationStatus::RestartRequired {
-            old_root,
-            new_root,
+            old_root: moved.old_root,
+            new_root: moved.new_root,
             leftovers,
             old_root_intact,
+            old_root_is_default: moved.old_root_is_default,
+            retry_possible,
         };
         self.parked = true;
     }
@@ -186,6 +215,14 @@ pub fn global() -> &'static RelocationState {
 mod tests {
     use super::*;
     use crate::error::Error;
+
+    fn moved(old: &str, new: &str, old_root_is_default: bool) -> CommittedMove {
+        CommittedMove {
+            old_root: old.into(),
+            new_root: new.into(),
+            old_root_is_default,
+        }
+    }
 
     #[test]
     fn only_one_move_at_a_time_and_a_dropped_session_frees_the_state() {
@@ -220,8 +257,7 @@ mod tests {
     fn a_parked_restart_required_survives_the_session_and_blocks_a_new_move() {
         let state = RelocationState::new();
         state.begin().unwrap().park_restart_required(
-            "C:\\old".into(),
-            "D:\\new".into(),
+            moved("C:\\old", "D:\\new", true),
             vec!["libraries".into()],
             false,
         );
@@ -232,9 +268,50 @@ mod tests {
                 new_root: "D:\\new".into(),
                 leftovers: vec!["libraries".into()],
                 old_root_intact: false,
+                old_root_is_default: true,
+                retry_possible: true,
             }
         );
         assert!(state.begin().is_none());
+    }
+
+    fn retry_possible_of(status: RelocationStatus) -> bool {
+        match status {
+            RelocationStatus::RestartRequired { retry_possible, .. } => retry_possible,
+            other => panic!("expected RestartRequired, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_retry_is_offered_only_when_it_could_remove_something() {
+        // An intact old root was never deleted from: nothing to retry.
+        let state = RelocationState::new();
+        state
+            .begin()
+            .unwrap()
+            .park_restart_required(moved("old", "new", false), vec![], true);
+        assert!(!retry_possible_of(state.status()));
+
+        // An un-swept `webview` stays until the restart whatever is tried.
+        let state = RelocationState::new();
+        state.begin().unwrap().park_restart_required(
+            moved("old", "new", false),
+            vec!["webview".into()],
+            false,
+        );
+        assert!(!retry_possible_of(state.status()));
+
+        // A user entry can be retried — and once it is gone, no more.
+        let state = RelocationState::new();
+        state.begin().unwrap().park_restart_required(
+            moved("old", "new", false),
+            vec!["webview".into(), "libraries".into()],
+            false,
+        );
+        assert!(retry_possible_of(state.status()));
+        assert!(!retry_possible_of(
+            state.replace_leftovers(vec!["webview".into()])
+        ));
     }
 
     #[test]
@@ -257,7 +334,7 @@ mod tests {
             }
             other => panic!("expected a refusal while running, got {other:?}"),
         }
-        session.park_restart_required("a".into(), "b".into(), vec![], false);
+        session.park_restart_required(moved("a", "b", false), vec![], false);
         match state.check_usable() {
             Err(Error::DataRelocationInProgress { restart_required }) => {
                 assert!(restart_required)
@@ -294,8 +371,7 @@ mod tests {
         );
 
         state.begin().unwrap().park_restart_required(
-            "old".into(),
-            "new".into(),
+            moved("old", "new", false),
             vec!["libraries".into(), "logs".into()],
             false,
         );
@@ -306,6 +382,8 @@ mod tests {
                 new_root: "new".into(),
                 leftovers: vec!["logs".into()],
                 old_root_intact: false,
+                old_root_is_default: false,
+                retry_possible: true,
             }
         );
     }
