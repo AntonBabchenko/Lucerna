@@ -16,12 +16,18 @@
     onChange,
     variant,
     ariaLabel,
+    dataTestid,
+    describedby,
   }: {
     options: Option[];
     value: string;
     onChange: (v: string) => void;
     variant: 'boxed' | 'inline';
     ariaLabel: string;
+    /** `data-testid` on the group element. */
+    dataTestid?: string;
+    /** Forwarded as `aria-describedby` on the group (a hint line under the control). */
+    describedby?: string;
   } = $props();
 
   // DOM-ordered button refs so arrow keys can move focus to a sibling.

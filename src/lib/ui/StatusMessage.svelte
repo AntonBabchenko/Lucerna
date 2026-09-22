@@ -14,7 +14,7 @@
      * empty, so a later null→text transition is announced (aria-atomic).
      */
     message: string | null;
-    tone?: 'danger' | 'warning' | 'info';
+    tone?: 'danger' | 'warning' | 'info' | 'success';
     /** Defaults to assertive for danger, polite for advisory tones. */
     live?: 'assertive' | 'polite';
     /** Render a leading warning icon before the text. */
