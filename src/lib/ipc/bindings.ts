@@ -1308,6 +1308,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  exit. Re-checks server-side rather than trusting a client-supplied
 	 *  `UpdateInfo`, so the URLs to download are always derived from the
 	 *  live release on `api.github.com`. No-op if already up-to-date.
+	 * 
+	 *  Lucerna CLOSES to install, and the exit hook force-kills every running
+	 *  game and server: the install is refused while anything runs, is starting
+	 *  or holds a claim — and while that cannot be told — here at the top, and
+	 *  once more right before the installer is spawned.
 	 */
 	updateInstall: () => typedError<null, Error>(__TAURI_INVOKE("update_install")),
 	/**
@@ -2298,6 +2303,7 @@ export const events = {
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
+	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
 };
 
@@ -3200,7 +3206,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  permission is off. `channel` is the stable channel id (e.g.
  *  `"server_ping"`) so the UI can name the setting to turn on.
  */
-{ kind: "consented_channel_disabled"; channel: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "consented_channel_disabled"; channel: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | 
+/**
+ *  The update was refused because Lucerna would have to close while a
+ *  game, a server or an operation is running — or it could not tell.
+ *  Never "confirm and kill": the user closes what runs, then retries.
+ */
+{ kind: "update_blocked"; block: RestartBlock } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -5947,6 +5959,22 @@ export type PendingFile = {
 };
 
 /**
+ *  Where an in-app install is. Emitted as `UpdateInstallPhase` so the button
+ *  and the toast can follow the real stage instead of saying "Installing…"
+ *  during a download.
+ */
+export type Phase = 
+/**
+ *  The installer, its cosign bundle and SHA256SUMS — one phase; the
+ *  progress bar tracks the installer only.
+ */
+"downloading" | 
+/**  The blocking read + SHA-256 + cosign. */
+"verifying" | 
+/**  Both checks passed and nothing runs: the installer is about to start. */
+"launching";
+
+/**
  *  How a store entry ended up in the instance.
  * 
  *  Deserialize (not just Serialize): `tasks::DetailOutcome::Installed` embeds
@@ -7239,6 +7267,11 @@ export type UpdateInfo = {
 	installer: ReleaseAsset | null,
 	sha256sums: ReleaseAsset | null,
 	cosign_bundle: ReleaseAsset | null,
+};
+
+/**  Where an in-app install is; the button and the progress toast follow it. */
+export type UpdateInstallPhase = {
+	phase: Phase,
 };
 
 /**  Persisted SFTP auth method + optional private-key path. */

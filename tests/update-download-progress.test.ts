@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { updateInstall: vi.fn() },
-  events: { downloadProgress: { listen: vi.fn() } },
+  // The gate answers "nothing runs" here; the phase listener registers and is never fired.
+  commands: { updateInstall: vi.fn(), restartBlocked: vi.fn(async () => 'none') },
+  events: {
+    downloadProgress: { listen: vi.fn() },
+    updateInstallPhase: { listen: vi.fn(async () => () => {}) },
+  },
 }));
 vi.mock('$lib/ipc/format-error', () => ({
   formatError: (e: { kind: string }) => `err:${e.kind}`,
+  describeStoreError: (e: unknown) => `thrown:${String(e)}`,
 }));
 // get(t) reads the store value once; expose a translate fn that echoes the key.
 vi.mock('$lib/i18n', () => ({
@@ -27,9 +32,9 @@ function progressToast() {
   return toastList().find((t) => t.progress !== undefined);
 }
 
+// The listeners register behind the gate's own await now: drain a macrotask, not two microtasks.
 async function flush() {
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((r) => setTimeout(r, 0));
 }
 
 describe('update download progress', () => {

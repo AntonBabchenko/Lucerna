@@ -179,6 +179,8 @@ export type MockState = {
     default_dir?: string;
     relocation?: unknown;
   };
+  /** update_check result overrides; the default is "up to date" with no installer. */
+  update_info?: Record<string, unknown>;
   /** plugin:dialog|open result (the OS directory picker). null = cancelled. */
   picked_directory?: string | null;
   /** plan_data_location_change result; null = command unused by the spec. A `migrate` plan gets
@@ -496,6 +498,19 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         }),
         data_root_size_bytes: () => 4096,
         restart_blocked: () => m.restart_block,
+        // Settings → Updates. The check answers "up to date" unless a spec says otherwise; the
+        // install is never reached in e2e (a real one exits the app).
+        update_check: () => ({
+          available: false,
+          current: '0.0.0',
+          latest: '0.0.0',
+          release_url: null,
+          installer: null,
+          sha256sums: null,
+          cosign_bundle: null,
+          ...m.update_info,
+        }),
+        update_install: () => null,
         plan_data_location_change: () =>
           m.data_location_plan?.kind === 'migrate'
             ? { required_bytes: 4096, free_bytes: 64 * 1024 ** 3, ...m.data_location_plan }

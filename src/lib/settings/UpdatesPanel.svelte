@@ -3,46 +3,84 @@
   // followed by the "What's new" changelog (moved here from About — it
   // pairs naturally with keeping the app current). Owns only the
   // check_updates_on_startup GeneralSettings field via a fresh RMW.
+  //
+  // Lucerna CLOSES to install an update, and the exit hook force-kills every
+  // running game and server — so the action sits behind the same gate as the
+  // data-folder move (`createRestartGate`), says what it will do, and follows
+  // the real stage instead of saying "Installing…" during a download.
   import { onMount } from 'svelte';
   import { commands, type GeneralSettings } from '$lib/ipc/bindings';
-  import { formatError } from '$lib/ipc/format-error';
+  import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
   import { Icon } from '$lib/ui/icons';
-  import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
+  import {
+    runUpdate,
+    updateInstalling,
+    updatePhase,
+    type UpdatePhase,
+    updateState,
+  } from '$lib/update/state.svelte';
   import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { CHANGELOG } from '$lib/changelog/source';
+  import { createRestartGate, type RestartGate } from './restart-gate.svelte';
   import SettingsField from './SettingsField.svelte';
 
-  let general = $state<GeneralSettings>({
-    hide_to_tray_during_game: false,
-    theme: 'system',
-    check_updates_on_startup: true,
-    gpu_preference: 'auto',
-  });
-  let loadError = $state<string | null>(null);
+  // The setting is tri-state on purpose: a value is shown only once the backend
+  // has confirmed one. Before the read settles, and after it failed, the box is
+  // disabled and shows NO value — a hard-coded default next to a red line
+  // would be an unknown shown as a confident "on".
+  type Setting =
+    | { kind: 'pending' }
+    | { kind: 'ok'; general: GeneralSettings; value: boolean }
+    | { kind: 'failed'; error: string };
+  let setting = $state<Setting>({ kind: 'pending' });
   let saveError = $state<string | null>(null);
+  const loaded = $derived(setting.kind === 'ok');
+  const checked = $derived(setting.kind === 'ok' ? setting.value : false);
 
-  onMount(async () => {
-    const r = await commands.appSettingsGet();
-    if (r.status === 'ok') general = r.data.general;
-    else loadError = formatError(r.error);
-  });
-
-  async function save() {
+  async function load() {
+    setting = { kind: 'pending' };
     saveError = null;
-    const startupCheck = general.check_updates_on_startup; // snapshot before await
-    const cur = await commands.appSettingsGet();
-    if (cur.status !== 'ok') {
-      saveError = formatError(cur.error);
+    const r = await commands.appSettingsGet();
+    if (r.status !== 'ok') {
+      setting = { kind: 'failed', error: formatError(r.error) };
       return;
     }
-    const next = {
+    // The binding types the field as optional (a serde default on the Rust side); the backend
+    // always sends a bool. Anything else is "could not tell", never "on".
+    const value = r.data.general.check_updates_on_startup;
+    setting =
+      typeof value === 'boolean'
+        ? { kind: 'ok', general: r.data.general, value }
+        : { kind: 'failed', error: 'check_updates_on_startup missing from the answer' };
+  }
+  onMount(() => void load());
+
+  /** Optimistic flip; a failed read-modify-write reverts to the value the
+   *  backend last confirmed and says the change was not saved. */
+  async function toggle(next: boolean) {
+    if (setting.kind !== 'ok') return;
+    saveError = null;
+    const confirmed = setting.value;
+    setting = { ...setting, value: next };
+    const cur = await commands.appSettingsGet();
+    if (cur.status !== 'ok') {
+      revert(confirmed, formatError(cur.error));
+      return;
+    }
+    const r = await commands.appSettingsSetGeneral({
       ...cur.data.general,
-      check_updates_on_startup: startupCheck,
-    };
-    const r = await commands.appSettingsSetGeneral(next);
-    if (r.status !== 'ok') saveError = formatError(r.error);
+      check_updates_on_startup: next,
+    });
+    if (r.status !== 'ok') revert(confirmed, formatError(r.error));
+  }
+  function revert(confirmed: boolean, error: string) {
+    if (setting.kind === 'ok') setting = { ...setting, value: confirmed };
+    saveError = $t('settings.general.updates.notSaved', { error });
   }
 
   // Manual update check — mirrors the startup check but reports inline.
@@ -54,43 +92,102 @@
   let checking = $state(false);
   let checkResult = $state<CheckResult>({ kind: 'idle' });
 
-  // On platforms without in-app install (Linux/macOS) the backend returns a
-  // null installer and runUpdate() opens the release page instead of
+  // On platforms without in-app install (macOS, .deb / .rpm) the backend returns
+  // a null installer and runUpdate() opens the release page instead of
   // installing. Surface that honestly — an "Open release page" label plus a
-  // manual-install hint — so "Update" never implies auto-update where there
-  // is none. Derived from the live UpdateInfo, not the build target.
+  // manual-install hint — so "Update" never implies auto-update where there is
+  // none. Derived from the live UpdateInfo, not the build target.
   const notifyOnly = $derived(updateState.value?.installer === null);
 
   async function checkForUpdates() {
     checking = true;
     checkResult = { kind: 'idle' };
-    const r = await commands.updateCheck();
-    checking = false;
-    if (r.status !== 'ok') {
-      checkResult = { kind: 'error', message: formatError(r.error) };
-      return;
-    }
-    if (r.data.available) {
-      updateState.value = r.data;
-      checkResult = { kind: 'available', version: r.data.latest };
-    } else {
-      checkResult = { kind: 'uptodate', current: r.data.current };
+    try {
+      const r = await commands.updateCheck();
+      if (r.status !== 'ok') {
+        checkResult = { kind: 'error', message: formatError(r.error) };
+        return;
+      }
+      if (r.data.available) {
+        updateState.value = r.data;
+        checkResult = { kind: 'available', version: r.data.latest };
+      } else {
+        checkResult = { kind: 'uptodate', current: r.data.current };
+      }
+    } catch (e) {
+      // typedError rethrows real Error instances; without this the button stayed on "Checking…".
+      checkResult = { kind: 'error', message: describeStoreError(e) };
+    } finally {
+      checking = false;
     }
   }
+
+  // The gate. Asked once an update is offered (the button does not exist before),
+  // after an install that came back (refused, failed, or nothing newer), and on
+  // Check again. The sentences are this panel's own: they speak of closing to
+  // update, not of moving the data folder.
+  const gate = createRestartGate();
+  const GATE_KEYS: Record<Exclude<RestartGate, 'none'>, TranslationKey> = {
+    checking: 'settings.general.updates.blocked.checking',
+    running: 'settings.general.updates.blocked.running',
+    busy: 'settings.general.updates.blocked.busy',
+    unknown: 'settings.general.updates.blocked.unknown',
+  };
+  const offered = $derived(checkResult.kind === 'available' && !notifyOnly);
+  // The visible gate is the gate `runUpdate` applies: a task this window started (an instance
+  // being created — the backend's observer cannot see it) blocks before the backend is asked.
+  const block = $derived.by((): RestartGate => {
+    // Read the backend answer BEFORE the short-circuit: a derived tracks only what it read, and
+    // one that never read `gate.block` while a task was active would not wake when it changes.
+    const backend = gate.block;
+    return taskList().some(isActiveTask) ? 'busy' : backend;
+  });
+  const gateReason = $derived(block === 'none' ? null : $t(GATE_KEYS[block]));
+  const updateBlocked = $derived(offered && block !== 'none');
+  $effect(() => {
+    if (offered) void gate.recheck();
+  });
+
+  async function update() {
+    const before = updateState.value;
+    await runUpdate();
+    // The install came back without an exit and dropped the offer (the re-check found nothing
+    // newer): the panel must not keep showing "Update now" next to the toast that said so.
+    if (before && updateState.value === null && checkResult.kind === 'available') {
+      checkResult = { kind: 'uptodate', current: before.current };
+      return;
+    }
+    // Back here means no exit happened: re-ask, so the inline reason matches
+    // whatever the backend just refused on.
+    if (offered && !updateInstalling.value) void gate.recheck();
+  }
+
+  const PHASE_KEYS: Record<UpdatePhase, TranslationKey> = {
+    downloading: 'page.update.phase.downloading',
+    verifying: 'page.update.phase.verifying',
+    launching: 'page.update.phase.launching',
+  };
+  const actionLabel = $derived(
+    notifyOnly
+      ? $t('settings.general.updates.openReleasePage')
+      : updateInstalling.value
+        ? updatePhase.value
+          ? $t(PHASE_KEYS[updatePhase.value])
+          : $t('settings.general.updates.updating')
+        : $t('settings.general.updates.updateNow'),
+  );
 </script>
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-3">
-    {#if loadError}
-      <p class="text-xs text-danger">{loadError}</p>
-    {/if}
     <SettingsField anchor="updates.startupCheck">
       <label class="flex items-start gap-2 cursor-pointer">
         <input
           type="checkbox"
           class="mt-0.5"
-          bind:checked={general.check_updates_on_startup}
-          onchange={() => void save()}
+          {checked}
+          disabled={!loaded}
+          onchange={(e) => void toggle((e.currentTarget as HTMLInputElement).checked)}
           data-testid="updates-toggle"
         />
         <span class="flex-1">
@@ -101,9 +198,18 @@
         </span>
       </label>
     </SettingsField>
-    {#if saveError}
-      <p class="text-xs text-danger">{saveError}</p>
+    {#if setting.kind === 'failed'}
+      <div class="flex flex-wrap items-center gap-2">
+        <StatusMessage
+          message={$t('settings.general.updates.loadFailed', { error: setting.error })}
+          tone="danger"
+        />
+        <button type="button" class="btn-secondary btn-sm" onclick={() => void load()}>
+          {$t('settings.general.updates.retryBtn')}
+        </button>
+      </div>
     {/if}
+    <StatusMessage message={saveError} tone="danger" />
     <div class="flex items-center gap-3 flex-wrap">
       <BusyButton
         type="button"
@@ -128,25 +234,40 @@
         <p class="text-xs text-primary" data-testid="update-status">
           {$t('settings.general.updates.available', { version: checkResult.version })}
         </p>
-        <button
+        <BusyButton
           type="button"
           class="btn-primary btn-sm"
-          onclick={() => void runUpdate()}
-          disabled={updateInstalling.value}
+          busy={updateInstalling.value}
+          disabled={updateBlocked}
+          onclick={() => void update()}
           data-testid="update-now-btn"
         >
-          {#if notifyOnly}
-            {$t('settings.general.updates.openReleasePage')}
-          {:else if updateInstalling.value}
-            {$t('settings.general.updates.installing')}
-          {:else}
-            {$t('settings.general.updates.updateNow')}
-          {/if}
-        </button>
+          {actionLabel}
+        </BusyButton>
         {#if notifyOnly}
           <p class="basis-full text-xs text-muted" data-testid="update-manual-hint">
             {$t('settings.general.updates.manualHint')}
           </p>
+        {:else}
+          <p class="basis-full text-xs text-muted" data-testid="update-explain">
+            {$t('settings.general.updates.explain')}
+          </p>
+          {#if block !== 'none' && block !== 'checking'}
+            <button
+              type="button"
+              class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+              onclick={() => void gate.recheck()}
+            >
+              <Icon name="refresh" class="icon-spin-hover" />
+              {$t('settings.storage.dataLocation.blocked.recheckBtn')}
+            </button>
+          {/if}
+          <!-- ONE inline reason, never a tooltip: it has to reach a keyboard user (DESIGN §8). -->
+          <StatusMessage
+            message={gateReason}
+            tone={gate.block === 'checking' ? 'info' : 'warning'}
+            withIcon={gate.block !== 'checking'}
+          />
         {/if}
       {/if}
     </div>

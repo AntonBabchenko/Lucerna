@@ -217,6 +217,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   data_location_unavailable: 'clean',
   // Built from one boolean — there is no raw text to truncate.
   data_relocation_in_progress: 'clean',
+  update_blocked: 'clean',
   // Built entirely from structured fields (filename + typed reason) — see
   // `datapackRejectionKey` below for why the reason is a typed lookup rather
   // than a raw string.
@@ -693,6 +694,16 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.updateVerificationFailed'), e.details);
     case 'update_install_failed':
       return withDetailTail(translate('errors.updateInstallFailed'), e.details);
+    case 'update_blocked':
+      // A refusal, not a failure: what to do, per block. `none` never reaches
+      // the wire (the backend refuses only on the other three).
+      return translate(
+        e.block === 'running'
+          ? 'errors.updateBlocked.running'
+          : e.block === 'busy'
+            ? 'errors.updateBlocked.busy'
+            : 'errors.updateBlocked.unknown',
+      );
     case 'quick_play_address_invalid':
       return translate('errors.quickPlayAddressInvalid', {
         address: e.address,

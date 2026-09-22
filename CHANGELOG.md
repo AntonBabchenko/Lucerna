@@ -125,6 +125,20 @@ behaviour is worth knowing, it is stated as a property of the feature under
   no update check, no changelog prompt. The uninstaller keeps the data-folder
   setting when it cannot read it, instead of deleting it.
 
+- **Updating no longer closes a running game or server without warning.**
+  Lucerna closes to install an update, and until now the update button and the
+  update notification did that with Minecraft or one of your servers still
+  running — whatever was unsaved was lost. Updating now refuses while a game
+  or a server is running, an operation is in progress, or Lucerna cannot tell,
+  and says what to close first; it checks once more right before starting the
+  installer, so a game started during the download is safe too. The page says
+  what the button does before you press it, shows the real stage (download,
+  verification, installer) instead of "Installing…" during a download, and
+  headlines a failed download as a failed download rather than a failed
+  verification. The startup-check toggle no longer shows a value it could not
+  read, and says when a change was not saved. A release that is still being
+  uploaded no longer makes the check report an error to people already on it.
+
 ### Removed
 
 - **The setting that let web links open Lucerna.** Nothing ever offered such

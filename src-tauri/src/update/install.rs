@@ -4,13 +4,89 @@
 //! Linux AppImage swaps the running file in place and relaunches. Always
 //! user-initiated.
 
+use crate::data_root::blockers::RestartBlock;
 use crate::error::{Error, Result};
 use crate::update::{verify, UpdateInfo};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// Where an in-app install is. Emitted as `UpdateInstallPhase` so the button
+/// and the toast can follow the real stage instead of saying "Installing…"
+/// during a download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    /// The installer, its cosign bundle and SHA256SUMS — one phase; the
+    /// progress bar tracks the installer only.
+    Downloading,
+    /// The blocking read + SHA-256 + cosign.
+    Verifying,
+    /// Both checks passed and nothing runs: the installer is about to start.
+    Launching,
+}
+
+/// Lucerna closes to install an update; the exit hook force-kills every
+/// running game and server. So an update is REFUSED while anything runs, is
+/// starting, or holds a claim — and while that cannot be told. Same observer
+/// and same three answers as the data-folder move.
+pub fn install_blocked(block: RestartBlock) -> Result<()> {
+    match block {
+        RestartBlock::None => Ok(()),
+        block => Err(Error::UpdateBlocked { block }),
+    }
+}
+
+/// One install at a time: two would clear the update dir under each other.
+static INSTALLING: AtomicBool = AtomicBool::new(false);
+
+/// Held for the life of one `update_install` call; dropping it — on every exit
+/// path, `?` and unwind included — frees the slot.
+pub struct InstallGuard(());
+
+pub fn try_begin() -> Option<InstallGuard> {
+    INSTALLING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| InstallGuard(()))
+}
+
+impl Drop for InstallGuard {
+    fn drop(&mut self) {
+        INSTALLING.store(false, Ordering::Release);
+    }
+}
+
+/// Wrap the apply step so that, right before the installer is spawned, the
+/// running registry is observed ONCE MORE: the download took seconds to
+/// minutes, and a game started meanwhile would otherwise be force-killed by
+/// the exit hook. Re-observing after the spawn would be too late — on Windows
+/// the NSIS installer is already running, on Linux the AppImage is already
+/// swapped — so this is the last point at which the update can still be
+/// refused without side effects. `check` is that observation (and, in
+/// production, the data-root usability check: a data-folder move that began
+/// during the download makes this root unusable, and the move's own gate
+/// cannot see an update in flight). `on_launch` (the `Launching` phase)
+/// fires only after the check passes.
+pub fn guarded_apply<'a>(
+    check: impl FnOnce() -> Result<()> + Send + 'a,
+    on_launch: impl FnOnce() + Send + 'a,
+    apply: impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a,
+) -> impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a {
+    move |verified: &std::path::Path| {
+        check()?;
+        on_launch();
+        apply(verified)
+    }
+}
 
 /// Download to the update scratch dir, verify, launch, and exit.
 /// On any download/verify failure returns `Err` WITHOUT launching —
 /// an unverified binary is never run.
-pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> Result<()> {
+pub async fn download_and_install(
+    app: &tauri::AppHandle,
+    info: &UpdateInfo,
+    on_phase: Arc<dyn Fn(Phase) + Send + Sync>,
+) -> Result<()> {
     let installer = info
         .installer
         .as_ref()
@@ -48,6 +124,8 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     let installer_path = dir.join(&installer.name);
     let bundle_path = dir.join(&cosign_bundle.name);
 
+    on_phase(Phase::Downloading);
+
     // Download installer + bundle. Pass "" to skip the streaming SHA-1
     // check (that primitive verifies SHA-1; our SHA-256 + cosign run
     // afterwards). browser_download_url host is github.com (allowlisted);
@@ -78,7 +156,7 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     // Windows runs the NSIS installer; a Linux AppImage replaces itself in
     // place and relaunches. `verify_and_launch` guarantees the apply runs only
     // after BOTH checks pass.
-    let launch: Box<dyn FnOnce(&std::path::Path) -> Result<()> + Send> =
+    let inner: Box<dyn FnOnce(&std::path::Path) -> Result<()> + Send> =
         match crate::platform::install_kind() {
             crate::platform::InstallKind::WindowsInstaller => {
                 Box::new(|p: &std::path::Path| crate::process::spawn_installer(p))
@@ -93,6 +171,21 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
             }
         };
 
+    // The download took seconds to minutes: observe ONCE MORE right before the
+    // installer is spawned — the last point at which a game started meanwhile
+    // can still be refused without side effects (`guarded_apply`).
+    let observer = app.clone();
+    let phase = on_phase.clone();
+    let launch = guarded_apply(
+        move || {
+            crate::data_root::state::global().check_usable()?;
+            install_blocked(crate::data_root::blockers::observe(&observer))
+        },
+        move || phase(Phase::Launching),
+        inner,
+    );
+
+    on_phase(Phase::Verifying);
     tokio::task::spawn_blocking(move || -> Result<()> {
         verify_and_launch(
             &ip,
@@ -183,6 +276,96 @@ mod tests {
         let mut f = std::fs::File::create(&path).expect("create installer");
         f.write_all(b"installer-bytes").expect("write installer");
         (dir, path)
+    }
+
+    #[test]
+    fn a_running_game_or_server_refuses_the_update() {
+        for block in [
+            RestartBlock::Running,
+            RestartBlock::Busy,
+            RestartBlock::Unknown,
+        ] {
+            match install_blocked(block) {
+                Err(Error::UpdateBlocked { block: got }) => assert_eq!(got, block),
+                other => panic!("{block:?} must refuse, got {other:?}"),
+            }
+        }
+        assert!(install_blocked(RestartBlock::None).is_ok());
+    }
+
+    #[test]
+    fn a_second_install_is_refused_while_the_first_is_in_flight() {
+        let first = try_begin().expect("the slot is free");
+        assert!(try_begin().is_none(), "one install at a time");
+        drop(first);
+        assert!(
+            try_begin().is_some(),
+            "the slot is free again after the drop"
+        );
+    }
+
+    // `guarded_apply`'s closures cross into `spawn_blocking` in production, so
+    // they are `Send`: atomics and a mutex here, not the `Cell`s the older
+    // tests use.
+    #[test]
+    fn nothing_is_spawned_when_something_started_during_the_download() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (_dir, path) = write_temp_installer();
+        let launched = AtomicBool::new(false);
+        let phase_reported = AtomicBool::new(false);
+
+        let result = verify_and_launch(
+            &path,
+            |_bytes| Ok(()),
+            guarded_apply(
+                || install_blocked(RestartBlock::Running),
+                || phase_reported.store(true, Ordering::SeqCst),
+                |_p| {
+                    launched.store(true, Ordering::SeqCst);
+                    Ok(())
+                },
+            ),
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(Error::UpdateBlocked {
+                    block: RestartBlock::Running
+                })
+            ),
+            "got {result:?}"
+        );
+        assert!(
+            !launched.load(Ordering::SeqCst),
+            "the installer must NOT be spawned"
+        );
+        assert!(
+            !phase_reported.load(Ordering::SeqCst),
+            "no Launching phase for a refused install"
+        );
+    }
+
+    #[test]
+    fn the_launch_phase_is_reported_only_after_the_observation_passes() {
+        let (_dir, path) = write_temp_installer();
+        let order = std::sync::Mutex::new(Vec::new());
+
+        let result = verify_and_launch(
+            &path,
+            |_bytes| Ok(()),
+            guarded_apply(
+                || install_blocked(RestartBlock::None),
+                || order.lock().unwrap().push("launching"),
+                |_p| {
+                    order.lock().unwrap().push("apply");
+                    Ok(())
+                },
+            ),
+        );
+
+        assert!(result.is_ok(), "got {result:?}");
+        assert_eq!(*order.lock().unwrap(), vec!["launching", "apply"]);
     }
 
     #[test]

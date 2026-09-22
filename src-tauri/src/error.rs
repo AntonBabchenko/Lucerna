@@ -67,6 +67,14 @@ pub enum Error {
     #[error("Update install failed: {details}")]
     UpdateInstallFailed { details: String },
 
+    /// The update was refused because Lucerna would have to close while a
+    /// game, a server or an operation is running — or it could not tell.
+    /// Never "confirm and kill": the user closes what runs, then retries.
+    #[error("Update refused: {block:?}")]
+    UpdateBlocked {
+        block: crate::data_root::blockers::RestartBlock,
+    },
+
     #[error("Hash mismatch for {path}: expected {expected}, got {got}")]
     HashMismatch {
         path: String,
@@ -1242,6 +1250,18 @@ mod tests {
             "got: {j}"
         );
         assert!(j.contains(r#""url":"https://api.curseforge.com/v1/mods/search""#));
+    }
+
+    #[test]
+    fn update_blocked_serializes_its_block() {
+        // The frontend picks the sentence from `block`: it must cross the wire
+        // as the same bare token `restart_blocked` answers with.
+        let e = Error::UpdateBlocked {
+            block: crate::data_root::blockers::RestartBlock::Running,
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(j.contains(r#""kind":"update_blocked""#), "got: {j}");
+        assert!(j.contains(r#""block":"running""#), "got: {j}");
     }
 
     #[test]

@@ -80,13 +80,15 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
     // Install assets are only needed where we do in-app install, and the
     // primary artifact differs by mechanism (Windows `-setup.exe` vs Linux
     // `.AppImage`). Notify-only platforms never download, so we don't require
-    // any of them to exist — the UI links to the release page instead.
+    // any of them to exist — the UI links to the release page instead. And
+    // they matter only when there is something to install: a release that is
+    // still uploading must not turn "you are on it" into "couldn't check".
     let (installer, sha256sums, cosign_bundle) = match primary_asset_suffix() {
-        Some(suffix) => {
+        Some(suffix) if available => {
             let (i, s, b) = select_install_assets(&rel, suffix)?;
             (Some(i), Some(s), Some(b))
         }
-        None => (None, None, None),
+        Some(_) | None => (None, None, None),
     };
 
     Ok(UpdateInfo {
@@ -287,6 +289,18 @@ mod tests {
             r,
             Err(crate::error::Error::UpdateCheckFailed { .. })
         ));
+    }
+
+    /// A release that is still uploading (or broken) must not turn "you are on
+    /// it" into "couldn't check": the install assets matter only when there is
+    /// something to install.
+    #[test]
+    fn up_to_date_is_reported_even_when_the_release_lacks_the_installer() {
+        let mut rel = sample_release();
+        rel.assets.clear();
+        let info = build_update_info(rel, "0.9.1").expect("up to date is not an error");
+        assert!(!info.available);
+        assert!(info.installer.is_none());
     }
 
     fn sample_release_appimage() -> GhRelease {

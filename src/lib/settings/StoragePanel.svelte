@@ -18,7 +18,7 @@
   // +page.svelte), so it survives a reload.
   import { open as openDirectory } from '@tauri-apps/plugin-dialog';
   import { tick } from 'svelte';
-  import { commands, type LogRetentionPolicy, type RestartBlock } from '$lib/ipc/bindings';
+  import { commands, type LogRetentionPolicy } from '$lib/ipc/bindings';
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
@@ -29,6 +29,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { createRestartGate, type RestartGate } from './restart-gate.svelte';
   import { fallbackDetails } from './fallback-message';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
   import SettingsField from './SettingsField.svelte';
@@ -189,12 +190,11 @@
   // The move is offered only when the backend said exactly 'none' (spec §4.7): a pending call, a
   // rejection, null or a token this build does not know all count as "could not tell", which is
   // the blocked answer.
-  type RestartGate = RestartBlock | 'checking';
-  let restartBlock = $state<RestartGate>('checking');
-  // Plain counter, NOT $state: recheckBlocked() runs inside the mount $effect, and a tracked read
-  // there would make the effect re-run itself.
-  let blockQuerySeq = 0;
-
+  // The gate's core (checking / exact 'none' / newer answer wins) is shared with
+  // Settings → Updates through createRestartGate; the sentences and the moments
+  // to ask stay here.
+  const gate = createRestartGate();
+  const restartBlock = $derived(gate.block);
   const BLOCK_REASON_KEYS: Record<Exclude<RestartGate, 'none'>, TranslationKey> = {
     checking: 'settings.storage.dataLocation.blocked.checking',
     running: 'settings.storage.dataLocation.blocked.running',
@@ -207,19 +207,7 @@
   );
 
   async function recheckBlocked() {
-    const seq = ++blockQuerySeq;
-    restartBlock = 'checking';
-    let next: RestartBlock = 'unknown';
-    try {
-      const answer: unknown = await commands.restartBlocked();
-      if (answer === 'none' || answer === 'running' || answer === 'busy') next = answer;
-    } catch {
-      // `restartBlocked` is not wrapped in typedError, so a rejection lands here. "Could not
-      // ask" is "could not tell": stay blocked.
-      next = 'unknown';
-    }
-    // A slower, older query must not overwrite a newer answer.
-    if (seq === blockQuerySeq) restartBlock = next;
+    await gate.recheck();
   }
 
   /** specta renders f64 as `number | null`; treat anything else as unknown. */

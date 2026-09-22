@@ -35,6 +35,8 @@ describe('UpdatesPanel updates toggle', () => {
   it('persists check_updates_on_startup when toggled', async () => {
     const { findByTestId } = render(UpdatesPanel);
     const cb = (await findByTestId('updates-toggle')) as HTMLInputElement;
+    // The box shows no value until the setting has been read (it is disabled meanwhile).
+    await vi.waitFor(() => expect(cb.disabled).toBe(false));
     expect(cb.checked).toBe(true);
     await fireEvent.click(cb);
     // RMW: the panel re-reads settings before writing, so the persist resolves
