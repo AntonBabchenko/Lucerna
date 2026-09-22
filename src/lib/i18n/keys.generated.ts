@@ -2486,7 +2486,6 @@ export type TranslationKey =
   | 'settings.about.legalTitle'
   | 'settings.about.license'
   | 'settings.about.openRepoLabel'
-  | 'settings.about.title'
   | 'settings.about.trademark'
   | 'settings.about.viewOnGitHub'
   | 'settings.aiTranslation.aboutBody'

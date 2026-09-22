@@ -2688,8 +2688,8 @@
         "title": "Tips",
         "levelLabel": "Tip detail level",
         "levelDescription": "Choose how tooltips and the tour explain things.",
-        "basic": "Basic — simple and clear",
-        "advanced": "Advanced — technical details",
+        "basic": "Basic",
+        "advanced": "Advanced",
         "hintBasic": "simple and clear",
         "hintAdvanced": "technical details"
       },
@@ -2735,7 +2735,7 @@
       "retryBtn": "Retry"
     },
     "storage": {
-      "cacheLabel": "Mod download cache:",
+      "cacheLabel": "Size:",
       "cacheTitle": "Mod download cache",
       "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
       "clearBtn": "Clear cache",
@@ -2824,7 +2824,6 @@
       }
     },
     "about": {
-      "title": "About",
       "identityTitle": "Lucerna",
       "dataTitle": "Your data",
       "legalTitle": "Legal",
