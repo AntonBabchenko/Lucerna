@@ -6,6 +6,7 @@
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
   import PlayerHead from '$lib/accounts/PlayerHead.svelte';
@@ -338,7 +339,11 @@
     {#if serversUi.mode === 'client'}
       <SidebarSection heading={$t('sidebar.account')} dataTour="account-section">
         {#if accounts.length === 0}
-          <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
+          <!-- In a recovery session the list is empty because the data folder is unavailable —
+               "no accounts yet" would read as data loss. -->
+          <p class="text-xs text-muted">
+            {$t(dataLocation.fellBack ? 'sidebar.noAccountsFallback' : 'sidebar.noAccounts')}
+          </p>
         {:else}
           {#snippet accountLeading(opt: SelectOption)}
             {@const acc = accounts.find((a) => a.id === opt.value)}
@@ -455,7 +460,9 @@
             <Spinner size="sm" delayMs={150} class="text-muted" />
           </div>
         {:else if instances.length === 0}
-          <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
+          <p class="text-xs text-muted">
+            {$t(dataLocation.fellBack ? 'sidebar.noInstancesFallback' : 'sidebar.noInstances')}
+          </p>
           {#if createBlockedReason}
             <span class="inline-flex" use:tooltip={{ text: createBlockedReason, describe: false }}>
               <button type="button" class="btn-primary btn-xs" disabled>

@@ -15,6 +15,7 @@
   import AboutPanel from './AboutPanel.svelte';
   import SettingsSearchField from './SettingsSearchField.svelte';
   import SettingsField from './SettingsField.svelte';
+  import { dataLocation } from './data-location.svelte';
   import { settingsOpen, settingsSearchFocus, type SettingsTab } from './state.svelte';
   import type { SettingsSearchEntry } from './search-index';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
@@ -88,6 +89,19 @@
       <CloseButton onClick={close} ariaLabel={$t('settings.closeLabel')} />
     </header>
     <div class="sr-only" role="status" aria-live="polite">{announce}</div>
+    {#if dataLocation.fellBack}
+      <!-- ONE notice for the whole modal: in a recovery session preference saves are accepted
+           for the session (refusing them would freeze the UI language and the theme, because
+           every settings store rolls back on a failed write) and land in a throwaway root. Said
+           about the DATA FOLDER, not "nothing is kept": keyring-backed keys do persist. -->
+      <div
+        class="shrink-0 border-b bg-warning-bg px-4 py-2 text-sm text-warning-text"
+        role="status"
+        data-testid="settings-recovery-notice"
+      >
+        {$t('settings.fallbackNotice')}
+      </div>
+    {/if}
     <div class="flex flex-1 min-h-0">
       <div class="w-44 shrink-0 border-r flex flex-col min-h-0">
         <SettingsSearchField bind:searching onselect={selectResult} />

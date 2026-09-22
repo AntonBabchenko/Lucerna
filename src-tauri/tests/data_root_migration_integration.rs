@@ -52,7 +52,7 @@ fn move_root(
     new_path: Option<&Path>,
     io: &Io<'_>,
 ) -> Result<Outcome, String> {
-    let previous = redirect::read(redirect_file).unwrap();
+    let previous = pointer(redirect_file);
     let mut on_progress = |_: Phase, _: u64| {};
     let never = || false;
     let always = || true;
@@ -89,8 +89,18 @@ fn move_root(
     relocate(current, target, io, &mut hooks).map_err(|e| e.reason)
 }
 
+/// The pointer as an `Option`. These tests only ever write well-formed
+/// pointers, so an unusable one is a test bug, not a case.
+fn pointer(redirect_file: &Path) -> Option<redirect::Redirect> {
+    match redirect::read_state(redirect_file) {
+        redirect::PointerRead::Absent => None,
+        redirect::PointerRead::Present(found) => Some(found),
+        other => panic!("unusable pointer in a test: {other:?}"),
+    }
+}
+
 fn redirect_target(redirect_file: &Path) -> Option<PathBuf> {
-    redirect::read(redirect_file).unwrap().map(|r| r.path)
+    pointer(redirect_file).map(|r| r.path)
 }
 
 #[test]

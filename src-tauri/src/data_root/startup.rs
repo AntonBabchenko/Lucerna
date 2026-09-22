@@ -7,6 +7,7 @@
 //! OS-default dir (`resolve_root` rule 2), so removing the redirect alone does
 //! not move a portable install anywhere.
 
+use crate::data_root::redirect::PointerRead;
 use crate::data_root::{
     looks_like_data_root, migrate, redirect, resolve_root, PortableCandidate, PortableState,
     Resolved,
@@ -56,13 +57,28 @@ fn portable_candidate(exe_dir: &Path) -> PortableCandidate {
 /// The root resolution `lib.rs` runs at startup. Probes the filesystem; holds
 /// no state. `must_create` handling and the log line stay with the caller.
 pub fn resolve_at_startup(inputs: &StartupInputs) -> Resolved {
-    let redirect = inputs
+    // A pointer path that could not even be built reads as "absent": with no
+    // app-data dir there is nothing sane to resolve from (spec §9).
+    let pointer = inputs
         .redirect_file
         .as_deref()
-        .and_then(|f| redirect::read(f).ok().flatten());
+        .map_or(PointerRead::Absent, redirect::read_state);
+    resolve_with(inputs, pointer)
+}
+
+/// Where a start would land if the pointer did not exist — what "detach"
+/// (the pointer-only reset) and "adopt the default folder" actually do. The
+/// dialog must name THIS folder: with a clean default folder a Windows
+/// release install lands next to the exe, not in the default folder.
+pub fn resolve_without_pointer(inputs: &StartupInputs) -> Resolved {
+    resolve_with(inputs, PointerRead::Absent)
+}
+
+fn resolve_with(inputs: &StartupInputs, pointer: PointerRead) -> Resolved {
     // The install dir must not be write-probed when the user's explicit
-    // choice wins anyway, so the candidate exists only without a redirect.
-    let portable = if !inputs.portable_allowed || redirect.is_some() {
+    // choice wins anyway, so the candidate exists only without a pointer —
+    // and an unusable pointer is still the user's explicit choice.
+    let portable = if !inputs.portable_allowed || pointer != PointerRead::Absent {
         None
     } else {
         inputs.exe_dir.as_deref().map(portable_candidate)
@@ -73,8 +89,8 @@ pub fn resolve_at_startup(inputs: &StartupInputs) -> Resolved {
         inputs.default_root.clone(),
         default_has_data,
         portable,
-        redirect,
-        |p| migrate::is_available(p),
+        pointer,
+        migrate::probe,
     )
 }
 
@@ -133,7 +149,7 @@ mod tests {
         .unwrap();
         let r = resolve_at_startup(&inputs(&w, true));
         assert_eq!(r.root, custom);
-        assert!(!r.fell_back);
+        assert!(!r.fell_back());
     }
 
     #[test]
@@ -148,7 +164,7 @@ mod tests {
         .unwrap();
         let r = resolve_at_startup(&inputs(&w, true));
         assert_eq!(r.root, w.default_root);
-        assert!(r.fell_back);
+        assert!(r.fell_back());
     }
 
     #[test]
@@ -170,7 +186,7 @@ mod tests {
         std::fs::rename(exe_side.join("app.json"), exe_side.join("app.json.moved")).unwrap();
         let r = resolve_at_startup(&inputs(&w, true));
         assert_eq!(r.root, w.default_root);
-        assert!(!r.fell_back);
+        assert!(!r.fell_back());
     }
 
     #[test]
@@ -188,5 +204,64 @@ mod tests {
         let r = resolve_at_startup(&inputs(&w, true));
         assert_eq!(r.root, w.exe_dir.join("LucernaData"));
         assert!(r.must_create);
+    }
+
+    #[test]
+    fn a_corrupt_pointer_falls_back_at_startup() {
+        let w = world();
+        make_root(&w.default_root);
+        make_root(&w.exe_dir.join("LucernaData"));
+        std::fs::write(w.default_root.join("data-location.json"), b"{ not json").unwrap();
+        let r = resolve_at_startup(&inputs(&w, true));
+        assert!(r.fell_back(), "a corrupt pointer is not 'no pointer'");
+        assert_eq!(r.fallback, Some(crate::data_root::Fallback::PointerCorrupt));
+        assert_eq!(
+            r.root, w.default_root,
+            "and the exe-side root is not adopted"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_pointer_falls_back_at_startup() {
+        let w = world();
+        make_root(&w.default_root);
+        // A directory in the pointer's place: the read fails, and not with NotFound.
+        std::fs::create_dir(w.default_root.join("data-location.json")).unwrap();
+        let r = resolve_at_startup(&inputs(&w, true));
+        assert!(matches!(
+            r.fallback,
+            Some(crate::data_root::Fallback::PointerUnreadable { .. })
+        ));
+    }
+
+    #[test]
+    fn without_the_pointer_a_clean_default_lands_on_the_exe_side_root() {
+        // A detach from a recovery session: the default folder was never
+        // seeded, so the fresh-install rule picks the folder next to the exe.
+        let w = world();
+        let custom = w._d.path().join("unplugged");
+        redirect::write(
+            &w.default_root.join("data-location.json"),
+            &Redirect { path: custom },
+        )
+        .unwrap();
+        let r = resolve_without_pointer(&inputs(&w, true));
+        assert!(!r.fell_back());
+        assert_eq!(r.root, w.exe_dir.join("LucernaData"));
+    }
+
+    #[test]
+    fn without_the_pointer_a_data_carrying_default_stays_default() {
+        let w = world();
+        make_root(&w.default_root);
+        let custom = w._d.path().join("unplugged");
+        redirect::write(
+            &w.default_root.join("data-location.json"),
+            &Redirect { path: custom },
+        )
+        .unwrap();
+        let r = resolve_without_pointer(&inputs(&w, true));
+        assert!(!r.fell_back());
+        assert_eq!(r.root, w.default_root);
     }
 }

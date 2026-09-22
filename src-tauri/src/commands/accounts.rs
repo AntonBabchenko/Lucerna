@@ -20,6 +20,7 @@ pub fn get_active_account(
 #[tauri::command]
 #[specta::specta]
 pub fn set_active_account(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::accounts::set_active_account(&app, &id)
 }
 
@@ -28,6 +29,7 @@ pub fn set_active_account(app: tauri::AppHandle, id: String) -> Result<(), crate
 #[tauri::command]
 #[specta::specta]
 pub fn remove_account(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::accounts::remove_account(&app, &id)
 }
 
@@ -38,6 +40,7 @@ pub fn add_offline_account(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<crate::accounts::store::Account, crate::error::Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::accounts::add_offline_account(&app, &name)
 }
 
@@ -49,6 +52,7 @@ pub fn add_offline_account(
 pub async fn begin_microsoft_signin(
     app: tauri::AppHandle,
 ) -> crate::error::Result<crate::accounts::store::Account> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::accounts::microsoft::sign_in(&app).await
 }
 
@@ -60,6 +64,7 @@ pub async fn refresh_microsoft_account(
     app: tauri::AppHandle,
     id: String,
 ) -> crate::error::Result<crate::accounts::store::Account> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     crate::accounts::microsoft::refresh(&app, &id).await
 }
 

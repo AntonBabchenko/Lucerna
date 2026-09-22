@@ -1,6 +1,7 @@
+import { tick } from 'svelte';
 import type { ContentKind, ModSource } from '$lib/ipc/bindings';
 import type { Granularity, SortDir } from '$lib/screenshots/screenshots-view';
-import type { SettingsAnchor } from './search-index';
+import { SETTINGS_SEARCH, type SettingsAnchor } from './search-index';
 
 // Cross-component state for opening the Settings modal at a specific tab.
 //
@@ -29,6 +30,21 @@ export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
 // manage-focus.ts + focusField flow used by ManageInstancesModal. `null` = no
 // pending jump.
 export const settingsSearchFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
+
+/**
+ * Open Settings at the section that owns `anchor` and flash that control — the same sequence
+ * SettingsModal's search uses, for callers outside the modal (the recovery-session banner). Clears
+ * the rune FIRST: HelpPanel closes the modal without clearing it, and a SettingsField flashes only
+ * on the null → anchor edge, so a stale anchor would otherwise neither flash nor scroll. The tab
+ * comes from the search index, so a mis-paired (tab, anchor) cannot be written.
+ */
+export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
+  settingsSearchFocus.value = null;
+  settingsOpen.value = { tab: SETTINGS_SEARCH[anchor].tab };
+  // Let the section's panel mount before pointing at one of its fields.
+  await tick();
+  settingsSearchFocus.value = anchor;
+}
 
 // Tick that increments whenever the CurseForge API key changes (saved
 // or cleared). Watchers that gate UI on the key's existence — e.g.

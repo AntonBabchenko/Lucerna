@@ -21,8 +21,9 @@
     mode,
     fromPath,
     toPath,
-    detachedPath = '',
+    detachedPath = null,
     pointerOnly = false,
+    recoverySession = false,
     requiredBytes = null,
     freeBytes = null,
     currentSizeBytes = null,
@@ -37,10 +38,14 @@
     fromPath: string;
     /** move / adopt: the backend-planned target; reset: the default folder. */
     toPath: string;
-    /** Pointer-only reset: the configured, unavailable folder being detached. */
-    detachedPath?: string;
-    /** Reset while fallen back: nothing is copied, only the redirect goes. */
+    /** Pointer-only reset: the configured, unavailable folder being detached; null when the
+     * pointer could not be read — there is no folder to name. */
+    detachedPath?: string | null;
+    /** Reset while fallen back: nothing is copied, only the redirect goes. `toPath` is then the
+     * folder the launcher will START FROM, as predicted by the real resolver. */
     pointerOnly?: boolean;
+    /** The launcher runs on a throwaway session root: it is never "your current data". */
+    recoverySession?: boolean;
     /** The plan's estimate of what will be copied; null = unknown. */
     requiredBytes?: number | null;
     /** Free space on the target volume; null = could not check. */
@@ -102,22 +107,31 @@
       <p class="text-sm text-secondary">
         {$t('settings.storage.dataLocation.confirm.adoptBody', { path: toPath })}
       </p>
-      <p class="text-sm text-secondary font-medium">
-        {currentSizeText
-          ? $t('settings.storage.dataLocation.confirm.adoptCurrentNote', {
-              current: fromPath,
-              size: currentSizeText,
-            })
-          : $t('settings.storage.dataLocation.confirm.adoptCurrentNoteNoSize', {
-              current: fromPath,
-            })}
-      </p>
+      {#if !recoverySession}
+        <p class="text-sm text-secondary font-medium">
+          {currentSizeText
+            ? $t('settings.storage.dataLocation.confirm.adoptCurrentNote', {
+                current: fromPath,
+                size: currentSizeText,
+              })
+            : $t('settings.storage.dataLocation.confirm.adoptCurrentNoteNoSize', {
+                current: fromPath,
+              })}
+        </p>
+      {/if}
       <p class="text-sm text-secondary font-medium">
         {$t('settings.storage.dataLocation.confirm.adoptRestartNote')}
       </p>
     {:else if pointerOnly}
       <p class="text-sm text-secondary">
-        {$t('settings.storage.dataLocation.confirm.resetPointerOnlyBody', { path: detachedPath })}
+        {detachedPath
+          ? $t('settings.storage.dataLocation.confirm.resetPointerOnlyBody', {
+              path: detachedPath,
+              landing: toPath,
+            })
+          : $t('settings.storage.dataLocation.confirm.resetPointerOnlyBodyNoPath', {
+              landing: toPath,
+            })}
       </p>
       <p class="text-sm text-secondary font-medium">
         {$t('settings.storage.dataLocation.confirm.resetPointerOnlyRestartNote')}

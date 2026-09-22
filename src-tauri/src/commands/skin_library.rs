@@ -49,6 +49,7 @@ pub async fn skin_library_save(
     cape_id: Option<String>,
     png_base64: String,
 ) -> Result<SkinLibraryItem, Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(png_base64.as_bytes())
@@ -76,6 +77,7 @@ pub async fn skin_library_update(
     variant: SkinVariant,
     cape_id: Option<String>,
 ) -> Result<(), Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     skin_lib::update(&lib_dir(&app)?, &id, &name, variant, cape_id)
 }
 
@@ -83,5 +85,6 @@ pub async fn skin_library_update(
 #[tauri::command]
 #[specta::specta]
 pub async fn skin_library_delete(app: tauri::AppHandle, id: String) -> Result<(), Error> {
+    crate::data_root::reject_if_root_unusable(&app)?;
     skin_lib::delete(&lib_dir(&app)?, &id)
 }

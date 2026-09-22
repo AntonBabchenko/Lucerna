@@ -18,6 +18,14 @@ pub const REDIRECT_TMP_FILE: &str = "data-location.tmp";
 pub const CLEANUP_NOTE_FILE: &str = "pending-cleanup.json";
 /// The note's atomic-write temp (`path.with_extension("tmp")`).
 pub const CLEANUP_NOTE_TMP_FILE: &str = "pending-cleanup.tmp";
+/// An unusable pointer set aside before a detach or an adopt replaced it
+/// (`redirect::set_aside_unusable`). Lives next to the pointer, in the
+/// OS-default dir; it must never block a reset or travel with a move.
+pub const POINTER_SET_ASIDE_FILE: &str = crate::data_root::redirect::SET_ASIDE_FILE;
+/// Where recovery sessions keep their throwaway roots when the app cache dir
+/// cannot be resolved (`paths::recovery_parent`): under the OS-default dir,
+/// launcher-owned like `logs`.
+pub const RECOVERY_DIR: &str = "recovery";
 pub const WEBVIEW_DIR: &str = "webview";
 pub const APP_JSON: &str = "app.json";
 
@@ -25,9 +33,11 @@ const LIVE_LOG_DIR: &str = "logs";
 const LIVE_LOG_FILE: &str = "lucerna.log";
 
 /// Top-level names skipped by copy, verify, delete and the pre-move scans.
-pub const SKIPPED_TOP_LEVEL: [&str; 5] = [
+pub const SKIPPED_TOP_LEVEL: [&str; 7] = [
     REDIRECT_FILE,
     REDIRECT_TMP_FILE,
+    POINTER_SET_ASIDE_FILE,
+    RECOVERY_DIR,
     CLEANUP_NOTE_FILE,
     CLEANUP_NOTE_TMP_FILE,
     WEBVIEW_DIR,
@@ -35,9 +45,11 @@ pub const SKIPPED_TOP_LEVEL: [&str; 5] = [
 
 /// Top-level names a RESET target (the OS-default dir) may already hold
 /// without being "non-empty": the skipped set plus launcher scratch.
-pub const SAFE_OVERLAP: [&str; 7] = [
+pub const SAFE_OVERLAP: [&str; 9] = [
     REDIRECT_FILE,
     REDIRECT_TMP_FILE,
+    POINTER_SET_ASIDE_FILE,
+    RECOVERY_DIR,
     CLEANUP_NOTE_FILE,
     CLEANUP_NOTE_TMP_FILE,
     WEBVIEW_DIR,

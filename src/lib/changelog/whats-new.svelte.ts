@@ -9,6 +9,7 @@
 import { get } from 'svelte/store';
 import { locale, t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
+import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { dismiss, pushActionToast } from '$lib/toasts/toasts.svelte';
 import { CHANGELOG_SOURCE_LOCALE } from './locales';
 import { changelogSince, hasRenderableEntry } from './since';
@@ -28,6 +29,8 @@ export interface WhatsNewDeps {
   entries?: Changelog;
   currentVersion?: () => Promise<string>;
   markSeen?: (version: string) => Promise<void>;
+  /** Recovery session, or could not tell — either means "not now". */
+  recoverySession?: () => Promise<boolean>;
 }
 
 /** Best-effort persist — a failure just means the prompt may show again next
@@ -48,6 +51,16 @@ export async function checkWhatsNew(seen: string | null, deps: WhatsNewDeps = {}
   const entries = deps.entries ?? CHANGELOG;
   const currentVersion = deps.currentVersion ?? (() => commands.appVersion());
   const markSeen = deps.markSeen ?? persistSeen;
+  const recoverySession = deps.recoverySession ?? recoverySessionOrUnknown;
+
+  // A recovery session runs on a throwaway root: the baseline write below would land in an
+  // app.json that is deleted at exit, and a prompt over the recovery banner is noise. "Could not
+  // tell" is treated the same way — it is offered again on the next start.
+  try {
+    if (await recoverySession()) return;
+  } catch {
+    return;
+  }
 
   let current: string;
   try {

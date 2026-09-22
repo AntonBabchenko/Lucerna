@@ -3,6 +3,7 @@ pub mod blockers;
 pub mod cleanup_note;
 pub mod migrate;
 pub mod plan;
+pub mod recovery;
 pub mod redirect;
 pub mod relocate;
 pub mod startup;
@@ -11,7 +12,8 @@ pub mod transient;
 pub mod validate;
 pub mod walk;
 
-use redirect::Redirect;
+use migrate::Availability;
+use redirect::{PointerRead, Redirect};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
@@ -22,13 +24,58 @@ pub struct Resolved {
     pub root: PathBuf,
     /// The user's configured custom root, if any (independent of availability).
     pub configured: Option<PathBuf>,
-    /// True when a configured root exists but is unavailable → running from
-    /// `default` temporarily.
-    pub fell_back: bool,
+    /// Why this start is NOT running from the user's data folder. `Some` makes
+    /// it a recovery session (see [`DataRoot`]); `root` is then the default
+    /// folder AS RESOLVED — the session itself runs on a throwaway root.
+    pub fallback: Option<Fallback>,
     /// True when `root` is a portable dir that does not exist yet — the caller
     /// must create it before use (and fall back to the OS default if creation
     /// fails).
     pub must_create: bool,
+}
+
+impl Resolved {
+    /// The configured data folder could not be used: this is a recovery session.
+    pub fn fell_back(&self) -> bool {
+        self.fallback.is_some()
+    }
+}
+
+/// Why the launcher is not running from the user's data folder. The reason
+/// travels to the log, the IPC status and the copy: "reconnect it" is a lie
+/// about a folder that is plugged in and merely read-only.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Fallback {
+    /// The pointer names a folder that is not there.
+    RootMissing,
+    /// The folder is there but cannot be written to (or is not a folder).
+    RootNotWritable { details: String },
+    /// The folder could not be checked. Same restrictive answer.
+    RootUnknown { details: String },
+    /// `data-location.json` exists and could not be read.
+    PointerUnreadable { details: String },
+    /// `data-location.json` was read and is not a usable pointer.
+    PointerCorrupt,
+}
+
+impl Fallback {
+    /// One line for the launcher log.
+    pub fn describe(&self) -> String {
+        match self {
+            Fallback::RootMissing => "the configured folder is not there".into(),
+            Fallback::RootNotWritable { details } => {
+                format!("the configured folder cannot be written to — {details}")
+            }
+            Fallback::RootUnknown { details } => {
+                format!("the configured folder could not be checked — {details}")
+            }
+            Fallback::PointerUnreadable { details } => {
+                format!("data-location.json could not be read — {details}")
+            }
+            Fallback::PointerCorrupt => "data-location.json is not a usable pointer".into(),
+        }
+    }
 }
 
 /// How the `<exe dir>\LucernaData` portable candidate looks on disk, as
@@ -97,27 +144,44 @@ pub fn resolve_root(
     default: PathBuf,
     default_has_data: bool,
     portable: Option<PortableCandidate>,
-    redirect: Option<Redirect>,
-    available: impl Fn(&Path) -> bool,
+    pointer: PointerRead,
+    probe: impl Fn(&Path) -> Availability,
 ) -> Resolved {
-    match redirect {
-        Some(Redirect { path }) if available(&path) => {
-            return Resolved {
-                root: path.clone(),
-                configured: Some(path),
-                fell_back: false,
-                must_create: false,
-            }
+    // Rule 1. A pointer that EXISTS is the user's explicit choice whether or
+    // not it can be used: every way of not being able to use it is a recovery
+    // session on the default folder, and none of them falls through to the
+    // portable rules — the launcher does not switch roots behind the user's back.
+    let fall_back = |configured: Option<PathBuf>, reason: Fallback, default: PathBuf| Resolved {
+        root: default,
+        configured,
+        fallback: Some(reason),
+        must_create: false,
+    };
+    match pointer {
+        PointerRead::Absent => {}
+        PointerRead::Unreadable(details) => {
+            return fall_back(None, Fallback::PointerUnreadable { details }, default)
         }
-        Some(Redirect { path }) => {
-            return Resolved {
-                root: default,
-                configured: Some(path),
-                fell_back: true,
-                must_create: false,
-            }
+        PointerRead::Corrupt => return fall_back(None, Fallback::PointerCorrupt, default),
+        PointerRead::Present(Redirect { path }) => {
+            let reason = match probe(&path) {
+                Availability::Available => {
+                    return Resolved {
+                        root: path.clone(),
+                        configured: Some(path),
+                        fallback: None,
+                        must_create: false,
+                    }
+                }
+                Availability::Missing => Fallback::RootMissing,
+                Availability::NotADirectory => Fallback::RootNotWritable {
+                    details: "not a folder".into(),
+                },
+                Availability::NotWritable(details) => Fallback::RootNotWritable { details },
+                Availability::Unknown(details) => Fallback::RootUnknown { details },
+            };
+            return fall_back(Some(path), reason, default);
         }
-        None => {}
     }
     if let Some(candidate) = portable {
         match candidate.state {
@@ -128,7 +192,7 @@ pub fn resolve_root(
                 return Resolved {
                     root: candidate.path,
                     configured: None,
-                    fell_back: false,
+                    fallback: None,
                     must_create: false,
                 };
             }
@@ -139,7 +203,7 @@ pub fn resolve_root(
                 return Resolved {
                     root: candidate.path,
                     configured: None,
-                    fell_back: false,
+                    fallback: None,
                     must_create: false,
                 };
             }
@@ -147,7 +211,7 @@ pub fn resolve_root(
                 return Resolved {
                     root: candidate.path,
                     configured: None,
-                    fell_back: false,
+                    fallback: None,
                     must_create: true,
                 };
             }
@@ -157,13 +221,58 @@ pub fn resolve_root(
     Resolved {
         root: default,
         configured: None,
-        fell_back: false,
+        fallback: None,
         must_create: false,
     }
 }
 
-/// Tauri managed state holding the resolution result.
-pub struct DataRoot(pub Resolved);
+/// May startup seed (`migrate_or_seed`) and heal (`restore_hidden_app_json`)
+/// the root? Never in a recovery session: it has no root of the user's, and a
+/// seed written into the default folder is what later blocks "Reset to default".
+pub fn should_seed(resolved: &Resolved) -> bool {
+    !resolved.fell_back()
+}
+
+/// Tauri managed state: where this process keeps things.
+///
+/// Outside a recovery session all three agree: `root()` is `resolved.root`
+/// and so is `launcher_dir`. In a recovery session (`resolved.fell_back()`)
+/// the session runs on a throwaway root, so that nothing any code path writes
+/// can land in a folder the user's data is ever resolved from, while the
+/// launcher's own files stay in the default folder.
+pub struct DataRoot {
+    /// As resolved. For a fallback `resolved.root` is the default folder —
+    /// NOT where this session writes. Use [`DataRoot::root`].
+    pub resolved: Resolved,
+    /// Where `logs/`, `updates/` and `webview/` live.
+    pub launcher_dir: PathBuf,
+    /// The throwaway root of a recovery session: `Some` exactly when
+    /// `resolved.fell_back()`, WHETHER OR NOT the directory could be created.
+    /// A session whose dir could not be created keeps the path anyway — every
+    /// write under it fails loudly, and nothing falls through to the default
+    /// folder (that second fallback is what used to litter it).
+    pub session_root: Option<PathBuf>,
+    /// The session dir, when it was actually created. The exit cleanup takes
+    /// this and nothing else.
+    pub recovery: Option<recovery::RecoveryDir>,
+}
+
+impl DataRoot {
+    /// A normal session on `resolved.root`.
+    pub fn normal(resolved: Resolved) -> Self {
+        DataRoot {
+            launcher_dir: resolved.root.clone(),
+            resolved,
+            session_root: None,
+            recovery: None,
+        }
+    }
+
+    /// The root every data path derives from.
+    pub fn root(&self) -> &Path {
+        self.session_root.as_deref().unwrap_or(&self.resolved.root)
+    }
+}
 
 /// Integrity chokepoint for every data-creating or launching command. Refuses
 /// when this process must not write into — or start anything from — the root
@@ -179,7 +288,7 @@ pub struct DataRoot(pub Resolved);
 /// `--launch` arriving through single-instance, or a page reload must not be
 /// able to bypass that.
 pub fn reject_if_root_unusable(app: &tauri::AppHandle) -> crate::error::Result<()> {
-    if app.state::<DataRoot>().0.fell_back {
+    if app.state::<DataRoot>().resolved.fell_back() {
         return Err(crate::error::Error::DataLocationUnavailable);
     }
     state::global().check_usable()
@@ -193,6 +302,121 @@ mod tests {
         PathBuf::from("/default")
     }
 
+    /// The call shape the rule tests below were written against (an optional
+    /// pointer, a yes / no probe). It shadows the glob import on purpose, so
+    /// their bodies — the design authority for rules 1–5 — stay as they were.
+    /// The reason-carrying cases call `super::resolve_root` directly.
+    fn resolve_root(
+        default: PathBuf,
+        default_has_data: bool,
+        portable: Option<PortableCandidate>,
+        redirect: Option<Redirect>,
+        available: impl Fn(&Path) -> bool,
+    ) -> Resolved {
+        super::resolve_root(
+            default,
+            default_has_data,
+            portable,
+            redirect.map_or(PointerRead::Absent, PointerRead::Present),
+            |p| {
+                if available(p) {
+                    Availability::Available
+                } else {
+                    Availability::Missing
+                }
+            },
+        )
+    }
+
+    fn custom() -> PointerRead {
+        PointerRead::Present(Redirect {
+            path: PathBuf::from("/custom"),
+        })
+    }
+
+    #[test]
+    fn an_unreadable_pointer_is_a_fallback_not_a_missing_pointer() {
+        let r = super::resolve_root(
+            def(),
+            true,
+            None,
+            PointerRead::Unreadable("access denied".into()),
+            |_| Availability::Available,
+        );
+        assert_eq!(r.root, def());
+        assert_eq!(r.configured, None);
+        assert_eq!(
+            r.fallback,
+            Some(Fallback::PointerUnreadable {
+                details: "access denied".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_corrupt_pointer_is_a_fallback_and_has_no_configured_path() {
+        let r = super::resolve_root(def(), false, None, PointerRead::Corrupt, |_| {
+            Availability::Available
+        });
+        assert_eq!(r.fallback, Some(Fallback::PointerCorrupt));
+        assert!(r.fell_back() && r.configured.is_none() && !r.must_create);
+    }
+
+    #[test]
+    fn a_pointer_fallback_ignores_the_exe_side_root() {
+        // Same rationale as an unavailable folder: the user's explicit choice
+        // keeps priority, the launcher does not switch roots behind their back.
+        for pointer in [PointerRead::Corrupt, PointerRead::Unreadable("io".into())] {
+            let r =
+                super::resolve_root(def(), false, portable(PortableState::Root), pointer, |_| {
+                    Availability::Available
+                });
+            assert_eq!(r.root, def());
+            assert!(r.fell_back());
+        }
+    }
+
+    #[test]
+    fn each_probe_answer_keeps_its_reason() {
+        let cases = [
+            (Availability::Missing, Fallback::RootMissing),
+            (
+                Availability::NotADirectory,
+                Fallback::RootNotWritable {
+                    details: "not a folder".into(),
+                },
+            ),
+            (
+                Availability::NotWritable("read-only".into()),
+                Fallback::RootNotWritable {
+                    details: "read-only".into(),
+                },
+            ),
+            (
+                Availability::Unknown("stat failed".into()),
+                Fallback::RootUnknown {
+                    details: "stat failed".into(),
+                },
+            ),
+        ];
+        for (answer, reason) in cases {
+            let r = super::resolve_root(def(), false, None, custom(), |_| answer.clone());
+            assert_eq!(r.root, def());
+            assert_eq!(r.configured, Some(PathBuf::from("/custom")));
+            assert_eq!(r.fallback, Some(reason));
+        }
+    }
+
+    #[test]
+    fn a_recovery_session_is_never_seeded() {
+        let normal = super::resolve_root(def(), false, None, PointerRead::Absent, |_| {
+            Availability::Available
+        });
+        assert!(should_seed(&normal));
+        let recovery = super::resolve_root(def(), false, None, custom(), |_| Availability::Missing);
+        assert!(!should_seed(&recovery));
+    }
+
     fn portable(state: PortableState) -> Option<PortableCandidate> {
         Some(PortableCandidate {
             path: PathBuf::from("/install/LucernaData"),
@@ -204,7 +428,7 @@ mod tests {
     fn no_redirect_no_portable_uses_default() {
         let r = resolve_root(def(), false, None, None, |_| true);
         assert_eq!(r.root, def());
-        assert!(!r.fell_back && r.configured.is_none() && !r.must_create);
+        assert!(!r.fell_back() && r.configured.is_none() && !r.must_create);
     }
 
     #[test]
@@ -215,7 +439,7 @@ mod tests {
         let r = resolve_root(def(), false, None, red, |_| true);
         assert_eq!(r.root, PathBuf::from("/custom"));
         assert_eq!(r.configured, Some(PathBuf::from("/custom")));
-        assert!(!r.fell_back && !r.must_create);
+        assert!(!r.fell_back() && !r.must_create);
     }
 
     #[test]
@@ -226,14 +450,14 @@ mod tests {
         let r = resolve_root(def(), false, None, red, |_| false);
         assert_eq!(r.root, def());
         assert_eq!(r.configured, Some(PathBuf::from("/custom")));
-        assert!(r.fell_back && !r.must_create);
+        assert!(r.fell_back() && !r.must_create);
     }
 
     #[test]
     fn root_shaped_exe_side_dir_is_adopted() {
         let r = resolve_root(def(), false, portable(PortableState::Root), None, |_| true);
         assert_eq!(r.root, PathBuf::from("/install/LucernaData"));
-        assert!(r.configured.is_none() && !r.fell_back && !r.must_create);
+        assert!(r.configured.is_none() && !r.fell_back() && !r.must_create);
     }
 
     #[test]
@@ -344,7 +568,7 @@ mod tests {
         });
         let r = resolve_root(def(), false, portable(PortableState::Root), red, |_| false);
         assert_eq!(r.root, def());
-        assert!(r.fell_back);
+        assert!(r.fell_back());
     }
 
     #[test]

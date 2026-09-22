@@ -14,6 +14,13 @@ pub enum Invalid {
     /// The current data folder contains a symbolic link or junction; moving it
     /// could follow a link out of the tree or loop.
     ContainsLinks,
+    /// The launcher is in a recovery session (its data folder is unavailable):
+    /// the only change of location it accepts is adopting an existing Lucerna
+    /// data folder. A move would copy the throwaway session root.
+    FallbackAdoptOnly,
+    /// The picked folder is a recovery session's throwaway root (or its
+    /// parent): it is deleted when the launcher exits.
+    RecoverySessionDir,
 }
 
 impl Invalid {
@@ -29,6 +36,8 @@ impl Invalid {
             Invalid::NotADataRoot => "not_a_data_root",
             Invalid::NotWritable => "not_writable",
             Invalid::ContainsLinks => "contains_links",
+            Invalid::FallbackAdoptOnly => "fallback_adopt_only",
+            Invalid::RecoverySessionDir => "recovery_session_dir",
         }
     }
 }
@@ -118,6 +127,14 @@ mod tests {
         assert_eq!(Invalid::SameAsCurrent.reason_key(), "same");
         assert_eq!(Invalid::NotEmpty.reason_key(), "not_empty");
         assert_eq!(Invalid::NotADataRoot.reason_key(), "not_a_data_root");
+        assert_eq!(
+            Invalid::FallbackAdoptOnly.reason_key(),
+            "fallback_adopt_only"
+        );
+        assert_eq!(
+            Invalid::RecoverySessionDir.reason_key(),
+            "recovery_session_dir"
+        );
         assert_eq!(Invalid::NotWritable.reason_key(), "not_writable");
         assert_eq!(Invalid::ContainsLinks.reason_key(), "contains_links");
     }

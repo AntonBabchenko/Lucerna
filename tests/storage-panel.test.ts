@@ -62,6 +62,19 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 const { pushSuccess } = vi.hoisted(() => ({ pushSuccess: vi.fn() }));
 vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess }));
 
+// A recovery session as the backend reports it: the session root is a throwaway dir.
+const RECOVERY = {
+  status: 'ok',
+  data: {
+    effective: 'C:\\Users\\u\\AppData\\Local\\com.lucerna.app\\recovery\\4242',
+    configured: 'D:\\LucernaData',
+    fell_back: true,
+    fallback: { kind: 'root_not_writable', details: 'Access is denied.' },
+    default_dir: 'C:\\Users\\u\\AppData\\Roaming\\com.lucerna.app',
+    relocation: { kind: 'idle' },
+  },
+};
+
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { commands } from '$lib/ipc/bindings';
 import { dataLocation } from '$lib/settings/data-location.svelte';
@@ -311,25 +324,25 @@ describe('StoragePanel — data location change planning', () => {
     render(StoragePanel);
     await new Promise((r) => setTimeout(r, 0));
 
-    // Reset is the ONLY in-app recovery from a configured folder that will
-    // never come back — it must stay clickable in fallback, while Change
-    // location (whose flows migrate) stays disabled.
+    // Both ways back stay clickable in a recovery session: Reset (pointer-only) for a folder that
+    // will never come back, and Change location for one that moved (a drive letter changed, the
+    // pointer went bad) — the backend refuses a MOVE plan there and accepts only an adopt. This
+    // reverses #309, which pinned Change location disabled.
     const resetBtn = screen.getByRole('button', {
       name: 'Reset to default',
     }) as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(false);
     expect(
       (screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     await fireEvent.click(resetBtn);
     // The dialog opens once the reset plan has resolved.
     await new Promise((r) => setTimeout(r, 0));
     // Pointer-only copy: names the dead folder and promises no data move —
-    // the normal reset body ("will copy … back") would be a lie here. The
-    // path shows up twice by design: the fallback notice AND the dialog body.
+    // the normal reset body ("will copy … back") would be a lie here.
     expect(screen.getByText(/detaches the unavailable folder/)).toBeTruthy();
-    expect(screen.getAllByText(/Games\\LucernaData/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/Games\\LucernaData/).length).toBeGreaterThanOrEqual(1);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Detach and restart' }));
     await new Promise((r) => setTimeout(r, 0));
@@ -605,5 +618,59 @@ describe('StoragePanel — an unknown size is not "0 B"', () => {
     expect(row.textContent).toContain("couldn't be measured");
     expect(row.textContent).not.toContain('0 B');
     expect(screen.getByText(/access denied/)).toBeTruthy();
+  });
+  it('in a recovery session: Change location is enabled, the session path is never shown, and the log folder is one click away', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.getDataLocation as ReturnType<typeof vi.fn>).mockResolvedValue(RECOVERY);
+    await dataLocation.refresh();
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(
+      (screen.getByRole('button', { name: 'Change location…' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    // The throwaway root is an implementation detail: not as the current folder, not as a size.
+    expect(screen.queryByText(/recovery\\4242/)).toBeNull();
+    expect(screen.getByText('Temporary session')).toBeTruthy();
+    expect(screen.queryByText('Size on disk:')).toBeNull();
+    // The OS error lives here, in the Storage notice — never in the banner.
+    expect(screen.getByText(/Access is denied/)).toBeTruthy();
+    // With nothing seeded there is no instance, so the Logs popover has nothing to list: the
+    // launcher log — the one document that says WHY — needs its own way in.
+    expect(screen.getByRole('button', { name: 'Open log folder' })).toBeTruthy();
+  });
+
+  it('in a recovery session a folder without Lucerna data is refused inline, as its own sentence', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.getDataLocation as ReturnType<typeof vi.fn>).mockResolvedValue(RECOVERY);
+    await dataLocation.refresh();
+    (dialogOpen as ReturnType<typeof vi.fn>).mockResolvedValue('E:\\Empty');
+    (mod.commands.planDataLocationChange as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'data_location_invalid', reason: 'fallback_adopt_only' },
+    });
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    await fireEvent.click(screen.getByRole('button', { name: 'Change location…' }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/already holds Lucerna data/)).toBeTruthy();
+    expect(screen.queryByText(/That folder can't be used/)).toBeNull();
+    expect(mod.commands.setDataLocation).not.toHaveBeenCalled();
+  });
+
+  it('offers Reset even when the pointer could not be read — no path, and no "" in the copy', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.getDataLocation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...RECOVERY,
+      data: { ...RECOVERY.data, configured: null, fallback: { kind: 'pointer_corrupt' } },
+    });
+    await dataLocation.refresh();
+    render(StoragePanel);
+    await new Promise((r) => setTimeout(r, 0));
+    // The button used to render only when a path was configured — with a corrupt pointer there
+    // was NO button for the action the copy names.
+    expect(screen.getByRole('button', { name: 'Reset to default' })).toBeTruthy();
+    expect(screen.queryByText(/""/)).toBeNull();
   });
 });

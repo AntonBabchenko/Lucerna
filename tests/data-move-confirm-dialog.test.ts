@@ -71,13 +71,42 @@ describe('DataLocationConfirmDialog — reset and adopt', () => {
     expect(confirmBtn('Move and restart')).toBeTruthy();
   });
 
-  it('promises no move for a pointer-only reset, and no "once the move finishes"', () => {
-    mount({ mode: 'reset', pointerOnly: true, detachedPath: 'D:\\Dead', requiredBytes: 0 });
+  it('promises no move for a pointer-only reset, and names the folder the launcher will start from', () => {
+    mount({
+      mode: 'reset',
+      pointerOnly: true,
+      detachedPath: 'D:\\Dead',
+      toPath: 'C:\\Landing',
+      requiredBytes: 0,
+    });
     expect(screen.getByText(/detaches the unavailable folder "D:\\Dead"/)).toBeTruthy();
+    // The backend PREDICTS the landing with the real resolver; the dialog never assumes "default".
+    expect(screen.getByText(/Lucerna will start from "C:\\Landing"/)).toBeTruthy();
     expect(screen.getByText('Nothing is copied. The app restarts right away.')).toBeTruthy();
     expect(has('data-move-from')).toBe(false);
     expect(screen.queryByText(/finishes the switch|move finishes/)).toBeNull();
     expect(confirmBtn('Detach and restart')).toBeTruthy();
+  });
+
+  it('has a pointer-only sentence without a path — a corrupt pointer names none', () => {
+    mount({ mode: 'reset', pointerOnly: true, detachedPath: null, toPath: 'C:\\Landing' });
+    expect(screen.getByText(/couldn't be read/)).toBeTruthy();
+    expect(screen.getByText(/data-location\.corrupt\.json/)).toBeTruthy();
+    expect(screen.queryByText(/unavailable folder ""/)).toBeNull();
+    expect(confirmBtn('Detach and restart')).toBeTruthy();
+  });
+
+  it('never calls the throwaway session root "your current data" when adopting from a recovery session', () => {
+    mount({
+      mode: 'adopt',
+      toPath: 'E:\\LucernaData',
+      currentSizeBytes: 4096,
+      recoverySession: true,
+    });
+    expect(screen.getByText(/already contains Lucerna data/)).toBeTruthy();
+    expect(screen.queryByText(/will stay on disk/)).toBeNull();
+    expect(screen.queryByText(/C:\\Old/)).toBeNull();
+    expect(confirmBtn('Switch and restart')).toBeTruthy();
   });
 
   it('keeps the pinned adopt phrases and gives the current size only when it is known', () => {

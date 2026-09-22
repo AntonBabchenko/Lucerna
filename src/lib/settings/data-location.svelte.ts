@@ -27,6 +27,7 @@ import {
   type RelocationStatus,
 } from '$lib/ipc/bindings';
 import { describeStoreError, formatError } from '$lib/ipc/format-error';
+import { fallbackOf } from './fallback-message';
 
 type RestartRequired = Extract<RelocationStatus, { kind: 'restart_required' }>;
 
@@ -131,6 +132,14 @@ function attach(): () => void {
   };
 }
 
+/** For startup-only surfaces (the first-run tour, "What's new"): is this a recovery session, or
+ *  can we not tell? Both answers mean "do not start" — a tour over the recovery banner teaches
+ *  create and Play while both are refused, and nothing is lost by waiting for the next start. */
+export async function recoverySessionOrUnknown(): Promise<boolean> {
+  await dataLocation.init();
+  return !dataLocation.loaded || dataLocation.fellBack;
+}
+
 export const dataLocation = {
   get status() {
     return status;
@@ -146,6 +155,11 @@ export const dataLocation = {
    * blocks on an unknown state before startup has had a chance to report it. */
   get fellBack() {
     return status?.fell_back ?? false;
+  },
+  /** WHY this is a recovery session; null when it is not one (or not known yet). While set,
+   *  `status.effective` is a throwaway session dir and must never be shown or used. */
+  get fallback() {
+    return fallbackOf(status);
   },
   /** The OS-default data folder (where "Reset to default" moves the data); null until loaded. */
   get defaultDir(): string | null {

@@ -204,6 +204,22 @@ pub fn set_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Create ONE directory, exclusively (fails if `path` already exists; the
+/// parent must exist), readable by its owner only. On Unix that is mode
+/// `0o700` at creation — no window in which it is world-readable. On Windows
+/// the per-user profile's ACLs already restrict it, so a plain exclusive
+/// `create_dir` is the same guarantee.
+#[cfg(unix)]
+pub fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+pub fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(path)
+}
+
 /// Create a symlink at `link` pointing to `target` (a path relative to the
 /// link's directory, as written in Mojang JRE manifests). Idempotent:
 /// removes any existing entry first so re-install over an installed JRE

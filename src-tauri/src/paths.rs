@@ -12,7 +12,19 @@ use tauri::Manager;
 /// back to the OS-default app-data dir so no caller ever panics.
 pub fn app_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     if let Some(state) = app.try_state::<crate::data_root::DataRoot>() {
-        return Ok(state.0.root.clone());
+        return Ok(state.root().to_path_buf());
+    }
+    default_app_data_dir(app)
+}
+
+/// Where the launcher's OWN files live: `logs/`, `updates/`, `webview/`. The
+/// data root in a normal session; the OS-default folder in a recovery session,
+/// whose data root is thrown away at exit — the log of the session in which
+/// the drive vanished is the one worth keeping, and an update installed from
+/// such a session must not lose its installer with the session dir.
+pub fn launcher_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    if let Some(state) = app.try_state::<crate::data_root::DataRoot>() {
+        return Ok(state.launcher_dir.clone());
     }
     default_app_data_dir(app)
 }
@@ -21,6 +33,25 @@ pub fn app_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// file always lives here, never under a relocated root.
 pub fn default_app_data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()
+}
+
+/// Where recovery sessions keep their throwaway roots
+/// (`data_root::recovery`): under the app's CACHE dir — per-user on every OS,
+/// and already planned by the uninstaller. If that cannot be resolved, a
+/// `recovery/` dir under the OS-default data dir: still per-user, and a
+/// launcher-owned name (`transient::RECOVERY_DIR`) that never blocks a reset
+/// or travels with a move. NEVER the OS temp dir — on Linux that is the shared
+/// `/tmp`, where a predictable name invites pre-creation and symlink games,
+/// and `create_dir_all` on the parent would follow a planted link.
+pub fn recovery_parent(app: &tauri::AppHandle) -> PathBuf {
+    match app.path().app_cache_dir() {
+        Ok(cache) => crate::data_root::recovery::parent_in(&cache),
+        // Same degraded answer the rest of startup gives when even the data
+        // dir cannot be resolved (`lib.rs` falls back to `.` for the root).
+        Err(_) => crate::data_root::recovery::parent_in(
+            &default_app_data_dir(app).unwrap_or_else(|_| PathBuf::from(".")),
+        ),
+    }
 }
 
 /// `<default app-data>/data-location.json` — bootstrap redirect, fixed location.
@@ -36,7 +67,7 @@ pub fn versions_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// from the per-instance `instance_logs_dir` (which holds the captured game
 /// console output). Surfaced as the "Launcher logs" group in the Logs viewer.
 pub fn app_logs_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("logs"))
+    Ok(launcher_dir(app)?.join("logs"))
 }
 
 pub fn jres_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
@@ -151,7 +182,7 @@ pub fn skin_library_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// Scratch directory for downloaded update installers + bundles.
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("updates"))
+    Ok(launcher_dir(app)?.join("updates"))
 }
 
 /// Все пути одного сервера, выведенные из базовой app-data директории.

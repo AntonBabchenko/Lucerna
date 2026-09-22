@@ -9,6 +9,7 @@
 
 import { commands } from '$lib/ipc/bindings';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { resetAllContextualTours } from './contextual-tours';
 import { STEPS } from './steps';
 
@@ -48,6 +49,10 @@ export const tourState = $state<{ active: boolean; currentStep: number; contextu
 });
 
 export async function initOnboarding(): Promise<void> {
+  // Not in a recovery session, and not while it cannot be told which session this is: the tour
+  // teaches create and Play, both refused there — and its settings are defaults, so
+  // `tour_completed_version` would read as "never" for everyone. Offered again next start.
+  if (await recoverySessionOrUnknown()) return;
   const r = await commands.appSettingsGet();
   if (r.status !== 'ok') return;
   if (r.data.onboarding.tour_completed_version !== TOUR_VERSION) {

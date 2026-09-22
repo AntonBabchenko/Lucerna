@@ -5,6 +5,7 @@
   // TourOverlay's spotlight + popover chrome; intentionally
   // separate to keep main-tour state isolated.
   import { onDestroy, onMount, tick } from 'svelte';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
   import { explanationState } from './explanation-level.svelte';
@@ -51,6 +52,11 @@
 
   onMount(() => {
     if (hasSeen(id)) return;
+    // Not in a recovery session: a tour that teaches "create" over a disabled create button is
+    // noise. The surface stays un-toured this visit and fires next time — the flag is not set.
+    // These tours open on user navigation, well after the status has loaded, so the plain flag
+    // (permissive while unknown) is enough here; the startup-only tour is stricter.
+    if (dataLocation.fellBack) return;
     // Don't open on top of the main onboarding tour / account hint: two live
     // spotlights fight over focus and the pointer-events overlay, freezing the
     // contextual popover. Defer — the surface stays un-toured this visit and

@@ -491,6 +491,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         get_data_location: () => ({
           default_dir: 'C:\\Default\\Data',
           relocation: { kind: 'idle' },
+          fallback: null,
           ...m.data_location,
         }),
         data_root_size_bytes: () => 4096,

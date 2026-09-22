@@ -86,9 +86,22 @@ pub struct CleanupPlan {
     /// deleted, and `execute` preserves `data-location.json` so the data
     /// stays discoverable after a reinstall.
     pub unreachable_root: Option<PathBuf>,
+    /// `data-location.json` exists but could not be read or parsed: a custom
+    /// data root may exist that this plan cannot name. Same consequence as an
+    /// unreachable root — nothing of it is deleted and `execute` preserves
+    /// the pointer file — without a path to show.
+    pub pointer_unreadable: bool,
     /// The default app-data dir — `execute` needs it to know which planned
-    /// dir holds the pointer file when `unreachable_root` is set.
+    /// dir holds the pointer file when the pointer must be preserved.
     pub default_dir: PathBuf,
+}
+
+impl CleanupPlan {
+    /// Deleting the only pointer to data we cannot reach — or cannot even
+    /// name — would orphan that data forever.
+    fn keeps_pointer(&self) -> bool {
+        self.unreachable_root.is_some() || self.pointer_unreadable
+    }
 }
 
 /// One executed target and what happened to it.
@@ -120,10 +133,16 @@ impl Lang {
 /// (its data is left alone), a broken account file means no account ids.
 pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
     let redirect_file = input.default_dir.join("data-location.json");
-    let configured_root = crate::data_root::redirect::read(&redirect_file)
-        .ok()
-        .flatten()
-        .map(|r| r.path);
+    use crate::data_root::redirect::PointerRead;
+    // An unusable pointer is NOT "no custom root": a custom root may exist
+    // that this plan cannot name. Nothing of it can be planned, and the file
+    // itself must survive — it is the only record of where the data lives.
+    let (configured_root, pointer_unreadable) =
+        match crate::data_root::redirect::read_state(&redirect_file) {
+            PointerRead::Present(redirect) => (Some(redirect.path), false),
+            PointerRead::Absent => (None, false),
+            PointerRead::Unreadable(_) | PointerRead::Corrupt => (None, true),
+        };
     let (custom_root, unreachable_root) = match configured_root {
         Some(p) if p.is_dir() => (Some(p), None),
         other => (None, other),
@@ -207,6 +226,7 @@ pub fn build_plan(input: &CleanupInput) -> CleanupPlan {
         account_ids,
         server_ids,
         unreachable_root,
+        pointer_unreadable,
         default_dir: input.default_dir.clone(),
     }
 }
@@ -255,14 +275,14 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         ));
     }
     for dir in &plan.dirs {
-        let preserve_pointer = plan.unreachable_root.is_some() && dir.path == plan.default_dir;
+        let preserve_pointer = plan.keeps_pointer() && dir.path == plan.default_dir;
         if preserve_pointer {
             out.push(report(
                 format!(
-                    "dir {} (kept data-location.json: configured data root is not reachable)",
+                    "dir {} (kept the data-location files: the configured data root is not reachable or the file could not be read)",
                     dir.path.display()
                 ),
-                remove_children_except(&dir.path, "data-location.json"),
+                remove_children_except(&dir.path, POINTER_FILES),
             ));
         } else {
             out.push(report(
@@ -303,6 +323,16 @@ pub fn inventory_block(plan: &CleanupPlan, lang: Lang) -> Option<String> {
             Lang::Ru => {
                 format!("Настроенное хранилище сейчас недоступно и НЕ будет удалено: {path}")
             }
+        });
+    }
+    if plan.pointer_unreadable {
+        lines.push(match lang {
+            Lang::En => "The data-location setting (data-location.json) could not be read. \
+                         It is kept, and a custom data folder — if there is one — is NOT deleted."
+                .to_string(),
+            Lang::Ru => "Настройку расположения данных (data-location.json) не удалось прочитать. \
+                         Она сохранится, а пользовательская папка данных — если она есть — НЕ будет удалена."
+                .to_string(),
         });
     }
     Some(lines.join("\r\n"))
@@ -517,17 +547,25 @@ fn remove_dir_tolerant(dir: &Path) -> crate::error::Result<()> {
 
 /// Remove every child of `dir` except the top-level entry named `keep`. The
 /// dir itself stays (it must keep holding the preserved file).
-fn remove_children_except(dir: &Path, keep: &str) -> crate::error::Result<()> {
+/// The files that name the user's data folder: the pointer, and the copy an
+/// adopt or a detach set aside when the pointer could not be read. Either may
+/// be the only record of where the data lives.
+const POINTER_FILES: &[&str] = &[
+    "data-location.json",
+    crate::data_root::redirect::SET_ASIDE_FILE,
+];
+
+fn remove_children_except(dir: &Path, keep: &[&str]) -> crate::error::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(crate::error::Error::io(dir.display().to_string(), e)),
     };
     for entry in entries.flatten() {
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(keep)
+        let name = entry.file_name();
+        if keep
+            .iter()
+            .any(|k| name.to_string_lossy().eq_ignore_ascii_case(k))
         {
             continue;
         }
@@ -644,7 +682,7 @@ fn run(identifier: &str, list_only: bool, lang: Lang, out: Option<PathBuf>) -> i
     let _ = std::io::stdout().flush();
     if failed {
         1
-    } else if plan.unreachable_root.is_some() {
+    } else if plan.keeps_pointer() {
         3
     } else {
         0
@@ -944,6 +982,7 @@ mod tests {
             account_ids: vec!["uc-acc".into()],
             server_ids: vec!["uc-srv".into()],
             unreachable_root: None,
+            pointer_unreadable: false,
             default_dir: t.path().join("default"),
         };
         let reports = execute(&plan);
@@ -967,6 +1006,80 @@ mod tests {
             None
         );
         assert_eq!(crate::mods::curseforge::keyring::get().unwrap(), None);
+    }
+
+    /// A pointer that cannot be parsed or read used to mean "no custom root",
+    /// and the uninstaller then deleted the default folder INCLUDING the
+    /// pointer — the only record of where the user's data lives.
+    #[test]
+    fn a_corrupt_pointer_keeps_the_pointer_file() {
+        let _guard = crate::test_env_lock();
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(default_dir.join("logs")).unwrap();
+        std::fs::write(default_dir.join("data-location.json"), b"{ truncated").unwrap();
+        std::fs::write(default_dir.join("app.json"), b"{}").unwrap();
+
+        let plan = build_plan(&input(&default_dir));
+        assert!(plan.pointer_unreadable);
+        assert_eq!(plan.unreachable_root, None);
+        let reports = execute(&plan);
+
+        assert!(reports.iter().all(|r| r.outcome.is_ok()));
+        assert_eq!(
+            std::fs::read(default_dir.join("data-location.json")).unwrap(),
+            b"{ truncated",
+            "the unusable pointer survives, content intact"
+        );
+        assert!(!default_dir.join("logs").exists());
+        assert!(!default_dir.join("app.json").exists());
+    }
+
+    /// The set-aside copy (`data-location.corrupt.json`, left by a detach or an
+    /// adopt that replaced an unusable pointer) is as much "the only record of
+    /// where the data lives" as the pointer itself.
+    #[test]
+    fn a_corrupt_pointer_keeps_its_set_aside_copy_too() {
+        let _guard = crate::test_env_lock();
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        std::fs::write(default_dir.join("data-location.json"), b"{ truncated").unwrap();
+        std::fs::write(
+            default_dir.join(crate::data_root::redirect::SET_ASIDE_FILE),
+            b"{ older garbage",
+        )
+        .unwrap();
+        std::fs::write(default_dir.join("app.json"), b"{}").unwrap();
+
+        let plan = build_plan(&input(&default_dir));
+        execute(&plan);
+
+        assert!(default_dir.join("data-location.json").exists());
+        assert!(
+            default_dir
+                .join(crate::data_root::redirect::SET_ASIDE_FILE)
+                .exists(),
+            "the set-aside copy survives with the pointer"
+        );
+        assert!(!default_dir.join("app.json").exists());
+    }
+
+    #[test]
+    fn an_unreadable_pointer_keeps_the_pointer_in_place() {
+        let _guard = crate::test_env_lock();
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        // A directory in the pointer's place: the read fails, and not with NotFound.
+        std::fs::create_dir_all(default_dir.join("data-location.json")).unwrap();
+        std::fs::write(default_dir.join("app.json"), b"{}").unwrap();
+
+        let plan = build_plan(&input(&default_dir));
+        assert!(plan.pointer_unreadable);
+        execute(&plan);
+
+        assert!(default_dir.join("data-location.json").exists());
+        assert!(!default_dir.join("app.json").exists());
     }
 
     #[test]
