@@ -25,10 +25,10 @@
 //   CurseForgeKeyBanner: shared Banner recipe (bg-warning-bg + full warning border)
 //                        Open Settings → CurseForge → btn-warning btn-sm
 
-import { render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { render, screen, waitFor } from '@testing-library/svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // vi.mock is hoisted before imports.
 vi.mock('$lib/ipc/bindings', () => ({

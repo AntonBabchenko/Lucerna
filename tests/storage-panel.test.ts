@@ -80,9 +80,9 @@ const RECOVERY = {
 
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { commands } from '$lib/ipc/bindings';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
-import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 
 describe('StoragePanel', () => {
   it('shows size, clears cache, pushes a success toast, and disables Clear once empty', async () => {
@@ -686,10 +686,13 @@ describe('StoragePanel — one vocabulary (batch 10a)', () => {
 
   it('leads with the data folder: the block headings are in page order', async () => {
     await mountPanel();
-    const headings = screen
-      .getAllByRole('heading', { level: 3 })
-      .map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Data location', 'Mod download cache', 'Mod info cache', 'Log retention']);
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.trim());
+    expect(headings).toEqual([
+      'Data location',
+      'Mod download cache',
+      'Mod info cache',
+      'Log retention',
+    ]);
   });
 
   it('a failed clear re-measures the cache, so the real remaining size sits beside the error', async () => {

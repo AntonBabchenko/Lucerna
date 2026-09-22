@@ -10,7 +10,14 @@ function mount(
 ) {
   const onCommit = vi.fn();
   render(NumberField, {
-    props: { label: 'Keep newest logs (files)', value: 10, min: 1, onCommit, testId: 'nf', ...over },
+    props: {
+      label: 'Keep newest logs (files)',
+      value: 10,
+      min: 1,
+      onCommit,
+      testId: 'nf',
+      ...over,
+    },
   });
   const input = screen.getByTestId('nf') as HTMLInputElement;
   return { onCommit, input };

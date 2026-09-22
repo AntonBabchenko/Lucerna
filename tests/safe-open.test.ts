@@ -44,9 +44,10 @@ describe('openExternalHttps', () => {
   it('says a non-https URL was refused, with the URL as the copyable line', async () => {
     await openExternalHttps('http://example.com/cleartext');
     expect(openUrlMock).not.toHaveBeenCalled();
-    expect(toasts.pushInfo).toHaveBeenCalledWith('Only https:// links can be opened from Lucerna.', [
-      'http://example.com/cleartext',
-    ]);
+    expect(toasts.pushInfo).toHaveBeenCalledWith(
+      'Only https:// links can be opened from Lucerna.',
+      ['http://example.com/cleartext'],
+    );
     expect(toasts.pushWarning).not.toHaveBeenCalled();
   });
 
