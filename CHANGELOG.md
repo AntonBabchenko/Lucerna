@@ -108,6 +108,23 @@ behaviour is worth knowing, it is stated as a property of the feature under
   says what it is actually waiting for. The same goes for scheduled automatic
   backups, which used to coordinate with nothing at all.
 
+- **A data folder that could not be used was sometimes treated as if there
+  were none.** When the file that names the data folder could not be read or
+  parsed, Lucerna used the default folder as if nothing had been configured,
+  with playing and creating enabled, and new data went into the wrong place.
+  That now counts as unavailable, like a missing drive. While the data folder
+  is unavailable, Lucerna runs a temporary session on a throwaway folder
+  instead of the default one, so a single start with the drive unplugged no
+  longer leaves files that later block resetting to the default location. It
+  says why the folder cannot be used — a missing drive, a folder it cannot
+  write to, a setting it cannot read — instead of always asking to reconnect
+  it; the banner leads to the storage settings and offers a restart; a folder
+  that already holds Lucerna data can be pointed at again without detaching
+  first; settings changed in that session are kept for the session only, and
+  the window says so; and nothing starts on its own there: no first-run tour,
+  no update check, no changelog prompt. The uninstaller keeps the data-folder
+  setting when it cannot read it, instead of deleting it.
+
 ### Removed
 
 - **The setting that let web links open Lucerna.** Nothing ever offered such
