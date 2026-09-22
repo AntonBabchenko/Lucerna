@@ -34,7 +34,7 @@ test('search jumps to a setting and flashes it', async ({ page }) => {
   // conditional gate around it) and lands on the section the modal already
   // opens on, so this also verifies the same-section jump path.
   await dialog.getByTestId('settings-search-input').fill('language');
-  // First (only) result is the "Interface language" row under Appearance.
+  // First (only) result is the "Language" row under Appearance.
   const result = dialog.locator('[data-search-result="appearance.language"]');
   await expect(result).toBeVisible();
 

@@ -49,9 +49,14 @@ export function matchesWord(token: string, word: string): boolean {
 }
 
 type WordClass = 'label' | 'visible' | 'keyword' | 'section';
-/** An exact word beats a stem in every class; the label beats the page's words beat the keywords. */
-const EXACT: Record<WordClass, number> = { label: 35, visible: 30, keyword: 25, section: 5 };
-const STEM: Record<WordClass, number> = { label: 20, visible: 15, keyword: 10, section: 0 };
+/**
+ * A hit scores tier + class: an exact word beats a stem in EVERY class (a
+ * tab's own name, whose only signal is the section class, must still beat a
+ * stem of an unrelated keyword — "integrations" vs gpu's "intel"); within a
+ * tier the label beats the page's words beat the keywords beat the section.
+ */
+const TIER = { exact: 20, stem: 0 } as const;
+const CLASS: Record<WordClass, number> = { label: 15, visible: 10, keyword: 5, section: 0 };
 
 function bestHit(token: string, list: string[]): 'exact' | 'stem' | null {
   let stem = false;
@@ -98,7 +103,7 @@ export function searchSettings(
       let best = -1;
       for (const [cls, list] of classes) {
         const hit = bestHit(tok, list);
-        if (hit) best = Math.max(best, hit === 'exact' ? EXACT[cls] : STEM[cls]);
+        if (hit) best = Math.max(best, TIER[hit] + CLASS[cls]);
       }
       if (best < 0) {
         every = false;

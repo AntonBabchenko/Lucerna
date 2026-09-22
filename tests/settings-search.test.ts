@@ -258,6 +258,22 @@ describe('searchSettings over the real registry + locales', () => {
     });
   }
 
+  // A tab's own name is the one query whose only signal is the section class:
+  // it must still beat a stem of an unrelated keyword ("integrations" vs
+  // gpu's "intel", «обновления» vs the mod cache's «обновление»).
+  it("typing a tab's own name puts that tab's settings first, in both locales", () => {
+    const tabs = [...new Set(SETTINGS_ENTRIES.map((e) => e.tab))];
+    expect(tabs.length).toBe(7);
+    for (const t of [enT, ruT]) {
+      for (const tab of tabs) {
+        const q = t(`settings.sections.${tab}` as TranslationKey);
+        const r = searchSettings(q, SETTINGS_ENTRIES, t);
+        expect(r.length, q).toBeGreaterThan(0);
+        expect(r[0].tab, q).toBe(tab);
+      }
+    }
+  });
+
   it('"mod" / «мод» put the two mod caches first and never AI translation', () => {
     for (const [q, t] of [
       ['mod', enT],
