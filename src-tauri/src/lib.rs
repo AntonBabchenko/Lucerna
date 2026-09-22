@@ -437,6 +437,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             servers_runtime::runtime::ServerExited,
             servers_runtime::transfer::ServerUploadProgress,
             commands::DataMigrationProgress,
+            commands::UpdateInstallPhase,
         ])
 }
 

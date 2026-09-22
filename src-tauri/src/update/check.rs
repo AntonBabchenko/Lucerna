@@ -80,13 +80,15 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
     // Install assets are only needed where we do in-app install, and the
     // primary artifact differs by mechanism (Windows `-setup.exe` vs Linux
     // `.AppImage`). Notify-only platforms never download, so we don't require
-    // any of them to exist — the UI links to the release page instead.
+    // any of them to exist — the UI links to the release page instead. And
+    // they matter only when there is something to install: a release that is
+    // still uploading must not turn "you are on it" into "couldn't check".
     let (installer, sha256sums, cosign_bundle) = match primary_asset_suffix() {
-        Some(suffix) => {
+        Some(suffix) if available => {
             let (i, s, b) = select_install_assets(&rel, suffix)?;
             (Some(i), Some(s), Some(b))
         }
-        None => (None, None, None),
+        Some(_) | None => (None, None, None),
     };
 
     Ok(UpdateInfo {

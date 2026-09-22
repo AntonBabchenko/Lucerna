@@ -7,7 +7,8 @@
 use crate::data_root::blockers::RestartBlock;
 use crate::error::{Error, Result};
 use crate::update::{verify, UpdateInfo};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Where an in-app install is. Emitted as `UpdateInstallPhase` so the button
 /// and the toast can follow the real stage instead of saying "Installing…"
@@ -29,9 +30,10 @@ pub enum Phase {
 /// starting, or holds a claim — and while that cannot be told. Same observer
 /// and same three answers as the data-folder move.
 pub fn install_blocked(block: RestartBlock) -> Result<()> {
-    // RED STUB (push 1).
-    let _ = block;
-    Ok(())
+    match block {
+        RestartBlock::None => Ok(()),
+        block => Err(Error::UpdateBlocked { block }),
+    }
 }
 
 /// One install at a time: two would clear the update dir under each other.
@@ -42,13 +44,15 @@ static INSTALLING: AtomicBool = AtomicBool::new(false);
 pub struct InstallGuard(());
 
 pub fn try_begin() -> Option<InstallGuard> {
-    // RED STUB (push 1): never refuses.
-    Some(InstallGuard(()))
+    INSTALLING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| InstallGuard(()))
 }
 
 impl Drop for InstallGuard {
     fn drop(&mut self) {
-        // RED STUB (push 1).
+        INSTALLING.store(false, Ordering::Release);
     }
 }
 
@@ -65,15 +69,21 @@ pub fn guarded_apply<'a>(
     on_launch: impl FnOnce() + Send + 'a,
     apply: impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a,
 ) -> impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a {
-    // RED STUB (push 1): no observation, no phase.
-    let _ = (observe, on_launch);
-    apply
+    move |verified: &std::path::Path| {
+        install_blocked(observe())?;
+        on_launch();
+        apply(verified)
+    }
 }
 
 /// Download to the update scratch dir, verify, launch, and exit.
 /// On any download/verify failure returns `Err` WITHOUT launching —
 /// an unverified binary is never run.
-pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> Result<()> {
+pub async fn download_and_install(
+    app: &tauri::AppHandle,
+    info: &UpdateInfo,
+    on_phase: Arc<dyn Fn(Phase) + Send + Sync>,
+) -> Result<()> {
     let installer = info
         .installer
         .as_ref()
@@ -111,6 +121,8 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     let installer_path = dir.join(&installer.name);
     let bundle_path = dir.join(&cosign_bundle.name);
 
+    on_phase(Phase::Downloading);
+
     // Download installer + bundle. Pass "" to skip the streaming SHA-1
     // check (that primitive verifies SHA-1; our SHA-256 + cosign run
     // afterwards). browser_download_url host is github.com (allowlisted);
@@ -141,7 +153,7 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     // Windows runs the NSIS installer; a Linux AppImage replaces itself in
     // place and relaunches. `verify_and_launch` guarantees the apply runs only
     // after BOTH checks pass.
-    let launch: Box<dyn FnOnce(&std::path::Path) -> Result<()> + Send> =
+    let inner: Box<dyn FnOnce(&std::path::Path) -> Result<()> + Send> =
         match crate::platform::install_kind() {
             crate::platform::InstallKind::WindowsInstaller => {
                 Box::new(|p: &std::path::Path| crate::process::spawn_installer(p))
@@ -156,6 +168,18 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
             }
         };
 
+    // The download took seconds to minutes: observe ONCE MORE right before the
+    // installer is spawned — the last point at which a game started meanwhile
+    // can still be refused without side effects (`guarded_apply`).
+    let observer = app.clone();
+    let phase = on_phase.clone();
+    let launch = guarded_apply(
+        move || crate::data_root::blockers::observe(&observer),
+        move || phase(Phase::Launching),
+        inner,
+    );
+
+    on_phase(Phase::Verifying);
     tokio::task::spawn_blocking(move || -> Result<()> {
         verify_and_launch(
             &ip,

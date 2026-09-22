@@ -1308,6 +1308,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  exit. Re-checks server-side rather than trusting a client-supplied
 	 *  `UpdateInfo`, so the URLs to download are always derived from the
 	 *  live release on `api.github.com`. No-op if already up-to-date.
+	 * 
+	 *  Lucerna CLOSES to install, and the exit hook force-kills every running
+	 *  game and server: the install is refused while anything runs, is starting
+	 *  or holds a claim — and while that cannot be told — here at the top, and
+	 *  once more right before the installer is spawned.
 	 */
 	updateInstall: () => typedError<null, Error>(__TAURI_INVOKE("update_install")),
 	/**
@@ -2298,6 +2303,7 @@ export const events = {
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
+	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
 };
 
@@ -5953,6 +5959,22 @@ export type PendingFile = {
 };
 
 /**
+ *  Where an in-app install is. Emitted as `UpdateInstallPhase` so the button
+ *  and the toast can follow the real stage instead of saying "Installing…"
+ *  during a download.
+ */
+export type Phase = 
+/**
+ *  The installer, its cosign bundle and SHA256SUMS — one phase; the
+ *  progress bar tracks the installer only.
+ */
+"downloading" | 
+/**  The blocking read + SHA-256 + cosign. */
+"verifying" | 
+/**  Both checks passed and nothing runs: the installer is about to start. */
+"launching";
+
+/**
  *  How a store entry ended up in the instance.
  * 
  *  Deserialize (not just Serialize): `tasks::DetailOutcome::Installed` embeds
@@ -7245,6 +7267,11 @@ export type UpdateInfo = {
 	installer: ReleaseAsset | null,
 	sha256sums: ReleaseAsset | null,
 	cosign_bundle: ReleaseAsset | null,
+};
+
+/**  Where an in-app install is; the button and the progress toast follow it. */
+export type UpdateInstallPhase = {
+	phase: Phase,
 };
 
 /**  Persisted SFTP auth method + optional private-key path. */
