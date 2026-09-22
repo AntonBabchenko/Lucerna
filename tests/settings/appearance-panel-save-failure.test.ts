@@ -41,7 +41,7 @@ describe('AppearancePanel — a failed save says so', () => {
     await fireEvent.click(screen.getByTestId('theme-dark'));
     await flush();
     await flush();
-    expect((screen.getByTestId('theme-system') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByTestId('theme-system').getAttribute('aria-pressed')).toBe('true');
     const line = screen.getByTestId('save-failure-theme');
     expect(line.textContent).toContain("wasn't saved");
     expect(line.textContent).toContain('locked');
