@@ -14,6 +14,7 @@
      * empty, so a later null→text transition is announced (aria-atomic).
      */
     message: string | null;
+    /** danger → role=alert; warning / info / success → role=status. success is the "set" / ok tone (DESIGN §10). */
     tone?: 'danger' | 'warning' | 'info' | 'success';
     /** Defaults to assertive for danger, polite for advisory tones. */
     live?: 'assertive' | 'polite';
@@ -27,7 +28,13 @@
 
   const effectiveLive = $derived(live ?? (tone === 'danger' ? 'assertive' : 'polite'));
   const toneClass = $derived(
-    tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning-text' : 'text-secondary',
+    tone === 'danger'
+      ? 'text-danger'
+      : tone === 'warning'
+        ? 'text-warning-text'
+        : tone === 'success'
+          ? 'text-success'
+          : 'text-secondary',
   );
 </script>
 
