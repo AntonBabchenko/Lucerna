@@ -264,7 +264,12 @@ describe('Settings → Integrations: AI translation', () => {
     });
     l10nPrefillTestKey.mockResolvedValue({
       status: 'error',
-      error: { kind: 'l10n_prefill_provider', provider: 'gemini', status: 429, details: 'quota' },
+      error: {
+        kind: 'l10n_prefill_provider',
+        provider: 'gemini',
+        status: 429,
+        details: '{"error":"RESOURCE_EXHAUSTED"}',
+      },
     });
     await mount();
     const button = await waitFor(
@@ -278,7 +283,7 @@ describe('Settings → Integrations: AI translation', () => {
       ),
     );
     // The body is never rendered (transport class).
-    expect(screen.getByTestId('ai-test-error').textContent).not.toContain('quota');
+    expect(screen.getByTestId('ai-test-error').textContent).not.toContain('RESOURCE_EXHAUSTED');
   });
 
   it("names the provider's default model in the Model field", async () => {

@@ -26,23 +26,28 @@ export function providerDisplayName(id: string): string {
   return isAiProvider(id) ? get(t)(PROVIDER_NAME_KEY[id]) : id;
 }
 
+function bodyKey(status: number): TranslationKey {
+  if (status === 401 || status === 403) return 'errors.l10nPrefillProvider.rejectedKey';
+  if (status === 404) return 'errors.l10nPrefillProvider.unknownModel';
+  if (status === 429) return 'errors.l10nPrefillProvider.rateLimited';
+  if (status >= 500 && status <= 599) return 'errors.l10nPrefillProvider.providerTrouble';
+  if (status === 0) return 'errors.l10nPrefillProvider.unreadable';
+  return 'errors.l10nPrefillProvider.other';
+}
+
 /**
  * One sentence for the failure, by status, plus where the full response is.
  * `context` names the request: a connection test is not a translation run.
  */
 export function describeProviderFailure(e: ProviderFailure, context: 'test' | 'run'): string {
-  // RED STUB (push 1): one sentence for every status, the raw provider id.
   const translate = get(t);
+  const name = providerDisplayName(e.provider);
   const request = translate(
     context === 'test'
       ? 'errors.l10nPrefillProvider.requestTest'
       : 'errors.l10nPrefillProvider.requestRun',
   );
-  const body = translate('errors.l10nPrefillProvider.other', {
-    name: e.provider,
-    request,
-    status: e.status,
-  });
+  const body = translate(bodyKey(e.status), { name, request, status: e.status });
   return `${body} ${translate('errors.l10nPrefillProvider.logsTail')}`;
 }
 

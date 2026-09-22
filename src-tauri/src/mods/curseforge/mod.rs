@@ -1672,15 +1672,23 @@ mod key_check_tests {
 /// error is `Unreachable`. A body that classifies `Ok` under a 401 / 403 is a
 /// contradiction — nothing is destroyed on a contradiction.
 pub(crate) fn on_auth_failure(status: u16, body: &[u8], url: &str) -> Error {
-    // RED STUB (push 1): today's behaviour — clear on any 401 / 403.
-    let _ = (body, url);
-    if let Err(e) = keyring::clear() {
-        crate::diag!(
-            "curseforge: key rejected ({status}) but the personal key could not be cleared: {e}"
-        );
-    }
-    Error::ModsPlatformAuth {
-        kind: crate::error::ModsAuthKind::Invalid,
+    match classify_key_check(status, body) {
+        KeyCheckOutcome::Unreachable => Error::ModsPlatformUnreachable {
+            url: url.to_string(),
+        },
+        KeyCheckOutcome::Invalid => {
+            if let Err(e) = keyring::clear() {
+                crate::diag!(
+                    "curseforge: key rejected ({status}) but the personal key could not be cleared: {e}"
+                );
+            }
+            Error::ModsPlatformAuth {
+                kind: crate::error::ModsAuthKind::Invalid,
+            }
+        }
+        KeyCheckOutcome::Ok => Error::ModsPlatformAuth {
+            kind: crate::error::ModsAuthKind::Invalid,
+        },
     }
 }
 

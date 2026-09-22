@@ -1063,8 +1063,14 @@ pub struct ProviderDefault {
 #[tauri::command]
 #[specta::specta]
 pub fn l10n_prefill_provider_defaults() -> Vec<ProviderDefault> {
-    // RED STUB (push 1): nothing named yet.
-    Vec::new()
+    crate::instances::schema::AiProvider::ALL
+        .iter()
+        .filter(|p| p.needs_key())
+        .map(|p| ProviderDefault {
+            provider: *p,
+            model: p.default_model().to_string(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

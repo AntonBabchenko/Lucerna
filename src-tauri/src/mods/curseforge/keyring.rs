@@ -138,13 +138,9 @@ pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
 pub fn key_status_from(read: Result<Option<String>, Error>, embedded: Option<&str>) -> KeyStatus {
     let embedded = embedded.filter(|k| !k.is_empty());
     match read {
-        Ok(stored) => {
-            if resolve_with(stored, embedded).is_some() {
-                KeyStatus::Set
-            } else {
-                KeyStatus::Missing
-            }
-        }
+        Ok(Some(_)) => KeyStatus::Set,
+        Ok(None) if embedded.is_some() => KeyStatus::SetBuiltin,
+        Ok(None) => KeyStatus::Missing,
         Err(_) if embedded.is_some() => KeyStatus::UnknownEmbedded,
         Err(_) => KeyStatus::Unknown,
     }

@@ -29,8 +29,23 @@ behaviour is worth knowing, it is stated as a property of the feature under
   a double-click on the profile now does too. An action that is unavailable
   says why, under its name.
 
+### Changed
+
+- **AI translation settings say what it costs and what each choice needs.** A
+  sentence about billing next to the permission, the provider's default model
+  named in the field, a link to get a key for each hosted provider, what the
+  local option expects, and a connection test that names the provider and
+  tells a bad key from a rate limit or a wrong model name.
+
 ### Fixed
 
+- **The CurseForge key form now says whose key is in use.** On a release build
+  it claimed a key was set and offered a Clear that removed nothing; a
+  rejected key relabelled the whole form as if one were stored, and a block by
+  CurseForge's edge could delete a working personal key. It now names the
+  built-in key or your own, offers Clear only for your own key, shows what
+  happened to a key you just pasted separately from what is stored, and keeps
+  your key when CurseForge merely could not be reached.
 - **On macOS and Linux, sign-ins and keys now really stay in the system
   keyring — and a keyring that fails says so.** The keyring library was built
   for Windows only, so the macOS and Linux betas kept Microsoft sign-ins, a
