@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { setGeneral, patchGeneral, updateCheck } = vi.hoisted(() => ({
@@ -35,6 +35,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     appSettingsSetGeneral: setGeneral,
     appSettingsPatchGeneral: patchGeneral,
     updateCheck,
+    // The update gate asks once an update is offered.
+    restartBlocked: vi.fn().mockResolvedValue('none'),
     gpuCapability: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { mechanism: 'none', capability: { kind: 'unsupported' } },
@@ -70,5 +72,56 @@ describe('UpdatesPanel updates toggle', () => {
     expect(updateCheck).toHaveBeenCalled();
     const status = await findByTestId('update-status');
     expect(status.textContent).toContain('latest version');
+  });
+});
+
+const AVAILABLE = {
+  status: 'ok' as const,
+  data: {
+    available: true,
+    current: '0.9.0',
+    latest: '0.10.0',
+    release_url: 'https://github.com/x/releases/tag/v0.10.0',
+    installer: { url: 'https://cdn.example/Lucerna_x64-setup.exe', name: 'x', size: 1 },
+    sha256sums: null,
+    cosign_bundle: null,
+  },
+};
+
+describe('UpdatesPanel — the check result is a live region', () => {
+  it('hides the refresh icon while a check is running', async () => {
+    updateCheck.mockReturnValueOnce(new Promise(() => {}));
+    const { findByTestId } = render(UpdatesPanel);
+    const btn = await findByTestId('check-updates-btn');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    await fireEvent.click(btn);
+    expect(btn.querySelector('svg')).toBeNull();
+  });
+
+  it('up to date → status, a failed check → alert, an update → status, all inside update-status', async () => {
+    const { findByTestId } = render(UpdatesPanel);
+    const btn = await findByTestId('check-updates-btn');
+
+    await fireEvent.click(btn);
+    await vi.waitFor(() => {
+      const box = screen.getByTestId('update-status');
+      expect(box.querySelector('[role="status"]')?.textContent).toContain('latest version');
+      expect(box.querySelector('[role="alert"]')).toBeNull();
+    });
+
+    updateCheck.mockRejectedValueOnce(new Error('ipc channel closed'));
+    await fireEvent.click(btn);
+    await vi.waitFor(() => {
+      const box = screen.getByTestId('update-status');
+      expect(box.querySelector('[role="alert"]')?.textContent).toContain('ipc channel closed');
+    });
+
+    updateCheck.mockResolvedValueOnce(AVAILABLE);
+    await fireEvent.click(btn);
+    await vi.waitFor(() => {
+      const box = screen.getByTestId('update-status');
+      expect(box.querySelector('[role="status"]')?.textContent).toContain('0.10.0');
+      expect(box.querySelector('[role="alert"]')).toBeNull();
+    });
   });
 });
