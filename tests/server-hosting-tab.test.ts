@@ -180,6 +180,16 @@ describe('ServerHostingTab', () => {
     expect(screen.getByText('Password saved')).toBeTruthy();
   });
 
+  it('a keyring that could not say whether a password is stored says so — never "Password saved"', () => {
+    mockList = [makeServer({ upload: savedUpload, upload_password_set: null })];
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    expect(screen.queryByText('Password saved')).toBeNull();
+    expect(screen.getByTestId('upload-password-unknown').textContent).toContain(
+      "Couldn't check the system keyring",
+    );
+  });
+
   it('calls setUploadConfig + setUploadAuth with form values on Save', async () => {
     mockList = [makeServer()];
     setUploadConfigMock.mockResolvedValue({ status: 'ok', data: null });

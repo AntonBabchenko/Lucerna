@@ -227,7 +227,11 @@
     // permitted the feature in the first place.
     const keyStored =
       consent && needsStoredKey(provider)
-        ? await commands.l10nPrefillKeyStatus(provider).then((s) => s.status === 'ok' && s.data)
+        ? await commands
+            .l10nPrefillKeyStatus(provider)
+            // A keyring that could not be read is not "no key": the modal says
+            // it could not check, and where to look, instead of "Add an API key".
+            .then((s) => (s.status === 'ok' ? s.data : ('unknown' as const)))
         : false;
     l10nAiReady = prefillReadiness({ consent, provider, keyStored });
   }
@@ -1160,6 +1164,14 @@
     removeError = null;
     const result = await commands.removeAccount(id);
     if (result.status === 'ok') {
+      if (!result.data.keyring_cleared) {
+        // The account is gone; a sign-in token is not. Ids are random, so no
+        // later sign-in overwrites it — said out loud, with the keyring's reason.
+        pushWarning(
+          get(t)('page.accounts.removeKeyringFailed'),
+          result.data.details ? [result.data.details] : [],
+        );
+      }
       await refreshAccounts();
     } else {
       removeError = formatError(result.error);

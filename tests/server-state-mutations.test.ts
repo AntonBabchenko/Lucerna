@@ -18,6 +18,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import { commands } from '$lib/ipc/bindings';
 import { serverState } from '$lib/servers/server-state.svelte';
+import { toastList } from '$lib/toasts/toasts.svelte';
 
 const srv = (over: Partial<ServerWithStatus_Serialize> = {}): ServerWithStatus_Serialize => ({
   id: 'srv-1',
@@ -74,11 +75,31 @@ describe('serverState mutations', () => {
 
   it('remove calls delete and drops the server from the list', async () => {
     await serverState.refresh();
-    vi.mocked(commands.serverDelete).mockResolvedValue({ status: 'ok', data: null });
+    vi.mocked(commands.serverDelete).mockResolvedValue({
+      status: 'ok',
+      data: { password_cleared: true, details: null },
+    });
     const r = await serverState.remove('srv-1');
     expect(commands.serverDelete).toHaveBeenCalledWith('srv-1');
     expect(r.ok).toBe(true);
     expect(serverState.list.find((s) => s.id === 'srv-1')).toBeUndefined();
+    expect(toastList().some((x) => /SFTP password/.test(x.title))).toBe(false);
+  });
+
+  it('remove says so when the keyring kept the SFTP password', async () => {
+    await serverState.refresh();
+    vi.mocked(commands.serverDelete).mockResolvedValue({
+      status: 'ok',
+      data: { password_cleared: false, details: 'Platform secure storage failure: locked' },
+    });
+    const r = await serverState.remove('srv-1');
+    expect(r.ok).toBe(true);
+    // The server is gone from the list either way…
+    expect(serverState.list.find((s) => s.id === 'srv-1')).toBeUndefined();
+    // …and the orphaned password is named, with the keyring's reason.
+    const toast = toastList().find((x) => /SFTP password/.test(x.title));
+    expect(toast?.kind).toBe('warning');
+    expect(toast?.lines).toEqual(['Platform secure storage failure: locked']);
   });
 
   it('remove surfaces the error and keeps the server when the command fails', async () => {

@@ -43,6 +43,16 @@ pub enum MigrationRole {
     Target,
 }
 
+/// What the OS keyring was asked to do when it failed. Crosses the wire as
+/// a bare token so the frontend picks a headline per op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyringOp {
+    Read,
+    Write,
+    Delete,
+}
+
 #[derive(Debug, Clone, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
@@ -74,6 +84,14 @@ pub enum Error {
     UpdateBlocked {
         block: crate::data_root::blockers::RestartBlock,
     },
+
+    /// The OS keyring could not do what was asked. `details` is the keyring
+    /// crate's own text and DOES carry the wrapped platform error, so the
+    /// frontend classes this opaque: a headline per `op`, the tail
+    /// truncated, Logs as the way in. Absence is never this — the helpers in
+    /// `accounts::keychain` turn `NoEntry` into `Ok(None)` before it can be.
+    #[error("keyring {op:?} failed: {details}")]
+    Keyring { op: KeyringOp, details: String },
 
     #[error("Hash mismatch for {path}: expected {expected}, got {got}")]
     HashMismatch {
@@ -1250,6 +1268,18 @@ mod tests {
             "got: {j}"
         );
         assert!(j.contains(r#""url":"https://api.curseforge.com/v1/mods/search""#));
+    }
+
+    #[test]
+    fn keyring_serialises_its_op() {
+        let e = Error::Keyring {
+            op: KeyringOp::Write,
+            details: "x".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"kind":"keyring","op":"write","details":"x"}"#
+        );
     }
 
     #[test]

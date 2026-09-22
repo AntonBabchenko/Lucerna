@@ -31,6 +31,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **On macOS and Linux, sign-ins and keys now really stay in the system
+  keyring — and a keyring that fails says so.** The keyring library was built
+  for Windows only, so the macOS and Linux betas kept Microsoft sign-ins, a
+  personal CurseForge key, SFTP passwords and AI keys in memory and lost them
+  at exit while reporting "saved". They now use the macOS Keychain and the
+  Linux Secret Service. Every keyring failure is reported as one: a CurseForge
+  key the keyring refused to keep no longer reads "Invalid key", a key status
+  the keyring could not answer says "Couldn't check" with a Check again button
+  instead of "Checking…" forever or "Not configured", and Remove account and
+  Delete server tell you when a token or password could not be deleted, with
+  the reason, instead of leaving it behind in silence.
 - **A setting that couldn't be saved now says so, next to the control — and a
   page never shows a value that isn't really saved.** Theme, language, sidebar
   buttons and the tips level used to snap back in silence; the Game, Storage

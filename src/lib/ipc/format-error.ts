@@ -36,6 +36,21 @@ const CONSENTED_CHANNEL_LABELS: Record<string, TranslationKey> = {
  * Logs" convention. Every Opaque variant in formatError routes through here so
  * the formatting is identical everywhere (generalises the old inline `io` case).
  */
+function keyringHeadlineKey(op: 'read' | 'write' | 'delete'): TranslationKey {
+  switch (op) {
+    case 'read':
+      return 'errors.keyring.read';
+    case 'write':
+      return 'errors.keyring.write';
+    case 'delete':
+      return 'errors.keyring.delete';
+    default: {
+      const _exhaustive: never = op;
+      return _exhaustive;
+    }
+  }
+}
+
 export function withDetailTail(headline: string, raw: string | null | undefined): string {
   if (!raw) return headline;
   const codePoints = [...raw];
@@ -73,6 +88,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_platform_unreachable: 'transport',
   // Opaque — headline + truncated detail + "open Logs".
   io: 'opaque',
+  keyring: 'opaque',
   java_spawn: 'opaque',
   auth_failed: 'opaque',
   forge_maven_metadata_parse_failed: 'opaque',
@@ -495,6 +511,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.instanceNotFound', { id: e.id });
     case 'io':
       return withDetailTail(translate('errors.io', { path: e.path }), e.details);
+    case 'keyring':
+      // A headline per operation; the tail is the keyring's own text, which
+      // carries the platform error — truncated, with Logs as the way in.
+      return withDetailTail(translate(keyringHeadlineKey(e.op)), e.details);
     case 'forge_promotions_unavailable':
       return translate('errors.forgePromotionsUnavailable', { flavor: e.flavor });
     case 'forge_maven_metadata_parse_failed':

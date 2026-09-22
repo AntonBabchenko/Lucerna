@@ -838,6 +838,13 @@ pub fn run() {
             // pass eventually fired. `launch_instance` also refreshes just-in-time
             // before building argv, but a proactive startup pass keeps every other
             // token-consuming path (skins, profile) fresh too.
+            // Warm the CurseForge key cache off the main thread: the session's
+            // first CurseForge request then finds the answer ready instead of
+            // paying the keyring round trip (or an unlock prompt) on a runtime
+            // worker. A request that beats this thread does that one read
+            // itself, once, behind the cache lock and the keychain gate.
+            std::thread::spawn(crate::mods::curseforge::keyring::warm);
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {

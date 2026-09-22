@@ -12,15 +12,20 @@
 //! `remove_account` clears both. On Microsoft account refresh, both are
 //! overwritten.
 //!
+//! The store is the OS keyring — Windows Credential Manager, macOS Keychain,
+//! or the Linux Secret Service — chosen per target in `Cargo.toml`; no
+//! shipped build uses the `keyring` crate's mock store. Every call holds the
+//! one process-wide `KEYRING_GATE`, and every failure but absence maps to
+//! `Error::Keyring { op, details }` through the `map_*` helpers, so the UI
+//! can name what the keyring could not do instead of reading an IO error.
+//!
 //! Tests redirect through an in-memory `HashMap` (`#[cfg(test)]`) so
-//! `cargo test` never touches the real Windows Credential Manager. See
-//! `mods/curseforge/keyring.rs` for the precedent and the bug that
-//! caused this pattern to be invented (memory:
-//! project_keyring_test_clobber_bug).
+//! `cargo test` never touches a real keyring, and can arm a one-shot failure
+//! per key (`test_backend::fail_next`) to pin the honest paths. See
+//! `mods/curseforge/keyring.rs` for the precedent and the bug that caused
+//! this pattern to be invented (memory: project_keyring_test_clobber_bug).
 
-#[cfg(not(test))]
-use crate::error::Error;
-use crate::error::Result;
+use crate::error::{Error, KeyringOp, Result};
 
 const SERVICE_REFRESH: &str = "lucerna-microsoft-refresh";
 const SERVICE_MC_ACCESS: &str = "lucerna-mc-access";
@@ -58,48 +63,98 @@ pub fn ai_provider_key(provider_id: &str) -> Key {
     }
 }
 
-/// A namespaced key in the OS keyring. Construct via the helpers above.
+/// A namespaced key in the OS keyring. Construct via the helpers above, or
+/// `Key::new` for a slot another module owns (the CurseForge key).
 pub struct Key {
     service: &'static str,
     account: String,
 }
 
-#[cfg(not(test))]
-pub fn store(key: &Key, value: &str) -> Result<()> {
-    let entry = keyring::Entry::new(key.service, &key.account)
-        .map_err(|e| Error::io("OS keyring", format!("entry: {e}")))?;
-    entry
-        .set_password(value)
-        .map_err(|e| Error::io("OS keyring", format!("set: {e}")))?;
-    Ok(())
+impl Key {
+    pub fn new(service: &'static str, account: impl Into<String>) -> Self {
+        Key {
+            service,
+            account: account.into(),
+        }
+    }
 }
 
+/// One keyring conversation at a time: the Secret Service dislikes rapid
+/// concurrent RPC over D-Bus, and the Windows / macOS stores lose nothing by
+/// waiting. Never held across an await — every holder below is synchronous,
+/// and every command that reaches here runs under `spawn_blocking`.
 #[cfg(not(test))]
-pub fn retrieve(key: &Key) -> Result<Option<String>> {
-    let entry = keyring::Entry::new(key.service, &key.account)
-        .map_err(|e| Error::io("OS keyring", format!("entry: {e}")))?;
-    match entry.get_password() {
+static KEYRING_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(not(test))]
+fn gate() -> std::sync::MutexGuard<'static, ()> {
+    // A panic while holding the gate poisons it; the gate guards nothing a
+    // panic could leave half-written, so the lock stays usable.
+    KEYRING_GATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Absence is `Ok(None)`; everything else is the keyring's own words under the op.
+pub fn map_read(res: std::result::Result<String, keyring::Error>) -> Result<Option<String>> {
+    match res {
         Ok(s) => Ok(Some(s)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(Error::io("OS keyring", format!("get: {e}"))),
+        Err(e) => Err(Error::Keyring {
+            op: KeyringOp::Read,
+            details: e.to_string(),
+        }),
+    }
+}
+
+pub fn map_write(res: std::result::Result<(), keyring::Error>) -> Result<()> {
+    res.map_err(|e| Error::Keyring {
+        op: KeyringOp::Write,
+        details: e.to_string(),
+    })
+}
+
+/// Deleting what is not there is a success: the caller wanted it gone.
+pub fn map_delete(res: std::result::Result<(), keyring::Error>) -> Result<()> {
+    match res {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(Error::Keyring {
+            op: KeyringOp::Delete,
+            details: e.to_string(),
+        }),
     }
 }
 
 #[cfg(not(test))]
+/// The keyring handle for `key`. Building one can itself fail (an invalid
+/// attribute on some backends), and that failure belongs to the operation the
+/// caller was about to perform — hence `op`.
+fn entry(key: &Key, op: KeyringOp) -> Result<keyring::Entry> {
+    keyring::Entry::new(key.service, &key.account).map_err(|e| Error::Keyring {
+        op,
+        details: format!("entry: {e}"),
+    })
+}
+#[cfg(not(test))]
+pub fn store(key: &Key, value: &str) -> Result<()> {
+    let _g = gate();
+    map_write(entry(key, KeyringOp::Write)?.set_password(value))
+}
+#[cfg(not(test))]
+pub fn retrieve(key: &Key) -> Result<Option<String>> {
+    let _g = gate();
+    map_read(entry(key, KeyringOp::Read)?.get_password())
+}
+#[cfg(not(test))]
 pub fn delete(key: &Key) -> Result<()> {
-    let entry = keyring::Entry::new(key.service, &key.account)
-        .map_err(|e| Error::io("OS keyring", format!("entry: {e}")))?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(Error::io("OS keyring", format!("delete: {e}"))),
-    }
+    let _g = gate();
+    map_delete(entry(key, KeyringOp::Delete)?.delete_credential())
 }
 
 // ----- test-only in-memory backend -----
 
 #[cfg(test)]
-mod test_backend {
+pub(crate) mod test_backend {
     use super::Key;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -128,21 +183,54 @@ mod test_backend {
             .unwrap()
             .remove(&(key.service, key.account.clone()));
     }
+
+    /// Make the NEXT call of `op` fail with `details` — one shot. This is how
+    /// the honest paths (a token that could not be deleted, a status that
+    /// could not be read) are pinned against an in-memory store that never
+    /// fails on its own.
+    static FAIL_NEXT: once_cell::sync::Lazy<
+        Mutex<HashMap<(&'static str, String, crate::error::KeyringOp), String>>,
+    > = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+
+    pub fn fail_next(key: &Key, op: crate::error::KeyringOp, details: &str) {
+        FAIL_NEXT
+            .lock()
+            .unwrap()
+            .insert((key.service, key.account.clone(), op), details.to_string());
+    }
+
+    /// The failure armed for (`key`, `op`), if any — consumed on read.
+    pub fn take_failure(key: &Key, op: crate::error::KeyringOp) -> Option<crate::error::Error> {
+        FAIL_NEXT
+            .lock()
+            .unwrap()
+            .remove(&(key.service, key.account.clone(), op))
+            .map(|details| crate::error::Error::Keyring { op, details })
+    }
 }
 
 #[cfg(test)]
 pub fn store(key: &Key, value: &str) -> Result<()> {
+    if let Some(e) = test_backend::take_failure(key, KeyringOp::Write) {
+        return Err(e);
+    }
     test_backend::store(key, value);
     Ok(())
 }
 
 #[cfg(test)]
 pub fn retrieve(key: &Key) -> Result<Option<String>> {
+    if let Some(e) = test_backend::take_failure(key, KeyringOp::Read) {
+        return Err(e);
+    }
     Ok(test_backend::retrieve(key))
 }
 
 #[cfg(test)]
 pub fn delete(key: &Key) -> Result<()> {
+    if let Some(e) = test_backend::take_failure(key, KeyringOp::Delete) {
+        return Err(e);
+    }
     test_backend::delete(key);
     Ok(())
 }
@@ -150,6 +238,56 @@ pub fn delete(key: &Key) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn boxed(msg: &str) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(msg.to_owned()))
+    }
+
+    #[test]
+    fn no_entry_is_absence_not_an_error() {
+        assert!(matches!(map_read(Err(keyring::Error::NoEntry)), Ok(None)));
+        assert!(map_delete(Err(keyring::Error::NoEntry)).is_ok());
+    }
+
+    #[test]
+    fn a_platform_failure_is_a_keyring_error_with_its_op() {
+        match map_read(Err(keyring::Error::PlatformFailure(boxed("dbus down")))) {
+            Err(Error::Keyring {
+                op: KeyringOp::Read,
+                details,
+            }) => assert!(details.contains("dbus down"), "{details}"),
+            other => panic!("{other:?}"),
+        }
+        match map_write(Err(keyring::Error::NoStorageAccess(boxed("locked")))) {
+            Err(Error::Keyring {
+                op: KeyringOp::Write,
+                ..
+            }) => {}
+            other => panic!("{other:?}"),
+        }
+        match map_delete(Err(keyring::Error::PlatformFailure(boxed("x")))) {
+            Err(Error::Keyring {
+                op: KeyringOp::Delete,
+                ..
+            }) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_test_backend_can_be_told_to_fail_once() {
+        let k = sftp_password_key("inject");
+        store(&k, "p").unwrap();
+        test_backend::fail_next(&k, KeyringOp::Delete, "injected");
+        match delete(&k) {
+            Err(Error::Keyring {
+                op: KeyringOp::Delete,
+                details,
+            }) => assert_eq!(details, "injected"),
+            other => panic!("{other:?}"),
+        }
+        delete(&k).unwrap(); // the injection is one-shot
+    }
 
     #[test]
     fn store_retrieve_round_trip_refresh_token() {

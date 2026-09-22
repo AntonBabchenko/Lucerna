@@ -37,7 +37,7 @@ export const commands = {
 	 *  Remove an account. If it was active, the next account becomes active;
 	 *  if none remain, active_id becomes None.
 	 */
-	removeAccount: (id: string) => typedError<null, Error>(__TAURI_INVOKE("remove_account", { id })),
+	removeAccount: (id: string) => typedError<RemovedAccount, Error>(__TAURI_INVOKE("remove_account", { id })),
 	/**  Add an offline account. Idempotent — same name produces same UUID. */
 	addOfflineAccount: (name: string) => typedError<Account, Error>(__TAURI_INVOKE("add_offline_account", { name })),
 	/**
@@ -1000,8 +1000,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  A key resolves from the user's OS-keyring entry, or (on a release build)
 	 *  from the key embedded at compile time. So a release user who never entered
 	 *  a key still reports `Set`, which suppresses the setup guide and the
-	 *  "add a key" banners. `Invalid` is reserved for future "key was rejected"
-	 *  surfacing — today this command only distinguishes Missing vs Set.
+	 *  "add a key" banners. A keyring that could not be read is `Unknown` (or
+	 *  `UnknownEmbedded` when the build's own key still serves) — never
+	 *  `Missing`, which would send the user to enter a key they may well have.
+	 *  `Invalid` is reserved for future "key was rejected" surfacing.
 	 */
 	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
 	/**
@@ -1345,9 +1347,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverList: () => typedError<ServerWithStatus_Serialize[], Error>(__TAURI_INVOKE("server_list")),
 	/**
 	 *  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
-	 *  Возвращает ошибку если сервер запущен — сначала остановите его.
+	 *  Возвращает ошибку если сервер запущен — сначала остановите его. The
+	 *  answer says whether the SFTP password left the keyring with it.
 	 */
-	serverDelete: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete", { id })),
+	serverDelete: (id: string) => typedError<ServerDeleted, Error>(__TAURI_INVOKE("server_delete", { id })),
 	/**  Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину. */
 	serverRename: (id: string, name: string) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_rename", { id, name })),
 	/**
@@ -3214,7 +3217,15 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  game, a server or an operation is running — or it could not tell.
  *  Never "confirm and kill": the user closes what runs, then retries.
  */
-{ kind: "update_blocked"; block: RestartBlock } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "update_blocked"; block: RestartBlock } | 
+/**
+ *  The OS keyring could not do what was asked. `details` is the keyring
+ *  crate's own text and DOES carry the wrapped platform error, so the
+ *  frontend classes this opaque: a headline per `op`, the tail
+ *  truncated, Logs as the way in. Absence is never this — the helpers in
+ *  `accounts::keychain` turn `NoEntry` into `Ok(None)` before it can be.
+ */
+{ kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -4433,7 +4444,20 @@ export type KeyState =
 /**  No override, and the mod does not translate this key either. */
 "missing";
 
-export type KeyStatus = "missing" | "set" | "invalid";
+export type KeyStatus = "missing" | "set" | "invalid" | 
+/**  The keyring could not be read and no built-in key can serve requests. */
+"unknown" | 
+/**
+ *  The keyring could not be read, but the build's own key still serves
+ *  requests — a personal key, if there is one, is what could not be seen.
+ */
+"unknown_embedded";
+
+/**
+ *  What the OS keyring was asked to do when it failed. Crosses the wire as
+ *  a bare token so the frontend picks a headline per op.
+ */
+export type KeyringOp = "read" | "write" | "delete";
 
 /**
  *  A mod whose platform identity is already known from the source's
@@ -6271,6 +6295,18 @@ old_root_is_default: boolean;
  */
 retry_possible: boolean };
 
+/**
+ *  What Remove account left behind. Account ids are random `ms-<uuid_v4>`
+ *  (see `upsert_microsoft_account`), NOT derived from the MC uuid, so a
+ *  re-sign-in gets a fresh id and never overwrites an orphaned entry: a token
+ *  that could not be deleted stays in the OS keyring until the user removes
+ *  it by hand — which is why the UI is told, with the reason.
+ */
+export type RemovedAccount = {
+	keyring_cleared: boolean,
+	details: string | null,
+};
+
 /**  The user's confirmed choice, sent back to `execute_repair`. */
 export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 
 /**
@@ -6728,6 +6764,16 @@ export type ServerDatapackUpdateOutcome = {
 	completed: boolean,
 };
 
+/**  What Delete server left behind — the same shape as `RemovedAccount`. */
+export type ServerDeleted = {
+	/**
+	 *  The SFTP password is gone from the OS keyring (or was never there).
+	 *  When false it is orphaned there, and the UI says so with the reason.
+	 */
+	password_cleared: boolean,
+	details: string | null,
+};
+
 /**
  *  Full diagnosis result for a server log. Returned by the `server_diagnose`
  *  Tauri command and consumed directly by the UI.
@@ -6952,8 +6998,12 @@ export type ServerWithStatus_Deserialize = {
 	pid: number | null,
 	port: number | null,
 	upload: UploadConfig_Deserialize | null,
-	/**  Whether a keyring password is stored for the upload target. */
-	upload_password_set: boolean,
+	/**
+	 *  Whether a keyring password is stored for the upload target. `None` =
+	 *  the keyring could not be read: not "no password", "could not tell" —
+	 *  the Hosting tab then asks for one and says why.
+	 */
+	upload_password_set: boolean | null,
 	/**
 	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
 	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
@@ -6979,8 +7029,12 @@ export type ServerWithStatus_Serialize = {
 	pid: number | null,
 	port: number | null,
 	upload: UploadConfig_Serialize | null,
-	/**  Whether a keyring password is stored for the upload target. */
-	upload_password_set: boolean,
+	/**
+	 *  Whether a keyring password is stored for the upload target. `None` =
+	 *  the keyring could not be read: not "no password", "could not tell" —
+	 *  the Hosting tab then asks for one and says why.
+	 */
+	upload_password_set: boolean | null,
 	/**
 	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
 	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).

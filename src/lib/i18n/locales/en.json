@@ -588,7 +588,8 @@
         "failedTitle": "The run stopped early",
         "failedBody": "{error}. Everything translated before that is saved.",
         "startFailed": "Couldn't run the translation: {error}",
-        "doneButton": "Done"
+        "doneButton": "Done",
+        "disabledKeyUnknown": "Couldn't check the system keyring for your API key. Settings → Integrations → AI translation shows why."
       },
       "keyTable": {
         "paneSummary": "{total, plural, one {# key} other {# keys}} · {translated} translated",
@@ -2504,7 +2505,12 @@
     },
     "l10nSharePrefillActive": "A translation pre-fill is running. Try again when it finishes.",
     "l10nShareDestReserved": "Choose another file name — names beginning with \"lucerna-translation-\" are removed automatically when translations are applied.",
-    "l10nShareNothingToExport": "Nothing to export for this selection."
+    "l10nShareNothingToExport": "Nothing to export for this selection.",
+    "keyring": {
+      "read": "Couldn't read from the system keyring",
+      "write": "Couldn't save to the system keyring",
+      "delete": "Couldn't delete from the system keyring"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -2802,7 +2808,7 @@
       "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
       "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
       "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
-      "keyring": "Microsoft refresh tokens are stored in your operating system's secure keyring and removed when you sign out."
+      "keyring": "Secrets — Microsoft sign-in tokens, a personal CurseForge key, SFTP passwords, AI keys — live in your operating system's keyring (Windows Credential Manager, macOS Keychain, or the Linux Secret Service), never in Lucerna's own files."
     },
     "changelog": {
       "title": "What's new",
@@ -2858,7 +2864,8 @@
       "testHint": "Sends one tiny request using the provider, model and key you have saved. Save a new key before testing it.",
       "testHintDisabled": "Turn on the permission above first — testing the connection sends a real request to the provider.",
       "testOk": "The provider accepted the request.",
-      "revokeFailed": "The permission is still on — the change wasn't saved: {error}"
+      "revokeFailed": "The permission is still on — the change wasn't saved: {error}",
+      "keyStatusUnknown": "Couldn't check the system keyring"
     },
     "curseforge": {
       "statusLabel": "Status:",
@@ -2882,7 +2889,10 @@
       "updateKey": "Update key",
       "clearKey": "Clear key",
       "keyringNote": "Stored in your operating system's secure keyring.",
-      "aboutBody": "CurseForge is one of the biggest websites for Minecraft mods and modpacks. To download from it, CurseForge requires a free personal API key — a code that lets Lucerna fetch files through their service. Get one with the steps below; it stays on your computer."
+      "aboutBody": "CurseForge is one of the biggest websites for Minecraft mods and modpacks. To download from it, CurseForge requires a free personal API key — a code that lets Lucerna fetch files through their service. Get one with the steps below; it stays on your computer.",
+      "statusUnknown": "Couldn't check the system keyring",
+      "statusNotSaved": "Accepted by CurseForge, but not saved to the system keyring",
+      "retryBtn": "Check again"
     }
   },
   "ops": {
@@ -2960,7 +2970,7 @@
       "buyMinecraft": "Buy Minecraft",
       "removeTitle": "Remove account?",
       "removeQuestion": "Remove {name}?",
-      "removeDescription": "Lucerna will sign out of this account and forget it. Your instances, worlds, and game files are not affected. To use it again you'll need to add it back.",
+      "removeDescription": "Lucerna will sign out of this account and forget it. Its Microsoft sign-in tokens are deleted from your system's keyring. Your instances, worlds, and game files are not affected. To use it again you'll need to add it back.",
       "removeConfirm": "Remove",
       "addOfflineTitle": "Add an offline account",
       "addOfflineDescription": "Offline accounts let you play single-player and on a local network without a Microsoft sign-in. Enter the player name you'll use in-game.",
@@ -2970,7 +2980,8 @@
       "offlineNameTooShort": "The nickname must be at least 3 characters.",
       "offlineNameTooLong": "The nickname must be at most 16 characters.",
       "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters.",
-      "switchFailed": "Couldn't switch account"
+      "switchFailed": "Couldn't switch account",
+      "removeKeyringFailed": "The account was removed, but its sign-in tokens couldn't be deleted from the system keyring. Lucerna will never use them again; you can delete them in your system's credential manager."
     },
     "overview": {
       "sectionConfiguration": "Configuration",
@@ -3037,6 +3048,9 @@
         "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
         "installing": "Installing files for this instance…"
       }
+    },
+    "servers": {
+      "deletePasswordLeft": "The server was deleted, but its SFTP password couldn't be deleted from the system keyring. You can delete it in your system's credential manager."
     }
   },
   "shortcut": {
@@ -3675,7 +3689,8 @@
       "revealPassword": "Reveal password",
       "hidePassword": "Hide password",
       "passwordNeededEachUpload": "Enter the password above to upload.",
-      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten."
+      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten.",
+      "passwordUnknown": "Couldn't check the system keyring for a stored password — enter it again to upload."
     },
     "diagnose": {
       "clientOnly": {

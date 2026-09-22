@@ -59,27 +59,40 @@ pub fn set_active_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 /// Remove the account with the given id. If the removed account was active,
 /// the next account in the list becomes active; if no accounts remain,
 /// `active_id` becomes `None`.
-pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
+pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<RemovedAccount> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
     ops::remove(&mut file, id);
     write_account_file(&path, &file)?;
+    // The account is gone from disk either way; the keyring cleanup is
+    // reported, not swallowed — see `clear_account_secrets`.
+    Ok(clear_account_secrets(id))
+}
 
-    // Best-effort keychain cleanup for Microsoft accounts. Don't surface
-    // errors — the account is already gone from disk, so failing the whole
-    // removal over a keyring hiccup helps no one. But DO log: account ids are
-    // random `ms-<uuid_v4>` (see `upsert_microsoft_account`), NOT derived from
-    // the MC uuid, so a re-sign-in gets a fresh id and does NOT overwrite an
-    // orphaned entry — a silent delete failure leaves the old secret behind
-    // in the OS keyring indefinitely. Surfacing it in the launcher log gives
-    // the maintainer a trail if that ever happens.
-    if let Err(e) = keychain::delete(&keychain::refresh_token_key(id)) {
-        crate::diag!("remove_account: failed to delete refresh token for {id}: {e}");
+/// What Remove account left behind. Account ids are random `ms-<uuid_v4>`
+/// (see `upsert_microsoft_account`), NOT derived from the MC uuid, so a
+/// re-sign-in gets a fresh id and never overwrites an orphaned entry: a token
+/// that could not be deleted stays in the OS keyring until the user removes
+/// it by hand — which is why the UI is told, with the reason.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct RemovedAccount {
+    pub keyring_cleared: bool,
+    pub details: Option<String>,
+}
+
+/// Delete the two secrets of a Microsoft account. `NoEntry` counts as cleared.
+pub fn clear_account_secrets(id: &str) -> RemovedAccount {
+    let mut details = Vec::new();
+    for key in [keychain::refresh_token_key(id), keychain::mc_access_key(id)] {
+        if let Err(e) = keychain::delete(&key) {
+            crate::diag!("remove_account: failed to delete a token for {id}: {e}");
+            details.push(e.to_string());
+        }
     }
-    if let Err(e) = keychain::delete(&keychain::mc_access_key(id)) {
-        crate::diag!("remove_account: failed to delete mc access token for {id}: {e}");
+    RemovedAccount {
+        keyring_cleared: details.is_empty(),
+        details: (!details.is_empty()).then(|| details.join("; ")),
     }
-    Ok(())
 }
 
 /// Add an offline account. UUID is deterministically derived from `name`.
@@ -91,4 +104,31 @@ pub fn add_offline_account(app: &tauri::AppHandle, name: &str) -> Result<Account
     let account = ops::add_offline(&mut file, name)?;
     write_account_file(&path, &file)?;
     Ok(account)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_token_that_cannot_be_deleted_is_reported_not_swallowed() {
+        keychain::store(&keychain::refresh_token_key("rm-1"), "r").unwrap();
+        keychain::store(&keychain::mc_access_key("rm-1"), "a").unwrap();
+        keychain::test_backend::fail_next(
+            &keychain::refresh_token_key("rm-1"),
+            crate::error::KeyringOp::Delete,
+            "injected",
+        );
+        let out = clear_account_secrets("rm-1");
+        assert!(!out.keyring_cleared);
+        assert!(out.details.as_deref().unwrap_or("").contains("injected"));
+    }
+
+    #[test]
+    fn a_clean_delete_and_a_never_stored_account_both_read_as_cleared() {
+        keychain::store(&keychain::refresh_token_key("rm-2"), "r").unwrap();
+        keychain::store(&keychain::mc_access_key("rm-2"), "a").unwrap();
+        assert!(clear_account_secrets("rm-2").keyring_cleared);
+        assert!(clear_account_secrets("rm-never").keyring_cleared);
+    }
 }

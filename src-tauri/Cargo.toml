@@ -88,7 +88,10 @@ chrono = { version = "0.4.39", default-features = false, features = ["serde", "c
 # zero new compiled bytes — only declares the dep our module imports.
 regex = { version = "1.12", default-features = false, features = ["std", "perf"] }
 once_cell = "1.21"
-keyring = { version = "3.6.2", features = ["windows-native"] }
+# No features here on purpose: the store is chosen PER TARGET in the tables
+# below, and the crate's mock store remains only for targets Lucerna does not
+# ship. Spec: superpowers/specs/2026-09-22-keyring-honesty-design.md.
+keyring = "3.6.2"
 # dunce 1.0: Windows-friendly path canonicalisation (no \\?\ prefix) for zip-slip protection
 dunce = "1.0"
 # v0.2.0 Slice B (revived as cluster C) — Microsoft authentication chain.
@@ -142,6 +145,8 @@ trash = "5"
 # survives that conversion instead of guessing. Feature flag on a crate already
 # in the tree — no new dependency and no new license class.
 [target.'cfg(windows)'.dependencies]
+# The Windows Credential Manager — unchanged behaviour, now declared per target.
+keyring = { version = "3.6.2", features = ["windows-native"] }
 windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_Globalization"] }
 # Windows `.lnk` writing for desktop launch shortcuts (`shortcuts::create`).
 # Pure Rust, in-process. The alternatives were hand-written IShellLink COM
@@ -163,6 +168,29 @@ mslnk = "0.1.8"
 # adds zero new compiled bytes and no new license class (MIT OR Apache-2.0).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# The OS keyring per platform. macOS: the login Keychain via security-framework
+# (already in the lock through rustls-native-certs). Linux: the freedesktop
+# Secret Service over D-Bus, synchronous, secrets encrypted on the bus with
+# pure-Rust crypto; `dbus-secret-service` links libdbus-1 through the `dbus`
+# crate the lock already carries (tao's default feature), so nothing new is
+# needed at build or run time. Not keyutils (a session keyring that dies at
+# logout). cargo-deny justification — compiled on Linux only: dbus-secret-service
+# (MIT OR Apache-2.0), num / num-complex / num-rational / num-iter (MIT OR
+# Apache-2.0), and second majors of aes 0.8 / cbc 0.1 / cipher 0.4 / inout 0.1 /
+# hkdf 0.12 / hmac 0.12 / block-padding 0.3 beside the lock's newer ones
+# (multiple-versions = "warn"). Lock-only, never built for a target Lucerna
+# ships (`cargo tree --target all -i <crate>` prints nothing): secret-service 4
+# + zbus 4 (zbus_macros, zbus_names, zvariant*, xdg-home, nix 0.29,
+# static_assertions), pulled into the lock by keyring's weak feature
+# `secret-service?/crypto-rust` (a known Cargo limitation, rust-lang/cargo#10801),
+# and security-framework 2 + core-foundation 0.9, keyring's iOS pair of the
+# macOS 3.x — all MIT or MIT OR Apache-2.0.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.2", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.2", features = ["sync-secret-service", "crypto-rust"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

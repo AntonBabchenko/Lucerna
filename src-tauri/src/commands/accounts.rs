@@ -28,9 +28,15 @@ pub fn set_active_account(app: tauri::AppHandle, id: String) -> Result<(), crate
 /// if none remain, active_id becomes None.
 #[tauri::command]
 #[specta::specta]
-pub fn remove_account(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+pub async fn remove_account(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<crate::accounts::RemovedAccount, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
-    crate::accounts::remove_account(&app, &id)
+    // The keyring may block (D-Bus, an unlock prompt): off the main thread.
+    tokio::task::spawn_blocking(move || crate::accounts::remove_account(&app, &id))
+        .await
+        .map_err(|e| crate::error::Error::io("<remove_account>", format!("join: {e}")))?
 }
 
 /// Add an offline account. Idempotent — same name produces same UUID.

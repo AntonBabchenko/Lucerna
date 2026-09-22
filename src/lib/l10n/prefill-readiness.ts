@@ -25,8 +25,11 @@
 
 import type { AiProvider } from '$lib/ipc/bindings';
 
-/** `ready` — a run could start. The other two are both fixable in Settings. */
-export type PrefillReadiness = 'ready' | 'no_consent' | 'no_key';
+/**
+ * `ready` — a run could start. The others are all answered in Settings:
+ * `key_unknown` means the keyring could not be read, and Settings shows why.
+ */
+export type PrefillReadiness = 'ready' | 'no_consent' | 'no_key' | 'key_unknown';
 
 const NEEDS_KEY: Record<AiProvider, boolean> = {
   anthropic: true,
@@ -43,9 +46,11 @@ const NEEDS_KEY: Record<AiProvider, boolean> = {
 export function prefillReadiness(facts: {
   consent: boolean;
   provider: AiProvider;
-  keyStored: boolean;
+  /** `'unknown'` = the keyring could not be read: not a "no", not a "yes". */
+  keyStored: boolean | 'unknown';
 }): PrefillReadiness {
   if (!facts.consent) return 'no_consent';
+  if (NEEDS_KEY[facts.provider] && facts.keyStored === 'unknown') return 'key_unknown';
   if (NEEDS_KEY[facts.provider] && !facts.keyStored) return 'no_key';
   return 'ready';
 }

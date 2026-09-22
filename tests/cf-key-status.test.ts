@@ -23,6 +23,11 @@ describe('cfKeyErrorStatus', () => {
     expect(cfKeyErrorStatus(e)).toBe('unverified');
   });
 
+  it('maps a keyring failure to not_saved — CurseForge accepted the key, the keyring did not', () => {
+    const e: IpcError = { kind: 'keyring', op: 'write', details: 'locked' };
+    expect(cfKeyErrorStatus(e)).toBe('not_saved');
+  });
+
   it('falls back to invalid for any other error kind', () => {
     const e: IpcError = { kind: 'mods_decode', source: 'curseforge', details: 'boom' };
     expect(cfKeyErrorStatus(e)).toBe('invalid');

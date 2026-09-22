@@ -2,7 +2,7 @@
 //! `instances::store` (tmp+rename), малформ при листинге → skip-with-warning.
 
 use crate::error::{Error, Result};
-use crate::servers_runtime::schema::ServerFile;
+use crate::servers_runtime::schema::{ServerDeleted, ServerFile};
 use std::path::Path;
 
 pub fn read_server_json(path: &Path) -> Result<ServerFile> {
@@ -141,11 +141,55 @@ pub fn update_runtime_config(
     Ok(file)
 }
 
+/// Delete the server's SFTP password from the OS keyring — the last thing
+/// Delete server does, after the directory is gone. Reported, not swallowed:
+/// server ids are name slugs, so only a server recreated under the SAME name
+/// would overwrite an orphaned password; any other name leaves it behind
+/// until the user removes it by hand, which is why the UI is told, with the
+/// reason. `NoEntry` counts as cleared.
+pub fn clear_server_password(id: &str) -> ServerDeleted {
+    match crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(id)) {
+        Ok(()) => ServerDeleted {
+            password_cleared: true,
+            details: None,
+        },
+        Err(e) => {
+            crate::diag!("server_delete: failed to delete the SFTP password for {id}: {e}");
+            ServerDeleted {
+                password_cleared: false,
+                details: Some(e.to_string()),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::servers_runtime::schema::ServerCore;
     use tempfile::tempdir;
+
+    #[test]
+    fn a_password_that_cannot_be_deleted_is_reported_not_swallowed() {
+        use crate::accounts::keychain;
+        keychain::store(&keychain::sftp_password_key("del-1"), "p").unwrap();
+        keychain::test_backend::fail_next(
+            &keychain::sftp_password_key("del-1"),
+            crate::error::KeyringOp::Delete,
+            "injected",
+        );
+        let out = clear_server_password("del-1");
+        assert!(!out.password_cleared);
+        assert!(out.details.as_deref().unwrap_or("").contains("injected"));
+    }
+
+    #[test]
+    fn a_clean_delete_and_a_never_stored_password_both_read_as_cleared() {
+        use crate::accounts::keychain;
+        keychain::store(&keychain::sftp_password_key("del-2"), "p").unwrap();
+        assert!(clear_server_password("del-2").password_cleared);
+        assert!(clear_server_password("del-never").password_cleared);
+    }
 
     fn sample(id: &str) -> ServerFile {
         ServerFile {

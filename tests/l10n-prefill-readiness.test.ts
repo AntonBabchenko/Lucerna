@@ -27,6 +27,21 @@ describe('prefillReadiness', () => {
     }
   });
 
+  it('a keyring that could not be read is "key unknown", never "no key"', () => {
+    // "Add an API key" to a user who has one is the lie INT-04 named.
+    expect(prefillReadiness({ consent: true, provider: 'anthropic', keyStored: 'unknown' })).toBe(
+      'key_unknown',
+    );
+    // Unknown is still not readiness.
+    expect(prefillReadiness({ consent: true, provider: 'groq', keyStored: 'unknown' })).not.toBe(
+      'ready',
+    );
+    // A local model never asks, so unknown does not matter there.
+    expect(prefillReadiness({ consent: true, provider: 'local', keyStored: 'unknown' })).toBe(
+      'ready',
+    );
+  });
+
   it('never asks a local server for a credential it has no way to want', () => {
     // Mirrors `AiProvider::needs_key()` returning false for Local. Getting
     // this wrong would park a permanently dead button in front of every

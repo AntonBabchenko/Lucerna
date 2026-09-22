@@ -31,8 +31,9 @@ the launcher can find a relocated root.
   accounts with `{id, kind, name, uuid, expires_at}` per entry.
   Microsoft accounts additionally have a refresh token and a
   Minecraft access token in the OS keyring (Windows Credential
-  Manager via the `keyring` crate), keyed by the account's local
-  `id`. Tokens are never written to disk.
+  Manager, macOS Keychain, or the Linux Secret Service, via the
+  `keyring` crate), keyed by the account's local `id`. Lucerna never
+  writes tokens to disk itself.
 - Per-instance Minecraft state in
   `<data root>/instances/<instance-id>/.minecraft/`:
   worlds, screenshots, mods, configs, logs — the same shape as the

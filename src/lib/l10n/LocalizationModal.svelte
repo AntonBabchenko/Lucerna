@@ -361,6 +361,7 @@
   const prefillDisabledReason = $derived.by(() => {
     if (aiReady === 'no_consent') return $t('instance.l10n.prefill.disabledNoConsent');
     if (aiReady === 'no_key') return $t('instance.l10n.prefill.disabledNoKey');
+    if (aiReady === 'key_unknown') return $t('instance.l10n.prefill.disabledKeyUnknown');
     // Before coverage lands there is no applyGate to judge, and the header
     // renders regardless — so this is a real state, not a transient nobody
     // sees on a large pack.

@@ -153,6 +153,9 @@ describe('LocalizationModal — prefill triggers', () => {
   const gatedStates: { aiReady: PrefillReadiness; gate: ApplyGate; reason: RegExp }[] = [
     { aiReady: 'no_consent', gate: 'ready', reason: /turned off in Settings/i },
     { aiReady: 'no_key', gate: 'ready', reason: /Add an API key/i },
+    // A keyring that could not be read is not "no key" — the sentence points
+    // at Settings, where the read failure is shown.
+    { aiReady: 'key_unknown', gate: 'ready', reason: /Couldn't check the system keyring/i },
     // The version gate is not fixable in Settings, but it is still a reason —
     // and the pre-fill borrows Apply's wording rather than inventing a second
     // vocabulary for the same fact about the same instance.

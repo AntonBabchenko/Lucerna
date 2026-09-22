@@ -134,7 +134,9 @@
       return;
     }
     const s = await commands.modsGetCurseforgeKeyStatus();
-    needsCfKey = s.status === 'ok' ? s.data === 'missing' : true;
+    // 'unknown' = the keyring could not be read and no built-in key serves: the
+    // banner is the way to Settings, where the read failure itself is shown.
+    needsCfKey = s.status === 'ok' ? s.data === 'missing' || s.data === 'unknown' : true;
   }
 
   // Single source of truth for loading: the first run loads immediately (no
