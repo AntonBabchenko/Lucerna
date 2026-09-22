@@ -113,6 +113,8 @@ fn write_atomic<T: serde::Serialize>(target: &Path, value: &T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instances::schema::LoaderKind;
+    use tempfile::tempdir;
 
     #[test]
     fn update_reads_defaults_when_absent_and_writes_only_on_write() {
@@ -203,8 +205,6 @@ mod tests {
         assert_eq!(file.changelog_seen_version.as_deref(), Some("200"));
         assert_eq!(file.update_dismissed_version.as_deref(), Some("200"));
     }
-    use crate::instances::schema::LoaderKind;
-    use tempfile::tempdir;
 
     fn sample_instance() -> InstanceFile {
         InstanceFile {

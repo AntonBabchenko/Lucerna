@@ -36,7 +36,6 @@
     saveFailure,
   } from '$lib/settings/app-settings.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
-  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { createRestartGate, type RestartGate } from './restart-gate.svelte';
   import { fallbackDetails } from './fallback-message';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
