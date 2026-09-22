@@ -16,7 +16,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
-  import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import { cfKeyVersion } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import ModResultsGrid from '$lib/mods/ModResultsGrid.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
@@ -391,7 +391,7 @@
   </div>
 
   {#if needsCfKey}
-    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
+    <CurseForgeKeyBanner />
   {:else if error}
     <p class="text-sm text-danger" role="alert">{error}</p>
   {:else if loading && hits.length === 0}

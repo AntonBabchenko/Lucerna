@@ -49,7 +49,6 @@
     datapacksChanged,
     mcVersions,
     modBrowseOpenProject,
-    settingsOpen,
   } from '$lib/settings/state.svelte';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -1255,7 +1254,7 @@
     </p>
   </div>
 {:else if needsCfKey}
-  <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
+  <CurseForgeKeyBanner />
 {:else}
   <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
     <BrowseFilterBar

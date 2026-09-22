@@ -120,7 +120,11 @@ describe('SettingsModal', () => {
     settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     await frame();
-    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+    // The Appearance panel has its own comboboxes (theme, language): name the search one.
+    const search = document.querySelector('input[data-autofocus]');
+    expect(search).not.toBeNull();
+    expect(search?.getAttribute('role')).toBe('combobox');
+    expect(document.activeElement).toBe(search);
   });
 
   it('a pending jump that was never delivered is dropped when the user changes tab', async () => {

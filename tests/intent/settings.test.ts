@@ -447,9 +447,7 @@ describe('AboutPanel — GPL license line has text-xs text-muted', () => {
 
 describe('CurseForgeKeyBanner — warning container uses the shared Banner recipe', () => {
   it('banner container has bg-warning-bg + full-opacity warning border', () => {
-    const { container } = render(CurseForgeKeyBanner, {
-      props: { onOpenSettings: () => {} },
-    });
+    const { container } = render(CurseForgeKeyBanner);
     const banner = container.querySelector('.bg-warning-bg');
     expect(banner).not.toBeNull();
     const cls = banner?.className ?? '';
@@ -466,7 +464,7 @@ describe('CurseForgeKeyBanner — warning container uses the shared Banner recip
 
 describe('CurseForgeKeyBanner — CTA button is btn-warning btn-sm', () => {
   it('"Open Settings → CurseForge" button has btn-warning and btn-sm', () => {
-    render(CurseForgeKeyBanner, { props: { onOpenSettings: () => {} } });
+    render(CurseForgeKeyBanner);
     const btn = screen.getByRole('button', { name: /open settings/i });
     expect(btn).toHaveBtnVariant('warning');
     expect(btn).toHaveBtnSize('sm');

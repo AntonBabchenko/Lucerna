@@ -96,6 +96,7 @@
       disabled={disabled || busyAny}
       onkeydown={onKeydown}
       data-testid="{testIdPrefix}-input"
+      data-flash-focus={focusTarget ? '' : undefined}
     />
   </label>
   <div class="flex gap-2 mt-3">

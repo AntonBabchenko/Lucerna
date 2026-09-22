@@ -13,7 +13,7 @@ describe('CurseForgeKeyBanner', () => {
   });
 
   it('opens Settings at the CurseForge key field', async () => {
-    render(CurseForgeKeyBanner, { props: { onOpenSettings: () => {} } });
+    render(CurseForgeKeyBanner);
     await fireEvent.click(screen.getByRole('button', { name: /open settings/i }));
     await tick();
     expect(settingsOpen.value).toEqual({ tab: 'integrations' });

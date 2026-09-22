@@ -16,7 +16,12 @@
   import SettingsSearchField from './SettingsSearchField.svelte';
   import SettingsField from './SettingsField.svelte';
   import { dataLocation } from './data-location.svelte';
-  import { settingsOpen, settingsSearchFocus, type SettingsTab } from './state.svelte';
+  import {
+    closeSettings,
+    settingsOpen,
+    settingsSearchFocus,
+    type SettingsTab,
+  } from './state.svelte';
   import type { SettingsSearchEntry } from './search-index';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -50,6 +55,14 @@
     announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
   }
 
+  // A tab change by the user drops a jump that was never delivered (its tab
+  // never mounted): the user has moved on. selectResult and openSettingsAt
+  // set the rune only AFTER their own tab switch, so this never eats theirs.
+  function selectTab(id: SettingsTab) {
+    settingsSearchFocus.value = null;
+    active = id;
+  }
+
   function onTablistKeydown(e: KeyboardEvent) {
     const current = SECTIONS.findIndex((s) => s.id === active);
     if (current === -1) return;
@@ -60,7 +73,7 @@
     else if (e.key === 'End') next = SECTIONS.length - 1;
     else return;
     e.preventDefault();
-    active = SECTIONS[next].id;
+    selectTab(SECTIONS[next].id);
     tabEls[next]?.focus();
   }
 
@@ -70,8 +83,7 @@
   });
 
   function close() {
-    settingsSearchFocus.value = null;
-    settingsOpen.value = null;
+    closeSettings();
     searching = false;
   }
 </script>
@@ -129,7 +141,7 @@
                 class:font-medium={active === s.id}
                 class:border-transparent={active !== s.id}
                 class:text-muted={active !== s.id}
-                onclick={() => (active = s.id)}
+                onclick={() => selectTab(s.id)}
               >
                 {$t(s.labelKey)}
               </button>

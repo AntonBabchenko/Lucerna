@@ -46,6 +46,15 @@ export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
   settingsSearchFocus.value = anchor;
 }
 
+/**
+ * The one way to close Settings. Clears any pending jump with it: a stale
+ * anchor would flash on the next open for no reason.
+ */
+export function closeSettings(): void {
+  settingsSearchFocus.value = null;
+  settingsOpen.value = null;
+}
+
 // Tick that increments whenever the CurseForge API key changes (saved
 // or cleared). Watchers that gate UI on the key's existence — e.g.
 // ModBrowseView's CurseForge banner — read this rune to know when to
