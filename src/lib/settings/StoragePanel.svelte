@@ -10,7 +10,8 @@
   // Both IPC calls (modsCacheSizeBytes / modsClearCache) follow the
   // result-status pattern (typedError) — no try/catch around them.
   //
-  // The "Data location" block (bottom) lets the user relocate the WHOLE data root (instances,
+  // The "Data location" block (first — the folder everything else lives in, STOR-17) lets the
+  // user relocate the WHOLE data root (instances,
   // caches, accounts — everything under the app-data dir) to a folder of their choice. This panel
   // only PLANS (backend classification), CONFIRMS (DataLocationConfirmDialog) and STARTS a move.
   // The progress / final dialog is owned by the app-level DataMoveHost, driven by the shared
@@ -28,6 +29,8 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import Banner from '$lib/ui/Banner.svelte';
+  import NumberField from '$lib/ui/NumberField.svelte';
   import {
     appSettings,
     generalDisplayed,
@@ -88,19 +91,23 @@
 
   async function saveRetention() {
     const snap = { ...retention }; // snapshot before await
+    // No clamp here: NumberField is the validator — it refuses a value it would
+    // have to change, so what reaches this point is what the user typed.
     const r = await patchGeneral({
       log_retention: {
         enabled: snap.enabled,
-        max_files: Number.isFinite(snap.max_files as number)
-          ? Math.max(0, Math.trunc(snap.max_files as number))
-          : DEFAULT_RETENTION.max_files,
-        max_total_mb: Number.isFinite(snap.max_total_mb as number)
-          ? Math.max(1, Math.trunc(snap.max_total_mb as number))
-          : DEFAULT_RETENTION.max_total_mb,
+        max_files: snap.max_files,
+        max_total_mb: snap.max_total_mb,
       },
     });
     // Back to what is saved: the message under the field says why.
     if (!r.ok && general) retention = { ...DEFAULT_RETENTION, ...general.log_retention };
+  }
+
+  /** A NumberField accepted `n` for one retention field: show it, then save. */
+  function commitRetention(field: 'max_files' | 'max_total_mb', n: number) {
+    retention = { ...retention, [field]: n };
+    void saveRetentionTracked();
   }
 
   async function saveTtlTracked() {
@@ -113,11 +120,14 @@
   }
 
   async function saveTtl() {
-    const snap = Number.isFinite(modTtlDays)
-      ? Math.max(0, Math.trunc(modTtlDays))
-      : DEFAULT_TTL_DAYS;
+    const snap = modTtlDays; // snapshot before await
     const r = await patchGeneral({ mod_metadata_ttl_days: snap });
     if (!r.ok && general) modTtlDays = general.mod_metadata_ttl_days ?? DEFAULT_TTL_DAYS;
+  }
+
+  function commitTtl(n: number) {
+    modTtlDays = n;
+    void saveTtlTracked();
   }
 
   async function refresh() {
@@ -363,165 +373,35 @@
   async function clear() {
     clearing = true;
     error = null;
-    const result = await commands.modsClearCache();
-    if (result.status === 'ok') {
-      const freed = result.data ?? 0;
-      // Route through the global toast system (auto-dismiss + live region)
-      // instead of the old hand-rolled inline box that never went away.
-      pushSuccess(
-        $t('settings.storage.cleared', {
-          freed: formatSize($t, freed) || $t('format.size.bytes', { n: 0 }),
-        }),
-      );
+    try {
+      const result = await commands.modsClearCache();
+      if (result.status === 'ok') {
+        const freed = result.data ?? 0;
+        // Route through the global toast system (auto-dismiss + live region)
+        // instead of the old hand-rolled inline box that never went away.
+        pushSuccess(
+          $t('settings.storage.cleared', {
+            freed: formatSize($t, freed) || $t('format.size.bytes', { n: 0 }),
+          }),
+        );
+      } else {
+        error = formatError(result.error);
+      }
+    } finally {
+      // Re-measure whatever happened: a partial clear must show the size that
+      // is really left, beside its error (STOR-22).
       await refresh();
-    } else {
-      error = formatError(result.error);
+      clearing = false;
     }
-    clearing = false;
   }
 </script>
 
-<div>
-  <SettingsField anchor="storage.cache">
-    <div class="text-sm mb-2">
-      {$t('settings.storage.cacheLabel')}
-      <span class="font-medium"
-        >{bytes === null ? '…' : formatSize($t, bytes) || $t('format.size.bytes', { n: 0 })}</span
-      >
-    </div>
-    <p class="text-xs text-muted mb-3">
-      {$t('settings.storage.cacheDescription')}
-    </p>
-
-    {#if error}
-      <div
-        class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2"
-        role="alert"
-      >
-        {error}
-      </div>
-    {/if}
-    <BusyButton
-      type="button"
-      class="btn-secondary btn-sm"
-      busy={clearing}
-      disabled={bytes === 0 || bytes === null}
-      onclick={clear}
-    >
-      {$t('settings.storage.clearBtn')}
-    </BusyButton>
-  </SettingsField>
-
-  <SettingsField anchor="storage.logRetention">
-    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
-      <h3 class="font-medium text-sm text-primary">
-        {$t('settings.general.logRetention.title')}
-      </h3>
-      {#if loadError !== null}
-        <div class="flex flex-wrap items-center gap-2" data-testid="settings-load-failed">
-          <StatusMessage
-            message={$t('settings.general.loadFailed', { error: loadError })}
-            tone="danger"
-          />
-          <button type="button" class="btn-secondary btn-sm" onclick={() => void loadAppSettings()}>
-            {$t('settings.general.retryBtn')}
-          </button>
-        </div>
-      {/if}
-      <div data-testid="save-failure-log_retention">
-        <StatusMessage message={retentionError} tone="danger" />
-      </div>
-      <label class="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          bind:checked={retention.enabled}
-          disabled={!settingsLoaded}
-          onchange={() => void saveRetentionTracked()}
-          data-testid="log-retention-toggle"
-        />
-        <span class="flex-1">
-          <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span
-          >
-          <span class="block text-xs text-muted">
-            {$t('settings.general.logRetention.enableDescription')}
-          </span>
-        </span>
-      </label>
-      <div class="flex flex-wrap items-end gap-4 pl-6">
-        {#if retentionSaving}
-          <div class="flex items-center text-xs text-secondary">
-            <Spinner size="sm" />
-          </div>
-        {/if}
-        <label class="flex flex-col gap-1">
-          <span class="text-xs text-primary">{$t('settings.general.logRetention.keepLabel')}</span>
-          <input
-            type="number"
-            min="0"
-            class="border rounded px-2 py-1 text-sm w-28"
-            bind:value={retention.max_files}
-            disabled={!settingsLoaded || !retention.enabled}
-            onchange={() => void saveRetentionTracked()}
-            data-testid="log-retention-max-files"
-          />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span class="text-xs text-primary">{$t('settings.general.logRetention.sizeLabel')}</span>
-          <input
-            type="number"
-            min="1"
-            class="border rounded px-2 py-1 text-sm w-28"
-            bind:value={retention.max_total_mb}
-            disabled={!settingsLoaded || !retention.enabled}
-            onchange={() => void saveRetentionTracked()}
-            data-testid="log-retention-max-mb"
-          />
-        </label>
-      </div>
-    </div>
-  </SettingsField>
-
-  <SettingsField anchor="storage.modMetadataCache">
-    <div class="flex flex-col gap-3 border-t mt-4 pt-4">
-      <h3 class="font-medium text-sm text-primary">
-        {$t('settings.general.modMetadataCache.title')}
-      </h3>
-      <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
-      <div data-testid="save-failure-mod_metadata_ttl_days">
-        <StatusMessage message={ttlError} tone="danger" />
-      </div>
-      <div class="flex flex-wrap items-end gap-4">
-        {#if ttlSaving}
-          <div class="flex items-center text-xs text-secondary">
-            <Spinner size="sm" />
-          </div>
-        {/if}
-        <label class="flex flex-col gap-1">
-          <span class="text-xs text-primary">
-            {$t('settings.general.modMetadataCache.ttlLabel')}
-          </span>
-          <input
-            type="number"
-            min="0"
-            step="1"
-            class="border rounded px-2 py-1 text-sm w-28"
-            bind:value={modTtlDays}
-            disabled={!settingsLoaded}
-            onchange={() => void saveTtlTracked()}
-            data-testid="mod-metadata-ttl-days"
-          />
-        </label>
-      </div>
-      <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.ttlHint')}</p>
-    </div>
-  </SettingsField>
-
+<section class="flex flex-col gap-6">
   <SettingsField anchor="storage.dataLocation">
     <div
       bind:this={sectionEl}
       tabindex="-1"
-      class="flex flex-col gap-3 border-t mt-4 pt-4 outline-none"
+      class="flex flex-col gap-3 outline-none"
       data-testid="data-location-section"
     >
       <h3 class="font-medium text-sm text-primary">
@@ -529,48 +409,41 @@
       </h3>
       <p class="text-xs text-muted">{$t('settings.storage.dataLocation.description')}</p>
 
-      {#if dataLocation.error}
-        <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-          {dataLocation.error}
-        </div>
-      {/if}
-      {#if migrationError}
-        <div
-          class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 selectable"
-          role="alert"
-        >
-          {migrationError}
-        </div>
-      {/if}
+      <StatusMessage message={dataLocation.error} tone="danger" />
+      <StatusMessage message={migrationError} tone="danger" class="selectable" />
 
       {#if dataLocation.fallback}
         <!-- Only the ways back: the banner already said WHY (and the modal-level notice that
              settings are temporary). The OS error, when there is one, belongs here — not in a
              banner read at a glance. -->
-        <div
-          class="rounded-xl border border-warning-text bg-warning-bg p-3 text-sm text-warning-text flex flex-col gap-2"
+        <Banner
+          tone="warning"
+          icon="warning"
           role="alert"
-          data-testid="data-location-recovery-notice"
+          dataTestid="data-location-recovery-notice"
+          class="text-sm text-warning-text"
         >
-          <p>{$t('settings.storage.dataLocation.fallbackNotice')}</p>
-          {#if fallbackDetails(dataLocation.fallback)}
-            <p class="font-mono text-xs selectable">
-              {$t('settings.storage.dataLocation.fallbackDetails', {
-                details: fallbackDetails(dataLocation.fallback),
-              })}
-            </p>
-          {/if}
-          <div>
-            <button
-              type="button"
-              class="btn-secondary btn-sm inline-flex items-center gap-1.5"
-              onclick={() => void openLogFolder()}
-            >
-              <Icon name="folderOpen" size={14} />
-              {$t('settings.storage.dataLocation.openLogFolderBtn')}
-            </button>
+          <div class="flex flex-col gap-2">
+            <p>{$t('settings.storage.dataLocation.fallbackNotice')}</p>
+            {#if fallbackDetails(dataLocation.fallback)}
+              <p class="font-mono text-xs selectable">
+                {$t('settings.storage.dataLocation.fallbackDetails', {
+                  details: fallbackDetails(dataLocation.fallback),
+                })}
+              </p>
+            {/if}
+            <div>
+              <button
+                type="button"
+                class="btn-warning-soft btn-sm inline-flex items-center gap-1.5"
+                onclick={() => void openLogFolder()}
+              >
+                <Icon name="folderOpen" size={14} />
+                {$t('settings.storage.dataLocation.openLogFolderBtn')}
+              </button>
+            </div>
           </div>
-        </div>
+        </Banner>
       {/if}
 
       {#if resetBlockers}
@@ -620,11 +493,7 @@
               >
             {/if}
           </div>
-          {#if dataRootSizeError}
-            <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-              {dataRootSizeError}
-            </div>
-          {/if}
+          <StatusMessage message={dataRootSizeError} tone="danger" />
         {/if}
       {:else}
         <p class="text-xs text-muted">…</p>
@@ -678,7 +547,129 @@
       </div>
     </div>
   </SettingsField>
-</div>
+
+  <SettingsField anchor="storage.cache">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.storage.cacheTitle')}</h3>
+      <div class="text-sm">
+        {$t('settings.storage.cacheLabel')}
+        <span class="font-medium"
+          >{bytes === null ? '…' : formatSize($t, bytes) || $t('format.size.bytes', { n: 0 })}</span
+        >
+      </div>
+      <p class="text-xs text-muted">{$t('settings.storage.cacheDescription')}</p>
+      <StatusMessage message={error} tone="danger" />
+      <div>
+        <BusyButton
+          type="button"
+          class="btn-secondary btn-sm"
+          busy={clearing}
+          disabled={bytes === 0 || bytes === null}
+          onclick={clear}
+        >
+          {$t('settings.storage.clearBtn')}
+        </BusyButton>
+      </div>
+    </div>
+  </SettingsField>
+
+  <SettingsField anchor="storage.modMetadataCache">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">
+        {$t('settings.general.modMetadataCache.title')}
+      </h3>
+      <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
+      <div data-testid="save-failure-mod_metadata_ttl_days">
+        <StatusMessage message={ttlError} tone="danger" />
+      </div>
+      <div class="flex flex-wrap items-start gap-4">
+        <NumberField
+          label={$t('settings.general.modMetadataCache.ttlLabel')}
+          value={modTtlDays}
+          min={0}
+          hint={$t('settings.general.modMetadataCache.ttlHint')}
+          disabled={!settingsLoaded}
+          onCommit={commitTtl}
+          testId="mod-metadata-ttl-days"
+        />
+        {#if ttlSaving}
+          <Spinner
+            size="sm"
+            label={$t('common.saving')}
+            labelPlacement="right"
+            class="text-secondary mt-6"
+          />
+        {/if}
+      </div>
+    </div>
+  </SettingsField>
+
+  <SettingsField anchor="storage.logRetention">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">
+        {$t('settings.general.logRetention.title')}
+      </h3>
+      {#if loadError !== null}
+        <div class="flex flex-wrap items-center gap-2" data-testid="settings-load-failed">
+          <StatusMessage
+            message={$t('settings.general.loadFailed', { error: loadError })}
+            tone="danger"
+          />
+          <button type="button" class="btn-secondary btn-sm" onclick={() => void loadAppSettings()}>
+            {$t('settings.general.retryBtn')}
+          </button>
+        </div>
+      {/if}
+      <div data-testid="save-failure-log_retention">
+        <StatusMessage message={retentionError} tone="danger" />
+      </div>
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          bind:checked={retention.enabled}
+          disabled={!settingsLoaded}
+          onchange={() => void saveRetentionTracked()}
+          data-testid="log-retention-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span
+          >
+          <span class="block text-xs text-muted">
+            {$t('settings.general.logRetention.enableDescription')}
+          </span>
+        </span>
+      </label>
+      <div class="flex flex-wrap items-start gap-4 pl-6">
+        <NumberField
+          label={$t('settings.general.logRetention.keepLabel')}
+          value={retention.max_files}
+          min={1}
+          hint={$t('settings.general.logRetention.keepHint')}
+          disabled={!settingsLoaded || !retention.enabled}
+          onCommit={(n) => commitRetention('max_files', n)}
+          testId="log-retention-max-files"
+        />
+        <NumberField
+          label={$t('settings.general.logRetention.sizeLabel')}
+          value={retention.max_total_mb}
+          min={1}
+          disabled={!settingsLoaded || !retention.enabled}
+          onCommit={(n) => commitRetention('max_total_mb', n)}
+          testId="log-retention-max-mb"
+        />
+        {#if retentionSaving}
+          <Spinner
+            size="sm"
+            label={$t('common.saving')}
+            labelPlacement="right"
+            class="text-secondary mt-6"
+          />
+        {/if}
+      </div>
+    </div>
+  </SettingsField>
+</section>
 
 {#if pendingTarget !== null}
   <!-- Stays up with its busy spinner while a redirect-only commit (adopt, pointer-only reset) is
