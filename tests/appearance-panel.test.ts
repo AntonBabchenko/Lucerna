@@ -25,4 +25,9 @@ describe('AppearancePanel', () => {
     const toggle = screen.getByTestId('rainbow-icons-toggle') as HTMLInputElement;
     expect(toggle.checked).toBe(true);
   });
+
+  it('names the theme group with a legend, so the page shows the word the search label uses', () => {
+    render(AppearancePanel);
+    expect(screen.getByRole('group', { name: 'Theme' })).toBeTruthy();
+  });
 });

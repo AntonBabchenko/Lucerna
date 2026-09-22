@@ -11,6 +11,16 @@ export function normalize(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
+/** RED STUB (push 1): whitespace split. */
+export function words(s: string): string[] {
+  return normalize(s).split(/\s+/).filter(Boolean);
+}
+
+/** RED STUB (push 1): substring anywhere. */
+export function matchesWord(token: string, word: string): boolean {
+  return word.includes(token);
+}
+
 /**
  * Filter entries to those whose localized label + keywords + section name
  * contain EVERY whitespace token (AND), ranked so a label match outranks a
