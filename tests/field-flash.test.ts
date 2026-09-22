@@ -167,4 +167,34 @@ describe('fieldFlash', () => {
     b.update({ active: true });
     expect(scroll).toHaveBeenLastCalledWith({ block: 'center' });
   });
+
+  it('parks focus on the wrapper while the target is disabled, then hands it over', async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<input data-flash-focus disabled />';
+    document.body.appendChild(host);
+    const input = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    // Parked inside the wrapper: a dialog's deferred initial focus sees focus
+    // already inside and leaves it alone.
+    expect(document.activeElement).toBe(host);
+    input.disabled = false;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('does not steal focus on enable when something else claimed it meanwhile', async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<input data-flash-focus disabled />';
+    document.body.appendChild(host);
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+    const input = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    other.focus();
+    input.disabled = false;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(other);
+  });
 });

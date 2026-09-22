@@ -93,14 +93,22 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
       return;
     }
     // A field that is disabled until a read answers (the CurseForge key input
-    // while its status loads): focus the moment it enables, within the flash
-    // window. A field that never enables is never grabbed.
+    // while its status loads). Park focus on the wrapper meanwhile — inside
+    // the dialog, so the dialog's own deferred initial focus leaves it alone —
+    // and move it into the field the moment it enables, but only if nothing
+    // else has claimed focus since: a user already typing elsewhere is never
+    // yanked. A field that never enables is never grabbed.
     if (typeof MutationObserver !== 'function') return;
+    if (!node.hasAttribute('tabindex')) node.tabIndex = -1;
+    node.focus({ preventScroll: true });
     stopWatch();
     enableWatch = new MutationObserver(() => {
       if (isDisabled(target)) return;
       stopWatch();
-      target.focus({ preventScroll: true });
+      const held = document.activeElement;
+      if (held === node || held === document.body || held === null) {
+        target.focus({ preventScroll: true });
+      }
     });
     enableWatch.observe(target, { attributes: true, attributeFilter: ['disabled'] });
   }

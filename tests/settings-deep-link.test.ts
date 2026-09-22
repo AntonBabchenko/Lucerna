@@ -77,6 +77,11 @@ describe('a deep link into the CurseForge key field', () => {
     render(SettingsModal);
     await openSettingsAt('integrations.curseforgeKey');
     await frame();
+    // Never the search box, not even for a frame: focus is parked inside the
+    // field's wrapper while the status read keeps the input disabled.
+    const wrapper = document.querySelector('[data-search-anchor="integrations.curseforgeKey"]');
+    expect(wrapper?.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.querySelector('input[data-autofocus]'));
     await timer();
     await timer();
     await Promise.resolve();
