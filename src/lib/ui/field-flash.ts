@@ -16,6 +16,12 @@ export type FieldFlashParams = {
    * a focus grab turns the next arrow key into a silent value edit.
    */
   focus?: boolean;
+  /**
+   * Called once the flash has been delivered (scroll, ring, focus arranged) —
+   * in a microtask, never inside the action's own call, so a wrapper that
+   * mounts already active still records the edge it just took.
+   */
+  onDelivered?: () => void;
 };
 
 /**
