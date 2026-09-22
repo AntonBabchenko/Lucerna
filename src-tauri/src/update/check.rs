@@ -289,6 +289,18 @@ mod tests {
         ));
     }
 
+    /// A release that is still uploading (or broken) must not turn "you are on
+    /// it" into "couldn't check": the install assets matter only when there is
+    /// something to install.
+    #[test]
+    fn up_to_date_is_reported_even_when_the_release_lacks_the_installer() {
+        let mut rel = sample_release();
+        rel.assets.clear();
+        let info = build_update_info(rel, "0.9.1").expect("up to date is not an error");
+        assert!(!info.available);
+        assert!(info.installer.is_none());
+    }
+
     fn sample_release_appimage() -> GhRelease {
         GhRelease {
             tag_name: "v0.9.1".into(),

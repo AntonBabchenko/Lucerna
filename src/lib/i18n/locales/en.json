@@ -2403,6 +2403,11 @@
     "updateCheckFailed": "Couldn't check for updates",
     "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with",
     "updateInstallFailed": "Couldn't install the update",
+    "updateBlocked": {
+      "running": "Close Minecraft and stop your servers before updating: Lucerna closes to install the update and would close them too.",
+      "busy": "Wait for the running operation — an install, an import, a backup, an upload or a translation — to finish before updating: Lucerna closes to install the update.",
+      "unknown": "Lucerna couldn't check whether a game or a server is running, so it won't update yet. Close them if any are open, or restart Lucerna, then try again."
+    },
     "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}",
     "importInstanceUnreadable": "Couldn't read the {launcher} instance",
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
@@ -2638,8 +2643,19 @@
         "available": "Version {version} is available.",
         "updateNow": "Update now",
         "installing": "Installing…",
+        "updating": "Updating…",
+        "explain": "Lucerna downloads the installer, verifies it, then closes and comes back on the new version. Close running games and servers first.",
         "openReleasePage": "Open release page",
-        "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page."
+        "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page.",
+        "blocked": {
+          "checking": "Checking whether anything is running…",
+          "running": "Close Minecraft and stop your servers first: Lucerna closes to install the update.",
+          "busy": "Wait for the running operation — an install, an import, a backup, an upload or a translation — to finish first: Lucerna closes to install the update.",
+          "unknown": "Lucerna couldn't check whether a game or a server is running. Close them if any are open, or restart Lucerna, then check again."
+        },
+        "loadFailed": "Couldn't read this setting: {error}",
+        "retryBtn": "Retry",
+        "notSaved": "The change wasn't saved: {error}"
       },
       "onboarding": {
         "title": "Onboarding",
@@ -2874,6 +2890,13 @@
       "currentVersion": "You're on {version}.",
       "downloading": "Downloading update…",
       "verifyFailed": "Couldn't verify the update",
+      "installFailed": "Couldn't install the update",
+      "alreadyCurrent": "Lucerna is already up to date.",
+      "phase": {
+        "downloading": "Downloading…",
+        "verifying": "Verifying…",
+        "launching": "Starting the installer…"
+      },
       "dismissFailed": "Couldn't remember that you dismissed this update — it may be offered again next launch"
     },
     "whatsNew": {
