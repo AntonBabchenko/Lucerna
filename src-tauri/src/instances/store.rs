@@ -54,6 +54,31 @@ pub fn write_app_json(path: &Path, value: &AppFile) -> Result<()> {
     write_atomic(path, value)
 }
 
+/// What a read-modify-write closure decided.
+pub enum Verdict {
+    Write,
+    Unchanged,
+}
+
+/// Read (absent = defaults; corrupt = `Err`, nothing written) → `f` → write on
+/// `Verdict::Write`. Returns the file as it is after the call, written or not.
+pub fn update_app_json(path: &Path, f: impl FnOnce(&mut AppFile) -> Verdict) -> Result<AppFile> {
+    // RED STUB (push 1): no lock yet.
+    let mut file = read_app_json(path)?;
+    if let Verdict::Write = f(&mut file) {
+        write_app_json(path, &file)?;
+    }
+    Ok(file)
+}
+
+/// Write a whole file without reading — for the two sites that mean it: the
+/// first-run seed and the URL-scheme flag clear, which must overwrite a file
+/// it could not read.
+pub fn replace_app_json(path: &Path, value: &AppFile) -> Result<()> {
+    // RED STUB (push 1): no lock yet.
+    write_app_json(path, value)
+}
+
 fn write_atomic<T: serde::Serialize>(target: &Path, value: &T) -> Result<()> {
     let parent = target
         .parent()
@@ -70,6 +95,96 @@ fn write_atomic<T: serde::Serialize>(target: &Path, value: &T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_reads_defaults_when_absent_and_writes_only_on_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        let file = update_app_json(&path, |af| {
+            assert!(af.active_instance.is_none());
+            Verdict::Unchanged
+        })
+        .unwrap();
+        assert!(file.active_instance.is_none());
+        assert!(
+            matches!(std::fs::metadata(&path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        );
+        let file = update_app_json(&path, |af| {
+            af.active_instance = Some("x".into());
+            Verdict::Write
+        })
+        .unwrap();
+        assert_eq!(file.active_instance.as_deref(), Some("x"));
+        assert_eq!(
+            read_app_json(&path).unwrap().active_instance.as_deref(),
+            Some("x")
+        );
+    }
+
+    #[test]
+    fn update_refuses_a_corrupt_file_and_leaves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        std::fs::write(&path, b"{").unwrap();
+        let mut ran = false;
+        assert!(update_app_json(&path, |_| {
+            ran = true;
+            Verdict::Write
+        })
+        .is_err());
+        assert!(!ran);
+        assert_eq!(std::fs::read(&path).unwrap(), b"{");
+    }
+
+    #[test]
+    fn replace_writes_without_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        std::fs::write(&path, b"{").unwrap(); // corrupt: replace must not care
+        let af = AppFile {
+            changelog_seen_version: Some("1".into()),
+            ..AppFile::default()
+        };
+        replace_app_json(&path, &af).unwrap();
+        assert_eq!(
+            read_app_json(&path)
+                .unwrap()
+                .changelog_seen_version
+                .as_deref(),
+            Some("1")
+        );
+    }
+
+    /// Proven meaningful by a mutation check (PR body): with the guard line
+    /// removed from `update_app_json`, this test fails within a few runs.
+    #[test]
+    fn two_writers_under_the_lock_lose_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = std::sync::Arc::new(dir.path().join("app.json"));
+        let bump = |path: std::sync::Arc<std::path::PathBuf>, field: &'static str| {
+            std::thread::spawn(move || {
+                for _ in 0..200 {
+                    update_app_json(&path, |af| {
+                        let v = match field {
+                            "a" => &mut af.changelog_seen_version,
+                            _ => &mut af.update_dismissed_version,
+                        };
+                        let n: u32 = v.as_deref().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        *v = Some((n + 1).to_string());
+                        Verdict::Write
+                    })
+                    .unwrap();
+                }
+            })
+        };
+        let a = bump(path.clone(), "a");
+        let b = bump(path.clone(), "b");
+        a.join().unwrap();
+        b.join().unwrap();
+        let file = read_app_json(&path).unwrap();
+        assert_eq!(file.changelog_seen_version.as_deref(), Some("200"));
+        assert_eq!(file.update_dismissed_version.as_deref(), Some("200"));
+    }
     use crate::instances::schema::LoaderKind;
     use tempfile::tempdir;
 

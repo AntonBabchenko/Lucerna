@@ -1,28 +1,43 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { windowSetCompact, windowSetExpandedFloor, appSettingsGet, appSettingsSetGeneral } =
-  vi.hoisted(() => {
-    const sampleGeneral = {
-      hide_to_tray_during_game: false,
-      theme: 'system',
-      check_updates_on_startup: true,
-      language: 'system',
-      explanation_level: 'basic',
-      compact_mode: false,
-    };
-    return {
-      windowSetCompact: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-      windowSetExpandedFloor: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-      appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-      appSettingsGet: vi.fn().mockResolvedValue({
-        status: 'ok',
-        data: { general: sampleGeneral },
-      }),
-    };
-  });
+const {
+  windowSetCompact,
+  windowSetExpandedFloor,
+  appSettingsGet,
+  appSettingsSetGeneral,
+  appSettingsPatchGeneral,
+} = vi.hoisted(() => {
+  const sampleGeneral = {
+    hide_to_tray_during_game: false,
+    theme: 'system',
+    check_updates_on_startup: true,
+    language: 'system',
+    explanation_level: 'basic',
+    compact_mode: false,
+  };
+  return {
+    windowSetCompact: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    windowSetExpandedFloor: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    appSettingsGet: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { general: sampleGeneral },
+    }),
+    appSettingsPatchGeneral: vi.fn().mockImplementation(async (p: object) => ({
+      status: 'ok',
+      data: { ...sampleGeneral, ...p },
+    })),
+  };
+});
 
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { windowSetCompact, windowSetExpandedFloor, appSettingsGet, appSettingsSetGeneral },
+  commands: {
+    windowSetCompact,
+    windowSetExpandedFloor,
+    appSettingsGet,
+    appSettingsSetGeneral,
+    appSettingsPatchGeneral,
+  },
 }));
 
 const pushWarningMock = vi.fn();
@@ -86,8 +101,8 @@ describe('compact mode rune module', () => {
     expect(compactState.value).toBe(true);
     // Height is null here: jsdom has no rendered sidebar to measure.
     expect(windowSetCompact).toHaveBeenCalledWith(true, null);
-    expect(appSettingsSetGeneral).toHaveBeenCalledTimes(1);
-    expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({ compact_mode: true });
+    expect(appSettingsPatchGeneral).toHaveBeenCalledTimes(1);
+    expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ compact_mode: true });
   });
 
   it('toggleCompact inverts the current value', async () => {
@@ -139,7 +154,7 @@ describe('compact mode rune module', () => {
   });
 
   it('reports a failed persist without undoing the window resize', async () => {
-    appSettingsSetGeneral.mockResolvedValueOnce({
+    appSettingsPatchGeneral.mockResolvedValueOnce({
       status: 'error',
       error: { kind: 'io', path: '<app.json>', details: 'disk full' },
     });
@@ -154,19 +169,15 @@ describe('compact mode rune module', () => {
     expect(pushWarningMock).toHaveBeenCalledTimes(1);
   });
 
-  it('reports a failed settings read and never writes', async () => {
-    appSettingsGet.mockResolvedValueOnce({
-      status: 'error',
-      error: { kind: 'io', path: '<app.json>', details: 'unreadable' },
-    });
+  it('reports a persist the transport lost, with its reason', async () => {
+    appSettingsPatchGeneral.mockRejectedValueOnce(new Error('ipc channel closed'));
 
     await setCompact(true);
 
     expect(compactState.value).toBe(true);
-    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
     expect(pushWarningMock).toHaveBeenCalledTimes(1);
-    // The read error is carried as a detail line, not dropped.
-    expect(pushWarningMock.mock.calls[0][1]?.[0]).toContain('unreadable');
+    // The reason is carried as a detail line, not dropped.
+    expect(pushWarningMock.mock.calls[0][1]?.[0]).toContain('ipc channel closed');
   });
 
   it('says nothing when the persist succeeds', async () => {

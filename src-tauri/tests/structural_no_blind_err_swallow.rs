@@ -44,7 +44,12 @@ use std::path::{Path, PathBuf};
 /// Call-site text for the two state-changing primitives. Matching on the `fs::`
 /// prefix covers `std::fs::`, `tokio::fs::` and a bare `fs::` alias alike,
 /// because all three carry it at the call site.
-const STATE_CHANGING: &[&str] = &["fs::rename(", "fs::write("];
+const STATE_CHANGING: &[&str] = &[
+    "fs::rename(",
+    "fs::write(",
+    "update_app_json(",
+    "replace_app_json(",
+];
 
 /// Call-site text for the read-side primitives, matched on the `fs::` prefix
 /// for the same reason as `STATE_CHANGING`: `std::fs::`, `tokio::fs::` and a
@@ -408,6 +413,9 @@ mod matchers {
     #[test]
     fn discards_cover_both_spellings_and_all_three_qualifications() {
         assert!(discards_state_change("let _ = std::fs::rename(&a, &b);"));
+        assert!(discards_state_change(
+            "let _ = update_app_json(&p, |af| Verdict::Write);"
+        ));
         assert!(discards_state_change(
             "let _ = tokio::fs::write(&a, b).await;"
         ));

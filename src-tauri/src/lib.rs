@@ -244,6 +244,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,
             commands::app_settings_set_general,
+            commands::app_settings_patch_general,
             commands::gpu_capability,
             // Self-update:
             commands::update_check,
