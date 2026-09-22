@@ -409,10 +409,10 @@ mod tests {
     }
 
     fn install_test_key() {
-        let _ = keyring::set("test-key");
+        keyring::set("test-key").expect("the in-memory test keyring accepts a key");
     }
     fn clear_test_key() {
-        let _ = keyring::clear();
+        keyring::clear().expect("the in-memory test keyring clears");
     }
 
     #[tokio::test]

@@ -184,8 +184,12 @@ mod tests {
             })
         };
         assert_eq!(key_status_from(Ok(Some("k".into())), None), KeyStatus::Set);
-        // The built-in key reads as "set" — INT-01, reversed by batch 7.
-        assert_eq!(key_status_from(Ok(None), Some("e")), KeyStatus::Set);
+        assert_eq!(
+            key_status_from(Ok(Some("k".into())), Some("e")),
+            KeyStatus::Set
+        );
+        // No personal key, the build's own serves — its own state (INT-01).
+        assert_eq!(key_status_from(Ok(None), Some("e")), KeyStatus::SetBuiltin);
         assert_eq!(key_status_from(Ok(None), None), KeyStatus::Missing);
         assert_eq!(
             key_status_from(err(), Some("e")),

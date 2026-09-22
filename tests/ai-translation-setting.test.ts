@@ -43,6 +43,7 @@ const appSettingsPatchGeneral = vi.fn();
 const l10nPrefillKeyStatus = vi.fn();
 const l10nPrefillSetKey = vi.fn();
 const l10nPrefillTestKey = vi.fn();
+const l10nPrefillProviderDefaults = vi.fn();
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -52,6 +53,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nPrefillKeyStatus: (p: unknown) => l10nPrefillKeyStatus(p),
     l10nPrefillSetKey: (p: unknown, k: unknown) => l10nPrefillSetKey(p, k),
     l10nPrefillTestKey: () => l10nPrefillTestKey(),
+    l10nPrefillProviderDefaults: () => l10nPrefillProviderDefaults(),
   },
 }));
 
@@ -83,6 +85,12 @@ describe('Settings → Integrations: AI translation', () => {
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: false });
     l10nPrefillSetKey.mockResolvedValue({ status: 'ok', data: null });
     l10nPrefillTestKey.mockResolvedValue({ status: 'ok', data: null });
+    // A bare invoke (the command returns a plain Vec): the array itself.
+    l10nPrefillProviderDefaults.mockResolvedValue([
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+      { provider: 'gemini', model: 'gemini-3.6-flash' },
+      { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+    ]);
   });
 
   it('starts off and patches only the consent field when switched on', async () => {
@@ -247,6 +255,86 @@ describe('Settings → Integrations: AI translation', () => {
     );
     expect(screen.getByTestId('ai-key-status-reason').textContent).toContain('locked');
     expect(screen.queryByText(/Checking…/)).toBeNull();
+  });
+
+  it('a 429 from the provider reads as a rate limit on the test request, by display name', async () => {
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true, ai_provider: 'gemini' }) },
+    });
+    l10nPrefillTestKey.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'l10n_prefill_provider', provider: 'gemini', status: 429, details: 'quota' },
+    });
+    await mount();
+    const button = await waitFor(
+      () => screen.getByTestId('ai-test-connection') as HTMLButtonElement,
+    );
+    await waitFor(() => expect(button.disabled).toBe(false));
+    await fireEvent.click(button);
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-test-error').textContent).toContain(
+        'Google Gemini is rate-limiting the test request',
+      ),
+    );
+    // The body is never rendered (transport class).
+    expect(screen.getByTestId('ai-test-error').textContent).not.toContain('quota');
+  });
+
+  it("names the provider's default model in the Model field", async () => {
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true, ai_provider: 'gemini' }) },
+    });
+    await mount();
+    await waitFor(() =>
+      expect((screen.getByTestId('ai-model-input') as HTMLInputElement).placeholder).toBe(
+        "Provider's default: gemini-3.6-flash",
+      ),
+    );
+  });
+
+  it('keeps the generic placeholder, and says nothing, when the defaults cannot be read', async () => {
+    l10nPrefillProviderDefaults.mockRejectedValue(new Error('ipc unavailable'));
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true }) },
+    });
+    await mount();
+    await waitFor(() => screen.getByTestId('ai-model-input'));
+    expect((screen.getByTestId('ai-model-input') as HTMLInputElement).placeholder).toBe(
+      "Provider's default",
+    );
+    expect(screen.queryByTestId('settings-load-failed')).toBeNull();
+  });
+
+  it('offers a link to get a key for a hosted provider, and none for a local one', async () => {
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true }) },
+    });
+    const { unmount } = await mount();
+    await waitFor(() => expect(screen.getByTestId('ai-key-get')).toBeTruthy());
+    expect(screen.getByTestId('ai-key-get').textContent).toContain('console.anthropic.com');
+    unmount();
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true, ai_provider: 'local' }) },
+    });
+    await mount();
+    await waitFor(() => screen.getByTestId('ai-local-port-input'));
+    expect(screen.queryByTestId('ai-key-get')).toBeNull();
+  });
+
+  it('says what a hosted provider costs, what Local expects, and where the feature is used', async () => {
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ ai_provider: 'local' }) },
+    });
+    await mount();
+    expect(screen.getByText(/bill your own account/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/OpenAI-compatible server/)).toBeTruthy());
+    expect(screen.getByTestId('ai-used-from').textContent).toContain('Mod translations');
   });
 
   it('never reads a stored key back into the UI', async () => {

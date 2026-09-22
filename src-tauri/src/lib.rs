@@ -407,6 +407,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::l10n_prefill_cancel,
             commands::l10n_prefill_set_key,
             commands::l10n_prefill_key_status,
+            commands::l10n_prefill_provider_defaults,
             commands::l10n_prefill_test_key,
             commands::l10n_revert_machine,
             commands::l10n_apply_targets,

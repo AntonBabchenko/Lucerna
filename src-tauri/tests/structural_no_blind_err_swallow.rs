@@ -49,6 +49,12 @@ const STATE_CHANGING: &[&str] = &[
     "fs::write(",
     "update_app_json(",
     "replace_app_json(",
+    // A keyring write or delete is state the user cannot see: a discarded
+    // result is a secret that silently stayed, or silently went.
+    "keychain::store(",
+    "keychain::delete(",
+    "keyring::set(",
+    "keyring::clear(",
 ];
 
 /// Call-site text for the read-side primitives, matched on the `fs::` prefix
@@ -307,7 +313,7 @@ fn no_blind_err_swallow_or_unjustified_state_change_discard() {
             let bad = if is_empty_err_arm(line) {
                 Some("empty Err arm")
             } else if discards_state_change(line) && !is_justified(&lines, i) {
-                Some("discarded fs rename/write")
+                Some("discarded state-changing call")
             } else if is_fs_read_let_else(line) && else_body_returns_ok(&lines, i) {
                 Some("fs read let-else answering Ok out of ignorance")
             } else if defaults_a_read(line) && !is_justified(&lines, i) {
@@ -337,7 +343,7 @@ fn no_blind_err_swallow_or_unjustified_state_change_discard() {
          A comment ABOVE the arm does not satisfy this rule: it is too easy to \
          satisfy by accident with an unrelated neighbouring comment.\n\
          \n\
-         `discarded fs rename/write`: the state change may not have happened and \
+         `discarded state-changing call`: the state change may not have happened and \
          nobody will know. Handle the error, or justify the discard in a comment \
          trailing the line, or a few lines above it inside the same function.\n\
          \n\

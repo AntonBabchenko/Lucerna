@@ -11,7 +11,9 @@ use super::*;
 /// "add a key" banners. A keyring that could not be read is `Unknown` (or
 /// `UnknownEmbedded` when the build's own key still serves) — never
 /// `Missing`, which would send the user to enter a key they may well have.
-/// `Invalid` is reserved for future "key was rejected" surfacing.
+/// `Set` means a personal key is stored; `SetBuiltin` that only the build's
+/// own key serves — the form names the source, the banners only ask whether
+/// a download would work.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus> {

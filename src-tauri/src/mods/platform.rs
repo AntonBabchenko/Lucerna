@@ -543,8 +543,10 @@ pub struct InstalledMod {
 #[serde(rename_all = "snake_case")]
 pub enum KeyStatus {
     Missing,
+    /// A personal key is stored in the OS keyring.
     Set,
-    Invalid,
+    /// No personal key; the build's own key serves requests.
+    SetBuiltin,
     /// The keyring could not be read and no built-in key can serve requests.
     Unknown,
     /// The keyring could not be read, but the build's own key still serves

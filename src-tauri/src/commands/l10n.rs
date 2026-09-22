@@ -1050,3 +1050,30 @@ mod tests {
         assert_eq!(other_lang_applied(td.path(), "ru_ru"), None);
     }
 }
+
+/// The model each hosted provider uses when the Model field is empty — for
+/// the Settings placeholder, so the UI never carries its own copy of the
+/// names. `Local` has no default and is not listed.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct ProviderDefault {
+    pub provider: crate::instances::schema::AiProvider,
+    pub model: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn l10n_prefill_provider_defaults() -> Vec<ProviderDefault> {
+    // RED STUB (push 1): nothing named yet.
+    Vec::new()
+}
+
+#[cfg(test)]
+mod provider_defaults_tests {
+    #[test]
+    fn provider_defaults_name_every_hosted_provider_and_no_local() {
+        let d = super::l10n_prefill_provider_defaults();
+        let ids: Vec<_> = d.iter().map(|x| x.provider.id()).collect();
+        assert_eq!(ids, ["anthropic", "gemini", "groq"]);
+        assert!(d.iter().all(|x| !x.model.is_empty()));
+    }
+}
