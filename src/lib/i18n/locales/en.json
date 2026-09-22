@@ -2544,24 +2544,24 @@
       "labels": {
         "appearance": {
           "theme": "Theme",
-          "language": "Interface language",
+          "language": "Language",
           "rainbowIcons": "Rainbow icon animation",
           "iconZoom": "Icon hover zoom",
           "sidebarButtons": "Sidebar buttons"
         },
         "game": {
-          "tray": "Hide to tray while playing",
-          "serverPing": "Server status ping",
-          "gpu": "Preferred GPU"
+          "tray": "Hide launcher to tray when Minecraft starts",
+          "serverPing": "Saved server status",
+          "gpu": "Preferred GPU for Minecraft"
         },
         "integrations": {
-          "curseforgeKey": "CurseForge API key",
+          "curseforgeKey": "CurseForge key",
           "aiTranslation": "AI translation"
         },
         "storage": {
-          "cache": "Clear cache",
+          "cache": "Mod download cache",
           "logRetention": "Log retention",
-          "modMetadataCache": "Mod metadata cache",
+          "modMetadataCache": "Mod info cache",
           "dataLocation": "Data location"
         },
         "updates": {
@@ -2569,46 +2569,46 @@
           "changelog": "What's new"
         },
         "help": {
-          "tipsLevel": "Tips level",
-          "replayTours": "Replay tours"
+          "tipsLevel": "Tip detail level",
+          "replayTours": "Replay onboarding tour"
         },
         "about": {
-          "repo": "Source code on GitHub"
+          "repo": "View on GitHub"
         }
       },
       "keywords": {
         "appearance": {
-          "theme": "theme dark light system appearance",
-          "language": "language locale english russian interface",
-          "rainbowIcons": "rainbow icon animation color",
-          "iconZoom": "icon zoom hover magnify",
-          "sidebarButtons": "sidebar buttons hide navigation"
+          "theme": "theme dark light system appearance mode night colour color scheme",
+          "language": "language locale english russian interface русский язык",
+          "rainbowIcons": "rainbow icon animation color colour effects motion",
+          "iconZoom": "icon zoom hover magnify effects motion scale",
+          "sidebarButtons": "sidebar buttons hide navigation restore show hidden unhide"
         },
         "game": {
-          "tray": "tray minimize hide playing background",
-          "serverPing": "server ping status online players",
-          "gpu": "gpu graphics video performance discrete"
+          "tray": "tray minimize minimise hide playing background launcher window close",
+          "serverPing": "server ping status online players multiplayer ip privacy",
+          "gpu": "gpu graphics video performance discrete card nvidia amd intel integrated"
         },
         "integrations": {
           "curseforgeKey": "curseforge api key token",
-          "aiTranslation": "ai translation translate provider model api key token gemini anthropic openai groq"
+          "aiTranslation": "ai translation translate provider model api key token gemini anthropic groq claude ollama local llm privacy keyring localization"
         },
         "storage": {
-          "cache": "cache clear temporary storage",
-          "logRetention": "log retention keep size files",
-          "modMetadataCache": "mod metadata cache ttl refresh",
-          "dataLocation": "data location folder path move disk"
+          "cache": "cache clear temporary storage downloads jar free space delete",
+          "logRetention": "log logs retention keep size files delete old",
+          "modMetadataCache": "mod metadata cache ttl refresh info names icons days",
+          "dataLocation": "data location folder path move disk directory relocate portable free space install"
         },
         "updates": {
-          "startupCheck": "update startup check automatic",
-          "changelog": "changelog whats new version release"
+          "startupCheck": "update startup check automatic auto",
+          "changelog": "changelog whats new version release notes patch history"
         },
         "help": {
-          "tipsLevel": "tips help level basic advanced",
-          "replayTours": "tour onboarding replay guide walkthrough"
+          "tipsLevel": "tips help level basic advanced detail explanation tooltip hints tutorial",
+          "replayTours": "tour onboarding replay guide walkthrough tutorial hints reset tips welcome"
         },
         "about": {
-          "repo": "github repository source repo about version"
+          "repo": "github repository source repo about"
         }
       }
     },
@@ -2635,7 +2635,8 @@
           "importLauncher": "Import from launcher",
           "gallery": "Gallery",
           "logs": "Logs"
-        }
+        },
+        "theme": "Theme"
       },
       "playing": {
         "title": "Playing",

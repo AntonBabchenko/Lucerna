@@ -27,6 +27,9 @@
 <section class="flex flex-col gap-4">
   <SettingsField anchor="appearance.theme">
     <fieldset class="flex flex-col gap-2">
+      <legend class="font-medium text-sm text-primary mb-1">
+        {$t('settings.general.appearance.theme')}
+      </legend>
       {#each [{ v: 'system' as ThemePreference, labelKey: 'settings.general.appearance.themeSystem' as const }, { v: 'light' as ThemePreference, labelKey: 'settings.general.appearance.themeLight' as const }, { v: 'dark' as ThemePreference, labelKey: 'settings.general.appearance.themeDark' as const }] as opt (opt.v)}
         <label class="flex items-center gap-2 cursor-pointer">
           <input

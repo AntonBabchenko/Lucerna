@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import en from '$lib/i18n/locales/en.json';
 import ru from '$lib/i18n/locales/ru.json';
+import { words } from '$lib/settings/search';
 import { SETTINGS_ENTRIES, SETTINGS_SEARCH, shouldFocusAnchor } from '$lib/settings/search-index';
 
 describe('shouldFocusAnchor', () => {
@@ -54,5 +55,29 @@ describe('SETTINGS_SEARCH registry integrity', () => {
   it('SETTINGS_ENTRIES is the Record values in registry order', () => {
     expect(SETTINGS_ENTRIES.length).toBe(Object.keys(SETTINGS_SEARCH).length);
     expect(SETTINGS_ENTRIES[0].anchor).toBe('appearance.theme');
+  });
+
+  it('every visible key resolves to a non-empty string in en and ru', () => {
+    for (const entry of SETTINGS_ENTRIES) {
+      expect(entry.visibleKeys.length, entry.anchor).toBeGreaterThan(0);
+      for (const key of entry.visibleKeys) {
+        for (const dict of [en, ru]) {
+          const v = resolve(dict, key);
+          expect(typeof v, key).toBe('string');
+          expect((v as string).length, key).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it('every word of a search label is a word the page shows for that control (en + ru)', () => {
+    for (const entry of SETTINGS_ENTRIES) {
+      for (const dict of [en, ru]) {
+        const visible = new Set(entry.visibleKeys.flatMap((k) => words(String(resolve(dict, k)))));
+        for (const w of words(String(resolve(dict, entry.labelKey)))) {
+          expect(visible.has(w), `${entry.anchor}: "${w}" is not on the page`).toBe(true);
+        }
+      }
+    }
   });
 });

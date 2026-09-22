@@ -39,6 +39,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Settings search finds the words on the page.** Plurals, Russian word forms
+  and the labels printed next to a control now match; result labels use the
+  page's own words; a short query such as "ai" no longer matches inside other
+  words; the language setting is findable by its name in any interface
+  language; "version" lands on the changelog.
 - **Links into Settings now land on the setting they name, and a jump flashes
   it once.** The CurseForge banners and the server-status permission link open
   Settings at the control itself — the key field takes focus as soon as it is
