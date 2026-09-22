@@ -54,10 +54,14 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
-import { settingsOpen } from '$lib/settings/state.svelte';
+import { openSettingsAt, settingsOpen, settingsSearchFocus } from '$lib/settings/state.svelte';
+
+const frame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
+const microtask = (): Promise<void> => new Promise((r) => queueMicrotask(() => r()));
 
 afterEach(() => {
   settingsOpen.value = null;
+  settingsSearchFocus.value = null;
 });
 
 describe('SettingsModal', () => {
@@ -110,5 +114,38 @@ describe('SettingsModal', () => {
     // release note naming the "What's new" panel adds a second match.
     expect(screen.getByRole('heading', { name: "What's new" })).toBeTruthy();
     expect(screen.getByText('v0.1.0')).toBeTruthy();
+  });
+
+  it('opens with the search box focused, not the close button', async () => {
+    settingsOpen.value = { tab: 'appearance' };
+    render(SettingsModal);
+    await frame();
+    // The Appearance panel has its own comboboxes (theme, language): name the search one.
+    const search = document.querySelector('input[data-autofocus]');
+    expect(search).not.toBeNull();
+    expect(search?.getAttribute('role')).toBe('combobox');
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('a pending jump that was never delivered is dropped when the user changes tab', async () => {
+    settingsOpen.value = { tab: 'appearance' };
+    render(SettingsModal);
+    // Storage is not mounted, so nothing could have consumed this.
+    settingsSearchFocus.value = 'storage.cache';
+    await fireEvent.click(screen.getByRole('tab', { name: 'Game' }));
+    expect(settingsSearchFocus.value).toBe(null);
+  });
+
+  it('a delivered jump is consumed, so returning to the tab does not flash it again', async () => {
+    settingsOpen.value = { tab: 'appearance' };
+    render(SettingsModal);
+    await openSettingsAt('storage.cache');
+    await microtask();
+    expect(settingsSearchFocus.value).toBe(null);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Appearance' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Storage' }));
+    const wrapper = document.querySelector('[data-search-anchor="storage.cache"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.classList.contains('field-flash')).toBe(false);
   });
 });

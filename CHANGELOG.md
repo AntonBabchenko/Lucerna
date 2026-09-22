@@ -39,6 +39,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Links into Settings now land on the setting they name, and a jump flashes
+  it once.** The CurseForge banners and the server-status permission link open
+  Settings at the control itself — the key field takes focus as soon as it is
+  ready — instead of at the top of a page; returning to that page later no
+  longer scrolls away to flash it again, and closing Settings from Help clears
+  the jump too. A jump to a long block starts at its top, so release notes open
+  at the newest entry, and Settings opens with the search box focused.
 - **The CurseForge key form now says whose key is in use.** On a release build
   it claimed a key was set and offered a Clear that removed nothing; a
   rejected key relabelled the whole form as if one were stored, and a block by

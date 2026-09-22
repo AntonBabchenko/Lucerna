@@ -73,4 +73,128 @@ describe('fieldFlash', () => {
     handle.destroy();
     expect(host.classList.contains('field-flash')).toBe(false);
   });
+
+  it('reports delivery in a microtask, once per false→true edge', async () => {
+    const onDelivered = vi.fn();
+    const { host } = mountHost();
+    const a = fieldFlash(host, { active: true, onDelivered });
+    // Not inside the call: the action's own mount call must return first.
+    expect(onDelivered).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(onDelivered).toHaveBeenCalledTimes(1);
+    a.update({ active: false, onDelivered });
+    a.update({ active: true, onDelivered });
+    await Promise.resolve();
+    expect(onDelivered).toHaveBeenCalledTimes(2);
+  });
+
+  it('a wrapper that mounts active, is consumed, and is asked again still flashes', async () => {
+    const { host } = mountHost();
+    let active = true;
+    const a = fieldFlash(host, {
+      active,
+      onDelivered: () => {
+        active = false;
+      },
+    });
+    await Promise.resolve();
+    // The consumed value the render effect now observes.
+    a.update({ active });
+    host.classList.remove('field-flash');
+    a.update({ active: true });
+    expect(host.classList.contains('field-flash')).toBe(true);
+  });
+
+  it('deactivating does not cut a running ring short', () => {
+    const { host } = mountHost();
+    const a = fieldFlash(host, { active: true });
+    a.update({ active: false });
+    expect(host.classList.contains('field-flash')).toBe(true);
+    vi.advanceTimersByTime(FLASH_MS);
+    expect(host.classList.contains('field-flash')).toBe(false);
+  });
+
+  it('focus prefers the marked control, skips a disabled first control, and opens its disclosure first', () => {
+    const host = document.createElement('div');
+    host.innerHTML =
+      '<button disabled>first</button><details><summary>more</summary><input data-flash-focus /></details>';
+    document.body.appendChild(host);
+    const calls: string[] = [];
+    const details = host.querySelector('details') as HTMLDetailsElement;
+    Object.defineProperty(details, 'open', {
+      get: () => calls.includes('open'),
+      set: () => {
+        calls.push('open');
+      },
+      configurable: true,
+    });
+    host.scrollIntoView = () => {
+      calls.push('scroll');
+    };
+    fieldFlash(host, { active: true, focus: true });
+    expect(document.activeElement).toBe(host.querySelector('input'));
+    expect(calls).toEqual(['open', 'scroll']);
+  });
+
+  it('a disabled target is focused the moment it enables', async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<input data-flash-focus disabled />';
+    document.body.appendChild(host);
+    const input = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    expect(document.activeElement).not.toBe(input);
+    input.disabled = false;
+    // MutationObserver delivers in a microtask.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('a block taller than its scrollport aligns to its start; a short one centres', () => {
+    const parent = document.createElement('div');
+    parent.setAttribute('style', 'overflow-y: auto');
+    Object.defineProperty(parent, 'clientHeight', { value: 400, configurable: true });
+    const host = document.createElement('div');
+    parent.appendChild(host);
+    document.body.appendChild(parent);
+    const scroll = vi.fn();
+    host.scrollIntoView = scroll;
+    host.getBoundingClientRect = () => ({ height: 5000 }) as DOMRect;
+    fieldFlash(host, { active: true });
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'start' });
+    host.getBoundingClientRect = () => ({ height: 50 }) as DOMRect;
+    const b = fieldFlash(host, { active: false });
+    b.update({ active: true });
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'center' });
+  });
+
+  it('parks focus on the wrapper while the target is disabled, then hands it over', async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<input data-flash-focus disabled />';
+    document.body.appendChild(host);
+    const input = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    // Parked inside the wrapper: a dialog's deferred initial focus sees focus
+    // already inside and leaves it alone.
+    expect(document.activeElement).toBe(host);
+    input.disabled = false;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('does not steal focus on enable when something else claimed it meanwhile', async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<input data-flash-focus disabled />';
+    document.body.appendChild(host);
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+    const input = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    other.focus();
+    input.disabled = false;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(other);
+  });
 });

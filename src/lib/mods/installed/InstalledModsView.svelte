@@ -11,7 +11,6 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
-  import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
   import { onDestroy, untrack } from 'svelte';
@@ -647,7 +646,7 @@
     </div>
   {/if}
   {#if updates.showCfBanner}
-    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
+    <CurseForgeKeyBanner />
   {/if}
 
   {#if loader === 'vanilla' && enabledModsCount > 0}

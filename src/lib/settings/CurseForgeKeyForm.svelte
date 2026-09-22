@@ -222,5 +222,6 @@
     resultTestId="cf-key-result"
     note={$t('settings.curseforge.keyringNote')}
     testIdPrefix="cf-key"
+    focusTarget
   />
 </div>

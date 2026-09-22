@@ -10,7 +10,7 @@
     SourceCaps,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
-  import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import { cfKeyVersion } from '$lib/settings/state.svelte';
   import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
   import { modpackBrowseState } from './browse-state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
@@ -266,7 +266,7 @@
 
 <div class="px-4 pb-4">
   {#if caps.needs_api_key && needsCfKey}
-    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
+    <CurseForgeKeyBanner />
   {:else if loading}
     <LoadingPanel label={$t('modpacks.browse.searching')} delayMs={0} />
   {:else if error}

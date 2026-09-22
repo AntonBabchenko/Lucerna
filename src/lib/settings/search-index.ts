@@ -37,14 +37,14 @@ export interface SettingsSearchEntry {
 }
 
 /**
- * Anchors where moving keyboard focus on jump is safe. Empty in v1: every
- * current settings control is a toggle, select, button or section — none is a
- * text field the user would immediately type into, and the API-key inputs are
- * not the first focusable inside their wrapped section. The seam exists (rather
- * than a hardcoded `false`) so a future text-input setting can opt in, exactly
- * as `manage-focus.ts`'s `shouldFocusField` does.
+ * Anchors where moving keyboard focus on jump is safe: text fields the user
+ * came to type into. A toggle, select or section never takes focus (on a
+ * slider a focus grab turns the next arrow key into a silent edit). The
+ * CurseForge key field is one — the banners say "add a key" — and its
+ * `ApiKeyField` marks the input with `data-flash-focus`, which `fieldFlash`
+ * prefers over the first focusable and waits for if it is still disabled.
  */
-const FOCUSABLE_ANCHORS: readonly SettingsAnchor[] = [];
+const FOCUSABLE_ANCHORS: readonly SettingsAnchor[] = ['integrations.curseforgeKey'];
 
 export function shouldFocusAnchor(anchor: SettingsAnchor): boolean {
   return FOCUSABLE_ANCHORS.includes(anchor);

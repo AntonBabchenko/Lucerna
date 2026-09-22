@@ -61,6 +61,10 @@ export function trapFocus(node: HTMLElement) {
   }
 
   function focusInitial() {
+    // A deep link may already have placed focus inside the dialog (fieldFlash
+    // with focus, from a banner): keep it. A plain open still lands on
+    // [data-autofocus] below.
+    if (node.contains(document.activeElement)) return;
     // If a contextual tour is already up when this panel mounts, leave focus
     // where the tour placed it rather than yanking it into the panel — and
     // then GIVE THE YIELD BACK. A tour ends by unmounting, which drops focus

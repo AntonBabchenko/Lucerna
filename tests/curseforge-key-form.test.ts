@@ -198,4 +198,10 @@ describe('CurseForgeKeyForm', () => {
     expect(setKey).toHaveBeenCalledWith('good-key');
     expect(cfKeyVersion.value).toBe(before + 1);
   });
+
+  it('marks its input as the control a deep link focuses', async () => {
+    render(CurseForgeKeyForm);
+    const input = await screen.findByTestId('cf-key-input');
+    expect(input.hasAttribute('data-flash-focus')).toBe(true);
+  });
 });

@@ -102,6 +102,7 @@
     modpacksNav,
     serverAddonsKind,
     serverImportActive,
+    openSettingsAt,
     settingsOpen,
   } from '$lib/settings/state.svelte';
   import { createMcVersions } from '$lib/versions/mc-versions.svelte';
@@ -1883,7 +1884,7 @@
     onRefreshPings={() => void sweepServerPings()}
     onOpenPingSetting={() => {
       quickJoinOpen = false;
-      settingsOpen.value = { tab: 'game' };
+      void openSettingsAt('game.serverPing');
     }}
     onConnect={(address) => void connectToAddress(address)}
     onSave={onServerSave}

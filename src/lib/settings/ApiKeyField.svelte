@@ -35,6 +35,7 @@
     resultTestId,
     note,
     testIdPrefix,
+    focusTarget = false,
   }: {
     statusLabel: string;
     /** Fact A — what is stored. `busy` = the read is in flight. */
@@ -65,6 +66,8 @@
     /** The keyring sentence. */
     note: string;
     testIdPrefix: 'cf-key' | 'ai-key';
+    /** Marks the input as the control a deep link focuses (`data-flash-focus`). */
+    focusTarget?: boolean;
   } = $props();
 
   const busyAny = $derived(saving || clearing);
@@ -93,6 +96,7 @@
       disabled={disabled || busyAny}
       onkeydown={onKeydown}
       data-testid="{testIdPrefix}-input"
+      data-flash-focus={focusTarget ? '' : undefined}
     />
   </label>
   <div class="flex gap-2 mt-3">

@@ -69,6 +69,7 @@
     <input
       type="text"
       role="combobox"
+      data-autofocus
       class="w-full text-sm border rounded pl-7 pr-2 py-1.5"
       aria-label={$t('settings.search.label')}
       aria-expanded={searching}

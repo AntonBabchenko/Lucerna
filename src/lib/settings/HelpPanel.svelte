@@ -8,7 +8,7 @@
   import { saveFailure } from '$lib/settings/app-settings.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { replayTour } from '$lib/onboarding/state.svelte';
-  import { settingsOpen } from './state.svelte';
+  import { closeSettings } from './state.svelte';
   import SettingsField from './SettingsField.svelte';
 
   const tipsOptions = $derived<{ value: ExplanationLevel; label: string }[]>([
@@ -20,7 +20,7 @@
     // Close the settings modal FIRST, then start the tour once it has unmounted
     // — otherwise the main tour spotlights anchors that are still hidden behind
     // the open modal, so the tour appears to do nothing.
-    settingsOpen.value = null;
+    closeSettings();
     await tick();
     replayTour();
   }
