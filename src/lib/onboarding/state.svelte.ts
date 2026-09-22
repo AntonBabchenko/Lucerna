@@ -8,8 +8,8 @@
 // "Replay" path and intentionally does NOT touch persistence.
 
 import { commands } from '$lib/ipc/bindings';
-import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
+import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { resetAllContextualTours } from './contextual-tours';
 import { STEPS } from './steps';
 

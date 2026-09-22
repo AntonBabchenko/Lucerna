@@ -1,7 +1,7 @@
+import { tick } from 'svelte';
 import type { ContentKind, ModSource } from '$lib/ipc/bindings';
 import type { Granularity, SortDir } from '$lib/screenshots/screenshots-view';
-import { tick } from 'svelte';
-import { type SettingsAnchor, SETTINGS_SEARCH } from './search-index';
+import { SETTINGS_SEARCH, type SettingsAnchor } from './search-index';
 
 // Cross-component state for opening the Settings modal at a specific tab.
 //

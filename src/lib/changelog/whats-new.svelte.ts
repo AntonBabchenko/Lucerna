@@ -7,9 +7,9 @@
 // Rune-state-in-a-.svelte.ts module — the same idiom as
 // `$lib/toasts/toasts.svelte` and `$lib/update/state.svelte`.
 import { get } from 'svelte/store';
-import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { locale, t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
+import { recoverySessionOrUnknown } from '$lib/settings/data-location.svelte';
 import { dismiss, pushActionToast } from '$lib/toasts/toasts.svelte';
 import { CHANGELOG_SOURCE_LOCALE } from './locales';
 import { changelogSince, hasRenderableEntry } from './since';
