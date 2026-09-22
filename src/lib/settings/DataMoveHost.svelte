@@ -13,6 +13,7 @@
   import { pushInfo } from '$lib/toasts/toasts.svelte';
   import DataLocationProgressDialog from './DataLocationProgressDialog.svelte';
   import { dataLocation } from './data-location.svelte';
+  import { restartLauncherOrExplain } from './restart';
 
   /** `get_data_location` is sync and state-only, so this is cheap. There is no state-change
    *  event, and a reloaded page has nobody awaiting the command — without the poll its dialog
@@ -133,19 +134,9 @@
     restarting = true;
     restartError = null;
     try {
-      // On success this never returns: the process is replaced.
-      const r = await commands.restartLauncher();
-      if (r.status === 'error') {
-        restartError = $t('settings.storage.dataLocation.final.restartFailed', {
-          error: formatError(r.error),
-        });
-      }
-    } catch (e) {
-      // typedError rethrows real Error instances. This dialog is the only way forward, so even an
-      // unexpected throw must end in the way out.
-      restartError = $t('settings.storage.dataLocation.final.restartFailed', {
-        error: describeStoreError(e),
-      });
+      // On success this never returns: the process is replaced. Shared with the recovery-session
+      // banner: in both places Restart is the way forward, so a failure ends in the way out.
+      restartError = await restartLauncherOrExplain($t);
     } finally {
       restarting = false;
     }

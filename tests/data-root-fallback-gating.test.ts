@@ -161,7 +161,7 @@ describe('data-root fallback gating (§7)', () => {
 
   it('renders the persistent fallback banner with the configured path', async () => {
     render(DataRootFallbackBanner, {
-      props: { configuredPath: 'D:\\LucernaData' },
+      props: { reason: { kind: 'root_missing' }, configuredPath: 'D:\\LucernaData' },
     });
 
     const banner = await screen.findByTestId('data-root-fallback-banner');
