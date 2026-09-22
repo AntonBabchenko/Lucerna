@@ -48,8 +48,8 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
+import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import { settingsOpen } from '$lib/settings/state.svelte';
 
 afterEach(() => {
