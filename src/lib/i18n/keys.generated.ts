@@ -2585,6 +2585,7 @@ export type TranslationKey =
   | 'settings.general.appearance.sidebarButtons.quickJoin'
   | 'settings.general.appearance.sidebarButtons.skin'
   | 'settings.general.appearance.sidebarButtons.title'
+  | 'settings.general.appearance.theme'
   | 'settings.general.appearance.themeDark'
   | 'settings.general.appearance.themeLight'
   | 'settings.general.appearance.themeSystem'
