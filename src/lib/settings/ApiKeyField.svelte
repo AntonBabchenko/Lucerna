@@ -1,9 +1,10 @@
 <script lang="ts">
   // One API-key field for both Settings forms (CurseForge, AI translation):
-  // heading → status line [+ detail, + action] → [disclosure] → guide → field
-  // → Save / Clear [+ caption] → result → note. Presentational: the parents
-  // own the IPC, the strings and the meaning of every state; this component
-  // owns the order, the tones, Enter-to-save and one live region per element.
+  // status line [+ detail, + action] → [disclosure] → guide → field → Save /
+  // Clear [+ caption] → result → note. The parent renders its own h3 and intro
+  // above, like every other Settings section. Presentational: the parents own
+  // the IPC, the strings and the meaning of every state; this component owns
+  // the order, the tones, Enter-to-save and one live region per element.
   // DESIGN.md "API-key fields".
   import type { Snippet } from 'svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -13,7 +14,6 @@
   import { STATUS_TONE_CLASS, type FieldResult, type FieldStatus } from './api-key-field';
 
   let {
-    heading,
     statusLabel,
     status,
     statusDetail,
@@ -36,7 +36,6 @@
     note,
     testIdPrefix,
   }: {
-    heading?: string;
     statusLabel: string;
     /** Fact A — what is stored. `busy` = the read is in flight. */
     status: FieldStatus;
@@ -126,9 +125,6 @@
 {/snippet}
 
 <div class="flex flex-col gap-2">
-  {#if heading}
-    <h3 class="font-medium text-sm text-primary">{heading}</h3>
-  {/if}
   <div class="text-sm">
     <span class="text-muted">{statusLabel} </span>
     {#if status.busy}

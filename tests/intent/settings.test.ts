@@ -11,7 +11,7 @@
 //                        console link btn-tertiary font-mono (status=missing)
 //                        API Keys link btn-tertiary font-mono (status=missing)
 //                        save/update button → btn-primary btn-sm
-//                        clear key button → btn-secondary btn-sm (status=set/invalid)
+//                        clear key button → btn-secondary btn-sm (status=set)
 //                        error block bg-danger-bg border-danger text-danger
 //   StoragePanel:        cache-size display span font-medium
 //                        Clear cache button → btn-secondary btn-sm

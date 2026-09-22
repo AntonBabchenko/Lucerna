@@ -7,7 +7,7 @@ use super::*;
 /// Report whether CurseForge is usable — i.e. whether a key is resolvable.
 /// A key resolves from the user's OS-keyring entry, or (on a release build)
 /// from the key embedded at compile time. So a release user who never entered
-/// a key still reports `Set`, which suppresses the setup guide and the
+/// a key reports `SetBuiltin`, which suppresses the setup guide and the
 /// "add a key" banners. A keyring that could not be read is `Unknown` (or
 /// `UnknownEmbedded` when the build's own key still serves) — never
 /// `Missing`, which would send the user to enter a key they may well have.

@@ -191,10 +191,10 @@
   {/if}
 {/snippet}
 
-<div>
-  <p class="text-sm text-secondary mb-3">{$t('settings.curseforge.aboutBody')}</p>
+<div class="flex flex-col gap-3">
+  <h3 class="font-medium text-sm text-primary">{$t('settings.curseforge.title')}</h3>
+  <p class="text-sm text-secondary">{$t('settings.curseforge.aboutBody')}</p>
   <ApiKeyField
-    heading={$t('settings.curseforge.title')}
     statusLabel={$t('settings.curseforge.statusLabel')}
     status={statusView}
     statusDetail={stored.kind === 'failed' ? stored.reason : undefined}
