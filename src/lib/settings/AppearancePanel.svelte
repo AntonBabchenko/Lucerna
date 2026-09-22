@@ -12,6 +12,8 @@
   import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
   import { SIDEBAR_BUTTONS } from '$lib/layout/sidebar-buttons';
   import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
+  import { saveFailure } from '$lib/settings/app-settings.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import SettingsField from './SettingsField.svelte';
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
@@ -39,6 +41,10 @@
         </label>
       {/each}
     </fieldset>
+    <!-- A refused save snaps the pick back; this line says why, here. -->
+    <div data-testid="save-failure-theme">
+      <StatusMessage message={saveFailure('theme')} tone="danger" />
+    </div>
   </SettingsField>
 
   <SettingsField anchor="appearance.language">
@@ -52,6 +58,9 @@
         options={languageOptions}
         onChange={(v) => void setLocalePref(String(v))}
       />
+      <div data-testid="save-failure-language">
+        <StatusMessage message={saveFailure('language')} tone="danger" />
+      </div>
     </div>
   </SettingsField>
 

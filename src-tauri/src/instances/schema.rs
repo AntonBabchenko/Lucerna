@@ -469,9 +469,35 @@ pub struct GeneralSettingsPatch {
 impl GeneralSettings {
     /// Every field spelled out on both sides — no `..self`.
     pub fn patched(self, p: GeneralSettingsPatch) -> Self {
-        // RED STUB (push 1): the patch is ignored.
-        let _ = p;
-        self
+        Self {
+            hide_to_tray_during_game: p
+                .hide_to_tray_during_game
+                .unwrap_or(self.hide_to_tray_during_game),
+            theme: p.theme.unwrap_or(self.theme),
+            check_updates_on_startup: p
+                .check_updates_on_startup
+                .unwrap_or(self.check_updates_on_startup),
+            language: p.language.unwrap_or(self.language),
+            explanation_level: p.explanation_level.unwrap_or(self.explanation_level),
+            compact_mode: p.compact_mode.unwrap_or(self.compact_mode),
+            gpu_preference: p.gpu_preference.unwrap_or(self.gpu_preference),
+            log_retention: p.log_retention.unwrap_or(self.log_retention),
+            mod_metadata_ttl_days: p
+                .mod_metadata_ttl_days
+                .unwrap_or(self.mod_metadata_ttl_days),
+            sftp_upload_concurrency: p
+                .sftp_upload_concurrency
+                .unwrap_or(self.sftp_upload_concurrency),
+            hidden_sidebar_buttons: p
+                .hidden_sidebar_buttons
+                .unwrap_or(self.hidden_sidebar_buttons),
+            allow_server_ping: p.allow_server_ping.unwrap_or(self.allow_server_ping),
+            register_url_scheme: p.register_url_scheme.unwrap_or(self.register_url_scheme),
+            allow_ai_translation: p.allow_ai_translation.unwrap_or(self.allow_ai_translation),
+            ai_provider: p.ai_provider.unwrap_or(self.ai_provider),
+            ai_model: p.ai_model.unwrap_or(self.ai_model),
+            ai_local_port: p.ai_local_port.unwrap_or(self.ai_local_port),
+        }
     }
 }
 

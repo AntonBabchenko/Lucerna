@@ -5,6 +5,8 @@
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import { explanationState, setExplanationLevel } from '$lib/onboarding/explanation-level.svelte';
+  import { saveFailure } from '$lib/settings/app-settings.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { settingsOpen } from './state.svelte';
   import SettingsField from './SettingsField.svelte';
@@ -38,6 +40,9 @@
           options={tipsOptions}
           onChange={(v) => void setExplanationLevel(v as ExplanationLevel)}
         />
+        <div data-testid="save-failure-explanation_level">
+          <StatusMessage message={saveFailure('explanation_level')} tone="danger" />
+        </div>
         <span class="text-xs text-muted">{$t('settings.general.tips.levelDescription')}</span>
       </div>
     </div>

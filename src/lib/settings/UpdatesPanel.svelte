@@ -8,8 +8,7 @@
   // running game and server — so the action sits behind the same gate as the
   // data-folder move (`createRestartGate`), says what it will do, and follows
   // the real stage instead of saying "Installing…" during a download.
-  import { onMount } from 'svelte';
-  import { commands, type GeneralSettings } from '$lib/ipc/bindings';
+  import { commands } from '$lib/ipc/bindings';
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
@@ -26,61 +25,27 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { CHANGELOG } from '$lib/changelog/source';
+  import {
+    appSettings,
+    generalDisplayed,
+    loadAppSettings,
+    patchGeneral,
+    saveFailure,
+  } from './app-settings.svelte';
   import { createRestartGate, type RestartGate } from './restart-gate.svelte';
   import SettingsField from './SettingsField.svelte';
 
-  // The setting is tri-state on purpose: a value is shown only once the backend
-  // has confirmed one. Before the read settles, and after it failed, the box is
-  // disabled and shows NO value — a hard-coded default next to a red line
-  // would be an unknown shown as a confident "on".
-  type Setting =
-    | { kind: 'pending' }
-    | { kind: 'ok'; general: GeneralSettings; value: boolean }
-    | { kind: 'failed'; error: string };
-  let setting = $state<Setting>({ kind: 'pending' });
-  let saveError = $state<string | null>(null);
-  const loaded = $derived(setting.kind === 'ok');
-  const checked = $derived(setting.kind === 'ok' ? setting.value : false);
-
-  async function load() {
-    setting = { kind: 'pending' };
-    saveError = null;
-    const r = await commands.appSettingsGet();
-    if (r.status !== 'ok') {
-      setting = { kind: 'failed', error: formatError(r.error) };
-      return;
-    }
-    // The binding types the field as optional (a serde default on the Rust side); the backend
-    // always sends a bool. Anything else is "could not tell", never "on".
-    const value = r.data.general.check_updates_on_startup;
-    setting =
-      typeof value === 'boolean'
-        ? { kind: 'ok', general: r.data.general, value }
-        : { kind: 'failed', error: 'check_updates_on_startup missing from the answer' };
-  }
-  onMount(() => void load());
-
-  /** Optimistic flip; a failed read-modify-write reverts to the value the
-   *  backend last confirmed and says the change was not saved. */
+  // The startup-check toggle is one field on the one settings contract: no
+  // value until the settings are read, disabled + "couldn't read" + Retry
+  // after a failed read, and a failed save said right here.
+  const general = $derived(generalDisplayed());
+  const loaded = $derived(general !== null);
+  const checked = $derived(general?.check_updates_on_startup ?? false);
+  const loadError = $derived(
+    appSettings.loaded.kind === 'failed' ? appSettings.loaded.error : null,
+  );
   async function toggle(next: boolean) {
-    if (setting.kind !== 'ok') return;
-    saveError = null;
-    const confirmed = setting.value;
-    setting = { ...setting, value: next };
-    const cur = await commands.appSettingsGet();
-    if (cur.status !== 'ok') {
-      revert(confirmed, formatError(cur.error));
-      return;
-    }
-    const r = await commands.appSettingsSetGeneral({
-      ...cur.data.general,
-      check_updates_on_startup: next,
-    });
-    if (r.status !== 'ok') revert(confirmed, formatError(r.error));
-  }
-  function revert(confirmed: boolean, error: string) {
-    if (setting.kind === 'ok') setting = { ...setting, value: confirmed };
-    saveError = $t('settings.general.updates.notSaved', { error });
+    await patchGeneral({ check_updates_on_startup: next });
   }
 
   // Manual update check — mirrors the startup check but reports inline.
@@ -198,18 +163,20 @@
         </span>
       </label>
     </SettingsField>
-    {#if setting.kind === 'failed'}
-      <div class="flex flex-wrap items-center gap-2">
+    {#if loadError !== null}
+      <div class="flex flex-wrap items-center gap-2" data-testid="settings-load-failed">
         <StatusMessage
-          message={$t('settings.general.updates.loadFailed', { error: setting.error })}
+          message={$t('settings.general.loadFailed', { error: loadError })}
           tone="danger"
         />
-        <button type="button" class="btn-secondary btn-sm" onclick={() => void load()}>
-          {$t('settings.general.updates.retryBtn')}
+        <button type="button" class="btn-secondary btn-sm" onclick={() => void loadAppSettings()}>
+          {$t('settings.general.retryBtn')}
         </button>
       </div>
     {/if}
-    <StatusMessage message={saveError} tone="danger" />
+    <div data-testid="save-failure-check_updates_on_startup">
+      <StatusMessage message={saveFailure('check_updates_on_startup')} tone="danger" />
+    </div>
     <div class="flex items-center gap-3 flex-wrap">
       <BusyButton
         type="button"

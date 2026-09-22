@@ -48,10 +48,12 @@ describe('setExplanationLevel', () => {
     let failFirst!: (v: unknown) => void;
     appSettingsPatchGeneral.mockReturnValueOnce(new Promise((r) => (failFirst = r)));
     const first = setExplanationLevel('advanced');
-    const second = setExplanationLevel('basic');
-    await second;
+    const second = setExplanationLevel('basic'); // on screen at once, queued behind the first
+    expect(explanationState.level).toBe('basic');
     failFirst(REFUSED);
     await first;
+    expect(explanationState.level).toBe('basic'); // the refusal did not revert the newer pick
+    await second;
     expect(explanationState.level).toBe('basic');
   });
 });

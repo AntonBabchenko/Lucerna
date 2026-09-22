@@ -25,32 +25,11 @@ pub async fn app_settings_mark_tour_completed(
 ) -> crate::error::Result<()> {
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    current.onboarding.tour_completed_version = Some(version);
-    crate::instances::store::write_app_json(&path, &current)
-}
-
-/// Persist the GeneralSettings block. Read-modify-write of app.json
-/// — leaves `active_instance`, `onboarding`, and `version` untouched.
-/// Then the GPU preference: "Automatic" touches nothing; a choice is
-/// applied to every installed runtime; leaving a choice puts back what
-/// Lucerna replaced (`gpu_pref`).
-#[tauri::command]
-#[specta::specta]
-pub async fn app_settings_set_general(
-    app: tauri::AppHandle,
-    general: crate::instances::schema::GeneralSettings,
-) -> crate::error::Result<()> {
-    let path =
-        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    let old = current.general.gpu_preference;
-    let new = general.gpu_preference;
-    current.general = general;
-    crate::instances::store::write_app_json(&path, &current)?;
-
-    gpu_follow(&app, old, new);
-    Ok(())
+    crate::instances::store::update_app_json(&path, |af| {
+        af.onboarding.tour_completed_version = Some(version);
+        crate::instances::store::Verdict::Write
+    })
+    .map(|_| ())
 }
 
 /// Persist a field-level change to the GeneralSettings block — one

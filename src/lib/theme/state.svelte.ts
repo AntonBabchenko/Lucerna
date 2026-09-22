@@ -11,7 +11,8 @@
 // updates from then on (settings panel changes, OS preference flips
 // while pref === 'system').
 
-import { commands, type ThemePreference } from '$lib/ipc/bindings';
+import type { ThemePreference } from '$lib/ipc/bindings';
+import { patchGeneral } from '$lib/settings/app-settings.svelte';
 
 const STORAGE_KEY = 'theme';
 
@@ -71,9 +72,6 @@ export function initTheme(initial: ThemePreference): () => void {
 // Serialize the general-settings read-modify-write so two rapid theme picks
 // can't interleave their get→set windows and have the earlier write clobber the
 // later one with a stale `general` snapshot. Each call chains after the prior
-// one, so the read always sees the previous write's result.
-let persistChain: Promise<boolean> = Promise.resolve(true);
-
 /** Apply a preference to the three places the live UI reads it from. Shared by
  *  the user-driven set and its rollback so the two can never diverge. */
 function applyPref(pref: ThemePreference): void {
@@ -86,35 +84,22 @@ function applyPref(pref: ThemePreference): void {
   applyClass(resolve(pref, themeState.systemDark));
 }
 
-/** Persist `pref` into GeneralSettings. Returns false when the read-modify-write
- *  did not reach disk, so the caller can roll the UI back instead of leaving a
- *  theme on screen that the next launch will not restore. */
-async function persistThemePref(pref: ThemePreference): Promise<boolean> {
-  const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') return false;
-  const next = { ...get.data.general, theme: pref };
-  const res = await commands.appSettingsSetGeneral(next);
-  return res.status === 'ok';
-}
-
 /**
  * Called from the Settings panel when the user picks a new theme.
  * Updates the rune, mirrors to localStorage, flips the html class,
- * and persists to app.json via app_settings_set_general. On a failed read OR
- * write everything rolls back — including the localStorage mirror, which is
- * what app.html's anti-FOUC script reads at the next launch. Same contract as
- * `setExplanationLevel` / `setHidden`.
+ * and persists through the one settings contract (`patchGeneral`). When the
+ * patch is refused or lost, everything rolls back — including the localStorage
+ * mirror, which is what app.html's anti-FOUC script reads at the next launch —
+ * and the panel says so next to the picker (`saveFailure('theme')`). Same
+ * contract as `setExplanationLevel` / `setHidden`.
  */
 export async function setThemePref(pref: ThemePreference): Promise<void> {
   const prev = themeState.pref;
   applyPref(pref);
-  // Run the persist RMW through the shared chain; swallow a prior failure so one
-  // failed write doesn't wedge every subsequent theme change.
-  persistChain = persistChain.catch(() => false).then(() => persistThemePref(pref));
-  const persisted = await persistChain;
-  // The chain serializes the WRITES, not the clicks: a newer pick may already be
+  const r = await patchGeneral({ theme: pref });
+  // The store serialises the WRITES, not the clicks: a newer pick may already be
   // on screen by the time this one resolves, and rolling back then would revert
   // it. Only the pick still displayed may be reverted — the same post-await
   // re-check LogsPopover.loadContent makes before every state commit.
-  if (!persisted && themeState.pref === pref) applyPref(prev);
+  if (!r.ok && themeState.pref === pref) applyPref(prev);
 }

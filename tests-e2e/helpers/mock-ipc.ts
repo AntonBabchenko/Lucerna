@@ -312,6 +312,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         migration_report: { outcomes: [] },
       };
       const m = { ...defaults, ...s };
+      // Fields the UI patched through app_settings_patch_general; served back by app_settings_get.
+      const patchedGeneral: Record<string, unknown> = {};
 
       // -------------------------------------------------------------------------
       // Command handlers — keyed by the raw snake_case name that tauri-specta
@@ -371,10 +373,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           version: 1,
           active_instance: m.active_instance_id,
           onboarding: { tour_completed_version: tourVersion },
-          general: {
-            hide_to_tray_during_game: false,
-            theme: m.theme,
-          },
+          general: { hide_to_tray_during_game: false, theme: m.theme, ...patchedGeneral },
         }),
 
         // Version manifest — return empty list; UI guards on versionsError.
@@ -541,7 +540,14 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
 
         // Onboarding — mark as completed so tours don't overlay snapshots.
         app_settings_mark_tour_completed: () => null,
-        app_settings_set_general: () => null,
+        // The patch merges into the same block app_settings_get serves and
+        // returns it, as the backend does — a null here would make the UI's
+        // confirmed block null.
+        app_settings_patch_general: (args) => {
+          const patch = (args as { patch?: Record<string, unknown> } | undefined)?.patch ?? {};
+          Object.assign(patchedGeneral, patch);
+          return { hide_to_tray_during_game: false, theme: m.theme, ...patchedGeneral };
+        },
 
         // Default catch-all — any unknown command returns null.
         __default: () => null,

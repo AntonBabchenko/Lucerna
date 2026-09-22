@@ -82,10 +82,12 @@ describe('sidebar button visibility store', () => {
     let failFirst!: (v: unknown) => void;
     appSettingsPatchGeneral.mockReturnValueOnce(new Promise((r) => (failFirst = r)));
     const first = setHidden('gallery', true);
-    const second = setHidden('logs', true);
-    await second;
+    const second = setHidden('logs', true); // on screen at once, queued behind the first
+    expect(isVisible('logs')).toBe(false);
     failFirst(REFUSED);
     await first;
+    expect(isVisible('logs')).toBe(false); // the refusal did not un-hide the newer toggle
+    await second;
     expect(isVisible('logs')).toBe(false);
   });
 });

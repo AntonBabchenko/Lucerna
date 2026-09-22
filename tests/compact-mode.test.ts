@@ -52,6 +52,14 @@ import {
   setCompact,
   toggleCompact,
 } from '$lib/layout/compact.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
+
+// The setter persists through the store: it must hold a confirmed block, as it
+// does after startup, or every patch is refused as "not loaded".
+beforeEach(async () => {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+});
 
 /**
  * Build a fake compact layout in the (jsdom) document so the height measurement

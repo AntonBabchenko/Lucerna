@@ -2653,10 +2653,7 @@
           "running": "Close Minecraft and stop your servers first: Lucerna closes to install the update.",
           "busy": "Wait for the running operation — an install, an import, a backup, an upload or a translation — to finish first: Lucerna closes to install the update.",
           "unknown": "Lucerna couldn't check whether a game or a server is running. Close them if any are open, or restart Lucerna, then check again."
-        },
-        "loadFailed": "Couldn't read this setting: {error}",
-        "retryBtn": "Retry",
-        "notSaved": "The change wasn't saved: {error}"
+        }
       },
       "onboarding": {
         "title": "Onboarding",

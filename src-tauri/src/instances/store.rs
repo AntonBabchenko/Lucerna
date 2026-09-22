@@ -54,6 +54,19 @@ pub fn write_app_json(path: &Path, value: &AppFile) -> Result<()> {
     write_atomic(path, value)
 }
 
+/// One writer at a time across every read-modify-write of `app.json`. Holders
+/// are synchronous file IO only — nothing awaits inside — and a closure must
+/// not call `update_app_json` / `replace_app_json` again, nor any function
+/// that does: a `std::sync::Mutex` re-locked on its own thread is not defined
+/// (`tests/structural_app_json_rmw.rs` pins it). Innermost lock: the GPU
+/// transition (`gpu_pref::LOCK`) runs after the guard drops.
+///
+/// Poison is recovered on purpose. The mutex guards `()`; the file is always
+/// consistent through tmp + rename, so a panic inside one closure leaves
+/// nothing torn — and refusing every later write for the session would brick
+/// tour completion, active-instance repair and the dismissals over it.
+static APP_JSON_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// What a read-modify-write closure decided.
 pub enum Verdict {
     Write,
@@ -61,9 +74,12 @@ pub enum Verdict {
 }
 
 /// Read (absent = defaults; corrupt = `Err`, nothing written) → `f` → write on
-/// `Verdict::Write`. Returns the file as it is after the call, written or not.
+/// `Verdict::Write`, under `APP_JSON_LOCK`. Returns the file as it is after
+/// the call, written or not.
 pub fn update_app_json(path: &Path, f: impl FnOnce(&mut AppFile) -> Verdict) -> Result<AppFile> {
-    // RED STUB (push 1): no lock yet.
+    let _guard = APP_JSON_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut file = read_app_json(path)?;
     if let Verdict::Write = f(&mut file) {
         write_app_json(path, &file)?;
@@ -73,9 +89,11 @@ pub fn update_app_json(path: &Path, f: impl FnOnce(&mut AppFile) -> Verdict) -> 
 
 /// Write a whole file without reading — for the two sites that mean it: the
 /// first-run seed and the URL-scheme flag clear, which must overwrite a file
-/// it could not read.
+/// it could not read. Under the same lock.
 pub fn replace_app_json(path: &Path, value: &AppFile) -> Result<()> {
-    // RED STUB (push 1): no lock yet.
+    let _guard = APP_JSON_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     write_app_json(path, value)
 }
 

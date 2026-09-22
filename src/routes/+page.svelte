@@ -32,6 +32,7 @@
     toggleCompact,
   } from '$lib/layout/compact.svelte';
   import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
+  import { appSettings, loadAppSettings } from '$lib/settings/app-settings.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import { routeDrop } from '$lib/layout/drop-router';
   import { type NavStatusKind } from '$lib/layout/nav-status';
@@ -939,9 +940,10 @@
    *  the one action that can fix it. Toast + action button is the same shape
    *  `$lib/update/state.svelte.ts` uses for a failed install. */
   async function loadStartupSettings(): Promise<void> {
-    const settingsResult = await commands.appSettingsGet();
-    if (settingsResult.status === 'ok') {
-      applyStartupSettings(settingsResult.data);
+    await loadAppSettings();
+    const loaded = appSettings.loaded;
+    if (loaded.kind === 'ok') {
+      applyStartupSettings(loaded.file);
       return;
     }
     const tr = get(t);
@@ -949,7 +951,7 @@
       'warning',
       tr('page.startupSettings.loadFailed'),
       { label: tr('page.startupSettings.retry'), run: () => void loadStartupSettings() },
-      [tr('page.startupSettings.loadFailedDetail'), formatError(settingsResult.error)],
+      [tr('page.startupSettings.loadFailedDetail'), loaded.kind === 'failed' ? loaded.error : ''],
     );
   }
 

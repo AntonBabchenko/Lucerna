@@ -1287,14 +1287,6 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	appSettingsMarkTourCompleted: (version: string) => typedError<null, Error>(__TAURI_INVOKE("app_settings_mark_tour_completed", { version })),
 	/**
-	 *  Persist the GeneralSettings block. Read-modify-write of app.json
-	 *  — leaves `active_instance`, `onboarding`, and `version` untouched.
-	 *  Then the GPU preference: "Automatic" touches nothing; a choice is
-	 *  applied to every installed runtime; leaving a choice puts back what
-	 *  Lucerna replaced (`gpu_pref`).
-	 */
-	appSettingsSetGeneral: (general: GeneralSettings) => typedError<null, Error>(__TAURI_INVOKE("app_settings_set_general", { general })),
-	/**
 	 *  Persist a field-level change to the GeneralSettings block — one
 	 *  read-modify-write under the app.json lock — and return the block as
 	 *  persisted, which the UI takes as the truth. Then the GPU preference

@@ -28,7 +28,15 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import {
+    appSettings,
+    generalDisplayed,
+    loadAppSettings,
+    patchGeneral,
+    saveFailure,
+  } from '$lib/settings/app-settings.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { createRestartGate, type RestartGate } from './restart-gate.svelte';
   import { fallbackDetails } from './fallback-message';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
@@ -43,25 +51,32 @@
     max_files: 10,
     max_total_mb: 100,
   };
+  // Retention and the cache TTL are two fields on the one settings contract.
+  // The editable copies are seeded once from the confirmed block — not on every
+  // patch, or a number being typed would be overwritten by its own echo — and
+  // go back to the confirmed value when a save is refused.
+  const general = $derived(generalDisplayed());
+  const settingsLoaded = $derived(general !== null);
+  const loadError = $derived(
+    appSettings.loaded.kind === 'failed' ? appSettings.loaded.error : null,
+  );
   let retention = $state<Required<LogRetentionPolicy>>({ ...DEFAULT_RETENTION });
-  let retentionError = $state<string | null>(null);
   let retentionSaving = $state(false);
+  const retentionError = $derived(saveFailure('log_retention'));
 
-  // Mod-metadata (name/icon/slug) cache TTL in days. 0 = never expire.
   const DEFAULT_TTL_DAYS = 7;
   let modTtlDays = $state<number>(DEFAULT_TTL_DAYS);
-  let ttlError = $state<string | null>(null);
   let ttlSaving = $state(false);
+  const ttlError = $derived(saveFailure('mod_metadata_ttl_days'));
 
-  async function loadRetention() {
-    const r = await commands.appSettingsGet();
-    if (r.status === 'ok') {
-      retention = { ...DEFAULT_RETENTION, ...r.data.general.log_retention };
-      modTtlDays = r.data.general.mod_metadata_ttl_days ?? DEFAULT_TTL_DAYS;
-    } else {
-      retentionError = formatError(r.error);
+  let seeded = $state(false);
+  $effect(() => {
+    if (general && !seeded) {
+      retention = { ...DEFAULT_RETENTION, ...general.log_retention };
+      modTtlDays = general.mod_metadata_ttl_days ?? DEFAULT_TTL_DAYS;
+      seeded = true;
     }
-  }
+  });
 
   async function saveRetentionTracked() {
     retentionSaving = true;
@@ -73,15 +88,8 @@
   }
 
   async function saveRetention() {
-    retentionError = null;
     const snap = { ...retention }; // snapshot before await
-    const cur = await commands.appSettingsGet();
-    if (cur.status !== 'ok') {
-      retentionError = formatError(cur.error);
-      return;
-    }
-    const next = {
-      ...cur.data.general,
+    const r = await patchGeneral({
       log_retention: {
         enabled: snap.enabled,
         max_files: Number.isFinite(snap.max_files as number)
@@ -91,9 +99,9 @@
           ? Math.max(1, Math.trunc(snap.max_total_mb as number))
           : DEFAULT_RETENTION.max_total_mb,
       },
-    };
-    const r = await commands.appSettingsSetGeneral(next);
-    if (r.status !== 'ok') retentionError = formatError(r.error);
+    });
+    // Back to what is saved: the message under the field says why.
+    if (!r.ok && general) retention = { ...DEFAULT_RETENTION, ...general.log_retention };
   }
 
   async function saveTtlTracked() {
@@ -106,20 +114,11 @@
   }
 
   async function saveTtl() {
-    ttlError = null;
-    // Snapshot the owned field before the await (read-modify-write: other
-    // panels/fields must survive). Clamp to a non-negative integer; 0 = never.
     const snap = Number.isFinite(modTtlDays)
       ? Math.max(0, Math.trunc(modTtlDays))
       : DEFAULT_TTL_DAYS;
-    const cur = await commands.appSettingsGet();
-    if (cur.status !== 'ok') {
-      ttlError = formatError(cur.error);
-      return;
-    }
-    const next = { ...cur.data.general, mod_metadata_ttl_days: snap };
-    const r = await commands.appSettingsSetGeneral(next);
-    if (r.status !== 'ok') ttlError = formatError(r.error);
+    const r = await patchGeneral({ mod_metadata_ttl_days: snap });
+    if (!r.ok && general) modTtlDays = general.mod_metadata_ttl_days ?? DEFAULT_TTL_DAYS;
   }
 
   async function refresh() {
@@ -157,7 +156,6 @@
 
   $effect(() => {
     void refresh();
-    void loadRetention();
     void dataLocation.init();
     void refreshDataRootSize();
     void recheckBlocked();
@@ -420,14 +418,26 @@
       <h3 class="font-medium text-sm text-primary">
         {$t('settings.general.logRetention.title')}
       </h3>
-      {#if retentionError}
-        <p class="text-xs text-danger">{retentionError}</p>
+      {#if loadError !== null}
+        <div class="flex flex-wrap items-center gap-2" data-testid="settings-load-failed">
+          <StatusMessage
+            message={$t('settings.general.loadFailed', { error: loadError })}
+            tone="danger"
+          />
+          <button type="button" class="btn-secondary btn-sm" onclick={() => void loadAppSettings()}>
+            {$t('settings.general.retryBtn')}
+          </button>
+        </div>
       {/if}
+      <div data-testid="save-failure-log_retention">
+        <StatusMessage message={retentionError} tone="danger" />
+      </div>
       <label class="flex items-start gap-2 cursor-pointer">
         <input
           type="checkbox"
           class="mt-0.5"
           bind:checked={retention.enabled}
+          disabled={!settingsLoaded}
           onchange={() => void saveRetentionTracked()}
           data-testid="log-retention-toggle"
         />
@@ -452,7 +462,7 @@
             min="0"
             class="border rounded px-2 py-1 text-sm w-28"
             bind:value={retention.max_files}
-            disabled={!retention.enabled}
+            disabled={!settingsLoaded || !retention.enabled}
             onchange={() => void saveRetentionTracked()}
             data-testid="log-retention-max-files"
           />
@@ -464,7 +474,7 @@
             min="1"
             class="border rounded px-2 py-1 text-sm w-28"
             bind:value={retention.max_total_mb}
-            disabled={!retention.enabled}
+            disabled={!settingsLoaded || !retention.enabled}
             onchange={() => void saveRetentionTracked()}
             data-testid="log-retention-max-mb"
           />
@@ -479,9 +489,9 @@
         {$t('settings.general.modMetadataCache.title')}
       </h3>
       <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
-      {#if ttlError}
-        <p class="text-xs text-danger">{ttlError}</p>
-      {/if}
+      <div data-testid="save-failure-mod_metadata_ttl_days">
+        <StatusMessage message={ttlError} tone="danger" />
+      </div>
       <div class="flex flex-wrap items-end gap-4">
         {#if ttlSaving}
           <div class="flex items-center text-xs text-secondary">
@@ -498,6 +508,7 @@
             step="1"
             class="border rounded px-2 py-1 text-sm w-28"
             bind:value={modTtlDays}
+            disabled={!settingsLoaded}
             onchange={() => void saveTtlTracked()}
             data-testid="mod-metadata-ttl-days"
           />

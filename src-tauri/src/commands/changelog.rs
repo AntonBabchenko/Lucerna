@@ -23,7 +23,9 @@ pub async fn changelog_mark_seen(
 ) -> crate::error::Result<()> {
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    current.changelog_seen_version = Some(version);
-    crate::instances::store::write_app_json(&path, &current)
+    crate::instances::store::update_app_json(&path, |af| {
+        af.changelog_seen_version = Some(version);
+        crate::instances::store::Verdict::Write
+    })
+    .map(|_| ())
 }
