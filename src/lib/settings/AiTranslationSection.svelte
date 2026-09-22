@@ -42,6 +42,7 @@
   import Select from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { providerFailureOrNull } from '$lib/l10n/provider-failure';
   import ApiKeyField from './ApiKeyField.svelte';
   import type { FieldStatus } from './api-key-field';
@@ -111,9 +112,9 @@
   const keyUrl = $derived(isLocal ? null : KEY_URLS[provider as Exclude<AiProvider, 'local'>]);
   const keyHost = $derived(keyUrl ? new URL(keyUrl).host : '');
   function openKeyPage() {
-    if (!keyUrl) return;
     const url = keyUrl;
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    if (!url) return;
+    void openExternalHttps(url);
   }
 
   const defaultModel = $derived(isLocal ? undefined : defaults[provider]);

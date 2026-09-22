@@ -9,6 +9,7 @@
   import { locale, t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { parseInline } from './inline';
   import { CHANGELOG_SOURCE_LOCALE } from './locales';
   import { asSourceLanguage, localizeChangelog } from './localize';
@@ -77,11 +78,9 @@
   );
 
   function openUrl(url: string): void {
-    // Defense-in-depth: only hand an https URL to the OS opener. The changelog
-    // is our own build-time artifact, but a crafted scheme (file:, a custom
-    // protocol handler) must never reach the shell from a parsed link.
-    if (!url.startsWith('https://')) return;
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    // The changelog is our own build-time artifact, but a parsed link is still
+    // data: the chokepoint refuses anything but https:// and says so.
+    void openExternalHttps(url);
   }
 </script>
 

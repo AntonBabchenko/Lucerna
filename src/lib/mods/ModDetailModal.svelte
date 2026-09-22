@@ -26,6 +26,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { openExternalHttps } from '$lib/ui/safe-open';
 
   // Centered detail modal for a mod. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list with the
@@ -248,8 +249,7 @@
   );
 
   function openExternal(url: string) {
-    if (!url) return;
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 </script>
 

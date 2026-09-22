@@ -14,6 +14,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import { openExternalHttps } from '$lib/ui/safe-open';
 
   // Reusable "find this mod on Modrinth" dialog for a mod the user cannot
   // auto-download (a modpack author disabled CurseForge distribution, or a
@@ -108,9 +109,7 @@
 
   function openCurseForge() {
     const url = curseForgeUrl;
-    if (url) {
-      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
-    }
+    if (url) void openExternalHttps(url);
   }
 
   onMount(() => {

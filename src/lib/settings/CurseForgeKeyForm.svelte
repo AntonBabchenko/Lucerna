@@ -21,6 +21,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { cfKeyVersion } from './state.svelte';
   import { cfKeyErrorStatus } from './cf-key-status';
   import ApiKeyField from './ApiKeyField.svelte';
@@ -134,15 +135,11 @@
     // Land on the console homepage so the login flow has a sane
     // redirect target. Deep-linking to /#/api-keys before login throws
     // the user into the wrong section after sign-in.
-    void import('@tauri-apps/plugin-opener').then((m) =>
-      m.openUrl('https://console.curseforge.com/'),
-    );
+    void openExternalHttps('https://console.curseforge.com/');
   }
 
   function openApiKeysPage() {
-    void import('@tauri-apps/plugin-opener').then((m) =>
-      m.openUrl('https://console.curseforge.com/#/api-keys'),
-    );
+    void openExternalHttps('https://console.curseforge.com/#/api-keys');
   }
 </script>
 

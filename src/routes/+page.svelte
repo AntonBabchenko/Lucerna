@@ -88,6 +88,7 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import {
@@ -1609,7 +1610,7 @@
             tr(toast.titleKey),
             {
               label: tr('page.accounts.buyMinecraft'),
-              run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+              run: () => void openExternalHttps(url),
             },
             [msg],
           );

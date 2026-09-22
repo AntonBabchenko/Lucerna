@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import type { RepairChoice, RepairPlan } from '$lib/ipc/bindings';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
 
   let {
     plan,
@@ -24,9 +25,7 @@
   }
 
   function openProject(): void {
-    const url = projectUrl();
-    if (!url.startsWith('https://')) return;
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(projectUrl());
   }
 
   function install(): void {

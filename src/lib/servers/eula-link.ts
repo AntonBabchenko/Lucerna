@@ -1,3 +1,5 @@
+import { openExternalHttps } from '$lib/ui/safe-open';
+
 /**
  * The Minecraft EULA the launcher asks the user to accept before a server can be
  * created, imported, or repaired.
@@ -15,5 +17,5 @@ export const EULA_URL = 'https://aka.ms/MinecraftEULA';
 
 /** Open the EULA in the user's browser. Side effect isolated for testability. */
 export function openEula(): void {
-  void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(EULA_URL));
+  void openExternalHttps(EULA_URL);
 }

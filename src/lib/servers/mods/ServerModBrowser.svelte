@@ -26,6 +26,7 @@
   import Pagination from '$lib/ui/Pagination.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import { displayCore } from '$lib/servers/core-display';
 
@@ -314,7 +315,7 @@
   }
 
   function openUrl(url: string): void {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 
   function openExternalPage(card: ModSummary): void {
