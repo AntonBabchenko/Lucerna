@@ -3689,7 +3689,8 @@
       "revealPassword": "Reveal password",
       "hidePassword": "Hide password",
       "passwordNeededEachUpload": "Enter the password above to upload.",
-      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten."
+      "authLoadFailed": "Couldn't read the saved connection settings: {error}. Saving is disabled so your stored settings aren't overwritten.",
+      "passwordUnknown": "Couldn't check the system keyring for a stored password — enter it again to upload."
     },
     "diagnose": {
       "clientOnly": {

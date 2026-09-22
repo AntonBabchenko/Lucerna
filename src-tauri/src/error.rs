@@ -45,7 +45,7 @@ pub enum MigrationRole {
 
 /// What the OS keyring was asked to do when it failed. Crosses the wire as
 /// a bare token so the frontend picks a headline per op.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum KeyringOp {
     Read,

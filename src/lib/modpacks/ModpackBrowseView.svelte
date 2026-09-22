@@ -106,7 +106,9 @@
     }
     const wasGated = needsCfKey;
     const s = await commands.modsGetCurseforgeKeyStatus();
-    needsCfKey = s.status === 'ok' ? s.data === 'missing' : true;
+    // 'unknown' = the keyring could not be read and no built-in key serves: the
+    // banner is the way to Settings, where the read failure itself is shown.
+    needsCfKey = s.status === 'ok' ? s.data === 'missing' || s.data === 'unknown' : true;
     // Banner just lifted (the user saved a key in Settings). The search
     // $effect won't re-run on its own — none of its watched filters
     // changed — so kick off a search manually.

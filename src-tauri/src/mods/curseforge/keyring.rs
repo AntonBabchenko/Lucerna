@@ -1,27 +1,30 @@
 //! OS keyring storage for the CurseForge API key.
 //!
-//! Production code uses the system credential store via the `keyring`
-//! crate (Windows Credential Manager / macOS Keychain / Linux libsecret).
-//! Under `cargo test`, all three functions are redirected to an
-//! in-memory store — see the `#[cfg(test)]` block below. That removes
-//! the OS-keyring dependency from the test suite (essential for headless
-//! Linux CI runners, which have no keyring daemon) and strengthens the
-//! "no test ever touches the real prod key" guarantee from
-//! [[project_keyring_test_clobber_bug]]: tests now cannot reach the OS
-//! keyring at all, not just a separate slot of it.
+//! One slot in the system credential store — Windows Credential Manager,
+//! macOS Keychain, or the Linux Secret Service — reached through
+//! `accounts::keychain`, which owns the per-platform backend, the one
+//! process-wide gate, and the mapping of the keyring's own errors to
+//! `Error::Keyring`. Under `cargo test` that module redirects every call to an
+//! in-memory store, so the suite never reaches the OS keyring at all
+//! (essential for headless Linux CI runners, which have no keyring daemon),
+//! and the "no test ever touches the real prod key" guarantee from
+//! [[project_keyring_test_clobber_bug]] holds structurally rather than by a
+//! separate slot alone.
+//!
+//! The resolved key is cached for the session: outbound CurseForge requests
+//! never pay a keyring round trip, and a locked keyring prompts at most once.
 
+use crate::accounts::keychain;
 use crate::error::Error;
+use crate::mods::platform::KeyStatus;
 
-/// Only the production backend below references SERVICE; under `cargo test`
-/// that backend is compiled out (in-memory redirection), so the constant is
-/// cfg-scoped to match — same split as USERNAME.
-#[cfg(not(test))]
 const SERVICE: &str = "lucerna";
 #[cfg(not(test))]
 const USERNAME: &str = "curseforge-api-key";
 /// Sentinel kept for the `unit_tests_use_a_separate_keyring_slot` test
-/// below — pinned in case the `#[cfg(test)]` redirection is ever lifted
-/// without also restoring the per-slot USERNAME scoping.
+/// below — pinned in case the `#[cfg(test)]` redirection in
+/// `accounts::keychain` is ever lifted without also restoring the per-slot
+/// USERNAME scoping.
 #[cfg(test)]
 const USERNAME: &str = "curseforge-api-key-test";
 
@@ -34,6 +37,10 @@ const USERNAME: &str = "curseforge-api-key-test";
 /// `accounts::microsoft::oauth`. NOT a true secret — it is extractable from
 /// the binary; see docs/SECURITY.md.
 const EMBEDDED_KEY: Option<&str> = option_env!("LUCERNA_CURSEFORGE_API_KEY");
+
+fn key() -> keychain::Key {
+    keychain::Key::new(SERVICE, USERNAME)
+}
 
 /// Precedence logic for the effective CurseForge key: a personal key the user
 /// stored in the OS keyring wins; the build's embedded key is the fallback; an
@@ -52,87 +59,101 @@ pub fn resolve() -> Option<String> {
     resolve_with_cache(EMBEDDED_KEY)
 }
 
+/// The key status for Settings: a fresh keyring read (Retry is a re-read),
+/// which also refreshes the session cache — a keyring that was locked at
+/// startup and is open now serves the personal key again from here on.
+pub fn status() -> KeyStatus {
+    read_status(EMBEDDED_KEY)
+}
+
+pub fn read_status(embedded: Option<&str>) -> KeyStatus {
+    let read = get();
+    match &read {
+        Ok(stored) => cache_put(stored.clone()),
+        Err(e) => crate::diag!("curseforge key: status read failed: {e}"),
+    }
+    key_status_from(read, embedded)
+}
+
+/// The personal key as last read or written this session. `None` = not
+/// consulted yet; `Some(None)` = nothing stored, or the read failed (logged).
+static CACHE: std::sync::RwLock<Option<Option<String>>> = std::sync::RwLock::new(None);
+
+fn cache_put(stored: Option<String>) {
+    // A panic while writing poisons the lock; the value inside is a whole
+    // `Option` either way, so it stays usable.
+    *CACHE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stored);
+}
+
 /// The effective key from the session cache; the keyring is read at most once
-/// per session (set / clear refresh the cache), so no CurseForge request pays
-/// a D-Bus round trip and a locked keyring prompts at most once.
+/// per session (set / clear / a status read refresh the cache), so no
+/// CurseForge request pays a D-Bus round trip and a locked keyring prompts at
+/// most once.
 pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
-    // RED STUB (push 1): reads every time, swallows the error as before.
-    resolve_with(get().ok().flatten(), embedded)
+    let cached = CACHE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let stored = match cached {
+        Some(stored) => stored,
+        None => {
+            let stored = match get() {
+                Ok(stored) => stored,
+                Err(e) => {
+                    // A keyring that cannot be read is "no personal key" for the
+                    // rest of the session: requests fall back to the build's key
+                    // (or fail as keyless), and Settings shows the read failure
+                    // with a Retry that refreshes this cache. Logged once, not
+                    // per request.
+                    crate::diag!(
+                        "curseforge key: keyring read failed, no personal key this session: {e}"
+                    );
+                    None
+                }
+            };
+            cache_put(stored.clone());
+            stored
+        }
+    };
+    resolve_with(stored, embedded)
 }
 
-/// Absent from the keyring vs. unreadable — the two are never folded.
-pub fn key_status_from(
-    read: Result<Option<String>, Error>,
-    embedded: Option<&str>,
-) -> crate::mods::platform::KeyStatus {
-    use crate::mods::platform::KeyStatus;
-    // RED STUB (push 1): a read failure still reads as "missing".
-    let _ = &read;
-    if resolve_with(read.ok().flatten(), embedded).is_some() {
-        KeyStatus::Set
-    } else {
-        KeyStatus::Missing
+/// Absent from the keyring vs. unreadable — the two are never folded. The
+/// error itself is logged by the caller (`read_status`); the status crosses
+/// IPC as a bare token and the Settings form offers a Retry.
+pub fn key_status_from(read: Result<Option<String>, Error>, embedded: Option<&str>) -> KeyStatus {
+    let embedded = embedded.filter(|k| !k.is_empty());
+    match read {
+        Ok(stored) => {
+            if resolve_with(stored, embedded).is_some() {
+                KeyStatus::Set
+            } else {
+                KeyStatus::Missing
+            }
+        }
+        Err(_) if embedded.is_some() => KeyStatus::UnknownEmbedded,
+        Err(_) => KeyStatus::Unknown,
     }
 }
 
-// --- production backend -------------------------------------------------
-
-#[cfg(not(test))]
+/// A direct keyring read — absent is `Ok(None)`, unreadable is
+/// `Error::Keyring`. Request paths use `resolve()` (cached) instead.
 pub fn get() -> Result<Option<String>, Error> {
-    let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
-    match entry.get_password() {
-        Ok(s) => Ok(Some(s)),
-        Err(::keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(map_keyring_err(e)),
-    }
+    keychain::retrieve(&key())
 }
 
-#[cfg(not(test))]
 pub fn set(value: &str) -> Result<(), Error> {
-    let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
-    entry.set_password(value).map_err(map_keyring_err)
-}
-
-#[cfg(not(test))]
-pub fn clear() -> Result<(), Error> {
-    let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
-    match entry.delete_credential() {
-        Ok(_) => Ok(()),
-        Err(::keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(map_keyring_err(e)),
-    }
-}
-
-#[cfg(not(test))]
-fn map_keyring_err(_e: ::keyring::Error) -> Error {
-    Error::ModsPlatformAuth {
-        kind: crate::error::ModsAuthKind::Invalid,
-    }
-    // Note: keyring-level errors (lock, permission) are surfaced as
-    // "auth invalid" so the UI can prompt to re-enter. The verbose
-    // details `{e}` would expose OS-internal Credential Manager errors
-    // that are not user-actionable; we swallow them deliberately.
-}
-
-// --- test backend (in-memory) ------------------------------------------
-
-#[cfg(test)]
-static TEST_KEY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-#[cfg(test)]
-pub fn get() -> Result<Option<String>, Error> {
-    Ok(TEST_KEY.lock().unwrap().clone())
-}
-
-#[cfg(test)]
-pub fn set(value: &str) -> Result<(), Error> {
-    *TEST_KEY.lock().unwrap() = Some(value.to_string());
+    keychain::store(&key(), value)?;
+    cache_put(Some(value.to_string()));
     Ok(())
 }
 
-#[cfg(test)]
+/// Remove the stored key. Deleting what is not there is a success.
 pub fn clear() -> Result<(), Error> {
-    *TEST_KEY.lock().unwrap() = None;
+    keychain::delete(&key())?;
+    cache_put(None);
     Ok(())
 }
 
@@ -142,7 +163,6 @@ mod tests {
 
     #[test]
     fn key_status_tells_absent_from_unreadable() {
-        use crate::mods::platform::KeyStatus;
         let err = || {
             Err(Error::Keyring {
                 op: crate::error::KeyringOp::Read,
@@ -158,22 +178,24 @@ mod tests {
             KeyStatus::UnknownEmbedded
         );
         assert_eq!(key_status_from(err(), None), KeyStatus::Unknown);
+        // An unset CI secret expands to "": not a built-in key.
+        assert_eq!(key_status_from(err(), Some("")), KeyStatus::Unknown);
     }
 
     #[test]
     fn unit_tests_use_a_separate_keyring_slot() {
-        // Sentinel — if the #[cfg(test)] in-memory redirection above
-        // is ever lifted, the test backend would fall back to the OS
-        // keyring; this assertion catches the lift by checking the
-        // USERNAME scoping survived.
+        // Sentinel — if the #[cfg(test)] in-memory redirection in
+        // `accounts::keychain` is ever lifted, the test backend would fall
+        // back to the OS keyring; this assertion catches the lift by checking
+        // the USERNAME scoping survived.
         assert_eq!(USERNAME, "curseforge-api-key-test");
     }
 
     #[test]
     fn in_memory_backend_round_trips() {
-        // Smoke-test that the test backend honors set/get/clear.
-        // Serialized via the global TEST_KEY mutex; safe to interleave
-        // with other tests (each sets then clears).
+        // Smoke-test that the test backend honors set/get/clear. Serialized
+        // via the shared lock; safe to interleave with other tests (each sets
+        // then clears).
         let _g = crate::test_env_lock();
         clear().unwrap();
         assert_eq!(get().unwrap(), None);
@@ -181,6 +203,63 @@ mod tests {
         assert_eq!(get().unwrap().as_deref(), Some("smoke"));
         clear().unwrap();
         assert_eq!(get().unwrap(), None);
+    }
+
+    #[test]
+    fn set_and_clear_write_through_the_session_cache() {
+        let _g = crate::test_env_lock();
+        clear().unwrap();
+        assert_eq!(resolve_with_cache(None), None);
+        set("k1").unwrap();
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("k1"));
+        set("k2").unwrap();
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("k2"));
+        clear().unwrap();
+        assert_eq!(resolve_with_cache(None), None);
+    }
+
+    #[test]
+    fn a_resolved_key_is_served_from_the_cache_without_a_second_read() {
+        let _g = crate::test_env_lock();
+        clear().unwrap();
+        set("cached").unwrap();
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("cached"));
+        // The keyring is now unreadable; the session answer stands.
+        keychain::test_backend::fail_next(&key(), crate::error::KeyringOp::Read, "locked");
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("cached"));
+        // The injection was never consumed: nothing read the keyring.
+        assert!(matches!(get(), Err(Error::Keyring { .. })));
+        clear().unwrap();
+    }
+
+    #[test]
+    fn a_status_read_refreshes_the_cache() {
+        let _g = crate::test_env_lock();
+        clear().unwrap(); // cache: nothing stored
+                          // Written behind the cache's back (another process, or a keyring that
+                          // was locked when the cache was filled and is open now).
+        keychain::store(&key(), "later").unwrap();
+        assert_eq!(resolve_with_cache(None), None);
+        assert_eq!(read_status(None), KeyStatus::Set);
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("later"));
+        clear().unwrap();
+    }
+
+    #[test]
+    fn an_unreadable_keyring_is_no_personal_key_until_something_refreshes() {
+        let _g = crate::test_env_lock();
+        clear().unwrap();
+        keychain::store(&key(), "hidden").unwrap();
+        // Drop the cache entry so the next resolve has to read.
+        *CACHE.write().unwrap() = None;
+        keychain::test_backend::fail_next(&key(), crate::error::KeyringOp::Read, "locked");
+        assert_eq!(resolve_with_cache(None), None);
+        // That read consumed the failure and cached "nothing": the (now
+        // readable) key is still not seen until a status read refreshes.
+        assert_eq!(resolve_with_cache(None), None);
+        assert_eq!(read_status(None), KeyStatus::Set);
+        assert_eq!(resolve_with_cache(None).as_deref(), Some("hidden"));
+        clear().unwrap();
     }
 
     #[test]

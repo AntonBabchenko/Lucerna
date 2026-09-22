@@ -2163,6 +2163,7 @@ export type TranslationKey =
   | 'servers.hosting.password'
   | 'servers.hosting.passwordNeededEachUpload'
   | 'servers.hosting.passwordStored'
+  | 'servers.hosting.passwordUnknown'
   | 'servers.hosting.port'
   | 'servers.hosting.preflightFailed'
   | 'servers.hosting.preflightFree'

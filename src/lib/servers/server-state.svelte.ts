@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import {
   type BackupInfo,
   commands,
@@ -18,6 +20,7 @@ import {
 } from '$lib/ipc/bindings';
 import { describeStoreError } from '$lib/ipc/format-error';
 import type { NavStatusKind } from '$lib/layout/nav-status';
+import { pushWarning } from '$lib/toasts/toasts.svelte';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 import { isCrashed, isDiagnosisActionable } from './runtime-extra';
 
@@ -594,6 +597,14 @@ async function updateRuntimeConfig(
 async function remove(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverDelete(id);
   if (r.status === 'ok') {
+    if (!r.data.password_cleared) {
+      // The server is gone; its SFTP password is not. Said out loud, with the
+      // keyring's reason — a silent orphan is what this replaces.
+      pushWarning(
+        get(t)('page.servers.deletePasswordLeft'),
+        r.data.details ? [r.data.details] : [],
+      );
+    }
     list = list.filter((s) => s.id !== id);
     // Per-id map hygiene: ids are slugs, so a recreated same-name server would
     // otherwise resurrect the deleted one's stale error/busy/diagnosis/console.

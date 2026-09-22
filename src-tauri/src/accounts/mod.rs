@@ -82,16 +82,16 @@ pub struct RemovedAccount {
 
 /// Delete the two secrets of a Microsoft account. `NoEntry` counts as cleared.
 pub fn clear_account_secrets(id: &str) -> RemovedAccount {
-    // RED STUB (push 1): logs, never reports.
-    if let Err(e) = keychain::delete(&keychain::refresh_token_key(id)) {
-        crate::diag!("remove_account: failed to delete refresh token for {id}: {e}");
-    }
-    if let Err(e) = keychain::delete(&keychain::mc_access_key(id)) {
-        crate::diag!("remove_account: failed to delete mc access token for {id}: {e}");
+    let mut details = Vec::new();
+    for key in [keychain::refresh_token_key(id), keychain::mc_access_key(id)] {
+        if let Err(e) = keychain::delete(&key) {
+            crate::diag!("remove_account: failed to delete a token for {id}: {e}");
+            details.push(e.to_string());
+        }
     }
     RemovedAccount {
-        keyring_cleared: true,
-        details: None,
+        keyring_cleared: details.is_empty(),
+        details: (!details.is_empty()).then(|| details.join("; ")),
     }
 }
 
@@ -114,7 +114,11 @@ mod tests {
     fn a_token_that_cannot_be_deleted_is_reported_not_swallowed() {
         keychain::store(&keychain::refresh_token_key("rm-1"), "r").unwrap();
         keychain::store(&keychain::mc_access_key("rm-1"), "a").unwrap();
-        keychain::test_backend::fail_next(crate::error::KeyringOp::Delete, "injected");
+        keychain::test_backend::fail_next(
+            &keychain::refresh_token_key("rm-1"),
+            crate::error::KeyringOp::Delete,
+            "injected",
+        );
         let out = clear_account_secrets("rm-1");
         assert!(!out.keyring_cleared);
         assert!(out.details.as_deref().unwrap_or("").contains("injected"));

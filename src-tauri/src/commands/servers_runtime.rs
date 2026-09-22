@@ -175,12 +175,20 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
     let (running, pid) =
         crate::servers_runtime::runtime::reconcile_running(in_mem, recorded, alive_ours);
     let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
-    let upw = crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(
-        &file.id,
-    ))
-    .ok()
-    .flatten()
-    .is_some();
+    // Tri-state on purpose: a keyring that could not be read is not "no
+    // password stored" — the Hosting tab asks for one and says why.
+    let upload_password_set = match crate::accounts::keychain::retrieve(
+        &crate::accounts::keychain::sftp_password_key(&file.id),
+    ) {
+        Ok(stored) => Some(stored.is_some()),
+        Err(e) => {
+            crate::diag!(
+                "server_list: cannot tell whether {} has a stored SFTP password: {e}",
+                file.id
+            );
+            None
+        }
+    };
     let last_exit_code = crate::servers_runtime::exit_state::read(&rp.runtime);
     // Cheap badge signal: a stopped server's latest log is classified here (no
     // jar reads, no network); a running server has no pending diagnosis.
@@ -205,7 +213,7 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
         running,
         pid,
         port,
-        upw,
+        upload_password_set,
         last_exit_code,
         diagnosis_status,
     )
@@ -413,7 +421,7 @@ pub async fn server_create(
             false,
             None,
             None,
-            false,
+            Some(false),
             None,
             crate::logs::diagnose::DiagnosisStatus::None,
         ),
@@ -425,12 +433,18 @@ pub async fn server_create(
 /// (running / pid / port) из процессного менеджера.
 #[tauri::command]
 #[specta::specta]
-pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
+pub async fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    Ok(store::list_all(&base)?
-        .iter()
-        .map(|f| status_of(&base, f))
-        .collect())
+    // Every server's status reads the keyring (stored SFTP password) and its
+    // latest log; both block. Off the main thread.
+    tokio::task::spawn_blocking(move || {
+        Ok(store::list_all(&base)?
+            .iter()
+            .map(|f| status_of(&base, f))
+            .collect())
+    })
+    .await
+    .map_err(|e| Error::io("<server_list>", format!("join: {e}")))?
 }
 
 /// Запустить сервер. Возвращает PID запущенного процесса.
@@ -514,10 +528,14 @@ fn remove_firewall_rules_on_delete(root: &std::path::Path, runtime: &std::path::
 }
 
 /// Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
-/// Возвращает ошибку если сервер запущен — сначала остановите его.
+/// Возвращает ошибку если сервер запущен — сначала остановите его. The
+/// answer says whether the SFTP password left the keyring with it.
 #[tauri::command]
 #[specta::specta]
-pub async fn server_delete(app: AppHandle, id: String) -> Result<()> {
+pub async fn server_delete(
+    app: AppHandle,
+    id: String,
+) -> Result<crate::servers_runtime::schema::ServerDeleted> {
     crate::servers_runtime::maintenance::not_under_maintenance(&id)?;
     // Cheap in-memory guard — stays on the calling thread, before any offload.
     if crate::servers_runtime::runtime::is_running(&id) {
@@ -540,9 +558,7 @@ pub async fn server_delete(app: AppHandle, id: String) -> Result<()> {
         // tracked ports + the current one) so none linger after the server is gone.
         remove_firewall_rules_on_delete(&p.root, &p.runtime);
         store::delete_server(&base, &id)?;
-        let _ =
-            crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
-        Ok(())
+        Ok(store::clear_server_password(&id))
     })
     .await
     .map_err(|e| Error::io("<server_delete>", format!("join: {e}")))?
@@ -1438,33 +1454,42 @@ pub async fn server_quarantine_client_mods(app: AppHandle, id: String) -> Result
 /// и/или пароль.
 #[tauri::command]
 #[specta::specta]
-pub fn server_set_upload_config(
+pub async fn server_set_upload_config(
     app: AppHandle,
     id: String,
     config: UploadConfig,
     password: Option<String>,
 ) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    let p = crate::paths::server_paths(&base, &id);
-    let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    let prev_target = file
-        .upload
-        .as_ref()
-        .map(crate::servers_runtime::upload_manifest::target_of);
-    file.upload = Some(config.clone());
-    crate::servers_runtime::store::write_server_json(&p.json, &file)?;
-    // A changed target invalidates any in-progress resume manifest (the planned
-    // remote no longer matches what was partially uploaded).
-    let new_target = crate::servers_runtime::upload_manifest::target_of(&config);
-    if prev_target.as_ref() != Some(&new_target) {
-        crate::servers_runtime::upload_manifest::delete_manifest(
-            &crate::servers_runtime::upload_manifest::manifest_path(&base, &id),
-        );
-    }
-    if let Some(pw) = password {
-        crate::accounts::keychain::store(&crate::accounts::keychain::sftp_password_key(&id), &pw)?;
-    }
-    Ok(())
+    // `server.json` and the keyring write both block (the keyring over D-Bus,
+    // or behind an unlock prompt): off the main thread.
+    tokio::task::spawn_blocking(move || {
+        let p = crate::paths::server_paths(&base, &id);
+        let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
+        let prev_target = file
+            .upload
+            .as_ref()
+            .map(crate::servers_runtime::upload_manifest::target_of);
+        file.upload = Some(config.clone());
+        crate::servers_runtime::store::write_server_json(&p.json, &file)?;
+        // A changed target invalidates any in-progress resume manifest (the
+        // planned remote no longer matches what was partially uploaded).
+        let new_target = crate::servers_runtime::upload_manifest::target_of(&config);
+        if prev_target.as_ref() != Some(&new_target) {
+            crate::servers_runtime::upload_manifest::delete_manifest(
+                &crate::servers_runtime::upload_manifest::manifest_path(&base, &id),
+            );
+        }
+        if let Some(pw) = password {
+            crate::accounts::keychain::store(
+                &crate::accounts::keychain::sftp_password_key(&id),
+                &pw,
+            )?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::io("<server_set_upload_config>", format!("join: {e}")))?
 }
 
 /// Resolve the secret an upload should authenticate with (#C, transient-secret
@@ -1541,8 +1566,15 @@ pub async fn server_upload(
         .upload
         .ok_or(crate::error::Error::UploadNotConfigured)?;
     let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
-    let stored =
-        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
+    let stored = {
+        // The keyring may block (D-Bus, an unlock prompt): not on a runtime worker.
+        let id = id.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))
+        })
+        .await
+        .map_err(|e| Error::io("<sftp password>", format!("join: {e}")))??
+    };
     let secret = resolve_upload_secret(auth.method, password, stored)?;
     crate::servers_runtime::transfer::upload_server(
         &app,
@@ -1638,8 +1670,15 @@ pub async fn server_upload_preflight(
         .upload
         .ok_or(crate::error::Error::UploadNotConfigured)?;
     let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
-    let stored =
-        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
+    let stored = {
+        // The keyring may block (D-Bus, an unlock prompt): not on a runtime worker.
+        let id = id.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))
+        })
+        .await
+        .map_err(|e| Error::io("<sftp password>", format!("join: {e}")))??
+    };
     let secret = resolve_upload_secret(auth.method, None, stored)?;
     crate::servers_runtime::transfer::upload_preflight(
         &app,

@@ -499,11 +499,16 @@ pub async fn l10n_prefill_set_key(
     key: String,
 ) -> Result<(), crate::error::Error> {
     let slot = crate::accounts::keychain::ai_provider_key(provider.id());
-    let key = key.trim();
-    if key.is_empty() {
-        return crate::accounts::keychain::delete(&slot);
-    }
-    crate::accounts::keychain::store(&slot, key)
+    let key = key.trim().to_string();
+    // The keyring may block (D-Bus, an unlock prompt): off the main thread.
+    tokio::task::spawn_blocking(move || {
+        if key.is_empty() {
+            return crate::accounts::keychain::delete(&slot);
+        }
+        crate::accounts::keychain::store(&slot, &key)
+    })
+    .await
+    .map_err(|e| crate::error::Error::io("<l10n_prefill_set_key>", format!("join: {e}")))?
 }
 
 /// Whether an API key is stored for `provider`.
@@ -516,7 +521,11 @@ pub async fn l10n_prefill_set_key(
 pub async fn l10n_prefill_key_status(
     provider: crate::instances::schema::AiProvider,
 ) -> Result<bool, crate::error::Error> {
-    crate::l10n::prefill::run::has_stored_key(provider)
+    // A keyring that cannot be read is an error here, not `false`: the
+    // Settings pill says "couldn't check", never "no key".
+    tokio::task::spawn_blocking(move || crate::l10n::prefill::run::has_stored_key(provider))
+        .await
+        .map_err(|e| crate::error::Error::io("<l10n_prefill_key_status>", format!("join: {e}")))?
 }
 
 /// Round-trip the configured provider, model and credential with the smallest

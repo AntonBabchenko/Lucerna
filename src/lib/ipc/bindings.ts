@@ -1000,8 +1000,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  A key resolves from the user's OS-keyring entry, or (on a release build)
 	 *  from the key embedded at compile time. So a release user who never entered
 	 *  a key still reports `Set`, which suppresses the setup guide and the
-	 *  "add a key" banners. `Invalid` is reserved for future "key was rejected"
-	 *  surfacing — today this command only distinguishes Missing vs Set.
+	 *  "add a key" banners. A keyring that could not be read is `Unknown` (or
+	 *  `UnknownEmbedded` when the build's own key still serves) — never
+	 *  `Missing`, which would send the user to enter a key they may well have.
+	 *  `Invalid` is reserved for future "key was rejected" surfacing.
 	 */
 	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
 	/**
@@ -1345,9 +1347,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverList: () => typedError<ServerWithStatus_Serialize[], Error>(__TAURI_INVOKE("server_list")),
 	/**
 	 *  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
-	 *  Возвращает ошибку если сервер запущен — сначала остановите его.
+	 *  Возвращает ошибку если сервер запущен — сначала остановите его. The
+	 *  answer says whether the SFTP password left the keyring with it.
 	 */
-	serverDelete: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete", { id })),
+	serverDelete: (id: string) => typedError<ServerDeleted, Error>(__TAURI_INVOKE("server_delete", { id })),
 	/**  Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину. */
 	serverRename: (id: string, name: string) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_rename", { id, name })),
 	/**
@@ -6761,6 +6764,16 @@ export type ServerDatapackUpdateOutcome = {
 	completed: boolean,
 };
 
+/**  What Delete server left behind — the same shape as `RemovedAccount`. */
+export type ServerDeleted = {
+	/**
+	 *  The SFTP password is gone from the OS keyring (or was never there).
+	 *  When false it is orphaned there, and the UI says so with the reason.
+	 */
+	password_cleared: boolean,
+	details: string | null,
+};
+
 /**
  *  Full diagnosis result for a server log. Returned by the `server_diagnose`
  *  Tauri command and consumed directly by the UI.
@@ -6985,8 +6998,12 @@ export type ServerWithStatus_Deserialize = {
 	pid: number | null,
 	port: number | null,
 	upload: UploadConfig_Deserialize | null,
-	/**  Whether a keyring password is stored for the upload target. */
-	upload_password_set: boolean,
+	/**
+	 *  Whether a keyring password is stored for the upload target. `None` =
+	 *  the keyring could not be read: not "no password", "could not tell" —
+	 *  the Hosting tab then asks for one and says why.
+	 */
+	upload_password_set: boolean | null,
 	/**
 	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
 	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
@@ -7012,8 +7029,12 @@ export type ServerWithStatus_Serialize = {
 	pid: number | null,
 	port: number | null,
 	upload: UploadConfig_Serialize | null,
-	/**  Whether a keyring password is stored for the upload target. */
-	upload_password_set: boolean,
+	/**
+	 *  Whether a keyring password is stored for the upload target. `None` =
+	 *  the keyring could not be read: not "no password", "could not tell" —
+	 *  the Hosting tab then asks for one and says why.
+	 */
+	upload_password_set: boolean | null,
 	/**
 	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
 	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).

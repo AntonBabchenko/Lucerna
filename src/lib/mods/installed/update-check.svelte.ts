@@ -89,7 +89,8 @@ export function createUpdateCheck(
     );
     if (cfFailed) {
       const s = await commands.modsGetCurseforgeKeyStatus();
-      showCfBanner = s.status === 'ok' && s.data === 'missing';
+      // 'unknown' = the keyring could not be read and no built-in key serves.
+      showCfBanner = s.status === 'ok' && (s.data === 'missing' || s.data === 'unknown');
     } else {
       showCfBanner = false;
     }

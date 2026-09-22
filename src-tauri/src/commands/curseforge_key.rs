@@ -8,16 +8,19 @@ use super::*;
 /// A key resolves from the user's OS-keyring entry, or (on a release build)
 /// from the key embedded at compile time. So a release user who never entered
 /// a key still reports `Set`, which suppresses the setup guide and the
-/// "add a key" banners. `Invalid` is reserved for future "key was rejected"
-/// surfacing — today this command only distinguishes Missing vs Set.
+/// "add a key" banners. A keyring that could not be read is `Unknown` (or
+/// `UnknownEmbedded` when the build's own key still serves) — never
+/// `Missing`, which would send the user to enter a key they may well have.
+/// `Invalid` is reserved for future "key was rejected" surfacing.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus> {
-    Ok(if cf_keyring::resolve().is_some() {
-        KeyStatus::Set
-    } else {
-        KeyStatus::Missing
-    })
+    // The keyring may block (D-Bus, an unlock prompt): off the main thread.
+    tokio::task::spawn_blocking(cf_keyring::status)
+        .await
+        .map_err(|e| {
+            crate::error::Error::io("<mods_get_curseforge_key_status>", format!("join: {e}"))
+        })
 }
 
 /// Validate a candidate CurseForge API key by pinging `/v1/games/432`
@@ -57,7 +60,12 @@ pub async fn mods_set_curseforge_key(
             return Err(crate::error::Error::ModsPlatformUnreachable { url: url.into() });
         }
     }
-    cf_keyring::set(&key)?;
+    // The keyring may block (D-Bus, an unlock prompt): off the main thread.
+    tokio::task::spawn_blocking(move || cf_keyring::set(&key))
+        .await
+        .map_err(|e| {
+            crate::error::Error::io("<mods_set_curseforge_key>", format!("join: {e}"))
+        })??;
 
     // Self-heal: any instance whose source=None mods were attempted
     // under a keyless or CF-down pass becomes eligible for backfill
@@ -96,7 +104,9 @@ pub async fn mods_set_curseforge_key(
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_clear_curseforge_key() -> crate::error::Result<()> {
-    cf_keyring::clear()
+    tokio::task::spawn_blocking(cf_keyring::clear)
+        .await
+        .map_err(|e| crate::error::Error::io("<mods_clear_curseforge_key>", format!("join: {e}")))?
 }
 
 /// Size in bytes of the shared mod cache directory (under the launcher's

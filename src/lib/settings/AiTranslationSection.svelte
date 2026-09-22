@@ -71,7 +71,10 @@
   let pendingKey = $state('');
   // `null` while the status read is still in flight — distinct from a known
   // "no key stored", which is what the user sees before they paste one.
-  let keyStored = $state<boolean | null>(null);
+  // null = not read yet; { unknown } = the keyring could not be read (the
+  // formatted reason) — shown as "couldn't check", never as "Checking…" or
+  // "no key", either of which would be a claim about a keyring nobody saw.
+  let keyStored = $state<boolean | null | { unknown: string }>(null);
   let keyError = $state<string | null>(null);
   let savingKey = $state(false);
 
@@ -113,7 +116,7 @@
       const r = await commands.l10nPrefillKeyStatus(p);
       if (stale) return;
       if (r.status === 'ok') keyStored = r.data;
-      else keyError = formatError(r.error);
+      else keyStored = { unknown: formatError(r.error) };
     })();
     return () => {
       stale = true;
@@ -302,6 +305,13 @@
         {:else if keyStored === false}
           <span class="text-secondary" data-testid="ai-key-status">
             {$t('settings.aiTranslation.keyStatusMissing')}
+          </span>
+        {:else if keyStored !== null}
+          <span class="text-warning-text font-medium" data-testid="ai-key-status">
+            {$t('settings.aiTranslation.keyStatusUnknown')}
+          </span>
+          <span class="block text-xs text-muted" data-testid="ai-key-status-reason">
+            {keyStored.unknown}
           </span>
         {:else}
           <span class="text-placeholder" data-testid="ai-key-status">

@@ -122,7 +122,10 @@ describe('ServerSettingsTab danger zone (delete server)', () => {
 
   it('(c) confirming calls serverDelete and falls back selection to the next server', async () => {
     await load([makeServer('a', false), makeServer('b', false)]);
-    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    serverDelete.mockResolvedValue({
+      status: 'ok',
+      data: { password_cleared: true, details: null },
+    });
     serversUi.selectServer('a');
 
     render(ServerSettingsTab, { props: { serverId: 'a' } });
@@ -136,7 +139,10 @@ describe('ServerSettingsTab danger zone (delete server)', () => {
 
   it('(c) deleting the last remaining server falls back selection to null', async () => {
     await load([makeServer('a', false)]);
-    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    serverDelete.mockResolvedValue({
+      status: 'ok',
+      data: { password_cleared: true, details: null },
+    });
     serversUi.selectServer('a');
 
     render(ServerSettingsTab, { props: { serverId: 'a' } });
@@ -150,7 +156,9 @@ describe('ServerSettingsTab danger zone (delete server)', () => {
 
   it('(e) trigger is disabled while the remove call is pending', async () => {
     await load([makeServer('a', false)]);
-    let resolveDelete: ((v: { status: 'ok'; data: null }) => void) | undefined;
+    let resolveDelete:
+      | ((v: { status: 'ok'; data: { password_cleared: boolean; details: string | null } }) => void)
+      | undefined;
     serverDelete.mockReturnValue(
       new Promise((resolve) => {
         resolveDelete = resolve;
@@ -166,7 +174,7 @@ describe('ServerSettingsTab danger zone (delete server)', () => {
     const trigger = screen.getByTestId('server-delete-trigger') as HTMLButtonElement;
     expect(trigger.disabled).toBe(true);
 
-    resolveDelete?.({ status: 'ok', data: null });
+    resolveDelete?.({ status: 'ok', data: { password_cleared: true, details: null } });
     await vi.waitFor(() => expect(trigger.disabled).toBe(false));
   });
 

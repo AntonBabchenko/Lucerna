@@ -7,6 +7,9 @@
   // validate the key before persisting it to the OS keyring). On success the
   // status flips to 'set' and the input clears; on rejection the status
   // flips to 'invalid' and the typed error is rendered through formatError.
+  // A key CurseForge accepted but the OS keyring refused to keep is
+  // 'not_saved' — never 'invalid'. A status the keyring could not answer is
+  // 'unknown' / 'unknown_embedded' with a Retry (a re-read).
   // The Clear button (only visible when a key is stored or invalid) wipes
   // the keyring entry via mods_clear_curseforge_key.
   //
@@ -21,7 +24,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
-  let status = $state<KeyStatus | 'loading' | 'unverified'>('loading');
+  let status = $state<KeyStatus | 'loading' | 'unverified' | 'not_saved'>('loading');
   let pendingKey = $state('');
   let saving = $state(false);
   let clearing = $state(false);
@@ -59,6 +62,11 @@
         // The key was genuinely rejected — reflect that and re-arm the banner.
         status = 'invalid';
         cfKeyVersion.value++;
+      } else if (pill === 'not_saved') {
+        // CurseForge accepted the key but the keyring refused to keep it: the
+        // stored status is whatever it was, so no refresh() and no banner
+        // change — the pill says exactly which half happened.
+        status = 'not_saved';
       } else {
         // Reachability failure (region/Cloudflare/network): we don't know if
         // the key is valid. Show 'unverified' without calling refresh() —
@@ -112,6 +120,13 @@
     {:else if status === 'unverified'}
       <span class="text-warning-text font-medium">{$t('settings.curseforge.statusUnverified')}</span
       >
+    {:else if status === 'not_saved'}
+      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusNotSaved')}</span>
+    {:else if status === 'unknown' || status === 'unknown_embedded'}
+      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusUnknown')}</span>
+      <button type="button" class="btn-tertiary btn-sm ml-2" onclick={refresh}>
+        {$t('settings.curseforge.retryBtn')}
+      </button>
     {:else if status === 'missing'}
       <span class="text-secondary">{$t('settings.curseforge.statusMissing')}</span>
     {:else}

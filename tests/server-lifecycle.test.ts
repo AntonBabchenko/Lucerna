@@ -123,7 +123,10 @@ describe('serverState lifecycle helpers', () => {
     await serverState.start('a');
     expect(serverState.actionErrorFor('a')).toBeDefined();
 
-    serverDelete.mockResolvedValue({ status: 'ok', data: null });
+    serverDelete.mockResolvedValue({
+      status: 'ok',
+      data: { password_cleared: true, details: null },
+    });
     await serverState.remove('a');
     expect(serverState.actionErrorFor('a')).toBeUndefined();
   });

@@ -243,7 +243,8 @@
   const secretToStore = $derived(savePassword && password !== '' ? password : null);
   // Transient secret: sent with upload but never persisted.
   const transientSecret = $derived(!savePassword && password !== '' ? password : null);
-  // Upload is gated when password auth is chosen, save is off, and nothing is stored.
+  // Upload is gated when password auth is chosen, save is off, and nothing is
+  // stored — or the keyring could not say (`null`): asking again is the safe side.
   const needsTransientPassword = $derived(
     authMethod === 'password' && !savePassword && !existing?.upload_password_set,
   );
@@ -547,6 +548,11 @@
           {authMethod === 'key'
             ? $t('servers.hosting.passphraseStored')
             : $t('servers.hosting.passwordStored')}
+        </p>
+      {/if}
+      {#if existing?.upload_password_set === null}
+        <p class="text-xs text-warning-text" data-testid="upload-password-unknown">
+          {$t('servers.hosting.passwordUnknown')}
         </p>
       {/if}
       {#if authMethod === 'password'}

@@ -153,6 +153,15 @@ pub struct ServerFile {
     pub upload: Option<UploadConfig>,
 }
 
+/// What Delete server left behind — the same shape as `RemovedAccount`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ServerDeleted {
+    /// The SFTP password is gone from the OS keyring (or was never there).
+    /// When false it is orphaned there, and the UI says so with the reason.
+    pub password_cleared: bool,
+    pub details: Option<String>,
+}
+
 /// Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2).
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct ServerWithStatus {
@@ -170,8 +179,10 @@ pub struct ServerWithStatus {
     pub pid: Option<u32>,
     pub port: Option<u16>,
     pub upload: Option<UploadConfig>,
-    /// Whether a keyring password is stored for the upload target.
-    pub upload_password_set: bool,
+    /// Whether a keyring password is stored for the upload target. `None` =
+    /// the keyring could not be read: not "no password", "could not tell" —
+    /// the Hosting tab then asks for one and says why.
+    pub upload_password_set: Option<bool>,
     /// Last process exit code. None = never run (no exit record); Some(0) = clean
     /// stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
     pub last_exit_code: Option<i32>,
@@ -185,7 +196,7 @@ impl ServerWithStatus {
         running: bool,
         pid: Option<u32>,
         port: Option<u16>,
-        upload_password_set: bool,
+        upload_password_set: Option<bool>,
         last_exit_code: Option<i32>,
         diagnosis_status: crate::logs::diagnose::DiagnosisStatus,
     ) -> Self {
@@ -324,7 +335,7 @@ mod tests {
             true,
             Some(4321),
             Some(25565),
-            false,
+            Some(false),
             Some(0),
             crate::logs::diagnose::DiagnosisStatus::None,
         );
@@ -404,12 +415,12 @@ mod tests {
             false,
             None,
             None,
-            true,
+            Some(true),
             None,
             crate::logs::diagnose::DiagnosisStatus::None,
         );
         assert_eq!(w.upload.as_ref().unwrap().host, "h");
-        assert!(w.upload_password_set);
+        assert_eq!(w.upload_password_set, Some(true));
     }
 
     #[test]
