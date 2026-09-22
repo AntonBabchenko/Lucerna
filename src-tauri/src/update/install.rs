@@ -62,15 +62,18 @@ impl Drop for InstallGuard {
 /// the exit hook. Re-observing after the spawn would be too late — on Windows
 /// the NSIS installer is already running, on Linux the AppImage is already
 /// swapped — so this is the last point at which the update can still be
-/// refused without side effects. `on_launch` (the `Launching` phase) fires
-/// only after the observation passes.
+/// refused without side effects. `check` is that observation (and, in
+/// production, the data-root usability check: a data-folder move that began
+/// during the download makes this root unusable, and the move's own gate
+/// cannot see an update in flight). `on_launch` (the `Launching` phase)
+/// fires only after the check passes.
 pub fn guarded_apply<'a>(
-    observe: impl FnOnce() -> RestartBlock + Send + 'a,
+    check: impl FnOnce() -> Result<()> + Send + 'a,
     on_launch: impl FnOnce() + Send + 'a,
     apply: impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a,
 ) -> impl FnOnce(&std::path::Path) -> Result<()> + Send + 'a {
     move |verified: &std::path::Path| {
-        install_blocked(observe())?;
+        check()?;
         on_launch();
         apply(verified)
     }
@@ -174,7 +177,10 @@ pub async fn download_and_install(
     let observer = app.clone();
     let phase = on_phase.clone();
     let launch = guarded_apply(
-        move || crate::data_root::blockers::observe(&observer),
+        move || {
+            crate::data_root::state::global().check_usable()?;
+            install_blocked(crate::data_root::blockers::observe(&observer))
+        },
         move || phase(Phase::Launching),
         inner,
     );
@@ -312,7 +318,7 @@ mod tests {
             &path,
             |_bytes| Ok(()),
             guarded_apply(
-                || RestartBlock::Running,
+                || install_blocked(RestartBlock::Running),
                 || phase_reported.store(true, Ordering::SeqCst),
                 |_p| {
                     launched.store(true, Ordering::SeqCst);
@@ -349,7 +355,7 @@ mod tests {
             &path,
             |_bytes| Ok(()),
             guarded_apply(
-                || RestartBlock::None,
+                || install_blocked(RestartBlock::None),
                 || order.lock().unwrap().push("launching"),
                 |_p| {
                     order.lock().unwrap().push("apply");

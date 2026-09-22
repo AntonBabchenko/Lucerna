@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // Settings → Updates once an update is offered: the page says what the button does, refuses
 // inline (with Check again) while something runs, and follows the real stage while installing.
+const h = vi.hoisted(() => ({ activeTasks: [] as { state: string }[] }));
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: vi.fn().mockResolvedValue({
@@ -27,7 +28,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     updateInstallPhase: { listen: vi.fn().mockResolvedValue(() => {}) },
   },
 }));
-vi.mock('$lib/tasks/registry.svelte', () => ({ taskList: () => [], isActiveTask: () => false }));
+vi.mock('$lib/tasks/registry.svelte', () => ({
+  taskList: () => h.activeTasks,
+  isActiveTask: (t: { state: string }) => t.state === 'running',
+}));
 
 import { commands } from '$lib/ipc/bindings';
 import UpdatesPanel from '$lib/settings/UpdatesPanel.svelte';
@@ -63,6 +67,8 @@ beforeEach(() => {
   updateInstalling.value = false;
   updatePhase.value = null;
   (commands.restartBlocked as Mock).mockResolvedValue('none');
+  (commands.updateInstall as Mock).mockReturnValue(new Promise(() => {}));
+  h.activeTasks = [];
 });
 
 describe('UpdatesPanel — the update action', () => {
@@ -93,6 +99,28 @@ describe('UpdatesPanel — the update action', () => {
     await offerAnUpdate();
     expect(updateBtn().disabled).toBe(true);
     expect(screen.getByText(/couldn't check whether a game or a server is running/)).toBeTruthy();
+  });
+
+  it('refuses inline while this window has a task in flight — the backend cannot see it', async () => {
+    h.activeTasks = [{ state: 'running' }];
+    await offerAnUpdate();
+    expect(updateBtn().disabled).toBe(true);
+    expect(screen.getByText(/Wait for the running operation/)).toBeTruthy();
+    // The visible gate is the same gate runUpdate applies; the backend said none all along.
+    h.activeTasks = [];
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await flush();
+    expect(updateBtn().disabled).toBe(false);
+  });
+
+  it('an install that comes back with nothing newer drops the offer', async () => {
+    (commands.updateInstall as Mock).mockResolvedValue({ status: 'ok', data: null });
+    await offerAnUpdate();
+    await fireEvent.click(updateBtn());
+    await flush();
+    await flush();
+    expect(screen.queryByTestId('update-now-btn')).toBeNull();
+    expect(screen.getByTestId('update-status').textContent).toContain('latest version (0.24.0)');
   });
 
   it('follows the real stage while installing', async () => {

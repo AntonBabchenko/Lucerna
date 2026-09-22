@@ -13,6 +13,7 @@
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
   import { Icon } from '$lib/ui/icons';
   import {
     runUpdate,
@@ -133,14 +134,29 @@
     unknown: 'settings.general.updates.blocked.unknown',
   };
   const offered = $derived(checkResult.kind === 'available' && !notifyOnly);
-  const gateReason = $derived(gate.block === 'none' ? null : $t(GATE_KEYS[gate.block]));
-  const updateBlocked = $derived(offered && gate.block !== 'none');
+  // The visible gate is the gate `runUpdate` applies: a task this window started (an instance
+  // being created — the backend's observer cannot see it) blocks before the backend is asked.
+  const block = $derived.by((): RestartGate => {
+    // Read the backend answer BEFORE the short-circuit: a derived tracks only what it read, and
+    // one that never read `gate.block` while a task was active would not wake when it changes.
+    const backend = gate.block;
+    return taskList().some(isActiveTask) ? 'busy' : backend;
+  });
+  const gateReason = $derived(block === 'none' ? null : $t(GATE_KEYS[block]));
+  const updateBlocked = $derived(offered && block !== 'none');
   $effect(() => {
     if (offered) void gate.recheck();
   });
 
   async function update() {
+    const before = updateState.value;
     await runUpdate();
+    // The install came back without an exit and dropped the offer (the re-check found nothing
+    // newer): the panel must not keep showing "Update now" next to the toast that said so.
+    if (before && updateState.value === null && checkResult.kind === 'available') {
+      checkResult = { kind: 'uptodate', current: before.current };
+      return;
+    }
     // Back here means no exit happened: re-ask, so the inline reason matches
     // whatever the backend just refused on.
     if (offered && !updateInstalling.value) void gate.recheck();
@@ -236,7 +252,7 @@
           <p class="basis-full text-xs text-muted" data-testid="update-explain">
             {$t('settings.general.updates.explain')}
           </p>
-          {#if gate.block !== 'none' && gate.block !== 'checking'}
+          {#if block !== 'none' && block !== 'checking'}
             <button
               type="button"
               class="btn-secondary btn-sm inline-flex items-center gap-1.5"
