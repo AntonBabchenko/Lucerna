@@ -279,10 +279,10 @@ pub fn execute(plan: &CleanupPlan) -> Vec<Report> {
         if preserve_pointer {
             out.push(report(
                 format!(
-                    "dir {} (kept data-location.json: the configured data root is not reachable or the file could not be read)",
+                    "dir {} (kept the data-location files: the configured data root is not reachable or the file could not be read)",
                     dir.path.display()
                 ),
-                remove_children_except(&dir.path, "data-location.json"),
+                remove_children_except(&dir.path, POINTER_FILES),
             ));
         } else {
             out.push(report(
@@ -547,17 +547,25 @@ fn remove_dir_tolerant(dir: &Path) -> crate::error::Result<()> {
 
 /// Remove every child of `dir` except the top-level entry named `keep`. The
 /// dir itself stays (it must keep holding the preserved file).
-fn remove_children_except(dir: &Path, keep: &str) -> crate::error::Result<()> {
+/// The files that name the user's data folder: the pointer, and the copy an
+/// adopt or a detach set aside when the pointer could not be read. Either may
+/// be the only record of where the data lives.
+const POINTER_FILES: &[&str] = &[
+    "data-location.json",
+    crate::data_root::redirect::SET_ASIDE_FILE,
+];
+
+fn remove_children_except(dir: &Path, keep: &[&str]) -> crate::error::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(crate::error::Error::io(dir.display().to_string(), e)),
     };
     for entry in entries.flatten() {
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(keep)
+        let name = entry.file_name();
+        if keep
+            .iter()
+            .any(|k| name.to_string_lossy().eq_ignore_ascii_case(k))
         {
             continue;
         }
@@ -1024,6 +1032,36 @@ mod tests {
             "the unusable pointer survives, content intact"
         );
         assert!(!default_dir.join("logs").exists());
+        assert!(!default_dir.join("app.json").exists());
+    }
+
+    /// The set-aside copy (`data-location.corrupt.json`, left by a detach or an
+    /// adopt that replaced an unusable pointer) is as much "the only record of
+    /// where the data lives" as the pointer itself.
+    #[test]
+    fn a_corrupt_pointer_keeps_its_set_aside_copy_too() {
+        let _guard = crate::test_env_lock();
+        let t = tempdir().unwrap();
+        let default_dir = t.path().join("default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        std::fs::write(default_dir.join("data-location.json"), b"{ truncated").unwrap();
+        std::fs::write(
+            default_dir.join(crate::data_root::redirect::SET_ASIDE_FILE),
+            b"{ older garbage",
+        )
+        .unwrap();
+        std::fs::write(default_dir.join("app.json"), b"{}").unwrap();
+
+        let plan = build_plan(&input(&default_dir));
+        execute(&plan);
+
+        assert!(default_dir.join("data-location.json").exists());
+        assert!(
+            default_dir
+                .join(crate::data_root::redirect::SET_ASIDE_FILE)
+                .exists(),
+            "the set-aside copy survives with the pointer"
+        );
         assert!(!default_dir.join("app.json").exists());
     }
 

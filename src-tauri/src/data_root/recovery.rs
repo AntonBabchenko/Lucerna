@@ -19,8 +19,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// `<app cache dir>/recovery/<pid>`.
-const PARENT_DIR: &str = "recovery";
+/// `<app cache dir>/recovery/<pid>` — or `<default dir>/recovery/<pid>` when
+/// the cache dir cannot be resolved (`paths::recovery_parent`).
+const PARENT_DIR: &str = crate::data_root::transient::RECOVERY_DIR;
 
 /// A session dir that was ACTUALLY created by this process. There is no other
 /// way to obtain one, and the exit cleanup accepts nothing else — so "creation

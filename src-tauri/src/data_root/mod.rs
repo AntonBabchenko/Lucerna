@@ -59,6 +59,25 @@ pub enum Fallback {
     PointerCorrupt,
 }
 
+impl Fallback {
+    /// One line for the launcher log.
+    pub fn describe(&self) -> String {
+        match self {
+            Fallback::RootMissing => "the configured folder is not there".into(),
+            Fallback::RootNotWritable { details } => {
+                format!("the configured folder cannot be written to — {details}")
+            }
+            Fallback::RootUnknown { details } => {
+                format!("the configured folder could not be checked — {details}")
+            }
+            Fallback::PointerUnreadable { details } => {
+                format!("data-location.json could not be read — {details}")
+            }
+            Fallback::PointerCorrupt => "data-location.json is not a usable pointer".into(),
+        }
+    }
+}
+
 /// How the `<exe dir>\LucernaData` portable candidate looks on disk, as
 /// observed by the caller (injected, not probed here, so resolution stays
 /// pure). The caller passes the whole candidate as `None` in dev builds and

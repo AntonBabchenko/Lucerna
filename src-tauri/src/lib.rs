@@ -639,7 +639,10 @@ pub fn run() {
             // The reason, not just the fact: "reconnect the drive" and "fix the
             // folder permissions" are different answers.
             if let Some(reason) = &resolved.fallback {
-                early_lines.push(format!("[data-root] recovery session because: {reason:?}"));
+                early_lines.push(format!(
+                    "[data-root] recovery session because {}",
+                    reason.describe()
+                ));
             }
             let recovery_parent = crate::paths::recovery_parent(app.handle());
             let data_root = if resolved.fell_back() {

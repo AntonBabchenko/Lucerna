@@ -37,14 +37,21 @@ pub fn default_app_data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 
 /// Where recovery sessions keep their throwaway roots
 /// (`data_root::recovery`): under the app's CACHE dir — per-user on every OS,
-/// and already planned by the uninstaller. If even that cannot be resolved,
-/// the OS temp dir.
+/// and already planned by the uninstaller. If that cannot be resolved, a
+/// `recovery/` dir under the OS-default data dir: still per-user, and a
+/// launcher-owned name (`transient::RECOVERY_DIR`) that never blocks a reset
+/// or travels with a move. NEVER the OS temp dir — on Linux that is the shared
+/// `/tmp`, where a predictable name invites pre-creation and symlink games,
+/// and `create_dir_all` on the parent would follow a planted link.
 pub fn recovery_parent(app: &tauri::AppHandle) -> PathBuf {
-    crate::data_root::recovery::parent_in(
-        &app.path()
-            .app_cache_dir()
-            .unwrap_or_else(|_| std::env::temp_dir().join("lucerna-recovery")),
-    )
+    match app.path().app_cache_dir() {
+        Ok(cache) => crate::data_root::recovery::parent_in(&cache),
+        // Same degraded answer the rest of startup gives when even the data
+        // dir cannot be resolved (`lib.rs` falls back to `.` for the root).
+        Err(_) => crate::data_root::recovery::parent_in(
+            &default_app_data_dir(app).unwrap_or_else(|_| PathBuf::from(".")),
+        ),
+    }
 }
 
 /// `<default app-data>/data-location.json` — bootstrap redirect, fixed location.
