@@ -572,25 +572,10 @@ mod win {
         Ok(out)
     }
 
-    /// Read a REG_SZ value as `String`. Returns `None` on any error or non-string type.
+    /// Read a REG_SZ value by name; `None` on any error (display-only callers).
     unsafe fn read_sz(hkey: HKEY, value: &str) -> Option<String> {
         let name = wide(value);
-        let mut buf = [0u16; 512];
-        let mut len = (buf.len() * 2) as u32; // bytes
-        let rc = RegQueryValueExW(
-            hkey,
-            name.as_ptr(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            buf.as_mut_ptr() as *mut u8,
-            &mut len,
-        );
-        if rc != ERROR_SUCCESS {
-            return None;
-        }
-        // `len` is byte count including the NUL terminator; drop the terminator.
-        let chars = (len as usize / 2).saturating_sub(1);
-        Some(String::from_utf16_lossy(&buf[..chars]))
+        query_sz(hkey, &name).ok().flatten()
     }
 }
 
