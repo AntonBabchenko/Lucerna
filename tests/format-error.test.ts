@@ -756,6 +756,19 @@ describe('formatError', () => {
       expect(sessionDir).not.toContain("That folder can't be used");
     });
 
+    it('an update refusal says what to do, per block, and is a clean refusal', () => {
+      expect(formatError({ kind: 'update_blocked', block: 'running' })).toContain(
+        'Close Minecraft and stop your servers',
+      );
+      expect(formatError({ kind: 'update_blocked', block: 'busy' })).toContain(
+        'Wait for the running operation',
+      );
+      expect(formatError({ kind: 'update_blocked', block: 'unknown' })).toContain(
+        "couldn't check whether a game or a server is running",
+      );
+      expect(ERROR_CLASS.update_blocked).toBe('clean');
+    });
+
     it('words the busy refusal so it is true for running, busy and unknown alike', () => {
       const msg = formatError({ kind: 'data_location_busy' });
       for (const part of [
