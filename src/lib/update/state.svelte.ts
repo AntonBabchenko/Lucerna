@@ -2,7 +2,7 @@
 // rune-in-a-.svelte.ts idiom used by $lib/settings/state.svelte.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { commands, events, type IpcError, type UpdateInfo } from '$lib/ipc/bindings';
+import { commands, events, type Error as IpcError, type UpdateInfo } from '$lib/ipc/bindings';
 import { describeStoreError, formatError } from '$lib/ipc/format-error';
 import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
 import {

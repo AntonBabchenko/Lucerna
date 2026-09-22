@@ -45,10 +45,17 @@
     setting = { kind: 'pending' };
     saveError = null;
     const r = await commands.appSettingsGet();
+    if (r.status !== 'ok') {
+      setting = { kind: 'failed', error: formatError(r.error) };
+      return;
+    }
+    // The binding types the field as optional (a serde default on the Rust side); the backend
+    // always sends a bool. Anything else is "could not tell", never "on".
+    const value = r.data.general.check_updates_on_startup;
     setting =
-      r.status === 'ok'
-        ? { kind: 'ok', general: r.data.general, value: r.data.general.check_updates_on_startup }
-        : { kind: 'failed', error: formatError(r.error) };
+      typeof value === 'boolean'
+        ? { kind: 'ok', general: r.data.general, value }
+        : { kind: 'failed', error: 'check_updates_on_startup missing from the answer' };
   }
   onMount(() => void load());
 
