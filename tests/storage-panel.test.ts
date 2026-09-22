@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 
@@ -24,6 +24,9 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // `patchGeneral` (the one settings write) goes through this; the refusal
+    // test asserts it is NOT called.
+    appSettingsPatchGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // StoragePanel calls dataLocation.init() -> getDataLocation() on mount.
     getDataLocation: vi.fn().mockResolvedValue({
       status: 'ok',
@@ -79,6 +82,7 @@ import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { commands } from '$lib/ipc/bindings';
 import { dataLocation } from '$lib/settings/data-location.svelte';
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 
 describe('StoragePanel', () => {
   it('shows size, clears cache, pushes a success toast, and disables Clear once empty', async () => {
@@ -672,5 +676,77 @@ describe('StoragePanel — an unknown size is not "0 B"', () => {
     // was NO button for the action the copy names.
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeTruthy();
     expect(screen.queryByText(/""/)).toBeNull();
+  });
+});
+
+// Runs last on purpose: two cases leave the dataLocation / appSettings
+// singletons in a deliberate state.
+describe('StoragePanel — one vocabulary (batch 10a)', () => {
+  beforeEach(resetIpc);
+
+  it('leads with the data folder: the block headings are in page order', async () => {
+    await mountPanel();
+    const headings = screen
+      .getAllByRole('heading', { level: 3 })
+      .map((h) => h.textContent?.trim());
+    expect(headings).toEqual(['Data location', 'Mod download cache', 'Mod info cache', 'Log retention']);
+  });
+
+  it('a failed clear re-measures the cache, so the real remaining size sits beside the error', async () => {
+    mock(commands.modsCacheSizeBytes).mockResolvedValue({ status: 'ok', data: 2048 });
+    mock(commands.modsClearCache).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_cache_io', details: 'locked' },
+    });
+    await mountPanel();
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear cache' }));
+    await settled();
+    expect(screen.getByText(/locked/)).toBeTruthy();
+    // Once on mount, once after the failed clear.
+    expect(commands.modsCacheSizeBytes).toHaveBeenCalledTimes(2);
+  });
+
+  it('the size error is announced (role=alert)', async () => {
+    mock(commands.dataRootSizeBytes).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '<data_root_size>', details: 'access denied' },
+    });
+    await mountPanel();
+    expect(screen.getByText(/access denied/).closest('[role="alert"]')).not.toBeNull();
+  });
+
+  it('"Keep newest logs" refuses 0: the saved value stays, the message names the minimum, nothing is patched', async () => {
+    __resetAppSettingsForTest();
+    mock(commands.appSettingsGet).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        general: {
+          hide_to_tray_during_game: false,
+          theme: 'system',
+          check_updates_on_startup: true,
+          gpu_preference: 'auto',
+          log_retention: { enabled: true, max_files: 10, max_total_mb: 100 },
+        },
+      },
+    });
+    await loadAppSettings();
+    await mountPanel();
+    const input = screen.getByTestId('log-retention-max-files') as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    input.value = '0';
+    await fireEvent.change(input);
+    expect(input.value).toBe('10');
+    expect(screen.getByText('Enter a whole number of at least 1.')).toBeTruthy();
+    expect(commands.appSettingsPatchGeneral).not.toHaveBeenCalled();
+  });
+
+  it('a data-location read failure is announced (role=alert)', async () => {
+    mock(commands.getDataLocation).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: 'data-location.json', details: 'pointer unreadable' },
+    });
+    await dataLocation.refresh();
+    await mountPanel();
+    expect(screen.getByText(/pointer unreadable/).closest('[role="alert"]')).not.toBeNull();
   });
 });
