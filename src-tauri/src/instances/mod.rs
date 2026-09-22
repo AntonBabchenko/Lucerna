@@ -48,17 +48,21 @@ pub fn get_active_instance(app: &tauri::AppHandle) -> Result<Option<InstanceWith
         return Ok(None);
     }
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let mut app_state = store::read_app_json(&app_file_path)?;
-    if let Some(active_id) = &app_state.active_instance {
-        if let Some(found) = all.iter().find(|i| &i.id == active_id) {
-            return Ok(Some(found.clone()));
+    let mut pick = None;
+    store::update_app_json(&app_file_path, |af| {
+        if let Some(active_id) = &af.active_instance {
+            if let Some(found) = all.iter().find(|i| &i.id == active_id) {
+                pick = Some(found.clone());
+                return store::Verdict::Unchanged;
+            }
+            // Stale pointer — auto-repair by picking the oldest.
         }
-        // Stale pointer — auto-repair by picking the oldest.
-    }
-    let pick = all[0].clone();
-    app_state.active_instance = Some(pick.id.clone());
-    store::write_app_json(&app_file_path, &app_state)?;
-    Ok(Some(pick))
+        let p = all[0].clone();
+        af.active_instance = Some(p.id.clone());
+        pick = Some(p);
+        store::Verdict::Write
+    })?;
+    Ok(pick)
 }
 
 /// Set `app.json.active_instance`. Errors `InstanceNotFound` if `id` is
@@ -69,9 +73,11 @@ pub fn set_active_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
         return Err(Error::InstanceNotFound { id: id.to_string() });
     }
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let mut current = store::read_app_json(&app_file_path)?;
-    current.active_instance = Some(id.to_string());
-    store::write_app_json(&app_file_path, &current)
+    store::update_app_json(&app_file_path, |af| {
+        af.active_instance = Some(id.to_string());
+        store::Verdict::Write
+    })
+    .map(|_| ())
 }
 
 /// Create `<instance>/.minecraft/` if missing, then open it in the OS
@@ -274,12 +280,14 @@ pub fn read_with_status(app: &tauri::AppHandle, id: &str) -> Result<InstanceWith
 /// repair in [`get_active_instance`] both already heal.
 pub fn repoint_active_instance(app: &tauri::AppHandle, old_id: &str, new_id: &str) -> Result<()> {
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let mut state = store::read_app_json(&app_file_path)?;
-    if state.active_instance.as_deref() != Some(old_id) {
-        return Ok(());
-    }
-    state.active_instance = Some(new_id.to_string());
-    store::write_app_json(&app_file_path, &state)
+    store::update_app_json(&app_file_path, |af| {
+        if af.active_instance.as_deref() != Some(old_id) {
+            return store::Verdict::Unchanged;
+        }
+        af.active_instance = Some(new_id.to_string());
+        store::Verdict::Write
+    })
+    .map(|_| ())
 }
 
 fn mutate<F>(app: &tauri::AppHandle, id: &str, mutator: F) -> Result<InstanceWithStatus>
@@ -482,13 +490,15 @@ pub fn delete_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
     remove_instance_dir(&dir)?;
 
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let mut app_state = store::read_app_json(&app_file_path)?;
-    if app_state.active_instance.as_deref() == Some(id) {
+    store::update_app_json(&app_file_path, |af| {
+        if af.active_instance.as_deref() != Some(id) {
+            return store::Verdict::Unchanged;
+        }
         // Auto-switch to oldest remaining.
-        let remaining: Vec<_> = all.into_iter().filter(|i| i.id != id).collect();
-        app_state.active_instance = remaining.first().map(|i| i.id.clone());
-        store::write_app_json(&app_file_path, &app_state)?;
-    }
+        let remaining: Vec<_> = all.iter().filter(|i| i.id != id).collect();
+        af.active_instance = remaining.first().map(|i| i.id.clone());
+        store::Verdict::Write
+    })?;
     Ok(())
 }
 

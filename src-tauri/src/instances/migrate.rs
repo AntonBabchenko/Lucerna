@@ -19,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::instances::schema::{
     AppFile, GeneralSettings, InstanceFile, LoaderKind, OnboardingState,
 };
-use crate::instances::store::{read_app_json, write_app_json, write_instance_json};
+use crate::instances::store::{replace_app_json, update_app_json, write_instance_json, Verdict};
 use crate::paths::{app_dir, app_file, instance_json};
 use std::path::Path;
 use std::time::SystemTime;
@@ -33,19 +33,27 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     // Scenario 1.
     if app_file_path.exists() {
         // Even if app.json exists, repair `active_instance` if it points at
-        // nothing on disk. This is also done lazily by `get_active_instance`,
-        // but doing it here keeps the launcher consistent on startup.
-        if let Ok(mut existing) = read_app_json(&app_file_path) {
-            if let Some(active) = existing.active_instance.clone() {
-                let p = app_root
-                    .join("instances")
-                    .join(&active)
-                    .join("instance.json");
-                if !p.exists() {
-                    existing.active_instance = None;
-                    let _ = write_app_json(&app_file_path, &existing);
-                }
+        // nothing on disk (also done lazily by `get_active_instance`). A file
+        // that cannot be read or written is SAID, not skipped: every later
+        // reader fails on it too, and the log is where that shows first.
+        if let Err(e) = update_app_json(&app_file_path, |af| {
+            let Some(active) = af.active_instance.clone() else {
+                return Verdict::Unchanged;
+            };
+            let p = app_root
+                .join("instances")
+                .join(&active)
+                .join("instance.json");
+            if p.exists() {
+                return Verdict::Unchanged;
             }
+            af.active_instance = None;
+            Verdict::Write
+        }) {
+            crate::diag!(
+                "[migrate] cannot repair active_instance in {}: {e}",
+                app_file_path.display()
+            );
         }
         return Ok(());
     }
@@ -103,7 +111,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         &instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?,
         &inst,
     )?;
-    write_app_json(
+    replace_app_json(
         &app_file_path,
         &AppFile {
             active_instance: Some(id),

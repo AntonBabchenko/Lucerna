@@ -2630,7 +2630,8 @@
         "title": "Server status",
         "label": "Show status for my saved servers",
         "description": "Lucerna asks the servers in this instance's list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
-        "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and nothing about them is sent anywhere else."
+        "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and nothing about them is sent anywhere else.",
+        "revokeFailed": "Status checks are still on — the change wasn't saved: {error}"
       },
       "updates": {
         "title": "Updates",
@@ -2652,10 +2653,7 @@
           "running": "Close Minecraft and stop your servers first: Lucerna closes to install the update.",
           "busy": "Wait for the running operation — an install, an import, a backup, an upload or a translation — to finish first: Lucerna closes to install the update.",
           "unknown": "Lucerna couldn't check whether a game or a server is running. Close them if any are open, or restart Lucerna, then check again."
-        },
-        "loadFailed": "Couldn't read this setting: {error}",
-        "retryBtn": "Retry",
-        "notSaved": "The change wasn't saved: {error}"
+        }
       },
       "onboarding": {
         "title": "Onboarding",
@@ -2703,7 +2701,11 @@
         "description": "Names and icons for installed mods are cached on disk so the Mods tab loads instantly and works offline.",
         "ttlLabel": "Refresh after (days)",
         "ttlHint": "How long cached mod info stays before it is re-fetched. 0 = never expire."
-      }
+      },
+      "notSaved": "This setting wasn't saved: {error}",
+      "saveUnconfirmed": "Couldn't confirm the change was saved: {error}",
+      "loadFailed": "Couldn't read your settings: {error}",
+      "retryBtn": "Retry"
     },
     "storage": {
       "cacheLabel": "Mod download cache:",
@@ -2855,7 +2857,8 @@
       "testButton": "Test connection",
       "testHint": "Sends one tiny request using the provider, model and key you have saved. Save a new key before testing it.",
       "testHintDisabled": "Turn on the permission above first — testing the connection sends a real request to the provider.",
-      "testOk": "The provider accepted the request."
+      "testOk": "The provider accepted the request.",
+      "revokeFailed": "The permission is still on — the change wasn't saved: {error}"
     },
     "curseforge": {
       "statusLabel": "Status:",

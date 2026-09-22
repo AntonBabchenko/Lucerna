@@ -70,7 +70,9 @@ pub async fn update_install(app: tauri::AppHandle) -> crate::error::Result<()> {
 pub async fn update_dismiss(app: tauri::AppHandle, version: String) -> crate::error::Result<()> {
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    current.update_dismissed_version = Some(version);
-    crate::instances::store::write_app_json(&path, &current)
+    crate::instances::store::update_app_json(&path, |af| {
+        af.update_dismissed_version = Some(version);
+        crate::instances::store::Verdict::Write
+    })
+    .map(|_| ())
 }

@@ -3,13 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
 import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 
 const { appSettingsGet, appSettingsSetGeneral } = vi.hoisted(() => ({
   appSettingsGet: vi.fn().mockResolvedValue({
     status: 'ok',
     data: { general: { hidden_sidebar_buttons: [] } },
   }),
-  appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  appSettingsSetGeneral: vi.fn().mockImplementation(async (p: object) => ({
+    status: 'ok',
+    data: { hidden_sidebar_buttons: [], ...p },
+  })),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -17,6 +21,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     accountSkin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     appSettingsGet,
     appSettingsSetGeneral,
+    // The setter patches now; the same mock records the call.
+    appSettingsPatchGeneral: appSettingsSetGeneral,
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -90,10 +96,12 @@ const baseProps = {
 };
 
 describe('Sidebar right-click hide', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     initSidebarButtons([]);
     appSettingsGet.mockClear();
     appSettingsSetGeneral.mockClear();
+    __resetAppSettingsForTest();
+    await loadAppSettings();
   });
 
   it('right-clicking a hideable button surfaces a Hide menu item', async () => {

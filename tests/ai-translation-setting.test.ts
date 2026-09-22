@@ -29,9 +29,17 @@ import { locale } from '$lib/i18n';
 // inside a test body never resolves under this vitest setup. `vi.mock` is
 // hoisted above imports anyway, so the panel still sees the mocked bindings.
 import AiTranslationSection from '$lib/settings/AiTranslationSection.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
+
+async function mount() {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+  return render(AiTranslationSection);
+}
 
 const appSettingsGet = vi.fn();
 const appSettingsSetGeneral = vi.fn();
+const appSettingsPatchGeneral = vi.fn();
 const l10nPrefillKeyStatus = vi.fn();
 const l10nPrefillSetKey = vi.fn();
 const l10nPrefillTestKey = vi.fn();
@@ -40,6 +48,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: () => appSettingsGet(),
     appSettingsSetGeneral: (g: unknown) => appSettingsSetGeneral(g),
+    appSettingsPatchGeneral: (p: unknown) => appSettingsPatchGeneral(p),
     l10nPrefillKeyStatus: (p: unknown) => l10nPrefillKeyStatus(p),
     l10nPrefillSetKey: (p: unknown, k: unknown) => l10nPrefillSetKey(p, k),
     l10nPrefillTestKey: () => l10nPrefillTestKey(),
@@ -66,19 +75,22 @@ describe('Settings → Integrations: AI translation', () => {
     locale.set('en');
     appSettingsGet.mockResolvedValue({ status: 'ok', data: { general: general() } });
     appSettingsSetGeneral.mockResolvedValue({ status: 'ok', data: null });
+    appSettingsPatchGeneral.mockReset().mockImplementation(async (p: object) => {
+      // As the backend does: the block as persisted = the current block ⊕ the patch.
+      const cur = await appSettingsGet();
+      return { status: 'ok', data: { ...cur.data.general, ...p } };
+    });
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: false });
     l10nPrefillSetKey.mockResolvedValue({ status: 'ok', data: null });
     l10nPrefillTestKey.mockResolvedValue({ status: 'ok', data: null });
   });
 
-  it('starts off and persists the consent toggle without clobbering siblings', async () => {
-    // `language` and `compact_mode` belong to other panels. The read-modify-write
-    // must carry them through untouched.
+  it('starts off and patches only the consent field when switched on', async () => {
     appSettingsGet.mockResolvedValue({
       status: 'ok',
       data: { general: general({ language: 'ru', compact_mode: true }) },
     });
-    render(AiTranslationSection);
+    await mount();
 
     const toggle = await waitFor(
       () => screen.getByTestId('ai-translation-toggle') as HTMLInputElement,
@@ -87,13 +99,7 @@ describe('Settings → Integrations: AI translation', () => {
 
     await fireEvent.click(toggle);
     await waitFor(() =>
-      expect(appSettingsSetGeneral).toHaveBeenCalledWith(
-        expect.objectContaining({
-          allow_ai_translation: true,
-          language: 'ru',
-          compact_mode: true,
-        }),
-      ),
+      expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ allow_ai_translation: true }),
     );
   });
 
@@ -103,7 +109,7 @@ describe('Settings → Integrations: AI translation', () => {
     // off because the test is a REAL outbound request, so the hint has to say
     // that rather than talk about saving keys.
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
-    render(AiTranslationSection);
+    await mount();
 
     const button = (await waitFor(() =>
       screen.getByTestId('ai-test-connection'),
@@ -126,7 +132,7 @@ describe('Settings → Integrations: AI translation', () => {
     // nothing — and puts the credential in the keyring before they have agreed
     // to the thing it is for.
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
-    render(AiTranslationSection);
+    await mount();
     // Clear key only exists once a stored key is known, so wait for the status
     // rather than for the field — otherwise the query below races the effect.
     await waitFor(() => expect(screen.getByTestId('ai-key-clear')).toBeTruthy());
@@ -170,7 +176,7 @@ describe('Settings → Integrations: AI translation', () => {
       status: 'ok',
       data: { general: general({ ai_provider: 'local' }) },
     });
-    render(AiTranslationSection);
+    await mount();
 
     const port = await waitFor(() => screen.getByTestId('ai-local-port-input') as HTMLInputElement);
     expect(port.disabled).toBe(true);
@@ -189,7 +195,7 @@ describe('Settings → Integrations: AI translation', () => {
       status: 'ok',
       data: { general: general({ allow_ai_translation: true }) },
     });
-    render(AiTranslationSection);
+    await mount();
     // Default provider is a hosted one, so the key field is there to begin with.
     await waitFor(() => expect(screen.getByTestId('ai-key-input')).toBeTruthy());
 
@@ -200,14 +206,12 @@ describe('Settings → Integrations: AI translation', () => {
 
     await waitFor(() => expect(screen.queryByTestId('ai-key-input')).toBeNull());
     await waitFor(() =>
-      expect(appSettingsSetGeneral).toHaveBeenCalledWith(
-        expect.objectContaining({ ai_provider: 'local' }),
-      ),
+      expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ ai_provider: 'local' }),
     );
   });
 
   it('shows the port field only for the local provider', async () => {
-    const hosted = render(AiTranslationSection);
+    const hosted = await mount();
     await waitFor(() => screen.getByTestId('ai-translation-toggle'));
     expect(screen.queryByTestId('ai-local-port-input')).toBeNull();
     hosted.unmount();
@@ -216,7 +220,7 @@ describe('Settings → Integrations: AI translation', () => {
       status: 'ok',
       data: { general: general({ ai_provider: 'local', ai_local_port: 1234 }) },
     });
-    render(AiTranslationSection);
+    await mount();
 
     const port = await waitFor(() => screen.getByTestId('ai-local-port-input') as HTMLInputElement);
     expect(port.value).toBe('1234');
@@ -228,7 +232,7 @@ describe('Settings → Integrations: AI translation', () => {
 
   it('never reads a stored key back into the UI', async () => {
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
-    render(AiTranslationSection);
+    await mount();
 
     const input = await waitFor(() => screen.getByTestId('ai-key-input') as HTMLInputElement);
     // `toMatch(/stored/i)` would also accept "Not stored" — assert the exact
@@ -274,7 +278,7 @@ describe('Settings → Integrations: AI translation', () => {
       status: 'ok',
       data: { general: general({ allow_ai_translation: true }) },
     });
-    render(AiTranslationSection);
+    await mount();
     await waitFor(() =>
       expect(screen.getByTestId('ai-key-status').textContent?.trim()).toBe('Stored'),
     );
@@ -292,7 +296,7 @@ describe('Settings → Integrations: AI translation', () => {
   });
 
   it('says what is out of scope before the user starts', async () => {
-    render(AiTranslationSection);
+    await mount();
     const toggle = await waitFor(
       () => screen.getByTestId('ai-translation-toggle') as HTMLInputElement,
     );

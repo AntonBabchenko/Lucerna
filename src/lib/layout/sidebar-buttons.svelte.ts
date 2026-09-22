@@ -9,7 +9,7 @@
 // re-persisting. The set defaults to empty (everything visible), so the sidebar
 // renders every button until the persisted state is applied.
 
-import { commands } from '$lib/ipc/bindings';
+import { patchGeneral } from '$lib/settings/app-settings.svelte';
 import type { SidebarButtonId } from './sidebar-buttons';
 
 const state = $state<{ hidden: string[] }>({ hidden: [] });
@@ -23,20 +23,18 @@ export function isVisible(id: SidebarButtonId): boolean {
   return !state.hidden.includes(id);
 }
 
-/** Toggle a button's visibility and persist the hidden set (read-modify-write of
- *  GeneralSettings, like setCompact). Optimistic; rolls back on failure. */
+/** Toggle a button's visibility and persist the hidden set through the one
+ *  settings contract. Optimistic; rolls back on failure — but only the set
+ *  still displayed: a newer toggle may have landed meanwhile, and reverting to
+ *  the set before THIS one would un-hide it. */
 export async function setHidden(id: SidebarButtonId, hidden: boolean): Promise<void> {
   const prev = state.hidden;
   const next = hidden ? [...new Set([...prev, id])] : prev.filter((x) => x !== id);
   state.hidden = next; // optimistic → drives the UI now
-  const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') {
-    state.hidden = prev;
-    return;
-  }
-  const res = await commands.appSettingsSetGeneral({
-    ...get.data.general,
-    hidden_sidebar_buttons: next,
-  });
-  if (res.status !== 'ok') state.hidden = prev; // roll back on persist failure
+  const r = await patchGeneral({ hidden_sidebar_buttons: next });
+  if (!r.ok && sameSet(state.hidden, next)) state.hidden = prev;
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
 }

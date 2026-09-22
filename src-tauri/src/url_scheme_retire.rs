@@ -25,7 +25,7 @@
 
 use crate::error::Error;
 use crate::instances::schema::{AppFile, GeneralSettings};
-use crate::instances::store::{read_app_json, write_app_json};
+use crate::instances::store::{read_app_json, replace_app_json};
 use crate::platform::protocol::{retire_action, RetireAction, SchemeState};
 use std::path::Path;
 
@@ -98,7 +98,7 @@ fn clear_flag(app_json: &Path, file: AppFile, key_removed: bool) -> RetireOutcom
         },
         ..file
     };
-    match write_app_json(app_json, &cleared) {
+    match replace_app_json(app_json, &cleared) {
         Ok(()) if key_removed => RetireOutcome::Removed,
         Ok(()) => RetireOutcome::FlagCleared,
         Err(error) => RetireOutcome::FlagWriteFailed { key_removed, error },
@@ -132,6 +132,7 @@ pub fn log_report(report: &RetireReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instances::store::write_app_json;
     use std::cell::Cell;
     use tempfile::tempdir;
 

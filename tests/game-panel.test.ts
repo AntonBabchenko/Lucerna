@@ -14,11 +14,16 @@ const appSettingsGet = vi.fn().mockResolvedValue({
   },
 });
 const appSettingsSetGeneral = vi.fn().mockResolvedValue({ status: 'ok', data: null });
+const appSettingsPatchGeneral = vi.fn().mockImplementation(async (p: object) => ({
+  status: 'ok',
+  data: { gpu_preference: 'auto', ...p },
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: (...a: unknown[]) => appSettingsGet(...a),
     appSettingsSetGeneral: (...a: unknown[]) => appSettingsSetGeneral(...a),
+    appSettingsPatchGeneral: (...a: unknown[]) => appSettingsPatchGeneral(...a),
     gpuCapability: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { mechanism: 'none', capability: { kind: 'unsupported' } },
@@ -26,26 +31,36 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import {
+  __resetAppSettingsForTest,
+  loadAppSettings,
+} from '../src/lib/settings/app-settings.svelte';
 import GamePanel from '../src/lib/settings/GamePanel.svelte';
 
-beforeEach(() => appSettingsSetGeneral.mockClear());
+async function mount() {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+  return render(GamePanel);
+}
+
+beforeEach(() => {
+  appSettingsSetGeneral.mockClear();
+  appSettingsPatchGeneral.mockClear();
+});
 
 describe('GamePanel', () => {
-  test('renders the tray toggle', () => {
-    const { container } = render(GamePanel);
+  test('renders the tray toggle', async () => {
+    const { container } = await mount();
     const cb = container.querySelector('[data-testid="tray-toggle"]');
     expect(cb).not.toBeNull();
     expect(cb?.getAttribute('type')).toBe('checkbox');
   });
 
-  test('toggling tray persists only tray + gpu fields (fresh RMW)', async () => {
-    render(GamePanel);
-    await vi.waitFor(() => expect(appSettingsGet).toHaveBeenCalled());
+  test('toggling tray patches only the toggled field', async () => {
+    await mount();
     await fireEvent.click(screen.getByTestId('tray-toggle'));
-    await vi.waitFor(() => expect(appSettingsSetGeneral).toHaveBeenCalled());
-    const arg = appSettingsSetGeneral.mock.calls.at(-1)?.[0];
-    expect(arg.hide_to_tray_during_game).toBe(true);
-    // Sibling fields from the fresh read are preserved, not dropped.
-    expect(arg.check_updates_on_startup).toBe(true);
+    await vi.waitFor(() => expect(appSettingsPatchGeneral).toHaveBeenCalled());
+    // One field, nothing else: a sibling panel's field can never be clobbered.
+    expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ hide_to_tray_during_game: true });
   });
 });

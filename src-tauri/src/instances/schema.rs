@@ -423,6 +423,84 @@ pub struct GeneralSettings {
     pub ai_local_port: u16,
 }
 
+/// A field-level change to `GeneralSettings`: every field optional (specta
+/// emits `field?: T | null` from the field-level `default`), unknown fields
+/// rejected — with `every_general_field_has_a_patch_counterpart` that makes a
+/// `GeneralSettings` field without a counterpart here a red test.
+#[derive(Debug, Default, Deserialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct GeneralSettingsPatch {
+    #[serde(default)]
+    pub hide_to_tray_during_game: Option<bool>,
+    #[serde(default)]
+    pub theme: Option<ThemePreference>,
+    #[serde(default)]
+    pub check_updates_on_startup: Option<bool>,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub explanation_level: Option<ExplanationLevel>,
+    #[serde(default)]
+    pub compact_mode: Option<bool>,
+    #[serde(default)]
+    pub gpu_preference: Option<GpuPreference>,
+    #[serde(default)]
+    pub log_retention: Option<LogRetentionPolicy>,
+    #[serde(default)]
+    pub mod_metadata_ttl_days: Option<u32>,
+    #[serde(default)]
+    pub sftp_upload_concurrency: Option<u32>,
+    #[serde(default)]
+    pub hidden_sidebar_buttons: Option<Vec<String>>,
+    #[serde(default)]
+    pub allow_server_ping: Option<bool>,
+    #[serde(default)]
+    pub register_url_scheme: Option<bool>,
+    #[serde(default)]
+    pub allow_ai_translation: Option<bool>,
+    #[serde(default)]
+    pub ai_provider: Option<AiProvider>,
+    #[serde(default)]
+    pub ai_model: Option<String>,
+    #[serde(default)]
+    pub ai_local_port: Option<u16>,
+}
+
+impl GeneralSettings {
+    /// Every field spelled out on both sides — no `..self`.
+    pub fn patched(self, p: GeneralSettingsPatch) -> Self {
+        Self {
+            hide_to_tray_during_game: p
+                .hide_to_tray_during_game
+                .unwrap_or(self.hide_to_tray_during_game),
+            theme: p.theme.unwrap_or(self.theme),
+            check_updates_on_startup: p
+                .check_updates_on_startup
+                .unwrap_or(self.check_updates_on_startup),
+            language: p.language.unwrap_or(self.language),
+            explanation_level: p.explanation_level.unwrap_or(self.explanation_level),
+            compact_mode: p.compact_mode.unwrap_or(self.compact_mode),
+            gpu_preference: p.gpu_preference.unwrap_or(self.gpu_preference),
+            log_retention: p.log_retention.unwrap_or(self.log_retention),
+            mod_metadata_ttl_days: p
+                .mod_metadata_ttl_days
+                .unwrap_or(self.mod_metadata_ttl_days),
+            sftp_upload_concurrency: p
+                .sftp_upload_concurrency
+                .unwrap_or(self.sftp_upload_concurrency),
+            hidden_sidebar_buttons: p
+                .hidden_sidebar_buttons
+                .unwrap_or(self.hidden_sidebar_buttons),
+            allow_server_ping: p.allow_server_ping.unwrap_or(self.allow_server_ping),
+            register_url_scheme: p.register_url_scheme.unwrap_or(self.register_url_scheme),
+            allow_ai_translation: p.allow_ai_translation.unwrap_or(self.allow_ai_translation),
+            ai_provider: p.ai_provider.unwrap_or(self.ai_provider),
+            ai_model: p.ai_model.unwrap_or(self.ai_model),
+            ai_local_port: p.ai_local_port.unwrap_or(self.ai_local_port),
+        }
+    }
+}
+
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
@@ -1011,6 +1089,43 @@ mod tests {
         let old = r#"{ "version": 1, "general": { "hide_to_tray_during_game": true } }"#;
         let parsed: AppFile = serde_json::from_str(old).unwrap();
         assert_eq!(parsed.general.gpu_preference, GpuPreference::Auto);
+    }
+
+    #[test]
+    fn an_empty_patch_is_the_identity() {
+        let g = GeneralSettings::default();
+        assert_eq!(g.clone().patched(GeneralSettingsPatch::default()), g);
+    }
+
+    #[test]
+    fn a_patch_changes_only_its_fields() {
+        let g = GeneralSettings::default();
+        let out = g.clone().patched(GeneralSettingsPatch {
+            theme: Some(ThemePreference::Dark),
+            allow_server_ping: Some(true),
+            ..GeneralSettingsPatch::default()
+        });
+        assert_eq!(out.theme, ThemePreference::Dark);
+        assert!(out.allow_server_ping);
+        assert_eq!(out.language, g.language);
+        assert_eq!(out.gpu_preference, g.gpu_preference);
+    }
+
+    /// Every `GeneralSettings` field must have a patch counterpart: the
+    /// default block, serialised, must deserialise into the patch type
+    /// (`deny_unknown_fields`).
+    #[test]
+    fn every_general_field_has_a_patch_counterpart() {
+        let json = serde_json::to_value(GeneralSettings::default()).unwrap();
+        let patch: GeneralSettingsPatch = serde_json::from_value(json).unwrap();
+        assert!(patch.theme.is_some());
+    }
+
+    #[test]
+    fn a_patch_deserialises_from_a_sparse_object() {
+        let patch: GeneralSettingsPatch = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(patch.theme, Some(ThemePreference::Dark));
+        assert!(patch.language.is_none());
     }
 
     #[test]

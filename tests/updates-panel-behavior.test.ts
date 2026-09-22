@@ -1,11 +1,20 @@
 import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { setGeneral, updateCheck } = vi.hoisted(() => ({
+const { setGeneral, patchGeneral, updateCheck } = vi.hoisted(() => ({
   setGeneral: vi.fn(
     async (_general: { check_updates_on_startup: boolean }) =>
       ({ status: 'ok', data: null }) as const,
   ),
+  patchGeneral: vi.fn(async (p: { check_updates_on_startup?: boolean }) => ({
+    status: 'ok' as const,
+    data: {
+      hide_to_tray_during_game: false,
+      theme: 'system',
+      check_updates_on_startup: true,
+      ...p,
+    },
+  })),
   updateCheck: vi.fn(
     async () =>
       ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }) as const,
@@ -24,6 +33,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     })),
     appSettingsSetGeneral: setGeneral,
+    appSettingsPatchGeneral: patchGeneral,
     updateCheck,
     gpuCapability: vi.fn().mockResolvedValue({
       status: 'ok',
@@ -32,7 +42,13 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import UpdatesPanel from '$lib/settings/UpdatesPanel.svelte';
+
+beforeEach(async () => {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+});
 
 describe('UpdatesPanel updates toggle', () => {
   it('persists check_updates_on_startup when toggled', async () => {
@@ -42,11 +58,9 @@ describe('UpdatesPanel updates toggle', () => {
     await vi.waitFor(() => expect(cb.disabled).toBe(false));
     expect(cb.checked).toBe(true);
     await fireEvent.click(cb);
-    // RMW: the panel re-reads settings before writing, so the persist resolves
-    // asynchronously after the click. Assert that it was called and the last
-    // call disabled the flag, rather than relying on synchronous ordering.
-    await vi.waitFor(() => expect(setGeneral).toHaveBeenCalled());
-    expect(setGeneral.mock.calls.at(-1)?.[0].check_updates_on_startup).toBe(false);
+    // The patch is one field and resolves asynchronously after the click.
+    await vi.waitFor(() => expect(patchGeneral).toHaveBeenCalled());
+    expect(patchGeneral).toHaveBeenCalledWith({ check_updates_on_startup: false });
   });
 
   it('manual check reports up-to-date inline', async () => {

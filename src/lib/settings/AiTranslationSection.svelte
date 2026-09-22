@@ -27,9 +27,17 @@
   // The stored-key STATUS is not a control and stays readable throughout — it
   // is a local keyring read, and hiding it would tell a returning user nothing
   // about a key they already have.
-  import { onMount } from 'svelte';
-  import { commands, type AiProvider, type GeneralSettings } from '$lib/ipc/bindings';
+  import { type AiProvider, commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import {
+    appSettings,
+    generalDisplayed,
+    loadAppSettings,
+    patchGeneral,
+    saveFailure,
+    saveFailureKind,
+  } from '$lib/settings/app-settings.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -39,14 +47,26 @@
   const MIN_PORT = 1;
   const MAX_PORT = 65535;
 
-  let general = $state<GeneralSettings>({
-    allow_ai_translation: false,
-    ai_provider: 'anthropic',
-    ai_model: '',
-    ai_local_port: DEFAULT_LOCAL_PORT,
+  // Four fields on the one settings contract: no value and no live control
+  // until the settings are read; each change patches only its field; a
+  // failed save is said next to the control that failed.
+  const general = $derived(generalDisplayed());
+  const settingsLoaded = $derived(general !== null);
+  const loadError = $derived(
+    appSettings.loaded.kind === 'failed' ? appSettings.loaded.error : null,
+  );
+  // The consent says the restrictive truth only when it is true: a REFUSED
+  // revoke leaves the permission on (the file is unchanged); one the transport
+  // lost is decided by the re-read.
+  const consentFailure = $derived.by((): string | null => {
+    const kind = saveFailureKind('allow_ai_translation');
+    if (kind === 'refused' && general?.allow_ai_translation) {
+      return $t('settings.aiTranslation.revokeFailed', {
+        error: appSettings.failures.allow_ai_translation?.error ?? '',
+      });
+    }
+    return saveFailure('allow_ai_translation');
   });
-  let loadError = $state<string | null>(null);
-  let saveError = $state<string | null>(null);
 
   let pendingKey = $state('');
   // `null` while the status read is still in flight — distinct from a known
@@ -59,33 +79,15 @@
   let testOk = $state(false);
   let testError = $state<string | null>(null);
 
-  const provider = $derived<AiProvider>(general.ai_provider ?? 'anthropic');
+  const provider = $derived<AiProvider>(general?.ai_provider ?? 'anthropic');
   const isLocal = $derived(provider === 'local');
-  const allowed = $derived(general.allow_ai_translation ?? false);
+  const allowed = $derived(general?.allow_ai_translation ?? false);
   const providerOptions = $derived([
     { value: 'anthropic', label: $t('settings.aiTranslation.providerAnthropic') },
     { value: 'gemini', label: $t('settings.aiTranslation.providerGemini') },
     { value: 'groq', label: $t('settings.aiTranslation.providerGroq') },
     { value: 'local', label: $t('settings.aiTranslation.providerLocal') },
   ]);
-
-  onMount(async () => {
-    const r = await commands.appSettingsGet();
-    if (r.status !== 'ok') {
-      loadError = formatError(r.error);
-      return;
-    }
-    // `#[serde(default)]` fields are optional in the generated type: an
-    // app.json written before this feature has none of them at all. Normalise
-    // once here so neither the markup nor `save` has to keep guessing.
-    general = {
-      ...r.data.general,
-      allow_ai_translation: r.data.general.allow_ai_translation ?? false,
-      ai_provider: r.data.general.ai_provider ?? 'anthropic',
-      ai_model: r.data.general.ai_model ?? '',
-      ai_local_port: r.data.general.ai_local_port ?? DEFAULT_LOCAL_PORT,
-    };
-  });
 
   // Whether a key is stored is a fact about the provider, so it is re-read
   // whenever the provider changes. `provider` is a $derived, which only
@@ -118,43 +120,18 @@
     };
   });
 
-  async function save() {
-    saveError = null;
-    // Snapshot the owned fields before any await, so an in-flight onMount or a
-    // second change cannot land between the snapshot and the write.
-    const allow = general.allow_ai_translation;
-    const prov = general.ai_provider;
-    const model = general.ai_model;
-    const port = general.ai_local_port;
-    const cur = await commands.appSettingsGet();
-    if (cur.status !== 'ok') {
-      saveError = formatError(cur.error);
-      return;
-    }
-    const next = {
-      ...cur.data.general,
-      allow_ai_translation: allow,
-      ai_provider: prov,
-      ai_model: model,
-      ai_local_port: port,
-    };
-    const r = await commands.appSettingsSetGeneral(next);
-    if (r.status !== 'ok') saveError = formatError(r.error);
-  }
-
   // Clamping happens here rather than in the markup, and the field is written
   // back either way: a number input left empty (or clamped) would otherwise
   // sit there disagreeing with the port that is actually saved.
   function setPort(input: HTMLInputElement) {
     const parsed = Number.parseInt(input.value, 10);
     if (Number.isNaN(parsed)) {
-      input.value = String(general.ai_local_port ?? DEFAULT_LOCAL_PORT);
+      input.value = String(general?.ai_local_port ?? DEFAULT_LOCAL_PORT);
       return;
     }
     const clamped = Math.min(MAX_PORT, Math.max(MIN_PORT, parsed));
     input.value = String(clamped);
-    general.ai_local_port = clamped;
-    void save();
+    void patchGeneral({ ai_local_port: clamped });
   }
 
   async function saveKey() {
@@ -217,8 +194,16 @@
     {$t('settings.aiTranslation.scopeNote')}
   </p>
 
-  {#if loadError}
-    <p class="text-xs text-danger">{loadError}</p>
+  {#if loadError !== null}
+    <div class="flex flex-wrap items-center gap-2" data-testid="settings-load-failed">
+      <StatusMessage
+        message={$t('settings.general.loadFailed', { error: loadError })}
+        tone="danger"
+      />
+      <button type="button" class="btn-secondary btn-sm" onclick={() => void loadAppSettings()}>
+        {$t('settings.general.retryBtn')}
+      </button>
+    </div>
   {/if}
 
   <label class="flex items-start gap-2 cursor-pointer">
@@ -226,10 +211,8 @@
       type="checkbox"
       class="mt-0.5"
       checked={allowed}
-      onchange={(e) => {
-        general.allow_ai_translation = e.currentTarget.checked;
-        void save();
-      }}
+      disabled={!settingsLoaded}
+      onchange={(e) => void patchGeneral({ allow_ai_translation: e.currentTarget.checked })}
       data-testid="ai-translation-toggle"
     />
     <span class="flex-1">
@@ -243,9 +226,9 @@
     </span>
   </label>
 
-  {#if saveError}
-    <p class="text-xs text-danger">{saveError}</p>
-  {/if}
+  <div data-testid="save-failure-allow_ai_translation">
+    <StatusMessage message={consentFailure} tone="danger" />
+  </div>
 
   {#if !allowed}
     <p class="text-xs text-muted" data-testid="ai-gated-note">
@@ -261,10 +244,9 @@
       ariaLabel={$t('settings.aiTranslation.providerLabel')}
       value={provider}
       options={providerOptions}
-      disabled={!allowed}
+      disabled={!allowed || !settingsLoaded}
       onChange={(v) => {
-        general.ai_provider = v as AiProvider;
-        void save();
+        void patchGeneral({ ai_provider: v as AiProvider });
       }}
     />
   </div>
@@ -277,11 +259,10 @@
       placeholder={isLocal
         ? $t('settings.aiTranslation.modelPlaceholderLocal')
         : $t('settings.aiTranslation.modelPlaceholderCloud')}
-      value={general.ai_model ?? ''}
-      disabled={!allowed}
+      value={general?.ai_model ?? ''}
+      disabled={!allowed || !settingsLoaded}
       onchange={(e) => {
-        general.ai_model = e.currentTarget.value.trim();
-        void save();
+        void patchGeneral({ ai_model: e.currentTarget.value.trim() });
       }}
       data-testid="ai-model-input"
     />
@@ -300,8 +281,8 @@
         min={MIN_PORT}
         max={MAX_PORT}
         class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
-        value={general.ai_local_port ?? DEFAULT_LOCAL_PORT}
-        disabled={!allowed}
+        value={general?.ai_local_port ?? DEFAULT_LOCAL_PORT}
+        disabled={!allowed || !settingsLoaded}
         onchange={(e) => setPort(e.currentTarget)}
         data-testid="ai-local-port-input"
       />
@@ -361,7 +342,7 @@
             type="button"
             class="btn-secondary btn-sm"
             busy={savingKey}
-            disabled={!allowed}
+            disabled={!allowed || !settingsLoaded}
             onclick={clearKey}
             data-testid="ai-key-clear"
           >
@@ -380,7 +361,7 @@
         type="button"
         class="btn-secondary btn-sm"
         busy={testing}
-        disabled={!allowed}
+        disabled={!allowed || !settingsLoaded}
         onclick={testConnection}
         data-testid="ai-test-connection"
       >

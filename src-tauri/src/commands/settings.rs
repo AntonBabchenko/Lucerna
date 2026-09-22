@@ -25,36 +25,52 @@ pub async fn app_settings_mark_tour_completed(
 ) -> crate::error::Result<()> {
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    current.onboarding.tour_completed_version = Some(version);
-    crate::instances::store::write_app_json(&path, &current)
+    crate::instances::store::update_app_json(&path, |af| {
+        af.onboarding.tour_completed_version = Some(version);
+        crate::instances::store::Verdict::Write
+    })
+    .map(|_| ())
 }
 
-/// Persist the GeneralSettings block. Read-modify-write of app.json
-/// — leaves `active_instance`, `onboarding`, and `version` untouched.
-/// Then the GPU preference: "Automatic" touches nothing; a choice is
-/// applied to every installed runtime; leaving a choice puts back what
-/// Lucerna replaced (`gpu_pref`).
+/// Persist a field-level change to the GeneralSettings block — one
+/// read-modify-write under the app.json lock — and return the block as
+/// persisted, which the UI takes as the truth. Then the GPU preference
+/// follows the setting ("Automatic" touches nothing; a change applies or
+/// retires — `gpu_pref`), after the lock has dropped.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_settings_set_general(
+pub async fn app_settings_patch_general(
     app: tauri::AppHandle,
-    general: crate::instances::schema::GeneralSettings,
-) -> crate::error::Result<()> {
+    patch: crate::instances::schema::GeneralSettingsPatch,
+) -> crate::error::Result<crate::instances::schema::GeneralSettings> {
+    use crate::instances::store::{update_app_json, Verdict};
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
-    let mut current = crate::instances::store::read_app_json(&path)?;
-    let old = current.general.gpu_preference;
-    let new = general.gpu_preference;
-    current.general = general;
-    crate::instances::store::write_app_json(&path, &current)?;
+    let mut old = None;
+    let file = update_app_json(&path, |af| {
+        old = Some(af.general.gpu_preference);
+        af.general = std::mem::take(&mut af.general).patched(patch);
+        Verdict::Write
+    })?;
+    if let Some(old) = old {
+        gpu_follow(&app, old, file.general.gpu_preference);
+    }
+    Ok(file.general)
+}
 
+/// The OS store follows the setting (batch 4). Best-effort: the setting is
+/// persisted; every failure here is logged.
+fn gpu_follow(
+    app: &tauri::AppHandle,
+    old: crate::instances::schema::GpuPreference,
+    new: crate::instances::schema::GpuPreference,
+) {
     // Best-effort from here: the setting is persisted; the OS store follows.
-    let record = match crate::gpu_pref::record_path(&app) {
+    let record = match crate::gpu_pref::record_path(app) {
         Ok(p) => p,
         Err(e) => {
             crate::diag!("[gpu] cannot resolve the record path, OS store untouched: {e}");
-            return Ok(());
+            return;
         }
     };
     // A record that cannot be read counts as empty here: the explicit
@@ -63,7 +79,7 @@ pub async fn app_settings_set_general(
     let non_empty = crate::gpu_pref::has_entries(&record).unwrap_or(false);
     match gpu_transition(old, new, non_empty) {
         GpuTransition::Nothing => {}
-        GpuTransition::Apply(pref) => sweep_installed_jres_gpu(&app, &record, pref),
+        GpuTransition::Apply(pref) => sweep_installed_jres_gpu(app, &record, pref),
         GpuTransition::Retire => {
             match crate::gpu_pref::retire_all(&crate::platform::gpu::OsRegistry, &record) {
                 Ok(r) => crate::diag!(
@@ -76,7 +92,6 @@ pub async fn app_settings_set_general(
             }
         }
     }
-    Ok(())
 }
 
 /// Apply `pref` to every installed `jres/*/bin/javaw.exe` (`bin/java` off

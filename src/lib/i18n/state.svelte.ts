@@ -3,7 +3,7 @@
 //
 //   langPref.value      — 'system' | 'en' | 'ru' | … the saved choice.
 //   resolved locale     — what svelte-i18n is actually displaying.
-import { commands } from '$lib/ipc/bindings';
+import { patchGeneral } from '$lib/settings/app-settings.svelte';
 import { AVAILABLE_LOCALES, locale } from './index';
 import { getOsLang, LOCALE_STORAGE_KEY, resolveLocale } from './resolve';
 
@@ -37,8 +37,8 @@ function applyPref(pref: string): void {
 
 /**
  * Called from the Settings picker. Switches the live locale instantly
- * (no reload) and persists to app.json via app_settings_set_general.
- * If either the settings read or the write fails, roll back — including the
+ * (no reload) and persists through the one settings contract (`patchGeneral`).
+ * When the patch is refused or lost, roll back — including the
  * localStorage mirror, which is what the next launch's anti-FOUC path reads,
  * so leaving it set would make the UI open in a language app.json does not
  * name. Same contract as `setExplanationLevel` / `setHidden`.
@@ -46,16 +46,10 @@ function applyPref(pref: string): void {
 export async function setLocalePref(pref: string): Promise<void> {
   const prev = langPref.value;
   applyPref(pref);
-  const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') {
-    applyPref(prev);
-    return;
-  }
-  const next = { ...get.data.general, language: pref };
-  const res = await commands.appSettingsSetGeneral(next);
+  const r = await patchGeneral({ language: pref });
   // A newer pick may have landed while this write was in flight; rolling back
   // then would clobber it. Only the choice still on screen may be reverted —
   // the same post-await re-check LogsPopover.loadContent makes before every
   // state commit.
-  if (res.status !== 'ok' && langPref.value === pref) applyPref(prev);
+  if (!r.ok && langPref.value === pref) applyPref(prev);
 }

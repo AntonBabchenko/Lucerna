@@ -11,6 +11,7 @@ vi.mock('$lib/ipc/bindings', async (importOriginal) => {
       ...actual.commands,
       appSettingsGet: vi.fn().mockResolvedValue({ status: 'ok', data: { general: {} } }),
       appSettingsSetGeneral: (g: unknown) => setGeneral(g),
+      appSettingsPatchGeneral: (g: unknown) => setGeneral(g),
     },
   };
 });
@@ -18,8 +19,11 @@ vi.mock('$lib/ipc/bindings', async (importOriginal) => {
 import { explanationState } from '$lib/onboarding/explanation-level.svelte';
 import { tourState } from '$lib/onboarding/state.svelte';
 import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 
-beforeEach(() => {
+beforeEach(async () => {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
   locale.set('en');
   tourState.active = true;
   tourState.contextual = false;

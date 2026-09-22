@@ -20,12 +20,23 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: vi.fn(async () => ({ status: 'ok', data: { general } })),
     appSettingsSetGeneral: vi.fn(async () => ({ status: 'ok', data: null })),
+    appSettingsPatchGeneral: vi.fn(async (p: object) => ({
+      status: 'ok',
+      data: { ...general, ...p },
+    })),
     gpuCapability: () => gpuCapability(),
   },
 }));
 
 import { commands } from '$lib/ipc/bindings';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import GamePanel from '$lib/settings/GamePanel.svelte';
+
+async function mount() {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+  return render(GamePanel);
+}
 
 const AVAILABLE: GpuStatus = {
   mechanism: 'windows_registry',
@@ -52,7 +63,7 @@ describe('GamePanel GPU block', () => {
   it('starts checking — the first frame never says "not available"', async () => {
     let resolve!: (v: unknown) => void;
     gpuCapability.mockReturnValueOnce(new Promise((r) => (resolve = r)));
-    render(GamePanel);
+    await mount();
     // The very first frame claims nothing — synchronously, before any answer. (The spinner
     // itself has an anti-flicker delay, so it is awaited, not asserted on the first frame.)
     expect(screen.queryByTestId('gpu-reason')).toBeNull();
@@ -64,7 +75,7 @@ describe('GamePanel GPU block', () => {
   });
 
   it('shows the dropdown, and the Windows note names the registry key', async () => {
-    render(GamePanel);
+    await mount();
     await screen.findByTestId('gpu-select');
     expect(screen.getByTestId('gpu-note').textContent).toContain('UserGpuPreferences');
   });
@@ -74,7 +85,7 @@ describe('GamePanel GPU block', () => {
       status: 'ok',
       data: status('linux_env', AVAILABLE.capability),
     });
-    render(GamePanel);
+    await mount();
     await screen.findByTestId('gpu-select');
     expect(screen.getByTestId('gpu-note').textContent).toContain('PRIME');
     expect(screen.getByTestId('gpu-note').textContent).not.toContain('UserGpuPreferences');
@@ -85,7 +96,7 @@ describe('GamePanel GPU block', () => {
     ['unsupported', 'none', 'macOS picks the GPU itself'],
   ] as const)('%s hides the dropdown and says why', async (kind, mechanism, text) => {
     gpuCapability.mockResolvedValue({ status: 'ok', data: status(mechanism, { kind }) });
-    render(GamePanel);
+    await mount();
     await flush();
     expect(screen.queryByTestId('gpu-select')).toBeNull();
     expect(screen.getByTestId('gpu-reason').textContent).toContain(text);
@@ -96,7 +107,7 @@ describe('GamePanel GPU block', () => {
       status: 'ok',
       data: status('windows_registry', { kind: 'unknown', details: 'class key: access denied' }),
     });
-    render(GamePanel);
+    await mount();
     await flush();
     const reason = screen.getByTestId('gpu-reason').textContent;
     expect(reason).toContain("couldn't check the graphics adapters");
@@ -105,7 +116,7 @@ describe('GamePanel GPU block', () => {
 
   it('a rejected probe call reads the same way', async () => {
     gpuCapability.mockRejectedValue(new Error('ipc channel closed'));
-    render(GamePanel);
+    await mount();
     await flush();
     const reason = screen.getByTestId('gpu-reason').textContent;
     expect(reason).toContain("couldn't check");
@@ -118,7 +129,7 @@ describe('GamePanel GPU block', () => {
       status: 'ok',
       data: status('windows_registry', { kind: 'single_gpu' }),
     });
-    render(GamePanel);
+    await mount();
     await flush();
     expect(screen.getByTestId('gpu-stored').textContent).toContain(
       'still written to the Windows graphics preference',
@@ -126,9 +137,7 @@ describe('GamePanel GPU block', () => {
     await fireEvent.click(screen.getByTestId('gpu-reset'));
     await flush();
     await flush();
-    expect(commands.appSettingsSetGeneral).toHaveBeenCalledWith(
-      expect.objectContaining({ gpu_preference: 'auto' }),
-    );
+    expect(commands.appSettingsPatchGeneral).toHaveBeenCalledWith({ gpu_preference: 'auto' });
     expect(screen.queryByTestId('gpu-stored')).toBeNull();
   });
 
@@ -141,7 +150,7 @@ describe('GamePanel GPU block', () => {
       status: 'ok',
       data: status(mechanism, { kind: 'unsupported' }),
     });
-    render(GamePanel);
+    await mount();
     await flush();
     expect(screen.getByTestId('gpu-stored').textContent).toContain('has no effect on this system');
   });
@@ -152,7 +161,7 @@ describe('GamePanel GPU block', () => {
       status: 'ok',
       data: status('windows_registry', { kind: 'single_gpu' }),
     });
-    render(GamePanel);
+    await mount();
     await flush();
     expect(screen.queryByTestId('gpu-stored')).toBeNull();
     expect(screen.queryByTestId('gpu-reset')).toBeNull();

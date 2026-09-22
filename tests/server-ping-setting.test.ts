@@ -10,15 +10,24 @@ import { locale } from '$lib/i18n';
 // Static import on purpose: a dynamic `await import()` of a .svelte module
 // inside a test body never resolves under this vitest setup. `vi.mock` is
 // hoisted above imports anyway, so the panel still sees the mocked bindings.
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import GamePanel from '$lib/settings/GamePanel.svelte';
+
+async function mount() {
+  __resetAppSettingsForTest();
+  await loadAppSettings();
+  return render(GamePanel);
+}
 
 const appSettingsGet = vi.fn();
 const appSettingsSetGeneral = vi.fn();
+const appSettingsPatchGeneral = vi.fn();
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: () => appSettingsGet(),
     appSettingsSetGeneral: (g: unknown) => appSettingsSetGeneral(g),
+    appSettingsPatchGeneral: (p: unknown) => appSettingsPatchGeneral(p),
     gpuCapability: () =>
       Promise.resolve({
         status: 'ok',
@@ -43,17 +52,22 @@ describe('Settings → Game: saved-server status permission', () => {
     locale.set('en');
     appSettingsGet.mockResolvedValue({ status: 'ok', data: { general: general() } });
     appSettingsSetGeneral.mockResolvedValue({ status: 'ok', data: null });
+    appSettingsPatchGeneral.mockReset().mockImplementation(async (p: object) => {
+      // As the backend does: the block as persisted = the current block ⊕ the patch.
+      const cur = await appSettingsGet();
+      return { status: 'ok', data: { ...cur.data.general, ...p } };
+    });
   });
 
   it('starts off and persists when switched on', async () => {
-    render(GamePanel);
+    await mount();
     const toggle = await waitFor(
       () => screen.getByTestId('server-ping-toggle') as HTMLInputElement,
     );
     expect(toggle.checked).toBe(false);
     await fireEvent.click(toggle);
     await waitFor(() =>
-      expect(appSettingsSetGeneral).toHaveBeenCalledWith(
+      expect(appSettingsPatchGeneral).toHaveBeenCalledWith(
         expect.objectContaining({ allow_server_ping: true }),
       ),
     );
@@ -64,33 +78,30 @@ describe('Settings → Game: saved-server status permission', () => {
       status: 'ok',
       data: { general: general({ allow_server_ping: true }) },
     });
-    render(GamePanel);
+    await mount();
     await waitFor(() =>
       expect((screen.getByTestId('server-ping-toggle') as HTMLInputElement).checked).toBe(true),
     );
   });
 
   it('states the IP-exposure consequence next to the toggle', async () => {
-    render(GamePanel);
+    await mount();
     await waitFor(() => screen.getByTestId('server-ping-toggle'));
     expect(screen.getByText(/IP address/i)).toBeTruthy();
   });
 
-  it('does not clobber a sibling panel field when saving', async () => {
-    // The read-modify-write must preserve fields this panel does not own.
+  it('patches only its own field, so a sibling panel field can never be clobbered', async () => {
     appSettingsGet.mockResolvedValue({
       status: 'ok',
       data: { general: general({ language: 'ru', compact_mode: true }) },
     });
-    render(GamePanel);
+    await mount();
     const toggle = await waitFor(
       () => screen.getByTestId('server-ping-toggle') as HTMLInputElement,
     );
     await fireEvent.click(toggle);
     await waitFor(() =>
-      expect(appSettingsSetGeneral).toHaveBeenCalledWith(
-        expect.objectContaining({ language: 'ru', compact_mode: true, allow_server_ping: true }),
-      ),
+      expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ allow_server_ping: true }),
     );
   });
 });

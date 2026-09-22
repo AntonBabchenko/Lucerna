@@ -1287,13 +1287,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	appSettingsMarkTourCompleted: (version: string) => typedError<null, Error>(__TAURI_INVOKE("app_settings_mark_tour_completed", { version })),
 	/**
-	 *  Persist the GeneralSettings block. Read-modify-write of app.json
-	 *  — leaves `active_instance`, `onboarding`, and `version` untouched.
-	 *  Then the GPU preference: "Automatic" touches nothing; a choice is
-	 *  applied to every installed runtime; leaving a choice puts back what
-	 *  Lucerna replaced (`gpu_pref`).
+	 *  Persist a field-level change to the GeneralSettings block — one
+	 *  read-modify-write under the app.json lock — and return the block as
+	 *  persisted, which the UI takes as the truth. Then the GPU preference
+	 *  follows the setting ("Automatic" touches nothing; a change applies or
+	 *  retires — `gpu_pref`), after the lock has dropped.
 	 */
-	appSettingsSetGeneral: (general: GeneralSettings) => typedError<null, Error>(__TAURI_INVOKE("app_settings_set_general", { general })),
+	appSettingsPatchGeneral: (patch: GeneralSettingsPatch) => typedError<GeneralSettings, Error>(__TAURI_INVOKE("app_settings_patch_general", { patch })),
 	/**
 	 *  Probe GPU-selection capability for the Settings UI, with the mechanism
 	 *  this OS uses so the page can describe it truthfully. Read-only.
@@ -3862,6 +3862,32 @@ export type GeneralSettings = {
 	 *  see `network::loopback`, which takes the port and nothing else.
 	 */
 	ai_local_port?: number,
+};
+
+/**
+ *  A field-level change to `GeneralSettings`: every field optional (specta
+ *  emits `field?: T | null` from the field-level `default`), unknown fields
+ *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
+ *  `GeneralSettings` field without a counterpart here a red test.
+ */
+export type GeneralSettingsPatch = {
+	hide_to_tray_during_game?: boolean | null,
+	theme?: ThemePreference | null,
+	check_updates_on_startup?: boolean | null,
+	language?: string | null,
+	explanation_level?: ExplanationLevel | null,
+	compact_mode?: boolean | null,
+	gpu_preference?: GpuPreference | null,
+	log_retention?: LogRetentionPolicy | null,
+	mod_metadata_ttl_days?: number | null,
+	sftp_upload_concurrency?: number | null,
+	hidden_sidebar_buttons?: string[] | null,
+	allow_server_ping?: boolean | null,
+	register_url_scheme?: boolean | null,
+	allow_ai_translation?: boolean | null,
+	ai_provider?: AiProvider | null,
+	ai_model?: string | null,
+	ai_local_port?: number | null,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */

@@ -31,6 +31,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **A setting that couldn't be saved now says so, next to the control — and a
+  page never shows a value that isn't really saved.** Theme, language, sidebar
+  buttons and the tips level used to snap back in silence; the Game, Storage
+  and AI pages kept showing the unsaved value; and the saved-server status
+  permission could show *off* while it stayed on. Before your settings were
+  read — or after they couldn't be — pages showed made-up defaults, and one
+  click could write those defaults over your real values. Two quick changes
+  could also undo each other. Every setting now goes through one path: it is
+  shown only once read, a change saves just that one field, a refused save
+  puts the control back and explains itself right there, and a permission that
+  couldn't be revoked says plainly that it is still on.
 - **"Automatic" GPU no longer erases a graphics preference you set yourself.** On
   Windows, Lucerna used to delete the per-app GPU entry for its own Java on every
   launch and on every settings save — including a theme change — whenever its
