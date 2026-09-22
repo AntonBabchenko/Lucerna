@@ -12,8 +12,9 @@
   //
   // Buttons (DESIGN §10): the dominant CTA is the solid `.btn-warning`, Restart its soft twin, both
   // small and UNDER the text — the content column is 580 px at the minimum window width. A failed
-  // restart is shown inside the banner, WITHOUT its own `role="alert"`: the banner root already is
-  // one, and a nested live region would re-announce the whole banner.
+  // restart is shown inside the banner WITHOUT its own `role="alert"`: the banner root already is
+  // one, and a nested live region would re-announce the whole banner. That is a deliberate
+  // departure from ServerDiagnosisBanner, whose action-error lines do nest one (DESIGN §10).
   import { t } from '$lib/i18n';
   import type { Fallback } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -71,7 +72,7 @@
       busy={restarting}
       class="btn-warning-soft btn-sm"
       data-testid="data-root-fallback-restart"
-      onclick={restart}
+      onclick={() => void restart()}
     >
       {$t('settings.storage.dataLocation.final.restartBtn')}
     </BusyButton>
