@@ -77,10 +77,64 @@ fn sweep_installed_jres_gpu(app: &tauri::AppHandle, pref: crate::instances::sche
     }
 }
 
-/// Probe GPU-selection capability for the Settings UI. Read-only; returns
-/// `Unsupported`/`SingleGpu` (UI hides the control) or `Available` with labels.
+/// What a change of `gpu_preference` asks of the OS store.
+#[derive(Debug, PartialEq, Eq)]
+pub enum GpuTransition {
+    Apply(crate::instances::schema::GpuPreference),
+    Retire,
+    Nothing,
+}
+
+/// `(_, non-Auto)` applies; `(non-Auto, Auto)` retires; `(Auto, Auto)` — a
+/// theme flip, a language change — is nothing, UNLESS a retire could not
+/// finish earlier (the record is not empty): that retry touches only values
+/// Lucerna recorded writing, so it stays inside decision 3.
+pub fn gpu_transition(
+    old: crate::instances::schema::GpuPreference,
+    new: crate::instances::schema::GpuPreference,
+    record_non_empty: bool,
+) -> GpuTransition {
+    // RED STUB (push 1).
+    let _ = (old, new, record_non_empty);
+    GpuTransition::Nothing
+}
+
+/// Probe GPU-selection capability for the Settings UI, with the mechanism
+/// this OS uses so the page can describe it truthfully. Read-only.
 #[tauri::command]
 #[specta::specta]
-pub async fn gpu_capability() -> crate::error::Result<crate::platform::gpu::GpuCapability> {
-    Ok(crate::platform::gpu::capability())
+pub async fn gpu_capability() -> crate::error::Result<crate::platform::gpu::GpuStatus> {
+    Ok(crate::platform::gpu::status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::instances::schema::GpuPreference::{Auto, HighPerformance, PowerSaving};
+
+    #[test]
+    fn a_theme_flip_touches_nothing() {
+        assert_eq!(gpu_transition(Auto, Auto, false), GpuTransition::Nothing);
+    }
+
+    #[test]
+    fn auto_to_auto_retries_an_unfinished_retire() {
+        assert_eq!(gpu_transition(Auto, Auto, true), GpuTransition::Retire);
+    }
+
+    #[test]
+    fn leaving_a_choice_retires_and_making_one_applies() {
+        assert_eq!(
+            gpu_transition(HighPerformance, Auto, false),
+            GpuTransition::Retire
+        );
+        assert_eq!(
+            gpu_transition(Auto, HighPerformance, false),
+            GpuTransition::Apply(HighPerformance)
+        );
+        assert_eq!(
+            gpu_transition(HighPerformance, PowerSaving, true),
+            GpuTransition::Apply(PowerSaving)
+        );
+    }
 }

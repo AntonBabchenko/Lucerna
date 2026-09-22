@@ -30,6 +30,47 @@ pub enum GpuCapability {
         /// Name the "power saving" option resolves to, if known.
         low: Option<String>,
     },
+    /// The probe could not run — NOT "one GPU"; the UI says it could not tell.
+    Unknown { details: String },
+}
+
+/// How this OS steers a spawned game's GPU. Lets the page describe the
+/// mechanism truthfully — including for a stored choice on a system where it
+/// does nothing.
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuMechanism {
+    WindowsRegistry,
+    LinuxEnv,
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Type, PartialEq, Eq)]
+pub struct GpuStatus {
+    pub mechanism: GpuMechanism,
+    pub capability: GpuCapability,
+}
+
+pub fn mechanism() -> GpuMechanism {
+    #[cfg(windows)]
+    {
+        GpuMechanism::WindowsRegistry
+    }
+    #[cfg(target_os = "linux")]
+    {
+        GpuMechanism::LinuxEnv
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        GpuMechanism::None
+    }
+}
+
+pub fn status() -> GpuStatus {
+    GpuStatus {
+        mechanism: mechanism(),
+        capability: capability(),
+    }
 }
 
 /// Internal probe result, fed to `classify`.
@@ -65,6 +106,96 @@ pub fn classify(adapters: &[GpuAdapter]) -> GpuCapability {
             .collect(),
         high,
         low,
+    }
+}
+
+/// The `UserGpuPreferences` value is a `key=value;` list. Lucerna owns ONE
+/// field of it (`GpuPreference`) and preserves every other — Windows 11 keeps
+/// its "Optimizations for windowed games" toggle in the same value, as
+/// `SwapEffectUpgradeEnable=1;`.
+pub mod fields {
+    /// The value of `key`, or `None` when the field is absent.
+    pub fn get<'a>(value: &'a str, key: &str) -> Option<&'a str> {
+        // RED STUB (push 1).
+        let _ = (value, key);
+        None
+    }
+
+    /// `value` with `key` set to `field`: replaced in place when present,
+    /// appended otherwise. Every other field is kept byte for byte.
+    pub fn set(value: &str, key: &str, field: &str) -> String {
+        // RED STUB (push 1).
+        let _ = (key, field);
+        value.to_owned()
+    }
+
+    /// `value` without `key`; empty when nothing is left.
+    pub fn remove(value: &str, key: &str) -> String {
+        // RED STUB (push 1).
+        let _ = key;
+        value.to_owned()
+    }
+}
+
+/// The `GpuPreference` field Lucerna writes for a preference, or `None` for
+/// `Auto` — which means "nothing to write", never "delete".
+pub fn gpu_pref_field(pref: GpuPreference) -> Option<&'static str> {
+    match pref {
+        GpuPreference::Auto => None,
+        GpuPreference::HighPerformance => Some("2"),
+        GpuPreference::PowerSaving => Some("1"),
+    }
+}
+
+/// The OS's per-exe GPU preference store, behind a trait so `gpu_pref` can be
+/// exercised on every OS against a fake. `read` tells absent from unreadable;
+/// nothing here creates the key except `write`.
+pub trait GpuRegistry {
+    fn read(&self, exe: &std::path::Path) -> std::io::Result<Option<String>>;
+    fn write(&self, exe: &std::path::Path, value: &str) -> std::io::Result<()>;
+    fn delete(&self, exe: &std::path::Path) -> std::io::Result<()>;
+}
+
+/// The real store: the per-user `UserGpuPreferences` key on Windows; reads
+/// as absent and writes nothing anywhere else (Linux steers through the
+/// child's environment, macOS has no mechanism).
+pub struct OsRegistry;
+
+impl GpuRegistry for OsRegistry {
+    fn read(&self, exe: &std::path::Path) -> std::io::Result<Option<String>> {
+        #[cfg(windows)]
+        {
+            win::read(exe)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = exe;
+            Ok(None)
+        }
+    }
+
+    fn write(&self, exe: &std::path::Path, value: &str) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            win::write(exe, value)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (exe, value);
+            Ok(())
+        }
+    }
+
+    fn delete(&self, exe: &std::path::Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            win::delete(exe)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = exe;
+            Ok(())
+        }
     }
 }
 
@@ -122,16 +253,22 @@ pub fn capability() -> GpuCapability {
     }
     #[cfg(target_os = "linux")]
     {
-        classify(&linux_adapters())
+        capability_from_probe(Ok(linux_adapters()))
     }
     #[cfg(target_os = "windows")]
     {
-        classify(&win::adapters())
+        capability_from_probe(Ok(win::adapters()))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         GpuCapability::Unsupported
     }
+}
+
+/// A probe that could not run is `Unknown`; an empty list is a real "one GPU".
+pub fn capability_from_probe(probe: std::io::Result<Vec<GpuAdapter>>) -> GpuCapability {
+    // RED STUB (push 1): folds a failed probe into "one GPU", as today.
+    classify(&probe.unwrap_or_default())
 }
 
 /// Enumerate GPU adapters from `/sys/class/drm` on Linux.
@@ -221,6 +358,21 @@ mod win {
 
     /// Open (or create) `HKCU\…\UserGpuPreferences`. Returns the open key or
     /// an IO error. The caller is responsible for calling `RegCloseKey`.
+    /// Open the key with `access` WITHOUT creating it: `Ok(None)` when it
+    /// does not exist. A read must never create.
+    unsafe fn open(access: u32) -> io::Result<Option<HKEY>> {
+        let subkey = wide(SUBKEY);
+        let mut hkey: HKEY = std::ptr::null_mut();
+        let rc = RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, access, &mut hkey);
+        if rc == ERROR_SUCCESS {
+            Ok(Some(hkey))
+        } else if rc == ERROR_FILE_NOT_FOUND {
+            Ok(None)
+        } else {
+            Err(io::Error::from_raw_os_error(rc as i32))
+        }
+    }
+
     unsafe fn open_or_create() -> io::Result<HKEY> {
         let subkey = wide(SUBKEY);
         let mut hkey: HKEY = std::ptr::null_mut();
@@ -294,6 +446,90 @@ mod win {
             };
             RegCloseKey(hkey);
             result
+        }
+    }
+
+    /// A REG_SZ value by (wide) name: `Ok(None)` when absent, `Err` when it
+    /// could not be read — the two are never folded together.
+    unsafe fn query_sz(hkey: HKEY, name: &[u16]) -> io::Result<Option<String>> {
+        let mut buf = [0u16; 512];
+        let mut len = (buf.len() * 2) as u32; // bytes
+        let rc = RegQueryValueExW(
+            hkey,
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            buf.as_mut_ptr() as *mut u8,
+            &mut len,
+        );
+        if rc == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
+        if rc != ERROR_SUCCESS {
+            return Err(io::Error::from_raw_os_error(rc as i32));
+        }
+        // `len` counts bytes including the NUL terminator; drop the terminator.
+        let chars = (len as usize / 2).saturating_sub(1);
+        Ok(Some(String::from_utf16_lossy(&buf[..chars])))
+    }
+
+    /// The whole value for `exe`; `None` when the key or the value is absent.
+    pub fn read(exe: &Path) -> io::Result<Option<String>> {
+        // SAFETY: standard Win32 registry FFI; pointers are to locals that
+        // outlive the calls; the key is closed before returning.
+        unsafe {
+            let Some(hkey) = open(KEY_READ)? else {
+                return Ok(None);
+            };
+            let name = wide_os(exe);
+            let result = query_sz(hkey, &name);
+            RegCloseKey(hkey);
+            result
+        }
+    }
+
+    /// Write the whole value for `exe` (creating the key if needed — the
+    /// only primitive that does).
+    pub fn write(exe: &Path, value: &str) -> io::Result<()> {
+        // SAFETY: as in `read`; `data` outlives the call; the byte count
+        // includes the NUL terminator `wide` appends.
+        unsafe {
+            let hkey = open_or_create()?;
+            let name = wide_os(exe);
+            let data = wide(value);
+            let bytes = (data.len() * 2) as u32;
+            let rc = RegSetValueExW(
+                hkey,
+                name.as_ptr(),
+                0,
+                REG_SZ,
+                data.as_ptr() as *const u8,
+                bytes,
+            );
+            RegCloseKey(hkey);
+            if rc == ERROR_SUCCESS {
+                Ok(())
+            } else {
+                Err(io::Error::from_raw_os_error(rc as i32))
+            }
+        }
+    }
+
+    /// Delete the value for `exe`; an absent key or value is already done.
+    pub fn delete(exe: &Path) -> io::Result<()> {
+        // SAFETY: as in `read`.
+        unsafe {
+            let Some(hkey) = open(KEY_WRITE)? else {
+                return Ok(());
+            };
+            let name = wide_os(exe);
+            let rc = RegDeleteValueW(hkey, name.as_ptr());
+            RegCloseKey(hkey);
+            if rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND {
+                Ok(())
+            } else {
+                Err(io::Error::from_raw_os_error(rc as i32))
+            }
         }
     }
 
@@ -482,6 +718,109 @@ mod tests {
     }
 
     #[test]
+    fn gpu_pref_field_is_the_windows_field_value_or_nothing() {
+        assert_eq!(gpu_pref_field(GpuPreference::Auto), None);
+        assert_eq!(gpu_pref_field(GpuPreference::HighPerformance), Some("2"));
+        assert_eq!(gpu_pref_field(GpuPreference::PowerSaving), Some("1"));
+    }
+
+    #[test]
+    fn fields_get_finds_one_field_among_others() {
+        assert_eq!(
+            fields::get(
+                "GpuPreference=2;SwapEffectUpgradeEnable=1;",
+                "GpuPreference"
+            ),
+            Some("2")
+        );
+        assert_eq!(
+            fields::get("SwapEffectUpgradeEnable=1;", "GpuPreference"),
+            None
+        );
+        assert_eq!(fields::get("", "GpuPreference"), None);
+    }
+
+    #[test]
+    fn fields_set_replaces_in_place_and_keeps_every_other_field() {
+        assert_eq!(
+            fields::set(
+                "GpuPreference=1;SwapEffectUpgradeEnable=1;",
+                "GpuPreference",
+                "2"
+            ),
+            "GpuPreference=2;SwapEffectUpgradeEnable=1;"
+        );
+        assert_eq!(
+            fields::set("SwapEffectUpgradeEnable=1;", "GpuPreference", "2"),
+            "SwapEffectUpgradeEnable=1;GpuPreference=2;"
+        );
+        assert_eq!(fields::set("", "GpuPreference", "2"), "GpuPreference=2;");
+    }
+
+    #[test]
+    fn fields_remove_leaves_the_rest_or_nothing() {
+        assert_eq!(
+            fields::remove(
+                "GpuPreference=2;SwapEffectUpgradeEnable=1;",
+                "GpuPreference"
+            ),
+            "SwapEffectUpgradeEnable=1;"
+        );
+        assert_eq!(fields::remove("GpuPreference=2;", "GpuPreference"), "");
+        assert_eq!(
+            fields::remove("SwapEffectUpgradeEnable=1;", "GpuPreference"),
+            "SwapEffectUpgradeEnable=1;"
+        );
+    }
+
+    #[test]
+    fn a_failed_probe_is_unknown_not_single_gpu() {
+        let cap = capability_from_probe(Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "class key",
+        )));
+        assert!(
+            matches!(cap, GpuCapability::Unknown { ref details } if details.contains("class key")),
+            "got {cap:?}"
+        );
+        assert_eq!(capability_from_probe(Ok(vec![])), GpuCapability::SingleGpu);
+    }
+
+    #[test]
+    fn gpu_status_serializes_the_mechanism_snake_case() {
+        let json = serde_json::to_string(&GpuStatus {
+            mechanism: GpuMechanism::WindowsRegistry,
+            capability: GpuCapability::Unknown {
+                details: "x".into(),
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"mechanism":"windows_registry","capability":{"kind":"unknown","details":"x"}}"#
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_registry_primitives_on_a_throwaway_value() {
+        use std::path::PathBuf;
+        let fake = PathBuf::from(r"C:\lucerna-test\zzz-gpu-primitives\javaw.exe");
+        let reg = OsRegistry;
+        // Deleting what is absent is already done; reading it is None, not an error.
+        reg.delete(&fake).unwrap();
+        assert_eq!(reg.read(&fake).unwrap(), None);
+        reg.write(&fake, "GpuPreference=1;SwapEffectUpgradeEnable=1;")
+            .unwrap();
+        assert_eq!(
+            reg.read(&fake).unwrap().as_deref(),
+            Some("GpuPreference=1;SwapEffectUpgradeEnable=1;")
+        );
+        reg.delete(&fake).unwrap();
+        assert_eq!(reg.read(&fake).unwrap(), None);
+    }
+
+    #[test]
     fn launch_env_empty_unless_high_performance() {
         assert!(gpu_launch_env(GpuPreference::Auto, true).is_empty());
         assert!(gpu_launch_env(GpuPreference::PowerSaving, true).is_empty());
@@ -513,6 +852,7 @@ mod tests {
         match cap {
             GpuCapability::Unsupported
             | GpuCapability::SingleGpu
+            | GpuCapability::Unknown { .. }
             | GpuCapability::Available { .. } => {}
         }
     }
