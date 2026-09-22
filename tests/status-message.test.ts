@@ -32,4 +32,11 @@ describe('StatusMessage', () => {
     expect(screen.getByRole('status')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  it('renders the success tone as text-success under role=status', () => {
+    render(StatusMessage, { props: { message: 'Saved', tone: 'success' } });
+    const region = screen.getByRole('status');
+    expect(region.textContent).toContain('Saved');
+    expect(region.querySelector('p')?.className).toContain('text-success');
+  });
 });
