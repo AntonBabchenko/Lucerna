@@ -2675,9 +2675,21 @@
         "auto": "Automatic (let the system decide)",
         "high": "High performance",
         "power": "Power saving",
-        "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
         "appliedToast": "Applied GPU preference to the new Java runtime: {name}",
-        "unavailable": "GPU selection isn't available on this system."
+        "noteWindows": "Applies to every instance from its next launch; a game that's already running keeps its GPU. A choice other than Automatic sets the GpuPreference field of the Windows per-app graphics preference for Lucerna's own Java (HKEY_CURRENT_USER\\Software\\Microsoft\\DirectX\\UserGpuPreferences — the entry Windows Settings → System → Display → Graphics shows); other fields of that entry are left as they are. Automatic writes nothing; switching back to Automatic restores the value Lucerna replaced, if it is still Lucerna's.",
+        "noteLinux": "Applies to every instance from its next launch; a game that's already running keeps its GPU. High performance sets the PRIME offload variables for the game process only; Power saving is the same as Automatic here. Nothing is written to the system.",
+        "reason": {
+          "singleGpu": "Only one graphics adapter was found — there's nothing to choose.",
+          "unsupported": "macOS picks the GPU itself; Lucerna can't steer it.",
+          "unknown": "Lucerna couldn't check the graphics adapters: {details}"
+        },
+        "stored": {
+          "windows": "A stored choice — {label} — is still written to the Windows graphics preference at every launch.",
+          "linux": "A stored choice — {label} — still sets the PRIME variables at every launch.",
+          "inert": "A stored choice — {label} — has no effect on this system. Reset clears it.",
+          "saved": "A stored choice — {label} — is still saved. Reset returns to Automatic."
+        },
+        "resetBtn": "Reset to Automatic"
       },
       "logRetention": {
         "title": "Log retention",

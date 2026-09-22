@@ -1289,14 +1289,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Persist the GeneralSettings block. Read-modify-write of app.json
 	 *  — leaves `active_instance`, `onboarding`, and `version` untouched.
-	 *  After persisting, re-syncs GPU preference to every installed JRE.
+	 *  Then the GPU preference: "Automatic" touches nothing; a choice is
+	 *  applied to every installed runtime; leaving a choice puts back what
+	 *  Lucerna replaced (`gpu_pref`).
 	 */
 	appSettingsSetGeneral: (general: GeneralSettings) => typedError<null, Error>(__TAURI_INVOKE("app_settings_set_general", { general })),
 	/**
-	 *  Probe GPU-selection capability for the Settings UI. Read-only; returns
-	 *  `Unsupported`/`SingleGpu` (UI hides the control) or `Available` with labels.
+	 *  Probe GPU-selection capability for the Settings UI, with the mechanism
+	 *  this OS uses so the page can describe it truthfully. Read-only.
 	 */
-	gpuCapability: () => typedError<GpuCapability, Error>(__TAURI_INVOKE("gpu_capability")),
+	gpuCapability: () => typedError<GpuStatus, Error>(__TAURI_INVOKE("gpu_capability")),
 	/**
 	 *  Check GitHub Releases for a newer version. Returns `UpdateInfo` with
 	 *  `available=false` when up-to-date; `Err` on network/parse failure
@@ -3873,12 +3875,21 @@ export type GpuCapability =
 /**  Name the "high performance" option resolves to, if known. */
 high: string | null; 
 /**  Name the "power saving" option resolves to, if known. */
-low: string | null };
+low: string | null } | 
+/**  The probe could not run — NOT "one GPU"; the UI says it could not tell. */
+{ kind: "unknown"; details: string };
 
 /**  One GPU as shown to the UI. */
 export type GpuInfo = {
 	name: string,
 };
+
+/**
+ *  How this OS steers a spawned game's GPU. Lets the page describe the
+ *  mechanism truthfully — including for a stored choice on a system where it
+ *  does nothing.
+ */
+export type GpuMechanism = "windows_registry" | "linux_env" | "none";
 
 /**
  *  Emitted when a freshly-installed JRE was stamped with a non-Auto GPU
@@ -3898,6 +3909,11 @@ export type GpuPrefApplied = {
  *  macOS ignores it (no mechanism). Default `Auto` = today's behavior.
  */
 export type GpuPreference = "auto" | "high_performance" | "power_saving";
+
+export type GpuStatus = {
+	mechanism: GpuMechanism,
+	capability: GpuCapability,
+};
 
 export type Greeting = {
 	message: string,

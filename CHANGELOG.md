@@ -31,6 +31,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **"Automatic" GPU no longer erases a graphics preference you set yourself.** On
+  Windows, Lucerna used to delete the per-app GPU entry for its own Java on every
+  launch and on every settings save — including a theme change — whenever its
+  own setting was "Automatic", which wiped a choice made in Windows Settings →
+  Graphics. Now "Automatic" writes nothing; choosing High performance or Power
+  saving sets only Lucerna's field of that entry (Windows 11's "Optimizations
+  for windowed games" toggle stays) and remembers what it replaced, and
+  switching back to Automatic puts that back. Settings → Game says why the
+  choice is unavailable on this system instead of one sentence for every
+  reason, keeps a stored choice visible with a Reset, and the helper text names
+  the exact entry it writes.
 - **The Manage window locked the wrong profile while a game was running.** The
   lock followed the active profile rather than the one being edited: an idle
   profile could not be changed or deleted while another one ran, and a running

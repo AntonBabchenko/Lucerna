@@ -8,6 +8,7 @@ pub mod deeplink;
 pub mod diag;
 pub mod error;
 pub mod forge;
+pub mod gpu_pref;
 pub mod instances;
 pub mod journal;
 pub mod jre;

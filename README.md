@@ -32,7 +32,7 @@ switcher.
 
 **Instances** — multiple isolated `.minecraft` directories side-by-side. Each
 instance has its own MC version, mod loader, mods, configs, worlds, JVM args,
-GPU preference, and custom icon. Switching instance switches Minecraft install
+and custom icon. Switching instance switches Minecraft install
 with one click, and several instances can run **concurrently** — the launcher
 tracks each running game separately and surfaces them in a running-instances
 popover. An instance can be cloned (choosing what comes along), and existing
@@ -43,7 +43,8 @@ once and hard-linked into every instance that uses it, so ten instances sharing
 a mod cost the space of one.
 
 **Launching** — per-instance memory and JVM tuning, a GPU preference
-(automatic / high-performance / power-saving), and Quick Play: jump straight
+(automatic / high-performance / power-saving; one setting for all instances),
+and Quick Play: jump straight
 into a specific world or server from the launcher on MC 1.20+.
 
 **Mod loaders** — Fabric (Quilt as a Fabric superset), Forge (every era,

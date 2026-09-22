@@ -1,101 +1,160 @@
-import { render, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
-import type { GpuCapability } from '$lib/ipc/bindings';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GpuStatus } from '$lib/ipc/bindings';
 
-// Hoisted so they're available before vi.mock factory runs.
-const { gpuCapability } = vi.hoisted(() => ({
-  gpuCapability: vi.fn(
-    async (): Promise<{ status: 'ok'; data: GpuCapability }> => ({
-      status: 'ok',
-      data: { kind: 'unsupported' },
-    }),
-  ),
+// The GPU block tells the user why a control is hidden, never claims "single
+// GPU" for "could not tell", keeps a stored choice visible with a way back to
+// Automatic, and describes the mechanism of the machine it runs on.
+const { gpuCapability, general } = vi.hoisted(() => ({
+  gpuCapability: vi.fn(),
+  general: {
+    hide_to_tray_during_game: false,
+    theme: 'system',
+    check_updates_on_startup: true,
+    gpu_preference: 'auto',
+    allow_server_ping: false,
+  },
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    appSettingsGet: vi.fn(async () => ({
-      status: 'ok',
-      data: {
-        general: {
-          hide_to_tray_during_game: false,
-          theme: 'system',
-          check_updates_on_startup: true,
-          gpu_preference: 'auto',
-        },
-      },
-    })),
+    appSettingsGet: vi.fn(async () => ({ status: 'ok', data: { general } })),
     appSettingsSetGeneral: vi.fn(async () => ({ status: 'ok', data: null })),
-    updateCheck: vi.fn(async () => ({
-      status: 'ok',
-      data: { available: false, current: '0.0.0', latest: '0.0.0' },
-    })),
     gpuCapability: () => gpuCapability(),
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import GamePanel from '$lib/settings/GamePanel.svelte';
 
-describe('GamePanel GPU dropdown', () => {
-  it('shows a spinner while gpuCapability is pending, then shows gpu-select on resolve', async () => {
-    const available: GpuCapability = {
-      kind: 'available',
-      gpus: [{ name: 'NVIDIA' }, { name: 'Intel' }],
-      high: 'NVIDIA',
-      low: 'Intel',
-    };
-    let resolveGpu!: (v: { status: 'ok'; data: GpuCapability }) => void;
-    const pending = new Promise<{ status: 'ok'; data: GpuCapability }>((resolve) => {
-      resolveGpu = resolve;
-    });
-    gpuCapability.mockReturnValueOnce(pending);
+const AVAILABLE: GpuStatus = {
+  mechanism: 'windows_registry',
+  capability: {
+    kind: 'available',
+    gpus: [{ name: 'NVIDIA' }, { name: 'Intel' }],
+    high: 'NVIDIA',
+    low: 'Intel',
+  },
+};
+const status = (
+  mechanism: GpuStatus['mechanism'],
+  capability: GpuStatus['capability'],
+): GpuStatus => ({ mechanism, capability });
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
-    const { queryByRole, findByTestId } = render(GamePanel);
+beforeEach(() => {
+  vi.clearAllMocks();
+  general.gpu_preference = 'auto';
+  gpuCapability.mockResolvedValue({ status: 'ok', data: AVAILABLE });
+});
 
-    // While the promise is pending, the spinner should be visible.
-    await waitFor(() => {
-      expect(queryByRole('status')).not.toBeNull();
-    });
-
-    // After resolve the Select should appear and spinner should be gone.
-    resolveGpu({ status: 'ok', data: available });
-    const select = await findByTestId('gpu-select');
-    expect(select).toBeTruthy();
-    await waitFor(() => {
-      expect(queryByRole('status')).toBeNull();
-    });
+describe('GamePanel GPU block', () => {
+  it('starts checking — the first frame never says "not available"', async () => {
+    let resolve!: (v: unknown) => void;
+    gpuCapability.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    render(GamePanel);
+    // The very first frame claims nothing — synchronously, before any answer. (The spinner
+    // itself has an anti-flicker delay, so it is awaited, not asserted on the first frame.)
+    expect(screen.queryByTestId('gpu-reason')).toBeNull();
+    expect(screen.queryByTestId('gpu-select')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeNull());
+    resolve({ status: 'ok', data: AVAILABLE });
+    await screen.findByTestId('gpu-select');
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
   });
 
-  it('shows the gpu-select when capability is "available"', async () => {
-    const available: GpuCapability = {
-      kind: 'available',
-      gpus: [{ name: 'NVIDIA' }, { name: 'Intel' }],
-      high: 'NVIDIA',
-      low: 'Intel',
-    };
-    gpuCapability.mockResolvedValueOnce({ status: 'ok', data: available });
-
-    const { findByTestId } = render(GamePanel);
-    const select = await findByTestId('gpu-select');
-    expect(select).toBeTruthy();
+  it('shows the dropdown, and the Windows note names the registry key', async () => {
+    render(GamePanel);
+    await screen.findByTestId('gpu-select');
+    expect(screen.getByTestId('gpu-note').textContent).toContain('UserGpuPreferences');
   });
 
-  it('does not show gpu-select when capability is "single_gpu"', async () => {
-    const singleGpu: GpuCapability = { kind: 'single_gpu' };
-    gpuCapability.mockResolvedValueOnce({ status: 'ok', data: singleGpu });
-
-    const { queryByTestId } = render(GamePanel);
-    // Wait for onMount to complete.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(queryByTestId('gpu-select')).toBeNull();
+  it('the Linux note speaks of PRIME, not of the registry', async () => {
+    gpuCapability.mockResolvedValue({
+      status: 'ok',
+      data: status('linux_env', AVAILABLE.capability),
+    });
+    render(GamePanel);
+    await screen.findByTestId('gpu-select');
+    expect(screen.getByTestId('gpu-note').textContent).toContain('PRIME');
+    expect(screen.getByTestId('gpu-note').textContent).not.toContain('UserGpuPreferences');
   });
 
-  it('does not show gpu-select when capability is "unsupported"', async () => {
-    const unsupported: GpuCapability = { kind: 'unsupported' };
-    gpuCapability.mockResolvedValueOnce({ status: 'ok', data: unsupported });
+  it.each([
+    ['single_gpu', 'windows_registry', 'Only one graphics adapter'],
+    ['unsupported', 'none', 'macOS picks the GPU itself'],
+  ] as const)('%s hides the dropdown and says why', async (kind, mechanism, text) => {
+    gpuCapability.mockResolvedValue({ status: 'ok', data: status(mechanism, { kind }) });
+    render(GamePanel);
+    await flush();
+    expect(screen.queryByTestId('gpu-select')).toBeNull();
+    expect(screen.getByTestId('gpu-reason').textContent).toContain(text);
+  });
 
-    const { queryByTestId } = render(GamePanel);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(queryByTestId('gpu-select')).toBeNull();
+  it('a failed probe is "could not check" with the details — never "single GPU"', async () => {
+    gpuCapability.mockResolvedValue({
+      status: 'ok',
+      data: status('windows_registry', { kind: 'unknown', details: 'class key: access denied' }),
+    });
+    render(GamePanel);
+    await flush();
+    const reason = screen.getByTestId('gpu-reason').textContent;
+    expect(reason).toContain("couldn't check the graphics adapters");
+    expect(reason).toContain('class key: access denied');
+  });
+
+  it('a rejected probe call reads the same way', async () => {
+    gpuCapability.mockRejectedValue(new Error('ipc channel closed'));
+    render(GamePanel);
+    await flush();
+    const reason = screen.getByTestId('gpu-reason').textContent;
+    expect(reason).toContain("couldn't check");
+    expect(reason).toContain('ipc channel closed');
+  });
+
+  it('a stored choice stays visible while the control is hidden, and Reset saves Automatic', async () => {
+    general.gpu_preference = 'high_performance';
+    gpuCapability.mockResolvedValue({
+      status: 'ok',
+      data: status('windows_registry', { kind: 'single_gpu' }),
+    });
+    render(GamePanel);
+    await flush();
+    expect(screen.getByTestId('gpu-stored').textContent).toContain(
+      'still written to the Windows graphics preference',
+    );
+    await fireEvent.click(screen.getByTestId('gpu-reset'));
+    await flush();
+    await flush();
+    expect(commands.appSettingsSetGeneral).toHaveBeenCalledWith(
+      expect.objectContaining({ gpu_preference: 'auto' }),
+    );
+    expect(screen.queryByTestId('gpu-stored')).toBeNull();
+  });
+
+  it.each([
+    ['none', 'power_saving'],
+    ['linux_env', 'power_saving'],
+  ] as const)('on %s a stored %s says it has no effect', async (mechanism, pref) => {
+    general.gpu_preference = pref;
+    gpuCapability.mockResolvedValue({
+      status: 'ok',
+      data: status(mechanism, { kind: 'unsupported' }),
+    });
+    render(GamePanel);
+    await flush();
+    expect(screen.getByTestId('gpu-stored').textContent).toContain('has no effect on this system');
+  });
+
+  it('nothing is claimed while checking, and nothing on Automatic', async () => {
+    general.gpu_preference = 'auto';
+    gpuCapability.mockResolvedValue({
+      status: 'ok',
+      data: status('windows_registry', { kind: 'single_gpu' }),
+    });
+    render(GamePanel);
+    await flush();
+    expect(screen.queryByTestId('gpu-stored')).toBeNull();
+    expect(screen.queryByTestId('gpu-reset')).toBeNull();
   });
 });

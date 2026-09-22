@@ -430,15 +430,35 @@ pub async fn start(
     ));
     argv.extend(argv_from_manifest);
 
-    // GPU preference: best-effort, never blocks launch.
-    let gpu_pref = crate::paths::app_file(app)
-        .ok()
-        .and_then(|p| crate::instances::store::read_app_json(&p).ok())
-        .map(|af| af.general.gpu_preference)
-        .unwrap_or_default();
-    // Windows: keep the registry entry for THIS javaw in sync with the setting.
-    if let Err(e) = crate::platform::gpu::sync_for_exe(&java_path, gpu_pref) {
-        crate::diag!("gpu: registry sync failed for {}: {e}", java_path.display());
+    // GPU preference: best-effort, never blocks launch. "Automatic" touches
+    // nothing. An app.json that cannot be read applies nothing and SAYS so —
+    // it used to read as Auto silently.
+    let gpu_pref = match crate::paths::app_file(app)
+        .map_err(|e| e.to_string())
+        .and_then(|p| crate::instances::store::read_app_json(&p).map_err(|e| e.to_string()))
+    {
+        Ok(af) => af.general.gpu_preference,
+        Err(e) => {
+            crate::diag!("gpu: cannot read the preference, applying nothing: {e}");
+            crate::instances::schema::GpuPreference::Auto
+        }
+    };
+    if gpu_pref != crate::instances::schema::GpuPreference::Auto {
+        match crate::gpu_pref::record_path(app) {
+            Ok(record) => match crate::gpu_pref::apply(
+                &crate::platform::gpu::OsRegistry,
+                &record,
+                &java_path,
+                gpu_pref,
+            ) {
+                Ok(crate::gpu_pref::Applied::Refused(why)) => {
+                    crate::diag!("gpu: refused for {}: {why}", java_path.display())
+                }
+                Ok(_) => {}
+                Err(e) => crate::diag!("gpu: apply failed for {}: {e}", java_path.display()),
+            },
+            Err(e) => crate::diag!("gpu: cannot resolve the record path: {e}"),
+        }
     }
     // Linux: env vars on the child (empty elsewhere).
     let gpu_env = crate::platform::gpu::launch_env(gpu_pref);
