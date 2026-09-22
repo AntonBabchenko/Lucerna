@@ -23,6 +23,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.22.0', {
       entries: LOG,
+      recoverySession: async () => false,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -38,6 +39,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew(null, {
       entries: LOG,
+      recoverySession: async () => false,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -49,6 +51,36 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.23.0', {
       entries: LOG,
+      recoverySession: async () => false,
+      currentVersion: async () => '0.23.0',
+      markSeen: async (x) => void marked.push(x),
+    });
+    expect(toastList().some((t) => t.action)).toBe(false);
+    expect(marked).toEqual([]);
+  });
+
+  it('does nothing in a recovery session — not even the baseline write', async () => {
+    // The throwaway root has no app.json of the user's: a baseline written there is lost, and a
+    // prompt over the recovery banner is noise.
+    const marked: string[] = [];
+    await checkWhatsNew('0.22.0', {
+      entries: LOG,
+      recoverySession: async () => true,
+      currentVersion: async () => '0.23.0',
+      markSeen: async (x) => void marked.push(x),
+    });
+    expect(toastList().some((t) => t.action)).toBe(false);
+    expect(marked).toEqual([]);
+  });
+
+  it('does nothing while it cannot tell which session this is', async () => {
+    // "Could not tell" is restrictive: it is offered again on the next start.
+    const marked: string[] = [];
+    await checkWhatsNew('0.22.0', {
+      entries: LOG,
+      recoverySession: async () => {
+        throw new Error('status unavailable');
+      },
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });

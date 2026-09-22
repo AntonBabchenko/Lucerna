@@ -29,6 +29,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { fallbackDetails } from './fallback-message';
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
   import SettingsField from './SettingsField.svelte';
 
@@ -226,6 +227,13 @@
     return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
   }
 
+  /** With nothing seeded in a recovery session there is no instance, so the Logs popover has
+   *  nothing to list — and the launcher log is the one document that says WHY. */
+  async function openLogFolder() {
+    const r = await commands.openLauncherLogFolder();
+    if (r.status === 'error') migrationError = formatError(r.error);
+  }
+
   function clearMoveMessages() {
     migrationError = null;
     moveNotice = null;
@@ -240,7 +248,11 @@
       // Open the picker at the current data root's PARENT rather than wherever
       // the last OS dialog left off (which could be an unrelated folder such
       // as .minecraft/saves from an earlier world import).
-      const current = dataLocation.status?.effective;
+      // In a recovery session `effective` is the throwaway session root: start from the
+      // configured folder's parent instead — the drive it moved from is the likeliest pick.
+      const current = dataLocation.fellBack
+        ? dataLocation.status?.configured
+        : dataLocation.status?.effective;
       const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
       const picked = await openDirectory({ directory: true, defaultPath });
       if (!picked || typeof picked !== 'string') return;
@@ -533,14 +545,33 @@
         </div>
       {/if}
 
-      {#if dataLocation.status?.fell_back}
+      {#if dataLocation.fallback}
+        <!-- Only the ways back: the banner already said WHY (and the modal-level notice that
+             settings are temporary). The OS error, when there is one, belongs here — not in a
+             banner read at a glance. -->
         <div
-          class="rounded-xl border border-warning-text bg-warning-bg p-3 text-sm text-warning-text"
+          class="rounded-xl border border-warning-text bg-warning-bg p-3 text-sm text-warning-text flex flex-col gap-2"
           role="alert"
+          data-testid="data-location-recovery-notice"
         >
-          {$t('settings.storage.dataLocation.fallbackNotice', {
-            path: dataLocation.status.configured ?? '',
-          })}
+          <p>{$t('settings.storage.dataLocation.fallbackNotice')}</p>
+          {#if fallbackDetails(dataLocation.fallback)}
+            <p class="font-mono text-xs selectable">
+              {$t('settings.storage.dataLocation.fallbackDetails', {
+                details: fallbackDetails(dataLocation.fallback),
+              })}
+            </p>
+          {/if}
+          <div>
+            <button
+              type="button"
+              class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+              onclick={() => void openLogFolder()}
+            >
+              <Icon name="folderOpen" size={14} />
+              {$t('settings.storage.dataLocation.openLogFolderBtn')}
+            </button>
+          </div>
         </div>
       {/if}
 
@@ -568,26 +599,34 @@
       {#if dataLocation.status}
         <div class="text-sm">
           <span class="text-muted">{$t('settings.storage.dataLocation.currentLabel')}</span>
-          <span class="font-mono text-xs selectable ml-1">{dataLocation.status.effective}</span>
+          <!-- A recovery session's root is a throwaway dir under the cache: an implementation
+               detail, never a path to show or measure. -->
+          <span class="font-mono text-xs selectable ml-1"
+            >{dataLocation.fellBack
+              ? $t('settings.storage.dataLocation.temporarySession')
+              : dataLocation.status.effective}</span
+          >
         </div>
-        <div class="text-sm flex items-center gap-1">
-          <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
-          {#if dataRootSizeLoading}
-            <Spinner size="sm" class="text-muted" />
-          {:else if dataRootSize === null}
-            <span class="ml-1 text-warning-text"
-              >{$t('settings.storage.dataLocation.sizeUnknown')}</span
-            >
-          {:else}
-            <span class="font-medium ml-1"
-              >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
-            >
-          {/if}
-        </div>
-        {#if dataRootSizeError}
-          <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
-            {dataRootSizeError}
+        {#if !dataLocation.fellBack}
+          <div class="text-sm flex items-center gap-1">
+            <span class="text-muted">{$t('settings.storage.dataLocation.sizeLabel')}</span>
+            {#if dataRootSizeLoading}
+              <Spinner size="sm" class="text-muted" />
+            {:else if dataRootSize === null}
+              <span class="ml-1 text-warning-text"
+                >{$t('settings.storage.dataLocation.sizeUnknown')}</span
+              >
+            {:else}
+              <span class="font-medium ml-1"
+                >{formatSize($t, dataRootSize) || $t('format.size.bytes', { n: 0 })}</span
+              >
+            {/if}
           </div>
+          {#if dataRootSizeError}
+            <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">
+              {dataRootSizeError}
+            </div>
+          {/if}
         {/if}
       {:else}
         <p class="text-xs text-muted">…</p>
@@ -599,15 +638,16 @@
             type="button"
             class="btn-secondary btn-sm"
             busy={planning && !planningReset}
-            disabled={planning || moveBlocked || (dataLocation.status?.fell_back ?? false)}
+            disabled={planning || moveBlocked}
             onclick={() => void pickLocation()}
           >
             {$t('settings.storage.dataLocation.changeBtn')}
           </BusyButton>
-          {#if dataLocation.status?.configured}
-            <!-- Deliberately NOT disabled while fell_back: a reset in that state is pointer-only
-                 (the redirect is removed, nothing is copied) and is the ONLY in-app recovery from
-                 a configured folder that will never come back. -->
+          {#if dataLocation.status?.configured || dataLocation.fellBack}
+            <!-- Deliberately NOT disabled while fallen back: a reset in that state is pointer-only
+                 (the pointer is removed, nothing is copied) and is the way out for a configured
+                 folder that will never come back. Rendered for a corrupt pointer too — it names no
+                 folder, but detaching it is exactly what the copy offers. -->
             <BusyButton
               type="button"
               class="btn-secondary btn-sm"
@@ -649,7 +689,8 @@
     mode={pendingTarget.kind}
     fromPath={dataLocation.status?.effective ?? ''}
     toPath={pendingTarget.path}
-    detachedPath={dataLocation.status?.configured ?? ''}
+    detachedPath={dataLocation.status?.configured ?? null}
+    recoverySession={dataLocation.fellBack}
     pointerOnly={pendingTarget.kind === 'reset' && pendingTarget.pointerOnly}
     requiredBytes={pendingTarget.kind === 'adopt' ? null : pendingTarget.requiredBytes}
     freeBytes={pendingTarget.kind === 'adopt' ? null : pendingTarget.freeBytes}

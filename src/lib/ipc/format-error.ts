@@ -798,6 +798,11 @@ export function formatError(e: IpcError): string {
       // `contains_links` is about the CURRENT data, not the picked folder, so the
       // "That folder can't be used: …" frame would blame the wrong thing.
       if (e.reason === 'contains_links') return translate('errors.dataLocationContainsLinks');
+      // Both are about the SESSION, not the picked folder: no "That folder can't be used" frame.
+      if (e.reason === 'fallback_adopt_only')
+        return translate('errors.dataLocationFallbackAdoptOnly');
+      if (e.reason === 'recovery_session_dir')
+        return translate('errors.dataLocationRecoverySessionDir');
       return translate('errors.dataLocationInvalid', {
         reason: dataLocationInvalidReason(e.reason),
       });

@@ -741,6 +741,21 @@ describe('formatError', () => {
       expect(msg).not.toContain("That folder can't be used");
     });
 
+    it('explains the two recovery-session refusals without the "that folder" frame', () => {
+      const adoptOnly = formatError({
+        kind: 'data_location_invalid',
+        reason: 'fallback_adopt_only',
+      });
+      expect(adoptOnly).toContain('already holds Lucerna data');
+      expect(adoptOnly).not.toContain("That folder can't be used");
+      const sessionDir = formatError({
+        kind: 'data_location_invalid',
+        reason: 'recovery_session_dir',
+      });
+      expect(sessionDir).toContain('temporary session');
+      expect(sessionDir).not.toContain("That folder can't be used");
+    });
+
     it('words the busy refusal so it is true for running, busy and unknown alike', () => {
       const msg = formatError({ kind: 'data_location_busy' });
       for (const part of [

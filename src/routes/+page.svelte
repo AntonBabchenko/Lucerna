@@ -119,6 +119,8 @@
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
+  import { fallbackMessage } from '$lib/settings/fallback-message';
+  import { startupDialAllowed } from '$lib/settings/startup-network';
   import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
 
   // How long the startup "new version available" toast stays before it
@@ -883,7 +885,6 @@
     void initCompact(data.general.compact_mode ?? false);
     initSidebarButtons(data.general.hidden_sidebar_buttons ?? []);
     modpackSweepEnabled = data.general.check_updates_on_startup ?? true;
-    sweepModpackUpdates();
     // Post-update "What's new": if the running version differs from the last
     // one the user saw, offer the changelog. Independent of the update-check
     // setting — it's fully offline (embedded changelog, no network).
@@ -895,31 +896,39 @@
     // versions behind the network call (up to the client's 15s connect
     // timeout) on a GitHub outage. Let it resolve on its own; the toast
     // appears whenever it completes.
-    if (data.general.check_updates_on_startup) {
+    // Both automatic dials wait for the data-location status. In a recovery session the settings
+    // are DEFAULTS (the user's app.json is in the folder that cannot be used), so
+    // `check_updates_on_startup` reads true for everyone; the restrictive answer is "don't dial",
+    // and so is "could not tell". The manual check in Settings → Updates is unaffected.
+    void (async () => {
+      await dataLocation.init();
+      if (!startupDialAllowed(modpackSweepEnabled, dataLocation.loaded, dataLocation.fellBack)) {
+        return;
+      }
+      sweepModpackUpdates();
+      if (!data.general.check_updates_on_startup) return;
       const dismissed = data.update_dismissed_version ?? null;
-      void (async () => {
-        const upd = await commands.updateCheck();
-        if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
-          updateState.value = upd.data;
-          const latest = upd.data.latest;
-          const current = upd.data.current;
-          const tr = get(t);
-          const toastId = pushActionToast(
-            'info',
-            tr('page.update.available', { version: latest }),
-            { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
-            [tr('page.update.currentVersion', { version: current })],
-            () => void dismissUpdate(latest),
-          );
-          // Auto-hide the startup notification after a few seconds. This
-          // only HIDES it (so it reappears next launch) — it does NOT mark
-          // the version dismissed (that's the × button via dismissUpdate).
-          // The durable path is the Settings → Updates "Check for updates"
-          // button. No-op if the user already acted on the toast.
-          setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
-        }
-      })();
-    }
+      const upd = await commands.updateCheck();
+      if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
+        updateState.value = upd.data;
+        const latest = upd.data.latest;
+        const current = upd.data.current;
+        const tr = get(t);
+        const toastId = pushActionToast(
+          'info',
+          tr('page.update.available', { version: latest }),
+          { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
+          [tr('page.update.currentVersion', { version: current })],
+          () => void dismissUpdate(latest),
+        );
+        // Auto-hide the startup notification after a few seconds. This
+        // only HIDES it (so it reappears next launch) — it does NOT mark
+        // the version dismissed (that's the × button via dismissUpdate).
+        // The durable path is the Settings → Updates "Check for updates"
+        // button. No-op if the user already acted on the toast.
+        setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
+      }
+    })();
   }
 
   /** Read app settings and apply them. A failed read used to be swallowed: the
@@ -1566,8 +1575,8 @@
       launcherImportBlockedReason={dataLocation.fellBack
         ? get(t)('page.dataRootFallback.createDisabledReason')
         : null}
-      dataRootFallbackReason={compactState.value && dataLocation.fellBack && dataLocation.status
-        ? get(t)('page.dataRootFallback.banner', { path: dataLocation.status.configured ?? '' })
+      dataRootFallbackReason={compactState.value && dataLocation.fallback && dataLocation.status
+        ? fallbackMessage(get(t), dataLocation.fallback, dataLocation.status.configured)
         : null}
       bind:msSigningIn
       onMicrosoftSignedIn={async () => {
@@ -1610,8 +1619,11 @@
     <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
       <!-- System-scoped notice: the data root fallback affects servers too
            (they live under the same data root) — render above both mode panels. -->
-      {#if dataLocation.fellBack && dataLocation.status}
-        <DataRootFallbackBanner configuredPath={dataLocation.status.configured ?? ''} />
+      {#if dataLocation.fallback && dataLocation.status}
+        <DataRootFallbackBanner
+          reason={dataLocation.fallback}
+          configuredPath={dataLocation.status.configured}
+        />
       {/if}
       <!-- class:hidden (not the hidden attr): [hidden] loses the cascade to .flex in Tailwind v3 -->
       <div

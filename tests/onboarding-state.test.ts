@@ -7,6 +7,20 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: (...args: unknown[]) => appSettingsGet(...args),
     appSettingsMarkTourCompleted: (...args: unknown[]) => appSettingsMarkTourCompleted(...args),
+    // initOnboarding asks the data-location store first: no tour in a recovery session, and
+    // none while the session is unknown. A normal session, so the cases below run as before.
+    getDataLocation: () =>
+      Promise.resolve({
+        status: 'ok',
+        data: {
+          effective: 'C:\Data',
+          configured: null,
+          fell_back: false,
+          fallback: null,
+          default_dir: 'C:\Data',
+          relocation: { kind: 'idle' },
+        },
+      }),
   },
 }));
 

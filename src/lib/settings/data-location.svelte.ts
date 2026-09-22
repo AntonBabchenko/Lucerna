@@ -132,6 +132,14 @@ function attach(): () => void {
   };
 }
 
+/** For startup-only surfaces (the first-run tour, "What's new"): is this a recovery session, or
+ *  can we not tell? Both answers mean "do not start" — a tour over the recovery banner teaches
+ *  create and Play while both are refused, and nothing is lost by waiting for the next start. */
+export async function recoverySessionOrUnknown(): Promise<boolean> {
+  await dataLocation.init();
+  return !dataLocation.loaded || dataLocation.fellBack;
+}
+
 export const dataLocation = {
   get status() {
     return status;
