@@ -141,7 +141,7 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     tab: 'storage',
     labelKey: 'settings.search.labels.storage.cache',
     keywordsKey: 'settings.search.keywords.storage.cache',
-    visibleKeys: ['settings.storage.cacheLabel', 'settings.storage.clearBtn'],
+    visibleKeys: ['settings.storage.cacheTitle', 'settings.storage.clearBtn'],
   },
   'storage.logRetention': {
     anchor: 'storage.logRetention',
