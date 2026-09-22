@@ -67,24 +67,38 @@ pub fn status() -> KeyStatus {
 }
 
 pub fn read_status(embedded: Option<&str>) -> KeyStatus {
+    let mut cache = cache();
     let read = get();
     match &read {
-        Ok(stored) => cache_put(stored.clone()),
+        Ok(stored) => *cache = Some(stored.clone()),
         Err(e) => crate::diag!("curseforge key: status read failed: {e}"),
     }
+    drop(cache);
     key_status_from(read, embedded)
 }
 
 /// The personal key as last read or written this session. `None` = not
 /// consulted yet; `Some(None)` = nothing stored, or the read failed (logged).
-static CACHE: std::sync::RwLock<Option<Option<String>>> = std::sync::RwLock::new(None);
+/// Every reader or writer of the slot holds this lock ACROSS its keyring call,
+/// so the cache can never hold an answer older than the last completed write
+/// (lock order: this, then the keychain gate — nothing takes them the other
+/// way round).
+static CACHE: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
 
-fn cache_put(stored: Option<String>) {
-    // A panic while writing poisons the lock; the value inside is a whole
+fn cache() -> std::sync::MutexGuard<'static, Option<Option<String>>> {
+    // A panic while holding the lock poisons it; the value inside is a whole
     // `Option` either way, so it stays usable.
-    *CACHE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stored);
+    CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Fill the cache at startup, off the main thread, so the session's first
+/// CurseForge request finds the answer ready instead of paying the keyring
+/// round trip (or an unlock prompt) on a runtime worker. A request that beats
+/// the warm-up does that one read itself, behind the same lock.
+pub fn warm() {
+    resolve_with_cache(EMBEDDED_KEY);
 }
 
 /// The effective key from the session cache; the keyring is read at most once
@@ -92,12 +106,9 @@ fn cache_put(stored: Option<String>) {
 /// CurseForge request pays a D-Bus round trip and a locked keyring prompts at
 /// most once.
 pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
-    let cached = CACHE
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
-    let stored = match cached {
-        Some(stored) => stored,
+    let mut cache = cache();
+    let stored = match &*cache {
+        Some(stored) => stored.clone(),
         None => {
             let stored = match get() {
                 Ok(stored) => stored,
@@ -105,18 +116,19 @@ pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
                     // A keyring that cannot be read is "no personal key" for the
                     // rest of the session: requests fall back to the build's key
                     // (or fail as keyless), and Settings shows the read failure
-                    // with a Retry that refreshes this cache. Logged once, not
-                    // per request.
+                    // with a Check again that refreshes this cache. Logged once,
+                    // not per request.
                     crate::diag!(
                         "curseforge key: keyring read failed, no personal key this session: {e}"
                     );
                     None
                 }
             };
-            cache_put(stored.clone());
+            *cache = Some(stored.clone());
             stored
         }
     };
+    drop(cache);
     resolve_with(stored, embedded)
 }
 
@@ -145,15 +157,17 @@ pub fn get() -> Result<Option<String>, Error> {
 }
 
 pub fn set(value: &str) -> Result<(), Error> {
+    let mut cache = cache();
     keychain::store(&key(), value)?;
-    cache_put(Some(value.to_string()));
+    *cache = Some(Some(value.to_string()));
     Ok(())
 }
 
 /// Remove the stored key. Deleting what is not there is a success.
 pub fn clear() -> Result<(), Error> {
+    let mut cache = cache();
     keychain::delete(&key())?;
-    cache_put(None);
+    *cache = Some(None);
     Ok(())
 }
 
@@ -251,7 +265,7 @@ mod tests {
         clear().unwrap();
         keychain::store(&key(), "hidden").unwrap();
         // Drop the cache entry so the next resolve has to read.
-        *CACHE.write().unwrap() = None;
+        *CACHE.lock().unwrap() = None;
         keychain::test_backend::fail_next(&key(), crate::error::KeyringOp::Read, "locked");
         assert_eq!(resolve_with_cache(None), None);
         // That read consumed the failure and cached "nothing": the (now

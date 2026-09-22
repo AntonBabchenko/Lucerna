@@ -540,7 +540,16 @@ pub async fn l10n_prefill_key_status(
 #[specta::specta]
 pub async fn l10n_prefill_test_key(app: tauri::AppHandle) -> Result<(), crate::error::Error> {
     let consent = crate::network::consent::ai_consent(&app)?;
-    let cfg = crate::l10n::prefill::run::resolve_provider(&app)?;
+    // Settings + the stored key: the keyring may block (D-Bus, an unlock
+    // prompt), so this runs off the runtime worker.
+    let cfg = {
+        let app = app.clone();
+        tokio::task::spawn_blocking(move || crate::l10n::prefill::run::resolve_provider(&app))
+            .await
+            .map_err(|e| {
+                crate::error::Error::io("<l10n_prefill_test_key>", format!("join: {e}"))
+            })??
+    };
     crate::l10n::prefill::provider::test_credentials(
         &consent,
         cfg.provider,

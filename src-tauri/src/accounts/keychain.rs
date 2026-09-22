@@ -126,26 +126,29 @@ pub fn map_delete(res: std::result::Result<(), keyring::Error>) -> Result<()> {
 }
 
 #[cfg(not(test))]
-fn entry(key: &Key) -> Result<keyring::Entry> {
+/// The keyring handle for `key`. Building one can itself fail (an invalid
+/// attribute on some backends), and that failure belongs to the operation the
+/// caller was about to perform — hence `op`.
+fn entry(key: &Key, op: KeyringOp) -> Result<keyring::Entry> {
     keyring::Entry::new(key.service, &key.account).map_err(|e| Error::Keyring {
-        op: KeyringOp::Read,
+        op,
         details: format!("entry: {e}"),
     })
 }
 #[cfg(not(test))]
 pub fn store(key: &Key, value: &str) -> Result<()> {
     let _g = gate();
-    map_write(entry(key)?.set_password(value))
+    map_write(entry(key, KeyringOp::Write)?.set_password(value))
 }
 #[cfg(not(test))]
 pub fn retrieve(key: &Key) -> Result<Option<String>> {
     let _g = gate();
-    map_read(entry(key)?.get_password())
+    map_read(entry(key, KeyringOp::Read)?.get_password())
 }
 #[cfg(not(test))]
 pub fn delete(key: &Key) -> Result<()> {
     let _g = gate();
-    map_delete(entry(key)?.delete_credential())
+    map_delete(entry(key, KeyringOp::Delete)?.delete_credential())
 }
 
 // ----- test-only in-memory backend -----

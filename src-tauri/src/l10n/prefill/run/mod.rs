@@ -135,7 +135,20 @@ pub async fn run(
     // is the only place one is minted — see the module docs.
     let consent = crate::network::consent::ai_consent(app)?;
 
-    let ctx = resolve_context(app, consent, instance_id, lang, namespace)?;
+    let ctx = {
+        // Settings, the stored key and the instance's files: all blocking (the
+        // keyring over D-Bus, or behind an unlock prompt), so this runs off the
+        // runtime worker.
+        let app = app.clone();
+        let instance_id = instance_id.to_string();
+        let lang = lang.to_string();
+        let namespace = namespace.map(str::to_string);
+        tokio::task::spawn_blocking(move || {
+            resolve_context(&app, consent, &instance_id, &lang, namespace.as_deref())
+        })
+        .await
+        .map_err(|e| Error::io("<prefill resolve>", format!("join: {e}")))??
+    };
     let mut summary = pipeline::execute(&ctx, cancel, on_progress).await?;
 
     on_progress(PrefillProgress {
@@ -188,7 +201,20 @@ pub async fn estimate(
     namespace: Option<&str>,
 ) -> Result<PrefillEstimate> {
     let consent = crate::network::consent::ai_consent(app)?;
-    let ctx = resolve_context(app, consent, instance_id, lang, namespace)?;
+    let ctx = {
+        // Settings, the stored key and the instance's files: all blocking (the
+        // keyring over D-Bus, or behind an unlock prompt), so this runs off the
+        // runtime worker.
+        let app = app.clone();
+        let instance_id = instance_id.to_string();
+        let lang = lang.to_string();
+        let namespace = namespace.map(str::to_string);
+        tokio::task::spawn_blocking(move || {
+            resolve_context(&app, consent, &instance_id, &lang, namespace.as_deref())
+        })
+        .await
+        .map_err(|e| Error::io("<prefill resolve>", format!("join: {e}")))??
+    };
     let units = pipeline::discover(&ctx).await?;
     Ok(crate::l10n::prefill::estimate::estimate(
         &units,
