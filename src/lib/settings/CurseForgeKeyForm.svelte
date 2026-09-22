@@ -150,7 +150,7 @@
         {$t('settings.curseforge.step1Before')}
         <button
           type="button"
-          class="btn-tertiary font-mono inline-flex items-center gap-1"
+          class="btn-link font-mono inline-flex items-center gap-1"
           onclick={openConsoleHome}
         >
           console.curseforge.com
@@ -162,7 +162,7 @@
         {$t('settings.curseforge.step2Before')}
         <button
           type="button"
-          class="btn-tertiary font-mono inline-flex items-center gap-1"
+          class="btn-link font-mono inline-flex items-center gap-1"
           onclick={openApiKeysPage}
         >
           API Keys
@@ -178,7 +178,7 @@
       {$t('settings.curseforge.getOneAt')}
       <button
         type="button"
-        class="btn-tertiary font-mono inline-flex items-center gap-1"
+        class="btn-link font-mono inline-flex items-center gap-1"
         onclick={openApiKeysPage}
       >
         console.curseforge.com → API Keys

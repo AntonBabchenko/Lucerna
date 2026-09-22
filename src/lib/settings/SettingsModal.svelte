@@ -135,10 +135,10 @@
                 role="tab"
                 aria-selected={active === s.id}
                 tabindex={active === s.id ? 0 : -1}
-                class="text-left px-3 py-1.5 text-sm rounded border-l-2"
+                class="text-left px-3 py-1.5 text-sm rounded border-l-2 hover:bg-subtle"
                 class:border-accent={active === s.id}
                 class:text-primary={active === s.id}
-                class:font-medium={active === s.id}
+                class:font-semibold={active === s.id}
                 class:border-transparent={active !== s.id}
                 class:text-muted={active !== s.id}
                 onclick={() => selectTab(s.id)}
