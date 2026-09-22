@@ -2,13 +2,16 @@
 // rune-in-a-.svelte.ts idiom used by $lib/settings/state.svelte.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { commands, events, type UpdateInfo } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import { commands, events, type IpcError, type UpdateInfo } from '$lib/ipc/bindings';
+import { describeStoreError, formatError } from '$lib/ipc/format-error';
+import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
 import {
   dismiss,
   pushActionToast,
+  pushInfo,
   pushProgress,
   pushWarning,
+  updateToast,
   updateToastProgress,
 } from '$lib/toasts/toasts.svelte';
 import { openExternalHttps } from '$lib/ui/safe-open';
@@ -20,21 +23,71 @@ export const updateState = $state<{ value: UpdateInfo | null }>({ value: null })
  *  download→verify→spawn chains). */
 export const updateInstalling = $state<{ value: boolean }>({ value: false });
 
+/** Where the in-flight install is, from the backend's `UpdateInstallPhase` event; null before the
+ *  first phase and outside an install. The button and the progress toast follow it, so neither
+ *  says "Installing…" during what is a download. */
+export type UpdatePhase = 'downloading' | 'verifying' | 'launching';
+export const updatePhase = $state<{ value: UpdatePhase | null }>({ value: null });
+
+type Block = 'running' | 'busy' | 'unknown';
+
+const BLOCK_KEYS = {
+  running: 'errors.updateBlocked.running',
+  busy: 'errors.updateBlocked.busy',
+  unknown: 'errors.updateBlocked.unknown',
+} as const;
+
+const PHASE_KEYS = {
+  downloading: 'page.update.phase.downloading',
+  verifying: 'page.update.phase.verifying',
+  launching: 'page.update.phase.launching',
+} as const;
+
+/** Lucerna closes to install an update, and the exit hook force-kills every running game and
+ *  server. So before asking the backend, refuse while this window has a task in flight (the
+ *  backend cannot see an instance being created) and while the backend's observer says anything
+ *  but an exact 'none' — a rejection or a malformed answer is "could not tell", which is a no. */
+async function blockedBy(): Promise<Block | null> {
+  if (taskList().some(isActiveTask)) return 'busy';
+  try {
+    const answer: unknown = await commands.restartBlocked();
+    if (answer === 'none') return null;
+    if (answer === 'running' || answer === 'busy') return answer;
+  } catch {
+    // Not wrapped in typedError: a failure is a rejection.
+  }
+  return 'unknown';
+}
+
+/** A refusal is not a failure: the sentence says what to do, and there is no "download it
+ *  yourself" action — the user closes what runs and presses the button again. */
+function refuse(block: Block): void {
+  updateInstalling.value = false;
+  updatePhase.value = null;
+  pushWarning(get(t)(BLOCK_KEYS[block]));
+}
+
+function isBlockedError(e: IpcError): e is Extract<IpcError, { kind: 'update_blocked' }> {
+  return e.kind === 'update_blocked';
+}
+
 /** Start the update action.
  *
- *  On platforms with in-app install (Windows) `installer` is present:
- *  re-check + download + verify + launch happen in the backend, which exits
- *  the app on success; on failure we surface a sticky warning with a
+ *  On platforms with in-app install (Windows, Linux AppImage) `installer` is
+ *  present: re-check + download + verify + launch happen in the backend, which
+ *  exits the app on success; on failure we surface a sticky warning with a
  *  "download manually" action.
  *
- *  On notify-only platforms (Linux) `installer` is null — there is no in-app
- *  install, so we open the GitHub release page and let the user update via
- *  their package manager or a fresh AppImage. Re-entrant calls while an
- *  install is already running are ignored. */
+ *  On notify-only platforms `installer` is null — there is no in-app install,
+ *  so we open the GitHub release page and let the user update via their
+ *  package manager or a fresh AppImage. Re-entrant calls while an install is
+ *  already running are ignored. */
 export async function runUpdate(): Promise<void> {
   if (updateInstalling.value) return;
 
   const info = updateState.value;
+  // Before the gate: opening a web page closes nothing, and a notify-only user with a game
+  // running must still reach it.
   if (info && info.installer === null) {
     if (info.release_url) {
       void openExternalHttps(info.release_url);
@@ -43,6 +96,13 @@ export async function runUpdate(): Promise<void> {
   }
 
   updateInstalling.value = true;
+  updatePhase.value = null;
+  const blocked = await blockedBy();
+  if (blocked !== null) {
+    refuse(blocked);
+    return;
+  }
+
   const tr = get(t);
   const installerUrl = info?.installer?.url;
   const toastId = pushProgress(tr('page.update.downloading'));
@@ -51,12 +111,13 @@ export async function runUpdate(): Promise<void> {
   // something threw (e.g. the event listener failed to register): reset the
   // in-flight flag and offer the release page. Never leave the Update button
   // soft-locked or the progress toast leaked.
-  const showFailure = (detail: string) => {
+  const showFailure = (headline: string, detail: string) => {
     updateInstalling.value = false;
+    updatePhase.value = null;
     const url = updateState.value?.release_url;
     pushActionToast(
       'warning',
-      tr('page.update.verifyFailed'),
+      headline,
       {
         label: tr('settings.general.updates.openReleasePage'),
         run: () => {
@@ -66,31 +127,58 @@ export async function runUpdate(): Promise<void> {
       [detail],
     );
   };
+  // Only a failed verification is headlined as one: a network blip during the download is not a
+  // bad signature, and must not read like something is wrong with the release.
+  const headlineFor = (e: IpcError | null) =>
+    tr(
+      e?.kind === 'update_verification_failed'
+        ? 'page.update.verifyFailed'
+        : 'page.update.installFailed',
+    );
 
-  let un: (() => void) | undefined;
+  let unProgress: (() => void) | undefined;
+  let unPhase: (() => void) | undefined;
   try {
     // The installer download already emits DownloadProgress events; filter to
-    // the installer URL so mod/JRE downloads don't move this bar.
-    un = await events.downloadProgress.listen(({ payload }) => {
+    // the installer URL so mod/JRE downloads don't move this bar. Both listeners
+    // register before the command: if either cannot, the run aborts — one rule.
+    unProgress = await events.downloadProgress.listen(({ payload }) => {
       if (payload.url !== installerUrl) return;
       const total = payload.bytes_total;
       const done = payload.bytes_done ?? 0;
       updateToastProgress(toastId, total && total > 0 ? Math.min(1, done / total) : null);
     });
+    unPhase = await events.updateInstallPhase.listen(({ payload }) => {
+      updatePhase.value = payload.phase;
+      updateToast(toastId, { title: tr(PHASE_KEYS[payload.phase]) });
+      // The bar means bytes; past the download it would be a lie.
+      if (payload.phase !== 'downloading') updateToastProgress(toastId, null);
+    });
     const r = await commands.updateInstall();
-    // On success the backend launched the installer and called app.exit(0), so
-    // this may not run; on a returned Err, surface it.
-    if (r.status !== 'ok') showFailure(formatError(r.error));
+    if (r.status === 'ok') {
+      // On success the backend launched the installer and called app.exit(0), so this does not
+      // run. Reaching it means the re-check found nothing newer (a release yanked after the
+      // offer): free the button — it used to stay "Installing…" for the rest of the session.
+      updateInstalling.value = false;
+      updatePhase.value = null;
+      updateState.value = null;
+      pushInfo(tr('page.update.alreadyCurrent'));
+    } else if (isBlockedError(r.error)) {
+      // Something started during the download and the backend refused before spawning the
+      // installer: the same warning as the pre-check, not a failure.
+      refuse(r.error.block === 'running' || r.error.block === 'busy' ? r.error.block : 'unknown');
+    } else {
+      showFailure(headlineFor(r.error), formatError(r.error));
+    }
   } catch (e) {
     // A thrown error (e.g. listen() IPC rejecting) — clean up and report it,
     // rather than leaving the flag stuck and the toast leaked.
-    showFailure(String(e));
+    showFailure(headlineFor(null), describeStoreError(e));
   } finally {
-    un?.();
+    unProgress?.();
+    unPhase?.();
     dismiss(toastId);
   }
-  // On success the backend launched the installer and called app.exit(0);
-  // nothing to do here.
 }
 
 /** User dismissed the toast: remember this version so we don't nag again. */
