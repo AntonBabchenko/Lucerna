@@ -1,6 +1,7 @@
 //! Pure decisions for `gpu_pref`: what to write, what to put back. No IO.
 
 use super::record::Entry;
+use crate::platform::gpu::fields;
 
 /// The one field Lucerna owns in the `UserGpuPreferences` value.
 pub const FIELD: &str = "GpuPreference";
@@ -37,15 +38,43 @@ pub enum RetirePlan {
 }
 
 pub fn plan_apply(current: Probe, recorded: Option<&Entry>, field: &str) -> ApplyPlan {
-    // RED STUB (push 1): never writes.
-    let _ = (current, recorded, field);
-    ApplyPlan::AlreadyOurs
+    let value = match current {
+        Probe::Unreadable(why) => return ApplyPlan::RefuseUnreadable(why),
+        Probe::Absent => String::new(),
+        Probe::Present(v) => v,
+    };
+    let cur = fields::get(&value, FIELD).map(str::to_owned);
+    if cur.as_deref() == Some(field) && recorded.is_some_and(|e| e.written == field) {
+        return ApplyPlan::AlreadyOurs;
+    }
+    // Still what we wrote → the older "before" stands; anything else is the
+    // user's (or nothing) and becomes the new "before".
+    let previous = match recorded {
+        Some(e) if cur.as_deref() == Some(e.written.as_str()) => e.previous.clone(),
+        _ => cur,
+    };
+    ApplyPlan::Write {
+        value: fields::set(&value, FIELD, field),
+        previous,
+    }
 }
 
 pub fn plan_retire(current: Probe, entry: &Entry) -> RetirePlan {
-    // RED STUB (push 1): never restores.
-    let _ = (current, entry);
-    RetirePlan::Forget
+    let value = match current {
+        Probe::Unreadable(why) => return RetirePlan::Keep(why),
+        Probe::Absent => return RetirePlan::Forget,
+        Probe::Present(v) => v,
+    };
+    if fields::get(&value, FIELD) != Some(entry.written.as_str()) {
+        return RetirePlan::Forget;
+    }
+    let restored = match &entry.previous {
+        Some(prev) => fields::set(&value, FIELD, prev),
+        None => fields::remove(&value, FIELD),
+    };
+    RetirePlan::Restore {
+        value: (!restored.is_empty()).then_some(restored),
+    }
 }
 
 #[cfg(test)]

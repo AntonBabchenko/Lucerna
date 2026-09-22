@@ -33,16 +33,26 @@ pub enum Read {
 }
 
 pub fn read(path: &Path) -> io::Result<Read> {
-    // RED STUB (push 1): everything reads as absent.
-    let _ = path;
-    Ok(Read::Absent)
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Read::Absent),
+        Err(e) => return Err(e),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Read::Present)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Atomic replace: temp file beside the target, then rename.
 pub fn write(path: &Path, record: &Record) -> io::Result<()> {
-    // RED STUB (push 1): writes nothing.
-    let _ = (path, record);
-    Ok(())
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_vec_pretty(record)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, path)
 }
 
 impl Record {
@@ -51,13 +61,14 @@ impl Record {
     }
 
     pub fn upsert(&mut self, entry: Entry) {
-        // RED STUB (push 1): appends without replacing.
-        self.entries.push(entry);
+        match self.entries.iter_mut().find(|e| e.exe == entry.exe) {
+            Some(slot) => *slot = entry,
+            None => self.entries.push(entry),
+        }
     }
 
     pub fn remove(&mut self, exe: &str) {
-        // RED STUB (push 1).
-        let _ = exe;
+        self.entries.retain(|e| e.exe != exe);
     }
 }
 

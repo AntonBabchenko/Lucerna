@@ -1289,7 +1289,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Persist the GeneralSettings block. Read-modify-write of app.json
 	 *  — leaves `active_instance`, `onboarding`, and `version` untouched.
-	 *  After persisting, re-syncs GPU preference to every installed JRE.
+	 *  Then the GPU preference: "Automatic" touches nothing; a choice is
+	 *  applied to every installed runtime; leaving a choice puts back what
+	 *  Lucerna replaced (`gpu_pref`).
 	 */
 	appSettingsSetGeneral: (general: GeneralSettings) => typedError<null, Error>(__TAURI_INVOKE("app_settings_set_general", { general })),
 	/**

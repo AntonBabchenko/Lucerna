@@ -143,16 +143,33 @@ pub async fn ensure_jre(
             .map(|f| f.general.gpu_preference)
             .unwrap_or_default();
         if pref != crate::instances::schema::GpuPreference::Auto {
-            let synced = match java_executable_path(component, app) {
-                Ok(exe) => match crate::platform::gpu::sync_for_exe(&exe, pref) {
-                    Ok(()) => true,
+            let synced = match (
+                java_executable_path(component, app),
+                crate::gpu_pref::record_path(app),
+            ) {
+                (Ok(exe), Ok(record)) => match crate::gpu_pref::apply(
+                    &crate::platform::gpu::OsRegistry,
+                    &record,
+                    &exe,
+                    pref,
+                ) {
+                    Ok(crate::gpu_pref::Applied::Written)
+                    | Ok(crate::gpu_pref::Applied::AlreadyOurs) => true,
+                    Ok(crate::gpu_pref::Applied::Refused(why)) => {
+                        crate::diag!("gpu: refused for {}: {why}", exe.display());
+                        false
+                    }
                     Err(e) => {
-                        crate::diag!("gpu: registry sync failed for {}: {e}", exe.display());
+                        crate::diag!("gpu: apply failed for {}: {e}", exe.display());
                         false
                     }
                 },
-                Err(e) => {
+                (Err(e), _) => {
                     crate::diag!("gpu: no java path to stamp for {component}: {e}");
+                    false
+                }
+                (_, Err(e)) => {
+                    crate::diag!("gpu: cannot resolve the record path: {e}");
                     false
                 }
             };

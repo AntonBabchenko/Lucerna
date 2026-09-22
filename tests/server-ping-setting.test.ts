@@ -19,7 +19,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: () => appSettingsGet(),
     appSettingsSetGeneral: (g: unknown) => appSettingsSetGeneral(g),
-    gpuCapability: () => Promise.resolve({ status: 'ok', data: { kind: 'unsupported' } }),
+    gpuCapability: () =>
+      Promise.resolve({
+        status: 'ok',
+        data: { mechanism: 'none', capability: { kind: 'unsupported' } },
+      }),
   },
 }));
 

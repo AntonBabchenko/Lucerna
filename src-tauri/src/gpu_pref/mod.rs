@@ -9,8 +9,8 @@ pub mod record;
 
 use crate::instances::schema::GpuPreference;
 use crate::platform::gpu::{gpu_pref_field, GpuRegistry};
-use plan::Probe;
-use record::{Read, Record};
+use plan::{plan_apply, plan_retire, ApplyPlan, Probe, RetirePlan};
+use record::{Entry, Read, Record};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -85,24 +85,68 @@ pub fn apply(
     exe: &Path,
     pref: GpuPreference,
 ) -> io::Result<Applied> {
-    // RED STUB (push 1): reads the registry whatever the preference, writes
-    // nothing, records nothing.
-    let _ = (gpu_pref_field(pref), lock()?, load(record_path)?);
-    let _ = probe(registry, exe);
-    Ok(Applied::AlreadyOurs)
+    let Some(field) = gpu_pref_field(pref) else {
+        return Ok(Applied::AlreadyOurs);
+    };
+    let _guard = lock()?;
+    let mut rec = load(record_path)?;
+    match plan_apply(probe(registry, exe), rec.find(exe), field) {
+        ApplyPlan::AlreadyOurs => Ok(Applied::AlreadyOurs),
+        ApplyPlan::RefuseUnreadable(why) => Ok(Applied::Refused(why)),
+        ApplyPlan::Write { value, previous } => {
+            registry.write(exe, &value)?;
+            // Recorded AFTER the registry write: a record that claims a write
+            // which did not happen would be worse than a field with no record
+            // (the next apply re-reads and records it).
+            rec.upsert(Entry {
+                exe: exe.to_string_lossy().into_owned(),
+                written: field.to_owned(),
+                previous,
+            });
+            record::write(record_path, &rec)?;
+            Ok(Applied::Written)
+        }
+    }
 }
 
 /// Put back what Lucerna replaced for every recorded exe whose field is still
 /// Lucerna's; forget entries that are the user's now or gone; keep the ones
 /// that could not be read or restored (retried on a later save).
 pub fn retire_all(registry: &dyn GpuRegistry, record_path: &Path) -> io::Result<Retired> {
-    // RED STUB (push 1): reads every recorded exe and restores nothing.
     let _guard = lock()?;
-    let rec = load(record_path)?;
-    for entry in &rec.entries {
-        let _ = probe(registry, Path::new(&entry.exe));
+    let rec = match record::read(record_path)? {
+        Read::Absent => return Ok(Retired::default()),
+        Read::Present(r) => r,
+    };
+    let mut out = Retired::default();
+    let mut kept = Vec::new();
+    for entry in rec.entries {
+        let exe = Path::new(&entry.exe);
+        match plan_retire(probe(registry, exe), &entry) {
+            RetirePlan::Forget => out.forgotten += 1,
+            RetirePlan::Keep(why) => {
+                crate::diag!("[gpu] keeping the record for {}: {why}", entry.exe);
+                out.kept += 1;
+                kept.push(entry);
+            }
+            RetirePlan::Restore { value } => {
+                let done = match &value {
+                    Some(v) => registry.write(exe, v),
+                    None => registry.delete(exe),
+                };
+                match done {
+                    Ok(()) => out.restored += 1,
+                    Err(e) => {
+                        crate::diag!("[gpu] could not restore {}: {e}", entry.exe);
+                        out.kept += 1;
+                        kept.push(entry);
+                    }
+                }
+            }
+        }
     }
-    Ok(Retired::default())
+    record::write(record_path, &Record { entries: kept })?;
+    Ok(out)
 }
 
 #[cfg(test)]

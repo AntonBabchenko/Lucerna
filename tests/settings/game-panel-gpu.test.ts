@@ -53,8 +53,11 @@ describe('GamePanel GPU block', () => {
     let resolve!: (v: unknown) => void;
     gpuCapability.mockReturnValueOnce(new Promise((r) => (resolve = r)));
     render(GamePanel);
-    expect(screen.queryByRole('status')).not.toBeNull();
+    // The very first frame claims nothing — synchronously, before any answer. (The spinner
+    // itself has an anti-flicker delay, so it is awaited, not asserted on the first frame.)
     expect(screen.queryByTestId('gpu-reason')).toBeNull();
+    expect(screen.queryByTestId('gpu-select')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeNull());
     resolve({ status: 'ok', data: AVAILABLE });
     await screen.findByTestId('gpu-select');
     await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
