@@ -10,16 +10,18 @@ import type { SettingsSearchEntry } from './search-index';
  * the stripper would fold it into и ("дизайн" ≠ "дизаин").
  */
 export function normalize(s: string): string {
-  return s
-    // Private-use code points stand in for й/Й: no combining mark, no case,
-    // never in real text — so NFD and toLowerCase pass them through untouched.
-    .replace(/й/g, '\uE000')
-    .replace(/Й/g, '\uE001')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[\uE000\uE001]/g, 'й')
-    .trim();
+  return (
+    s
+      // Private-use code points stand in for й/Й: no combining mark, no case,
+      // never in real text — so NFD and toLowerCase pass them through untouched.
+      .replace(/й/g, '\uE000')
+      .replace(/Й/g, '\uE001')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[\uE000\uE001]/g, 'й')
+      .trim()
+  );
 }
 
 /** The words of a string: runs of letters and digits; an apostrophe stays inside a word ("what's"). */
