@@ -13,6 +13,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nPrefillKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: false }),
     l10nPrefillSetKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     l10nPrefillTestKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    l10nPrefillProviderDefaults: vi.fn().mockResolvedValue([]),
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {

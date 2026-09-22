@@ -44,6 +44,7 @@ const ALLOWED = new Set(
     'src/lib/servers/eula-link.ts',
     'src/lib/servers/mods/ServerModBrowser.svelte',
     'src/lib/settings/AboutPanel.svelte',
+    'src/lib/settings/AiTranslationSection.svelte',
     'src/lib/settings/CurseForgeKeyForm.svelte',
     // The https-only chokepoint every remote-data link now routes through.
     'src/lib/ui/safe-open.ts',

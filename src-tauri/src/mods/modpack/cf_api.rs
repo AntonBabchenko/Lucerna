@@ -165,17 +165,19 @@ fn require_key(key: Option<&str>) -> Result<&str, Error> {
     Ok(k)
 }
 
-/// Map a non-2xx CurseForge response to a typed error. 401/403 clears
-/// the stored key (it is invalid) so the UI re-prompts. Takes the whole
-/// `HttpResponse` by reference so the exact integer type of `.status`
-/// (defined by the `network::request` wrapper) never has to be spelled
-/// here.
+/// Map a non-2xx CurseForge response to a typed error. A 401/403 goes
+/// through the same discrimination as the mod client's: a real rejection
+/// clears the stored key so the UI re-prompts, an edge block keeps it. Takes
+/// the whole `HttpResponse` by reference so the exact integer type of
+/// `.status` (defined by the `network::request` wrapper) never has to be
+/// spelled here.
 fn check_status(resp: &crate::network::request::HttpResponse, url: &str) -> Result<(), Error> {
     if resp.status == 401 || resp.status == 403 {
-        crate::mods::curseforge::keyring::clear().ok();
-        return Err(Error::ModsPlatformAuth {
-            kind: ModsAuthKind::Invalid,
-        });
+        return Err(crate::mods::curseforge::on_auth_failure(
+            resp.status,
+            &resp.body,
+            url,
+        ));
     }
     if resp.status == 404 {
         return Err(Error::ModsNotFound {

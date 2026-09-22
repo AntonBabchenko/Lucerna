@@ -59,10 +59,7 @@ impl CurseForgeClient {
         url: String,
     ) -> Result<T, Error> {
         if resp.status == 401 || resp.status == 403 {
-            keyring::clear().ok();
-            return Err(Error::ModsPlatformAuth {
-                kind: crate::error::ModsAuthKind::Invalid,
-            });
+            return Err(on_auth_failure(resp.status, &resp.body, &url));
         }
         if resp.status == 404 {
             return Err(Error::ModsNotFound {
@@ -1666,5 +1663,69 @@ mod key_check_tests {
             classify_key_check(403, b"CLOUDFLARE blocked this request"),
             KeyCheckOutcome::Unreachable
         );
+    }
+}
+
+/// A 401 / 403 from CurseForge. A real rejection means the personal key is
+/// dead: it is cleared (the form then says so) and the error is `Invalid`. A
+/// Cloudflare / region block says nothing about the key: it stays, and the
+/// error is `Unreachable`. A body that classifies `Ok` under a 401 / 403 is a
+/// contradiction — nothing is destroyed on a contradiction.
+pub(crate) fn on_auth_failure(status: u16, body: &[u8], url: &str) -> Error {
+    match classify_key_check(status, body) {
+        KeyCheckOutcome::Unreachable => Error::ModsPlatformUnreachable {
+            url: url.to_string(),
+        },
+        KeyCheckOutcome::Invalid => {
+            if let Err(e) = keyring::clear() {
+                crate::diag!(
+                    "curseforge: key rejected ({status}) but the personal key could not be cleared: {e}"
+                );
+            }
+            Error::ModsPlatformAuth {
+                kind: crate::error::ModsAuthKind::Invalid,
+            }
+        }
+        KeyCheckOutcome::Ok => Error::ModsPlatformAuth {
+            kind: crate::error::ModsAuthKind::Invalid,
+        },
+    }
+}
+
+#[cfg(test)]
+mod auth_failure_tests {
+    use super::{keyring, on_auth_failure};
+    use crate::error::Error;
+
+    #[test]
+    fn a_rejected_key_is_cleared_and_invalid() {
+        let _g = crate::test_env_lock();
+        keyring::set("dead").unwrap();
+        let e = on_auth_failure(
+            403,
+            br#"{"error":"forbidden"}"#,
+            "https://api.curseforge.com/v1/x",
+        );
+        assert!(matches!(e, Error::ModsPlatformAuth { .. }), "{e:?}");
+        assert_eq!(keyring::get().unwrap(), None);
+    }
+
+    #[test]
+    fn an_edge_block_keeps_the_key_and_is_unreachable() {
+        let _g = crate::test_env_lock();
+        keyring::set("alive").unwrap();
+        let e = on_auth_failure(403, b"<!DOCTYPE html><title>Just a moment...</title>", "u");
+        assert!(matches!(e, Error::ModsPlatformUnreachable { .. }), "{e:?}");
+        assert_eq!(keyring::get().unwrap().as_deref(), Some("alive"));
+        keyring::clear().unwrap();
+    }
+
+    #[test]
+    fn no_personal_key_clears_nothing_and_is_invalid() {
+        let _g = crate::test_env_lock();
+        keyring::clear().unwrap();
+        let e = on_auth_failure(401, b"{}", "u");
+        assert!(matches!(e, Error::ModsPlatformAuth { .. }), "{e:?}");
+        assert_eq!(keyring::get().unwrap(), None);
     }
 }

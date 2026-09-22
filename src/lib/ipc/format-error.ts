@@ -11,6 +11,7 @@ import type {
   LoaderKind,
   MigrationRole,
 } from '$lib/ipc/bindings';
+import { describeProviderFailure } from '$lib/l10n/provider-failure';
 
 // Detail-bearing errors are truncated to this many code points in the UI; the
 // full text lives in the launcher log. Slicing is by code point (spread), not
@@ -889,11 +890,9 @@ export function formatError(e: IpcError): string {
     case 'l10n_prefill_key_missing':
       return translate('errors.l10nPrefillKeyMissing', { provider: e.provider });
     case 'l10n_prefill_provider':
-      // `e.details` is deliberately not rendered — see ERROR_CLASS.
-      return translate('errors.l10nPrefillProvider', {
-        provider: e.provider,
-        status: e.status,
-      });
+      // `e.details` is deliberately not rendered — see ERROR_CLASS. One
+      // sentence per status, shared with the Test-connection button.
+      return describeProviderFailure(e, 'run');
     case 'l10n_prefill_busy':
       return translate('errors.l10nPrefillBusy');
     case 'l10n_share_bundle_invalid':

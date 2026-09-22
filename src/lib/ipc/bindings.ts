@@ -999,11 +999,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Report whether CurseForge is usable — i.e. whether a key is resolvable.
 	 *  A key resolves from the user's OS-keyring entry, or (on a release build)
 	 *  from the key embedded at compile time. So a release user who never entered
-	 *  a key still reports `Set`, which suppresses the setup guide and the
+	 *  a key reports `SetBuiltin`, which suppresses the setup guide and the
 	 *  "add a key" banners. A keyring that could not be read is `Unknown` (or
 	 *  `UnknownEmbedded` when the build's own key still serves) — never
 	 *  `Missing`, which would send the user to enter a key they may well have.
-	 *  `Invalid` is reserved for future "key was rejected" surfacing.
+	 *  `Set` means a personal key is stored; `SetBuiltin` that only the build's
+	 *  own key serves — the form names the source, the banners only ask whether
+	 *  a download would work.
 	 */
 	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
 	/**
@@ -2167,6 +2169,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  on every open and a stored key can be replaced but never displayed.
 	 */
 	l10nPrefillKeyStatus: (provider: AiProvider) => typedError<boolean, Error>(__TAURI_INVOKE("l10n_prefill_key_status", { provider })),
+	l10nPrefillProviderDefaults: () => __TAURI_INVOKE<ProviderDefault[]>("l10n_prefill_provider_defaults"),
 	/**
 	 *  Round-trip the configured provider, model and credential with the smallest
 	 *  possible request. Returns `Ok(())` when the provider accepted it; the
@@ -4444,7 +4447,11 @@ export type KeyState =
 /**  No override, and the mod does not translate this key either. */
 "missing";
 
-export type KeyStatus = "missing" | "set" | "invalid" | 
+export type KeyStatus = "missing" | 
+/**  A personal key is stored in the OS keyring. */
+"set" | 
+/**  No personal key; the build's own key serves requests. */
+"set_builtin" | 
 /**  The keyring could not be read and no built-in key can serve requests. */
 "unknown" | 
 /**
@@ -6193,6 +6200,16 @@ export type ProgressTick = {
 	phase: ModInstallPhase,
 	current: number | null,
 	total: number | null,
+};
+
+/**
+ *  The model each hosted provider uses when the Model field is empty — for
+ *  the Settings placeholder, so the UI never carries its own copy of the
+ *  names. `Local` has no default and is not listed.
+ */
+export type ProviderDefault = {
+	provider: AiProvider,
+	model: string,
 };
 
 /**  Result of `server_quarantine_client_mods` on an existing server. */

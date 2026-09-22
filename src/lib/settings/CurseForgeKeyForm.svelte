@@ -1,92 +1,129 @@
 <script lang="ts">
-  // CurseForge API key management form — Task 19 of the v0.5.0 mod
-  // browser plan. Rendered inside SettingsModal's CurseForge tab.
+  // CurseForge API key form — Settings → Integrations. Two facts, never one
+  // slot for both:
   //
-  // Loads the current key status on mount via mods_get_curseforge_key_status.
-  // On Save, calls mods_set_curseforge_key (which pings api.curseforge.com to
-  // validate the key before persisting it to the OS keyring). On success the
-  // status flips to 'set' and the input clears; on rejection the status
-  // flips to 'invalid' and the typed error is rendered through formatError.
-  // A key CurseForge accepted but the OS keyring refused to keep is
-  // 'not_saved' — never 'invalid'. A status the keyring could not answer is
-  // 'unknown' / 'unknown_embedded' with a Retry (a re-read).
-  // The Clear button (only visible when a key is stored or invalid) wipes
-  // the keyring entry via mods_clear_curseforge_key.
+  // Fact A — what is STORED: the status line, read through
+  // mods_get_curseforge_key_status. It names the source of the key (your own
+  // key, Lucerna's built-in key, none) or says the keyring could not be
+  // checked, and it changes only on a re-read: after a successful Save, after
+  // Clear, on Check again.
   //
-  // All three IPC calls follow the result-status pattern (typedError) — no
-  // try/catch around them.
+  // Fact B — what HAPPENED to what you just typed: the result under the field.
+  // A rejected or unsaved candidate lands here and never relabels Fact A; it
+  // is cleared at the start of the next Save or Clear.
+  //
+  // On a build with its own key the whole own-key path (steps, field, Save)
+  // is a closed "Use my own key" disclosure — entering a key is optional
+  // there. Clear appears only for your own key. All three IPC calls follow
+  // the result-status pattern (typedError) — no try/catch around them.
   import { commands, type KeyStatus } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
   import { cfKeyVersion } from './state.svelte';
   import { cfKeyErrorStatus } from './cf-key-status';
-  import Spinner from '$lib/ui/Spinner.svelte';
-  import BusyButton from '$lib/ui/BusyButton.svelte';
+  import ApiKeyField from './ApiKeyField.svelte';
+  import type { FieldResult, FieldStatus, StatusTone } from './api-key-field';
 
-  let status = $state<KeyStatus | 'loading' | 'unverified' | 'not_saved'>('loading');
+  type Stored =
+    | { kind: 'loading' }
+    | { kind: 'status'; status: KeyStatus }
+    // The command itself failed — not a status, "could not check".
+    | { kind: 'failed'; reason: string };
+
+  let stored = $state<Stored>({ kind: 'loading' });
   let pendingKey = $state('');
   let saving = $state(false);
   let clearing = $state(false);
-  let error = $state<string | null>(null);
+  let result = $state<FieldResult | null>(null);
 
   async function refresh() {
-    const result = await commands.modsGetCurseforgeKeyStatus();
-    if (result.status === 'ok') {
-      status = result.data;
-    } else {
-      error = formatError(result.error);
-    }
+    const r = await commands.modsGetCurseforgeKeyStatus();
+    stored =
+      r.status === 'ok'
+        ? { kind: 'status', status: r.data }
+        : { kind: 'failed', reason: formatError(r.error) };
   }
 
   $effect(() => {
     void refresh();
   });
 
+  // One line per variant — a new KeyStatus is a compile error here, not a
+  // wrong pill. `set` is the only state that says the key is the user's.
+  const STATUS_LINE = {
+    set: { key: 'settings.curseforge.statusOwn', tone: 'success' },
+    set_builtin: { key: 'settings.curseforge.statusBuiltin', tone: 'secondary' },
+    missing: { key: 'settings.curseforge.statusNone', tone: 'secondary' },
+    unknown: { key: 'settings.curseforge.statusUnknown', tone: 'warning' },
+    unknown_embedded: { key: 'settings.curseforge.statusUnknownBuiltin', tone: 'warning' },
+  } satisfies Record<KeyStatus, { key: TranslationKey; tone: StatusTone }>;
+
+  const statusOf = $derived(stored.kind === 'status' ? stored.status : null);
+  const hasOwnKey = $derived(statusOf === 'set');
+  const builtinServes = $derived(statusOf === 'set_builtin' || statusOf === 'unknown_embedded');
+  const couldNotCheck = $derived(
+    stored.kind === 'failed' || statusOf === 'unknown' || statusOf === 'unknown_embedded',
+  );
+  // The steps are for someone without their own key; while loading, nothing
+  // presumes either way.
+  const showSteps = $derived(stored.kind === 'failed' || (statusOf !== null && !hasOwnKey));
+
+  const statusView = $derived.by((): FieldStatus => {
+    if (stored.kind === 'loading') {
+      return { text: $t('settings.curseforge.statusChecking'), tone: 'placeholder', busy: true };
+    }
+    if (stored.kind === 'failed') {
+      return { text: $t('settings.curseforge.statusUnknown'), tone: 'warning' };
+    }
+    const line = STATUS_LINE[stored.status];
+    return { text: $t(line.key), tone: line.tone };
+  });
+
   async function save() {
     const trimmed = pendingKey.trim();
     if (trimmed === '') return;
     saving = true;
-    error = null;
-    const result = await commands.modsSetCurseforgeKey(trimmed);
-    if (result.status === 'ok') {
+    result = null;
+    const r = await commands.modsSetCurseforgeKey(trimmed);
+    if (r.status === 'ok') {
       pendingKey = '';
+      result = { tone: 'info', text: $t('settings.curseforge.resultSaved') };
       await refresh();
-      // Notify watchers (Mod browser banner, etc.) that the key
-      // transitioned to a usable state.
+      // The stored state changed: the banners re-read it.
       cfKeyVersion.value++;
     } else {
-      error = formatError(result.error);
-      const pill = cfKeyErrorStatus(result.error);
-      if (pill === 'invalid') {
-        // The key was genuinely rejected — reflect that and re-arm the banner.
-        status = 'invalid';
-        cfKeyVersion.value++;
-      } else if (pill === 'not_saved') {
-        // CurseForge accepted the key but the keyring refused to keep it: the
-        // stored status is whatever it was, so no refresh() and no banner
-        // change — the pill says exactly which half happened.
-        status = 'not_saved';
-      } else {
-        // Reachability failure (region/Cloudflare/network): we don't know if
-        // the key is valid. Show 'unverified' without calling refresh() —
-        // refresh() would overwrite status with the stored 'set'/'missing'.
-        // Leave the stored status and dependent banners (cfKeyVersion) untouched.
-        status = 'unverified';
-      }
+      const outcome = cfKeyErrorStatus(r.error);
+      // Fact B only. The stored key is whatever it was — mods_set_curseforge_key
+      // persists only after CurseForge accepted the candidate, and a keyring
+      // that refused to keep an accepted one did not change what is stored.
+      result =
+        outcome === 'invalid'
+          ? { tone: 'danger', text: $t('settings.curseforge.resultRejected') }
+          : outcome === 'not_saved'
+            ? {
+                tone: 'warning',
+                text: `${$t('settings.curseforge.resultNotSaved')} ${formatError(r.error)}`,
+              }
+            : {
+                tone: 'warning',
+                text: `${$t('settings.curseforge.resultUnreachable')} ${formatError(r.error)}`,
+              };
     }
     saving = false;
   }
 
   async function clear() {
     clearing = true;
+    result = null;
     try {
-      const result = await commands.modsClearCurseforgeKey();
-      if (result.status === 'ok') {
+      const r = await commands.modsClearCurseforgeKey();
+      if (r.status === 'ok') {
         await refresh();
         cfKeyVersion.value++;
       } else {
-        error = formatError(result.error);
+        result = { tone: 'danger', text: formatError(r.error) };
       }
     } finally {
       clearing = false;
@@ -109,34 +146,8 @@
   }
 </script>
 
-<div>
-  <p class="text-sm text-secondary mb-3">{$t('settings.curseforge.aboutBody')}</p>
-  <div class="text-sm mb-3">
-    <span class="text-muted">{$t('settings.curseforge.statusLabel')} </span>
-    {#if status === 'set'}
-      <span class="text-success font-medium">{$t('settings.curseforge.statusOk')}</span>
-    {:else if status === 'invalid'}
-      <span class="text-danger font-medium">{$t('settings.curseforge.statusInvalid')}</span>
-    {:else if status === 'unverified'}
-      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusUnverified')}</span
-      >
-    {:else if status === 'not_saved'}
-      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusNotSaved')}</span>
-    {:else if status === 'unknown' || status === 'unknown_embedded'}
-      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusUnknown')}</span>
-      <button type="button" class="btn-tertiary btn-sm ml-2" onclick={refresh}>
-        {$t('settings.curseforge.retryBtn')}
-      </button>
-    {:else if status === 'missing'}
-      <span class="text-secondary">{$t('settings.curseforge.statusMissing')}</span>
-    {:else}
-      <span class="inline-flex items-center gap-2 text-placeholder">
-        <Spinner size="sm" />{$t('settings.curseforge.statusChecking')}
-      </span>
-    {/if}
-  </div>
-
-  {#if status === 'missing'}
+{#snippet guide()}
+  {#if showSteps}
     <ol class="text-sm text-secondary list-decimal pl-5 space-y-1 mb-3">
       <li>
         {$t('settings.curseforge.step1Before')}
@@ -165,11 +176,9 @@
       <li>{$t('settings.curseforge.step3')}</li>
       <li>{$t('settings.curseforge.step4')}</li>
     </ol>
-  {:else}
+  {:else if hasOwnKey}
     <p class="text-xs text-secondary mb-3">
-      {$t('settings.curseforge.replaceHintBefore')}
-      <span class="font-medium">{$t('settings.curseforge.replaceAction')}</span>.
-      {$t('settings.curseforge.replaceHintAfter')}
+      {$t('settings.curseforge.getOneAt')}
       <button
         type="button"
         class="btn-tertiary font-mono inline-flex items-center gap-1"
@@ -180,49 +189,38 @@
       </button>.
     </p>
   {/if}
+{/snippet}
 
-  <label class="block">
-    <span class="text-xs text-muted"
-      >{status === 'missing'
-        ? $t('settings.curseforge.inputLabelNew')
-        : $t('settings.curseforge.inputLabelReplace')}</span
-    >
-    <input
-      type="password"
-      class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono"
-      placeholder="$2a$10$..."
-      bind:value={pendingKey}
-      disabled={saving}
-    />
-  </label>
-
-  {#if error}
-    <div
-      role="alert"
-      class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mt-2"
-    >
-      {error}
-    </div>
-  {/if}
-
-  <div class="flex gap-2 mt-3">
-    <BusyButton
-      type="button"
-      class="btn-primary btn-sm"
-      busy={saving}
-      disabled={pendingKey.trim() === ''}
-      onclick={save}
-    >
-      {status === 'missing'
-        ? $t('settings.curseforge.saveKey')
-        : $t('settings.curseforge.updateKey')}
-    </BusyButton>
-    {#if status === 'set' || status === 'invalid'}
-      <BusyButton type="button" class="btn-secondary btn-sm" busy={clearing} onclick={clear}>
-        {$t('settings.curseforge.clearKey')}
-      </BusyButton>
-    {/if}
-  </div>
-
-  <p class="text-xs text-muted mt-3">{$t('settings.curseforge.keyringNote')}</p>
+<div class="flex flex-col gap-3">
+  <h3 class="font-medium text-sm text-primary">{$t('settings.curseforge.title')}</h3>
+  <p class="text-sm text-secondary">{$t('settings.curseforge.aboutBody')}</p>
+  <ApiKeyField
+    statusLabel={$t('settings.curseforge.statusLabel')}
+    status={statusView}
+    statusDetail={stored.kind === 'failed' ? stored.reason : undefined}
+    statusAction={couldNotCheck
+      ? { label: $t('settings.curseforge.retryBtn'), onClick: () => void refresh() }
+      : undefined}
+    collapsed={builtinServes
+      ? { summary: $t('settings.curseforge.useOwnKey'), testId: 'cf-key-own-key' }
+      : undefined}
+    {guide}
+    inputLabel={hasOwnKey
+      ? $t('settings.curseforge.inputLabelReplace')
+      : $t('settings.curseforge.inputLabelNew')}
+    placeholder="$2a$10$..."
+    bind:value={pendingKey}
+    disabled={stored.kind === 'loading'}
+    saveLabel={hasOwnKey ? $t('settings.curseforge.updateKey') : $t('settings.curseforge.saveKey')}
+    onSave={save}
+    {saving}
+    clearLabel={hasOwnKey ? $t('settings.curseforge.clearKey') : undefined}
+    onClear={hasOwnKey ? clear : undefined}
+    {clearing}
+    clearCaption={hasOwnKey ? $t('settings.curseforge.clearCaption') : undefined}
+    {result}
+    resultTestId="cf-key-result"
+    note={$t('settings.curseforge.keyringNote')}
+    testIdPrefix="cf-key"
+  />
 </div>

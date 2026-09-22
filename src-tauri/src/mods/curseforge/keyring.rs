@@ -138,13 +138,9 @@ pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
 pub fn key_status_from(read: Result<Option<String>, Error>, embedded: Option<&str>) -> KeyStatus {
     let embedded = embedded.filter(|k| !k.is_empty());
     match read {
-        Ok(stored) => {
-            if resolve_with(stored, embedded).is_some() {
-                KeyStatus::Set
-            } else {
-                KeyStatus::Missing
-            }
-        }
+        Ok(Some(_)) => KeyStatus::Set,
+        Ok(None) if embedded.is_some() => KeyStatus::SetBuiltin,
+        Ok(None) => KeyStatus::Missing,
         Err(_) if embedded.is_some() => KeyStatus::UnknownEmbedded,
         Err(_) => KeyStatus::Unknown,
     }
@@ -184,8 +180,12 @@ mod tests {
             })
         };
         assert_eq!(key_status_from(Ok(Some("k".into())), None), KeyStatus::Set);
-        // The built-in key reads as "set" — INT-01, reversed by batch 7.
-        assert_eq!(key_status_from(Ok(None), Some("e")), KeyStatus::Set);
+        assert_eq!(
+            key_status_from(Ok(Some("k".into())), Some("e")),
+            KeyStatus::Set
+        );
+        // No personal key, the build's own serves — its own state (INT-01).
+        assert_eq!(key_status_from(Ok(None), Some("e")), KeyStatus::SetBuiltin);
         assert_eq!(key_status_from(Ok(None), None), KeyStatus::Missing);
         assert_eq!(
             key_status_from(err(), Some("e")),

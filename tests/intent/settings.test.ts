@@ -11,7 +11,7 @@
 //                        console link btn-tertiary font-mono (status=missing)
 //                        API Keys link btn-tertiary font-mono (status=missing)
 //                        save/update button → btn-primary btn-sm
-//                        clear key button → btn-secondary btn-sm (status=set/invalid)
+//                        clear key button → btn-secondary btn-sm (status=set)
 //                        error block bg-danger-bg border-danger text-danger
 //   StoragePanel:        cache-size display span font-medium
 //                        Clear cache button → btn-secondary btn-sm
@@ -40,6 +40,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     l10nPrefillKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: false }),
     l10nPrefillSetKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     l10nPrefillTestKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    l10nPrefillProviderDefaults: vi.fn().mockResolvedValue([]),
     // StoragePanel
     modsCacheSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 1024 * 1024 }),
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
@@ -205,39 +206,25 @@ describe('SettingsModal — Integrations no longer offers lucerna:// registratio
 
 // ── CurseForgeKeyForm — status spans ─────────────────────────────────────────
 
-describe('CurseForgeKeyForm — status=missing renders "Not configured" text-secondary', () => {
-  it('"Not configured" span has text-secondary class', async () => {
+describe('CurseForgeKeyForm — status=missing renders "No key" text-secondary', () => {
+  it('"No key" span has text-secondary class', async () => {
     render(CurseForgeKeyForm);
     // modsGetCurseforgeKeyStatus resolves to 'missing'
-    const span = await screen.findByText(/not configured/i);
+    const span = await screen.findByText(/no key — this build/i);
     expect(span.className).toContain('text-secondary');
   });
 });
 
-describe('CurseForgeKeyForm — status=set renders "OK — key is set" text-success', () => {
-  it('"OK — key is set" span has text-success class', async () => {
+describe('CurseForgeKeyForm — status=set renders "Your own key is stored" text-success', () => {
+  it('"Your own key is stored" span has text-success class', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsGetCurseforgeKeyStatus).mockResolvedValueOnce({
       status: 'ok',
       data: 'set',
     });
     render(CurseForgeKeyForm);
-    const span = await screen.findByText(/ok — key is set/i);
+    const span = await screen.findByText(/your own key is stored/i);
     expect(span.className).toContain('text-success');
-    expect(span.className).toContain('font-medium');
-  });
-});
-
-describe('CurseForgeKeyForm — status=invalid renders "Invalid" text-danger', () => {
-  it('"Invalid" span has text-danger class', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modsGetCurseforgeKeyStatus).mockResolvedValueOnce({
-      status: 'ok',
-      data: 'invalid',
-    });
-    render(CurseForgeKeyForm);
-    const span = await screen.findByText(/invalid/i);
-    expect(span.className).toContain('text-danger');
     expect(span.className).toContain('font-medium');
   });
 });
@@ -248,8 +235,11 @@ describe('CurseForgeKeyForm — status=loading renders "Checking…" text-placeh
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsGetCurseforgeKeyStatus).mockReturnValueOnce(new Promise(() => {}));
     render(CurseForgeKeyForm);
-    const span = screen.getByText(/checking/i);
+    const span = screen.getByTestId('cf-key-status');
+    expect(span.textContent).toMatch(/checking/i);
     expect(span.className).toContain('text-placeholder');
+    // One live region for the busy state (INT-15).
+    expect(span.querySelectorAll('[role="status"]').length).toBe(1);
   });
 });
 
@@ -297,27 +287,6 @@ describe('CurseForgeKeyForm — Update key button is btn-primary btn-sm (status=
     const btn = await screen.findByRole('button', { name: /update key/i });
     expect(btn).toHaveBtnVariant('primary');
     expect(btn).toHaveBtnSize('sm');
-  });
-});
-
-// ── CurseForgeKeyForm — replace hint separator (status=set) ──────────────────
-
-describe('CurseForgeKeyForm — replace hint separates action from next sentence', () => {
-  it('renders ". " between the bold action and the "Get one at" sentence', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modsGetCurseforgeKeyStatus).mockResolvedValueOnce({
-      status: 'ok',
-      data: 'set',
-    });
-    const { container } = render(CurseForgeKeyForm);
-    // Wait for the status=set branch (Clear key button only exists there).
-    await screen.findByRole('button', { name: /clear key/i });
-    // The bold action and the next sentence must be separated by ". " — not glued
-    // together (regression: "Update keyGet one at" with no period or space).
-    const hint = Array.from(container.querySelectorAll('p')).find((p) =>
-      /Get one at/.test(p.textContent ?? ''),
-    );
-    expect(hint?.textContent).toMatch(/Update key\.\s+Get one at/);
   });
 });
 
