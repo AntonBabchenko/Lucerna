@@ -274,20 +274,24 @@ mod tests {
         );
     }
 
+    // `guarded_apply`'s closures cross into `spawn_blocking` in production, so
+    // they are `Send`: atomics and a mutex here, not the `Cell`s the older
+    // tests use.
     #[test]
     fn nothing_is_spawned_when_something_started_during_the_download() {
+        use std::sync::atomic::{AtomicBool, Ordering};
         let (_dir, path) = write_temp_installer();
-        let launched = Cell::new(false);
-        let phase_reported = Cell::new(false);
+        let launched = AtomicBool::new(false);
+        let phase_reported = AtomicBool::new(false);
 
         let result = verify_and_launch(
             &path,
             |_bytes| Ok(()),
             guarded_apply(
                 || RestartBlock::Running,
-                || phase_reported.set(true),
+                || phase_reported.store(true, Ordering::SeqCst),
                 |_p| {
-                    launched.set(true);
+                    launched.store(true, Ordering::SeqCst);
                     Ok(())
                 },
             ),
@@ -302,9 +306,12 @@ mod tests {
             ),
             "got {result:?}"
         );
-        assert!(!launched.get(), "the installer must NOT be spawned");
         assert!(
-            !phase_reported.get(),
+            !launched.load(Ordering::SeqCst),
+            "the installer must NOT be spawned"
+        );
+        assert!(
+            !phase_reported.load(Ordering::SeqCst),
             "no Launching phase for a refused install"
         );
     }
@@ -312,23 +319,23 @@ mod tests {
     #[test]
     fn the_launch_phase_is_reported_only_after_the_observation_passes() {
         let (_dir, path) = write_temp_installer();
-        let order = std::cell::RefCell::new(Vec::new());
+        let order = std::sync::Mutex::new(Vec::new());
 
         let result = verify_and_launch(
             &path,
             |_bytes| Ok(()),
             guarded_apply(
                 || RestartBlock::None,
-                || order.borrow_mut().push("launching"),
+                || order.lock().unwrap().push("launching"),
                 |_p| {
-                    order.borrow_mut().push("apply");
+                    order.lock().unwrap().push("apply");
                     Ok(())
                 },
             ),
         );
 
         assert!(result.is_ok(), "got {result:?}");
-        assert_eq!(*order.borrow(), vec!["launching", "apply"]);
+        assert_eq!(*order.lock().unwrap(), vec!["launching", "apply"]);
     }
 
     #[test]

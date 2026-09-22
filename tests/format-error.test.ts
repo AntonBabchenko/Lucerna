@@ -256,6 +256,7 @@ describe('formatError', () => {
       update_check_failed: { kind: 'update_check_failed', details: 'd' },
       update_verification_failed: { kind: 'update_verification_failed', details: 'd' },
       update_install_failed: { kind: 'update_install_failed', details: 'd' },
+      update_blocked: { kind: 'update_blocked', block: 'running' },
       hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
       java_spawn: { kind: 'java_spawn', details: 'no java' },
       already_running: { kind: 'already_running', instance_id: 'abc' },
