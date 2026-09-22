@@ -230,6 +230,25 @@ describe('Settings → Integrations: AI translation', () => {
     expect(screen.getByTestId('ai-local-note').textContent).toMatch(/English/i);
   });
 
+  it('a key status the keyring could not answer is "couldn\'t check", never "Checking…"', async () => {
+    l10nPrefillKeyStatus.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'keyring', op: 'read', details: 'Platform secure storage failure: locked' },
+    });
+    appSettingsGet.mockResolvedValue({
+      status: 'ok',
+      data: { general: general({ allow_ai_translation: true }) },
+    });
+    await mount();
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-key-status').textContent).toContain(
+        "Couldn't check the system keyring",
+      ),
+    );
+    expect(screen.getByTestId('ai-key-status-reason').textContent).toContain('locked');
+    expect(screen.queryByText(/Checking…/)).toBeNull();
+  });
+
   it('never reads a stored key back into the UI', async () => {
     l10nPrefillKeyStatus.mockResolvedValue({ status: 'ok', data: true });
     await mount();

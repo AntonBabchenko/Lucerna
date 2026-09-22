@@ -8,7 +8,7 @@ import type { Error as IpcError } from '$lib/ipc/bindings';
  * falsely claiming the key is invalid. Only a genuine platform-auth rejection
  * is 'invalid'.
  */
-export function cfKeyErrorStatus(error: IpcError): 'invalid' | 'unverified' {
+export function cfKeyErrorStatus(error: IpcError): 'invalid' | 'unverified' | 'not_saved' {
   switch (error.kind) {
     case 'mods_platform_unreachable':
     case 'mods_network':

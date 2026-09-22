@@ -545,6 +545,11 @@ pub enum KeyStatus {
     Missing,
     Set,
     Invalid,
+    /// The keyring could not be read and no built-in key can serve requests.
+    Unknown,
+    /// The keyring could not be read, but the build's own key still serves
+    /// requests — a personal key, if there is one, is what could not be seen.
+    UnknownEmbedded,
 }
 
 #[async_trait]

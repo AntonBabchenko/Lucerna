@@ -257,6 +257,7 @@ describe('formatError', () => {
       update_verification_failed: { kind: 'update_verification_failed', details: 'd' },
       update_install_failed: { kind: 'update_install_failed', details: 'd' },
       update_blocked: { kind: 'update_blocked', block: 'running' },
+      keyring: { kind: 'keyring', op: 'write', details: 'Platform secure storage failure: x' },
       hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
       java_spawn: { kind: 'java_spawn', details: 'no java' },
       already_running: { kind: 'already_running', instance_id: 'abc' },
@@ -768,6 +769,24 @@ describe('formatError', () => {
         "couldn't check whether a game or a server is running",
       );
       expect(ERROR_CLASS.update_blocked).toBe('clean');
+    });
+  });
+
+  describe('keyring', () => {
+    it('headlines the operation, never "invalid" or "IO error", and keeps the tail', () => {
+      expect(formatError({ kind: 'keyring', op: 'read', details: 'd' })).toContain(
+        "Couldn't read from the system keyring",
+      );
+      expect(formatError({ kind: 'keyring', op: 'write', details: 'd' })).toContain(
+        "Couldn't save to the system keyring",
+      );
+      expect(formatError({ kind: 'keyring', op: 'delete', details: 'd' })).toContain(
+        "Couldn't delete from the system keyring",
+      );
+      expect(formatError({ kind: 'keyring', op: 'write', details: 'dbus down' })).toContain(
+        'dbus down',
+      );
+      expect(ERROR_CLASS.keyring).toBe('opaque');
     });
 
     it('words the busy refusal so it is true for running, busy and unknown alike', () => {

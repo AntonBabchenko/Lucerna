@@ -49,7 +49,30 @@ pub fn resolve_with(stored: Option<String>, embedded: Option<&str>) -> Option<St
 /// exists (a keyless self-build) — callers then surface the existing
 /// "key missing" path.
 pub fn resolve() -> Option<String> {
-    resolve_with(get().ok().flatten(), EMBEDDED_KEY)
+    resolve_with_cache(EMBEDDED_KEY)
+}
+
+/// The effective key from the session cache; the keyring is read at most once
+/// per session (set / clear refresh the cache), so no CurseForge request pays
+/// a D-Bus round trip and a locked keyring prompts at most once.
+pub fn resolve_with_cache(embedded: Option<&str>) -> Option<String> {
+    // RED STUB (push 1): reads every time, swallows the error as before.
+    resolve_with(get().ok().flatten(), embedded)
+}
+
+/// Absent from the keyring vs. unreadable — the two are never folded.
+pub fn key_status_from(
+    read: Result<Option<String>, Error>,
+    embedded: Option<&str>,
+) -> crate::mods::platform::KeyStatus {
+    use crate::mods::platform::KeyStatus;
+    // RED STUB (push 1): a read failure still reads as "missing".
+    let _ = &read;
+    if resolve_with(read.ok().flatten(), embedded).is_some() {
+        KeyStatus::Set
+    } else {
+        KeyStatus::Missing
+    }
 }
 
 // --- production backend -------------------------------------------------
@@ -116,6 +139,26 @@ pub fn clear() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_status_tells_absent_from_unreadable() {
+        use crate::mods::platform::KeyStatus;
+        let err = || {
+            Err(Error::Keyring {
+                op: crate::error::KeyringOp::Read,
+                details: "x".into(),
+            })
+        };
+        assert_eq!(key_status_from(Ok(Some("k".into())), None), KeyStatus::Set);
+        // The built-in key reads as "set" — INT-01, reversed by batch 7.
+        assert_eq!(key_status_from(Ok(None), Some("e")), KeyStatus::Set);
+        assert_eq!(key_status_from(Ok(None), None), KeyStatus::Missing);
+        assert_eq!(
+            key_status_from(err(), Some("e")),
+            KeyStatus::UnknownEmbedded
+        );
+        assert_eq!(key_status_from(err(), None), KeyStatus::Unknown);
+    }
 
     #[test]
     fn unit_tests_use_a_separate_keyring_slot() {
