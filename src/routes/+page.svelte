@@ -71,7 +71,7 @@
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import type { AppFile_Serialize, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
+  import type { AppFile, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
   import { listen } from '@tauri-apps/api/event';
   import { dispatchIntent } from '$lib/launch/intent';
   import CreateShortcutDialog from '$lib/instances/CreateShortcutDialog.svelte';
@@ -878,14 +878,14 @@
    *  Safe to run more than once (the retry path): the theme listener is torn
    *  down before it is re-registered, the modpack sweep is TTL-deduped, and
    *  checkWhatsNew is once-per-version. */
-  function applyStartupSettings(data: AppFile_Serialize): void {
+  function applyStartupSettings(data: AppFile): void {
     themeUnlisten?.();
-    themeUnlisten = initTheme(data.general.theme ?? 'system');
-    initLocale(data.general.language ?? 'system');
-    explanationState.level = data.general.explanation_level ?? 'basic';
-    void initCompact(data.general.compact_mode ?? false);
-    initSidebarButtons(data.general.hidden_sidebar_buttons ?? []);
-    modpackSweepEnabled = data.general.check_updates_on_startup ?? true;
+    themeUnlisten = initTheme(data.general?.theme ?? 'system');
+    initLocale(data.general?.language ?? 'system');
+    explanationState.level = data.general?.explanation_level ?? 'basic';
+    void initCompact(data.general?.compact_mode ?? false);
+    initSidebarButtons(data.general?.hidden_sidebar_buttons ?? []);
+    modpackSweepEnabled = data.general?.check_updates_on_startup ?? true;
     // Post-update "What's new": if the running version differs from the last
     // one the user saw, offer the changelog. Independent of the update-check
     // setting — it's fully offline (embedded changelog, no network).
@@ -907,7 +907,7 @@
         return;
       }
       sweepModpackUpdates();
-      if (!data.general.check_updates_on_startup) return;
+      if (!data.general?.check_updates_on_startup) return;
       const dismissed = data.update_dismissed_version ?? null;
       const upd = await commands.updateCheck();
       if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
