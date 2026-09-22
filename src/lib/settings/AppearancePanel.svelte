@@ -1,12 +1,15 @@
 <script lang="ts">
-  // Settings → Appearance. Theme, interface language, rainbow icon
-  // animation, icon hover-zoom. All persist via their own stores
-  // (setThemePref / setLocalePref / rainbowFx.set / iconZoomFx.set) —
-  // never through appSettingsSetGeneral.
+  // Settings → Appearance. Theme, interface language, the two icon effects,
+  // sidebar buttons. All persist via their own stores (setThemePref /
+  // setLocalePref / rainbowFx.set / iconZoomFx.set) — never through
+  // appSettingsSetGeneral. Every block opens with the shared h3 recipe
+  // (DESIGN §3); the theme picker is a SegmentedControl named by the block
+  // heading's text and described by the hint under it.
   import { type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
@@ -22,37 +25,45 @@
     { value: 'system', label: $t('settings.general.appearance.languageSystem') },
     ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
   ]);
+
+  // testId per option keeps the `theme-<pref>` ids the tests and the save-failure
+  // suite query.
+  const themeOptions = $derived([
+    {
+      value: 'system',
+      label: $t('settings.general.appearance.themeSystem'),
+      testId: 'theme-system',
+    },
+    { value: 'light', label: $t('settings.general.appearance.themeLight'), testId: 'theme-light' },
+    { value: 'dark', label: $t('settings.general.appearance.themeDark'), testId: 'theme-dark' },
+  ]);
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   <SettingsField anchor="appearance.theme">
-    <fieldset class="flex flex-col gap-2">
-      <legend class="font-medium text-sm text-primary mb-1">
-        {$t('settings.general.appearance.theme')}
-      </legend>
-      {#each [{ v: 'system' as ThemePreference, labelKey: 'settings.general.appearance.themeSystem' as const }, { v: 'light' as ThemePreference, labelKey: 'settings.general.appearance.themeLight' as const }, { v: 'dark' as ThemePreference, labelKey: 'settings.general.appearance.themeDark' as const }] as opt (opt.v)}
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="theme"
-            value={opt.v}
-            checked={themeState.pref === opt.v}
-            onchange={() => void setThemePref(opt.v)}
-            data-testid="theme-{opt.v}"
-          />
-          <span class="text-sm">{$t(opt.labelKey)}</span>
-        </label>
-      {/each}
-    </fieldset>
-    <!-- A refused save snaps the pick back; this line says why, here. -->
-    <div data-testid="save-failure-theme">
-      <StatusMessage message={saveFailure('theme')} tone="danger" />
+    <div class="flex flex-col gap-2">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.appearance.theme')}</h3>
+      <SegmentedControl
+        variant="boxed"
+        ariaLabel={$t('settings.general.appearance.theme')}
+        describedby="appearance-theme-hint"
+        options={themeOptions}
+        value={themeState.pref}
+        onChange={(v) => void setThemePref(v as ThemePreference)}
+      />
+      <p id="appearance-theme-hint" class="text-xs text-muted">
+        {$t('settings.general.appearance.themeHint')}
+      </p>
+      <!-- A refused save snaps the pick back; this line says why, here. -->
+      <div data-testid="save-failure-theme">
+        <StatusMessage message={saveFailure('theme')} tone="danger" />
+      </div>
     </div>
   </SettingsField>
 
   <SettingsField anchor="appearance.language">
-    <div class="flex flex-col gap-1">
-      <span class="text-sm text-primary">{$t('settings.general.appearance.language')}</span>
+    <div class="flex flex-col gap-2">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.appearance.language')}</h3>
       <Select
         class="text-sm"
         dataTestid="language-select"
@@ -67,52 +78,59 @@
     </div>
   </SettingsField>
 
-  <SettingsField anchor="appearance.rainbowIcons">
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        checked={rainbowFx.enabled}
-        onchange={(e) => rainbowFx.set(e.currentTarget.checked)}
-        data-testid="rainbow-icons-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.appearance.rainbowIcons')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.appearance.rainbowIconsDescription')}
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">
+      {$t('settings.general.appearance.effectsTitle')}
+    </h3>
+    <SettingsField anchor="appearance.rainbowIcons">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          checked={rainbowFx.enabled}
+          onchange={(e) => rainbowFx.set(e.currentTarget.checked)}
+          data-testid="rainbow-icons-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.appearance.rainbowIcons')}</span>
+          <span class="block text-xs text-muted">
+            {$t('settings.general.appearance.rainbowIconsDescription')}
+          </span>
         </span>
-      </span>
-    </label>
-  </SettingsField>
+      </label>
+    </SettingsField>
 
-  <SettingsField anchor="appearance.iconZoom">
-    <label class="flex items-start gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        checked={iconZoomFx.enabled}
-        onchange={(e) => iconZoomFx.set(e.currentTarget.checked)}
-        data-testid="icon-zoom-toggle"
-      />
-      <span class="flex-1">
-        <span class="text-sm text-primary">{$t('settings.general.appearance.iconZoom')}</span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.appearance.iconZoomDescription')}
+    <SettingsField anchor="appearance.iconZoom">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          checked={iconZoomFx.enabled}
+          onchange={(e) => iconZoomFx.set(e.currentTarget.checked)}
+          data-testid="icon-zoom-toggle"
+        />
+        <span class="flex-1">
+          <span class="text-sm text-primary">{$t('settings.general.appearance.iconZoom')}</span>
+          <span class="block text-xs text-muted">
+            {$t('settings.general.appearance.iconZoomDescription')}
+          </span>
         </span>
-      </span>
-    </label>
-  </SettingsField>
+      </label>
+    </SettingsField>
+  </div>
 
   <SettingsField anchor="appearance.sidebarButtons">
-    <div class="border-t border-border-subtle pt-4 mt-2 flex flex-col gap-2">
-      <div>
-        <span class="text-sm text-primary">
+    <!-- A fieldset whose legend wraps the h3: each box reads "Mods, checkbox —
+         Sidebar buttons" and the block stays in heading navigation (10b §10). -->
+    <fieldset class="flex flex-col gap-2">
+      <legend class="mb-1">
+        <h3 class="font-medium text-sm text-primary">
           {$t('settings.general.appearance.sidebarButtons.title')}
-        </span>
-        <span class="block text-xs text-muted">
-          {$t('settings.general.appearance.sidebarButtons.description')}
-        </span>
-      </div>
+        </h3>
+      </legend>
+      <p class="text-xs text-muted">
+        {$t('settings.general.appearance.sidebarButtons.description')}
+      </p>
       {#each SIDEBAR_BUTTONS as b (b.id)}
         <label class="flex items-center gap-2 cursor-pointer">
           <input
@@ -124,6 +142,6 @@
           <span class="text-sm text-primary">{$t(b.labelKey)}</span>
         </label>
       {/each}
-    </div>
+    </fieldset>
   </SettingsField>
 </section>
