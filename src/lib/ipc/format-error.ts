@@ -6,6 +6,7 @@ import { displayLoader } from '$lib/instances/loader-display';
 import type {
   BundleError,
   DatapackRejection,
+  FolderProblem,
   FormatError,
   Error as IpcError,
   LoaderKind,
@@ -458,6 +459,22 @@ function bundleErrorReason(reason: BundleError): string {
  * without extending this function would surface as a TypeScript error
  * at the `_exhaustive: never` line, not as a runtime JSON leak.
  */
+/** Which way the data folder can't be used, in words: "not there" is never said for
+ *  "couldn't check" (then the OS's own words follow). */
+function dataRootUnreachable(path: string, problem: FolderProblem): string {
+  const translate = get(t);
+  switch (problem.kind) {
+    case 'missing':
+      return translate('errors.dataRootUnreachable.missing', { path });
+    case 'not_a_folder':
+      return translate('errors.dataRootUnreachable.notAFolder', { path });
+    case 'not_a_data_root':
+      return translate('errors.dataRootUnreachable.notADataRoot', { path });
+    case 'unreadable':
+      return translate('errors.dataRootUnreachable.unreadable', { path, details: problem.details });
+  }
+}
+
 export function formatError(e: IpcError): string {
   const translate = get(t);
   switch (e.kind) {
@@ -844,8 +861,7 @@ export function formatError(e: IpcError): string {
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
     case 'data_root_unreachable':
-      // STUB (red).
-      return e.path;
+      return dataRootUnreachable(e.path, e.problem);
     case 'data_relocation_in_progress':
       return translate(
         e.restart_required
