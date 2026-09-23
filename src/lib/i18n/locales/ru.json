@@ -826,7 +826,7 @@
     "curseforgeBanner": {
       "heading": "CurseForge требует API-ключ",
       "body": "Modrinth работает анонимно, но для CurseForge нужен бесплатный API-ключ. Его получение занимает около 5 минут — создайте бесплатный аккаунт на console.curseforge.com, сгенерируйте ключ и вставьте его в настройки.",
-      "openSettings": "Открыть настройки → CurseForge"
+      "openSettings": "Открыть настройки → Интеграции"
     },
     "installed": {
       "statsTotal": "Всего:",
@@ -2530,7 +2530,6 @@
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
-    "closeBackdropLabel": "Закрыть настройки",
     "fallbackNotice": "Папка данных недоступна. Это временная сессия: изменённые здесь настройки не сохраняются в вашу папку данных.",
     "sections": {
       "appearance": "Оформление",
@@ -2830,7 +2829,6 @@
       "legalTitle": "Правовая информация",
       "disclaimer": "НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО MOJANG ИЛИ MICROSOFT И НЕ СВЯЗАНО С НИМИ.",
       "viewOnGitHub": "Открыть на GitHub",
-      "openRepoLabel": "Открыть репозиторий Lucerna на GitHub ({url})",
       "license": "Распространяется под лицензией GPL-3.0-or-later. Java-среда и файлы Minecraft загружаются с серверов Mojang во время выполнения и никогда не изменяются.",
       "trademark": "Minecraft и Mojang являются торговыми марками Mojang Synergies AB и Microsoft Corporation. Данный лаунчер не аффилирован ни с одной из этих компаний.",
       "keyring": "Секреты — токены входа Microsoft, личный ключ CurseForge, пароли SFTP, ключи ИИ — хранятся в хранилище ключей вашей операционной системы (Диспетчер учётных данных Windows, Связка ключей macOS или Secret Service в Linux), а не в собственных файлах Lucerna."
@@ -2844,7 +2842,6 @@
         "versionUntranslated": "Ещё не переведено; показано на английском.",
         "versionPartial": "Часть ещё не переведена и показана на английском."
       },
-      "openReleaseLabel": "Открыть примечания к выпуску v{version} на GitHub",
       "sections": {
         "added": "Добавлено",
         "changed": "Изменено",
