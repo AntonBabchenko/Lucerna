@@ -72,9 +72,13 @@ pub async fn update_dismiss(
     app: tauri::AppHandle,
     version: String,
 ) -> crate::error::Result<Option<String>> {
-    let _ = (app, version);
-    // STUB (red).
-    Ok(None)
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    crate::instances::store::update_app_json(&path, |af| {
+        af.update_dismissed_version = Some(version.clone());
+        crate::instances::store::Verdict::Write
+    })?;
+    Ok(effective_skip(Some(&version), env!("CARGO_PKG_VERSION")))
 }
 
 /// "Stop skipping": forget the skipped version, so the startup check offers it
@@ -82,8 +86,15 @@ pub async fn update_dismiss(
 #[tauri::command]
 #[specta::specta]
 pub async fn update_clear_dismissed(app: tauri::AppHandle) -> crate::error::Result<Option<String>> {
-    let _ = app;
-    // STUB (red).
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    crate::instances::store::update_app_json(&path, |af| {
+        if af.update_dismissed_version.take().is_some() {
+            crate::instances::store::Verdict::Write
+        } else {
+            crate::instances::store::Verdict::Unchanged
+        }
+    })?;
     Ok(None)
 }
 
@@ -93,16 +104,20 @@ pub async fn update_clear_dismissed(app: tauri::AppHandle) -> crate::error::Resu
 #[tauri::command]
 #[specta::specta]
 pub async fn update_skipped_version(app: tauri::AppHandle) -> crate::error::Result<Option<String>> {
-    let _ = app;
-    // STUB (red).
-    Ok(None)
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    let file = crate::instances::store::read_app_json(&path)?;
+    Ok(effective_skip(
+        file.update_dismissed_version.as_deref(),
+        env!("CARGO_PKG_VERSION"),
+    ))
 }
 
 /// Pure: the one rule for "is there a skip to mention".
 pub fn effective_skip(stored: Option<&str>, running: &str) -> Option<String> {
-    let _ = (stored, running);
-    // STUB (red).
-    None
+    stored
+        .filter(|v| crate::update::check::is_newer(v, running))
+        .map(str::to_owned)
 }
 
 #[cfg(test)]
