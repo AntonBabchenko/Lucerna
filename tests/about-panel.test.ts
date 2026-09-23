@@ -40,6 +40,25 @@ describe('AboutPanel', () => {
     expect(btn.hasAttribute('aria-label')).toBe(false);
   });
 
+  it('states the licence and the Mojang download in plain words, keeping both facts', () => {
+    render(AboutPanel);
+    // ABOUT-07: "at runtime" was developer jargon. The two facts it carries —
+    // GPL-3.0-or-later, and that the downloaded files are never modified —
+    // must survive the rewording verbatim (decision 12 reserves the rest).
+    const licence = screen.getByText(/GPL-3\.0-or-later/);
+    expect(licence.textContent).toContain('when they are first needed');
+    expect(licence.textContent).toContain('never modified');
+    expect(licence.textContent).not.toContain('at runtime');
+  });
+
+  it('names the product in the trademark line instead of "This launcher"', () => {
+    render(AboutPanel);
+    const mark = screen.getByText(/Minecraft and Mojang are trademarks/);
+    expect(mark.textContent).toContain('Lucerna is not affiliated');
+    expect(mark.textContent).toContain('Mojang Synergies AB');
+    expect(mark.textContent).toContain('Microsoft Corporation');
+  });
+
   it('renders the Mojang/Microsoft trademark attribution', () => {
     render(AboutPanel);
     expect(screen.getByText(/Minecraft and Mojang are trademarks/)).toBeTruthy();

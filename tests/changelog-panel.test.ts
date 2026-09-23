@@ -108,6 +108,6 @@ describe('ChangelogPanel', () => {
 
   it('shows the empty-state message when there are no visible versions', () => {
     render(ChangelogPanel, { props: { entries: [] } });
-    expect(screen.getByText('No changelog available.')).toBeTruthy();
+    expect(screen.getByText('No release notes available.')).toBeTruthy();
   });
 });
