@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod cancel_registry;
 pub mod cli;
+pub mod close;
 mod commands;
 pub mod data_root;
 pub mod datapacks;
