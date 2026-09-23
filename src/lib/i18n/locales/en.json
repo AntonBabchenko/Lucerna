@@ -4038,7 +4038,7 @@
   "closeConfirm": {
     "title": "Close Lucerna?",
     "games": "Minecraft is still running. Closing Lucerna forces it to close — unsaved progress may be lost.",
-    "servers": "{count, plural, one {A server is} other {# servers are}} still running. Closing Lucerna forces {count, plural, one {it} other {them}} to stop — recent world changes may be lost. Stop {count, plural, one {it} other {them}} first to keep them.",
+    "servers": "{count, plural, one {A server is} other {# servers are}} still running. Closing Lucerna forces {count, plural, one {it to stop} other {them to stop}} — recent world changes may be lost. Stop {count, plural, one {it first} other {them first}} to keep them.",
     "operation": "An operation is still running, such as an update, a backup, an upload or a translation. Closing Lucerna interrupts it.",
     "unchecked": "Lucerna couldn't check whether a server from an earlier session is still running. If one is, it keeps running after Lucerna closes.",
     "closeEverything": "Close everything",
