@@ -15,9 +15,21 @@ const { setGeneral, patchGeneral, updateCheck } = vi.hoisted(() => ({
       ...p,
     },
   })),
+  // Typed wide enough for both outcomes: the default "up to date" answer and
+  // the AVAILABLE one a test swaps in (svelte-check type-checks tests/ too).
   updateCheck: vi.fn(
-    async () =>
-      ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }) as const,
+    async (): Promise<{
+      status: 'ok';
+      data: {
+        available: boolean;
+        current: string;
+        latest: string;
+        release_url?: string;
+        installer?: { url: string; name: string; size: number };
+        sha256sums?: null;
+        cosign_bundle?: null;
+      };
+    }> => ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }),
   ),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
