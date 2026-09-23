@@ -224,12 +224,28 @@ describe('searchSettings over the real registry + locales', () => {
     { q: 'русский', t: enT, first: 'appearance.language' },
     { q: 'privacy', t: enT, has: ['game.serverPing', 'integrations.aiTranslation'] },
     { q: 'ai', t: enT, first: 'integrations.aiTranslation', not: ['appearance.rainbowIcons'] },
-    { q: 'version', t: enT, first: 'updates.changelog', not: ['about.repo'] },
+    // Re-pinned in batch 12a: About now shows the version itself (and copies it),
+    // the better answer to "which version do I have"; the changelog stays second.
+    {
+      q: 'version',
+      t: enT,
+      first: 'about.versionInfo',
+      has: ['updates.changelog'],
+      not: ['about.repo'],
+    },
+    { q: 'bug', t: enT, first: 'help.support' },
+    { q: 'ошибка', t: ruT, first: 'help.support' },
+    { q: 'licence', t: enT, first: 'about.license' },
+    { q: 'лицензия', t: ruT, first: 'about.license' },
+    { q: 'logs', t: enT, has: ['help.logFolder'] },
+    { q: 'приватность', t: ruT, first: 'about.privacyPolicy' },
     { q: 'show hidden', t: enT, first: 'appearance.sidebarButtons' },
     { q: 'startup', t: enT, first: 'updates.startupCheck' },
     { q: 'тёмный режим', t: ruT, first: 'appearance.theme' },
     { q: 'видеокарту', t: ruT, first: 'game.gpu' },
-    { q: 'папку', t: ruT, first: 'storage.dataLocation' },
+    // has, not first, since batch 12a: the Help page's «Открыть папку журналов лаунчера»
+    // is an exact visible word too. 12c's own data-folder row settles the order.
+    { q: 'папку', t: ruT, has: ['storage.dataLocation', 'help.logFolder'] },
     { q: 'перенести данные', t: ruT, first: 'storage.dataLocation' },
     { q: 'кеш', t: ruT, first: 'storage.cache', has: ['storage.modMetadataCache'] },
     {
