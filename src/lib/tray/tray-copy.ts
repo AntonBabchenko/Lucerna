@@ -7,13 +7,27 @@ import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { RestartBlock, TrayLabels } from '$lib/ipc/bindings';
 
 /** The three menu strings, in the interface language. */
-export function trayLabels(_t: Translate): TrayLabels {
-  // STUB (red).
-  return { open: '', quit: '', tooltip_running: '' };
+export function trayLabels(t: Translate): TrayLabels {
+  return {
+    open: t('tray.open'),
+    quit: t('tray.quit'),
+    tooltip_running: t('tray.tooltipRunning'),
+  };
 }
 
 /** The warning shown when a tray Quit was refused, per reason. */
-export function trayRefusalKey(_block: Exclude<RestartBlock, 'none'>): TranslationKey {
-  // STUB (red).
-  return 'tray.open';
+export function trayRefusalKey(block: Exclude<RestartBlock, 'none'>): TranslationKey {
+  switch (block) {
+    case 'running':
+      return 'tray.blocked.running';
+    case 'busy':
+      return 'tray.blocked.busy';
+    case 'unknown':
+      return 'tray.blocked.unknown';
+    default: {
+      // A new reason must get its own sentence, not borrow another's.
+      const unhandled: never = block;
+      return unhandled;
+    }
+  }
 }

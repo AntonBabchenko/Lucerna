@@ -19,6 +19,7 @@
 // attribute swallows every modal's Escape and every modal's focus trap.
 
 import { whatsNewState } from '$lib/changelog/whats-new.svelte';
+import { closeAskState } from '$lib/close/close-ask.svelte';
 import type { ContextualTourId } from './contextual-tours';
 import { tourState } from './state.svelte';
 
@@ -28,7 +29,8 @@ let activeTourId: ContextualTourId | null = null;
 
 /**
  * Whether a surface OTHER than a contextual tour owns the screen right now —
- * the main onboarding tour, or the post-update changelog dialog.
+ * the main onboarding tour, the post-update changelog dialog, or the window's
+ * close question (a tour over it would take the Escape meant for Cancel).
  *
  * Two callers, and the second is the one that is easy to forget:
  *   - a host's mount gate, so a passive hint never opens on top of either. The
@@ -48,7 +50,7 @@ let activeTourId: ContextualTourId | null = null;
  * Reading it inside a destroy phase would lie — see ContextualTour's onDestroy.
  */
 export function screenOwnedElsewhere(): boolean {
-  return tourState.active || whatsNewState.entries !== null;
+  return tourState.active || whatsNewState.entries !== null || closeAskState.open;
 }
 
 /** Whether any contextual tour currently owns the screen. */

@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   listen: vi.fn(),
   ack: vi.fn(),
   confirm: vi.fn(),
+  cancel: vi.fn(),
   emit: null as null | ((e: { payload: Payload }) => void),
 }));
 
@@ -20,6 +21,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appCloseAskShown: (g: number) => h.ack(g),
     appConfirmClose: (g: number, l: unknown) => h.confirm(g, l),
+    appCancelClose: (g: number) => h.cancel(g),
   },
   events: { closeConfirmNeeded: { listen: h.listen } },
 }));
@@ -45,6 +47,7 @@ beforeEach(() => {
   });
   h.ack.mockResolvedValue(true);
   h.confirm.mockResolvedValue({ status: 'ok', data: null });
+  h.cancel.mockResolvedValue(null);
 });
 
 describe('the close dialog', () => {
@@ -86,6 +89,16 @@ describe('the close dialog', () => {
     await open(1, GAME);
     await fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(h.confirm).not.toHaveBeenCalled();
+  });
+
+  it('tells the backend a cancelled question is over, so hiding to the tray is not held forever', async () => {
+    render(CloseConfirmHost);
+    await waitFor(() => expect(h.listen).toHaveBeenCalled());
+    await open(4, GAME);
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(h.cancel).toHaveBeenCalledWith(4);
     expect(h.confirm).not.toHaveBeenCalled();
   });
 
