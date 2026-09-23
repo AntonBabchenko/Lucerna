@@ -350,7 +350,7 @@
       "nameLabel": "New name",
       "defaultSuffix": " (copy)",
       "whatToCopy": "What to copy",
-      "optionSettings": "Settings (memory, JVM arguments)",
+      "optionSettings": "Instance settings (memory, JVM arguments)",
       "optionPacks": "Resource & shader packs",
       "optionPlaytime": "Playtime",
       "noPlaytime": "No playtime recorded yet",
@@ -2573,8 +2573,8 @@
           "changelog": "What's new"
         },
         "help": {
-          "tipsLevel": "Tip detail level",
-          "replayTours": "Replay onboarding tour"
+          "tipsLevel": "Explanations detail level",
+          "replayTours": "Replay the tour"
         },
         "about": {
           "repo": "View on GitHub"
@@ -2624,17 +2624,17 @@
         "themeLight": "Light",
         "themeDark": "Dark",
         "rainbowIcons": "Rainbow icon animation",
-        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting.",
+        "rainbowIconsDescription": "The Browse modpacks and Shaders icons shimmer through a rainbow on hover or keyboard focus. Respects your system's reduced-motion setting.",
         "iconZoom": "Icon hover zoom",
-        "iconZoomDescription": "Icons grow slightly when you point at them.",
+        "iconZoomDescription": "Icon-only buttons grow slightly on hover or keyboard focus. Respects your system's reduced-motion setting.",
         "sidebarButtons": {
           "title": "Sidebar buttons",
           "description": "Hide buttons you don't use. Applies in both normal and compact mode.",
-          "skin": "Skins and capes",
-          "accountActions": "Add account (offline and Microsoft)",
+          "skin": "Skin and cape",
+          "accountActions": "Add account",
           "manage": "Manage",
           "mods": "Mods",
-          "quickJoin": "Quick join server",
+          "quickJoin": "Servers",
           "browseModpacks": "Browse modpacks",
           "importLauncher": "Import from launcher",
           "gallery": "Gallery",
@@ -2647,19 +2647,19 @@
       "playing": {
         "title": "Playing",
         "trayLabel": "Hide launcher to tray when Minecraft starts",
-        "trayDescription": "A small icon appears in the system tray. The launcher returns when Minecraft closes; click the tray icon to bring it back sooner."
+        "trayDescription": "A small icon appears in the system tray. The launcher comes back as soon as any running game closes; click the tray icon to bring it back sooner. Without a system tray the icon has nowhere to appear, and the launcher stays hidden until a game closes."
       },
       "serverPing": {
         "title": "Server status",
         "label": "Show status for my saved servers",
-        "description": "Lucerna asks the servers in this instance's list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
-        "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and nothing about them is sent anywhere else.",
+        "description": "Lucerna asks the servers saved in any instance's Servers list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
+        "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and the results stay on this computer.",
         "revokeFailed": "Status checks are still on — the change wasn't saved: {error}"
       },
       "updates": {
         "title": "Updates",
         "startupLabel": "Check for updates on startup",
-        "startupDescription": "Shows a notification when a newer version is available. Installing is always an explicit click — Lucerna never updates itself silently.",
+        "startupDescription": "Shows a notification when a newer version is available, and checks your imported modpacks for new versions at the same time. Installing is always an explicit click — Lucerna never updates itself silently.",
         "checkBtn": "Check for updates",
         "checking": "Checking…",
         "uptodate": "You're on the latest version ({version}).",
@@ -2670,7 +2670,7 @@
         "updating": "Updating…",
         "explain": "Lucerna downloads the installer, verifies it, then closes and comes back on the new version. Close running games and servers first.",
         "openReleasePage": "Open release page",
-        "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page.",
+        "manualHint": "In-app install isn't available for this build — download the latest version from the release page.",
         "blocked": {
           "checking": "Checking whether anything is running…",
           "running": "Close Minecraft and stop your servers first: Lucerna closes to install the update.",
@@ -2717,14 +2717,14 @@
       "logRetention": {
         "title": "Log retention",
         "enableLabel": "Automatically delete old logs",
-        "enableDescription": "Applied on game exit and when you open Logs. latest.log and debug.log are never removed.",
-        "keepLabel": "Keep newest logs (files)",
+        "enableDescription": "Applied on game exit and when you open Logs. Counts game logs, crash reports and console logs together, per instance. latest.log and debug.log are never removed. Server logs are pruned when a server starts — to these limits while this is on, and to 15 files / 200 MB while it is off.",
+        "keepLabel": "Newest logs to keep (files)",
         "keepHint": "At least 1. Older logs are deleted after each game exit.",
         "sizeLabel": "Max total size (MB)"
       },
       "modMetadataCache": {
         "title": "Mod info cache",
-        "description": "Names and icons for installed mods are cached on disk so the Mods tab loads instantly and works offline.",
+        "description": "Names and icons for installed mods are cached on disk so installed mods appear instantly and work offline.",
         "ttlLabel": "Refresh after (days)",
         "ttlHint": "How long cached mod info stays before it is re-fetched. 0 = never expire."
       },
@@ -2744,7 +2744,7 @@
         "heading": "Data location",
         "description": "Everything Lucerna stores (instances, servers, downloads, accounts) lives under this folder. Changing the location moves your existing data to the new folder.",
         "currentLabel": "Current folder:",
-        "sizeLabel": "Size on disk:",
+        "sizeLabel": "Total size:",
         "sizeUnknown": "couldn't be measured",
         "changeBtn": "Change location…",
         "resetBtn": "Reset to default",
@@ -2829,13 +2829,13 @@
       "legalTitle": "Legal",
       "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
       "viewOnGitHub": "View on GitHub",
-      "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
-      "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
+      "license": "Lucerna is licensed under GPL-3.0-or-later. The Java runtime and the Minecraft files are downloaded from Mojang when they are first needed, and are never modified.",
+      "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. Lucerna is not affiliated with either.",
       "keyring": "Secrets — Microsoft sign-in tokens, a personal CurseForge key, SFTP passwords, AI keys — live in your operating system's keyring (Windows Credential Manager, macOS Keychain, or the Linux Secret Service), never in Lucerna's own files."
     },
     "changelog": {
       "title": "What's new",
-      "empty": "No changelog available.",
+      "empty": "No release notes available.",
       "fallback": {
         "noTranslation": "The release notes are not available in your language yet, so they are shown in English.",
         "loadFailed": "The translated release notes could not be loaded, so the English ones are shown.",
@@ -2858,7 +2858,7 @@
       "scopeNote": "This reaches the text mods ship in their own language files: item and block names, tooltips, and in-game guide books such as Patchouli. It does not reach FTB Quests, quest books, or any text a modpack keeps in its config files — that text lives outside the resource pack Lucerna writes, and stays in English.",
       "consentLabel": "Let Lucerna send mod text to an AI provider",
       "consentDescription": "Off by default. While it is off, no translation request leaves this computer — not even a connection test.",
-      "privacyNote": "The English strings from your installed mods are sent to the provider you choose and are subject to that provider's terms. A local model keeps them on this machine.",
+      "privacyNote": "The English strings from your installed mods are sent to the provider you choose and are subject to that provider's terms. A local model keeps them on this computer.",
       "gatedNote": "Turn on the permission above to choose a provider, name a model, or store a key.",
       "providerLabel": "Provider",
       "providerAnthropic": "Anthropic",
@@ -3733,7 +3733,7 @@
       "portInUse": {
         "title": "The server port is already in use",
         "explanation": "Another program or server is already using this port.",
-        "recommendation": "Stop the other server, or change the port in Settings."
+        "recommendation": "Stop the other server, or change the port on the server's Settings tab."
       },
       "eula": {
         "title": "The Minecraft EULA is not accepted",
@@ -3808,7 +3808,7 @@
       "crashUnknown": {
         "title": "The server stopped unexpectedly",
         "explanation": "The server process exited with code {code} before it could report a problem — usually caused by security software, low memory, or a failed startup.",
-        "recommendation": "Try starting it again. If it keeps happening, add the launcher and Java to your antivirus exclusions, lower the server's memory in Settings, or open the log folder to look closer."
+        "recommendation": "Try starting it again. If it keeps happening, add the launcher and Java to your antivirus exclusions, lower the server's memory on its Settings tab, or open the log folder to look closer."
       },
       "fix": {
         "acceptEula": "Accept EULA & start",
