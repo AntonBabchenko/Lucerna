@@ -313,11 +313,18 @@ pub enum FolderProblem {
 /// Pure: what a stat of the root and the data-root shape check say. "Could not
 /// tell" (`Unreadable`) is kept apart from "not there" (`Missing`).
 pub fn data_folder_check(
-    _is_dir: std::io::Result<bool>,
-    _looks_like_root: bool,
+    is_dir: std::io::Result<bool>,
+    looks_like_root: bool,
 ) -> Result<(), FolderProblem> {
-    // STUB (red).
-    Ok(())
+    match is_dir {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(FolderProblem::Missing),
+        Err(e) => Err(FolderProblem::Unreadable {
+            details: e.to_string(),
+        }),
+        Ok(false) => Err(FolderProblem::NotAFolder),
+        Ok(true) if !looks_like_root => Err(FolderProblem::NotADataRoot),
+        Ok(true) => Ok(()),
+    }
 }
 
 /// The real check of the root, for the commands that open or measure it. A
@@ -340,9 +347,15 @@ pub enum OpenStrategy {
 /// macOS treats a directory named `*.app` as an application bundle: `open`
 /// tries to launch it, fails, and still reports success. The default macOS data
 /// folder is `…/Application Support/com.lucerna.app`, so there it is revealed.
-pub fn folder_open_strategy(_path: &Path, _os: &str) -> OpenStrategy {
-    // STUB (red).
-    OpenStrategy::Open
+pub fn folder_open_strategy(path: &Path, os: &str) -> OpenStrategy {
+    let is_bundle_name = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
+    if os == "macos" && is_bundle_name {
+        OpenStrategy::Reveal
+    } else {
+        OpenStrategy::Open
+    }
 }
 
 #[cfg(test)]

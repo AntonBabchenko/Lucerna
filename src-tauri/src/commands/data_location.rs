@@ -186,6 +186,10 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
         .state::<crate::data_root::DataRoot>()
         .root()
         .to_path_buf();
+    // The walk below counts an unreadable entry as 0 — fine BELOW the root, but
+    // a root that is gone or no longer the data folder must not read "0 B" next
+    // to a free space that says it couldn't be measured.
+    reachable_root(root.clone()).await?;
     let size = tokio::task::spawn_blocking(move || migrate::dir_size(&root))
         .await
         .map_err(|e| task_failed("<data_root_size>", e))?;
@@ -198,9 +202,49 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
 #[tauri::command]
 #[specta::specta]
 pub async fn open_data_folder(app: AppHandle) -> Result<()> {
-    let _ = app;
-    // STUB (red).
-    Ok(())
+    use tauri_plugin_opener::OpenerExt;
+    crate::data_root::reject_if_root_unusable(&app)?;
+    let root = app
+        .state::<crate::data_root::DataRoot>()
+        .root()
+        .to_path_buf();
+    reachable_root(root.clone()).await?;
+    let shown = root.display().to_string();
+    match crate::data_root::folder_open_strategy(&root, std::env::consts::OS) {
+        crate::data_root::OpenStrategy::Open => app
+            .opener()
+            .open_path(shown.clone(), None::<&str>)
+            .map_err(|e| Error::io(shown, format!("opener: {e}"))),
+        crate::data_root::OpenStrategy::Reveal => app
+            .opener()
+            .reveal_item_in_dir(&root)
+            .map_err(|e| Error::io(shown, format!("opener: {e}"))),
+    }
+}
+
+/// How long a free-space or reachability probe of the data root may take before
+/// the answer is "couldn't tell" — a stalled network share must not hang the page.
+const ROOT_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The data root is there, a folder, and still the data folder. Off the main
+/// thread (a network root can stall a stat); a stall past the budget is an error.
+async fn reachable_root(root: std::path::PathBuf) -> Result<()> {
+    let shown = root.display().to_string();
+    let probe = tokio::task::spawn_blocking(move || crate::data_root::check_root_reachable(&root));
+    match tokio::time::timeout(ROOT_PROBE_BUDGET, probe).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(problem))) => Err(Error::DataRootUnreachable {
+            path: shown,
+            problem,
+        }),
+        Ok(Err(e)) => Err(task_failed("<data_root_check>", e)),
+        Err(_) => Err(Error::DataRootUnreachable {
+            path: shown,
+            problem: crate::data_root::FolderProblem::Unreadable {
+                details: format!("no answer within {}s", ROOT_PROBE_BUDGET.as_secs()),
+            },
+        }),
+    }
 }
 
 /// Free space on the drive holding the effective data folder, in bytes. Refused
@@ -209,9 +253,23 @@ pub async fn open_data_folder(app: AppHandle) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn data_root_free_bytes(app: AppHandle) -> Result<f64> {
-    let _ = app;
-    // STUB (red).
-    Ok(0.0)
+    crate::data_root::reject_if_root_unusable(&app)?;
+    let root = app
+        .state::<crate::data_root::DataRoot>()
+        .root()
+        .to_path_buf();
+    reachable_root(root.clone()).await?;
+    let shown = root.display().to_string();
+    let probe = tokio::task::spawn_blocking(move || crate::platform::free_disk_bytes_at(&root));
+    match tokio::time::timeout(ROOT_PROBE_BUDGET, probe).await {
+        Ok(Ok(Ok(bytes))) => Ok(bytes as f64),
+        Ok(Ok(Err(e))) => Err(Error::io(shown, e)),
+        Ok(Err(e)) => Err(task_failed("<data_root_free>", e)),
+        Err(_) => Err(Error::io(
+            shown,
+            format!("no answer within {}s", ROOT_PROBE_BUDGET.as_secs()),
+        )),
+    }
 }
 
 /// Classify a picked directory into adopt / migrate / already-current, and —
@@ -535,9 +593,20 @@ pub async fn open_data_move_leftovers(app: AppHandle) -> Result<()> {
             "no finished move in this session",
         ));
     };
-    app.opener()
-        .open_path(old_root.clone(), None::<&str>)
-        .map_err(|e| Error::io(old_root, format!("opener: {e}")))
+    // The old root may be the macOS default `….app` folder: reveal it there.
+    match crate::data_root::folder_open_strategy(
+        std::path::Path::new(&old_root),
+        std::env::consts::OS,
+    ) {
+        crate::data_root::OpenStrategy::Open => app
+            .opener()
+            .open_path(old_root.clone(), None::<&str>)
+            .map_err(|e| Error::io(old_root, format!("opener: {e}"))),
+        crate::data_root::OpenStrategy::Reveal => app
+            .opener()
+            .reveal_item_in_dir(&old_root)
+            .map_err(|e| Error::io(old_root, format!("opener: {e}"))),
+    }
 }
 
 /// Point the data root at `path` — an EXISTING Lucerna data root — without

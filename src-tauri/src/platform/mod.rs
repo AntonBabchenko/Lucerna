@@ -555,9 +555,57 @@ pub fn free_disk_bytes_nearest(path: &Path) -> Option<u64> {
 /// drive's folder must not be answered with the system disk's figure (that is
 /// what `free_disk_mb` / `free_disk_bytes_nearest` do, for a move TARGET that may
 /// not exist yet). `Err` keeps NotFound apart from every other failure.
-pub fn free_disk_bytes_at(_dir: &Path) -> std::io::Result<u64> {
-    // STUB (red).
-    Ok(0)
+pub fn free_disk_bytes_at(dir: &Path) -> std::io::Result<u64> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        // A UNC root (\\server\share) must end with a separator for
+        // GetDiskFreeSpaceExW; any directory accepts one, so always add it.
+        let mut wide: Vec<u16> = dir.as_os_str().encode_wide().collect();
+        if wide
+            .last()
+            .is_some_and(|&c| c != u16::from(b'\\') && c != u16::from(b'/'))
+        {
+            wide.push(u16::from(b'\\'));
+        }
+        wide.push(0);
+        let mut free_to_caller: u64 = 0;
+        // SAFETY: standard Win32 call. `wide` is NUL-terminated; one valid
+        // out-pointer for the figure we need, null for the two we don't.
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free_to_caller,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        return Ok(free_to_caller);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let c_path = std::ffi::CString::new(dir.as_os_str().as_bytes())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        // SAFETY: statvfs writes into a zeroed POD struct; c_path is a valid,
+        // NUL-terminated C string. rc != 0 means the path could not be statted.
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // bavail = blocks available to a non-privileged process; frsize = fragment size.
+        return Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64));
+    }
+    #[allow(unreachable_code)]
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "free space is not measured on this platform",
+    ))
 }
 
 /// Block until the spawned process has created its top-level window (input
