@@ -19,9 +19,10 @@ export type Toast = {
   lines: string[];
   /** Optional action button (e.g. "Update" on an update-available toast). */
   action?: ToastAction;
-  /** Optional callback fired when the toast is dismissed via the × button —
-   *  e.g. persisting a per-version "don't nag again" flag. */
-  onDismiss?: () => void;
+  /** Optional second, quieter action after the first (e.g. "Skip this
+   *  version"). The × only ever closes the toast — anything that should
+   *  persist is an action the user can read before choosing it. */
+  secondary?: ToastAction;
   /** Download/verify progress for a progress toast. `undefined` = not a
    *  progress toast (no bar). `null` = indeterminate (bar shown, unknown
    *  total). `0..1` = fraction complete. */
@@ -78,17 +79,36 @@ export function updateToastProgress(id: number, progress: number | null): void {
   store.toasts = store.toasts.map((t) => (t.id === id ? { ...t, progress } : t));
 }
 
-/** Show a sticky toast (any kind) with an action button. */
+export type ActionToastOptions = {
+  /** A second, quieter action. */
+  secondary?: ToastAction;
+  /** Auto-hide after this long. The countdown pauses while the toast is
+   *  hovered or holds focus, and resumes with the time that was left. */
+  ttlMs?: number;
+};
+
+/** Show a toast (any kind) with an action button; sticky unless `ttlMs` is set. */
 export function pushActionToast(
   kind: ToastKind,
   title: string,
   action: ToastAction,
   lines: string[] = [],
-  onDismiss?: () => void,
+  _opts: ActionToastOptions = {},
 ): number {
+  // STUB (red): the options are accepted but ignored.
   const id = nextId++;
-  store.toasts = [...store.toasts, { id, kind, title, lines, action, onDismiss }];
+  store.toasts = [...store.toasts, { id, kind, title, lines, action }];
   return id;
+}
+
+/** The pointer or focus is on the toast: stop its auto-hide countdown. */
+export function pauseToastTimer(_id: number): void {
+  // STUB (red).
+}
+
+/** The pointer and focus left: continue the countdown with the time left. */
+export function resumeToastTimer(_id: number): void {
+  // STUB (red).
 }
 
 /** Remove a toast by id — the × button, or the success auto-dismiss timer. */

@@ -63,13 +63,7 @@
     >
       <div class="flex items-start gap-2">
         <span class="min-w-0 flex-1 break-words font-medium">{t.title}</span>
-        <CloseButton
-          onClick={() => {
-            t.onDismiss?.();
-            dismiss(t.id);
-          }}
-          ariaLabel={dismissLabel}
-        />
+        <CloseButton onClick={() => dismiss(t.id)} ariaLabel={dismissLabel} />
       </div>
       {#if t.lines.length > 0}
         <ul class="mt-1 space-y-0.5 text-xs selectable">

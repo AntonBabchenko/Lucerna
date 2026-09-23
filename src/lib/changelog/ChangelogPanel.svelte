@@ -19,7 +19,16 @@
   // Heading levels: versions are one level under the host's heading, sections
   // one under that — Settings → Updates (an h3 block) gets h4 / h5, the
   // What's-new dialog (an h2 title) gets h3 / h4. No level is skipped either way.
-  let { entries, headingLevel = 4 }: { entries: Changelog; headingLevel?: 3 | 4 } = $props();
+  // `collapseOlder` = the installed version (Settings passes it, the What's-new dialog does not):
+  // that version stays open and every other one sits in one disclosure.
+  let {
+    entries,
+    headingLevel = 4,
+    collapseOlder,
+  }: { entries: Changelog; headingLevel?: 3 | 4; collapseOlder?: string } = $props();
+  // STUB (red): collapseOlder is accepted but not applied yet.
+  const collapseTarget = $derived(collapseOlder);
+  void collapseTarget;
   const versionTag = $derived(`h${headingLevel}`);
   const sectionTag = $derived(`h${headingLevel + 1}`);
 

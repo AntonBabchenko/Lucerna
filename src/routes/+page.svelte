@@ -107,14 +107,8 @@
     settingsOpen,
   } from '$lib/settings/state.svelte';
   import { createMcVersions } from '$lib/versions/mc-versions.svelte';
-  import {
-    dismiss,
-    pushActionToast,
-    pushInfo,
-    pushSuccess,
-    pushWarning,
-  } from '$lib/toasts/toasts.svelte';
-  import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
+  import { pushActionToast, pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { showUpdateToast, updateState } from '$lib/update/state.svelte';
   import { checkWhatsNew } from '$lib/changelog/whats-new.svelte';
   import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
@@ -128,11 +122,6 @@
   import CloseConfirmHost from '$lib/close/CloseConfirmHost.svelte';
   import { nativeCloseLabels } from '$lib/close/close-copy';
   import { trayLabels, trayRefusalKey } from '$lib/tray/tray-copy';
-
-  // How long the startup "new version available" toast stays before it
-  // auto-hides. It only hides (reappears next launch); the durable path
-  // is the Settings → Updates "Check for updates" button.
-  const UPDATE_TOAST_TTL_MS = 5000;
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -934,22 +923,9 @@
       const upd = await commands.updateCheck();
       if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
         updateState.value = upd.data;
-        const latest = upd.data.latest;
-        const current = upd.data.current;
-        const tr = get(t);
-        const toastId = pushActionToast(
-          'info',
-          tr('page.update.available', { version: latest }),
-          { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
-          [tr('page.update.currentVersion', { version: current })],
-          () => void dismissUpdate(latest),
-        );
-        // Auto-hide the startup notification after a few seconds. This
-        // only HIDES it (so it reappears next launch) — it does NOT mark
-        // the version dismissed (that's the × button via dismissUpdate).
-        // The durable path is the Settings → Updates "Check for updates"
-        // button. No-op if the user already acted on the toast.
-        setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
+        // Update now / Skip this version; the × and the auto-hide only close it,
+        // so it comes back next launch. Settings → Updates shows it durably.
+        showUpdateToast(upd.data);
       }
     })();
   }

@@ -181,13 +181,35 @@ export async function runUpdate(): Promise<void> {
   }
 }
 
-/** User dismissed the toast: remember this version so we don't nag again. */
-export async function dismissUpdate(version: string): Promise<void> {
-  const prev = updateState.value;
-  updateState.value = null;
-  const r = await commands.updateDismiss(version);
-  if (r.status !== 'ok') {
-    updateState.value = prev;
-    pushWarning(get(t)('page.update.dismissFailed'), [formatError(r.error)]);
-  }
+/** How long the startup "new version available" toast stays before it
+ *  auto-hides — paused while it is hovered or focused. Hiding is not skipping:
+ *  it comes back next launch. */
+export const UPDATE_TOAST_TTL_MS = 5000;
+
+export type SkipOutcome = { ok: true; skipped: string | null } | { ok: false; error: string };
+
+/** "Skip this version": the startup check stops offering `version`. Returns
+ *  the skip as the backend persisted it. */
+export async function skipUpdate(_version: string): Promise<SkipOutcome> {
+  // STUB (red).
+  return { ok: true, skipped: null };
+}
+
+/** "Stop skipping": the startup check offers the skipped version again. */
+export async function stopSkipping(): Promise<SkipOutcome> {
+  // STUB (red).
+  return { ok: true, skipped: null };
+}
+
+/** The startup notice for an available update: Update now, and a readable
+ *  Skip this version. The × and the auto-hide only close it. */
+export function showUpdateToast(info: UpdateInfo): number {
+  // STUB (red): no skip action, no timer.
+  const tr = get(t);
+  return pushActionToast(
+    'info',
+    tr('page.update.available', { version: info.latest }),
+    { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
+    [tr('page.update.currentVersion', { version: info.current })],
+  );
 }
