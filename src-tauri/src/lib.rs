@@ -171,6 +171,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::get_playtime,
             commands::window_set_compact,
             commands::window_set_expanded_floor,
+            commands::tray_set_labels,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
@@ -440,6 +441,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             servers_runtime::transfer::ServerUploadProgress,
             commands::DataMigrationProgress,
             commands::UpdateInstallPhase,
+            tray::TrayQuitRefused,
         ])
 }
 

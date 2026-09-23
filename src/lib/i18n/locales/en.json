@@ -2638,11 +2638,15 @@
           "browseModpacks": "Browse modpacks",
           "importLauncher": "Import from launcher",
           "gallery": "Gallery",
-          "logs": "Logs"
+          "logs": "Logs",
+          "oneWayNote": "Hiding Servers, Skin and cape, or Import from launcher removes the only way to reach those features. Gallery keeps a per-instance Screenshots tab, but the all-instances view is only here."
         },
         "theme": "Theme",
         "themeHint": "System follows your operating system's light or dark setting.",
-        "effectsTitle": "Effects"
+        "effectsTitle": "Effects",
+        "systemResolved": "{system} — currently {value}",
+        "currentlyLight": "Currently light.",
+        "currentlyDark": "Currently dark."
       },
       "playing": {
         "title": "Playing",
@@ -4020,5 +4024,15 @@
   },
   "ui": {
     "selectAll": "Select all"
+  },
+  "tray": {
+    "open": "Open Lucerna",
+    "quit": "Quit Lucerna",
+    "tooltipRunning": "Lucerna — a game is running",
+    "blocked": {
+      "running": "Minecraft is still running. Close the game first — quitting Lucerna would close it too.",
+      "busy": "An operation is still running — an install, an import, a backup, an upload or a translation. Wait for it to finish.",
+      "unknown": "Lucerna couldn't check whether a game or a server is running, so it didn't quit. Close them if any are open, then try again."
+    }
   }
 }

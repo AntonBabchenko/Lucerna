@@ -18,18 +18,21 @@ const { setGeneral, patchGeneral, updateCheck } = vi.hoisted(() => ({
   // Typed wide enough for both outcomes: the default "up to date" answer and
   // the AVAILABLE one a test swaps in (svelte-check type-checks tests/ too).
   updateCheck: vi.fn(
-    async (): Promise<{
-      status: 'ok';
-      data: {
-        available: boolean;
-        current: string;
-        latest: string;
-        release_url?: string;
-        installer?: { url: string; name: string; size: number };
-        sha256sums?: null;
-        cosign_bundle?: null;
-      };
-    }> => ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }),
+    async (): Promise<
+      | {
+          status: 'ok';
+          data: {
+            available: boolean;
+            current: string;
+            latest: string;
+            release_url?: string;
+            installer?: { url: string; name: string; size: number };
+            sha256sums?: null;
+            cosign_bundle?: null;
+          };
+        }
+      | { status: 'error'; error: { kind: string; details: string } }
+    > => ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }),
   ),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
@@ -135,5 +138,34 @@ describe('UpdatesPanel — the check result is a live region', () => {
       expect(box.querySelector('[role="status"]')?.textContent).toContain('0.10.0');
       expect(box.querySelector('[role="alert"]')).toBeNull();
     });
+  });
+
+  it('states the reason for a failed check once, not twice', async () => {
+    // errors.updateCheckFailed already reads "Couldn't check for updates", and
+    // settings.general.updates.error wrapped it in "Couldn't check: {message}"
+    // — the user read the headline twice before reaching the detail.
+    updateCheck.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'update_check_failed', details: 'release has no setup asset' },
+    });
+    const { findByTestId } = render(UpdatesPanel);
+    await fireEvent.click(await findByTestId('check-updates-btn'));
+    const status = await findByTestId('update-status');
+    const text = status.textContent ?? '';
+    expect(text).toContain('release has no setup asset');
+    expect(text.match(/Couldn.t check/g) ?? []).toHaveLength(1);
+  });
+
+  it('still frames an error that carries no headline of its own', async () => {
+    // A network failure formats to a bare sentence; stripping the wrapper for
+    // every variant would leave it with no context at all.
+    updateCheck.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'network', details: 'connection reset' },
+    });
+    const { findByTestId } = render(UpdatesPanel);
+    await fireEvent.click(await findByTestId('check-updates-btn'));
+    const status = await findByTestId('update-status');
+    expect(status.textContent ?? '').toMatch(/Couldn.t check/);
   });
 });
