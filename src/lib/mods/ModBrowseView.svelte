@@ -61,6 +61,7 @@
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
 
@@ -786,7 +787,7 @@
           tr('mods.browse.distributionDisabledTitle', { mod: modName }),
           {
             label: tr('mods.browse.distributionDisabledAction', { platform }),
-            run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+            run: () => void openExternalHttps(url),
           },
           [tr('mods.browse.distributionDisabledBody', { platform })],
         );

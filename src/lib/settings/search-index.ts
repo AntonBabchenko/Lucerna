@@ -136,22 +136,19 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     keywordsKey: 'settings.search.keywords.integrations.aiTranslation',
     visibleKeys: ['settings.aiTranslation.title'],
   },
+  'storage.dataLocation': {
+    anchor: 'storage.dataLocation',
+    tab: 'storage',
+    labelKey: 'settings.search.labels.storage.dataLocation',
+    keywordsKey: 'settings.search.keywords.storage.dataLocation',
+    visibleKeys: ['settings.storage.dataLocation.heading'],
+  },
   'storage.cache': {
     anchor: 'storage.cache',
     tab: 'storage',
     labelKey: 'settings.search.labels.storage.cache',
     keywordsKey: 'settings.search.keywords.storage.cache',
-    visibleKeys: ['settings.storage.cacheLabel', 'settings.storage.clearBtn'],
-  },
-  'storage.logRetention': {
-    anchor: 'storage.logRetention',
-    tab: 'storage',
-    labelKey: 'settings.search.labels.storage.logRetention',
-    keywordsKey: 'settings.search.keywords.storage.logRetention',
-    visibleKeys: [
-      'settings.general.logRetention.title',
-      'settings.general.logRetention.enableLabel',
-    ],
+    visibleKeys: ['settings.storage.cacheTitle', 'settings.storage.clearBtn'],
   },
   'storage.modMetadataCache': {
     anchor: 'storage.modMetadataCache',
@@ -163,12 +160,15 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
       'settings.general.modMetadataCache.ttlLabel',
     ],
   },
-  'storage.dataLocation': {
-    anchor: 'storage.dataLocation',
+  'storage.logRetention': {
+    anchor: 'storage.logRetention',
     tab: 'storage',
-    labelKey: 'settings.search.labels.storage.dataLocation',
-    keywordsKey: 'settings.search.keywords.storage.dataLocation',
-    visibleKeys: ['settings.storage.dataLocation.heading'],
+    labelKey: 'settings.search.labels.storage.logRetention',
+    keywordsKey: 'settings.search.keywords.storage.logRetention',
+    visibleKeys: [
+      'settings.general.logRetention.title',
+      'settings.general.logRetention.enableLabel',
+    ],
   },
   'updates.startupCheck': {
     anchor: 'updates.startupCheck',

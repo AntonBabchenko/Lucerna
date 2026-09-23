@@ -45,4 +45,19 @@ describe('AboutPanel', () => {
     expect(screen.queryByText("What's new")).toBeNull();
     expect(screen.queryByText('v0.1.0')).toBeNull();
   });
+
+  it('has no page title and opens three blocks with the shared heading recipe', () => {
+    render(AboutPanel);
+    expect(screen.queryByRole('heading', { name: 'About' })).toBeNull();
+    const h3 = screen.getAllByRole('heading', { level: 3 });
+    expect(h3.map((h) => h.textContent?.trim())).toEqual(['Lucerna', 'Your data', 'Legal']);
+    for (const h of h3) expect(h.className).toContain('text-sm');
+  });
+
+  it('keeps the disclaimer as its own text-secondary paragraph', () => {
+    render(AboutPanel);
+    const p = screen.getByText(DISCLAIMER_TEXT);
+    expect(p.tagName).toBe('P');
+    expect(p.className).toContain('text-secondary');
+  });
 });

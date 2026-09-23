@@ -141,10 +141,24 @@
           : $t('settings.general.updates.updating')
         : $t('settings.general.updates.updateNow'),
   );
+  // One line, one live region: the tone follows the state (info / danger / info).
+  const checkText = $derived.by((): string | null => {
+    switch (checkResult.kind) {
+      case 'uptodate':
+        return $t('settings.general.updates.uptodate', { version: checkResult.current });
+      case 'error':
+        return $t('settings.general.updates.error', { message: checkResult.message });
+      case 'available':
+        return $t('settings.general.updates.available', { version: checkResult.version });
+      default:
+        return null;
+    }
+  });
 </script>
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.updates.title')}</h3>
     <SettingsField anchor="updates.startupCheck">
       <label class="flex items-start gap-2 cursor-pointer">
         <input
@@ -185,22 +199,21 @@
         busy={checking}
         data-testid="check-updates-btn"
       >
-        <Icon name="refresh" class="icon-spin-hover" />{checking
+        {#if !checking}<Icon name="refresh" class="icon-spin-hover" />{/if}{checking
           ? $t('settings.general.updates.checking')
           : $t('settings.general.updates.checkBtn')}
       </BusyButton>
-      {#if checkResult.kind === 'uptodate'}
-        <p class="text-xs text-muted" data-testid="update-status">
-          {$t('settings.general.updates.uptodate', { version: checkResult.current })}
-        </p>
-      {:else if checkResult.kind === 'error'}
-        <p class="text-xs text-danger" data-testid="update-status">
-          {$t('settings.general.updates.error', { message: checkResult.message })}
-        </p>
-      {:else if checkResult.kind === 'available'}
-        <p class="text-xs text-primary" data-testid="update-status">
-          {$t('settings.general.updates.available', { version: checkResult.version })}
-        </p>
+      <!-- The wrapper renders only once a check has settled, so
+           `findByTestId('update-status')` still waits for the result. -->
+      {#if checkResult.kind !== 'idle'}
+        <div data-testid="update-status">
+          <StatusMessage
+            message={checkText}
+            tone={checkResult.kind === 'error' ? 'danger' : 'info'}
+          />
+        </div>
+      {/if}
+      {#if checkResult.kind === 'available'}
         <BusyButton
           type="button"
           class="btn-primary btn-sm"
@@ -241,7 +254,7 @@
   </div>
 
   <SettingsField anchor="updates.changelog">
-    <div class="flex flex-col gap-3 border-t pt-4">
+    <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.changelog.title')}</h3>
       <ChangelogPanel entries={CHANGELOG} />
     </div>

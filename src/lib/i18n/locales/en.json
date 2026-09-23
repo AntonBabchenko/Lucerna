@@ -4,6 +4,9 @@
     "save": "Save",
     "close": "Close",
     "loading": "Loading…",
+    "saving": "Saving…",
+    "wholeNumberMin": "Enter a whole number of at least {min}.",
+    "wholeNumberRange": "Enter a whole number from {min} to {max}.",
     "dismissNotification": "Dismiss notification",
     "dismissWarning": "Dismiss warning",
     "dismissWarningTooltip": "I know what I'm doing",
@@ -2307,6 +2310,8 @@
   },
   "errors": {
     "network": "Couldn't reach the server — check your internet connection.",
+    "openUrlRefused": "Only https:// links can be opened from Lucerna.",
+    "openUrlFailed": "Couldn't open the link in your browser.",
     "hostNotAllowed": "Network request to {url} is not on the allowed-host list",
     "consentedChannelDisabled": "\"{channel}\" is turned off in Settings — turn it on to use this.",
     "consentedChannelGeneric": "This permission",
@@ -2636,7 +2641,9 @@
           "gallery": "Gallery",
           "logs": "Logs"
         },
-        "theme": "Theme"
+        "theme": "Theme",
+        "themeHint": "System follows your operating system's light or dark setting.",
+        "effectsTitle": "Effects"
       },
       "playing": {
         "title": "Playing",
@@ -2681,8 +2688,10 @@
         "title": "Tips",
         "levelLabel": "Tip detail level",
         "levelDescription": "Choose how tooltips and the tour explain things.",
-        "basic": "Basic — simple and clear",
-        "advanced": "Advanced — technical details"
+        "basic": "Basic",
+        "advanced": "Advanced",
+        "hintBasic": "simple and clear",
+        "hintAdvanced": "technical details"
       },
       "gpu": {
         "title": "Graphics",
@@ -2711,6 +2720,7 @@
         "enableLabel": "Automatically delete old logs",
         "enableDescription": "Applied on game exit and when you open Logs. latest.log and debug.log are never removed.",
         "keepLabel": "Keep newest logs (files)",
+        "keepHint": "At least 1. Older logs are deleted after each game exit.",
         "sizeLabel": "Max total size (MB)"
       },
       "modMetadataCache": {
@@ -2725,7 +2735,9 @@
       "retryBtn": "Retry"
     },
     "storage": {
-      "cacheLabel": "Mod download cache:",
+      "cacheLabel": "Size:",
+      "cacheSizeUnknown": "couldn't be measured",
+      "cacheTitle": "Mod download cache",
       "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
       "clearBtn": "Clear cache",
       "cleared": "Cache cleared ({freed} freed)",
@@ -2813,7 +2825,9 @@
       }
     },
     "about": {
-      "title": "About",
+      "identityTitle": "Lucerna",
+      "dataTitle": "Your data",
+      "legalTitle": "Legal",
       "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
       "viewOnGitHub": "View on GitHub",
       "openRepoLabel": "Open Lucerna repository on GitHub ({url})",

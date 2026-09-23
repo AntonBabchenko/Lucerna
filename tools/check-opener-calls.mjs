@@ -25,35 +25,20 @@ const ROOTS = [resolve('src')].filter((p) => existsSync(p));
 // Every file that may reference the opener plugin. Adding a NEW call site
 // means: confirm the spawn is covered by the opener rows in
 // docs/PRINCIPLES.md Appendix A (default browser / file manager), then add
-// the file here. Keep each group sorted.
+// the file here. For a URL there is no new call site: every open goes
+// through `openExternalHttps` in src/lib/ui/safe-open.ts.
 const ALLOWED = new Set(
   [
     // Reveals the just-created desktop shortcut (revealItemInDir).
     'src/lib/instances/CreateShortcutDialog.svelte',
-    // Opens external https pages in the default browser (openUrl).
-    'src/lib/changelog/ChangelogPanel.svelte',
-    'src/lib/logs/FixModRepairCard.svelte',
-    'src/lib/modpacks/ModpackDetailModal.svelte',
-    'src/lib/mods/AddonsTab.svelte',
-    'src/lib/mods/FindAlternativeDialog.svelte',
-    'src/lib/mods/ModBrowseView.svelte',
-    'src/lib/mods/ModDetailModal.svelte',
-    'src/lib/mods/installed/InstalledModsView.svelte',
-    'src/lib/servers/addons/ServerModsInstalled.svelte',
-    'src/lib/servers/datapacks/ServerDatapackBrowser.svelte',
-    'src/lib/servers/eula-link.ts',
-    'src/lib/servers/mods/ServerModBrowser.svelte',
-    'src/lib/settings/AboutPanel.svelte',
-    'src/lib/settings/AiTranslationSection.svelte',
-    'src/lib/settings/CurseForgeKeyForm.svelte',
-    // The https-only chokepoint every remote-data link now routes through.
+    // The ONE frontend chokepoint for openUrl: https-only, and it reports a
+    // refused scheme or a failed open.
     'src/lib/ui/safe-open.ts',
-    'src/routes/+page.svelte',
   ].map((p) => resolve(p)),
 );
 
-// The import specifier is the chokepoint: the dynamic
-// `import('@tauri-apps/plugin-opener')` form every call site uses and a
+// The import specifier is what the scan keys on: the dynamic
+// `import('@tauri-apps/plugin-opener')` form both allowed files use and a
 // static `import ... from '@tauri-apps/plugin-opener'` both contain it
 // verbatim.
 const PLUGIN_RE = /@tauri-apps\/plugin-opener/;

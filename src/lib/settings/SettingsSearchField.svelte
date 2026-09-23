@@ -110,12 +110,8 @@
           id={optionId(i)}
           role="option"
           aria-selected={i === activeIndex}
-          class="text-left px-3 py-1.5 text-sm rounded border-l-2 cursor-pointer"
-          class:border-accent={i === activeIndex}
-          class:text-primary={i === activeIndex}
-          class:font-medium={i === activeIndex}
-          class:border-transparent={i !== activeIndex}
-          class:text-muted={i !== activeIndex}
+          class="text-left px-3 py-1.5 text-sm rounded cursor-pointer text-primary"
+          class:bg-subtle={i === activeIndex}
           onclick={() => onselect(entry)}
           onmousemove={() => (activeIndex = i)}
           data-search-result={entry.anchor}

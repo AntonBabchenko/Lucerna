@@ -56,6 +56,7 @@
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
 
   let {
     instanceId,
@@ -275,9 +276,7 @@
     const ref = v.provider_project;
     if (!ref) return;
     const slugOrId = ref.source === 'modrinth' ? ref.project_id : String(ref.mod_id);
-    void import('@tauri-apps/plugin-opener').then((m) =>
-      m.openUrl(modProjectUrl(ref.source, slugOrId)),
-    );
+    void openExternalHttps(modProjectUrl(ref.source, slugOrId));
   };
 
   // Install a user-chosen version from the picker (manual pick / downgrade).

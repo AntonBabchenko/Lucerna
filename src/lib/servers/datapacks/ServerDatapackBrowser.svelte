@@ -24,6 +24,7 @@
   import Select from '$lib/ui/Select.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
 
   // A datapack-targeted server catalog browser (Task 12). Copied from
@@ -331,7 +332,7 @@
   }
 
   function openUrl(url: string): void {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 
   function openExternalPage(card: ModSummary): void {

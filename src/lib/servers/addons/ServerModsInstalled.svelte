@@ -19,6 +19,7 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import Select from '$lib/ui/Select.svelte';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ServerContentDetail from '$lib/servers/browser/ServerContentDetail.svelte';
   import {
     createInstalledFilters,
@@ -55,11 +56,9 @@
     return modProjectUrl(card.source, card.slug ?? card.project_id, card.author);
   }
 
-  // Dynamic import mirrors every other opener call-site in the app (the Tauri
-  // plugin is never statically imported — it isn't resolvable under vitest/SSR
-  // and the browsers use this exact helper).
+  // Every URL leaves through the one https-only chokepoint ($lib/ui/safe-open).
   function openUrl(url: string): void {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 
   // Per-mod update-check results, keyed by sha1 (identity that survives an

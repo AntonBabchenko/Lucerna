@@ -5,17 +5,18 @@
 //   SettingsModal:       CloseButton header → btn-icon
 //                        backdrop aria-label="Close Settings"
 //                        dialog role="dialog" aria-modal aria-label="Settings"
-//                        tab POSITIVE: border-l-2 + border-accent (active section)
+//                        tab POSITIVE: border-l-2 + border-accent + font-semibold (active section)
 //                        tab POSITIVE: border-transparent + text-muted (inactive section)
+//                        every tab: hover:bg-subtle
 //   CurseForgeKeyForm:   status spans (text-success/danger/secondary/placeholder)
-//                        console link btn-tertiary font-mono (status=missing)
-//                        API Keys link btn-tertiary font-mono (status=missing)
+//                        console link btn-link font-mono (status=missing)
+//                        API Keys link btn-link font-mono (status=missing)
 //                        save/update button → btn-primary btn-sm
 //                        clear key button → btn-secondary btn-sm (status=set)
-//                        error block bg-danger-bg border-danger text-danger
 //   StoragePanel:        cache-size display span font-medium
 //                        Clear cache button → btn-secondary btn-sm
-//                        error block bg-danger-bg border-danger text-danger
+//                        cache error → StatusMessage (role=alert > p.text-danger), no soft box
+//                        no bg-danger-bg anywhere under src/lib/settings/ (source scan)
 //                        success toast bg-success/10 border-success text-success
 //   AboutPanel:          View on GitHub → btn-link (external link + arrow)
 //                        aria-label present on GitHub button
@@ -24,6 +25,8 @@
 //   CurseForgeKeyBanner: shared Banner recipe (bg-warning-bg + full warning border)
 //                        Open Settings → CurseForge → btn-warning btn-sm
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -154,19 +157,21 @@ describe('SettingsModal — dialog structure', () => {
 // ── SettingsModal — tab POSITIVE assertions (complement to D's negative) ─────
 
 describe('SettingsModal — active section has accent classes', () => {
-  it('active Integrations tab has border-accent text-primary font-medium', () => {
+  it('active Integrations tab has border-accent text-primary font-semibold and hover:bg-subtle', () => {
     settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     const tab = screen.getByRole('tab', { name: 'Integrations' });
     const cls = tab.className;
     expect(cls).toContain('border-accent');
     expect(cls).toContain('text-primary');
-    expect(cls).toContain('font-medium');
+    expect(cls).toContain('font-semibold');
+    expect(cls).not.toContain('font-medium');
+    expect(cls).toContain('hover:bg-subtle');
   });
 });
 
 describe('SettingsModal — inactive sections have border-transparent text-muted', () => {
-  it('inactive Storage/About/Appearance tabs have border-transparent text-muted', () => {
+  it('inactive Storage/About/Appearance tabs have border-transparent text-muted and hover:bg-subtle', () => {
     settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     for (const name of ['Storage', 'About', 'Appearance']) {
@@ -174,6 +179,7 @@ describe('SettingsModal — inactive sections have border-transparent text-muted
       const cls = tab.className;
       expect(cls).toContain('border-transparent');
       expect(cls).toContain('text-muted');
+      expect(cls).toContain('hover:bg-subtle');
     }
   });
 });
@@ -245,22 +251,24 @@ describe('CurseForgeKeyForm — status=loading renders "Checking…" text-placeh
 
 // ── CurseForgeKeyForm — instruction links (status=missing) ───────────────────
 
-describe('CurseForgeKeyForm — console link is btn-tertiary font-mono (status=missing)', () => {
-  it('"console.curseforge.com ↗" button has btn-tertiary and font-mono classes', async () => {
+describe('CurseForgeKeyForm — console link is btn-link font-mono (status=missing)', () => {
+  it('"console.curseforge.com ↗" button is btn-link with font-mono', async () => {
     render(CurseForgeKeyForm);
     // status resolves to 'missing' — the ol with 4 steps is rendered
     const link = await screen.findByRole('button', { name: /console\.curseforge\.com/i });
-    expect(link.className).toContain('btn-tertiary');
+    expect(link).toHaveBtnVariant('link');
     expect(link.className).toContain('font-mono');
+    expect(link.className).not.toContain('btn-tertiary');
   });
 });
 
-describe('CurseForgeKeyForm — API Keys link is btn-tertiary font-mono (status=missing)', () => {
-  it('"API Keys ↗" button has btn-tertiary and font-mono classes', async () => {
+describe('CurseForgeKeyForm — API Keys link is btn-link font-mono (status=missing)', () => {
+  it('"API Keys ↗" button is btn-link with font-mono', async () => {
     render(CurseForgeKeyForm);
     const link = await screen.findByRole('button', { name: /api keys/i });
-    expect(link.className).toContain('btn-tertiary');
+    expect(link).toHaveBtnVariant('link');
     expect(link.className).toContain('font-mono');
+    expect(link.className).not.toContain('btn-tertiary');
   });
 });
 
@@ -346,8 +354,8 @@ describe('StoragePanel — Clear cache button is btn-secondary btn-sm', () => {
 
 // ── StoragePanel — error block ────────────────────────────────────────────────
 
-describe('StoragePanel — error block has bg-danger-bg border-danger text-danger', () => {
-  it('renders the error block with semantic danger token classes when the cache-size IPC fails', async () => {
+describe('StoragePanel — the cache error renders through StatusMessage', () => {
+  it('announces the cache-size failure as text-danger inside role=alert, with no soft box', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsCacheSizeBytes).mockResolvedValueOnce({
       status: 'error',
@@ -355,23 +363,37 @@ describe('StoragePanel — error block has bg-danger-bg border-danger text-dange
     });
     const { container } = render(StoragePanel);
 
-    // The error block only exists once refresh()'s IPC rejects and sets
-    // `error`. Asserting it RENDERS first is the whole point — the previous
-    // version guarded the class checks behind `if (errorBlock)`, so it could
-    // never fail even if the block never appeared. waitFor throws (failing the
-    // test) if the block does not show up.
-    const errorBlock = await waitFor(() => {
-      const el = container.querySelector('.bg-danger-bg');
-      if (!el) throw new Error('StoragePanel error block did not render');
+    // Asserting it RENDERS first is the whole point: a guard behind
+    // `if (line)` could never fail. waitFor throws if it never shows up.
+    const line = await waitFor(() => {
+      const el = container.querySelector('[role="alert"] p.text-danger');
+      if (!el) throw new Error('StoragePanel cache error did not render');
       return el;
     });
+    expect(line.textContent?.trim().length).toBeGreaterThan(0);
+    // The hand-rolled red soft box is gone from Settings (DESIGN §10).
+    expect(container.querySelector('.bg-danger-bg')).toBeNull();
+  });
+});
 
-    const cls = errorBlock.className;
-    expect(cls).toContain('bg-danger-bg');
-    expect(cls).toContain('border-danger');
-    expect(cls).toContain('text-danger');
-    // Must NOT use the deprecated opacity shorthand.
-    expect(cls).not.toMatch(/bg-danger\/\d+/);
+// ── Settings never hand-roll the red soft box ────────────────────────────────
+// Same guard-by-source-scan shape as tests/external-change-no-relist.test.ts.
+
+function svelteFilesUnder(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) svelteFilesUnder(full, acc);
+    else if (entry.name.endsWith('.svelte')) acc.push(full);
+  }
+  return acc;
+}
+
+describe('Settings error boxes', () => {
+  it('no bg-danger-bg under src/lib/settings/ — every error is a StatusMessage', () => {
+    const offenders = svelteFilesUnder(resolve('src/lib/settings')).filter((f) =>
+      readFileSync(f, 'utf8').includes('bg-danger-bg'),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 

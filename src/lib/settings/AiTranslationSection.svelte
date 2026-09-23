@@ -41,7 +41,9 @@
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import NumberField from '$lib/ui/NumberField.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { providerFailureOrNull } from '$lib/l10n/provider-failure';
   import ApiKeyField from './ApiKeyField.svelte';
   import type { FieldStatus } from './api-key-field';
@@ -111,9 +113,9 @@
   const keyUrl = $derived(isLocal ? null : KEY_URLS[provider as Exclude<AiProvider, 'local'>]);
   const keyHost = $derived(keyUrl ? new URL(keyUrl).host : '');
   function openKeyPage() {
-    if (!keyUrl) return;
     const url = keyUrl;
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    if (!url) return;
+    void openExternalHttps(url);
   }
 
   const defaultModel = $derived(isLocal ? undefined : defaults[provider]);
@@ -200,20 +202,6 @@
       stale = true;
     };
   });
-
-  // Clamping happens here rather than in the markup, and the field is written
-  // back either way: a number input left empty (or clamped) would otherwise
-  // sit there disagreeing with the port that is actually saved.
-  function setPort(input: HTMLInputElement) {
-    const parsed = Number.parseInt(input.value, 10);
-    if (Number.isNaN(parsed)) {
-      input.value = String(general?.ai_local_port ?? DEFAULT_LOCAL_PORT);
-      return;
-    }
-    const clamped = Math.min(MAX_PORT, Math.max(MIN_PORT, parsed));
-    input.value = String(clamped);
-    void patchGeneral({ ai_local_port: clamped });
-  }
 
   async function saveKey() {
     const trimmed = pendingKey.trim();
@@ -374,20 +362,18 @@
     <p class="text-xs text-muted" data-testid="ai-local-expects">
       {$t('settings.aiTranslation.localExpects')}
     </p>
-    <label class="flex flex-col gap-1">
-      <span class="text-sm text-primary">{$t('settings.aiTranslation.localPortLabel')}</span>
-      <input
-        type="number"
-        min={MIN_PORT}
-        max={MAX_PORT}
-        class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
-        value={general?.ai_local_port ?? DEFAULT_LOCAL_PORT}
-        disabled={!allowed || !settingsLoaded}
-        onchange={(e) => setPort(e.currentTarget)}
-        data-testid="ai-local-port-input"
-      />
-      <span class="text-xs text-muted">{$t('settings.aiTranslation.localPortHint')}</span>
-    </label>
+    <!-- The primitive refuses an out-of-range port instead of clamping it, and
+         says what is accepted; nothing is patched until a value is accepted. -->
+    <NumberField
+      label={$t('settings.aiTranslation.localPortLabel')}
+      value={general?.ai_local_port ?? DEFAULT_LOCAL_PORT}
+      min={MIN_PORT}
+      max={MAX_PORT}
+      hint={$t('settings.aiTranslation.localPortHint')}
+      disabled={!allowed || !settingsLoaded}
+      onCommit={(n) => void patchGeneral({ ai_local_port: n })}
+      testId="ai-local-port-input"
+    />
     <p class="text-xs text-warning-text" data-testid="ai-local-note">
       {$t('settings.aiTranslation.localNote')}
     </p>
@@ -427,9 +413,9 @@
         {$t('settings.aiTranslation.testButton')}
       </BusyButton>
       {#if testOk}
-        <span class="text-xs text-success" data-testid="ai-test-ok">
-          {$t('settings.aiTranslation.testOk')}
-        </span>
+        <div data-testid="ai-test-ok">
+          <StatusMessage message={$t('settings.aiTranslation.testOk')} tone="success" />
+        </div>
       {/if}
     </div>
     <!-- A disabled control has to say why. Without the permission the button
@@ -439,7 +425,9 @@
       {$t(allowed ? 'settings.aiTranslation.testHint' : 'settings.aiTranslation.testHintDisabled')}
     </span>
     {#if testError}
-      <p class="text-xs text-danger" role="alert" data-testid="ai-test-error">{testError}</p>
+      <div data-testid="ai-test-error">
+        <StatusMessage message={testError} tone="danger" />
+      </div>
     {/if}
   </div>
 

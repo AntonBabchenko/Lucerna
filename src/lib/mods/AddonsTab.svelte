@@ -53,6 +53,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
 
@@ -95,7 +96,7 @@
   }
 
   function openOptifine() {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(OPTIFINE_DOWNLOADS_URL));
+    void openExternalHttps(OPTIFINE_DOWNLOADS_URL);
   }
 
   // Mirror the local kind into the cross-component addonsKind rune so the

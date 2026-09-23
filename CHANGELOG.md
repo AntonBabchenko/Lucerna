@@ -36,6 +36,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   named in the field, a link to get a key for each hosted provider, what the
   local option expects, and a connection test that names the provider and
   tells a bad key from a rate limit or a wrong model name.
+- **Settings pages share one vocabulary.** Every block opens with a heading,
+  every error and result is announced the same way, number fields refuse a
+  value they would have to change and say what is accepted (the newest-logs
+  limit can no longer be set to 0, which deleted every old log), the theme and
+  tip-level choices are segmented controls with a hint, the Storage page leads
+  with the data folder, a cache size that could not be measured says so instead
+  of showing the one measured before, and links open through one helper that
+  says when a link was refused or the browser could not be opened.
 
 ### Fixed
 

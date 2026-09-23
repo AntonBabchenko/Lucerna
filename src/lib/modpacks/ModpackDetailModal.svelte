@@ -17,6 +17,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import { joinSummary, summarisePick } from '$lib/modpacks/install-summary';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
@@ -94,7 +95,7 @@
   );
 
   function openExternal(url: string) {
-    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+    void openExternalHttps(url);
   }
 
   $effect(() => {

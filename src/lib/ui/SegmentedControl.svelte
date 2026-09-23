@@ -5,6 +5,8 @@
   // An option's `label` is rendered as visible text only when it has no `icon`;
   // icon-only options use `label` (falling back to the group ariaLabel) as their
   // accessible name + tooltip, so they stay compact but remain labelled.
+  // Settings uses the boxed variant for the theme and tip-level pickers, naming
+  // the group through ariaLabel and linking its hint through describedby.
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { nextRovingIndex } from '$lib/ui/roving';
@@ -16,12 +18,18 @@
     onChange,
     variant,
     ariaLabel,
+    dataTestid,
+    describedby,
   }: {
     options: Option[];
     value: string;
     onChange: (v: string) => void;
     variant: 'boxed' | 'inline';
     ariaLabel: string;
+    /** `data-testid` on the group element. */
+    dataTestid?: string;
+    /** Forwarded as `aria-describedby` on the group (a hint line under the control). */
+    describedby?: string;
   } = $props();
 
   // DOM-ordered button refs so arrow keys can move focus to a sibling.
@@ -47,6 +55,8 @@
 <div
   role="group"
   aria-label={ariaLabel}
+  aria-describedby={describedby}
+  data-testid={dataTestid}
   onkeydown={onKeydown}
   class={variant === 'boxed'
     ? 'inline-flex border border-border-subtle rounded overflow-hidden'
