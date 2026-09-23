@@ -58,6 +58,8 @@
     id?: string;
     class?: string;
     dataTestid?: string;
+    /** Id(s) of the helper text under the control — forwarded to the trigger's aria-describedby. */
+    describedby?: string;
     // Optional leading content per option row / for the selected value.
     // Falls back to the existing `icon` rendering when not provided.
     optionLeading?: Snippet<[Option]>;

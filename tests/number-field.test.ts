@@ -79,5 +79,7 @@ describe('NumberField', () => {
     const { input } = mount({ disabled: true });
     expect(input.disabled).toBe(true);
     expect(input.className).toContain('disabled:opacity-50');
+    expect(input.className).toContain('disabled:bg-subtle');
+    expect(input.className).toContain('disabled:text-muted');
   });
 });
