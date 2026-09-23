@@ -89,7 +89,7 @@ jobs:
           # option_env! like the key above. The app validates each value before it
           # shows it (commands/changelog.rs build_info_from); a build without them
           # says "Local build" instead.
-          LUCERNA_BUILD_TAG: ${{ github.ref_name }}
+          LUCERNA_BUILD_TAG: ${{ env.TAG }}
           LUCERNA_BUILD_COMMIT: ${{ github.sha }}
           LUCERNA_BUILD_REPO: ${{ github.repository }}
           # Ad-hoc code signing on macOS. With this set, Tauri runs

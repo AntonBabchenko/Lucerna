@@ -2956,7 +2956,7 @@
       "support": {
         "title": "Report a problem",
         "reportBug": "Report a bug",
-        "reportBugHint": "Opens GitHub's bug form. Include the version info from About. Logs can contain your user name in file paths — remove it before attaching a log.",
+        "reportBugHint": "Opens GitHub's bug form. Include the version info from About. To attach a log, use Share in the log viewer — it removes your user name, tokens and local network addresses before uploading the log to mclo.gs. A log file you attach yourself can still contain them.",
         "openLogFolder": "Open launcher log folder",
         "logFolderFailed": "Couldn't open the log folder: {error}",
         "security": "Found a security problem? Report it privately, not in a public issue.",
