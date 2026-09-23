@@ -167,22 +167,25 @@
   <SettingsField anchor="game.tray">
     <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.general.playing.title')}</h3>
-      <label class="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          checked={general?.hide_to_tray_during_game ?? false}
-          disabled={!loaded}
-          onchange={(e) => void set('hide_to_tray_during_game', e.currentTarget.checked)}
-          data-testid="tray-toggle"
-        />
-        <span class="flex-1">
+      <!-- The label wraps only the title — that is the control's name; the sentence
+           is its description (aria-describedby), announced after it, not as part of it. -->
+      <div class="flex flex-col gap-1">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={general?.hide_to_tray_during_game ?? false}
+            disabled={!loaded}
+            aria-describedby="game-tray-desc"
+            onchange={(e) => void set('hide_to_tray_during_game', e.currentTarget.checked)}
+            data-testid="tray-toggle"
+          />
           <span class="text-sm text-primary">{$t('settings.general.playing.trayLabel')}</span>
-          <span class="block text-xs text-muted">
-            {$t('settings.general.playing.trayDescription')}
-          </span>
-        </span>
-      </label>
+        </label>
+        <p id="game-tray-desc" class="pl-6 text-xs text-muted">
+          {$t('settings.general.playing.trayDescription')}
+        </p>
+      </div>
       <div data-testid="save-failure-hide_to_tray_during_game">
         <StatusMessage message={saveFailure('hide_to_tray_during_game')} tone="danger" />
       </div>
@@ -195,25 +198,26 @@
   <SettingsField anchor="game.serverPing">
     <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.general.serverPing.title')}</h3>
-      <label class="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          checked={general?.allow_server_ping ?? false}
-          disabled={!loaded}
-          onchange={(e) => void set('allow_server_ping', e.currentTarget.checked)}
-          data-testid="server-ping-toggle"
-        />
-        <span class="flex-1">
+      <div class="flex flex-col gap-1">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={general?.allow_server_ping ?? false}
+            disabled={!loaded}
+            aria-describedby="game-server-ping-desc game-server-ping-privacy"
+            onchange={(e) => void set('allow_server_ping', e.currentTarget.checked)}
+            data-testid="server-ping-toggle"
+          />
           <span class="text-sm text-primary">{$t('settings.general.serverPing.label')}</span>
-          <span class="block text-xs text-muted">
-            {$t('settings.general.serverPing.description')}
-          </span>
-          <span class="block text-xs text-warning-text">
-            {$t('settings.general.serverPing.privacy')}
-          </span>
-        </span>
-      </label>
+        </label>
+        <p id="game-server-ping-desc" class="pl-6 text-xs text-muted">
+          {$t('settings.general.serverPing.description')}
+        </p>
+        <p id="game-server-ping-privacy" class="pl-6 text-xs text-warning-text">
+          {$t('settings.general.serverPing.privacy')}
+        </p>
+      </div>
       <div data-testid="save-failure-allow_server_ping">
         <StatusMessage message={pingFailure} tone="danger" />
       </div>
@@ -232,12 +236,14 @@
             class="text-sm"
             dataTestid="gpu-select"
             ariaLabel={$t('settings.general.gpu.label')}
+            describedby="game-gpu-note"
             value={general?.gpu_preference ?? null}
             options={gpuOptions}
             disabled={!loaded}
             onChange={(v) => void set('gpu_preference', v as GpuPreference)}
           />
-          <span class="text-xs text-muted" data-testid="gpu-note">{gpuNote}</span>
+          <span id="game-gpu-note" class="text-xs text-muted" data-testid="gpu-note">{gpuNote}</span
+          >
           <div data-testid="save-failure-gpu_preference">
             <StatusMessage message={saveFailure('gpu_preference')} tone="danger" />
           </div>
