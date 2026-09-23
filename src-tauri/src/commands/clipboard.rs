@@ -21,3 +21,18 @@ pub fn clipboard_read_text(app: tauri::AppHandle) -> Result<String, crate::error
         .read_text()
         .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))
 }
+
+/// Write text to the OS clipboard — "Copy version info" in Settings → About.
+/// Through the Rust plugin for the same reason as `clipboard_read_text`: the
+/// three webview engines disagree on clipboard permissions, and a refusal there
+/// would be silent and platform-specific.
+#[tauri::command]
+#[specta::specta]
+pub fn clipboard_write_text(
+    app: tauri::AppHandle,
+    text: String,
+) -> Result<(), crate::error::Error> {
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))
+}

@@ -126,6 +126,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::reveal_screenshot,
             commands::open_screenshots_folder,
             commands::clipboard_read_text,
+            commands::clipboard_write_text,
             commands::copy_screenshot_to_clipboard,
             commands::save_annotated_screenshot,
             commands::annotated_default_path,
@@ -257,6 +258,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::update_dismiss,
             // Post-update "What's new":
             commands::app_version,
+            commands::app_build_info,
             commands::changelog_mark_seen,
             // Own server (Plan 1: vanilla create / list / delete):
             commands::server_create,
