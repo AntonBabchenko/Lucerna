@@ -2301,7 +2301,7 @@
     },
     "chooser": {
       "title": "How much detail would you like?",
-      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings, under Help.",
+      "body": "Show the tour and the (?) explanations in plain language, or with the technical details. Change this anytime in Settings, under Help.",
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
@@ -2679,14 +2679,14 @@
         }
       },
       "onboarding": {
-        "title": "Onboarding",
-        "replayBtn": "Replay onboarding tour",
-        "replayDescription": "Show the welcome tour again and re-enable the guided tips on each screen."
+        "title": "Tour",
+        "replayBtn": "Replay the tour",
+        "replayDescription": "Show the tour again, including the per-screen tours you have already dismissed."
       },
       "tips": {
-        "title": "Tips",
-        "levelLabel": "Tip detail level",
-        "levelDescription": "Choose how tooltips and the tour explain things.",
+        "title": "Explanations",
+        "levelLabel": "Detail level",
+        "levelDescription": "How much detail the tour and the (?) explanations give. Hover tooltips elsewhere in the app are not affected.",
         "basic": "Basic",
         "advanced": "Advanced",
         "hintBasic": "simple and clear",
