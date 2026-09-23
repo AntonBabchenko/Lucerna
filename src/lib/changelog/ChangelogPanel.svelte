@@ -19,7 +19,13 @@
   // Heading levels: versions are one level under the host's heading, sections
   // one under that — Settings → Updates (an h3 block) gets h4 / h5, the
   // What's-new dialog (an h2 title) gets h3 / h4. No level is skipped either way.
-  let { entries, headingLevel = 4 }: { entries: Changelog; headingLevel?: 3 | 4 } = $props();
+  // `collapseOlder` = the installed version (Settings passes it, the What's-new dialog does not):
+  // that version stays open and every other one sits in one disclosure.
+  let {
+    entries,
+    headingLevel = 4,
+    collapseOlder,
+  }: { entries: Changelog; headingLevel?: 3 | 4; collapseOlder?: string } = $props();
   const versionTag = $derived(`h${headingLevel}`);
   const sectionTag = $derived(`h${headingLevel + 1}`);
 
@@ -82,12 +88,82 @@
       })),
   );
 
+  // UPD-09: which version stays open. The installed one when it is listed;
+  // otherwise the newest released one (a dev build's version may not be in the
+  // file yet). Every other version — older ones, and an [Unreleased] entry —
+  // goes into one disclosure. Without collapseOlder everything is open.
+  const openVersion = $derived.by((): string | null => {
+    if (!collapseOlder) return null;
+    if (visible.some((v) => v.version === collapseOlder)) return collapseOlder;
+    const released = visible.find((v) => v.version.toLowerCase() !== 'unreleased');
+    return released?.version ?? visible[0]?.version ?? null;
+  });
+  const shown = $derived(
+    openVersion === null ? visible : visible.filter((v) => v.version === openVersion),
+  );
+  const folded = $derived(
+    openVersion === null ? [] : visible.filter((v) => v.version !== openVersion),
+  );
+
   function openUrl(url: string): void {
     // The changelog is our own build-time artifact, but a parsed link is still
     // data: the chokepoint refuses anything but https:// and says so.
     void openExternalHttps(url);
   }
 </script>
+
+{#snippet versionBlock(ver: (typeof visible)[number])}
+  <article class="space-y-2">
+    <header class="flex items-baseline justify-between gap-2">
+      <svelte:element this={versionTag} class="font-medium">
+        {#if ver.url}
+          {@const href = ver.url}
+          <button
+            type="button"
+            class="btn-link inline-flex items-center gap-1"
+            use:tooltip={href}
+            onclick={() => openUrl(href)}
+          >
+            v{ver.version}
+            <Icon name="externalLink" size={12} />
+          </button>
+        {:else}
+          <span class="text-primary">v{ver.version}</span>
+        {/if}
+      </svelte:element>
+      {#if ver.date}<span class="text-xs text-muted">{ver.date}</span>{/if}
+    </header>
+    {#if ver.note}
+      <p class="text-xs text-muted" data-testid="changelog-version-note">{$t(ver.note)}</p>
+    {/if}
+
+    {#each ver.sections as sec, si (si)}
+      <div class="space-y-1">
+        <svelte:element
+          this={sectionTag}
+          class="text-xs font-semibold uppercase tracking-wide text-secondary"
+        >
+          {sec.label}
+        </svelte:element>
+        <ul class="list-disc space-y-1 pl-5 text-secondary">
+          {#each sec.items as item, i (i)}
+            <li>
+              {#each parseInline(item.text) as seg, k (k)}
+                {#if seg.bold && seg.code}
+                  <strong><code class="font-mono text-[0.9em]">{seg.value}</code></strong>
+                {:else if seg.bold}
+                  <strong class="font-medium text-primary">{seg.value}</strong>
+                {:else if seg.code}
+                  <code class="font-mono text-[0.9em]">{seg.value}</code>
+                {:else}{seg.value}{/if}
+              {/each}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
+  </article>
+{/snippet}
 
 <section class="space-y-6 text-sm selectable">
   {#if visible.length === 0}
@@ -96,57 +172,20 @@
     {#if panelNote}
       <p class="text-xs text-muted" data-testid="changelog-fallback-note">{$t(panelNote)}</p>
     {/if}
-    {#each visible as ver (ver.version)}
-      <article class="space-y-2">
-        <header class="flex items-baseline justify-between gap-2">
-          <svelte:element this={versionTag} class="font-medium">
-            {#if ver.url}
-              {@const href = ver.url}
-              <button
-                type="button"
-                class="btn-link inline-flex items-center gap-1"
-                use:tooltip={href}
-                onclick={() => openUrl(href)}
-              >
-                v{ver.version}
-                <Icon name="externalLink" size={12} />
-              </button>
-            {:else}
-              <span class="text-primary">v{ver.version}</span>
-            {/if}
-          </svelte:element>
-          {#if ver.date}<span class="text-xs text-muted">{ver.date}</span>{/if}
-        </header>
-        {#if ver.note}
-          <p class="text-xs text-muted" data-testid="changelog-version-note">{$t(ver.note)}</p>
-        {/if}
-
-        {#each ver.sections as sec, si (si)}
-          <div class="space-y-1">
-            <svelte:element
-              this={sectionTag}
-              class="text-xs font-semibold uppercase tracking-wide text-secondary"
-            >
-              {sec.label}
-            </svelte:element>
-            <ul class="list-disc space-y-1 pl-5 text-secondary">
-              {#each sec.items as item, i (i)}
-                <li>
-                  {#each parseInline(item.text) as seg, k (k)}
-                    {#if seg.bold && seg.code}
-                      <strong><code class="font-mono text-[0.9em]">{seg.value}</code></strong>
-                    {:else if seg.bold}
-                      <strong class="font-medium text-primary">{seg.value}</strong>
-                    {:else if seg.code}
-                      <code class="font-mono text-[0.9em]">{seg.value}</code>
-                    {:else}{seg.value}{/if}
-                  {/each}
-                </li>
-              {/each}
-            </ul>
-          </div>
-        {/each}
-      </article>
+    {#each shown as ver (ver.version)}
+      {@render versionBlock(ver)}
     {/each}
+    {#if folded.length > 0}
+      <details class="changelog-older">
+        <summary class="btn-tertiary cursor-pointer text-sm">
+          {$t('settings.changelog.showMore', { count: folded.length })}
+        </summary>
+        <div class="mt-4 space-y-6">
+          {#each folded as ver (ver.version)}
+            {@render versionBlock(ver)}
+          {/each}
+        </div>
+      </details>
+    {/if}
   {/if}
 </section>

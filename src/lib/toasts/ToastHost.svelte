@@ -2,7 +2,13 @@
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
   import { events } from '$lib/ipc/bindings';
-  import { dismiss, toastList, pushSuccess } from '$lib/toasts/toasts.svelte';
+  import {
+    dismiss,
+    pauseToastTimer,
+    pushSuccess,
+    resumeToastTimer,
+    toastList,
+  } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { modalDepth } from '$lib/ui/Modal.svelte';
 
@@ -29,6 +35,40 @@
   // corner is free, so the stack moves to the bottom centre, newest nearest
   // the edge (flex-col-reverse): footers are justify-end / justify-between,
   // which leaves the middle clear, and a header's × is untouched.
+  // A timed toast waits while someone is reading it: its countdown pauses
+  // while the pointer is over it or focus is inside it, and resumes with the
+  // time that was left. Listeners, not ARIA: the card is not a widget.
+  function holdWhileEngaged(node: HTMLElement, id: number) {
+    const enter = () => pauseToastTimer(id);
+    const leave = () => resumeToastTimer(id);
+    // focusin bubbles on every hop between the toast's own buttons: focus is ONE
+    // reason to wait however many buttons it visits, and only leaving the toast
+    // gives it back — counting each hop left the toast on screen for good.
+    let focusInside = false;
+    const focusIn = () => {
+      if (focusInside) return;
+      focusInside = true;
+      pauseToastTimer(id);
+    };
+    const focusOut = (e: FocusEvent) => {
+      if (!focusInside || node.contains(e.relatedTarget as Node | null)) return;
+      focusInside = false;
+      resumeToastTimer(id);
+    };
+    node.addEventListener('pointerenter', enter);
+    node.addEventListener('pointerleave', leave);
+    node.addEventListener('focusin', focusIn);
+    node.addEventListener('focusout', focusOut);
+    return {
+      destroy() {
+        node.removeEventListener('pointerenter', enter);
+        node.removeEventListener('pointerleave', leave);
+        node.removeEventListener('focusin', focusIn);
+        node.removeEventListener('focusout', focusOut);
+      },
+    };
+  }
+
   const toasts = $derived(toastList());
   const dismissLabel = $derived($t('common.dismissNotification'));
   const placement = $derived(
@@ -60,16 +100,11 @@
             ? 'bg-accent-soft border-accent text-accent'
             : 'bg-surface border-border-emphasis text-primary'}"
       data-testid={`toast-${t.kind}`}
+      use:holdWhileEngaged={t.id}
     >
       <div class="flex items-start gap-2">
         <span class="min-w-0 flex-1 break-words font-medium">{t.title}</span>
-        <CloseButton
-          onClick={() => {
-            t.onDismiss?.();
-            dismiss(t.id);
-          }}
-          ariaLabel={dismissLabel}
-        />
+        <CloseButton onClick={() => dismiss(t.id)} ariaLabel={dismissLabel} />
       </div>
       {#if t.lines.length > 0}
         <ul class="mt-1 space-y-0.5 text-xs selectable">
@@ -114,6 +149,19 @@
         >
           {t.action.label}
         </button>
+        {#if t.secondary}
+          <button
+            type="button"
+            class="btn-ghost btn-sm mt-2 ml-1"
+            data-testid="toast-secondary-action"
+            onclick={() => {
+              t.secondary?.run();
+              dismiss(t.id);
+            }}
+          >
+            {t.secondary.label}
+          </button>
+        {/if}
       {/if}
     </div>
   {/each}

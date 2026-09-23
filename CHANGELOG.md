@@ -41,6 +41,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Changed
 
+- **The Updates page remembers an update and makes skipping it a choice.** An
+  update found at startup is waiting on the Updates page without a second
+  check, next to the version you have, a link to its release notes and a line
+  on what is verified before it installs. Skipping a version is now a labelled
+  button on the notice and on the page, and the page shows a skip in force with
+  a way to undo it. Closing the notice, or letting it fade, no longer skips the
+  version, and the notice waits while you read it. Older versions in the
+  history are folded under the one you have.
 - **AI translation settings say what it costs and what each choice needs.** A
   sentence about billing next to the permission, the provider's default model
   named in the field, a link to get a key for each hosted provider, what the

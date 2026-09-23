@@ -19,9 +19,10 @@ export type Toast = {
   lines: string[];
   /** Optional action button (e.g. "Update" on an update-available toast). */
   action?: ToastAction;
-  /** Optional callback fired when the toast is dismissed via the × button —
-   *  e.g. persisting a per-version "don't nag again" flag. */
-  onDismiss?: () => void;
+  /** Optional second, quieter action after the first (e.g. "Skip this
+   *  version"). The × only ever closes the toast — anything that should
+   *  persist is an action the user can read before choosing it. */
+  secondary?: ToastAction;
   /** Download/verify progress for a progress toast. `undefined` = not a
    *  progress toast (no bar). `null` = indeterminate (bar shown, unknown
    *  total). `0..1` = fraction complete. */
@@ -78,21 +79,72 @@ export function updateToastProgress(id: number, progress: number | null): void {
   store.toasts = store.toasts.map((t) => (t.id === id ? { ...t, progress } : t));
 }
 
-/** Show a sticky toast (any kind) with an action button. */
+export type ActionToastOptions = {
+  /** A second, quieter action. */
+  secondary?: ToastAction;
+  /** Auto-hide after this long. The countdown pauses while the toast is
+   *  hovered or holds focus, and resumes with the time that was left. */
+  ttlMs?: number;
+};
+
+/** Show a toast (any kind) with an action button; sticky unless `ttlMs` is set. */
 export function pushActionToast(
   kind: ToastKind,
   title: string,
   action: ToastAction,
   lines: string[] = [],
-  onDismiss?: () => void,
+  opts: ActionToastOptions = {},
 ): number {
   const id = nextId++;
-  store.toasts = [...store.toasts, { id, kind, title, lines, action, onDismiss }];
+  store.toasts = [
+    ...store.toasts,
+    { id, kind, title, lines, action, ...(opts.secondary ? { secondary: opts.secondary } : {}) },
+  ];
+  if (opts.ttlMs !== undefined) {
+    timers.set(id, { remaining: opts.ttlMs, startedAt: 0, handle: null, paused: 0 });
+    resumeToastTimer(id);
+  }
   return id;
 }
 
-/** Remove a toast by id — the × button, or the success auto-dismiss timer. */
+// Auto-hide countdowns of timed toasts, by id. `paused` counts reasons to wait
+// (pointer over the toast, focus inside it) so leaving with the pointer while
+// focus stays inside does not restart the countdown.
+type Timer = {
+  remaining: number;
+  startedAt: number;
+  handle: ReturnType<typeof setTimeout> | null;
+  paused: number;
+};
+const timers = new Map<number, Timer>();
+
+/** The pointer or focus is on the toast: stop its auto-hide countdown. */
+export function pauseToastTimer(id: number): void {
+  const timer = timers.get(id);
+  if (!timer) return;
+  timer.paused += 1;
+  if (timer.handle !== null) {
+    clearTimeout(timer.handle);
+    timer.handle = null;
+    timer.remaining = Math.max(0, timer.remaining - (Date.now() - timer.startedAt));
+  }
+}
+
+/** The pointer or focus left: continue the countdown with the time that was left. */
+export function resumeToastTimer(id: number): void {
+  const timer = timers.get(id);
+  if (!timer) return;
+  timer.paused = Math.max(0, timer.paused - 1);
+  if (timer.paused > 0 || timer.handle !== null) return;
+  timer.startedAt = Date.now();
+  timer.handle = setTimeout(() => dismiss(id), timer.remaining);
+}
+
+/** Remove a toast by id — the × button, or an auto-dismiss timer. */
 export function dismiss(id: number): void {
+  const timer = timers.get(id);
+  if (timer?.handle) clearTimeout(timer.handle);
+  timers.delete(id);
   store.toasts = store.toasts.filter((t) => t.id !== id);
 }
 

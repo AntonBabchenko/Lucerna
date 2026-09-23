@@ -2610,7 +2610,7 @@
           "dataLocation": "data location folder path move disk directory relocate portable free space install"
         },
         "updates": {
-          "startupCheck": "update startup check automatic auto",
+          "startupCheck": "update startup check automatic auto skip skipped",
           "changelog": "changelog whats new version release notes patch history"
         },
         "help": {
@@ -2691,7 +2691,16 @@
           "running": "Close Minecraft and stop your servers first: Lucerna closes to install the update.",
           "busy": "Wait for the running operation — an install, an import, a backup, an upload or a translation — to finish first: Lucerna closes to install the update.",
           "unknown": "Lucerna couldn't check whether a game or a server is running. Close them if any are open, or restart Lucerna, then check again."
-        }
+        },
+        "youHave": "You have {version}.",
+        "releaseNotes": "Release notes",
+        "skip": "Skip this version",
+        "skipped": "You skipped {version}. Lucerna won't mention it at startup.",
+        "stopSkipping": "Stop skipping",
+        "skipFailed": "Couldn't skip this version: {error}",
+        "stopSkippingFailed": "Couldn't stop skipping: {error}",
+        "verification": "Before it runs, the installer's checksum and its signature from Lucerna's release workflow are verified. If either doesn't match, nothing is installed.",
+        "skipUnknown": "Couldn't tell whether a version is skipped: {error}"
       },
       "onboarding": {
         "title": "Tour",
@@ -2875,7 +2884,9 @@
         "deprecated": "Deprecated",
         "removed": "Removed",
         "security": "Security"
-      }
+      },
+      "intro": "Changes up to the version you have ({version}).",
+      "showMore": "{count, plural, one {Show # more version} other {Show # more versions}}"
     },
     "aiTranslation": {
       "label": "AI translation",
@@ -2991,7 +3002,7 @@
         "verifying": "Verifying…",
         "launching": "Starting the installer…"
       },
-      "dismissFailed": "Couldn't remember that you dismissed this update — it may be offered again next launch"
+      "dismissFailed": "Couldn't remember that you skipped this version — it may be offered again next launch"
     },
     "whatsNew": {
       "toast": "Updated to {version} — see what's new",

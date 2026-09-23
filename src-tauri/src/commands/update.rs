@@ -62,17 +62,92 @@ pub async fn update_install(app: tauri::AppHandle) -> crate::error::Result<()> {
     download_and_install(&app, &info, on_phase).await
 }
 
-/// Persist that the user dismissed the update toast for `version`, so it
-/// is not shown again until a newer release appears. Read-modify-write
-/// of app.json — leaves everything else untouched.
+/// "Skip this version": persist `version` so the startup check does not offer it
+/// again until a newer release appears. Read-modify-write of app.json — leaves
+/// everything else untouched. Returns the skip as it now stands (see
+/// `effective_skip`), so the page shows what was persisted, not what it asked for.
 #[tauri::command]
 #[specta::specta]
-pub async fn update_dismiss(app: tauri::AppHandle, version: String) -> crate::error::Result<()> {
+pub async fn update_dismiss(
+    app: tauri::AppHandle,
+    version: String,
+) -> crate::error::Result<Option<String>> {
     let path =
         crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
     crate::instances::store::update_app_json(&path, |af| {
-        af.update_dismissed_version = Some(version);
+        af.update_dismissed_version = Some(version.clone());
         crate::instances::store::Verdict::Write
-    })
-    .map(|_| ())
+    })?;
+    Ok(effective_skip(Some(&version), env!("CARGO_PKG_VERSION")))
+}
+
+/// "Stop skipping": forget the skipped version, so the startup check offers it
+/// again. Returns the skip as it now stands.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_clear_dismissed(app: tauri::AppHandle) -> crate::error::Result<Option<String>> {
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    crate::instances::store::update_app_json(&path, |af| {
+        if af.update_dismissed_version.take().is_some() {
+            crate::instances::store::Verdict::Write
+        } else {
+            crate::instances::store::Verdict::Unchanged
+        }
+    })?;
+    Ok(None)
+}
+
+/// The skipped version worth mentioning: the stored one, but only while it is
+/// newer than what is running. Updating past a skipped version makes the skip
+/// meaningless, and the page stops mentioning it without a write.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_skipped_version(app: tauri::AppHandle) -> crate::error::Result<Option<String>> {
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    let file = crate::instances::store::read_app_json(&path)?;
+    Ok(effective_skip(
+        file.update_dismissed_version.as_deref(),
+        env!("CARGO_PKG_VERSION"),
+    ))
+}
+
+/// Pure: the one rule for "is there a skip to mention".
+pub fn effective_skip(stored: Option<&str>, running: &str) -> Option<String> {
+    stored
+        .filter(|v| crate::update::check::is_newer(v, running))
+        .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod skip_tests {
+    use super::effective_skip;
+
+    #[test]
+    fn nothing_stored_is_no_skip() {
+        assert_eq!(effective_skip(None, "0.24.0"), None);
+    }
+
+    #[test]
+    fn a_skip_of_a_newer_release_is_mentioned() {
+        assert_eq!(
+            effective_skip(Some("0.25.0"), "0.24.0").as_deref(),
+            Some("0.25.0")
+        );
+    }
+
+    #[test]
+    fn updating_to_or_past_the_skipped_version_ends_the_skip() {
+        assert_eq!(effective_skip(Some("0.25.0"), "0.25.0"), None);
+        assert_eq!(effective_skip(Some("0.25.0"), "0.26.1"), None);
+    }
+
+    #[test]
+    fn a_malformed_stored_version_is_not_mentioned() {
+        // is_newer refuses what it cannot parse; a skip that cannot be compared
+        // is not shown as a fact.
+        assert_eq!(effective_skip(Some("garbage"), "0.24.0"), None);
+        assert_eq!(effective_skip(Some(""), "0.24.0"), None);
+    }
 }
