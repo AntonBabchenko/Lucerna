@@ -2,6 +2,7 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { rainbowFx } from '../src/lib/fx/rainbow-fx.svelte';
+import { SIDEBAR_BUTTONS } from '../src/lib/layout/sidebar-buttons';
 import AppearancePanel from '../src/lib/settings/AppearancePanel.svelte';
 
 describe('AppearancePanel', () => {
@@ -45,5 +46,15 @@ describe('AppearancePanel', () => {
     render(AppearancePanel);
     const toggle = screen.getByTestId('rainbow-icons-toggle') as HTMLInputElement;
     expect(toggle.checked).toBe(true);
+  });
+
+  it('the sidebar checklist is a group named Sidebar buttons whose legend holds the block heading', () => {
+    render(AppearancePanel);
+    // A fieldset names every checkbox inside it ("Mods, checkbox, checked — Sidebar
+    // buttons"); the legend wraps the h3 so the block stays in heading navigation.
+    const group = screen.getByRole('group', { name: 'Sidebar buttons' });
+    expect(group.tagName).toBe('FIELDSET');
+    expect(group.querySelector('legend h3')?.textContent?.trim()).toBe('Sidebar buttons');
+    expect(group.querySelectorAll('input[type="checkbox"]').length).toBe(SIDEBAR_BUTTONS.length);
   });
 });
