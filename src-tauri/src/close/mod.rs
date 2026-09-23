@@ -252,22 +252,32 @@ pub fn default_close_labels() -> CloseLabels {
 ///
 /// The native dialog maps its answer back by comparing labels, so the two
 /// buttons must be distinct and non-empty; a bad pair falls back to English
-/// rather than producing a dialog whose answer cannot be read.
+/// rather than producing a dialog whose answer cannot be read. A blank line
+/// (a partial translation) speaks English too: a named loss must never become
+/// an empty paragraph.
 pub fn native_dialog(losses: &CloseLosses, labels: &CloseLabels) -> (String, String, String) {
-    let mut lines: Vec<&str> = Vec::new();
+    let english = default_close_labels();
+    let line = |translated: &str, fallback: &str| -> String {
+        if translated.trim().is_empty() {
+            fallback.to_owned()
+        } else {
+            translated.to_owned()
+        }
+    };
+    let mut lines: Vec<String> = Vec::new();
     if losses.games {
-        lines.push(&labels.games);
+        lines.push(line(&labels.games, &english.games));
     }
     match losses.servers {
         0 => {}
-        1 => lines.push(&labels.servers_one),
-        _ => lines.push(&labels.servers_many),
+        1 => lines.push(line(&labels.servers_one, &english.servers_one)),
+        _ => lines.push(line(&labels.servers_many, &english.servers_many)),
     }
     if losses.operation {
-        lines.push(&labels.operation);
+        lines.push(line(&labels.operation, &english.operation));
     }
     if losses.unchecked {
-        lines.push(&labels.unchecked);
+        lines.push(line(&labels.unchecked, &english.unchecked));
     }
     let body = lines.join("\n\n");
 
@@ -284,7 +294,6 @@ pub fn native_dialog(losses: &CloseLosses, labels: &CloseLabels) -> (String, Str
     if readable {
         (body, confirm, labels.cancel.clone())
     } else {
-        let english = default_close_labels();
         (body, pick(&english), english.cancel)
     }
 }
@@ -558,7 +567,12 @@ pub fn tray_quit(app: &AppHandle) {
         // A data move is an operation in flight; the move's own dialog is
         // what the restored window shows.
         CloseGate::Prevent => crate::tray::refuse_quit(app, RestartBlock::Busy),
-        CloseGate::Allow => app.exit(0),
+        CloseGate::Allow => {
+            if let Err(e) = exit_if_gate_allows(app, "tray quit") {
+                crate::diag!("close: {e}");
+                crate::tray::refuse_quit(app, RestartBlock::Busy);
+            }
+        }
         CloseGate::Check => {
             let Some(guard) = try_begin_check() else {
                 return;
@@ -798,6 +812,19 @@ mod tests {
     }
 
     // --- native words ---
+
+    #[test]
+    fn a_blank_translated_line_speaks_english_rather_than_saying_nothing() {
+        // A partial translation must not turn a named loss into an empty
+        // paragraph: the user would confirm without being told what stops.
+        let mut labels = default_close_labels();
+        labels.games = String::new();
+        labels.servers_many = "   ".into();
+        let english = default_close_labels();
+        let (body, _, _) = native_dialog(&l(true, 2, false, false), &labels);
+        assert!(body.contains(&english.games), "{body}");
+        assert!(body.contains(&english.servers_many), "{body}");
+    }
 
     #[test]
     fn the_native_body_names_each_kind_on_its_own_line() {
