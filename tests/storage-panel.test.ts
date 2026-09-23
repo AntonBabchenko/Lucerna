@@ -156,7 +156,7 @@ describe('StoragePanel', () => {
     render(StoragePanel);
     await new Promise((r) => setTimeout(r, 0));
     // Loading → the size row shows a status spinner, not "0 B".
-    const sizeLabel = screen.getByText('Size on disk:');
+    const sizeLabel = screen.getByText('Total size:');
     const row = sizeLabel.closest('div') as HTMLElement;
     expect(row.querySelector('[role="status"]')).not.toBeNull();
 
@@ -199,6 +199,10 @@ describe('StoragePanel — log retention', () => {
     render(StoragePanel);
     const cb = screen.getByRole('checkbox', { name: 'Automatically delete old logs' });
     expect(describedText(cb)).toContain('latest.log');
+    // STOR-13: the limits cover crash reports and console logs too, and server
+    // logs stay capped even when this is off — none of that was on screen.
+    expect(describedText(cb)).toContain('crash reports');
+    expect(describedText(cb)).toContain('15 files');
     // The TTL hint is linked by NumberField (10a); pinned here at the consumer.
     expect(describedText(screen.getByTestId('mod-metadata-ttl-days'))).toContain('never expire');
   });
@@ -627,7 +631,7 @@ describe('StoragePanel — an unknown size is not "0 B"', () => {
       error: { kind: 'io', path: '<data_root_size>', details: 'access denied' },
     });
     await mountPanel();
-    const row = screen.getByText('Size on disk:').closest('div') as HTMLElement;
+    const row = screen.getByText('Total size:').closest('div') as HTMLElement;
     expect(row.textContent).toContain("couldn't be measured");
     expect(row.textContent).not.toContain('0 B');
     expect(screen.getByText(/access denied/)).toBeTruthy();
@@ -645,7 +649,7 @@ describe('StoragePanel — an unknown size is not "0 B"', () => {
     // The throwaway root is an implementation detail: not as the current folder, not as a size.
     expect(screen.queryByText(/recovery\\4242/)).toBeNull();
     expect(screen.getByText('Temporary session')).toBeTruthy();
-    expect(screen.queryByText('Size on disk:')).toBeNull();
+    expect(screen.queryByText('Total size:')).toBeNull();
     // The OS error lives here, in the Storage notice — never in the banner.
     expect(screen.getByText(/Access is denied/)).toBeTruthy();
     // With nothing seeded there is no instance, so the Logs popover has nothing to list: the

@@ -27,7 +27,11 @@ export const TOUR_VERSION = '0.6.0';
 // already read once, and re-showing the whole 8-step onboarding to every
 // existing user over two corrected section names is disproportionate
 // (precedent #372).
-export const MAIN_STEPS_FINGERPRINT = '241983bd';
+// Moved again by the batch-11a copy pass: the chooser body now names the tour
+// and the "(?)" explanations instead of "tips", because "tips" meant two
+// different things across the Help page. Same call as above — the STEPS are
+// untouched, only their wording, so TOUR_VERSION does not bump.
+export const MAIN_STEPS_FINGERPRINT = 'd445466e';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;

@@ -583,8 +583,9 @@ button:active > .icon-spin-hover {
 }
 
 /* Continuous rainbow cycle on a button's icon while hovered or keyboard-
-   focused. Opt-in per icon via .icon-rainbow-hover; the Sidebar only applies
-   that class when the rainbow preference is enabled. Icons use currentColor,
+   focused. Opt-in per icon via .icon-rainbow-hover; two sites apply that class
+   when the rainbow preference is enabled — the Sidebar’s Browse-modpacks
+   icon and the Add-ons tab’s Shaders icon. Icons use currentColor,
    so animating `color` recolors the stroke. The global prefers-reduced-motion
    block above already zeroes out all animation, so reduced-motion users never
    see this regardless of the preference.

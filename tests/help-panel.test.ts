@@ -20,14 +20,14 @@ describe('HelpPanel', () => {
     expect(screen.getByTestId('tip-level-select')).toBeTruthy();
   });
 
-  test('renders the Replay onboarding tour button', () => {
+  test('renders the Replay the tour button', () => {
     render(HelpPanel);
-    expect(screen.getByRole('button', { name: /replay onboarding tour/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /replay the tour/i })).toBeTruthy();
   });
 
   test('clicking Replay activates the tour AND closes Settings', async () => {
     render(HelpPanel);
-    await fireEvent.click(screen.getByRole('button', { name: /replay onboarding tour/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /replay the tour/i }));
     expect(tourState.active).toBe(true);
     expect(tourState.currentStep).toBe(0);
     expect(settingsOpen.value).toBe(null);
@@ -37,7 +37,7 @@ describe('HelpPanel', () => {
     // Not one of Help's own anchors: those would be consumed on mount.
     settingsSearchFocus.value = 'storage.cache';
     render(HelpPanel);
-    await fireEvent.click(screen.getByRole('button', { name: /replay onboarding tour/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /replay the tour/i }));
     expect(settingsOpen.value).toBe(null);
     expect(settingsSearchFocus.value).toBe(null);
   });
@@ -65,8 +65,8 @@ describe('HelpPanel', () => {
 
   test("Replay's description sits under the button, and the button does not wrap", () => {
     render(HelpPanel);
-    const btn = screen.getByRole('button', { name: /replay onboarding tour/i });
-    const desc = screen.getByText(/Show the welcome tour again/);
+    const btn = screen.getByRole('button', { name: /replay the tour/i });
+    const desc = screen.getByText(/Show the tour again/);
     expect(btn.className).toContain('shrink-0');
     const column = btn.parentElement as HTMLElement;
     expect(column.className).toContain('flex-col');
@@ -80,8 +80,19 @@ describe('HelpPanel', () => {
     expect(describedText(screen.getByTestId('tip-level-select'))).toMatch(
       /simple and clear|technical details/,
     );
-    expect(
-      describedText(screen.getByRole('button', { name: /replay onboarding tour/i })),
-    ).toContain('welcome tour');
+    expect(describedText(screen.getByRole('button', { name: /replay the tour/i }))).toContain(
+      'per-screen tours',
+    );
+  });
+
+  test('the page names one concept one way: Tour and Explanations', () => {
+    render(HelpPanel);
+    // Five names for two concepts was the defect: "Tips" meant both the detail
+    // level and the per-screen tours, and the tour itself answered to
+    // "Onboarding", "welcome tour" and "Replay tours".
+    expect(screen.getByRole('heading', { level: 3, name: 'Tour' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 3, name: 'Explanations' })).toBeTruthy();
+    expect(screen.getByText('Detail level')).toBeTruthy();
+    expect(screen.queryByText(/onboarding/i)).toBeNull();
   });
 });

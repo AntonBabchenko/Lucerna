@@ -115,4 +115,32 @@ describe('Settings → Game: saved-server status permission', () => {
     expect(desc).toContain('player count');
     expect(desc).toContain('IP address');
   });
+
+  it('names the place the list lives in, and keeps the IP consequence', async () => {
+    await mount();
+    const cb = await waitFor(() =>
+      screen.getByRole('checkbox', { name: 'Show status for my saved servers' }),
+    );
+    const desc = describedText(cb);
+    // GAME-04: "this instance's list" named nothing — Settings is global and
+    // the list is the Servers dialog.
+    expect(desc).toContain('Servers list');
+    expect(desc).not.toContain("this instance's");
+    expect(desc).toMatch(/IP address/i);
+  });
+
+  it('uses the ru word for an instance, not the one reserved for modpacks', async () => {
+    locale.set('ru');
+    try {
+      await mount();
+      const cb = await waitFor(() =>
+        screen.getByRole('checkbox', { name: 'Показывать статус моих сохранённых серверов' }),
+      );
+      const desc = describedText(cb);
+      expect(desc).toContain('профил');
+      expect(desc).not.toContain('этой сборки');
+    } finally {
+      locale.set('en');
+    }
+  });
 });
