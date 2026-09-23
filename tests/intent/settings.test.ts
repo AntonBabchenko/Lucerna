@@ -3,7 +3,6 @@
 //
 // Rows covered here per inventory:
 //   SettingsModal:       CloseButton header → btn-icon
-//                        backdrop aria-label="Close Settings"
 //                        dialog role="dialog" aria-modal aria-label="Settings"
 //                        tab POSITIVE: border-l-2 + border-accent + font-semibold (active section)
 //                        tab POSITIVE: border-transparent + text-muted (inactive section)
@@ -23,7 +22,7 @@
 //                        DISCLAIMER_TEXT rendered as text-secondary
 //                        GPL license line text-xs text-muted
 //   CurseForgeKeyBanner: shared Banner recipe (bg-warning-bg + full warning border)
-//                        Open Settings → CurseForge → btn-warning btn-sm
+//                        Open Settings → Integrations → btn-warning btn-sm
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -484,7 +483,7 @@ describe('CurseForgeKeyBanner — warning container uses the shared Banner recip
 });
 
 describe('CurseForgeKeyBanner — CTA button is btn-warning btn-sm', () => {
-  it('"Open Settings → CurseForge" button has btn-warning and btn-sm', () => {
+  it('"Open Settings → Integrations" button has btn-warning and btn-sm', () => {
     render(CurseForgeKeyBanner);
     const btn = screen.getByRole('button', { name: /open settings/i });
     expect(btn).toHaveBtnVariant('warning');
