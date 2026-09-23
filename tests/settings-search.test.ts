@@ -69,6 +69,7 @@ const RANK_STRINGS: Record<string, string> = {
   'V.logs': 'Automatically delete old logs',
   'settings.sections.storage': 'Storage',
   'settings.sections.integrations': 'Integrations',
+  'settings.sections.privacy': 'Privacy & network',
   'settings.sections.updates': 'Updates',
 };
 const rankT = (k: string): string => RANK_STRINGS[k] ?? k;
@@ -241,7 +242,10 @@ describe('searchSettings over the real registry + locales', () => {
     { q: 'licence', t: enT, first: 'about.license' },
     { q: 'лицензия', t: ruT, first: 'about.license' },
     { q: 'logs', t: enT, has: ['help.logFolder'] },
-    { q: 'приватность', t: ruT, first: 'about.privacyPolicy' },
+    // Batch 12e: the Privacy & network tab is named after the word; the policy link stays listed.
+    { q: 'приватность', t: ruT, first: 'privacy.overview', has: ['about.privacyPolicy'] },
+    { q: 'privacy', t: enT, first: 'privacy.overview', has: ['about.privacyPolicy'] },
+    { q: 'сеть', t: ruT, first: 'privacy.overview' },
     { q: 'show hidden', t: enT, first: 'appearance.sidebarButtons' },
     { q: 'startup', t: enT, first: 'updates.startupCheck' },
     { q: 'тёмный режим', t: ruT, first: 'appearance.theme' },
@@ -288,7 +292,7 @@ describe('searchSettings over the real registry + locales', () => {
   // gpu's "intel", «обновления» vs the mod cache's «обновление»).
   it("typing a tab's own name puts that tab's settings first, in both locales", () => {
     const tabs = [...new Set(SETTINGS_ENTRIES.map((e) => e.tab))];
-    expect(tabs.length).toBe(7);
+    expect(tabs.length).toBe(8);
     for (const t of [enT, ruT]) {
       for (const tab of tabs) {
         const q = t(`settings.sections.${tab}` as TranslationKey);

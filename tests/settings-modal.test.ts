@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -55,8 +55,15 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
-import { openSettingsAt, settingsOpen, settingsSearchFocus } from '$lib/settings/state.svelte';
+import {
+  closeSettings,
+  openSettingsAt,
+  settingsJumpFocus,
+  settingsOpen,
+  settingsSearchFocus,
+} from '$lib/settings/state.svelte';
 
 const frame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 const microtask = (): Promise<void> => new Promise((r) => queueMicrotask(() => r()));
@@ -64,14 +71,15 @@ const microtask = (): Promise<void> => new Promise((r) => queueMicrotask(() => r
 afterEach(() => {
   settingsOpen.value = null;
   settingsSearchFocus.value = null;
+  settingsJumpFocus.value = null;
 });
 
 describe('SettingsModal', () => {
-  it('renders 7 section tabs and closes on Escape', async () => {
+  it('renders 8 section tabs and closes on Escape', async () => {
     settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
-    expect(screen.getAllByRole('tab')).toHaveLength(7);
+    expect(screen.getAllByRole('tab')).toHaveLength(8);
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(settingsOpen.value).toBe(null);
   });
@@ -149,5 +157,50 @@ describe('SettingsModal', () => {
     const wrapper = document.querySelector('[data-search-anchor="storage.cache"]');
     expect(wrapper).not.toBeNull();
     expect(wrapper?.classList.contains('field-flash')).toBe(false);
+  });
+
+  // Batch 12e: a Change link on the Privacy page unmounts with its panel, so the
+  // jump must put focus on the setting itself, not drop it to <body>.
+  it('Change on the Privacy page lands on the setting, focuses it, and says where it went', async () => {
+    __resetAppSettingsForTest();
+    await loadAppSettings();
+    settingsOpen.value = { tab: 'privacy' };
+    render(SettingsModal);
+    const row = screen.getByTestId('privacy-row-serverPing');
+    await fireEvent.click(within(row).getByRole('button', { name: 'Change' }));
+    await vi.waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Game' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId('server-ping-toggle')),
+    );
+    const wrapper = document.querySelector('[data-search-anchor="game.serverPing"]');
+    expect(wrapper?.classList.contains('field-flash')).toBe(true);
+    const live = document.querySelector('.sr-only[role="status"]');
+    expect(live?.textContent).toContain('Jumped to');
+    // Delivered ⇒ consumed: the next flash of any field stays a plain flash.
+    expect(settingsJumpFocus.value).toBe(null);
+  });
+
+  it('the About pointer opens the Privacy page with focus on its heading', async () => {
+    settingsOpen.value = { tab: 'about' };
+    render(SettingsModal);
+    await fireEvent.click(screen.getByRole('button', { name: 'See what Lucerna contacts' }));
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole('tab', { name: 'Privacy & network' }).getAttribute('aria-selected'),
+      ).toBe('true'),
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { name: 'What Lucerna contacts' }),
+      ),
+    );
+  });
+
+  it('closing Settings drops an in-modal jump that was never delivered', () => {
+    settingsJumpFocus.value = 'game.serverPing';
+    closeSettings();
+    expect(settingsJumpFocus.value).toBe(null);
   });
 });

@@ -10,6 +10,7 @@
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import AiTranslationSection from './AiTranslationSection.svelte';
   import StoragePanel from './StoragePanel.svelte';
+  import PrivacyPanel from './PrivacyPanel.svelte';
   import UpdatesPanel from './UpdatesPanel.svelte';
   import HelpPanel from './HelpPanel.svelte';
   import AboutPanel from './AboutPanel.svelte';
@@ -32,6 +33,7 @@
     { id: 'appearance', labelKey: 'settings.sections.appearance' },
     { id: 'game', labelKey: 'settings.sections.game' },
     { id: 'integrations', labelKey: 'settings.sections.integrations' },
+    { id: 'privacy', labelKey: 'settings.sections.privacy' },
     { id: 'storage', labelKey: 'settings.sections.storage' },
     { id: 'updates', labelKey: 'settings.sections.updates' },
     { id: 'help', labelKey: 'settings.sections.help' },
@@ -165,6 +167,8 @@
               </SettingsField>
             </div>
           </div>
+        {:else if active === 'privacy'}
+          <PrivacyPanel />
         {:else if active === 'storage'}
           <StoragePanel />
         {:else if active === 'updates'}

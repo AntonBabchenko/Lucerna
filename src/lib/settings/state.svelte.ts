@@ -15,6 +15,7 @@ export type SettingsTab =
   | 'appearance'
   | 'game'
   | 'integrations'
+  | 'privacy'
   | 'storage'
   | 'updates'
   | 'help'
@@ -44,6 +45,22 @@ export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
   // Let the section's panel mount before pointing at one of its fields.
   await tick();
   settingsSearchFocus.value = anchor;
+}
+
+/**
+ * The anchor whose next flash should also take keyboard focus. Set by a jump
+ * from INSIDE the modal (a Change link on the Privacy page): the link unmounts
+ * with its panel, so without this focus would drop to <body>.
+ */
+export const settingsJumpFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
+
+/**
+ * Jump to a setting from inside the open Settings modal: the same tab switch,
+ * flash and "Jumped to" announcement as a search result, and focus on the
+ * control. `openSettingsAt` is for callers outside the modal.
+ */
+export function jumpInSettings(_anchor: SettingsAnchor): void {
+  // STUB (red).
 }
 
 /**

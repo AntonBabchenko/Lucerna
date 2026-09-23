@@ -25,6 +25,7 @@ const VALID_TABS = new Set([
   'appearance',
   'game',
   'integrations',
+  'privacy',
   'storage',
   'updates',
   'help',

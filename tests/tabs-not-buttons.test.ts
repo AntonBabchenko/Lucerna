@@ -152,7 +152,7 @@ describe('SettingsModal tabs are not .btn-*', () => {
     render(SettingsModal);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(7);
+    expect(tabs).toHaveLength(8);
     for (const tab of tabs) {
       assertNotBtnVariant(tab);
     }
