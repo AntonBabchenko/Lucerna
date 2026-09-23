@@ -612,15 +612,27 @@ pub async fn open_data_move_leftovers(app: AppHandle) -> Result<()> {
             "no finished move in this session",
         ));
     };
-    match std::fs::metadata(&old_root) {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(Error::io(
-                old_root,
-                "the previous data folder is no longer there",
-            ));
+    // The opener reports success even when nothing opens (macOS, Linux), so say
+    // it is gone rather than "open" nothing. Off the worker thread and bounded:
+    // the previous folder may be on a drive that is asleep or gone.
+    let probe_path = std::path::PathBuf::from(&old_root);
+    let stat = tokio::task::spawn_blocking(move || std::fs::metadata(&probe_path).map(|_| ()));
+    let problem = match tokio::time::timeout(ROOT_PROBE_BUDGET, stat).await {
+        Ok(Ok(result)) => crate::data_root::stat_problem(result),
+        Ok(Err(e)) => return Err(task_failed("<data_move_leftovers>", e)),
+        Err(_) => {
+            let seconds = ROOT_PROBE_BUDGET.as_secs() as u32;
+            crate::diag!(
+                "data folder: the leftovers check got no answer within {seconds}s ({old_root})"
+            );
+            Some(crate::data_root::FolderProblem::TimedOut { seconds })
         }
-        Err(e) => return Err(Error::io(old_root, e)),
+    };
+    if let Some(problem) = problem {
+        return Err(Error::DataRootUnreachable {
+            path: old_root,
+            problem,
+        });
     }
     // The old root may be the macOS default `….app` folder: reveal it there.
     match crate::data_root::folder_open_strategy(

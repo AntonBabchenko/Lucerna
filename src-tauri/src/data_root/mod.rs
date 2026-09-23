@@ -364,6 +364,20 @@ pub fn check_root_reachable(root: &Path) -> Result<(), FolderProblem> {
     data_folder_check(is_dir, has_marker)
 }
 
+/// Pure: what a stat of a folder we are about to show says, when all that
+/// matters is that it is there (the previous data folder after a move — it need
+/// not hold anything of ours any more). NotFound → `Missing`; any other error →
+/// `Unreadable`, never "not there".
+pub fn stat_problem(stat: std::io::Result<()>) -> Option<FolderProblem> {
+    match stat {
+        Ok(()) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(FolderProblem::Missing),
+        Err(e) => Some(FolderProblem::Unreadable {
+            details: e.to_string(),
+        }),
+    }
+}
+
 /// How to show a folder in the OS file manager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenStrategy {
@@ -441,6 +455,19 @@ mod folder_tests {
         assert!(
             matches!(r, Err(FolderProblem::Unreadable { ref details }) if details.contains("no!"))
         );
+    }
+
+    #[test]
+    fn a_folder_that_is_gone_is_missing_and_one_that_could_not_be_checked_is_not() {
+        assert_eq!(stat_problem(Ok(())), None);
+        assert_eq!(
+            stat_problem(Err(IoError::from(ErrorKind::NotFound))),
+            Some(FolderProblem::Missing)
+        );
+        assert!(matches!(
+            stat_problem(Err(IoError::new(ErrorKind::PermissionDenied, "nope"))),
+            Some(FolderProblem::Unreadable { ref details }) if details.contains("nope")
+        ));
     }
 
     #[test]
