@@ -46,10 +46,18 @@ export const ACCOUNT_STEP_INDEX = STEPS.findIndex(
 // account step's spotlight + copy but, unlike the full tour, hides the
 // Step-X-of-Y counter and Back/Skip/Next controls and does NOT persist tour
 // completion when dismissed.
-export const tourState = $state<{ active: boolean; currentStep: number; contextual: boolean }>({
+// `replay` is true when the tour was started from Settings → Help (`replayTour`), false on
+// first run. The level chooser uses it: on a replay it shows which level is current.
+export const tourState = $state<{
+  active: boolean;
+  currentStep: number;
+  contextual: boolean;
+  replay: boolean;
+}>({
   active: false,
   currentStep: 0,
   contextual: false,
+  replay: false,
 });
 
 export async function initOnboarding(): Promise<void> {
@@ -67,6 +75,7 @@ export async function initOnboarding(): Promise<void> {
     serversUi.setMode('client');
     tourState.active = true;
     tourState.contextual = false;
+    tourState.replay = false;
     tourState.currentStep = 0;
   }
 }
@@ -137,5 +146,6 @@ export function replayTour(): void {
   serversUi.setMode('client');
   tourState.currentStep = 0;
   tourState.contextual = false;
+  tourState.replay = true;
   tourState.active = true;
 }

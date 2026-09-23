@@ -361,6 +361,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  on a timer, on focus, or at startup.
 	 */
 	clipboardReadText: () => typedError<string, Error>(__TAURI_INVOKE("clipboard_read_text")),
+	/**
+	 *  Write text to the OS clipboard — "Copy version info" in Settings → About.
+	 *  Through the Rust plugin for the same reason as `clipboard_read_text`: the
+	 *  three webview engines disagree on clipboard permissions, and a refusal there
+	 *  would be silent and platform-specific.
+	 */
+	clipboardWriteText: (text: string) => typedError<null, Error>(__TAURI_INVOKE("clipboard_write_text", { text })),
 	copyScreenshotToClipboard: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("copy_screenshot_to_clipboard", { instanceId, fileName })),
 	/**
 	 *  Composite the annotation overlay onto the screenshot and write the result
@@ -1358,6 +1365,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  source the updater and the CHANGELOG headings use. Infallible.
 	 */
 	appVersion: () => __TAURI_INVOKE<string>("app_version"),
+	/**  The running build's identity. Infallible: every input is compile-time. */
+	appBuildInfo: () => __TAURI_INVOKE<BuildInfo>("app_build_info"),
 	/**
 	 *  Persist that the user has been shown the post-update changelog for
 	 *  `version`, so the "What's new" prompt is not shown again for it.
@@ -2646,6 +2655,37 @@ export type BlockingMod = {
 	source: ModSource | null,
 	project_id: string | null,
 };
+
+export type BuildInfo = {
+	version: string,
+	build: BuildKind,
+	/**  Short commit (7 hex chars), when the build recorded a valid one. */
+	commit: string | null,
+	/**  `owner/repo` when the build came from a repository other than Lucerna's. */
+	fork: string | null,
+	os: string,
+	arch: string,
+};
+
+/**
+ *  Which build this is. A beta tester must be able to tell rc.1 from rc.2 from
+ *  the release, and a bug report must say so without retyping anything.
+ */
+export type BuildKind = 
+/**  Built by the release workflow from a version tag. */
+{ kind: "tagged"; tag: string } | 
+/**
+ *  A tag was baked in but is not a version tag. Shown as it is (sanitised)
+ *  rather than dropped: an official build must never read as a local one.
+ */
+{ kind: "unrecognised"; raw: string } | 
+/**
+ *  A release-profile build with no tag — `pnpm tauri build` on someone's
+ *  machine, or a fork's workflow that does not set one.
+ */
+{ kind: "local" } | 
+/**  A debug build (`pnpm tauri dev`). */
+{ kind: "development" };
 
 /**
  *  Why a bundle was rejected as a whole. Typed rather than a message — the UI

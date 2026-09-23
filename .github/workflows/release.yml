@@ -85,6 +85,13 @@ jobs:
           # the app falls back to a user-entered key. No conditional shell
           # export needed (unlike the MS id) because resolve_with tolerates "".
           LUCERNA_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+          # Build identity for Settings → About ("Copy version info"), baked in via
+          # option_env! like the key above. The app validates each value before it
+          # shows it (commands/changelog.rs build_info_from); a build without them
+          # says "Local build" instead.
+          LUCERNA_BUILD_TAG: ${{ env.TAG }}
+          LUCERNA_BUILD_COMMIT: ${{ github.sha }}
+          LUCERNA_BUILD_REPO: ${{ github.repository }}
           # Ad-hoc code signing on macOS. With this set, Tauri runs
           # `codesign -s -` on the .app DURING bundling, so the .dmg it
           # produces already contains a signed app. That is required for an

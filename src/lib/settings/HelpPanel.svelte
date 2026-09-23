@@ -1,8 +1,14 @@
 <script lang="ts">
   // Settings → Help. Tip detail level (a SegmentedControl with ONE hint that
-  // follows the selection) + replay the onboarding tour.
+  // follows the selection) + replay the onboarding tour + the support block
+  // (report a bug, the launcher's own log folder, where security reports go).
   import { tick } from 'svelte';
-  import { type ExplanationLevel } from '$lib/ipc/bindings';
+  import { commands, type ExplanationLevel } from '$lib/ipc/bindings';
+  import { formatError } from '$lib/ipc/format-error';
+  import { Icon } from '$lib/ui/icons';
+  import { openExternalHttps } from '$lib/ui/safe-open';
+  import { tooltip } from '$lib/ui/tooltip';
+  import { BUG_REPORT_URL, SECURITY_POLICY_URL } from './disclaimer';
   import { t } from '$lib/i18n';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { explanationState, setExplanationLevel } from '$lib/onboarding/explanation-level.svelte';
@@ -31,6 +37,17 @@
     closeSettings();
     await tick();
     replayTour();
+  }
+
+  // The folder open can fail (no opener, a path that cannot be created); say
+  // why under the button instead of doing nothing.
+  let logFolderError = $state<string | null>(null);
+  async function openLogFolder() {
+    logFolderError = null;
+    const r = await commands.openLauncherLogFolder();
+    if (r.status === 'error') {
+      logFolderError = $t('settings.help.support.logFolderFailed', { error: formatError(r.error) });
+    }
   }
 </script>
 
@@ -78,4 +95,50 @@
       </div>
     </div>
   </SettingsField>
+
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">{$t('settings.help.support.title')}</h3>
+    <SettingsField anchor="help.support">
+      <div class="flex flex-col items-start gap-1">
+        <button
+          type="button"
+          class="btn-link inline-flex items-center gap-1"
+          aria-describedby="help-report-bug-description"
+          use:tooltip={BUG_REPORT_URL}
+          onclick={() => void openExternalHttps(BUG_REPORT_URL)}
+        >
+          {$t('settings.help.support.reportBug')}
+          <Icon name="externalLink" size={14} />
+        </button>
+        <p id="help-report-bug-description" class="text-xs text-muted">
+          {$t('settings.help.support.reportBugHint')}
+        </p>
+      </div>
+    </SettingsField>
+    <SettingsField anchor="help.logFolder">
+      <div class="flex flex-col items-start gap-1">
+        <button
+          type="button"
+          class="btn-secondary btn-sm inline-flex items-center gap-1.5 shrink-0"
+          onclick={() => void openLogFolder()}
+        >
+          <Icon name="folderOpen" size={14} />
+          {$t('settings.help.support.openLogFolder')}
+        </button>
+        <StatusMessage message={logFolderError} tone="danger" />
+      </div>
+    </SettingsField>
+    <div class="flex flex-col items-start gap-1">
+      <p class="text-xs text-muted">{$t('settings.help.support.security')}</p>
+      <button
+        type="button"
+        class="btn-link inline-flex items-center gap-1 text-xs"
+        use:tooltip={SECURITY_POLICY_URL}
+        onclick={() => void openExternalHttps(SECURITY_POLICY_URL)}
+      >
+        {$t('settings.help.support.securityPolicy')}
+        <Icon name="externalLink" size={12} />
+      </button>
+    </div>
+  </div>
 </section>

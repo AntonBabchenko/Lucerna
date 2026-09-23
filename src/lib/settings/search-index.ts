@@ -27,7 +27,12 @@ export type SettingsAnchor =
   | 'updates.changelog'
   | 'help.tipsLevel'
   | 'help.replayTours'
-  | 'about.repo';
+  | 'help.support'
+  | 'help.logFolder'
+  | 'about.repo'
+  | 'about.versionInfo'
+  | 'about.privacyPolicy'
+  | 'about.license';
 
 export interface SettingsSearchEntry {
   anchor: SettingsAnchor;
@@ -198,12 +203,49 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     keywordsKey: 'settings.search.keywords.help.replayTours',
     visibleKeys: ['settings.general.onboarding.title', 'settings.general.onboarding.replayBtn'],
   },
+  // The support block's bug link. The log button has its own entry below; the
+  // security line sits outside this field and is reached by keyword.
+  'help.support': {
+    anchor: 'help.support',
+    tab: 'help',
+    labelKey: 'settings.search.labels.help.support',
+    keywordsKey: 'settings.search.keywords.help.support',
+    visibleKeys: ['settings.help.support.title', 'settings.help.support.reportBug'],
+  },
+  'help.logFolder': {
+    anchor: 'help.logFolder',
+    tab: 'help',
+    labelKey: 'settings.search.labels.help.logFolder',
+    keywordsKey: 'settings.search.keywords.help.logFolder',
+    visibleKeys: ['settings.help.support.openLogFolder'],
+  },
   'about.repo': {
     anchor: 'about.repo',
     tab: 'about',
     labelKey: 'settings.search.labels.about.repo',
     keywordsKey: 'settings.search.keywords.about.repo',
     visibleKeys: ['settings.about.viewOnGitHub'],
+  },
+  'about.versionInfo': {
+    anchor: 'about.versionInfo',
+    tab: 'about',
+    labelKey: 'settings.search.labels.about.versionInfo',
+    keywordsKey: 'settings.search.keywords.about.versionInfo',
+    visibleKeys: ['settings.about.copyVersionInfo'],
+  },
+  'about.privacyPolicy': {
+    anchor: 'about.privacyPolicy',
+    tab: 'about',
+    labelKey: 'settings.search.labels.about.privacyPolicy',
+    keywordsKey: 'settings.search.keywords.about.privacyPolicy',
+    visibleKeys: ['settings.about.privacyPolicy'],
+  },
+  'about.license': {
+    anchor: 'about.license',
+    tab: 'about',
+    labelKey: 'settings.search.labels.about.license',
+    keywordsKey: 'settings.search.keywords.about.license',
+    visibleKeys: ['settings.about.readLicense'],
   },
 };
 

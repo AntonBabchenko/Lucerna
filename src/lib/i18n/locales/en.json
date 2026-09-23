@@ -2305,7 +2305,8 @@
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
-      "advancedHint": "Show the technical details"
+      "advancedHint": "Show the technical details",
+      "current": "Current"
     }
   },
   "errors": {
@@ -2574,10 +2575,15 @@
         },
         "help": {
           "tipsLevel": "Explanations detail level",
-          "replayTours": "Replay the tour"
+          "replayTours": "Replay the tour",
+          "support": "Report a bug",
+          "logFolder": "Open launcher log folder"
         },
         "about": {
-          "repo": "View on GitHub"
+          "repo": "View on GitHub",
+          "versionInfo": "Copy version info",
+          "privacyPolicy": "Privacy policy",
+          "license": "Read the licence"
         }
       },
       "keywords": {
@@ -2609,10 +2615,15 @@
         },
         "help": {
           "tipsLevel": "tips help level basic advanced detail explanation tooltip hints tutorial",
-          "replayTours": "tour onboarding replay guide walkthrough tutorial hints reset tips welcome"
+          "replayTours": "tour onboarding replay guide walkthrough tutorial hints reset tips welcome",
+          "support": "bug report issue problem crash error github support feedback security vulnerability",
+          "logFolder": "log logs folder launcher diagnostics crash lucerna.log"
         },
         "about": {
-          "repo": "github repository source repo about"
+          "repo": "github repository source repo about",
+          "versionInfo": "version build copy info commit os platform",
+          "privacyPolicy": "privacy policy telemetry data servers tracking",
+          "license": "license licence gpl copyright legal warranty open source"
         }
       }
     },
@@ -2833,9 +2844,20 @@
       "legalTitle": "Legal",
       "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
       "viewOnGitHub": "View on GitHub",
-      "license": "Lucerna is licensed under GPL-3.0-or-later. The Java runtime and the Minecraft files are downloaded from Mojang when they are first needed, and are never modified.",
-      "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. Lucerna is not affiliated with either.",
-      "keyring": "Secrets — Microsoft sign-in tokens, a personal CurseForge key, SFTP passwords, AI keys — live in your operating system's keyring (Windows Credential Manager, macOS Keychain, or the Linux Secret Service), never in Lucerna's own files."
+      "license": "Copyright © 2026 Anton Babchenko. Lucerna is free software under GPL-3.0-or-later and comes with no warranty.",
+      "trademark": "Minecraft and Mojang are trademarks of Mojang AB and Microsoft Corporation. Lucerna is not affiliated with either.",
+      "keyring": "Secrets — Microsoft sign-in tokens, a personal CurseForge key, SFTP passwords, AI keys — live in your operating system's keyring (Windows Credential Manager, macOS Keychain, or the Linux Secret Service), never in Lucerna's own files.",
+      "buildLocal": "Local build",
+      "buildDevelopment": "Development build",
+      "buildUnrecognised": "{raw} (unrecognised)",
+      "buildFork": "fork: {repo}",
+      "copyVersionInfo": "Copy version info",
+      "versionInfoCopied": "Version info copied",
+      "versionInfoCopyFailed": "Couldn't copy the version info",
+      "noTelemetry": "Lucerna sends no telemetry and has no servers of its own. What it contacts, and when, is listed in the privacy policy.",
+      "privacyPolicy": "Privacy policy",
+      "readLicense": "Read the licence",
+      "mojangFiles": "The Java runtime and the Minecraft files are downloaded from Mojang when they are first needed. The files Lucerna downloads from Mojang are never modified; mod loaders you install, such as Forge, apply their own changes alongside them."
     },
     "changelog": {
       "title": "What's new",
@@ -2929,6 +2951,17 @@
       "resultRejected": "Rejected by CurseForge — not saved.",
       "resultUnreachable": "Couldn't reach CurseForge — not saved.",
       "resultNotSaved": "Accepted by CurseForge, but not saved."
+    },
+    "help": {
+      "support": {
+        "title": "Report a problem",
+        "reportBug": "Report a bug",
+        "reportBugHint": "Opens GitHub's bug form. Include the version info from About. To attach a log, use Share in the log viewer — it removes your user name, tokens and local network addresses before uploading the log to mclo.gs. A log file you attach yourself can still contain them.",
+        "openLogFolder": "Open launcher log folder",
+        "logFolderFailed": "Couldn't open the log folder: {error}",
+        "security": "Found a security problem? Report it privately, not in a public issue.",
+        "securityPolicy": "Security policy"
+      }
     }
   },
   "ops": {
