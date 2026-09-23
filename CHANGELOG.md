@@ -23,6 +23,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Help can report a bug, and About says which build you have.** The Help
+  page links straight to GitHub's bug form, opens the launcher's own log
+  folder, and says where to send a security problem privately. About shows the
+  build under the version — the release tag and commit, or that it is a local
+  or development build — and copies a ready-to-paste version block for a bug
+  report. It also links the privacy policy and the licence, names the
+  copyright holder and that there is no warranty, and says plainly that mod
+  loaders such as Forge apply their own changes next to the untouched Mojang
+  files. Replaying the tour now shows which explanation level is current
+  instead of steering you back to the simpler one.
 - **A right-click menu on the profile list in the Manage window.** Every action
   for a profile is one right-click away, without first selecting it — including
   making it the active profile, which the window could not do before and which

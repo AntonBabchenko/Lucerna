@@ -11,9 +11,8 @@ entirely by the GPL; nothing in this document narrows them.
 
 ## 2. Trademark acknowledgement
 
-> Minecraft and Mojang are trademarks of Mojang Synergies AB and
-> Microsoft Corporation. This launcher is not affiliated with
-> either.
+> Minecraft and Mojang are trademarks of Mojang AB and Microsoft
+> Corporation. Lucerna is not affiliated with either.
 
 The same sentence is displayed inside the launcher (Settings →
 About). The top of the README carries an equivalent disclaimer

@@ -6,7 +6,7 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 ## Part A — Reproducible builds and supply chain
 
-1. **Reproducible builds are a goal, not a release blocker.** The target: any third party can rebuild the binary from a tagged commit and get the same SHA256. Tauri has known sources of nondeterminism (embedded assets, bundle timestamps); these are documented as they are discovered and the gaps are closed over time. Until full reproducibility is achieved, the pipeline still ships — the gap is honest, not hidden.
+1. **Reproducible builds are a goal, not a release blocker.** The target: any third party can rebuild the binary from a tagged commit and get the same SHA256. Tauri has known sources of nondeterminism (embedded assets, bundle timestamps); these are documented as they are discovered and the gaps are closed over time. Until full reproducibility is achieved, the pipeline still ships — the gap is honest, not hidden. Three build inputs identify the build and are baked into it: `LUCERNA_BUILD_TAG`, `LUCERNA_BUILD_COMMIT` and `LUCERNA_BUILD_REPO` — the tag, commit and repository the release workflow ran for, shown in Settings → About. A rebuild must set the same three values to get the same binary.
 
 2. **All releases come from GitHub Actions, never local machines.** The release workflow is public; its logs and its inputs (the tagged commit, the lockfile, the cached dependencies) are public. **Status: implemented in `.github/workflows/release.yml`** — it builds every pushed `v*` tag on a GitHub-hosted runner, and has done so since `v0.9.0`. (The legacy `v0.1.0` tag predates this and was built locally.)
 
