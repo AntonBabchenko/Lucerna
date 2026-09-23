@@ -53,7 +53,10 @@
     | { kind: 'idle' }
     | { kind: 'uptodate'; current: string }
     | { kind: 'available'; version: string }
-    | { kind: 'error'; message: string };
+    // `framed`: whether the "Couldn't check:" wrapper still has to supply the
+    // headline. update_check_failed formats to "Couldn't check for updates: …"
+    // on its own; a network failure, a refused host or a thrown Error does not.
+    | { kind: 'error'; message: string; framed: boolean };
   let checking = $state(false);
   let checkResult = $state<CheckResult>({ kind: 'idle' });
 
@@ -70,7 +73,11 @@
     try {
       const r = await commands.updateCheck();
       if (r.status !== 'ok') {
-        checkResult = { kind: 'error', message: formatError(r.error) };
+        checkResult = {
+          kind: 'error',
+          message: formatError(r.error),
+          framed: r.error.kind !== 'update_check_failed',
+        };
         return;
       }
       if (r.data.available) {
@@ -81,7 +88,7 @@
       }
     } catch (e) {
       // typedError rethrows real Error instances; without this the button stayed on "Checking…".
-      checkResult = { kind: 'error', message: describeStoreError(e) };
+      checkResult = { kind: 'error', message: describeStoreError(e), framed: true };
     } finally {
       checking = false;
     }
@@ -147,7 +154,9 @@
       case 'uptodate':
         return $t('settings.general.updates.uptodate', { version: checkResult.current });
       case 'error':
-        return $t('settings.general.updates.error', { message: checkResult.message });
+        return checkResult.framed
+          ? $t('settings.general.updates.error', { message: checkResult.message })
+          : checkResult.message;
       case 'available':
         return $t('settings.general.updates.available', { version: checkResult.version });
       default:
