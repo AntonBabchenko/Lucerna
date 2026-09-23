@@ -47,6 +47,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Quitting from the tray no longer closes your game.** Quit used to exit
+  Lucerna and force-close any running game or server along with it; it now
+  refuses and says what is still running. The tray menu follows the interface
+  language, "System" shows which theme and language it resolves to, Settings
+  explains why the Add account button stays visible without an account, and a
+  failed update check gives its reason once instead of twice.
 - **Settings say one thing one way.** The Help page stopped calling the tour
   four different names, the saved-server and log-retention descriptions now say
   what they actually cover, the About page's legal lines lost the developer
