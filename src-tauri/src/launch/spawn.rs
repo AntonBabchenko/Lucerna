@@ -208,6 +208,23 @@ pub fn session_started_ms(instance_id: &str) -> Option<i64> {
 // Tray hide / restore
 // ---------------------------------------------------------------------------
 
+/// What the launcher window does when a game starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartWindowAction {
+    Minimise,
+    HideToTray,
+}
+
+/// Only the FIRST running game moves the window (no game was running before
+/// this one); "keep" does nothing.
+fn start_window_action(
+    _setting: crate::instances::schema::GameStartWindow,
+    _was_any_running_before: bool,
+) -> Option<StartWindowAction> {
+    // STUB (red).
+    None
+}
+
 /// Hide the launcher to tray on launch only when the user opted in AND this is
 /// the FIRST running instance (no instance was running before this one).
 fn should_hide_on_launch(opted_in: bool, was_any_running_before: bool) -> bool {
@@ -807,6 +824,22 @@ mod tests {
         mark_stop_requested(id);
         assert!(take_stop_requested(id), "marked reads true");
         assert!(!take_stop_requested(id), "take consumes the flag");
+    }
+
+    #[test]
+    fn only_the_first_game_moves_the_window_and_keep_moves_nothing() {
+        use crate::instances::schema::GameStartWindow::{HideToTray, Keep, Minimise};
+        assert_eq!(start_window_action(Keep, false), None);
+        assert_eq!(
+            start_window_action(Minimise, false),
+            Some(StartWindowAction::Minimise)
+        );
+        assert_eq!(
+            start_window_action(HideToTray, false),
+            Some(StartWindowAction::HideToTray)
+        );
+        assert_eq!(start_window_action(Minimise, true), None);
+        assert_eq!(start_window_action(HideToTray, true), None);
     }
 
     #[test]

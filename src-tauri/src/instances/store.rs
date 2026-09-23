@@ -117,6 +117,20 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn a_file_from_before_the_window_setting_reads_as_its_old_checkbox() {
+        use crate::instances::schema::GameStartWindow;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        std::fs::write(&path, r#"{"general":{"hide_to_tray_during_game":true}}"#).unwrap();
+        let file = read_app_json(&path).unwrap();
+        assert_eq!(
+            file.general.game_start_window,
+            Some(GameStartWindow::HideToTray)
+        );
+        assert!(file.general.hide_to_tray_during_game);
+    }
+
+    #[test]
     fn update_reads_defaults_when_absent_and_writes_only_on_write() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("app.json");
