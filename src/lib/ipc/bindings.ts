@@ -1893,7 +1893,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  is really there and still the data folder — on macOS and Linux the opener
 	 *  reports success even when nothing opens, so its result proves nothing.
 	 */
-	openDataFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_data_folder")),
+	openDataFolder: () => typedError<FolderShown, Error>(__TAURI_INVOKE("open_data_folder")),
 	/**
 	 *  Relocate the data root to `new_path`, or back to the OS default when
 	 *  `None`. See `data_root::relocate` for the pipeline and its guarantees.
@@ -3840,12 +3840,23 @@ export type FolderProblem =
 /**  Something is there, but it is not a folder. */
 { kind: "not_a_folder" } | 
 /**
- *  A folder is there, but it is not this data folder any more — an unmounted
- *  mount point is an empty directory of the parent filesystem.
+ *  A folder is there, but nothing of Lucerna's is in it — neither `app.json`
+ *  nor `instances/`. An unmounted mount point is an empty directory of the
+ *  parent filesystem. (A DAMAGED data folder — one marker left, or an
+ *  unreadable `app.json` — is still the data folder and is not this.)
  */
 { kind: "not_a_data_root" } | 
 /**  It could not be checked; `details` is the OS's own words. */
-{ kind: "unreadable"; details: string };
+{ kind: "unreadable"; details: string } | 
+/**  The check got no answer in time (a sleeping or disconnected network drive). */
+{ kind: "timed_out"; seconds: number };
+
+/**
+ *  How the data folder was shown. `Revealed` = selected in its parent, because
+ *  macOS would take a `*.app` folder for an application — Finder then shows it
+ *  as one, so the page says how to look inside.
+ */
+export type FolderShown = "opened" | "revealed";
 
 /**
  *  Normalized foreign instance — the contract between readers and the

@@ -2531,7 +2531,8 @@
       "missing": "Your data folder isn't there: {path}. If it is on a removable or network drive, reconnect it.",
       "notAFolder": "{path} is not a folder.",
       "notADataRoot": "{path} no longer holds your data — the drive it was on may be disconnected.",
-      "unreadable": "Lucerna couldn't check your data folder ({path}): {details}"
+      "unreadable": "Lucerna couldn't check your data folder ({path}): {details}",
+      "timedOut": "Your data folder ({path}) did not answer within {seconds} s — a network or sleeping drive can be slow to wake. Try again in a moment."
     }
   },
   "settings": {
@@ -2854,10 +2855,12 @@
           "restartFailed": "Couldn't restart: {error} Close Lucerna and open it again."
         },
         "openDataFolderBtn": "Open data folder",
-        "openDataFolderRecovery": "Not available in a recovery session — Lucerna isn't using your data folder right now.",
+        "openDataFolderRecovery": "Not available in a temporary session — Lucerna isn't using your data folder right now.",
         "openDataFolderMoving": "Not available while the data folder is being moved.",
         "openDataFolderFailed": "Couldn't open the data folder: {error}",
-        "freeLabel": "Free on this drive:"
+        "freeLabel": "Free on this drive:",
+        "openDataFolderRestart": "Not available until Lucerna restarts after the move.",
+        "openDataFolderRevealed": "Finder shows this folder as an application: right-click it and choose Show Package Contents to see inside."
       }
     },
     "about": {

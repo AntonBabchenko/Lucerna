@@ -165,13 +165,19 @@
   async function refreshDataRootSize() {
     dataRootSizeLoading = true;
     dataRootSizeError = null;
-    const result = await commands.dataRootSizeBytes();
-    dataRootSizeLoading = false;
-    if (result.status === 'ok') {
-      dataRootSize = bytesOrNull(result.data);
-    } else {
+    try {
+      const result = await commands.dataRootSizeBytes();
+      if (result.status === 'ok') {
+        dataRootSize = bytesOrNull(result.data);
+      } else {
+        dataRootSize = null;
+        dataRootSizeError = formatError(result.error);
+      }
+    } catch (e) {
       dataRootSize = null;
-      dataRootSizeError = formatError(result.error);
+      dataRootSizeError = describeStoreError(e);
+    } finally {
+      dataRootSizeLoading = false;
     }
   }
 
@@ -223,21 +229,30 @@
   // nothing opens.
   let openingFolder = $state(false);
   let openFolderError = $state<string | null>(null);
+  // On macOS the default data folder ends in .app: the backend reveals it, and Finder shows it as
+  // an application — so say how to look inside rather than leave the user facing an "app".
+  let openFolderNote = $state<string | null>(null);
+  // Before the status loads there is no reason to give yet — the block above shows "…".
   const openFolderReason = $derived(
     !dataLocation.loaded
       ? null
       : dataLocation.fellBack
         ? $t('settings.storage.dataLocation.openDataFolderRecovery')
-        : dataLocation.relocation.kind !== 'idle'
-          ? $t('settings.storage.dataLocation.openDataFolderMoving')
-          : null,
+        : dataLocation.relocation.kind === 'restart_required'
+          ? $t('settings.storage.dataLocation.openDataFolderRestart')
+          : dataLocation.relocation.kind !== 'idle'
+            ? $t('settings.storage.dataLocation.openDataFolderMoving')
+            : null,
   );
   async function openDataFolder() {
     openingFolder = true;
     openFolderError = null;
+    openFolderNote = null;
     try {
       const r = await commands.openDataFolder();
-      if (r.status === 'error') {
+      if (r.status === 'ok' && r.data === 'revealed') {
+        openFolderNote = $t('settings.storage.dataLocation.openDataFolderRevealed');
+      } else if (r.status === 'error') {
         openFolderError = $t('settings.storage.dataLocation.openDataFolderFailed', {
           error: formatError(r.error),
         });
@@ -594,7 +609,10 @@
                 >
               {/if}
             </div>
-            <StatusMessage message={freeError} tone="danger" />
+            <StatusMessage
+              message={freeError === dataRootSizeError ? null : freeError}
+              tone="danger"
+            />
           {/if}
         {/if}
       {:else}
@@ -603,19 +621,21 @@
 
       <SettingsField anchor="storage.openDataFolder">
         <div class="flex flex-col items-start gap-1">
-          <button
+          <BusyButton
             type="button"
             class="btn-secondary btn-sm inline-flex items-center gap-1.5 shrink-0"
-            disabled={!dataLocation.loaded || openFolderReason !== null || openingFolder}
+            busy={openingFolder}
+            disabled={!dataLocation.loaded || openFolderReason !== null}
             aria-describedby={openFolderReason ? 'storage-open-folder-reason' : undefined}
             onclick={() => void openDataFolder()}
           >
-            <Icon name="folderOpen" size={14} />
+            {#if !openingFolder}<Icon name="folderOpen" size={14} />{/if}
             {$t('settings.storage.dataLocation.openDataFolderBtn')}
-          </button>
+          </BusyButton>
           {#if openFolderReason}
             <p id="storage-open-folder-reason" class="text-xs text-muted">{openFolderReason}</p>
           {/if}
+          <StatusMessage message={openFolderNote} tone="info" />
           <StatusMessage message={openFolderError} tone="danger" />
         </div>
       </SettingsField>

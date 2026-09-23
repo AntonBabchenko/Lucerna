@@ -189,7 +189,7 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
     // The walk below counts an unreadable entry as 0 — fine BELOW the root, but
     // a root that is gone or no longer the data folder must not read "0 B" next
     // to a free space that says it couldn't be measured.
-    reachable_root(root.clone()).await?;
+    probe_root(root.clone(), "size check", |_| Ok(())).await?;
     let size = tokio::task::spawn_blocking(move || migrate::dir_size(&root))
         .await
         .map_err(|e| task_failed("<data_root_size>", e))?;
@@ -201,49 +201,74 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
 /// reports success even when nothing opens, so its result proves nothing.
 #[tauri::command]
 #[specta::specta]
-pub async fn open_data_folder(app: AppHandle) -> Result<()> {
+pub async fn open_data_folder(app: AppHandle) -> Result<FolderShown> {
     use tauri_plugin_opener::OpenerExt;
     crate::data_root::reject_if_root_unusable(&app)?;
     let root = app
         .state::<crate::data_root::DataRoot>()
         .root()
         .to_path_buf();
-    reachable_root(root.clone()).await?;
+    probe_root(root.clone(), "open check", |_| Ok(())).await?;
     let shown = root.display().to_string();
     match crate::data_root::folder_open_strategy(&root, std::env::consts::OS) {
         crate::data_root::OpenStrategy::Open => app
             .opener()
             .open_path(shown.clone(), None::<&str>)
+            .map(|()| FolderShown::Opened)
             .map_err(|e| Error::io(shown, format!("opener: {e}"))),
         crate::data_root::OpenStrategy::Reveal => app
             .opener()
             .reveal_item_in_dir(&root)
+            .map(|()| FolderShown::Revealed)
             .map_err(|e| Error::io(shown, format!("opener: {e}"))),
     }
 }
 
+/// How the data folder was shown. `Revealed` = selected in its parent, because
+/// macOS would take a `*.app` folder for an application — Finder then shows it
+/// as one, so the page says how to look inside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderShown {
+    Opened,
+    Revealed,
+}
+
 /// How long a free-space or reachability probe of the data root may take before
 /// the answer is "couldn't tell" — a stalled network share must not hang the page.
-const ROOT_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+const ROOT_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// The data root is there, a folder, and still the data folder. Off the main
-/// thread (a network root can stall a stat); a stall past the budget is an error.
-async fn reachable_root(root: std::path::PathBuf) -> Result<()> {
+/// Check the data root is there, a folder, and still holds something of
+/// Lucerna's — then run `then` on it — in ONE blocking task under
+/// `ROOT_PROBE_BUDGET` (a sleeping NAS can take seconds to wake; a dead share
+/// never answers). The check and the measurement cannot straddle an unmount.
+/// No answer in time is a typed, logged `TimedOut`, never a number.
+async fn probe_root<T: Send + 'static>(
+    root: std::path::PathBuf,
+    what: &'static str,
+    then: impl FnOnce(&std::path::Path) -> Result<T> + Send + 'static,
+) -> Result<T> {
     let shown = root.display().to_string();
-    let probe = tokio::task::spawn_blocking(move || crate::data_root::check_root_reachable(&root));
-    match tokio::time::timeout(ROOT_PROBE_BUDGET, probe).await {
-        Ok(Ok(Ok(()))) => Ok(()),
-        Ok(Ok(Err(problem))) => Err(Error::DataRootUnreachable {
-            path: shown,
-            problem,
-        }),
-        Ok(Err(e)) => Err(task_failed("<data_root_check>", e)),
-        Err(_) => Err(Error::DataRootUnreachable {
-            path: shown,
-            problem: crate::data_root::FolderProblem::Unreadable {
-                details: format!("no answer within {}s", ROOT_PROBE_BUDGET.as_secs()),
-            },
-        }),
+    let task = tokio::task::spawn_blocking(move || {
+        crate::data_root::check_root_reachable(&root).map_err(|problem| {
+            Error::DataRootUnreachable {
+                path: root.display().to_string(),
+                problem,
+            }
+        })?;
+        then(&root)
+    });
+    match tokio::time::timeout(ROOT_PROBE_BUDGET, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(task_failed("<data_root_probe>", e)),
+        Err(_) => {
+            let seconds = ROOT_PROBE_BUDGET.as_secs() as u32;
+            crate::diag!("data folder: the {what} got no answer within {seconds}s ({shown})");
+            Err(Error::DataRootUnreachable {
+                path: shown,
+                problem: crate::data_root::FolderProblem::TimedOut { seconds },
+            })
+        }
     }
 }
 
@@ -258,18 +283,12 @@ pub async fn data_root_free_bytes(app: AppHandle) -> Result<f64> {
         .state::<crate::data_root::DataRoot>()
         .root()
         .to_path_buf();
-    reachable_root(root.clone()).await?;
-    let shown = root.display().to_string();
-    let probe = tokio::task::spawn_blocking(move || crate::platform::free_disk_bytes_at(&root));
-    match tokio::time::timeout(ROOT_PROBE_BUDGET, probe).await {
-        Ok(Ok(Ok(bytes))) => Ok(bytes as f64),
-        Ok(Ok(Err(e))) => Err(Error::io(shown, e)),
-        Ok(Err(e)) => Err(task_failed("<data_root_free>", e)),
-        Err(_) => Err(Error::io(
-            shown,
-            format!("no answer within {}s", ROOT_PROBE_BUDGET.as_secs()),
-        )),
-    }
+    let bytes = probe_root(root, "free-space check", |root| {
+        crate::platform::free_disk_bytes_at(root)
+            .map_err(|e| Error::io(root.display().to_string(), e))
+    })
+    .await?;
+    Ok(bytes as f64)
 }
 
 /// Classify a picked directory into adopt / migrate / already-current, and —
@@ -593,6 +612,16 @@ pub async fn open_data_move_leftovers(app: AppHandle) -> Result<()> {
             "no finished move in this session",
         ));
     };
+    match std::fs::metadata(&old_root) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::io(
+                old_root,
+                "the previous data folder is no longer there",
+            ));
+        }
+        Err(e) => return Err(Error::io(old_root, e)),
+    }
     // The old root may be the macOS default `….app` folder: reveal it there.
     match crate::data_root::folder_open_strategy(
         std::path::Path::new(&old_root),

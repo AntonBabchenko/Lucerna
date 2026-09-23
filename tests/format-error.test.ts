@@ -936,6 +936,10 @@ describe('an unreachable data folder', () => {
     expect(msg).not.toContain("isn't there");
   });
 
+  it('says a stalled drive did not answer in time, localised', () => {
+    expect(at({ kind: 'timed_out', seconds: 15 })).toContain('did not answer within 15 s');
+  });
+
   it('is a clean message, not an opaque one', () => {
     expect(ERROR_CLASS.data_root_unreachable).toBe('clean');
   });

@@ -53,14 +53,14 @@ async function use(s: ReturnType<typeof status>) {
   h.getDataLocation.mockResolvedValue(s);
   await dataLocation.refresh();
 }
-const openBtn = () => screen.getByRole('button', { name: 'Open data folder' }) as HTMLButtonElement;
+const openBtn = () => screen.getByRole('button', { name: /Open data folder/ }) as HTMLButtonElement;
 const freeRow = () => screen.getByText('Free on this drive:').closest('div') as HTMLElement;
 
 beforeEach(async () => {
   vi.clearAllMocks();
   h.dataRootSizeBytes.mockResolvedValue({ status: 'ok', data: 4096 });
   h.dataRootFreeBytes.mockResolvedValue({ status: 'ok', data: TB });
-  h.openDataFolder.mockResolvedValue({ status: 'ok', data: null });
+  h.openDataFolder.mockResolvedValue({ status: 'ok', data: 'opened' });
   h.modsCacheSizeBytes.mockResolvedValue({ status: 'ok', data: 2048 });
   h.modsClearCache.mockResolvedValue({ status: 'ok', data: 2048 });
   __resetAppSettingsForTest();
@@ -101,7 +101,41 @@ describe('Open data folder', () => {
     );
     render(StoragePanel);
     expect(openBtn().disabled).toBe(true);
-    expect(screen.getByText(/Not available in a recovery session/)).toBeTruthy();
+    expect(screen.getByText(/Not available in a temporary session/)).toBeTruthy();
+  });
+
+  it('after a finished move it waits for the restart, and says that — not that it is moving', async () => {
+    await use(
+      status({
+        relocation: {
+          kind: 'restart_required',
+          old_root: '/old',
+          new_root: '/new',
+          leftovers: [],
+          old_root_intact: true,
+          old_root_is_default: false,
+          retry_possible: false,
+        },
+      }),
+    );
+    render(StoragePanel);
+    expect(openBtn().disabled).toBe(true);
+    expect(screen.getByText(/until Lucerna restarts/)).toBeTruthy();
+    expect(screen.queryByText(/being moved/)).toBeNull();
+  });
+
+  it('says how to look inside when macOS showed the folder as an application', async () => {
+    h.openDataFolder.mockResolvedValue({ status: 'ok', data: 'revealed' });
+    render(StoragePanel);
+    await fireEvent.click(openBtn());
+    expect(await screen.findByText(/Show Package Contents/)).toBeTruthy();
+  });
+
+  it('is busy while the folder is checked', async () => {
+    h.openDataFolder.mockReturnValue(new Promise(() => {}));
+    render(StoragePanel);
+    await fireEvent.click(openBtn());
+    await waitFor(() => expect(openBtn().getAttribute('aria-busy')).toBe('true'));
   });
 
   it('is disabled while the data folder is being moved, and says why', async () => {
@@ -132,6 +166,18 @@ describe('Free on this drive', () => {
     render(StoragePanel);
     await waitFor(() => expect(freeRow().textContent).toContain("couldn't be measured"));
     expect(screen.getByText(/no longer holds your data/)).toBeTruthy();
+  });
+
+  it('says one reason once when the size and the free space fail the same way', async () => {
+    const gone = {
+      status: 'error',
+      error: { kind: 'data_root_unreachable', path: '/data', problem: { kind: 'not_a_data_root' } },
+    };
+    h.dataRootSizeBytes.mockResolvedValue(gone);
+    h.dataRootFreeBytes.mockResolvedValue(gone);
+    render(StoragePanel);
+    await waitFor(() => expect(freeRow().textContent).toContain("couldn't be measured"));
+    expect(screen.getAllByText(/no longer holds your data/)).toHaveLength(1);
   });
 
   it('is never measured in a recovery session', async () => {

@@ -445,6 +445,24 @@ function bundleErrorReason(reason: BundleError): string {
   }
 }
 
+/** Which way the data folder can't be used, in words: "not there" is never said for
+ *  "couldn't check" (then the OS's own words follow). */
+function dataRootUnreachable(path: string, problem: FolderProblem): string {
+  const translate = get(t);
+  switch (problem.kind) {
+    case 'missing':
+      return translate('errors.dataRootUnreachable.missing', { path });
+    case 'not_a_folder':
+      return translate('errors.dataRootUnreachable.notAFolder', { path });
+    case 'not_a_data_root':
+      return translate('errors.dataRootUnreachable.notADataRoot', { path });
+    case 'unreadable':
+      return translate('errors.dataRootUnreachable.unreadable', { path, details: problem.details });
+    case 'timed_out':
+      return translate('errors.dataRootUnreachable.timedOut', { path, seconds: problem.seconds });
+  }
+}
+
 /**
  * Render a typed IPC Error as a human-readable single-line string.
  *
@@ -459,22 +477,6 @@ function bundleErrorReason(reason: BundleError): string {
  * without extending this function would surface as a TypeScript error
  * at the `_exhaustive: never` line, not as a runtime JSON leak.
  */
-/** Which way the data folder can't be used, in words: "not there" is never said for
- *  "couldn't check" (then the OS's own words follow). */
-function dataRootUnreachable(path: string, problem: FolderProblem): string {
-  const translate = get(t);
-  switch (problem.kind) {
-    case 'missing':
-      return translate('errors.dataRootUnreachable.missing', { path });
-    case 'not_a_folder':
-      return translate('errors.dataRootUnreachable.notAFolder', { path });
-    case 'not_a_data_root':
-      return translate('errors.dataRootUnreachable.notADataRoot', { path });
-    case 'unreadable':
-      return translate('errors.dataRootUnreachable.unreadable', { path, details: problem.details });
-  }
-}
-
 export function formatError(e: IpcError): string {
   const translate = get(t);
   switch (e.kind) {

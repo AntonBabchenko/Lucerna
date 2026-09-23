@@ -303,36 +303,65 @@ pub enum FolderProblem {
     Missing,
     /// Something is there, but it is not a folder.
     NotAFolder,
-    /// A folder is there, but it is not this data folder any more — an unmounted
-    /// mount point is an empty directory of the parent filesystem.
+    /// A folder is there, but nothing of Lucerna's is in it — neither `app.json`
+    /// nor `instances/`. An unmounted mount point is an empty directory of the
+    /// parent filesystem. (A DAMAGED data folder — one marker left, or an
+    /// unreadable `app.json` — is still the data folder and is not this.)
     NotADataRoot,
     /// It could not be checked; `details` is the OS's own words.
     Unreadable { details: String },
+    /// The check got no answer in time (a sleeping or disconnected network drive).
+    TimedOut { seconds: u32 },
 }
 
-/// Pure: what a stat of the root and the data-root shape check say. "Could not
-/// tell" (`Unreadable`) is kept apart from "not there" (`Missing`).
+/// Pure: what a stat of the root and a look for Lucerna's own markers say.
+/// "Could not tell" (`Unreadable`) is kept apart from "not there" (`Missing`)
+/// and from "nothing of ours here" (`NotADataRoot`) at every step.
 pub fn data_folder_check(
     is_dir: std::io::Result<bool>,
-    looks_like_root: bool,
+    has_marker: std::io::Result<bool>,
 ) -> Result<(), FolderProblem> {
+    let unreadable = |e: std::io::Error| FolderProblem::Unreadable {
+        details: e.to_string(),
+    };
     match is_dir {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(FolderProblem::Missing),
-        Err(e) => Err(FolderProblem::Unreadable {
-            details: e.to_string(),
-        }),
+        Err(e) => Err(unreadable(e)),
         Ok(false) => Err(FolderProblem::NotAFolder),
-        Ok(true) if !looks_like_root => Err(FolderProblem::NotADataRoot),
-        Ok(true) => Ok(()),
+        Ok(true) => match has_marker {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(FolderProblem::NotADataRoot),
+            Err(e) => Err(unreadable(e)),
+        },
     }
 }
 
+/// Whether any of Lucerna's markers — `app.json`, `instances/` — is in `root`.
+/// Presence only: a damaged data folder (a corrupt `app.json`, a deleted
+/// `instances/`, a rollback that left `app.json.moved`) is still the data folder,
+/// and the one the user most needs to open. A stat that fails otherwise than
+/// NotFound is an error, never "absent" (unlike `Path::is_dir`).
+pub fn root_has_marker(root: &Path) -> std::io::Result<bool> {
+    for name in ["app.json", "instances"] {
+        match std::fs::symlink_metadata(root.join(name)) {
+            Ok(_) => return Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(false)
+}
+
 /// The real check of the root, for the commands that open or measure it. A
-/// path that answers is not enough: it must still be the data folder.
+/// path that answers is not enough: something of Lucerna's must still be there.
 pub fn check_root_reachable(root: &Path) -> Result<(), FolderProblem> {
     let is_dir = std::fs::metadata(root).map(|m| m.is_dir());
-    let looks = matches!(is_dir, Ok(true)) && looks_like_data_root(root);
-    data_folder_check(is_dir, looks)
+    let has_marker = if matches!(is_dir, Ok(true)) {
+        root_has_marker(root)
+    } else {
+        Ok(false)
+    };
+    data_folder_check(is_dir, has_marker)
 }
 
 /// How to show a folder in the OS file manager.
@@ -366,7 +395,7 @@ mod folder_tests {
     #[test]
     fn nothing_there_is_missing() {
         assert_eq!(
-            data_folder_check(Err(IoError::from(ErrorKind::NotFound)), false),
+            data_folder_check(Err(IoError::from(ErrorKind::NotFound)), Ok(false)),
             Err(FolderProblem::Missing)
         );
     }
@@ -375,7 +404,7 @@ mod folder_tests {
     fn a_stat_that_failed_otherwise_is_could_not_tell_with_the_os_words() {
         let r = data_folder_check(
             Err(IoError::new(ErrorKind::PermissionDenied, "denied!")),
-            false,
+            Ok(false),
         );
         assert!(
             matches!(r, Err(FolderProblem::Unreadable { ref details }) if details.contains("denied!"))
@@ -385,7 +414,7 @@ mod folder_tests {
     #[test]
     fn a_file_is_not_a_folder() {
         assert_eq!(
-            data_folder_check(Ok(false), false),
+            data_folder_check(Ok(false), Ok(false)),
             Err(FolderProblem::NotAFolder)
         );
     }
@@ -393,14 +422,37 @@ mod folder_tests {
     #[test]
     fn an_empty_mount_point_is_not_the_data_folder() {
         assert_eq!(
-            data_folder_check(Ok(true), false),
+            data_folder_check(Ok(true), Ok(false)),
             Err(FolderProblem::NotADataRoot)
         );
     }
 
     #[test]
     fn the_data_folder_is_reachable() {
-        assert_eq!(data_folder_check(Ok(true), true), Ok(()));
+        assert_eq!(data_folder_check(Ok(true), Ok(true)), Ok(()));
+    }
+
+    #[test]
+    fn a_marker_that_could_not_be_looked_at_is_could_not_tell_not_not_ours() {
+        let r = data_folder_check(
+            Ok(true),
+            Err(IoError::new(ErrorKind::PermissionDenied, "no!")),
+        );
+        assert!(
+            matches!(r, Err(FolderProblem::Unreadable { ref details }) if details.contains("no!"))
+        );
+    }
+
+    #[test]
+    fn a_damaged_data_folder_is_still_the_data_folder() {
+        // The folder the user most needs to open after a bad rollback or a hand
+        // edit must not be called a disconnected drive.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("app.json"), "not json at all").expect("app.json");
+        assert_eq!(check_root_reachable(dir.path()), Ok(()));
+        let only_instances = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(only_instances.path().join("instances")).expect("instances");
+        assert_eq!(check_root_reachable(only_instances.path()), Ok(()));
     }
 
     #[test]
