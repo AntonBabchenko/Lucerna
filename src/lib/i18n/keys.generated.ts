@@ -2668,7 +2668,6 @@ export type TranslationKey =
   | 'settings.general.playing.startWindowLabel'
   | 'settings.general.playing.title'
   | 'settings.general.playing.trayDescription'
-  | 'settings.general.playing.trayLabel'
   | 'settings.general.retryBtn'
   | 'settings.general.saveUnconfirmed'
   | 'settings.general.serverPing.description'

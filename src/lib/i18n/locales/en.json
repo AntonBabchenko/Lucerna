@@ -2670,7 +2670,6 @@
       },
       "playing": {
         "title": "Playing",
-        "trayLabel": "Hide launcher to tray when Minecraft starts",
         "trayDescription": "A small icon appears in the system tray. The launcher comes back as soon as any running game closes; click the tray icon to bring it back sooner. Without a system tray the icon has nowhere to appear, and the launcher stays hidden until a game closes.",
         "startWindowLabel": "When a game starts",
         "keep": "Keep open",

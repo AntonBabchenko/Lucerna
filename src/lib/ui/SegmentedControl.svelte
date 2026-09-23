@@ -5,7 +5,7 @@
   // An option's `label` is rendered as visible text only when it has no `icon`;
   // icon-only options use `label` (falling back to the group ariaLabel) as their
   // accessible name + tooltip, so they stay compact but remain labelled.
-  // Settings uses the boxed variant for the theme and tip-level pickers, naming
+  // Settings uses the boxed variant for the theme, tip-level and game-start pickers, naming
   // the group through ariaLabel and linking its hint through describedby.
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -35,8 +35,11 @@
     /** Every option disabled and arrows ignored (pending / failed settings). */
     disabled?: boolean;
   } = $props();
-  // STUB (red): disabled and the no-value tab stop are not applied yet.
-  void disabled;
+  // With no value (a setting still loading or unreadable) nothing is pressed, yet
+  // the group keeps ONE tab stop — its first option — and the arrow keys start
+  // from there. Disabled: every option disabled and the arrows ignored.
+  const activeIndex = $derived(options.findIndex((o) => o.value === value));
+  const tabStop = $derived(activeIndex < 0 ? 0 : activeIndex);
 
   // DOM-ordered button refs so arrow keys can move focus to a sibling.
   let btnEls = $state<(HTMLButtonElement | null)[]>([]);
@@ -45,8 +48,8 @@
   // Activation follows focus — selecting on move is expected for a segmented
   // control whose options act immediately.
   function onKeydown(e: KeyboardEvent) {
-    const current = options.findIndex((o) => o.value === value);
-    const next = nextRovingIndex(e.key, current, options.length, 'horizontal');
+    if (disabled) return;
+    const next = nextRovingIndex(e.key, tabStop, options.length, 'horizontal');
     if (next === null) return;
     e.preventDefault();
     const target = options[next];
@@ -75,7 +78,8 @@
       type="button"
       aria-pressed={active}
       aria-label={option.icon ? (option.label ?? ariaLabel) : undefined}
-      tabindex={active ? 0 : -1}
+      tabindex={i === tabStop ? 0 : -1}
+      {disabled}
       data-testid={option.testId}
       class={variant === 'boxed'
         ? // Swap btn-primary/btn-ghost conditionally: two btn-* purpose classes
