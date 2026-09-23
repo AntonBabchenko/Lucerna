@@ -2526,6 +2526,12 @@
       "read": "Couldn't read from the system keyring",
       "write": "Couldn't save to the system keyring",
       "delete": "Couldn't delete from the system keyring"
+    },
+    "dataRootUnreachable": {
+      "missing": "Your data folder isn't there: {path}. If it is on a removable or network drive, reconnect it.",
+      "notAFolder": "{path} is not a folder.",
+      "notADataRoot": "{path} no longer holds your data — the drive it was on may be disconnected.",
+      "unreadable": "Lucerna couldn't check your data folder ({path}): {details}"
     }
   },
   "settings": {
@@ -2567,7 +2573,8 @@
           "cache": "Mod download cache",
           "logRetention": "Log retention",
           "modMetadataCache": "Mod info cache",
-          "dataLocation": "Data location"
+          "dataLocation": "Data location",
+          "openDataFolder": "Open data folder"
         },
         "updates": {
           "startupCheck": "Check for updates on startup",
@@ -2607,7 +2614,8 @@
           "cache": "cache clear temporary storage downloads jar free space delete",
           "logRetention": "log logs retention keep size files delete old",
           "modMetadataCache": "mod metadata cache ttl refresh info names icons days",
-          "dataLocation": "data location folder path move disk directory relocate portable free space install"
+          "dataLocation": "data location folder path move disk directory relocate portable free space install",
+          "openDataFolder": "open folder explorer finder files show browse"
         },
         "updates": {
           "startupCheck": "update startup check automatic auto skip skipped",
@@ -2844,7 +2852,12 @@
           "retryFailed": "Couldn't remove the leftovers: {error}",
           "openFolderFailed": "Couldn't open the folder: {error}",
           "restartFailed": "Couldn't restart: {error} Close Lucerna and open it again."
-        }
+        },
+        "openDataFolderBtn": "Open data folder",
+        "openDataFolderRecovery": "Not available in a recovery session — Lucerna isn't using your data folder right now.",
+        "openDataFolderMoving": "Not available while the data folder is being moved.",
+        "openDataFolderFailed": "Couldn't open the data folder: {error}",
+        "freeLabel": "Free on this drive:"
       }
     },
     "about": {
@@ -3205,6 +3218,7 @@
       "kilobytes": "{n, number, ::.0 group-off} KB",
       "megabytes": "{n, number, ::.0 group-off} MB",
       "gigabytes": "{n, number, ::.00 group-off} GB",
+      "terabytes": "{n, number, ::.00 group-off} TB",
       "perSecond": "{size}/s"
     },
     "duration": {

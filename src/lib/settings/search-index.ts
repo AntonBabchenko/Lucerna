@@ -23,6 +23,7 @@ export type SettingsAnchor =
   | 'storage.logRetention'
   | 'storage.modMetadataCache'
   | 'storage.dataLocation'
+  | 'storage.openDataFolder'
   | 'updates.startupCheck'
   | 'updates.changelog'
   | 'help.tipsLevel'
@@ -147,6 +148,14 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     labelKey: 'settings.search.labels.storage.dataLocation',
     keywordsKey: 'settings.search.keywords.storage.dataLocation',
     visibleKeys: ['settings.storage.dataLocation.heading'],
+  },
+  // Right after its block: a tie on the query breaks by registry order.
+  'storage.openDataFolder': {
+    anchor: 'storage.openDataFolder',
+    tab: 'storage',
+    labelKey: 'settings.search.labels.storage.openDataFolder',
+    keywordsKey: 'settings.search.keywords.storage.openDataFolder',
+    visibleKeys: ['settings.storage.dataLocation.openDataFolderBtn'],
   },
   'storage.cache': {
     anchor: 'storage.cache',

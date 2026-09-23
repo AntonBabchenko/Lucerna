@@ -243,9 +243,15 @@ describe('searchSettings over the real registry + locales', () => {
     { q: 'startup', t: enT, first: 'updates.startupCheck' },
     { q: 'тёмный режим', t: ruT, first: 'appearance.theme' },
     { q: 'видеокарту', t: ruT, first: 'game.gpu' },
-    // has, not first, since batch 12a: the Help page's «Открыть папку журналов лаунчера»
-    // is an exact visible word too. 12c's own data-folder row settles the order.
-    { q: 'папку', t: ruT, has: ['storage.dataLocation', 'help.logFolder'] },
+    // Batch 12c: the Storage page's «Открыть папку данных» ties the Help log folder on the
+    // exact visible word and wins on registry order; the data-location block stays in the list.
+    {
+      q: 'папку',
+      t: ruT,
+      first: 'storage.openDataFolder',
+      has: ['storage.dataLocation', 'help.logFolder'],
+    },
+    { q: 'open folder', t: enT, first: 'storage.openDataFolder', has: ['help.logFolder'] },
     { q: 'перенести данные', t: ruT, first: 'storage.dataLocation' },
     { q: 'кеш', t: ruT, first: 'storage.cache', has: ['storage.modMetadataCache'] },
     {

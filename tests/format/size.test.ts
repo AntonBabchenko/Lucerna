@@ -44,6 +44,19 @@ describe('formatSize', () => {
     expect(formatSize(get(t), 2684354560)).toBe('2.50 GB');
   });
 
+  it('formats TB with two decimals — a multi-terabyte drive is not thousands of GB', () => {
+    expect(formatSize(get(t), 2748779069440)).toBe('2.50 TB');
+  });
+
+  it('formats the byte below the GB→TB threshold as GB', () => {
+    expect(formatSize(get(t), 1099511627775)).toBe('1024.00 GB');
+  });
+
+  it('formats TB with a comma in Russian', () => {
+    locale.set('ru');
+    expect(formatSize(get(t), 2748779069440)).toBe('2,50 ТБ');
+  });
+
   describe('Russian locale renders a decimal comma, not a dot', () => {
     it('formats KB with a comma', () => {
       locale.set('ru');

@@ -232,6 +232,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
   data_location_unavailable: 'clean',
+  data_root_unreachable: 'clean',
   // Built from one boolean — there is no raw text to truncate.
   data_relocation_in_progress: 'clean',
   update_blocked: 'clean',
@@ -842,6 +843,9 @@ export function formatError(e: IpcError): string {
       return dataLocationMigrationFailed(e);
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
+    case 'data_root_unreachable':
+      // STUB (red).
+      return e.path;
     case 'data_relocation_in_progress':
       return translate(
         e.restart_required
