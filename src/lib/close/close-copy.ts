@@ -1,13 +1,9 @@
 // What the close dialog says. One line per kind of loss, so the user reads
 // exactly what closing Lucerna would take down — and nothing it would not.
 
-import type { TranslationKey } from '$lib/i18n/keys.generated';
+// The project's own translator type: values go in directly, t(key, { count }).
+import type { Translate } from '$lib/i18n';
 import type { CloseLabels, CloseLosses } from '$lib/ipc/bindings';
-
-export type Translate = (
-  key: TranslationKey,
-  options?: { values?: Record<string, string | number> },
-) => string;
 
 /** One line per set kind, in a fixed order: games, servers, operation, unchecked. */
 export function closeLines(_losses: CloseLosses, _t: Translate): string[] {

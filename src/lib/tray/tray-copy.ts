@@ -2,10 +2,9 @@
 // cannot be mounted in isolation). The backend owns the tray but not the
 // language; the page sends these through traySetLabels.
 
+import type { Translate } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { RestartBlock, TrayLabels } from '$lib/ipc/bindings';
-
-export type Translate = (key: TranslationKey) => string;
 
 /** The three menu strings, in the interface language. */
 export function trayLabels(_t: Translate): TrayLabels {
