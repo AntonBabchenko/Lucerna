@@ -53,8 +53,8 @@ pub async fn app_close_ask_shown(generation: u32) -> bool {
     crate::close::ask_shown(generation)
 }
 
-/// The user cancelled the close. The question is over, so the scheduled
-/// hide-to-tray may hide the window again.
+/// The user cancelled the close. The question is over: a LATER game start may
+/// minimise or hide the window again (one already skipped for it does not retry).
 #[tauri::command]
 #[specta::specta]
 pub async fn app_cancel_close(generation: u32) {

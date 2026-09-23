@@ -898,6 +898,18 @@ pub fn run() {
         .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // macOS: a click on the Dock icon with no visible window (minimised
+            // or hidden to the tray when a game started) must bring the launcher
+            // back. tao answers AppKit with has_visible_windows, so without this
+            // the Dock icon does nothing for a minimised or hidden window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                crate::tray::restore_or_log(app_handle, "dock reopen");
+            }
             // Bug A root fix: never orphan server children. On launcher exit,
             // synchronously force-kill every tracked server process, then sweep
             // persisted PID files so a server adopted after a restart (alive on

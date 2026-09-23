@@ -247,9 +247,12 @@ pub enum GameStartWindow {
 }
 
 /// The pre-0.25 setting, a checkbox, in the new terms.
-pub fn from_legacy(_hide_to_tray: bool) -> GameStartWindow {
-    // STUB (red).
-    GameStartWindow::Keep
+pub fn from_legacy(hide_to_tray: bool) -> GameStartWindow {
+    if hide_to_tray {
+        GameStartWindow::HideToTray
+    } else {
+        GameStartWindow::Keep
+    }
 }
 
 /// Read leniently: a value this build does not know (written by a newer
@@ -259,8 +262,8 @@ fn lenient_start_window<'de, D>(d: D) -> Result<Option<GameStartWindow>, D::Erro
 where
     D: serde::Deserializer<'de>,
 {
-    // STUB (red): strict.
-    Option::<GameStartWindow>::deserialize(d)
+    let raw = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(raw.and_then(|v| serde_json::from_value::<GameStartWindow>(v).ok()))
 }
 
 /// How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -509,24 +512,45 @@ pub struct GeneralSettingsPatch {
 impl GeneralSettings {
     /// The window action in force: the field, else what the legacy bool meant.
     pub fn start_window(&self) -> GameStartWindow {
-        // STUB (red).
-        GameStartWindow::Keep
+        self.game_start_window
+            .unwrap_or_else(|| from_legacy(self.hide_to_tray_during_game))
     }
 
     /// Fill a missing window action from the legacy bool (the bool is kept).
     pub fn resolved(self) -> Self {
-        // STUB (red).
-        self
+        let window = self.start_window();
+        Self {
+            game_start_window: Some(window),
+            ..self
+        }
     }
 
     /// Every field spelled out on both sides — no `..self`.
+    ///
+    /// The window action and its legacy bool are ONE setting kept in step (a
+    /// total rule, so no patch can leave them disagreeing):
+    /// a window in the patch wins and sets the bool (hide_to_tray ⇔ true);
+    /// only the bool, true → hide_to_tray; only the bool, false → keep if it
+    /// was hide_to_tray, otherwise the window is untouched (never clobbers
+    /// minimise); neither → both unchanged.
     pub fn patched(self, p: GeneralSettingsPatch) -> Self {
-        // STUB (red): the window/bool pair is not coupled yet.
+        let current = self.start_window();
+        let (game_start_window, hide_to_tray_during_game) =
+            match (p.game_start_window, p.hide_to_tray_during_game) {
+                (Some(w), _) => (Some(w), w == GameStartWindow::HideToTray),
+                (None, Some(true)) => (Some(GameStartWindow::HideToTray), true),
+                (None, Some(false)) => (
+                    Some(match current {
+                        GameStartWindow::HideToTray => GameStartWindow::Keep,
+                        other => other,
+                    }),
+                    false,
+                ),
+                (None, None) => (self.game_start_window, self.hide_to_tray_during_game),
+            };
         Self {
-            hide_to_tray_during_game: p
-                .hide_to_tray_during_game
-                .unwrap_or(self.hide_to_tray_during_game),
-            game_start_window: p.game_start_window.or(self.game_start_window),
+            hide_to_tray_during_game,
+            game_start_window,
             theme: p.theme.unwrap_or(self.theme),
             check_updates_on_startup: p
                 .check_updates_on_startup

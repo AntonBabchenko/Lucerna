@@ -218,25 +218,27 @@ enum StartWindowAction {
 /// Only the FIRST running game moves the window (no game was running before
 /// this one); "keep" does nothing.
 fn start_window_action(
-    _setting: crate::instances::schema::GameStartWindow,
-    _was_any_running_before: bool,
+    setting: crate::instances::schema::GameStartWindow,
+    was_any_running_before: bool,
 ) -> Option<StartWindowAction> {
-    // STUB (red).
-    None
+    use crate::instances::schema::GameStartWindow;
+    if was_any_running_before {
+        return None;
+    }
+    match setting {
+        GameStartWindow::Keep => None,
+        GameStartWindow::Minimise => Some(StartWindowAction::Minimise),
+        GameStartWindow::HideToTray => Some(StartWindowAction::HideToTray),
+    }
 }
 
-/// Hide the launcher to tray on launch only when the user opted in AND this is
-/// the FIRST running instance (no instance was running before this one).
-fn should_hide_on_launch(opted_in: bool, was_any_running_before: bool) -> bool {
-    opted_in && !was_any_running_before
-}
-
-/// If the user opted in, schedule a hide-to-tray for when the spawned
-/// MC process has actually opened its window. We don't hide the
-/// launcher synchronously on spawn because the JVM may take 5–15
-/// seconds (Mojang splash, Forge mod scan, etc.) to render anything —
-/// hiding the launcher first leaves the user staring at the desktop.
-fn maybe_schedule_hide_to_tray(
+/// Schedule what "When a game starts" asks for (minimise, or hide to the
+/// tray) for when the spawned MC process has actually opened its window. Not
+/// synchronously on spawn: the JVM may take 5–15 seconds (Mojang splash, Forge
+/// mod scan, etc.) to render anything — moving the launcher first leaves the
+/// user staring at the desktop. (`wait_for_window_ready` is a no-op off
+/// Windows, so there it happens at spawn.)
+fn maybe_schedule_start_window_action(
     app: &tauri::AppHandle,
     instance_id: &str,
     pid: u32,
@@ -245,47 +247,61 @@ fn maybe_schedule_hide_to_tray(
     let path = match crate::paths::app_file(app) {
         Ok(p) => p,
         Err(e) => {
-            crate::diag!("tray: skipping hide — no app.json path: {e}");
+            crate::diag!("window: game-start action skipped — no app.json path: {e}");
             return;
         }
     };
     let settings = match crate::instances::store::read_app_json(&path) {
         Ok(s) => s,
         Err(e) => {
-            crate::diag!("tray: skipping hide — read failed: {e}");
+            crate::diag!("window: game-start action skipped — settings unreadable: {e}");
             return;
         }
     };
-    let opted_in = settings.general.hide_to_tray_during_game;
-    if !should_hide_on_launch(opted_in, was_any_running_before) {
+    let Some(action) = start_window_action(settings.general.start_window(), was_any_running_before)
+    else {
         return;
-    }
+    };
 
     let instance_id = instance_id.to_string();
     let app_clone = app.clone();
     tokio::spawn(async move {
         crate::platform::wait_for_window_ready(pid).await;
-        // If MC exited during the wait (crash, fast-quit, manual
-        // kill), there's nothing to hide *for* — skip popping a tray
-        // icon that would immediately get removed by the exit-watcher
-        // restore call.
+        // If MC exited during the wait (crash, fast-quit, manual kill),
+        // there's nothing to move the window *for* — the exit-watcher's
+        // restore would undo it at once.
         if !is_running(&instance_id) {
             return;
         }
-        let app_for_hide = app_clone.clone();
+        let app_for_action = app_clone.clone();
         let res = app_clone.run_on_main_thread(move || {
-            // An open close question must not be hidden along with the
-            // window: the user would be left with a tray icon and no answer.
+            // An open close question must not be hidden or minimised along with
+            // the window: the user would be left with no visible answer.
             if crate::close::ask_pending() {
-                crate::diag!("tray: not hiding — a close question is open");
+                crate::diag!("window: not moving it — a close question is open");
                 return;
             }
-            if let Err(e) = crate::tray::hide_to_tray(&app_for_hide) {
-                crate::diag!("tray: hide failed — leaving window visible: {e}");
+            match action {
+                StartWindowAction::HideToTray => {
+                    if let Err(e) = crate::tray::hide_to_tray(&app_for_action) {
+                        crate::diag!("tray: hide failed: {e}");
+                    }
+                }
+                StartWindowAction::Minimise => {
+                    use tauri::Manager;
+                    match app_for_action.get_webview_window("main") {
+                        Some(window) => {
+                            if let Err(e) = window.minimize() {
+                                crate::diag!("window: minimise failed — left as it is: {e}");
+                            }
+                        }
+                        None => crate::diag!("window: minimise skipped — no main window"),
+                    }
+                }
             }
         });
         if let Err(e) = res {
-            crate::diag!("tray: run_on_main_thread failed: {e}");
+            crate::diag!("window: run_on_main_thread failed: {e}");
         }
     });
 }
@@ -536,7 +552,7 @@ pub async fn start(
     .emit(app);
 
     note_session_start(&instance.id, inst_root);
-    maybe_schedule_hide_to_tray(app, &instance.id, pid, was_any_running_before);
+    maybe_schedule_start_window_action(app, &instance.id, pid, was_any_running_before);
 
     let instance_id_for_retention = instance.id.to_string();
     let instance_id_for_event = instance.id.to_string();
@@ -594,8 +610,8 @@ pub async fn start(
         {
             crate::diag!("log-retention: cleanup failed for {instance_id_for_retention}: {e}");
         }
-        // Restore window from tray on ANY exit. Idempotent — no-op when the
-        // window was never hidden (hide_to_tray_during_game was off).
+        // Bring the window back on ANY exit — from the tray, or un-minimised.
+        // Idempotent: shows / un-minimises / focuses a window that never moved.
         //
         // MUST run on the main (GUI) thread, exactly like the hide path
         // above. `restore_from_tray` removes the icon via
@@ -840,13 +856,6 @@ mod tests {
         );
         assert_eq!(start_window_action(Minimise, true), None);
         assert_eq!(start_window_action(HideToTray, true), None);
-    }
-
-    #[test]
-    fn tray_hides_only_on_first_when_opted_in() {
-        assert!(should_hide_on_launch(true, false));
-        assert!(!should_hide_on_launch(true, true));
-        assert!(!should_hide_on_launch(false, false));
     }
 
     // These two touch the process-wide registry/sessions singletons; each owns

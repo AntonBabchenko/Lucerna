@@ -668,8 +668,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	appConfirmClose: (generation: number, shown: CloseLosses) => typedError<null, Error>(__TAURI_INVOKE("app_confirm_close", { generation, shown })),
 	/**
-	 *  The user cancelled the close. The question is over, so the scheduled
-	 *  hide-to-tray may hide the window again.
+	 *  The user cancelled the close. The question is over: a LATER game start may
+	 *  minimise or hide the window again (one already skipped for it does not retry).
 	 */
 	appCancelClose: (generation: number) => __TAURI_INVOKE<void>("app_cancel_close", { generation }),
 	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
