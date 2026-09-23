@@ -2699,7 +2699,8 @@
         "stopSkipping": "Stop skipping",
         "skipFailed": "Couldn't skip this version: {error}",
         "stopSkippingFailed": "Couldn't stop skipping: {error}",
-        "verification": "Before it runs, the installer's checksum and its signature from Lucerna's release workflow are verified. If either doesn't match, nothing is installed."
+        "verification": "Before it runs, the installer's checksum and its signature from Lucerna's release workflow are verified. If either doesn't match, nothing is installed.",
+        "skipUnknown": "Couldn't tell whether a version is skipped: {error}"
       },
       "onboarding": {
         "title": "Tour",

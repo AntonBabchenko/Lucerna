@@ -8,7 +8,7 @@
   // running game and server — so the action sits behind the same gate as the
   // data-folder move (`createRestartGate`), says what it will do, and follows
   // the real stage instead of saying "Installing…" during a download.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import pkg from '../../../package.json' with { type: 'json' };
   import { commands } from '$lib/ipc/bindings';
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
@@ -77,6 +77,12 @@
       : { kind: 'idle' };
   }
   let checkResult = $state<CheckResult>(offerOf(updateState.value));
+  $effect(() => {
+    const info = updateState.value;
+    if (info?.available && untrack(() => checkResult.kind === 'idle')) {
+      checkResult = offerOf(info);
+    }
+  });
 
   // UPD-04: skipping is an explicit choice, and the page shows a skip that is
   // in force. The backend says which skip is worth mentioning (only one newer
@@ -84,14 +90,22 @@
   // Could not tell → nothing is claimed; skipping again is harmless.
   let skipped = $state<string | null>(null);
   let skipError = $state<string | null>(null);
+  let skipUnknown = $state<string | null>(null);
   let skipBusy = $state(false);
   onMount(() => {
     void (async () => {
+      // Could not tell → say so. No skip line is claimed; Skip still works.
       try {
         const r = await commands.updateSkippedVersion();
         if (r.status === 'ok') skipped = r.data;
-      } catch {
-        // Not known: show no skip line. The Skip button still works.
+        else
+          skipUnknown = $t('settings.general.updates.skipUnknown', {
+            error: formatError(r.error),
+          });
+      } catch (e) {
+        skipUnknown = $t('settings.general.updates.skipUnknown', {
+          error: describeStoreError(e),
+        });
       }
     })();
   });
@@ -359,6 +373,9 @@
       </div>
     {/if}
     <StatusMessage message={skipError} tone="danger" />
+    {#if skipped === null}
+      <StatusMessage message={skipUnknown} tone="warning" />
+    {/if}
   </div>
 
   <SettingsField anchor="updates.changelog">

@@ -41,19 +41,29 @@
   function holdWhileEngaged(node: HTMLElement, id: number) {
     const enter = () => pauseToastTimer(id);
     const leave = () => resumeToastTimer(id);
+    // focusin bubbles on every hop between the toast's own buttons: focus is ONE
+    // reason to wait however many buttons it visits, and only leaving the toast
+    // gives it back — counting each hop left the toast on screen for good.
+    let focusInside = false;
+    const focusIn = () => {
+      if (focusInside) return;
+      focusInside = true;
+      pauseToastTimer(id);
+    };
     const focusOut = (e: FocusEvent) => {
-      // Focus moving between the toast's own buttons is not leaving it.
-      if (!node.contains(e.relatedTarget as Node | null)) resumeToastTimer(id);
+      if (!focusInside || node.contains(e.relatedTarget as Node | null)) return;
+      focusInside = false;
+      resumeToastTimer(id);
     };
     node.addEventListener('pointerenter', enter);
     node.addEventListener('pointerleave', leave);
-    node.addEventListener('focusin', enter);
+    node.addEventListener('focusin', focusIn);
     node.addEventListener('focusout', focusOut);
     return {
       destroy() {
         node.removeEventListener('pointerenter', enter);
         node.removeEventListener('pointerleave', leave);
-        node.removeEventListener('focusin', enter);
+        node.removeEventListener('focusin', focusIn);
         node.removeEventListener('focusout', focusOut);
       },
     };

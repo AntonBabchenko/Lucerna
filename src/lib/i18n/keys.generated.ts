@@ -2685,6 +2685,7 @@ export type TranslationKey =
   | 'settings.general.updates.releaseNotes'
   | 'settings.general.updates.skip'
   | 'settings.general.updates.skipFailed'
+  | 'settings.general.updates.skipUnknown'
   | 'settings.general.updates.skipped'
   | 'settings.general.updates.startupDescription'
   | 'settings.general.updates.startupLabel'

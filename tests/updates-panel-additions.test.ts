@@ -66,6 +66,14 @@ describe('what the startup check found', () => {
     expect(h.updateCheck).not.toHaveBeenCalled();
   });
 
+  it('appears when the startup check lands while the page is already open', async () => {
+    render(UpdatesPanel);
+    expect(screen.queryByText('Version 0.25.0 is available.')).toBeNull();
+    updateState.value = { ...OFFER };
+    expect(await screen.findByText('Version 0.25.0 is available.')).toBeTruthy();
+    expect(h.updateCheck).not.toHaveBeenCalled();
+  });
+
   it('is forgotten when a check finds nothing newer', async () => {
     updateState.value = { ...OFFER };
     h.updateCheck.mockResolvedValue({
@@ -133,6 +141,17 @@ describe('skipping a version', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Stop skipping' }));
     await waitFor(() => expect(h.updateClearDismissed).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText(/You skipped/)).toBeNull());
+  });
+});
+
+describe('a skip that could not be read', () => {
+  it('says it could not tell, instead of reading as "nothing skipped"', async () => {
+    h.updateSkippedVersion.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '<app_file>', details: 'locked' },
+    });
+    render(UpdatesPanel);
+    expect(await screen.findByText(/Couldn't tell whether a version is skipped/)).toBeTruthy();
   });
 });
 

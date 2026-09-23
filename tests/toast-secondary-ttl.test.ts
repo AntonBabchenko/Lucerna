@@ -93,4 +93,30 @@ describe('a timed toast', () => {
     await vi.advanceTimersByTimeAsync(4010);
     expect(toastList()).toHaveLength(0);
   });
+
+  it('resumes after keyboard focus walked through several of its buttons and left', async () => {
+    // focusin bubbles on every hop between the toast's own buttons; only the
+    // final exit is a leave. Counting each hop as a new pause left the toast
+    // stuck on screen for good.
+    vi.useFakeTimers();
+    render(ToastHost);
+    pushActionToast('info', 'Tab through me', { label: 'Go', run: () => {} }, [], {
+      ttlMs: 5000,
+      secondary: { label: 'Skip', run: () => {} },
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    const close = screen.getByRole('button', { name: 'Dismiss notification' });
+    const go = screen.getByRole('button', { name: 'Go' });
+    const skip = screen.getByRole('button', { name: 'Skip' });
+    await fireEvent.focusIn(close);
+    await fireEvent.focusOut(close, { relatedTarget: go });
+    await fireEvent.focusIn(go);
+    await fireEvent.focusOut(go, { relatedTarget: skip });
+    await fireEvent.focusIn(skip);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(toastList()).toHaveLength(1);
+    await fireEvent.focusOut(skip, { relatedTarget: document.body });
+    await vi.advanceTimersByTimeAsync(4010);
+    expect(toastList()).toHaveLength(0);
+  });
 });
