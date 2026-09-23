@@ -6,6 +6,7 @@
 //! `starting` sets were invisible, and a PID whose image could not be queried
 //! (always, on macOS) counted as not ours.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
@@ -62,6 +63,59 @@ pub fn classify(observed: &Observed) -> RestartBlock {
     } else {
         RestartBlock::None
     }
+}
+
+/// What closing Lucerna would take down with it — the window's close asks
+/// about exactly these, one line each (spec 11c §3).
+///
+/// `games` is a flag, not a count: nothing says "3 games". `servers` is a
+/// count because its sentence is a plural. `unchecked` is a server whose PID
+/// file could not be classified — one from an earlier session. The exit hook
+/// cannot kill what it cannot identify, so closing does NOT stop it; the copy
+/// says so rather than threatening a kill that will not happen.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type,
+)]
+pub struct CloseLosses {
+    pub games: bool,
+    pub servers: u32,
+    pub operation: bool,
+    pub unchecked: bool,
+}
+
+impl CloseLosses {
+    /// The answer when the check itself could not run (it panicked, or it
+    /// took longer than the close can wait). Asks, never exits.
+    pub fn unchecked() -> Self {
+        Self {
+            unchecked: true,
+            ..Self::default()
+        }
+    }
+
+    /// Nothing would be lost: the close can go ahead without asking.
+    pub fn is_clear(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Everything `losses` needs, observed by the caller. Unlike [`Observed`]
+/// it keeps server IDENTITIES, so a server that is both in the running
+/// registry and probed live on disk is counted once.
+pub struct ObservedLosses {
+    pub games: bool,
+    /// Ids from the running registry and the starting set.
+    pub server_ids: BTreeSet<String>,
+    pub operation: bool,
+    /// One `(dir name = server id, probe)` per directory under `servers/`;
+    /// `Err` = `servers/` itself could not be enumerated.
+    pub dirs: Result<Vec<(String, PidProbe)>, ()>,
+}
+
+/// Pure decision: what closing would lose.
+pub fn losses(_observed: &ObservedLosses) -> CloseLosses {
+    // STUB (red).
+    CloseLosses::default()
 }
 
 /// Probe `<server_dir>/runtime/server.pid` without touching `server.json`.
@@ -310,5 +364,92 @@ mod tests {
         std::fs::create_dir_all(root.join("alpha").join("runtime")).unwrap();
         std::fs::write(root.join(".DS_Store"), b"x").unwrap();
         assert_eq!(probe_all(&root), Ok(vec![PidProbe::NoPid]));
+    }
+
+    fn lost(
+        games: bool,
+        ids: &[&str],
+        operation: bool,
+        dirs: Result<Vec<(&str, PidProbe)>, ()>,
+    ) -> CloseLosses {
+        losses(&ObservedLosses {
+            games,
+            server_ids: ids.iter().map(|s| s.to_string()).collect(),
+            operation,
+            dirs: dirs.map(|v| v.into_iter().map(|(n, p)| (n.to_string(), p)).collect()),
+        })
+    }
+
+    #[test]
+    fn a_running_game_is_a_game_and_nothing_else() {
+        let l = lost(true, &[], false, Ok(vec![]));
+        assert_eq!(
+            l,
+            CloseLosses {
+                games: true,
+                ..CloseLosses::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_server_seen_twice_is_counted_once() {
+        // "alpha" is in the running registry AND probed live on disk.
+        let l = lost(
+            false,
+            &["alpha", "beta"],
+            false,
+            Ok(vec![("alpha", PidProbe::Ours), ("gamma", PidProbe::NoPid)]),
+        );
+        assert_eq!(l.servers, 2);
+        assert!(!l.unchecked);
+    }
+
+    #[test]
+    fn a_server_only_on_disk_still_counts() {
+        // Adopted from an earlier session: not in this session's registry.
+        let l = lost(false, &[], false, Ok(vec![("delta", PidProbe::Ours)]));
+        assert_eq!(l.servers, 1);
+    }
+
+    #[test]
+    fn a_claim_alone_is_an_operation() {
+        let l = lost(false, &[], true, Ok(vec![]));
+        assert_eq!(
+            l,
+            CloseLosses {
+                operation: true,
+                ..CloseLosses::default()
+            }
+        );
+    }
+
+    #[test]
+    fn an_unidentified_server_is_unchecked_not_counted() {
+        let l = lost(false, &[], false, Ok(vec![("old", PidProbe::Unknown)]));
+        assert_eq!(l, CloseLosses::unchecked());
+    }
+
+    #[test]
+    fn unchecked_coexists_with_an_operation() {
+        let l = lost(false, &[], true, Ok(vec![("old", PidProbe::Unknown)]));
+        assert!(l.operation && l.unchecked);
+    }
+
+    #[test]
+    fn an_unreadable_servers_dir_is_unchecked() {
+        let l = lost(false, &[], false, Err(()));
+        assert!(l.unchecked);
+    }
+
+    #[test]
+    fn nothing_observed_loses_nothing() {
+        let l = lost(
+            false,
+            &[],
+            false,
+            Ok(vec![("a", PidProbe::NoPid), ("b", PidProbe::NotOurs)]),
+        );
+        assert!(l.is_clear());
     }
 }
