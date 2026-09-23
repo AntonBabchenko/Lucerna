@@ -79,13 +79,8 @@ pub fn labels_or_default() -> TrayLabels {
 /// The fallback itself: what was stored, or the English set a tray has always
 /// shipped with. Pure, so it is tested directly rather than through the
 /// process-wide slot.
-pub fn labels_from(_stored: &Option<TrayLabels>) -> TrayLabels {
-    // STUB (red).
-    TrayLabels {
-        open: String::new(),
-        quit: String::new(),
-        tooltip_running: String::new(),
-    }
+pub fn labels_from(stored: &Option<TrayLabels>) -> TrayLabels {
+    stored.clone().unwrap_or_else(default_labels)
 }
 
 fn default_labels() -> TrayLabels {

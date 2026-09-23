@@ -39,9 +39,12 @@ pub enum CloseGate {
 
 /// NOT `check_usable()`: that refuses `RestartRequired`, the one state in
 /// which closing is explicitly safe.
-pub fn close_gate(_status: &RelocationStatus) -> CloseGate {
-    // STUB (red).
-    CloseGate::Check
+pub fn close_gate(status: &RelocationStatus) -> CloseGate {
+    match status {
+        RelocationStatus::Running { .. } => CloseGate::Prevent,
+        RelocationStatus::RestartRequired { .. } => CloseGate::Allow,
+        RelocationStatus::Idle => CloseGate::Check,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -57,9 +60,12 @@ pub enum CloseVerdict {
 }
 
 /// `unchecked` alone asks too: "could not tell" is not "nothing is running".
-pub fn close_verdict(_losses: &CloseLosses) -> CloseVerdict {
-    // STUB (red).
-    CloseVerdict::Exit
+pub fn close_verdict(losses: &CloseLosses) -> CloseVerdict {
+    if losses.is_clear() {
+        CloseVerdict::Exit
+    } else {
+        CloseVerdict::Ask(*losses)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -91,9 +97,16 @@ pub fn union(a: &CloseLosses, b: &CloseLosses) -> CloseLosses {
 /// union. Kinds, not counts: a third server is the same loss the user already
 /// agreed to, a game is not. The union only grows over four kinds, so there
 /// are at most four re-prompts — changing state cannot trap the user.
-pub fn confirm_verdict(_shown: &CloseLosses, _now: &CloseLosses) -> ConfirmVerdict {
-    // STUB (red).
-    ConfirmVerdict::Exit
+pub fn confirm_verdict(shown: &CloseLosses, now: &CloseLosses) -> ConfirmVerdict {
+    let new_kind = (now.games && !shown.games)
+        || (now.servers > 0 && shown.servers == 0)
+        || (now.operation && !shown.operation)
+        || (now.unchecked && !shown.unchecked);
+    if new_kind {
+        ConfirmVerdict::Reprompt(union(shown, now))
+    } else {
+        ConfirmVerdict::Exit
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,9 +121,12 @@ pub enum RestorePlan {
     ShowThenRemove,
 }
 
-pub fn restore_plan(_window_present: bool) -> RestorePlan {
-    // STUB (red).
-    RestorePlan::ShowThenRemove
+pub fn restore_plan(window_present: bool) -> RestorePlan {
+    if window_present {
+        RestorePlan::ShowThenRemove
+    } else {
+        RestorePlan::KeepTray
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -138,33 +154,53 @@ struct Ask {
 impl AskState {
     /// Open a new ask. Any earlier one is superseded.
     pub fn begin(&mut self) -> u32 {
-        // STUB (red).
-        0
+        self.next = self.next.wrapping_add(1);
+        let generation = self.next;
+        self.current = Some(Ask {
+            generation,
+            acked: false,
+            native: false,
+        });
+        generation
     }
 
     /// The frontend's "my dialog is up". True only for the current ask, and
     /// only while the native dialog has not taken over.
-    pub fn ack(&mut self, _generation: u32) -> bool {
-        // STUB (red).
-        true
+    pub fn ack(&mut self, generation: u32) -> bool {
+        match &mut self.current {
+            Some(ask) if ask.generation == generation && !ask.native => {
+                ask.acked = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Called when the acknowledgement budget runs out. True = the in-app
     /// dialog was never confirmed on screen, so ask natively (and refuse any
     /// late ack from now on).
-    pub fn expire(&mut self, _generation: u32) -> bool {
-        // STUB (red).
-        false
+    pub fn expire(&mut self, generation: u32) -> bool {
+        match &mut self.current {
+            Some(ask) if ask.generation == generation && !ask.acked => {
+                ask.native = true;
+                true
+            }
+            _ => false,
+        }
     }
 
-    /// The ask was answered; forget it.
-    pub fn finish(&mut self, _generation: u32) {}
+    /// The ask was answered; forget it. An older generation is ignored, so a
+    /// late answer to a superseded ask cannot clear the current one.
+    pub fn finish(&mut self, generation: u32) {
+        if self.current.is_some_and(|ask| ask.generation == generation) {
+            self.current = None;
+        }
+    }
 
     /// Whether any ask is open — the scheduled hide-to-tray must not hide an
     /// open question along with the window.
     pub fn pending(&self) -> bool {
-        // STUB (red).
-        false
+        self.current.is_some()
     }
 }
 
@@ -211,9 +247,40 @@ pub fn default_close_labels() -> CloseLabels {
 /// The native dialog maps its answer back by comparing labels, so the two
 /// buttons must be distinct and non-empty; a bad pair falls back to English
 /// rather than producing a dialog whose answer cannot be read.
-pub fn native_dialog(_losses: &CloseLosses, _labels: &CloseLabels) -> (String, String, String) {
-    // STUB (red).
-    (String::new(), String::new(), String::new())
+pub fn native_dialog(losses: &CloseLosses, labels: &CloseLabels) -> (String, String, String) {
+    let mut lines: Vec<&str> = Vec::new();
+    if losses.games {
+        lines.push(&labels.games);
+    }
+    match losses.servers {
+        0 => {}
+        1 => lines.push(&labels.servers_one),
+        _ => lines.push(&labels.servers_many),
+    }
+    if losses.operation {
+        lines.push(&labels.operation);
+    }
+    if losses.unchecked {
+        lines.push(&labels.unchecked);
+    }
+    let body = lines.join("\n\n");
+
+    let kills = losses.games || losses.servers > 0 || losses.operation;
+    let pick = |l: &CloseLabels| {
+        if kills {
+            l.close_everything.clone()
+        } else {
+            l.close_lucerna.clone()
+        }
+    };
+    let confirm = pick(labels);
+    let readable = !confirm.is_empty() && !labels.cancel.is_empty() && confirm != labels.cancel;
+    if readable {
+        (body, confirm, labels.cancel.clone())
+    } else {
+        let english = default_close_labels();
+        (body, pick(&english), english.cancel)
+    }
 }
 
 #[cfg(test)]

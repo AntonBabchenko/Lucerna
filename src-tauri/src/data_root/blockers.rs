@@ -113,9 +113,33 @@ pub struct ObservedLosses {
 }
 
 /// Pure decision: what closing would lose.
-pub fn losses(_observed: &ObservedLosses) -> CloseLosses {
-    // STUB (red).
-    CloseLosses::default()
+pub fn losses(observed: &ObservedLosses) -> CloseLosses {
+    let mut ids = observed.server_ids.clone();
+    let mut unchecked = false;
+    match &observed.dirs {
+        Ok(dirs) => {
+            for (id, probe) in dirs {
+                match probe {
+                    // Live and ours: a server this session may not have in its
+                    // registry (adopted from an earlier run) — still stopped.
+                    PidProbe::Ours => {
+                        ids.insert(id.clone());
+                    }
+                    // Could not be identified: the exit hook cannot kill it.
+                    PidProbe::Unknown => unchecked = true,
+                    PidProbe::NoPid | PidProbe::NotOurs => {}
+                }
+            }
+        }
+        // servers/ itself could not be listed: not "no servers".
+        Err(()) => unchecked = true,
+    }
+    CloseLosses {
+        games: observed.games,
+        servers: u32::try_from(ids.len()).unwrap_or(u32::MAX),
+        operation: observed.operation,
+        unchecked,
+    }
 }
 
 /// Probe `<server_dir>/runtime/server.pid` without touching `server.json`.
@@ -148,6 +172,12 @@ pub fn probe_server_dir(
 /// One probe per directory under `servers_root`. Non-directories (`.DS_Store`)
 /// are ignored; an entry that cannot be inspected is `Unknown`.
 pub(crate) fn probe_all(servers_root: &Path) -> Result<Vec<PidProbe>, ()> {
+    probe_all_named(servers_root).map(|probes| probes.into_iter().map(|(_, p)| p).collect())
+}
+
+/// [`probe_all`] with each server's id — its directory name — kept, so a
+/// server seen both in the registry and on disk can be counted once.
+pub(crate) fn probe_all_named(servers_root: &Path) -> Result<Vec<(String, PidProbe)>, ()> {
     let children = match crate::data_root::walk::real_list_dir(servers_root) {
         Ok(children) => children,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -161,14 +191,24 @@ pub(crate) fn probe_all(servers_root: &Path) -> Result<Vec<PidProbe>, ()> {
     };
     Ok(children
         .iter()
-        .filter_map(|child| match std::fs::symlink_metadata(child) {
-            Ok(meta) if meta.is_dir() => Some(probe_server_dir(
-                child,
-                &crate::platform::process_alive,
-                &|pid| crate::platform::process_image_probe(pid, "java"),
-            )),
-            Ok(_) => None,
-            Err(_) => Some(PidProbe::Unknown),
+        .filter_map(|child| {
+            // A listed child always has a final component; the full path is a
+            // distinct stand-in if it somehow does not, so two such entries are
+            // never merged into one server.
+            let id = child
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| child.display().to_string());
+            match std::fs::symlink_metadata(child) {
+                Ok(meta) if meta.is_dir() => Some((
+                    id,
+                    probe_server_dir(child, &crate::platform::process_alive, &|pid| {
+                        crate::platform::process_image_probe(pid, "java")
+                    }),
+                )),
+                Ok(_) => None,
+                Err(_) => Some((id, PidProbe::Unknown)),
+            }
         })
         .collect())
 }
@@ -189,10 +229,41 @@ pub fn observe(app: &tauri::AppHandle) -> RestartBlock {
             .is_empty()
             || crate::servers_runtime::runtime::is_any_starting(),
         server_dirs,
-        claim_held: crate::instances::maintenance::any_active()
-            || crate::servers_runtime::maintenance::any_active()
-            || crate::servers_runtime::upload_control::upload_any_active()
-            || crate::l10n::prefill::cancel::any_active(),
+        claim_held: claim_held(),
+    })
+}
+
+/// A long operation holds a claim: maintenance, a shared write or read, an
+/// upload, an AI pre-fill. One definition for both observers.
+fn claim_held() -> bool {
+    crate::instances::maintenance::any_active()
+        || crate::servers_runtime::maintenance::any_active()
+        || crate::servers_runtime::upload_control::upload_any_active()
+        || crate::l10n::prefill::cancel::any_active()
+}
+
+/// What closing Lucerna would lose right now. Does file and process I/O and
+/// reads registries that PANIC on a poisoned lock — so the caller runs it
+/// inside `spawn_blocking`, where a panic becomes a JoinError it can map to
+/// `CloseLosses::unchecked()` instead of taking the close task down.
+pub fn observe_losses(app: &tauri::AppHandle) -> CloseLosses {
+    let dirs = match crate::paths::servers_dir(app) {
+        Ok(dir) => probe_all_named(&dir),
+        Err(e) => {
+            crate::diag!("[blockers] cannot resolve the servers dir: {e}");
+            Err(())
+        }
+    };
+    let mut server_ids: BTreeSet<String> = crate::servers_runtime::runtime::running_ids_snapshot()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    server_ids.extend(crate::servers_runtime::runtime::starting_ids_snapshot());
+    losses(&ObservedLosses {
+        games: crate::launch::spawn::is_any_running() || crate::launch::spawn::is_any_starting(),
+        server_ids,
+        operation: claim_held(),
+        dirs,
     })
 }
 

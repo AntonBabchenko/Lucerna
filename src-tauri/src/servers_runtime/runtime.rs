@@ -171,6 +171,18 @@ pub fn running_pid(id: &str) -> Option<u32> {
         .map(|r| r.pid)
 }
 
+/// Ids of every server whose `start` currently holds its claim — the
+/// starting counterpart of [`running_ids_snapshot`], so a server mid-start is
+/// named by the close dialog rather than missed.
+pub fn starting_ids_snapshot() -> Vec<String> {
+    starting()
+        .lock()
+        .expect("server starting set poisoned")
+        .iter()
+        .cloned()
+        .collect()
+}
+
 /// Snapshot of (server_id, pid) for every currently-tracked running server.
 /// Collected under the lock and returned owned so callers never hold the lock
 /// across a kill (avoids the exit-watcher deadlock).
