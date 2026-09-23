@@ -275,6 +275,13 @@ fn maybe_schedule_start_window_action(
         }
         let app_for_action = app_clone.clone();
         let res = app_clone.run_on_main_thread(move || {
+            // Checked again HERE, in main-thread order: the exit watcher removes
+            // the game before posting its restore, so a game that closed after the
+            // check above is seen now — the window is not moved for a game that
+            // is gone, with nothing left to bring it back.
+            if !is_running(&instance_id) {
+                return;
+            }
             // An open close question must not be hidden or minimised along with
             // the window: the user would be left with no visible answer.
             if crate::close::ask_pending() {

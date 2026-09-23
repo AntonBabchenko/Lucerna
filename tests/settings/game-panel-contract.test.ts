@@ -85,6 +85,26 @@ describe('GamePanel — the settings contract', () => {
     expect(patch).toHaveBeenCalledWith({ game_start_window: 'minimise' });
   });
 
+  it('a refused start-window save goes back to what is saved and says why, under the picker', async () => {
+    await loadAppSettings();
+    patch.mockResolvedValue(REFUSED);
+    render(GamePanel);
+    await fireEvent.click(choice('Hide to tray'));
+    await flush();
+    await flush();
+    expect(choice('Keep open').getAttribute('aria-pressed')).toBe('true');
+    expect(choice('Hide to tray').getAttribute('aria-pressed')).toBe('false');
+    const line = screen.getByTestId('save-failure-game_start_window');
+    expect(line.textContent).toContain('locked');
+    // Next to the control that failed: directly after the picker, before its notes.
+    const picker = screen.getByTestId('game-start-window');
+    expect(picker.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(
+      line.compareDocumentPosition(document.getElementById('game-tray-desc') as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
   it('a refused consent revoke shows the box ON again and says status checks are still on', async () => {
     await loadAppSettings();
     patch.mockResolvedValue(REFUSED);

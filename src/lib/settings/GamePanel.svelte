@@ -40,23 +40,27 @@
     await patchGeneral({ [field]: value } as Partial<GeneralSettings>);
   }
 
-  // When a game starts: the backend resolves an old file's checkbox, so a
-  // loaded block always carries the field; null means "not read yet" (disabled,
-  // nothing pressed) or, defensively, a value this build can't show (usable,
-  // nothing claimed).
+  // When a game starts: the backend resolves an old file's checkbox (and an
+  // unknown value) on read, so a loaded block always carries the field; null
+  // means "not read yet" — disabled, nothing pressed.
   const startWindow = $derived<GameStartWindow | null>(general?.game_start_window ?? null);
   const startOptions = $derived([
     { value: 'keep', label: $t('settings.general.playing.keep') },
     { value: 'minimise', label: $t('settings.general.playing.minimise') },
     { value: 'hide_to_tray', label: $t('settings.general.playing.hideToTray') },
   ]);
-  const START_HINT: Record<GameStartWindow, TranslationKey> = {
+  // The chosen action's own line. Hide to tray has none: its note is always shown.
+  const START_HINT: Record<Exclude<GameStartWindow, 'hide_to_tray'>, TranslationKey> = {
     keep: 'settings.general.playing.keepHint',
     minimise: 'settings.general.playing.minimiseHint',
-    hide_to_tray: 'settings.general.playing.trayDescription',
   };
+  const startHint = $derived<TranslationKey | null>(
+    startWindow && startWindow !== 'hide_to_tray' ? START_HINT[startWindow] : null,
+  );
   // The Linux caveat is true only on Linux: some compositors (Wayland) honour a
-  // minimise but not the un-minimise. The build says which OS this is.
+  // minimise but not the un-minimise. The build says which OS this is; when it
+  // can't be read, the line stays hidden — it names Linux and would mislead
+  // everywhere else.
   let onLinux = $state(false);
   onMount(() => {
     void (async () => {
@@ -68,11 +72,7 @@
     })();
   });
   const startDescribedby = $derived(
-    [
-      startWindow && startWindow !== 'hide_to_tray' ? 'game-start-hint' : null,
-      'game-tray-desc',
-      onLinux ? 'game-start-linux' : null,
-    ]
+    [startHint ? 'game-start-hint' : null, 'game-tray-desc', onLinux ? 'game-start-linux' : null]
       .filter(Boolean)
       .join(' '),
   );
@@ -218,10 +218,14 @@
           disabled={!loaded}
           onChange={(v) => void set('game_start_window', v as GameStartWindow)}
         />
-        <!-- The chosen action's own line, then the tray caveat ALWAYS: activation follows
-             focus, so the consequence of Hide to tray must be readable before it is picked. -->
-        {#if startWindow && startWindow !== 'hide_to_tray'}
-          <p id="game-start-hint" class="text-xs text-muted">{$t(START_HINT[startWindow])}</p>
+        <!-- A failed save sits right under the control that failed. -->
+        <div data-testid="save-failure-game_start_window">
+          <StatusMessage message={saveFailure('game_start_window')} tone="danger" />
+        </div>
+        <!-- The chosen action's own line, then the tray note ALWAYS — named for its option:
+             activation follows focus, so Hide to tray's consequence is read before it is picked. -->
+        {#if startHint}
+          <p id="game-start-hint" class="text-xs text-muted">{$t(startHint)}</p>
         {/if}
         <p id="game-tray-desc" class="text-xs text-muted">
           {$t('settings.general.playing.trayDescription')}
@@ -231,9 +235,6 @@
             {$t('settings.general.playing.linuxMinimise')}
           </p>
         {/if}
-      </div>
-      <div data-testid="save-failure-game_start_window">
-        <StatusMessage message={saveFailure('game_start_window')} tone="danger" />
       </div>
     </div>
   </SettingsField>

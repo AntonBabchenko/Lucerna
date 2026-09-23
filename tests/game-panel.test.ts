@@ -57,6 +57,7 @@ async function mount() {
 beforeEach(() => {
   appSettingsSetGeneral.mockClear();
   appSettingsPatchGeneral.mockClear();
+  appBuildInfo.mockClear();
 });
 
 describe('GamePanel', () => {
@@ -82,15 +83,19 @@ describe('GamePanel', () => {
     expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ game_start_window: 'hide_to_tray' });
   });
 
-  test('the tray caveat is readable before Hide to tray is chosen', async () => {
+  test('the tray caveat is readable before Hide to tray is chosen, and says which choice it is about', async () => {
     await mount();
-    // The consequence is read BEFORE committing: activation follows focus.
-    expect(describedText(group())).toContain('system tray');
+    // The consequence is read BEFORE committing: activation follows focus. It must
+    // name its option, or it reads as a description of the one that is pressed.
+    const described = describedText(group());
+    expect(described).toContain('system tray');
+    expect(described).toContain('Hide to tray:');
   });
 
   test('the Linux minimise note shows only on Linux', async () => {
     await mount();
-    await vi.waitFor(() => expect(appBuildInfo).toHaveBeenCalled());
+    await vi.waitFor(() => expect(appBuildInfo).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText(/On some Linux desktops/)).toBeNull();
   });
 

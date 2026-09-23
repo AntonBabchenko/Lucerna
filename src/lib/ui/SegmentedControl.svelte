@@ -87,7 +87,7 @@
           // (.btn-secondary) wins the equal-specificity cascade and kills the
           // active fill.
           `${active ? 'btn-primary' : 'btn-ghost'} btn-sm rounded-none`
-        : `px-0.5 ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
+        : `px-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
       use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
     >

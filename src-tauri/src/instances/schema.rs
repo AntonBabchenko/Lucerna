@@ -263,7 +263,19 @@ where
     D: serde::Deserializer<'de>,
 {
     let raw = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(raw.and_then(|v| serde_json::from_value::<GameStartWindow>(v).ok()))
+    Ok(raw.and_then(
+        |v| match serde_json::from_value::<GameStartWindow>(v.clone()) {
+            Ok(window) => Some(window),
+            Err(_) => {
+                // Said, not silent: the old checkbox decides now, and the next write
+                // replaces this value (a newer build's choice is lost on it).
+                crate::diag!(
+                    "settings: unknown game_start_window {v} — using the old checkbox's meaning"
+                );
+                None
+            }
+        },
+    ))
 }
 
 /// How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -516,11 +528,15 @@ impl GeneralSettings {
             .unwrap_or_else(|| from_legacy(self.hide_to_tray_during_game))
     }
 
-    /// Fill a missing window action from the legacy bool (the bool is kept).
+    /// Fill a missing window action from the legacy bool, and bring the bool
+    /// back in step with the window (the window wins) — so a file whose pair
+    /// disagrees (a hand edit, a later build) is consistent from its first read
+    /// and every write after it.
     pub fn resolved(self) -> Self {
         let window = self.start_window();
         Self {
             game_start_window: Some(window),
+            hide_to_tray_during_game: window == GameStartWindow::HideToTray,
             ..self
         }
     }
@@ -745,6 +761,22 @@ mod start_window_tests {
         );
         let r = g(false, Some(Minimise)).resolved();
         assert_eq!(r.game_start_window, Some(Minimise));
+    }
+
+    #[test]
+    fn resolving_brings_a_disagreeing_old_checkbox_back_in_step_with_the_window() {
+        // A hand edit (or a later build that stops writing the bool) must not
+        // leave the pair disagreeing through every later write: the window wins.
+        let r = g(true, Some(Minimise)).resolved();
+        assert_eq!(
+            (r.game_start_window, r.hide_to_tray_during_game),
+            (Some(Minimise), false)
+        );
+        let r = g(false, Some(HideToTray)).resolved();
+        assert_eq!(
+            (r.game_start_window, r.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
     }
 
     #[test]
