@@ -19,4 +19,10 @@ describe('CurseForgeKeyBanner', () => {
     expect(settingsOpen.value).toEqual({ tab: 'integrations' });
     expect(settingsSearchFocus.value).toBe('integrations.curseforgeKey');
   });
+
+  it('names the tab the key lives on', () => {
+    // The tab has been "Integrations" since 2026-06-15; the button still said CurseForge.
+    render(CurseForgeKeyBanner);
+    expect(screen.getByRole('button', { name: 'Open Settings → Integrations' })).toBeTruthy();
+  });
 });

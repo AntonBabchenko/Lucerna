@@ -31,7 +31,7 @@
       <CloseButton onClick={close} ariaLabel={$t('common.close')} />
     </div>
     <div class="flex-1 overflow-y-auto min-h-0 p-4 pt-3" data-testid="whats-new-body">
-      <ChangelogPanel {entries} />
+      <ChangelogPanel {entries} headingLevel={3} />
     </div>
   </Modal>
 {/if}

@@ -23,16 +23,21 @@ describe('AboutPanel', () => {
 
   it('opens the repo URL via tauri-plugin-opener when the repo button is clicked', async () => {
     render(AboutPanel);
-    // Scope to the repo button specifically — the embedded changelog adds
-    // version buttons whose labels also mention GitHub ("release notes on
-    // GitHub"), so a bare /github/i would now be ambiguous.
-    const link = screen.getByRole('button', { name: /repository on GitHub/i });
+    const link = screen.getByRole('button', { name: 'View on GitHub' });
     await fireEvent.click(link);
-    // The opener is dynamic-imported and called inside an awaited promise —
-    // wait for the module load + then-chain to flush.
+    // The opener is dynamic-imported behind openExternalHttps — wait for the
+    // module load + then-chain to flush.
     await vi.waitFor(() => {
       expect(openUrlMock).toHaveBeenCalledWith(REPO_URL);
     });
+  });
+
+  it('names the GitHub button by its visible text; the URL is the tooltip, not the name', () => {
+    // Label-in-name: a voice user says "View on GitHub" and expects the button
+    // whose label that is. The destination stays in use:tooltip (DESIGN §5).
+    render(AboutPanel);
+    const btn = screen.getByRole('button', { name: 'View on GitHub' });
+    expect(btn.hasAttribute('aria-label')).toBe(false);
   });
 
   it('renders the Mojang/Microsoft trademark attribution', () => {

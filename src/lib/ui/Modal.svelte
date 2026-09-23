@@ -10,7 +10,16 @@
   // template; cross-component modals are ordered in +page.svelte). If a future
   // modal is placed earlier in the DOM but mounts later, Escape would close the
   // visually-lower one — keep new stacked modals after the ones they cover.
-  let openStack: symbol[] = [];
+  //
+  // $state so a reader outside this file can react to it: ToastHost moves the
+  // toast stack out of an open modal's way. Module-level state cannot be
+  // exported directly, and nobody outside needs the ids — only the depth.
+  let openStack = $state<symbol[]>([]);
+
+  /** How many modals are open right now; 0 when none. Reactive. */
+  export function modalDepth(): number {
+    return openStack.length;
+  }
 </script>
 
 <script lang="ts">

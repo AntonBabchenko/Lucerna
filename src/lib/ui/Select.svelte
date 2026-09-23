@@ -43,6 +43,7 @@
     id,
     class: className = '',
     dataTestid,
+    describedby,
     optionLeading,
     valueLeading,
     optionTrailing,
@@ -58,6 +59,8 @@
     id?: string;
     class?: string;
     dataTestid?: string;
+    /** Id(s) of the helper text under the control — forwarded to the trigger's aria-describedby. */
+    describedby?: string;
     // Optional leading content per option row / for the selected value.
     // Falls back to the existing `icon` rendering when not provided.
     optionLeading?: Snippet<[Option]>;
@@ -304,7 +307,8 @@
   aria-controls={listboxId}
   aria-activedescendant={activeDescendant}
   aria-label={ariaLabel}
-  class="inline-flex items-center justify-between gap-2 h-8 px-3 text-sm border border-border-emphasis rounded bg-surface text-primary disabled:opacity-50 disabled:cursor-not-allowed {className}"
+  aria-describedby={describedby}
+  class="inline-flex items-center justify-between gap-2 h-8 px-3 text-sm border border-border-emphasis rounded bg-surface text-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted {className}"
   onclick={() => (open ? closeList() : openList())}
   onkeydown={onKeyDown}
 >

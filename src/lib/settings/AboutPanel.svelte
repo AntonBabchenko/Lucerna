@@ -30,7 +30,6 @@
           type="button"
           class="btn-link inline-flex items-center gap-1"
           use:tooltip={REPO_URL}
-          aria-label={$t('settings.about.openRepoLabel', { url: REPO_URL })}
           onclick={openRepo}
         >
           {$t('settings.about.viewOnGitHub')}

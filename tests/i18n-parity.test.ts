@@ -64,4 +64,16 @@ describe('i18n locale parity (en vs ru)', () => {
       .map(({ k, en, ru }) => `${k} (en:[${en}] ru:[${ru}])`);
     expect(mismatches).toEqual([]);
   });
+
+  // Keys whose last consumer is gone. No unused-key tool exists, so the
+  // absence is pinned here: a dead key is a string a translator maintains
+  // for nothing, and a key that comes back is a key someone will read.
+  it('carries none of the keys retired by the Settings a11y pass', () => {
+    const retired = [
+      'settings.closeBackdropLabel', // no reference anywhere in src/ (dead since the shared Modal)
+      'settings.about.openRepoLabel', // the GitHub button is named by its visible text
+      'settings.changelog.openReleaseLabel', // the version button is named by the version
+    ];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+  });
 });

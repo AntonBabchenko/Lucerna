@@ -69,12 +69,24 @@ describe('ChangelogPanel', () => {
 
   it('opens the version URL via tauri-plugin-opener when the version is clicked', async () => {
     render(ChangelogPanel, { props: { entries: SAMPLE } });
-    const link = screen.getByRole('button', { name: /v0\.2\.0/ });
-    expect(screen.getByRole('button', { name: /release notes on GitHub/i })).toBeTruthy();
+    // The name is the visible version: the heading reads "v0.2.0", not a
+    // sentence; the URL is the tooltip.
+    const link = screen.getByRole('button', { name: 'v0.2.0' });
+    expect(link.hasAttribute('aria-label')).toBe(false);
     await fireEvent.click(link);
     await vi.waitFor(() => {
       expect(openUrlMock).toHaveBeenCalledWith('https://example.test/v0.2.0');
     });
+  });
+
+  it('renders each version as an h4 named by the version, and each section as an h5', () => {
+    render(ChangelogPanel, { props: { entries: SAMPLE } });
+    const version = screen.getByRole('heading', { level: 4, name: 'v0.2.0' });
+    expect(version.querySelector('button')).not.toBeNull();
+    expect(screen.getByRole('heading', { level: 5, name: 'Added' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 5, name: 'Notes' })).toBeTruthy();
+    // The date is beside the heading, not inside its name.
+    expect(version.textContent).not.toContain('2026-02-02');
   });
 
   it('refuses to open a non-https version URL (defense-in-depth)', async () => {

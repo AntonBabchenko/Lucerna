@@ -643,23 +643,24 @@
       <div data-testid="save-failure-log_retention">
         <StatusMessage message={retentionError} tone="danger" />
       </div>
-      <label class="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          bind:checked={retention.enabled}
-          disabled={!settingsLoaded}
-          onchange={() => void saveRetentionTracked()}
-          data-testid="log-retention-toggle"
-        />
-        <span class="flex-1">
+      <div class="flex flex-col gap-1">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            bind:checked={retention.enabled}
+            disabled={!settingsLoaded}
+            aria-describedby="storage-log-retention-desc"
+            onchange={() => void saveRetentionTracked()}
+            data-testid="log-retention-toggle"
+          />
           <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span
           >
-          <span class="block text-xs text-muted">
-            {$t('settings.general.logRetention.enableDescription')}
-          </span>
-        </span>
-      </label>
+        </label>
+        <p id="storage-log-retention-desc" class="pl-6 text-xs text-muted">
+          {$t('settings.general.logRetention.enableDescription')}
+        </p>
+      </div>
       <div class="flex flex-wrap items-start gap-4 pl-6">
         <NumberField
           label={$t('settings.general.logRetention.keepLabel')}

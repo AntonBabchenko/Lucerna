@@ -64,7 +64,12 @@
       <!-- The description sits UNDER the button (like the tips row), and the
            button never wraps (HELP-09). -->
       <div class="flex flex-col items-start gap-1">
-        <button type="button" class="btn-secondary btn-sm shrink-0" onclick={onReplay}>
+        <button
+          type="button"
+          class="btn-secondary btn-sm shrink-0"
+          aria-describedby="help-replay-description"
+          onclick={onReplay}
+        >
           {$t('settings.general.onboarding.replayBtn')}
         </button>
         <p id="help-replay-description" class="text-xs text-muted">

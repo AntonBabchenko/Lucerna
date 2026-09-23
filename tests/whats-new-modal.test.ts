@@ -39,4 +39,14 @@ describe('WhatsNewModal', () => {
     await fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(whatsNewState.entries).toBeNull();
   });
+
+  it('nests the versions one level under the dialog title, sections under them', () => {
+    // The dialog title is an h2, so the panel drops one level here: h3 / h4,
+    // where Settings → Updates (an h3 block) has h4 / h5.
+    whatsNewState.entries = SINCE;
+    render(WhatsNewModal);
+    expect(screen.getByRole('heading', { level: 2, name: /What.s new in Lucerna/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 3, name: 'v0.23.0' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 4, name: 'Added' })).toBeTruthy();
+  });
 });

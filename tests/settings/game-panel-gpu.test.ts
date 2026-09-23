@@ -31,6 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import GamePanel from '$lib/settings/GamePanel.svelte';
+import { describedText } from '../test-utils/aria';
 
 async function mount() {
   __resetAppSettingsForTest();
@@ -165,5 +166,11 @@ describe('GamePanel GPU block', () => {
     await flush();
     expect(screen.queryByTestId('gpu-stored')).toBeNull();
     expect(screen.queryByTestId('gpu-reset')).toBeNull();
+  });
+
+  it('the GPU select is described by the mechanism note', async () => {
+    await mount();
+    const select = await screen.findByTestId('gpu-select');
+    expect(describedText(select)).toContain('UserGpuPreferences');
   });
 });

@@ -96,6 +96,14 @@
   const provider = $derived<AiProvider>(general?.ai_provider ?? 'anthropic');
   const isLocal = $derived(provider === 'local');
   const allowed = $derived(general?.allow_ai_translation ?? false);
+
+  // Ids for aria-describedby. The gated note exists only while the permission
+  // is off, so it is named only then: a describedby that points at an id no
+  // longer in the DOM is announced as nothing (L3).
+  const GATED_NOTE_ID = 'ai-gated-note';
+  const MODEL_HINT_ID = 'ai-model-hint';
+  const gatedDescribedby = $derived(allowed ? undefined : GATED_NOTE_ID);
+  const modelDescribedby = $derived(allowed ? MODEL_HINT_ID : `${MODEL_HINT_ID} ${GATED_NOTE_ID}`);
   const providerOptions = $derived([
     { value: 'anthropic', label: $t('settings.aiTranslation.providerAnthropic') },
     { value: 'gemini', label: $t('settings.aiTranslation.providerGemini') },
@@ -294,35 +302,37 @@
     </div>
   {/if}
 
-  <label class="flex items-start gap-2 cursor-pointer">
-    <input
-      type="checkbox"
-      class="mt-0.5"
-      checked={allowed}
-      disabled={!settingsLoaded}
-      onchange={(e) => void patchGeneral({ allow_ai_translation: e.currentTarget.checked })}
-      data-testid="ai-translation-toggle"
-    />
-    <span class="flex-1">
+  <!-- The label is the title only; the three sentences are the description. -->
+  <div class="flex flex-col gap-1">
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        checked={allowed}
+        disabled={!settingsLoaded}
+        aria-describedby="ai-consent-desc ai-consent-cost ai-consent-privacy"
+        onchange={(e) => void patchGeneral({ allow_ai_translation: e.currentTarget.checked })}
+        data-testid="ai-translation-toggle"
+      />
       <span class="text-sm text-primary">{$t('settings.aiTranslation.consentLabel')}</span>
-      <span class="block text-xs text-muted">
-        {$t('settings.aiTranslation.consentDescription')}
-      </span>
-      <span class="block text-xs text-muted" data-testid="ai-cost-note">
-        {$t('settings.aiTranslation.costNote')}
-      </span>
-      <span class="block text-xs text-warning-text">
-        {$t('settings.aiTranslation.privacyNote')}
-      </span>
-    </span>
-  </label>
+    </label>
+    <p id="ai-consent-desc" class="pl-6 text-xs text-muted">
+      {$t('settings.aiTranslation.consentDescription')}
+    </p>
+    <p id="ai-consent-cost" class="pl-6 text-xs text-muted" data-testid="ai-cost-note">
+      {$t('settings.aiTranslation.costNote')}
+    </p>
+    <p id="ai-consent-privacy" class="pl-6 text-xs text-warning-text">
+      {$t('settings.aiTranslation.privacyNote')}
+    </p>
+  </div>
 
   <div data-testid="save-failure-allow_ai_translation">
     <StatusMessage message={consentFailure} tone="danger" />
   </div>
 
   {#if !allowed}
-    <p class="text-xs text-muted" data-testid="ai-gated-note">
+    <p id={GATED_NOTE_ID} class="text-xs text-muted" data-testid="ai-gated-note">
       {$t('settings.aiTranslation.gatedNote')}
     </p>
   {/if}
@@ -333,6 +343,7 @@
       class="text-sm w-full"
       dataTestid="ai-provider-select"
       ariaLabel={$t('settings.aiTranslation.providerLabel')}
+      describedby={gatedDescribedby}
       value={provider}
       options={providerOptions}
       disabled={!allowed || !settingsLoaded}
@@ -342,21 +353,26 @@
     />
   </div>
 
-  <label class="flex flex-col gap-1">
-    <span class="text-sm text-primary">{$t('settings.aiTranslation.modelLabel')}</span>
-    <input
-      type="text"
-      class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
-      placeholder={modelPlaceholder}
-      value={general?.ai_model ?? ''}
-      disabled={!allowed || !settingsLoaded}
-      onchange={(e) => {
-        void patchGeneral({ ai_model: e.currentTarget.value.trim() });
-      }}
-      data-testid="ai-model-input"
-    />
-    <span class="text-xs text-muted">{modelHint}</span>
-  </label>
+  <!-- The hint sits OUTSIDE the label: inside it, it became part of the field's
+       name ("Model Leave this empty…") instead of its description. -->
+  <div class="flex flex-col gap-1">
+    <label class="flex flex-col gap-1">
+      <span class="text-sm text-primary">{$t('settings.aiTranslation.modelLabel')}</span>
+      <input
+        type="text"
+        class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted"
+        placeholder={modelPlaceholder}
+        value={general?.ai_model ?? ''}
+        disabled={!allowed || !settingsLoaded}
+        aria-describedby={modelDescribedby}
+        onchange={(e) => {
+          void patchGeneral({ ai_model: e.currentTarget.value.trim() });
+        }}
+        data-testid="ai-model-input"
+      />
+    </label>
+    <span id={MODEL_HINT_ID} class="text-xs text-muted">{modelHint}</span>
+  </div>
 
   {#if isLocal}
     <p class="text-xs text-muted" data-testid="ai-local-expects">

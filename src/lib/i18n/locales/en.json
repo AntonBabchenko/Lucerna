@@ -826,7 +826,7 @@
     "curseforgeBanner": {
       "heading": "CurseForge requires an API key",
       "body": "Modrinth works anonymously, but CurseForge needs a free API key. It takes about 5 minutes to obtain one — get a free account at console.curseforge.com, generate a key, and paste it into Settings.",
-      "openSettings": "Open Settings → CurseForge"
+      "openSettings": "Open Settings → Integrations"
     },
     "installed": {
       "statsTotal": "Total:",
@@ -2530,7 +2530,6 @@
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",
-    "closeBackdropLabel": "Close Settings",
     "fallbackNotice": "Your data folder is unavailable. This is a temporary session: settings changed here are not saved to your data folder.",
     "sections": {
       "appearance": "Appearance",
@@ -2830,7 +2829,6 @@
       "legalTitle": "Legal",
       "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
       "viewOnGitHub": "View on GitHub",
-      "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
       "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
       "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
       "keyring": "Secrets — Microsoft sign-in tokens, a personal CurseForge key, SFTP passwords, AI keys — live in your operating system's keyring (Windows Credential Manager, macOS Keychain, or the Linux Secret Service), never in Lucerna's own files."
@@ -2844,7 +2842,6 @@
         "versionUntranslated": "Not translated yet; shown in English.",
         "versionPartial": "Partly translated; the rest is shown in English."
       },
-      "openReleaseLabel": "Open the v{version} release notes on GitHub",
       "sections": {
         "added": "Added",
         "changed": "Changed",

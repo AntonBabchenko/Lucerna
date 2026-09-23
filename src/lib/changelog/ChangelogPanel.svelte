@@ -16,7 +16,12 @@
   import { changelogTranslations, ensureChangelogTranslation } from './translation.svelte';
   import type { Changelog, SectionKind } from './types';
 
-  let { entries }: { entries: Changelog } = $props();
+  // Heading levels: versions are one level under the host's heading, sections
+  // one under that — Settings → Updates (an h3 block) gets h4 / h5, the
+  // What's-new dialog (an h2 title) gets h3 / h4. No level is skipped either way.
+  let { entries, headingLevel = 4 }: { entries: Changelog; headingLevel?: 3 | 4 } = $props();
+  const versionTag = $derived(`h${headingLevel}`);
+  const sectionTag = $derived(`h${headingLevel + 1}`);
 
   // Localized labels for the known Keep-a-Changelog kinds. 'other' is absent
   // on purpose — those sections render their (possibly translated) heading.
@@ -94,21 +99,22 @@
     {#each visible as ver (ver.version)}
       <article class="space-y-2">
         <header class="flex items-baseline justify-between gap-2">
-          {#if ver.url}
-            {@const href = ver.url}
-            <button
-              type="button"
-              class="btn-link font-medium inline-flex items-center gap-1"
-              use:tooltip={href}
-              aria-label={$t('settings.changelog.openReleaseLabel', { version: ver.version })}
-              onclick={() => openUrl(href)}
-            >
-              v{ver.version}
-              <Icon name="externalLink" size={12} />
-            </button>
-          {:else}
-            <span class="font-medium text-primary">v{ver.version}</span>
-          {/if}
+          <svelte:element this={versionTag} class="font-medium">
+            {#if ver.url}
+              {@const href = ver.url}
+              <button
+                type="button"
+                class="btn-link inline-flex items-center gap-1"
+                use:tooltip={href}
+                onclick={() => openUrl(href)}
+              >
+                v{ver.version}
+                <Icon name="externalLink" size={12} />
+              </button>
+            {:else}
+              <span class="text-primary">v{ver.version}</span>
+            {/if}
+          </svelte:element>
           {#if ver.date}<span class="text-xs text-muted">{ver.date}</span>{/if}
         </header>
         {#if ver.note}
@@ -117,9 +123,12 @@
 
         {#each ver.sections as sec, si (si)}
           <div class="space-y-1">
-            <h4 class="text-xs font-semibold uppercase tracking-wide text-secondary">
+            <svelte:element
+              this={sectionTag}
+              class="text-xs font-semibold uppercase tracking-wide text-secondary"
+            >
               {sec.label}
-            </h4>
+            </svelte:element>
             <ul class="list-disc space-y-1 pl-5 text-secondary">
               {#each sec.items as item, i (i)}
                 <li>

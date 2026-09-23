@@ -167,4 +167,18 @@ describe('Select', () => {
     });
     expect(container.querySelector('svg')).toBeTruthy();
   });
+
+  it('forwards describedby to the trigger as aria-describedby', () => {
+    // A helper line under a Select is announced only if the trigger names it.
+    setup({ describedby: 'fruit-hint' });
+    expect(screen.getByRole('combobox').getAttribute('aria-describedby')).toBe('fruit-hint');
+  });
+
+  it('a disabled trigger reads as inert on the dark surface too', () => {
+    // opacity-50 alone is invisible on the dark surface: a gated Select looked
+    // live. The subtle fill + muted text are what the dark theme can show.
+    const { trigger } = setup({ disabled: true });
+    expect(trigger.className).toContain('disabled:bg-subtle');
+    expect(trigger.className).toContain('disabled:text-muted');
+  });
 });
