@@ -2638,7 +2638,8 @@
           "browseModpacks": "Browse modpacks",
           "importLauncher": "Import from launcher",
           "gallery": "Gallery",
-          "logs": "Logs"
+          "logs": "Logs",
+          "oneWayNote": "Hiding Servers, Skin and cape, or Import from launcher removes the only way to reach those features. Gallery keeps a per-instance Screenshots tab, but the all-instances view is only here."
         },
         "theme": "Theme",
         "themeHint": "System follows your operating system's light or dark setting.",

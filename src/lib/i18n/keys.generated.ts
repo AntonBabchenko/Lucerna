@@ -2589,6 +2589,7 @@ export type TranslationKey =
   | 'settings.general.appearance.sidebarButtons.logs'
   | 'settings.general.appearance.sidebarButtons.manage'
   | 'settings.general.appearance.sidebarButtons.mods'
+  | 'settings.general.appearance.sidebarButtons.oneWayNote'
   | 'settings.general.appearance.sidebarButtons.quickJoin'
   | 'settings.general.appearance.sidebarButtons.skin'
   | 'settings.general.appearance.sidebarButtons.title'

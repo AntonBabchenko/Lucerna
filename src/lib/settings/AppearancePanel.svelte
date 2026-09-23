@@ -5,7 +5,8 @@
   // appSettingsSetGeneral. Every block opens with the shared h3 recipe
   // (DESIGN §3); the theme picker is a SegmentedControl named by the block
   // heading's text and described by the hint under it.
-  import { type ThemePreference } from '$lib/ipc/bindings';
+  import { onMount } from 'svelte';
+  import { commands, type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
   import { getOsLang, resolveLocale } from '$lib/i18n/resolve';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
@@ -49,6 +50,22 @@
         ? 'settings.general.appearance.currentlyDark'
         : 'settings.general.appearance.currentlyLight',
     );
+  });
+
+  // The sidebar force-shows "Add account" while there is no account, so an
+  // untick here would look broken. Three states, not two: only a list we have
+  // actually read and found empty claims the override. A list we could not read
+  // claims nothing — omitting an explanation is less wrong than asserting a
+  // reason that may not apply, and the checkbox works either way.
+  let accountsKnown = $state<'loading' | 'empty' | 'some' | 'unknown'>('loading');
+  onMount(async () => {
+    try {
+      const r = await commands.listAccounts();
+      accountsKnown = r.status === 'ok' ? (r.data.length === 0 ? 'empty' : 'some') : 'unknown';
+    } catch {
+      // An IPC-level failure is the same "could not tell" as a typed error.
+      accountsKnown = 'unknown';
+    }
   });
 
   const languageOptions = $derived([
@@ -162,6 +179,11 @@
       <p class="text-xs text-muted">
         {$t('settings.general.appearance.sidebarButtons.description')}
       </p>
+      <!-- Hiding these three removes the only way into their feature; Gallery
+           keeps a per-instance surface, so it is named with that qualifier. -->
+      <p class="text-xs text-muted" data-testid="sidebar-one-way-note">
+        {$t('settings.general.appearance.sidebarButtons.oneWayNote')}
+      </p>
       {#each SIDEBAR_BUTTONS as b (b.id)}
         <label class="flex items-center gap-2 cursor-pointer">
           <input
@@ -172,6 +194,16 @@
           />
           <span class="text-sm text-primary">{$t(b.labelKey)}</span>
         </label>
+        {#if b.id === 'account_actions'}
+          <!-- The live region is always mounted, so the reason is announced
+               when it appears rather than missed. -->
+          <div class="pl-6">
+            <StatusMessage
+              message={accountsKnown === 'empty' ? $t('sidebar.accountRequired.body') : null}
+              tone="info"
+            />
+          </div>
+        {/if}
       {/each}
     </fieldset>
   </SettingsField>
