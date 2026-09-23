@@ -13,6 +13,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { rainbowFx } from '../src/lib/fx/rainbow-fx.svelte';
+import { langPref } from '../src/lib/i18n/state.svelte';
 import { SIDEBAR_BUTTONS } from '../src/lib/layout/sidebar-buttons';
 import AppearancePanel from '../src/lib/settings/AppearancePanel.svelte';
 import { themeState } from '../src/lib/theme/state.svelte';
@@ -135,5 +136,30 @@ describe('AppearancePanel', () => {
     // Gallery keeps a per-instance surface, so it is named with its qualifier
     // rather than listed as one-way or left out entirely.
     expect(note.textContent).toContain('Gallery');
+  });
+
+  it('on System, the language control says which language that currently resolves to', () => {
+    const real = navigator.language;
+    Object.defineProperty(navigator, 'language', { value: 'ru-RU', configurable: true });
+    try {
+      langPref.value = 'system';
+      render(AppearancePanel);
+      // The autonym, as the other options name themselves.
+      expect(screen.getByTestId('language-select').textContent).toContain('Русский');
+    } finally {
+      Object.defineProperty(navigator, 'language', { value: real, configurable: true });
+    }
+  });
+
+  it('says only "System" for the language when the OS language could not be read', () => {
+    const real = navigator.language;
+    Object.defineProperty(navigator, 'language', { value: '', configurable: true });
+    try {
+      langPref.value = 'system';
+      render(AppearancePanel);
+      expect(screen.getByTestId('language-select').textContent).not.toMatch(/currently/i);
+    } finally {
+      Object.defineProperty(navigator, 'language', { value: real, configurable: true });
+    }
   });
 });
