@@ -12,6 +12,7 @@ import { locale } from '$lib/i18n';
 // hoisted above imports anyway, so the panel still sees the mocked bindings.
 import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import GamePanel from '$lib/settings/GamePanel.svelte';
+import { describedText } from './test-utils/aria';
 
 async function mount() {
   __resetAppSettingsForTest();
@@ -103,5 +104,15 @@ describe('Settings → Game: saved-server status permission', () => {
     await waitFor(() =>
       expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ allow_server_ping: true }),
     );
+  });
+
+  it('is named by its title and described by the sentence and the privacy line', async () => {
+    await mount();
+    const cb = await waitFor(() =>
+      screen.getByRole('checkbox', { name: 'Show status for my saved servers' }),
+    );
+    const desc = describedText(cb);
+    expect(desc).toContain('player count');
+    expect(desc).toContain('IP address');
   });
 });

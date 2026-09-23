@@ -36,6 +36,7 @@ import {
   loadAppSettings,
 } from '../src/lib/settings/app-settings.svelte';
 import GamePanel from '../src/lib/settings/GamePanel.svelte';
+import { describedText } from './test-utils/aria';
 
 async function mount() {
   __resetAppSettingsForTest();
@@ -62,5 +63,15 @@ describe('GamePanel', () => {
     await vi.waitFor(() => expect(appSettingsPatchGeneral).toHaveBeenCalled());
     // One field, nothing else: a sibling panel's field can never be clobbered.
     expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ hide_to_tray_during_game: true });
+  });
+
+  test('the tray checkbox is named by its title and described by its sentence', async () => {
+    await mount();
+    // Today the <label> wraps title AND sentence, so the name is the whole paragraph.
+    const cb = screen.getByRole('checkbox', {
+      name: 'Hide launcher to tray when Minecraft starts',
+    });
+    expect(cb.getAttribute('data-testid')).toBe('tray-toggle');
+    expect(describedText(cb)).toContain('system tray');
   });
 });
