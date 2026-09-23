@@ -21,10 +21,13 @@ function readSystemPrefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function resolve(pref: ThemePreference, systemDark: boolean): 'light' | 'dark' {
+function resolve(pref: ThemePreference, systemDark: boolean | null): 'light' | 'dark' {
   if (pref === 'dark') return 'dark';
   if (pref === 'light') return 'light';
-  return systemDark ? 'dark' : 'light';
+  // null = the OS preference could not be read. The painter has to paint
+  // something, so it keeps the answer it always gave (light) — a guess, which
+  // is why no label may present it as a fact.
+  return systemDark === true ? 'dark' : 'light';
 }
 
 function applyClass(resolved: 'light' | 'dark') {
@@ -34,7 +37,8 @@ function applyClass(resolved: 'light' | 'dark') {
 
 export const themeState = $state<{
   pref: ThemePreference;
-  systemDark: boolean;
+  /** The OS preference; null when it could not be read. */
+  systemDark: boolean | null;
 }>({
   pref: 'system',
   systemDark: readSystemPrefersDark(),
