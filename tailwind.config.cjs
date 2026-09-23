@@ -38,6 +38,14 @@ module.exports = {
         // resolving through colors.danger, so this changes foreground text
         // without repainting a single fill.
         danger: 'rgb(var(--danger-text) / <alpha-value>)',
+        // The same split for the two tones whose fill tier fails AA as text:
+        // accent in dark (2.8:1 on --accent-soft), success in both themes
+        // (3.1:1 light / 4.0:1 dark on --success-bg). bg-accent / border-accent
+        // / outline-accent / .btn-primary and bg-success / border-success /
+        // .btn-success keep the fill tokens through `colors`; only text-accent
+        // and text-success move. tests/toast-contrast.test.ts holds the pairing.
+        accent: 'rgb(var(--accent-text) / <alpha-value>)',
+        success: 'rgb(var(--success-text) / <alpha-value>)',
       },
       // Default border color follows the theme token so bare `border`
       // / `border-b` / `border-t` utilities pick up the dark-palette
