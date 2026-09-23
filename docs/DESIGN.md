@@ -204,7 +204,7 @@ Every UI icon flows through one wrapper, `<Icon name="…" />` (`src/lib/ui/icon
 Three decorative motion effects layer on, each preference-gated and reduced-motion-safe:
 
 - **Hover zoom** (`scale(1.2)` / 120ms) — gated globally by a `.fx-icon-zoom` class on the document root, toggled from the `iconZoomFx` preference (default **on**, `localStorage`-persisted). Scoped strictly to `.btn-icon` / `.btn-icon-sm`; labeled buttons are never touched. The base transition is unconditional, so toggling the preference off just stops applying the scale (no jump).
-- **Rainbow cycle** (`.icon-rainbow-hover`, 2.5s linear infinite) — opt-in *per icon*; the Sidebar applies it only when `rainbowFx` is enabled (default on). Keyframes list explicit spectrum hue stops because `color` interpolates in sRGB, not by hue.
+- **Rainbow cycle** (`.icon-rainbow-hover`, 2.5s linear infinite) — opt-in *per icon*; two sites apply it when `rainbowFx` is enabled (default on) — the Sidebar's Browse-modpacks icon and the Add-ons tab's Shaders icon. Keyframes list explicit spectrum hue stops because `color` interpolates in sRGB, not by hue.
 - **Spin** (`.icon-spin-hover`, 180° / 0.5s) — for refresh/recheck actions. When combined with zoom in an icon button, both transforms merge into one declaration (a single `transform` can't be split across rules).
 
 All three are zeroed for `prefers-reduced-motion` users via the global block; the zoom additionally forces `transform: none` on its end-state. Note these FX preferences are deliberately client-only (not in the Rust settings struct) — no FOUC need.
