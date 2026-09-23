@@ -43,6 +43,7 @@
     id,
     class: className = '',
     dataTestid,
+    describedby,
     optionLeading,
     valueLeading,
     optionTrailing,
@@ -306,7 +307,8 @@
   aria-controls={listboxId}
   aria-activedescendant={activeDescendant}
   aria-label={ariaLabel}
-  class="inline-flex items-center justify-between gap-2 h-8 px-3 text-sm border border-border-emphasis rounded bg-surface text-primary disabled:opacity-50 disabled:cursor-not-allowed {className}"
+  aria-describedby={describedby}
+  class="inline-flex items-center justify-between gap-2 h-8 px-3 text-sm border border-border-emphasis rounded bg-surface text-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted {className}"
   onclick={() => (open ? closeList() : openList())}
   onkeydown={onKeyDown}
 >
