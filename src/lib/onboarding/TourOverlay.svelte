@@ -14,7 +14,9 @@
   import { Icon } from '$lib/ui/icons';
   import type { ExplanationLevel } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import { generalDisplayed } from '$lib/settings/app-settings.svelte';
 
   const PADDING = 6;
 
@@ -175,6 +177,30 @@
   let titleKey = $derived(isChooser ? step.titleKey : explainKey(step.titleKey, level));
   let bodyKey = $derived(isChooser ? step.bodyKey : explainKey(step.bodyKey, level));
 
+  // HELP-02: on a replay the chooser shows the level that is CURRENT — primary,
+  // pressed, focused (it carries data-tour-primary) and labelled — so Enter keeps
+  // the user's choice instead of quietly resetting it to Basic. "Current" comes
+  // from the loaded settings, never from the rune's default: when the level
+  // could not be read, and on the first run, nothing is claimed and Basic stays
+  // the default.
+  let knownLevel = $derived<ExplanationLevel | null>(
+    tourState.replay ? (generalDisplayed()?.explanation_level ?? null) : null,
+  );
+  let primaryLevel = $derived<ExplanationLevel>(knownLevel ?? 'basic');
+  const CHOICES: { level: ExplanationLevel; labelKey: TranslationKey; hintKey: TranslationKey }[] =
+    [
+      {
+        level: 'basic',
+        labelKey: 'onboarding.chooser.basicLabel',
+        hintKey: 'onboarding.chooser.basicHint',
+      },
+      {
+        level: 'advanced',
+        labelKey: 'onboarding.chooser.advancedLabel',
+        hintKey: 'onboarding.chooser.advancedHint',
+      },
+    ];
+
   function chooseLevel(l: ExplanationLevel) {
     void setExplanationLevel(l);
     next();
@@ -248,23 +274,25 @@
       {/if}
       {#if isChooser}
         <div class="flex flex-col gap-2">
-          <button
-            type="button"
-            data-tour-primary
-            class="btn-primary w-full text-center flex flex-col items-center py-2"
-            onclick={() => chooseLevel('basic')}
-          >
-            <span class="font-medium">{$t('onboarding.chooser.basicLabel')}</span>
-            <span class="text-xs opacity-80">{$t('onboarding.chooser.basicHint')}</span>
-          </button>
-          <button
-            type="button"
-            class="btn-secondary w-full text-center flex flex-col items-center py-2"
-            onclick={() => chooseLevel('advanced')}
-          >
-            <span class="font-medium">{$t('onboarding.chooser.advancedLabel')}</span>
-            <span class="text-xs opacity-80">{$t('onboarding.chooser.advancedHint')}</span>
-          </button>
+          {#each CHOICES as choice (choice.level)}
+            {@const primary = choice.level === primaryLevel}
+            {@const current = knownLevel !== null && choice.level === knownLevel}
+            <button
+              type="button"
+              data-tour-primary={primary ? '' : undefined}
+              aria-pressed={knownLevel === null ? undefined : current}
+              class="{primary
+                ? 'btn-primary'
+                : 'btn-secondary'} w-full text-center flex flex-col items-center py-2"
+              onclick={() => chooseLevel(choice.level)}
+            >
+              <span class="font-medium">{$t(choice.labelKey)}</span>
+              <span class="text-xs opacity-80">{$t(choice.hintKey)}</span>
+              {#if current}
+                <span class="text-xs font-medium">{$t('onboarding.chooser.current')}</span>
+              {/if}
+            </button>
+          {/each}
         </div>
       {:else if tourState.contextual}
         <!-- On-demand account hint: no tour navigation, just acknowledge. -->

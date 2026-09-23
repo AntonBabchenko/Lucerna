@@ -75,6 +75,7 @@ export async function initOnboarding(): Promise<void> {
     serversUi.setMode('client');
     tourState.active = true;
     tourState.contextual = false;
+    tourState.replay = false;
     tourState.currentStep = 0;
   }
 }
@@ -145,5 +146,6 @@ export function replayTour(): void {
   serversUi.setMode('client');
   tourState.currentStep = 0;
   tourState.contextual = false;
+  tourState.replay = true;
   tourState.active = true;
 }
