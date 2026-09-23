@@ -11,6 +11,12 @@
   // modal is placed earlier in the DOM but mounts later, Escape would close the
   // visually-lower one — keep new stacked modals after the ones they cover.
   let openStack: symbol[] = [];
+
+  // Stub for the toast relocation (lands with the implementation push):
+  // reports no open modal until openStack becomes reactive state.
+  export function modalDepth(): number {
+    return 0;
+  }
 </script>
 
 <script lang="ts">
