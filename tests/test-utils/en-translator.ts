@@ -26,6 +26,7 @@ const EN_STRINGS: Record<string, string> = {
   'format.size.kilobytes': '{n} KB',
   'format.size.megabytes': '{n} MB',
   'format.size.gigabytes': '{n} GB',
+  'format.size.terabytes': '{n} TB',
   'format.duration.lessThanMinute': '< 1m',
   'format.duration.minutes': '{m}m',
   'format.duration.hoursMinutes': '{h}h {m}m',

@@ -527,6 +527,11 @@ describe('formatError', () => {
         restore_incomplete: false,
       },
       data_location_unavailable: { kind: 'data_location_unavailable' },
+      data_root_unreachable: {
+        kind: 'data_root_unreachable',
+        path: '/media/usb/Lucerna',
+        problem: { kind: 'missing' },
+      },
       data_relocation_in_progress: { kind: 'data_relocation_in_progress', restart_required: false },
       datapack_invalid: {
         kind: 'datapack_invalid',
@@ -903,5 +908,39 @@ describe('isIpcError / describeStoreError', () => {
     expect(describeStoreError('nope')).toBe('nope');
     expect(describeStoreError(null)).toBe('null');
     expect(describeStoreError(undefined)).toBe('undefined');
+  });
+});
+
+describe('an unreachable data folder', () => {
+  const at = (problem: Extract<IpcError, { kind: 'data_root_unreachable' }>['problem']) =>
+    formatError({ kind: 'data_root_unreachable', path: '/media/usb/Lucerna', problem });
+
+  it('says the folder is not there, and how to bring it back', () => {
+    expect(at({ kind: 'missing' })).toBe(
+      "Your data folder isn't there: /media/usb/Lucerna. If it is on a removable or network drive, reconnect it.",
+    );
+  });
+
+  it('says a file is not a folder', () => {
+    expect(at({ kind: 'not_a_folder' })).toBe('/media/usb/Lucerna is not a folder.');
+  });
+
+  it('says an emptied mount point no longer holds the data', () => {
+    expect(at({ kind: 'not_a_data_root' })).toContain('no longer holds your data');
+  });
+
+  it('keeps "could not check" apart from "not there", with the OS words', () => {
+    const msg = at({ kind: 'unreadable', details: 'Access is denied.' });
+    expect(msg).toContain("couldn't check");
+    expect(msg).toContain('Access is denied.');
+    expect(msg).not.toContain("isn't there");
+  });
+
+  it('says a stalled drive did not answer in time, localised', () => {
+    expect(at({ kind: 'timed_out', seconds: 15 })).toContain('did not answer within 15 s');
+  });
+
+  it('is a clean message, not an opaque one', () => {
+    expect(ERROR_CLASS.data_root_unreachable).toBe('clean');
   });
 });

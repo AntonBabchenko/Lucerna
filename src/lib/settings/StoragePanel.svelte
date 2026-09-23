@@ -18,7 +18,7 @@
   // data-location.svelte.ts rune (also read by the fallback banner and the create/Play gating in
   // +page.svelte), so it survives a reload.
   import { open as openDirectory } from '@tauri-apps/plugin-dialog';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { commands, type LogRetentionPolicy } from '$lib/ipc/bindings';
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
@@ -165,13 +165,19 @@
   async function refreshDataRootSize() {
     dataRootSizeLoading = true;
     dataRootSizeError = null;
-    const result = await commands.dataRootSizeBytes();
-    dataRootSizeLoading = false;
-    if (result.status === 'ok') {
-      dataRootSize = bytesOrNull(result.data);
-    } else {
+    try {
+      const result = await commands.dataRootSizeBytes();
+      if (result.status === 'ok') {
+        dataRootSize = bytesOrNull(result.data);
+      } else {
+        dataRootSize = null;
+        dataRootSizeError = formatError(result.error);
+      }
+    } catch (e) {
       dataRootSize = null;
-      dataRootSizeError = formatError(result.error);
+      dataRootSizeError = describeStoreError(e);
+    } finally {
+      dataRootSizeLoading = false;
     }
   }
 
@@ -181,6 +187,84 @@
     void refreshDataRootSize();
     void recheckBlocked();
   });
+
+  // Free space on the data folder's drive — measured only for the real data folder: not before
+  // the status is known (fellBack reads false until then), not in a recovery session (its root is
+  // a throwaway), not while a move is running or waiting for restart. A primitive derived wakes
+  // its effect only on an edge: a late first load, or a move settling back to idle — never on
+  // every progress poll. The backend refuses the same states and checks the folder is still the
+  // data folder; "couldn't be measured" is said, never a number for some other drive.
+  let freeBytes = $state<number | null>(null);
+  let freeLoading = $state(true);
+  let freeError = $state<string | null>(null);
+  const canMeasureFree = $derived(
+    dataLocation.loaded && !dataLocation.fellBack && dataLocation.relocation.kind === 'idle',
+  );
+  async function refreshFreeSpace() {
+    if (!canMeasureFree) return;
+    freeLoading = true;
+    freeError = null;
+    try {
+      const r = await commands.dataRootFreeBytes();
+      if (r.status === 'ok') {
+        freeBytes = bytesOrNull(r.data);
+      } else {
+        freeBytes = null;
+        freeError = formatError(r.error);
+      }
+    } catch (e) {
+      freeBytes = null;
+      freeError = describeStoreError(e);
+    } finally {
+      freeLoading = false;
+    }
+  }
+  $effect(() => {
+    if (canMeasureFree) untrack(() => void refreshFreeSpace());
+  });
+
+  // Open the data folder in the OS file manager. The button is always on the page (a search jump
+  // must land on something); where it cannot work, it is disabled and says why. The backend checks
+  // the folder is really there first — on macOS and Linux the opener reports success even when
+  // nothing opens.
+  let openingFolder = $state(false);
+  let openFolderError = $state<string | null>(null);
+  // On macOS the default data folder ends in .app: the backend reveals it, and Finder shows it as
+  // an application — so say how to look inside rather than leave the user facing an "app".
+  let openFolderNote = $state<string | null>(null);
+  // Before the status loads there is no reason to give yet — the block above shows "…".
+  const openFolderReason = $derived(
+    !dataLocation.loaded
+      ? null
+      : dataLocation.fellBack
+        ? $t('settings.storage.dataLocation.openDataFolderRecovery')
+        : dataLocation.relocation.kind === 'restart_required'
+          ? $t('settings.storage.dataLocation.openDataFolderRestart')
+          : dataLocation.relocation.kind !== 'idle'
+            ? $t('settings.storage.dataLocation.openDataFolderMoving')
+            : null,
+  );
+  async function openDataFolder() {
+    openingFolder = true;
+    openFolderError = null;
+    openFolderNote = null;
+    try {
+      const r = await commands.openDataFolder();
+      if (r.status === 'ok' && r.data === 'revealed') {
+        openFolderNote = $t('settings.storage.dataLocation.openDataFolderRevealed');
+      } else if (r.status === 'error') {
+        openFolderError = $t('settings.storage.dataLocation.openDataFolderFailed', {
+          error: formatError(r.error),
+        });
+      }
+    } catch (e) {
+      openFolderError = $t('settings.storage.dataLocation.openDataFolderFailed', {
+        error: describeStoreError(e),
+      });
+    } finally {
+      openingFolder = false;
+    }
+  }
 
   // ── Data-root relocation ────────────────────────────────────────────────
   type Bytes = number | null;
@@ -375,6 +459,7 @@
     // The attempt may have touched disk, and what blocks a move may have changed while it ran —
     // re-measure and re-ask.
     void refreshDataRootSize();
+    void refreshFreeSpace();
     await recheckBlocked();
     // The blocking dialog's opener (the confirm button) is gone, so focus fell to <body>, outside
     // SettingsModal's panel-scoped Tab handler. Give it back.
@@ -401,8 +486,11 @@
       }
     } finally {
       // Re-measure whatever happened: a partial clear must show the size that
-      // is really left, beside its error (STOR-22).
+      // is really left, beside its error (STOR-22). The cache lives under the
+      // data folder, so its total and its drive's free space moved too.
       await refresh();
+      void refreshDataRootSize();
+      void refreshFreeSpace();
       clearing = false;
     }
   }
@@ -506,10 +594,51 @@
             {/if}
           </div>
           <StatusMessage message={dataRootSizeError} tone="danger" />
+          {#if canMeasureFree}
+            <div class="text-sm flex items-center gap-1" data-testid="data-root-free">
+              <span class="text-muted">{$t('settings.storage.dataLocation.freeLabel')}</span>
+              {#if freeLoading}
+                <Spinner size="sm" class="text-muted" />
+              {:else if freeBytes === null}
+                <span class="ml-1 text-warning-text"
+                  >{$t('settings.storage.dataLocation.sizeUnknown')}</span
+                >
+              {:else}
+                <span class="font-medium ml-1"
+                  >{formatSize($t, freeBytes) || $t('format.size.bytes', { n: 0 })}</span
+                >
+              {/if}
+            </div>
+            <StatusMessage
+              message={freeError === dataRootSizeError ? null : freeError}
+              tone="danger"
+            />
+          {/if}
         {/if}
       {:else}
         <p class="text-xs text-muted">…</p>
       {/if}
+
+      <SettingsField anchor="storage.openDataFolder">
+        <div class="flex flex-col items-start gap-1">
+          <BusyButton
+            type="button"
+            class="btn-secondary btn-sm inline-flex items-center gap-1.5 shrink-0"
+            busy={openingFolder}
+            disabled={!dataLocation.loaded || openFolderReason !== null}
+            aria-describedby={openFolderReason ? 'storage-open-folder-reason' : undefined}
+            onclick={() => void openDataFolder()}
+          >
+            {#if !openingFolder}<Icon name="folderOpen" size={14} />{/if}
+            {$t('settings.storage.dataLocation.openDataFolderBtn')}
+          </BusyButton>
+          {#if openFolderReason}
+            <p id="storage-open-folder-reason" class="text-xs text-muted">{openFolderReason}</p>
+          {/if}
+          <StatusMessage message={openFolderNote} tone="info" />
+          <StatusMessage message={openFolderError} tone="danger" />
+        </div>
+      </SettingsField>
 
       <div class="flex flex-col gap-2">
         <div class="flex flex-wrap gap-2">

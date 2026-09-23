@@ -1,7 +1,7 @@
 import type { Translate } from '$lib/i18n';
 
 /**
- * Human-readable byte size using B / KB / MB / GB (1024 divisor).
+ * Human-readable byte size using B / KB / MB / GB / TB (1024 divisor).
  * Returns an empty string for null / non-positive sizes so callers can
  * render "" without a guard. Caller passes `$t` so the unit label
  * localizes on locale change.
@@ -17,5 +17,6 @@ export function formatSize(t: Translate, size: number | null | undefined): strin
   if (size < 1024) return t('format.size.bytes', { n: Math.round(size) });
   if (size < 1024 * 1024) return t('format.size.kilobytes', { n: size / 1024 });
   if (size < 1024 * 1024 * 1024) return t('format.size.megabytes', { n: size / 1048576 });
-  return t('format.size.gigabytes', { n: size / 1073741824 });
+  if (size < 1024 ** 4) return t('format.size.gigabytes', { n: size / 1073741824 });
+  return t('format.size.terabytes', { n: size / 1024 ** 4 });
 }

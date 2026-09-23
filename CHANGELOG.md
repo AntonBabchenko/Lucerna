@@ -23,6 +23,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Storage opens the data folder and shows how much space its drive has
+  left.** The data-folder block gains a button that opens the folder in your
+  file manager and a line with the free space on its drive, in terabytes where
+  that fits. Both first check that the folder is really there and still holds
+  your data: an unplugged drive or an empty mount point is said as such, never
+  answered with another drive's figures, and a missing or unreadable folder no
+  longer reads as a total size of zero. On macOS the default data folder is
+  shown in Finder instead of being mistaken for an application.
 - **Help can report a bug, and About says which build you have.** The Help
   page links straight to GitHub's bug form, opens the launcher's own log
   folder, and says where to send a security problem privately. About shows the

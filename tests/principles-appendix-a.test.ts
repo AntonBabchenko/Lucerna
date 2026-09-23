@@ -20,6 +20,8 @@ describe('PRINCIPLES.md Appendix A — opener rows', () => {
       'open_log_folder',
       'open_launcher_log_folder',
       'open_imported_source_folder',
+      'open_data_move_leftovers',
+      'open_data_folder',
       'server_open_folder',
       'server_open_logs_folder',
       'server_open_plugins_folder',

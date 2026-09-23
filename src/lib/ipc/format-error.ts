@@ -6,6 +6,7 @@ import { displayLoader } from '$lib/instances/loader-display';
 import type {
   BundleError,
   DatapackRejection,
+  FolderProblem,
   FormatError,
   Error as IpcError,
   LoaderKind,
@@ -232,6 +233,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
   data_location_unavailable: 'clean',
+  data_root_unreachable: 'clean',
   // Built from one boolean — there is no raw text to truncate.
   data_relocation_in_progress: 'clean',
   update_blocked: 'clean',
@@ -440,6 +442,24 @@ function bundleErrorReason(reason: BundleError): string {
       const _exhaustive: never = reason;
       return _exhaustive;
     }
+  }
+}
+
+/** Which way the data folder can't be used, in words: "not there" is never said for
+ *  "couldn't check" (then the OS's own words follow). */
+function dataRootUnreachable(path: string, problem: FolderProblem): string {
+  const translate = get(t);
+  switch (problem.kind) {
+    case 'missing':
+      return translate('errors.dataRootUnreachable.missing', { path });
+    case 'not_a_folder':
+      return translate('errors.dataRootUnreachable.notAFolder', { path });
+    case 'not_a_data_root':
+      return translate('errors.dataRootUnreachable.notADataRoot', { path });
+    case 'unreadable':
+      return translate('errors.dataRootUnreachable.unreadable', { path, details: problem.details });
+    case 'timed_out':
+      return translate('errors.dataRootUnreachable.timedOut', { path, seconds: problem.seconds });
   }
 }
 
@@ -842,6 +862,8 @@ export function formatError(e: IpcError): string {
       return dataLocationMigrationFailed(e);
     case 'data_location_unavailable':
       return translate('errors.dataLocationUnavailable');
+    case 'data_root_unreachable':
+      return dataRootUnreachable(e.path, e.problem);
     case 'data_relocation_in_progress':
       return translate(
         e.restart_required

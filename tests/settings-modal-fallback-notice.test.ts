@@ -47,6 +47,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
+    dataRootFreeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 1073741824 }),
+    openDataFolder: vi.fn().mockResolvedValue({ status: 'ok', data: 'opened' }),
     restartBlocked: vi.fn().mockResolvedValue('none'),
     setDataLocation: vi.fn().mockReturnValue(new Promise(() => {})),
   },

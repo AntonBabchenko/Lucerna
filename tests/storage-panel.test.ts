@@ -41,6 +41,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     // Data-root size is loaded lazily via its own command (split from getDataLocation so startup
     // never walks the whole tree).
     dataRootSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 4096 }),
+    dataRootFreeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 1073741824 }),
+    openDataFolder: vi.fn().mockResolvedValue({ status: 'ok', data: 'opened' }),
     // The move buttons are enabled ONLY on an exact 'none'.
     restartBlocked: vi.fn().mockResolvedValue('none'),
     // A clean move never returns — the backend restarts the app. A resolved `null` (the old
