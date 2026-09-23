@@ -158,8 +158,9 @@ one-click self-update: the installer is downloaded, verified against its
 Linux AppImage in-app, with an honest deb/rpm fallback). No auto-updates
 run without you asking.
 
-**System integration** — opt-in "hide launcher to tray when Minecraft
-starts" with auto-restore on game exit, a compact mini-window mode,
+**System integration** — a choice of what the launcher does when a game
+starts (stay open, minimise, or hide to the tray) with auto-restore on game
+exit, a compact mini-window mode,
 light/dark/system theme picker, an English / Russian interface language
 switch, a relocatable data root, and a guided tour the first time you visit
 Manage / Add-ons / Logs / Modpacks / Worlds / Servers / server management.

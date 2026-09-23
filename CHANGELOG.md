@@ -23,6 +23,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Choose what the launcher does when a game starts: stay open, minimise, or
+  hide to the tray.** The old checkbox becomes three choices under Settings →
+  Game, and an existing setting carries over. The note about a missing system
+  tray is visible before you pick it. On Linux the page warns that some
+  desktops can't bring a minimised launcher back by themselves. On macOS a click
+  on the Dock icon now brings back a minimised or hidden launcher.
 - **Storage opens the data folder and shows how much space its drive has
   left.** The data-folder block gains a button that opens the folder in your
   file manager and a line with the free space on its drive, in terabytes where
