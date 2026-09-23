@@ -73,7 +73,7 @@
       {value}
       {disabled}
       aria-describedby={hint ? hintId : undefined}
-      class="w-28 border border-border-emphasis rounded px-2 py-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+      class="w-28 border border-border-emphasis rounded px-2 py-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted"
       onchange={onChange}
       data-testid={testId}
     />
