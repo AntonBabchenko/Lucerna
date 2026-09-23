@@ -47,6 +47,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Settings are heard as well as seen.** Checkbox groups and helper texts are
+  announced with their controls, the GitHub button's spoken name is its visible
+  label, the version is guarded across the three manifests, native checkboxes
+  follow the accent colour, info and success text meets contrast in both
+  themes, toasts move out of a dialog's way while one is open, and the
+  changelog's versions are headings.
 - **Settings search finds the words on the page.** Plurals, Russian word forms
   and the labels printed next to a control now match; result labels use the
   page's own words; a short query such as "ai" no longer matches inside other
