@@ -47,6 +47,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Settings say one thing one way.** The Help page stopped calling the tour
+  four different names, the saved-server and log-retention descriptions now say
+  what they actually cover, the About page's legal lines lost the developer
+  jargon, the tray description admits it needs a system tray, and the startup
+  update check says that it also looks at your imported modpacks.
 - **Settings are heard as well as seen.** Checkbox groups and helper texts are
   announced with their controls, the GitHub button's spoken name is its visible
   label, the version is guarded across the three manifests, native checkboxes
