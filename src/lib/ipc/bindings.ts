@@ -645,6 +645,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  is shown, so the next build is always the one that needs them.
 	 */
 	traySetLabels: (labels: TrayLabels) => __TAURI_INVOKE<void>("tray_set_labels", { labels }),
+	/**
+	 *  The close dialog's words for the native fallback, in the interface
+	 *  language. Sent with the tray labels; English until they arrive.
+	 */
+	closeSetLabels: (labels: CloseLabels) => __TAURI_INVOKE<void>("close_set_labels", { labels }),
+	/**
+	 *  "My dialog for this ask is on screen." False = superseded, or the native
+	 *  dialog already took over: the frontend closes its modal.
+	 */
+	appCloseAskShown: (generation: number) => __TAURI_INVOKE<boolean>("app_close_ask_shown", { generation }),
+	/**
+	 *  The user chose to close. Re-checks before exiting: anything that appeared
+	 *  while the dialog was open is named in a new ask rather than killed unseen.
+	 */
+	appConfirmClose: (generation: number, shown: CloseLosses) => typedError<null, Error>(__TAURI_INVOKE("app_confirm_close", { generation, shown })),
 	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	/**
@@ -2301,6 +2316,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 
 /** Events */
 export const events = {
+	closeConfirmNeeded: makeEvent<CloseConfirmNeeded>("close-confirm-needed"),
 	dataMigrationProgress: makeEvent<DataMigrationProgress>("data-migration-progress"),
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
 	gpuPrefApplied: makeEvent<GpuPrefApplied>("gpu-pref-applied"),
@@ -2747,6 +2763,50 @@ export type CloneProgress = {
 	category: ContentCategory,
 	current: number,
 	total: number,
+};
+
+/**
+ *  The backend asks the frontend to show the close dialog. `generation`
+ *  identifies this ask: the frontend acknowledges it once its modal is up, and
+ *  a stale acknowledgement for an older ask is refused.
+ */
+export type CloseConfirmNeeded = {
+	generation: number,
+	losses: CloseLosses,
+};
+
+/**
+ *  Pre-translated strings for the native dialog, sent by the frontend (which
+ *  owns the language) alongside the tray labels. Plural-free: Rust does not
+ *  run ICU, so the frontend sends the one-server and many-servers lines.
+ */
+export type CloseLabels = {
+	title: string,
+	close_everything: string,
+	close_lucerna: string,
+	cancel: string,
+	games: string,
+	servers_one: string,
+	servers_many: string,
+	operation: string,
+	unchecked: string,
+};
+
+/**
+ *  What closing Lucerna would take down with it — the window's close asks
+ *  about exactly these, one line each (spec 11c §3).
+ * 
+ *  `games` is a flag, not a count: nothing says "3 games". `servers` is a
+ *  count because its sentence is a plural. `unchecked` is a server whose PID
+ *  file could not be classified — one from an earlier session. The exit hook
+ *  cannot kill what it cannot identify, so closing does NOT stop it; the copy
+ *  says so rather than threatening a kill that will not happen.
+ */
+export type CloseLosses = {
+	games: boolean,
+	servers: number,
+	operation: boolean,
+	unchecked: boolean,
 };
 
 /**

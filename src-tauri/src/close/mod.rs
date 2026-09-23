@@ -10,6 +10,15 @@
 //! without an `AppHandle`; the impure flow that drives them lives beside them.
 
 use crate::data_root::blockers::CloseLosses;
+
+/// The backend asks the frontend to show the close dialog. `generation`
+/// identifies this ask: the frontend acknowledges it once its modal is up, and
+/// a stale acknowledgement for an older ask is refused.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, tauri_specta::Event)]
+pub struct CloseConfirmNeeded {
+    pub generation: u32,
+    pub losses: CloseLosses,
+}
 use crate::data_root::state::RelocationStatus;
 
 // ---------------------------------------------------------------------------

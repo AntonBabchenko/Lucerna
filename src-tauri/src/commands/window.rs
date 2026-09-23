@@ -37,6 +37,36 @@ pub async fn tray_set_labels(labels: crate::tray::TrayLabels) {
     crate::tray::set_labels(labels);
 }
 
+/// The close dialog's words for the native fallback, in the interface
+/// language. Sent with the tray labels; English until they arrive.
+#[tauri::command]
+#[specta::specta]
+pub async fn close_set_labels(_labels: crate::close::CloseLabels) {
+    // STUB (red).
+}
+
+/// "My dialog for this ask is on screen." False = superseded, or the native
+/// dialog already took over: the frontend closes its modal.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_close_ask_shown(_generation: u32) -> bool {
+    // STUB (red).
+    false
+}
+
+/// The user chose to close. Re-checks before exiting: anything that appeared
+/// while the dialog was open is named in a new ask rather than killed unseen.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_confirm_close(
+    _app: tauri::AppHandle,
+    _generation: u32,
+    _shown: crate::data_root::blockers::CloseLosses,
+) -> Result<(), crate::error::Error> {
+    // STUB (red).
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn greet(name: String) -> Greeting {

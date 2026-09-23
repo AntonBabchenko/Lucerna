@@ -173,6 +173,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::window_set_compact,
             commands::window_set_expanded_floor,
             commands::tray_set_labels,
+            commands::close_set_labels,
+            commands::app_close_ask_shown,
+            commands::app_confirm_close,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
@@ -443,6 +446,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::DataMigrationProgress,
             commands::UpdateInstallPhase,
             tray::TrayQuitRefused,
+            close::CloseConfirmNeeded,
         ])
 }
 
