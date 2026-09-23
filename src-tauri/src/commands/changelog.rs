@@ -78,16 +78,57 @@ const UPSTREAM_REPO: &str = "AntonBabchenko/Lucerna";
 
 /// Pure: validate the baked-in values. Nothing from the environment is shown
 /// unchecked.
-pub fn build_info_from(_raw: RawBuild<'_>) -> BuildInfo {
-    // STUB (red).
+pub fn build_info_from(raw: RawBuild<'_>) -> BuildInfo {
+    let build = match raw.tag.filter(|t| !t.is_empty()) {
+        // A debug build is a development build whatever was baked in: the
+        // release workflow never builds debug.
+        _ if raw.debug => BuildKind::Development,
+        None => BuildKind::Local,
+        Some(tag) if is_version_tag(tag) => BuildKind::Tagged {
+            tag: tag.to_owned(),
+        },
+        Some(tag) => BuildKind::Unrecognised {
+            raw: tag
+                .chars()
+                .filter(|c| c.is_ascii_graphic())
+                .take(MAX_SHOWN_TAG)
+                .collect(),
+        },
+    };
+    let commit = raw
+        .commit
+        .filter(|c| (7..=40).contains(&c.len()) && c.chars().all(|ch| ch.is_ascii_hexdigit()))
+        .map(|c| c[..7].to_owned());
+    let fork = raw
+        .repo
+        .filter(|r| !r.is_empty() && *r != UPSTREAM_REPO)
+        .map(str::to_owned);
     BuildInfo {
-        version: String::new(),
-        build: BuildKind::Local,
-        commit: None,
-        fork: None,
-        os: String::new(),
-        arch: String::new(),
+        version: raw.version.to_owned(),
+        build,
+        commit,
+        fork,
+        os: raw.os.to_owned(),
+        arch: raw.arch.to_owned(),
     }
+}
+
+/// An unrecognised tag is shown, but never at unbounded length.
+const MAX_SHOWN_TAG: usize = 40;
+
+/// `vMAJOR.MINOR.PATCH` with an optional `-rc.N` — the only tags the release
+/// workflow runs on and the only ones worth trusting as a version.
+fn is_version_tag(tag: &str) -> bool {
+    let Some(rest) = tag.strip_prefix('v') else {
+        return false;
+    };
+    let (core, rc) = match rest.split_once("-rc.") {
+        Some((core, n)) => (core, Some(n)),
+        None => (rest, None),
+    };
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3 && parts.iter().all(|p| digits(p)) && rc.is_none_or(digits)
 }
 
 /// The running build's identity. Infallible: every input is compile-time.
