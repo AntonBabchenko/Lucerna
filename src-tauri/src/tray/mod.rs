@@ -22,6 +22,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager,
 };
+use tauri_specta::Event;
 
 /// Stable id for the single launcher tray icon. Used both to build it and
 /// to look it up / remove it through the `AppHandle`.
@@ -49,8 +50,13 @@ const DEFAULT_TOOLTIP: &str = "Lucerna — Minecraft running";
 static LABELS: Mutex<Option<TrayLabels>> = Mutex::new(None);
 
 /// Store the translated labels for the next tray build.
-pub fn set_labels(_labels: TrayLabels) {
-    // STUB (red): stores nothing yet.
+pub fn set_labels(labels: TrayLabels) {
+    match LABELS.lock() {
+        Ok(mut guard) => *guard = Some(labels),
+        // Poison means a panic while the lock was held; the slot holds plain
+        // strings that cannot be half-written, so overwriting it is safe.
+        Err(poisoned) => *poisoned.into_inner() = Some(labels),
+    }
 }
 
 /// The stored labels, or the English set the tray has always shipped with.
@@ -89,9 +95,29 @@ pub enum QuitVerdict {
 /// other path that can end the process, so it answers the same way.
 ///
 /// `Unknown` refuses too: "could not tell" is not "nothing is running".
-pub fn quit_verdict(_block: RestartBlock) -> QuitVerdict {
-    // STUB (red): always exits, which is today's behaviour.
-    QuitVerdict::Exit
+pub fn quit_verdict(block: RestartBlock) -> QuitVerdict {
+    match block {
+        RestartBlock::None => QuitVerdict::Exit,
+        RestartBlock::Running | RestartBlock::Busy | RestartBlock::Unknown => {
+            QuitVerdict::Refuse(block)
+        }
+    }
+}
+
+/// Sent to the frontend when a tray Quit was refused, so it can say why.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, tauri_specta::Event)]
+pub struct TrayQuitRefused {
+    pub block: RestartBlock,
+}
+
+/// Bring the window back, and say so in the log if that failed. Every path
+/// into here is a recovery path — the user asked for the window, or asked to
+/// quit and was refused — so a failure must not vanish: with the window still
+/// hidden and the tray about to be gone, nothing on screen would explain it.
+fn restore_or_log(app: &AppHandle, why: &str) {
+    if let Err(e) = restore_from_tray(app) {
+        crate::diag!("tray: could not restore the window ({why}): {e}");
+    }
 }
 
 /// Hide the main window and create the tray icon. Idempotent — if the
@@ -110,12 +136,13 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    let open = MenuItemBuilder::with_id("tray-open", "Open Launcher")
+    let labels = labels_or_default();
+    let open = MenuItemBuilder::with_id("tray-open", &labels.open)
         .build(app)
         .map_err(|e| Error::TrayIo {
             details: format!("menu open: {e}"),
         })?;
-    let quit = MenuItemBuilder::with_id("tray-quit", "Quit")
+    let quit = MenuItemBuilder::with_id("tray-quit", &labels.quit)
         .build(app)
         .map_err(|e| Error::TrayIo {
             details: format!("menu quit: {e}"),
@@ -136,15 +163,28 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("Lucerna — Minecraft running")
+        .tooltip(&labels.tooltip_running)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "tray-open" => {
-                let _ = restore_from_tray(app);
-            }
+            "tray-open" => restore_or_log(app, "open"),
             "tray-quit" => {
-                app.exit(0);
+                // Exiting runs the exit hook, which force-kills every tracked
+                // game and server (lib.rs, RunEvent::ExitRequested). So look
+                // first, with the same observer "Update now" uses.
+                match quit_verdict(crate::data_root::blockers::observe(app)) {
+                    QuitVerdict::Exit => app.exit(0),
+                    QuitVerdict::Refuse(block) => {
+                        restore_or_log(app, "quit refused");
+                        if let Err(e) = (TrayQuitRefused { block }).emit(app) {
+                            // The window is back, so the user is not stranded;
+                            // what is lost is the sentence saying why.
+                            crate::diag!(
+                                "tray: quit refused ({block:?}) but the notice was not sent: {e}"
+                            );
+                        }
+                    }
+                }
             }
             _ => {}
         })
@@ -158,7 +198,7 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
                 ..
             } = event
             {
-                let _ = restore_from_tray(tray.app_handle());
+                restore_or_log(tray.app_handle(), "icon click");
             }
         })
         .build(app)

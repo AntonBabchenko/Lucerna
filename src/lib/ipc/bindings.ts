@@ -639,6 +639,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  applications pass false (grow only when buttons would clip).
 	 */
 	windowSetExpandedFloor: (height: number | null, hug: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_expanded_floor", { height, hug })),
+	/**
+	 *  Store the tray menu's strings in the interface language. The tray is only
+	 *  built while the window is hidden, and the language can only change while it
+	 *  is shown, so the next build is always the one that needs them.
+	 */
+	traySetLabels: (labels: TrayLabels) => __TAURI_INVOKE<void>("tray_set_labels", { labels }),
 	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	/**
@@ -2311,6 +2317,7 @@ export const events = {
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
+	trayQuitRefused: makeEvent<TrayQuitRefused>("tray-quit-refused"),
 	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
 };
@@ -7323,6 +7330,27 @@ export type TaskReport = {
 };
 
 export type ThemePreference = "system" | "light" | "dark";
+
+/**
+ *  The menu strings the tray is built with. English constants until the
+ *  frontend — which owns the locale — sends the translated set.
+ * 
+ *  The tray exists ONLY while the window is hidden (`hide_to_tray` hides then
+ *  builds; `restore_from_tray` removes then shows), and the language can only
+ *  be changed from the window. So a language change while a tray is live is
+ *  unreachable, and storing the labels for the next build is enough — there is
+ *  no live-relabel path to write and never exercise.
+ */
+export type TrayLabels = {
+	open: string,
+	quit: string,
+	tooltip_running: string,
+};
+
+/**  Sent to the frontend when a tray Quit was refused, so it can say why. */
+export type TrayQuitRefused = {
+	block: RestartBlock,
+};
 
 /**
  *  Severity of a UI report. A closed enum rather than a `String` so an

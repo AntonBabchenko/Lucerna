@@ -28,6 +28,15 @@ pub async fn window_set_expanded_floor(
     crate::window::set_expanded_floor(&app, height, hug)
 }
 
+/// Store the tray menu's strings in the interface language. The tray is only
+/// built while the window is hidden, and the language can only change while it
+/// is shown, so the next build is always the one that needs them.
+#[tauri::command]
+#[specta::specta]
+pub async fn tray_set_labels(labels: crate::tray::TrayLabels) {
+    crate::tray::set_labels(labels);
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn greet(name: String) -> Greeting {
