@@ -318,8 +318,11 @@ describe('CurseForgeKeyForm — Clear key button is btn-secondary btn-sm (status
 describe('StoragePanel — cache-size display has font-medium class', () => {
   it('cache size span has font-medium class', async () => {
     const { container } = render(StoragePanel);
-    // Wait for the async IPC to resolve and show a real value
-    await screen.findByText(/MB/);
+    // Wait for the async IPC to resolve and show a real value. The size the
+    // mock returns, exactly — /MB/ used to be enough, but the log-retention
+    // description now prints "200 MB" synchronously, so a loose match finds
+    // two elements and the wait resolves before the size has arrived.
+    await screen.findByText('1.0 MB');
     const span = container.querySelector('span.font-medium');
     expect(span).not.toBeNull();
   });
