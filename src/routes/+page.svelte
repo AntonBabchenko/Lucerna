@@ -125,6 +125,9 @@
   import { fallbackMessage } from '$lib/settings/fallback-message';
   import { startupDialAllowed } from '$lib/settings/startup-network';
   import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
+  import CloseConfirmHost from '$lib/close/CloseConfirmHost.svelte';
+  import { nativeCloseLabels } from '$lib/close/close-copy';
+  import { trayLabels, trayRefusalKey } from '$lib/tray/tray-copy';
 
   // How long the startup "new version available" toast stays before it
   // auto-hides. It only hides (reappears next launch); the durable path
@@ -198,18 +201,16 @@
   // instance and would otherwise open a different instance's translations
   // than the one whose row the user just clicked.
   let l10nTargetId = $state<string | null>(null);
-  // The tray menu is built by the backend, which does not know the interface
-  // language. Send the three strings now and again on every language change.
-  // The tray only exists while the window is hidden, and the language can only
-  // change while it is shown, so whatever was sent last is what the next tray
-  // is built with. If this never lands, the tray keeps its English defaults.
+  // The tray menu and the native close dialog are built by the backend, which
+  // does not know the interface language. Send their strings now and again on
+  // every language change. The tray only exists while the window is hidden, and
+  // the language can only change while it is shown, so whatever was sent last
+  // is what the next tray is built with. The native close dialog is the
+  // fallback for when this page cannot show the question at all — so it must
+  // already hold the words. If either never lands, it speaks English.
   $effect(() => {
-    const labels = {
-      open: $t('tray.open'),
-      quit: $t('tray.quit'),
-      tooltip_running: $t('tray.tooltipRunning'),
-    };
-    void commands.traySetLabels(labels);
+    void commands.traySetLabels(trayLabels($t));
+    void commands.closeSetLabels(nativeCloseLabels($t));
   });
 
   $effect(() => {
@@ -1007,13 +1008,9 @@
     // install", though both read the same RestartBlock.
     events.trayQuitRefused
       .listen(({ payload }) => {
-        const key =
-          payload.block === 'running'
-            ? 'tray.blocked.running'
-            : payload.block === 'busy'
-              ? 'tray.blocked.busy'
-              : 'tray.blocked.unknown';
-        pushWarning(get(t)(key));
+        // 'none' is never refused; nothing to say.
+        if (payload.block === 'none') return;
+        pushWarning(get(t)(trayRefusalKey(payload.block)));
       })
       .then((u) => {
         trayQuitRefusedUnlisten = u;
@@ -2018,8 +2015,11 @@
     msSigningIn = false;
   }}
 />
-<!-- Last on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and the
-     data-folder move is started from SettingsModal: its blocking dialog has to paint above
+<!-- Near the end on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and
+     the data-folder move is started from SettingsModal: its blocking dialog has to paint above
      everything already open. Self-gating like WhatsNewModal — it renders nothing until a move
      runs or has left a restart pending. -->
 <DataMoveHost />
+<!-- LAST on purpose: the window's close question can arrive over anything, a data-move dialog
+     included, and must paint above it. Renders nothing until the backend asks. -->
+<CloseConfirmHost />

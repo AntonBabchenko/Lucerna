@@ -6,6 +6,7 @@
 //! `starting` sets were invisible, and a PID whose image could not be queried
 //! (always, on macOS) counted as not ours.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
@@ -64,6 +65,83 @@ pub fn classify(observed: &Observed) -> RestartBlock {
     }
 }
 
+/// What closing Lucerna would take down with it — the window's close asks
+/// about exactly these, one line each (spec 11c §3).
+///
+/// `games` is a flag, not a count: nothing says "3 games". `servers` is a
+/// count because its sentence is a plural. `unchecked` is a server whose PID
+/// file could not be classified — one from an earlier session. The exit hook
+/// cannot kill what it cannot identify, so closing does NOT stop it; the copy
+/// says so rather than threatening a kill that will not happen.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type,
+)]
+pub struct CloseLosses {
+    pub games: bool,
+    pub servers: u32,
+    pub operation: bool,
+    pub unchecked: bool,
+}
+
+impl CloseLosses {
+    /// The answer when the check itself could not run (it panicked, or it
+    /// took longer than the close can wait). Asks, never exits.
+    pub fn unchecked() -> Self {
+        Self {
+            unchecked: true,
+            ..Self::default()
+        }
+    }
+
+    /// Nothing would be lost: the close can go ahead without asking.
+    pub fn is_clear(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Everything `losses` needs, observed by the caller. Unlike [`Observed`]
+/// it keeps server IDENTITIES, so a server that is both in the running
+/// registry and probed live on disk is counted once.
+pub struct ObservedLosses {
+    pub games: bool,
+    /// Ids from the running registry and the starting set.
+    pub server_ids: BTreeSet<String>,
+    pub operation: bool,
+    /// One `(dir name = server id, probe)` per directory under `servers/`;
+    /// `Err` = `servers/` itself could not be enumerated.
+    pub dirs: Result<Vec<(String, PidProbe)>, ()>,
+}
+
+/// Pure decision: what closing would lose.
+pub fn losses(observed: &ObservedLosses) -> CloseLosses {
+    let mut ids = observed.server_ids.clone();
+    let mut unchecked = false;
+    match &observed.dirs {
+        Ok(dirs) => {
+            for (id, probe) in dirs {
+                match probe {
+                    // Live and ours: a server this session may not have in its
+                    // registry (adopted from an earlier run) — still stopped.
+                    PidProbe::Ours => {
+                        ids.insert(id.clone());
+                    }
+                    // Could not be identified: the exit hook cannot kill it.
+                    PidProbe::Unknown => unchecked = true,
+                    PidProbe::NoPid | PidProbe::NotOurs => {}
+                }
+            }
+        }
+        // servers/ itself could not be listed: not "no servers".
+        Err(()) => unchecked = true,
+    }
+    CloseLosses {
+        games: observed.games,
+        servers: u32::try_from(ids.len()).unwrap_or(u32::MAX),
+        operation: observed.operation,
+        unchecked,
+    }
+}
+
 /// Probe `<server_dir>/runtime/server.pid` without touching `server.json`.
 pub fn probe_server_dir(
     server_dir: &Path,
@@ -94,6 +172,12 @@ pub fn probe_server_dir(
 /// One probe per directory under `servers_root`. Non-directories (`.DS_Store`)
 /// are ignored; an entry that cannot be inspected is `Unknown`.
 pub(crate) fn probe_all(servers_root: &Path) -> Result<Vec<PidProbe>, ()> {
+    probe_all_named(servers_root).map(|probes| probes.into_iter().map(|(_, p)| p).collect())
+}
+
+/// [`probe_all`] with each server's id — its directory name — kept, so a
+/// server seen both in the registry and on disk can be counted once.
+pub(crate) fn probe_all_named(servers_root: &Path) -> Result<Vec<(String, PidProbe)>, ()> {
     let children = match crate::data_root::walk::real_list_dir(servers_root) {
         Ok(children) => children,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -107,14 +191,24 @@ pub(crate) fn probe_all(servers_root: &Path) -> Result<Vec<PidProbe>, ()> {
     };
     Ok(children
         .iter()
-        .filter_map(|child| match std::fs::symlink_metadata(child) {
-            Ok(meta) if meta.is_dir() => Some(probe_server_dir(
-                child,
-                &crate::platform::process_alive,
-                &|pid| crate::platform::process_image_probe(pid, "java"),
-            )),
-            Ok(_) => None,
-            Err(_) => Some(PidProbe::Unknown),
+        .filter_map(|child| {
+            // A listed child always has a final component; the full path is a
+            // distinct stand-in if it somehow does not, so two such entries are
+            // never merged into one server.
+            let id = child
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| child.display().to_string());
+            match std::fs::symlink_metadata(child) {
+                Ok(meta) if meta.is_dir() => Some((
+                    id,
+                    probe_server_dir(child, &crate::platform::process_alive, &|pid| {
+                        crate::platform::process_image_probe(pid, "java")
+                    }),
+                )),
+                Ok(_) => None,
+                Err(_) => Some((id, PidProbe::Unknown)),
+            }
         })
         .collect())
 }
@@ -135,10 +229,41 @@ pub fn observe(app: &tauri::AppHandle) -> RestartBlock {
             .is_empty()
             || crate::servers_runtime::runtime::is_any_starting(),
         server_dirs,
-        claim_held: crate::instances::maintenance::any_active()
-            || crate::servers_runtime::maintenance::any_active()
-            || crate::servers_runtime::upload_control::upload_any_active()
-            || crate::l10n::prefill::cancel::any_active(),
+        claim_held: claim_held(),
+    })
+}
+
+/// A long operation holds a claim: maintenance, a shared write or read, an
+/// upload, an AI pre-fill. One definition for both observers.
+fn claim_held() -> bool {
+    crate::instances::maintenance::any_active()
+        || crate::servers_runtime::maintenance::any_active()
+        || crate::servers_runtime::upload_control::upload_any_active()
+        || crate::l10n::prefill::cancel::any_active()
+}
+
+/// What closing Lucerna would lose right now. Does file and process I/O and
+/// reads registries that PANIC on a poisoned lock — so the caller runs it
+/// inside `spawn_blocking`, where a panic becomes a JoinError it can map to
+/// `CloseLosses::unchecked()` instead of taking the close task down.
+pub fn observe_losses(app: &tauri::AppHandle) -> CloseLosses {
+    let dirs = match crate::paths::servers_dir(app) {
+        Ok(dir) => probe_all_named(&dir),
+        Err(e) => {
+            crate::diag!("[blockers] cannot resolve the servers dir: {e}");
+            Err(())
+        }
+    };
+    let mut server_ids: BTreeSet<String> = crate::servers_runtime::runtime::running_ids_snapshot()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    server_ids.extend(crate::servers_runtime::runtime::starting_ids_snapshot());
+    losses(&ObservedLosses {
+        games: crate::launch::spawn::is_any_running() || crate::launch::spawn::is_any_starting(),
+        server_ids,
+        operation: claim_held(),
+        dirs,
     })
 }
 
@@ -310,5 +435,92 @@ mod tests {
         std::fs::create_dir_all(root.join("alpha").join("runtime")).unwrap();
         std::fs::write(root.join(".DS_Store"), b"x").unwrap();
         assert_eq!(probe_all(&root), Ok(vec![PidProbe::NoPid]));
+    }
+
+    fn lost(
+        games: bool,
+        ids: &[&str],
+        operation: bool,
+        dirs: Result<Vec<(&str, PidProbe)>, ()>,
+    ) -> CloseLosses {
+        losses(&ObservedLosses {
+            games,
+            server_ids: ids.iter().map(|s| s.to_string()).collect(),
+            operation,
+            dirs: dirs.map(|v| v.into_iter().map(|(n, p)| (n.to_string(), p)).collect()),
+        })
+    }
+
+    #[test]
+    fn a_running_game_is_a_game_and_nothing_else() {
+        let l = lost(true, &[], false, Ok(vec![]));
+        assert_eq!(
+            l,
+            CloseLosses {
+                games: true,
+                ..CloseLosses::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_server_seen_twice_is_counted_once() {
+        // "alpha" is in the running registry AND probed live on disk.
+        let l = lost(
+            false,
+            &["alpha", "beta"],
+            false,
+            Ok(vec![("alpha", PidProbe::Ours), ("gamma", PidProbe::NoPid)]),
+        );
+        assert_eq!(l.servers, 2);
+        assert!(!l.unchecked);
+    }
+
+    #[test]
+    fn a_server_only_on_disk_still_counts() {
+        // Adopted from an earlier session: not in this session's registry.
+        let l = lost(false, &[], false, Ok(vec![("delta", PidProbe::Ours)]));
+        assert_eq!(l.servers, 1);
+    }
+
+    #[test]
+    fn a_claim_alone_is_an_operation() {
+        let l = lost(false, &[], true, Ok(vec![]));
+        assert_eq!(
+            l,
+            CloseLosses {
+                operation: true,
+                ..CloseLosses::default()
+            }
+        );
+    }
+
+    #[test]
+    fn an_unidentified_server_is_unchecked_not_counted() {
+        let l = lost(false, &[], false, Ok(vec![("old", PidProbe::Unknown)]));
+        assert_eq!(l, CloseLosses::unchecked());
+    }
+
+    #[test]
+    fn unchecked_coexists_with_an_operation() {
+        let l = lost(false, &[], true, Ok(vec![("old", PidProbe::Unknown)]));
+        assert!(l.operation && l.unchecked);
+    }
+
+    #[test]
+    fn an_unreadable_servers_dir_is_unchecked() {
+        let l = lost(false, &[], false, Err(()));
+        assert!(l.unchecked);
+    }
+
+    #[test]
+    fn nothing_observed_loses_nothing() {
+        let l = lost(
+            false,
+            &[],
+            false,
+            Ok(vec![("a", PidProbe::NoPid), ("b", PidProbe::NotOurs)]),
+        );
+        assert!(l.is_clear());
     }
 }

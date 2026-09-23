@@ -47,6 +47,10 @@ const DEFAULT_OPEN: &str = "Open Launcher";
 const DEFAULT_QUIT: &str = "Quit";
 const DEFAULT_TOOLTIP: &str = "Lucerna — Minecraft running";
 
+// Process-wide, and never reset between unit tests: exactly one test writes
+// it (`stored_labels_are_what_the_next_tray_is_built_from`). Anything that
+// needs the "nothing stored" branch goes through the pure `labels_from(&None)`
+// instead, so no test depends on the order the others ran in.
 static LABELS: Mutex<Option<TrayLabels>> = Mutex::new(None);
 
 /// Store the translated labels for the next tray build.
@@ -64,12 +68,19 @@ pub fn set_labels(labels: TrayLabels) {
 /// restrictive direction for a fallback whose input may simply be absent.
 pub fn labels_or_default() -> TrayLabels {
     match LABELS.lock() {
-        Ok(guard) => guard.clone().unwrap_or_else(default_labels),
+        Ok(guard) => labels_from(&guard),
         // A poisoned lock means a panic while holding it; the labels are
         // plain strings and cannot be half-written, so the defaults are a
         // safe read rather than a reason to refuse building a tray at all.
-        Err(poisoned) => poisoned.into_inner().clone().unwrap_or_else(default_labels),
+        Err(poisoned) => labels_from(&poisoned.into_inner()),
     }
+}
+
+/// The fallback itself: what was stored, or the English set a tray has always
+/// shipped with. Pure, so it is tested directly rather than through the
+/// process-wide slot.
+pub fn labels_from(stored: &Option<TrayLabels>) -> TrayLabels {
+    stored.clone().unwrap_or_else(default_labels)
 }
 
 fn default_labels() -> TrayLabels {
@@ -111,12 +122,27 @@ pub struct TrayQuitRefused {
 }
 
 /// Bring the window back, and say so in the log if that failed. Every path
-/// into here is a recovery path — the user asked for the window, or asked to
-/// quit and was refused — so a failure must not vanish: with the window still
-/// hidden and the tray about to be gone, nothing on screen would explain it.
-fn restore_or_log(app: &AppHandle, why: &str) {
+/// into here is a recovery path — the user asked for the window, asked to quit
+/// and was refused, or is about to be asked whether to close — so a failure
+/// must not vanish. Main thread only (see `restore_from_tray`).
+pub(crate) fn restore_or_log(app: &AppHandle, why: &str) {
     if let Err(e) = restore_from_tray(app) {
         crate::diag!("tray: could not restore the window ({why}): {e}");
+    }
+}
+
+/// A tray Quit was refused: bring the window back, then say why. Callable from
+/// any thread — the restore is posted to the main thread, and the notice is
+/// emitted after it, in the same FIFO, so it lands in a visible window.
+pub(crate) fn refuse_quit(app: &AppHandle, block: RestartBlock) {
+    let restore_app = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || restore_or_log(&restore_app, "quit refused")) {
+        crate::diag!("tray: quit refused ({block:?}) but the window could not be restored: {e}");
+    }
+    if let Err(e) = (TrayQuitRefused { block }).emit(app) {
+        // The window is back, so the user is not stranded; what is lost is
+        // the sentence saying why.
+        crate::diag!("tray: quit refused ({block:?}) but the notice was not sent: {e}");
     }
 }
 
@@ -168,24 +194,11 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray-open" => restore_or_log(app, "open"),
-            "tray-quit" => {
-                // Exiting runs the exit hook, which force-kills every tracked
-                // game and server (lib.rs, RunEvent::ExitRequested). So look
-                // first, with the same observer "Update now" uses.
-                match quit_verdict(crate::data_root::blockers::observe(app)) {
-                    QuitVerdict::Exit => app.exit(0),
-                    QuitVerdict::Refuse(block) => {
-                        restore_or_log(app, "quit refused");
-                        if let Err(e) = (TrayQuitRefused { block }).emit(app) {
-                            // The window is back, so the user is not stranded;
-                            // what is lost is the sentence saying why.
-                            crate::diag!(
-                                "tray: quit refused ({block:?}) but the notice was not sent: {e}"
-                            );
-                        }
-                    }
-                }
-            }
+            // Exiting runs the exit hook, which force-kills every tracked game
+            // and server (lib.rs, RunEvent::ExitRequested). The close module
+            // looks first — off this thread, through the same gate and the
+            // same single-flight flag as the window's ×.
+            "tray-quit" => crate::close::tray_quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -209,8 +222,16 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
-/// Remove the tray icon and bring the main window back to the front.
-/// No-op if no tray icon exists.
+/// Bring the main window back to the front, then remove the tray icon.
+///
+/// The window comes first: the tray is the only way back to a hidden window,
+/// so it goes only once the window is up. No window, or a failed show → `Err`
+/// with the tray KEPT, so Open can be retried. Unminimize and focus are
+/// cosmetic next to that and are logged, not fatal.
+///
+/// Main thread only: on Windows the icon teardown (`Shell_NotifyIcon`) must
+/// run on the thread that created it. Every caller runs there or posts through
+/// `run_on_main_thread`.
 ///
 /// Removal goes through `AppHandle::remove_tray_by_id`, which calls
 /// `TrayIcon::close()` — the only thing that actually tears the icon out
@@ -218,15 +239,25 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
 /// earlier buggy run (which could stack multiple icons under the same id)
 /// are all cleared in one restore.
 pub fn restore_from_tray(app: &AppHandle) -> Result<()> {
-    while app.remove_tray_by_id(TRAY_ID).is_some() {}
-
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| Error::TrayIo {
-            details: format!("show window: {e}"),
-        })?;
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    let window = app.get_webview_window("main");
+    let window = match (crate::close::restore_plan(window.is_some()), window) {
+        (crate::close::RestorePlan::ShowThenRemove, Some(window)) => window,
+        _ => {
+            return Err(Error::TrayIo {
+                details: "no main window to show; the tray stays".into(),
+            })
+        }
+    };
+    window.show().map_err(|e| Error::TrayIo {
+        details: format!("show window: {e}"),
+    })?;
+    if let Err(e) = window.unminimize() {
+        crate::diag!("tray: the window is shown but could not be unminimized: {e}");
     }
+    if let Err(e) = window.set_focus() {
+        crate::diag!("tray: the window is shown but could not take focus: {e}");
+    }
+    while app.remove_tray_by_id(TRAY_ID).is_some() {}
     Ok(())
 }
 
@@ -246,6 +277,19 @@ mod tests {
     fn stored_labels_are_what_the_next_tray_is_built_from() {
         set_labels(labels("ru"));
         assert_eq!(labels_or_default(), labels("ru"));
+    }
+
+    #[test]
+    fn nothing_stored_builds_the_english_set_through_the_real_fallback() {
+        let d = labels_from(&None);
+        assert_eq!(d.open, "Open Launcher");
+        assert_eq!(d.quit, "Quit");
+        assert_eq!(d.tooltip_running, "Lucerna — Minecraft running");
+    }
+
+    #[test]
+    fn stored_labels_win_over_the_defaults() {
+        assert_eq!(labels_from(&Some(labels("ru"))), labels("ru"));
     }
 
     #[test]

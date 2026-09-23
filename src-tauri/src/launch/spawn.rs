@@ -257,6 +257,12 @@ fn maybe_schedule_hide_to_tray(
         }
         let app_for_hide = app_clone.clone();
         let res = app_clone.run_on_main_thread(move || {
+            // An open close question must not be hidden along with the
+            // window: the user would be left with a tray icon and no answer.
+            if crate::close::ask_pending() {
+                crate::diag!("tray: not hiding — a close question is open");
+                return;
+            }
             if let Err(e) = crate::tray::hide_to_tray(&app_for_hide) {
                 crate::diag!("tray: hide failed — leaving window visible: {e}");
             }
