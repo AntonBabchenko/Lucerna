@@ -19,7 +19,7 @@
 //                        no bg-danger-bg anywhere under src/lib/settings/ (source scan)
 //                        success toast bg-success/10 border-success text-success
 //   AboutPanel:          View on GitHub → btn-link (external link + arrow)
-//                        aria-label present on GitHub button
+//                        no aria-label on the GitHub button (label-in-name; the URL is the tooltip)
 //                        DISCLAIMER_TEXT rendered as text-secondary
 //                        GPL license line text-xs text-muted
 //   CurseForgeKeyBanner: shared Banner recipe (bg-warning-bg + full warning border)
@@ -421,8 +421,7 @@ describe('StoragePanel — success toast uses bg-success-bg border-success text-
 describe('AboutPanel — "View on GitHub" is btn-link', () => {
   it('"View on GitHub" button has btn-link class', () => {
     const { container } = render(AboutPanel);
-    // Button text is "View on GitHub"; accessible name is the full aria-label.
-    // Query by text content to be robust against aria-label changes.
+    // Name = visible text; query by text so the assertion is about the class, not the name.
     const btn = Array.from(container.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === 'View on GitHub',
     );
@@ -430,14 +429,14 @@ describe('AboutPanel — "View on GitHub" is btn-link', () => {
     expect(btn).toHaveBtnVariant('link');
   });
 
-  it('"View on GitHub" button has aria-label containing repo URL', () => {
+  it('"View on GitHub" is the accessible name; no aria-label overrides the visible label', () => {
     const { container } = render(AboutPanel);
     const btn = Array.from(container.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === 'View on GitHub',
     );
     expect(btn).not.toBeUndefined();
-    const label = btn?.getAttribute('aria-label') ?? btn?.getAttribute('title') ?? '';
-    expect(label).toContain('github.com');
+    expect(btn?.hasAttribute('aria-label')).toBe(false);
+    expect(btn?.hasAttribute('title')).toBe(false);
   });
 });
 
