@@ -47,6 +47,10 @@ const DEFAULT_OPEN: &str = "Open Launcher";
 const DEFAULT_QUIT: &str = "Quit";
 const DEFAULT_TOOLTIP: &str = "Lucerna — Minecraft running";
 
+// Process-wide, and never reset between unit tests: exactly one test writes
+// it (`stored_labels_are_what_the_next_tray_is_built_from`). Anything that
+// needs the "nothing stored" branch goes through the pure `labels_from(&None)`
+// instead, so no test depends on the order the others ran in.
 static LABELS: Mutex<Option<TrayLabels>> = Mutex::new(None);
 
 /// Store the translated labels for the next tray build.
@@ -64,11 +68,23 @@ pub fn set_labels(labels: TrayLabels) {
 /// restrictive direction for a fallback whose input may simply be absent.
 pub fn labels_or_default() -> TrayLabels {
     match LABELS.lock() {
-        Ok(guard) => guard.clone().unwrap_or_else(default_labels),
+        Ok(guard) => labels_from(&guard),
         // A poisoned lock means a panic while holding it; the labels are
         // plain strings and cannot be half-written, so the defaults are a
         // safe read rather than a reason to refuse building a tray at all.
-        Err(poisoned) => poisoned.into_inner().clone().unwrap_or_else(default_labels),
+        Err(poisoned) => labels_from(&poisoned.into_inner()),
+    }
+}
+
+/// The fallback itself: what was stored, or the English set a tray has always
+/// shipped with. Pure, so it is tested directly rather than through the
+/// process-wide slot.
+pub fn labels_from(_stored: &Option<TrayLabels>) -> TrayLabels {
+    // STUB (red).
+    TrayLabels {
+        open: String::new(),
+        quit: String::new(),
+        tooltip_running: String::new(),
     }
 }
 
@@ -246,6 +262,19 @@ mod tests {
     fn stored_labels_are_what_the_next_tray_is_built_from() {
         set_labels(labels("ru"));
         assert_eq!(labels_or_default(), labels("ru"));
+    }
+
+    #[test]
+    fn nothing_stored_builds_the_english_set_through_the_real_fallback() {
+        let d = labels_from(&None);
+        assert_eq!(d.open, "Open Launcher");
+        assert_eq!(d.quit, "Quit");
+        assert_eq!(d.tooltip_running, "Lucerna — Minecraft running");
+    }
+
+    #[test]
+    fn stored_labels_win_over_the_defaults() {
+        assert_eq!(labels_from(&Some(labels("ru"))), labels("ru"));
     }
 
     #[test]
