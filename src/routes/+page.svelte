@@ -198,6 +198,20 @@
   // instance and would otherwise open a different instance's translations
   // than the one whose row the user just clicked.
   let l10nTargetId = $state<string | null>(null);
+  // The tray menu is built by the backend, which does not know the interface
+  // language. Send the three strings now and again on every language change.
+  // The tray only exists while the window is hidden, and the language can only
+  // change while it is shown, so whatever was sent last is what the next tray
+  // is built with. If this never lands, the tray keeps its English defaults.
+  $effect(() => {
+    const labels = {
+      open: $t('tray.open'),
+      quit: $t('tray.quit'),
+      tooltip_running: $t('tray.tooltipRunning'),
+    };
+    void commands.traySetLabels(labels);
+  });
+
   $effect(() => {
     if (!l10nOpen) l10nTargetId = null;
   });
@@ -373,6 +387,7 @@
   let modToggleUnlisten: (() => void) | null = null;
   let modsReconciledUnlisten: (() => void) | null = null;
   let intentUnlisten: (() => void) | null = null;
+  let trayQuitRefusedUnlisten: (() => void) | null = null;
   // initTheme() registers a prefers-color-scheme listener and returns its
   // unlistener. Held (not discarded) because loadStartupSettings is now
   // retryable: a second init would otherwise stack a second matchMedia listener
@@ -986,6 +1001,24 @@
     // from the Mod browser without bouncing back through this view.
     // Debounced: a with-deps install emits one event per jar; without
     // coalescing an 8-jar install fired 8 × 3 stat commands in ~2 s.
+    // A tray Quit that would have killed a running game or server is refused
+    // by the backend, which brings the window back; this is the sentence
+    // saying why. Worded for quitting, not for the update gate's "closes to
+    // install", though both read the same RestartBlock.
+    events.trayQuitRefused
+      .listen(({ payload }) => {
+        const key =
+          payload.block === 'running'
+            ? 'tray.blocked.running'
+            : payload.block === 'busy'
+              ? 'tray.blocked.busy'
+              : 'tray.blocked.unknown';
+        pushWarning(get(t)(key));
+      })
+      .then((u) => {
+        trayQuitRefusedUnlisten = u;
+      });
+
     events.modInstalled.listen(debouncedModSetStats.call).then((u) => {
       modInstalledUnlisten = u;
     });
@@ -1090,6 +1123,7 @@
     modToggleUnlisten?.();
     modsReconciledUnlisten?.();
     intentUnlisten?.();
+    trayQuitRefusedUnlisten?.();
   });
 
   // ── Inbound launch intents (desktop shortcuts, `lucerna://` links) ────────
