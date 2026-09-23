@@ -232,6 +232,52 @@ pub enum GpuPreference {
     PowerSaving,
 }
 
+/// What the launcher window does when a game starts (Settings → Game). Only the
+/// first running game triggers it; the window comes back when a game closes.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GameStartWindow {
+    /// The window stays as it is.
+    #[default]
+    Keep,
+    /// The window is minimised (some Linux desktops ignore this).
+    Minimise,
+    /// The window hides and a tray icon appears (needs a system tray).
+    HideToTray,
+}
+
+/// The pre-0.25 setting, a checkbox, in the new terms.
+pub fn from_legacy(hide_to_tray: bool) -> GameStartWindow {
+    if hide_to_tray {
+        GameStartWindow::HideToTray
+    } else {
+        GameStartWindow::Keep
+    }
+}
+
+/// Read leniently: a value this build does not know (written by a newer
+/// Lucerna) reads as absent, so it is resolved from the legacy bool instead of
+/// making the whole `app.json` unreadable.
+fn lenient_start_window<'de, D>(d: D) -> Result<Option<GameStartWindow>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(raw.and_then(
+        |v| match serde_json::from_value::<GameStartWindow>(v.clone()) {
+            Ok(window) => Some(window),
+            Err(_) => {
+                // Said, not silent: the old checkbox decides now, and the next write
+                // replaces this value (a newer build's choice is lost on it).
+                crate::diag!(
+                    "settings: unknown game_start_window {v} — using the old checkbox's meaning"
+                );
+                None
+            }
+        },
+    ))
+}
+
 /// How verbose onboarding/help copy is. `Basic` = plain language (default,
 /// understandable to newcomers); `Advanced` = the original technical copy.
 /// Chosen on first launch and changeable in Settings → General.
@@ -328,11 +374,18 @@ fn default_ai_local_port() -> u16 {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
-    /// When true, the launcher window hides to a system-tray icon on
-    /// MC spawn and auto-restores on MC exit. Default false — opt-in
-    /// via Settings → General.
+    /// LEGACY (≤0.24's checkbox). `game_start_window` decides now; this is kept
+    /// in step with it (true ⇔ HideToTray) so a downgrade keeps the user's
+    /// choice, and it is what an older file's `None` window resolves from.
     #[serde(default)]
     pub hide_to_tray_during_game: bool,
+    /// What the window does when a game starts. `None` only between parsing a
+    /// file that predates it (or holds a variant this build does not know) and
+    /// `resolved()` — `read_app_json` resolves it, so no reader sees `None`.
+    // The lenient reader keeps the wire type (a string or absent); specta must be told.
+    #[serde(default, deserialize_with = "lenient_start_window")]
+    #[specta(type = Option<GameStartWindow>)]
+    pub game_start_window: Option<GameStartWindow>,
     /// UI theme preference: system (follow OS), light, or dark.
     /// Default system — user can override via Settings → General.
     #[serde(default)]
@@ -433,6 +486,8 @@ pub struct GeneralSettingsPatch {
     #[serde(default)]
     pub hide_to_tray_during_game: Option<bool>,
     #[serde(default)]
+    pub game_start_window: Option<GameStartWindow>,
+    #[serde(default)]
     pub theme: Option<ThemePreference>,
     #[serde(default)]
     pub check_updates_on_startup: Option<bool>,
@@ -467,12 +522,51 @@ pub struct GeneralSettingsPatch {
 }
 
 impl GeneralSettings {
-    /// Every field spelled out on both sides — no `..self`.
-    pub fn patched(self, p: GeneralSettingsPatch) -> Self {
+    /// The window action in force: the field, else what the legacy bool meant.
+    pub fn start_window(&self) -> GameStartWindow {
+        self.game_start_window
+            .unwrap_or_else(|| from_legacy(self.hide_to_tray_during_game))
+    }
+
+    /// Fill a missing window action from the legacy bool, and bring the bool
+    /// back in step with the window (the window wins) — so a file whose pair
+    /// disagrees (a hand edit, a later build) is consistent from its first read
+    /// and every write after it.
+    pub fn resolved(self) -> Self {
+        let window = self.start_window();
         Self {
-            hide_to_tray_during_game: p
-                .hide_to_tray_during_game
-                .unwrap_or(self.hide_to_tray_during_game),
+            game_start_window: Some(window),
+            hide_to_tray_during_game: window == GameStartWindow::HideToTray,
+            ..self
+        }
+    }
+
+    /// Every field spelled out on both sides — no `..self`.
+    ///
+    /// The window action and its legacy bool are ONE setting kept in step (a
+    /// total rule, so no patch can leave them disagreeing):
+    /// a window in the patch wins and sets the bool (hide_to_tray ⇔ true);
+    /// only the bool, true → hide_to_tray; only the bool, false → keep if it
+    /// was hide_to_tray, otherwise the window is untouched (never clobbers
+    /// minimise); neither → both unchanged.
+    pub fn patched(self, p: GeneralSettingsPatch) -> Self {
+        let current = self.start_window();
+        let (game_start_window, hide_to_tray_during_game) =
+            match (p.game_start_window, p.hide_to_tray_during_game) {
+                (Some(w), _) => (Some(w), w == GameStartWindow::HideToTray),
+                (None, Some(true)) => (Some(GameStartWindow::HideToTray), true),
+                (None, Some(false)) => (
+                    Some(match current {
+                        GameStartWindow::HideToTray => GameStartWindow::Keep,
+                        other => other,
+                    }),
+                    false,
+                ),
+                (None, None) => (self.game_start_window, self.hide_to_tray_during_game),
+            };
+        Self {
+            hide_to_tray_during_game,
+            game_start_window,
             theme: p.theme.unwrap_or(self.theme),
             check_updates_on_startup: p
                 .check_updates_on_startup
@@ -505,6 +599,7 @@ impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             hide_to_tray_during_game: false,
+            game_start_window: Some(GameStartWindow::Keep),
             theme: ThemePreference::default(),
             check_updates_on_startup: true,
             language: default_language(),
@@ -621,6 +716,127 @@ mod retention_tests {
         // #[serde(default)] must fill it with the 4-stream default.
         let g: GeneralSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(g.sftp_upload_concurrency, 4);
+    }
+}
+
+#[cfg(test)]
+mod start_window_tests {
+    use super::*;
+
+    fn g(hide: bool, window: Option<GameStartWindow>) -> GeneralSettings {
+        GeneralSettings {
+            hide_to_tray_during_game: hide,
+            game_start_window: window,
+            ..GeneralSettings::default()
+        }
+    }
+    fn patch(window: Option<GameStartWindow>, hide: Option<bool>) -> GeneralSettingsPatch {
+        GeneralSettingsPatch {
+            game_start_window: window,
+            hide_to_tray_during_game: hide,
+            ..GeneralSettingsPatch::default()
+        }
+    }
+    use GameStartWindow::{HideToTray, Keep, Minimise};
+
+    #[test]
+    fn the_old_checkbox_means_hide_to_tray_or_keep() {
+        assert_eq!(from_legacy(true), HideToTray);
+        assert_eq!(from_legacy(false), Keep);
+    }
+
+    #[test]
+    fn the_window_field_decides_and_a_missing_one_follows_the_old_checkbox() {
+        assert_eq!(g(true, Some(Minimise)).start_window(), Minimise);
+        assert_eq!(g(true, None).start_window(), HideToTray);
+        assert_eq!(g(false, None).start_window(), Keep);
+    }
+
+    #[test]
+    fn resolving_fills_only_a_missing_window_and_keeps_the_bool() {
+        let r = g(true, None).resolved();
+        assert_eq!(
+            (r.game_start_window, r.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
+        let r = g(false, Some(Minimise)).resolved();
+        assert_eq!(r.game_start_window, Some(Minimise));
+    }
+
+    #[test]
+    fn resolving_brings_a_disagreeing_old_checkbox_back_in_step_with_the_window() {
+        // A hand edit (or a later build that stops writing the bool) must not
+        // leave the pair disagreeing through every later write: the window wins.
+        let r = g(true, Some(Minimise)).resolved();
+        assert_eq!(
+            (r.game_start_window, r.hide_to_tray_during_game),
+            (Some(Minimise), false)
+        );
+        let r = g(false, Some(HideToTray)).resolved();
+        assert_eq!(
+            (r.game_start_window, r.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
+    }
+
+    #[test]
+    fn an_unknown_window_value_reads_as_absent_not_as_an_unreadable_file() {
+        let v: GeneralSettings = serde_json::from_str(
+            r#"{"game_start_window":"teleport","hide_to_tray_during_game":true}"#,
+        )
+        .expect("a future variant must not break the file");
+        assert_eq!(v.game_start_window, None);
+        let v: GeneralSettings =
+            serde_json::from_str(r#"{"game_start_window":"minimise"}"#).unwrap();
+        assert_eq!(v.game_start_window, Some(Minimise));
+        let v: GeneralSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(v.game_start_window, None);
+    }
+
+    #[test]
+    fn a_window_patch_wins_and_sets_the_old_checkbox_in_step() {
+        let out = g(false, Some(Keep)).patched(patch(Some(Minimise), Some(true)));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(Minimise), false)
+        );
+        let out = g(false, Some(Keep)).patched(patch(Some(HideToTray), None));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
+    }
+
+    #[test]
+    fn ticking_the_old_checkbox_alone_means_hide_to_tray() {
+        let out = g(false, Some(Minimise)).patched(patch(None, Some(true)));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
+    }
+
+    #[test]
+    fn unticking_the_old_checkbox_never_clobbers_minimise() {
+        let out = g(true, Some(HideToTray)).patched(patch(None, Some(false)));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(Keep), false)
+        );
+        let out = g(false, Some(Minimise)).patched(patch(None, Some(false)));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(Minimise), false)
+        );
+    }
+
+    #[test]
+    fn a_patch_of_neither_leaves_the_pair_alone() {
+        let out = g(true, Some(HideToTray)).patched(patch(None, None));
+        assert_eq!(
+            (out.game_start_window, out.hide_to_tray_during_game),
+            (Some(HideToTray), true)
+        );
     }
 }
 
@@ -1109,6 +1325,10 @@ mod tests {
         assert!(out.allow_server_ping);
         assert_eq!(out.language, g.language);
         assert_eq!(out.gpu_preference, g.gpu_preference);
+        // The window action and its legacy bool are ONE setting kept in step;
+        // a patch of neither leaves both alone.
+        assert_eq!(out.game_start_window, g.game_start_window);
+        assert_eq!(out.hide_to_tray_during_game, g.hide_to_tray_during_game);
     }
 
     /// Every `GeneralSettings` field must have a patch counterpart: the

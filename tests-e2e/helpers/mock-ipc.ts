@@ -373,7 +373,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           version: 1,
           active_instance: m.active_instance_id,
           onboarding: { tour_completed_version: tourVersion },
-          general: { hide_to_tray_during_game: false, theme: m.theme, ...patchedGeneral },
+          general: { hide_to_tray_during_game: false, game_start_window: 'keep', theme: m.theme, ...patchedGeneral },
         }),
 
         // Version manifest — return empty list; UI guards on versionsError.
@@ -546,7 +546,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         app_settings_patch_general: (args) => {
           const patch = (args as { patch?: Record<string, unknown> } | undefined)?.patch ?? {};
           Object.assign(patchedGeneral, patch);
-          return { hide_to_tray_during_game: false, theme: m.theme, ...patchedGeneral };
+          return { hide_to_tray_during_game: false, game_start_window: 'keep', theme: m.theme, ...patchedGeneral };
         },
 
         // Default catch-all — any unknown command returns null.

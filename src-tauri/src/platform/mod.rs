@@ -609,8 +609,8 @@ pub fn free_disk_bytes_at(dir: &Path) -> std::io::Result<u64> {
 }
 
 /// Block until the spawned process has created its top-level window (input
-/// message queue ready), or a 30-second cap elapses. Used to delay
-/// hide-to-tray until Minecraft is actually on screen.
+/// message queue ready), or a 30-second cap elapses. Used to delay the
+/// game-start window action (minimise / hide to tray) until Minecraft is on screen.
 ///
 /// Windows uses Win32 `WaitForInputIdle`. Other platforms are a deliberate
 /// immediate-return no-op for now — Linux/macOS window detection (X11

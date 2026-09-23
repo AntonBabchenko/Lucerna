@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // Settings → Game on the one settings contract: no value and no live control
@@ -24,6 +24,7 @@ import GamePanel from '$lib/settings/GamePanel.svelte';
 
 const GENERAL = {
   hide_to_tray_during_game: false,
+  game_start_window: 'keep',
   theme: 'system',
   check_updates_on_startup: true,
   gpu_preference: 'auto',
@@ -36,7 +37,10 @@ const patch = commands.appSettingsPatchGeneral as Mock;
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const REFUSED = { status: 'error', error: { kind: 'io', path: 'app.json', details: 'locked' } };
 const ping = () => screen.getByTestId('server-ping-toggle') as HTMLInputElement;
-const tray = () => screen.getByTestId('tray-toggle') as HTMLInputElement;
+const choice = (name: string) =>
+  within(screen.getByRole('group', { name: 'When a game starts' })).getByRole('button', {
+    name,
+  }) as HTMLButtonElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -51,7 +55,10 @@ describe('GamePanel — the settings contract', () => {
     get.mockReturnValueOnce(new Promise((r) => (resolve = r)));
     void loadAppSettings();
     render(GamePanel);
-    expect(tray().disabled).toBe(true);
+    for (const name of ['Keep open', 'Minimise', 'Hide to tray']) {
+      expect(choice(name).disabled).toBe(true);
+      expect(choice(name).getAttribute('aria-pressed')).toBe('false'); // unknown, not "keep"
+    }
     expect(ping().disabled).toBe(true);
     expect(ping().checked).toBe(false); // unknown, not "off"
     resolve({ status: 'ok', data: { general: GENERAL } });
@@ -73,9 +80,29 @@ describe('GamePanel — the settings contract', () => {
   it('a flip patches only its own field', async () => {
     await loadAppSettings();
     render(GamePanel);
-    await fireEvent.click(tray());
+    await fireEvent.click(choice('Minimise'));
     await flush();
-    expect(patch).toHaveBeenCalledWith({ hide_to_tray_during_game: true });
+    expect(patch).toHaveBeenCalledWith({ game_start_window: 'minimise' });
+  });
+
+  it('a refused start-window save goes back to what is saved and says why, under the picker', async () => {
+    await loadAppSettings();
+    patch.mockResolvedValue(REFUSED);
+    render(GamePanel);
+    await fireEvent.click(choice('Hide to tray'));
+    await flush();
+    await flush();
+    expect(choice('Keep open').getAttribute('aria-pressed')).toBe('true');
+    expect(choice('Hide to tray').getAttribute('aria-pressed')).toBe('false');
+    const line = screen.getByTestId('save-failure-game_start_window');
+    expect(line.textContent).toContain('locked');
+    // Next to the control that failed: directly after the picker, before its notes.
+    const picker = screen.getByTestId('game-start-window');
+    expect(picker.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(
+      line.compareDocumentPosition(document.getElementById('game-tray-desc') as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
   });
 
   it('a refused consent revoke shows the box ON again and says status checks are still on', async () => {
@@ -91,9 +118,7 @@ describe('GamePanel — the settings contract', () => {
     expect(line.textContent).toContain('Status checks are still on');
     expect(line.textContent).toContain('locked');
     // The message sits under the consent, not under the tray control.
-    expect(screen.queryByTestId('save-failure-hide_to_tray_during_game')?.textContent ?? '').toBe(
-      '',
-    );
+    expect(screen.getByTestId('save-failure-game_start_window').textContent?.trim()).toBe('');
   });
 
   it('an unconfirmed revoke does not claim the channel is still on', async () => {

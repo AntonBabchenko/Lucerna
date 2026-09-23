@@ -1,10 +1,11 @@
 <script lang="ts">
-  // Settings → Game. Hide-to-tray-during-game, the saved-server status
-  // permission, and the preferred GPU — three GeneralSettings fields on the
-  // one settings contract (`app-settings.svelte.ts`): no value and no live
-  // control until the settings are read; a flip patches only its own field;
+  // Settings → Game. What the window does when a game starts, the saved-server
+  // status permission, and the preferred GPU — three GeneralSettings fields on
+  // the one settings contract (`app-settings.svelte.ts`): no value and no live
+  // control until the settings are read; a choice patches only its own field;
   // a failed save is said next to the control that failed.
   import {
+    type GameStartWindow,
     type GeneralSettings,
     type GpuPreference,
     type GpuStatus,
@@ -14,6 +15,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import Select from '$lib/ui/Select.svelte';
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import {
@@ -37,6 +39,43 @@
   async function set<K extends keyof GeneralSettings>(field: K, value: GeneralSettings[K]) {
     await patchGeneral({ [field]: value } as Partial<GeneralSettings>);
   }
+
+  // When a game starts: the backend resolves an old file's checkbox (and an
+  // unknown value) on read, so a loaded block always carries the field; null
+  // means "not read yet" — disabled, nothing pressed.
+  const startWindow = $derived<GameStartWindow | null>(general?.game_start_window ?? null);
+  const startOptions = $derived([
+    { value: 'keep', label: $t('settings.general.playing.keep') },
+    { value: 'minimise', label: $t('settings.general.playing.minimise') },
+    { value: 'hide_to_tray', label: $t('settings.general.playing.hideToTray') },
+  ]);
+  // The chosen action's own line. Hide to tray has none: its note is always shown.
+  const START_HINT: Record<Exclude<GameStartWindow, 'hide_to_tray'>, TranslationKey> = {
+    keep: 'settings.general.playing.keepHint',
+    minimise: 'settings.general.playing.minimiseHint',
+  };
+  const startHint = $derived<TranslationKey | null>(
+    startWindow && startWindow !== 'hide_to_tray' ? START_HINT[startWindow] : null,
+  );
+  // The Linux caveat is true only on Linux: some compositors (Wayland) honour a
+  // minimise but not the un-minimise. The build says which OS this is; when it
+  // can't be read, the line stays hidden — it names Linux and would mislead
+  // everywhere else.
+  let onLinux = $state(false);
+  onMount(() => {
+    void (async () => {
+      try {
+        onLinux = (await commands.appBuildInfo()).os === 'linux';
+      } catch {
+        // Not known: the Linux-only sentence stays hidden.
+      }
+    })();
+  });
+  const startDescribedby = $derived(
+    [startHint ? 'game-start-hint' : null, 'game-tray-desc', onLinux ? 'game-start-linux' : null]
+      .filter(Boolean)
+      .join(' '),
+  );
 
   // The consent says the restrictive truth only when it is true: a REFUSED
   // revoke leaves the channel on (the file is unchanged); one the transport
@@ -167,27 +206,35 @@
   <SettingsField anchor="game.tray">
     <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.general.playing.title')}</h3>
-      <!-- The label wraps only the title — that is the control's name; the sentence
-           is its description (aria-describedby), announced after it, not as part of it. -->
       <div class="flex flex-col gap-1">
-        <label class="flex items-start gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            checked={general?.hide_to_tray_during_game ?? false}
-            disabled={!loaded}
-            aria-describedby="game-tray-desc"
-            onchange={(e) => void set('hide_to_tray_during_game', e.currentTarget.checked)}
-            data-testid="tray-toggle"
-          />
-          <span class="text-sm text-primary">{$t('settings.general.playing.trayLabel')}</span>
-        </label>
-        <p id="game-tray-desc" class="pl-6 text-xs text-muted">
+        <span class="text-sm text-primary">{$t('settings.general.playing.startWindowLabel')}</span>
+        <SegmentedControl
+          variant="boxed"
+          ariaLabel={$t('settings.general.playing.startWindowLabel')}
+          dataTestid="game-start-window"
+          describedby={startDescribedby}
+          options={startOptions}
+          value={startWindow}
+          disabled={!loaded}
+          onChange={(v) => void set('game_start_window', v as GameStartWindow)}
+        />
+        <!-- A failed save sits right under the control that failed. -->
+        <div data-testid="save-failure-game_start_window">
+          <StatusMessage message={saveFailure('game_start_window')} tone="danger" />
+        </div>
+        <!-- The chosen action's own line, then the tray note ALWAYS — named for its option:
+             activation follows focus, so Hide to tray's consequence is read before it is picked. -->
+        {#if startHint}
+          <p id="game-start-hint" class="text-xs text-muted">{$t(startHint)}</p>
+        {/if}
+        <p id="game-tray-desc" class="text-xs text-muted">
           {$t('settings.general.playing.trayDescription')}
         </p>
-      </div>
-      <div data-testid="save-failure-hide_to_tray_during_game">
-        <StatusMessage message={saveFailure('hide_to_tray_during_game')} tone="danger" />
+        {#if onLinux}
+          <p id="game-start-linux" class="text-xs text-muted">
+            {$t('settings.general.playing.linuxMinimise')}
+          </p>
+        {/if}
       </div>
     </div>
   </SettingsField>

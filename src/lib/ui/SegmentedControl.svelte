@@ -5,7 +5,7 @@
   // An option's `label` is rendered as visible text only when it has no `icon`;
   // icon-only options use `label` (falling back to the group ariaLabel) as their
   // accessible name + tooltip, so they stay compact but remain labelled.
-  // Settings uses the boxed variant for the theme and tip-level pickers, naming
+  // Settings uses the boxed variant for the theme, tip-level and game-start pickers, naming
   // the group through ariaLabel and linking its hint through describedby.
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -20,9 +20,11 @@
     ariaLabel,
     dataTestid,
     describedby,
+    disabled = false,
   }: {
     options: Option[];
-    value: string;
+    /** null = no value to show (a setting still loading or unreadable). */
+    value: string | null;
     onChange: (v: string) => void;
     variant: 'boxed' | 'inline';
     ariaLabel: string;
@@ -30,7 +32,14 @@
     dataTestid?: string;
     /** Forwarded as `aria-describedby` on the group (a hint line under the control). */
     describedby?: string;
+    /** Every option disabled and arrows ignored (pending / failed settings). */
+    disabled?: boolean;
   } = $props();
+  // With no value (a setting still loading or unreadable) nothing is pressed, yet
+  // the group keeps ONE tab stop — its first option — and the arrow keys start
+  // from there. Disabled: every option disabled and the arrows ignored.
+  const activeIndex = $derived(options.findIndex((o) => o.value === value));
+  const tabStop = $derived(activeIndex < 0 ? 0 : activeIndex);
 
   // DOM-ordered button refs so arrow keys can move focus to a sibling.
   let btnEls = $state<(HTMLButtonElement | null)[]>([]);
@@ -39,8 +48,8 @@
   // Activation follows focus — selecting on move is expected for a segmented
   // control whose options act immediately.
   function onKeydown(e: KeyboardEvent) {
-    const current = options.findIndex((o) => o.value === value);
-    const next = nextRovingIndex(e.key, current, options.length, 'horizontal');
+    if (disabled) return;
+    const next = nextRovingIndex(e.key, tabStop, options.length, 'horizontal');
     if (next === null) return;
     e.preventDefault();
     const target = options[next];
@@ -69,7 +78,8 @@
       type="button"
       aria-pressed={active}
       aria-label={option.icon ? (option.label ?? ariaLabel) : undefined}
-      tabindex={active ? 0 : -1}
+      tabindex={i === tabStop ? 0 : -1}
+      {disabled}
       data-testid={option.testId}
       class={variant === 'boxed'
         ? // Swap btn-primary/btn-ghost conditionally: two btn-* purpose classes
@@ -77,7 +87,7 @@
           // (.btn-secondary) wins the equal-specificity cascade and kills the
           // active fill.
           `${active ? 'btn-primary' : 'btn-ghost'} btn-sm rounded-none`
-        : `px-0.5 ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
+        : `px-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
       use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
     >

@@ -53,9 +53,12 @@ below clears it.
 
 ## 5. System integration
 
-- [ ] Enable Settings → Game → "hide launcher to tray when Minecraft
-      starts". On the next launch the launcher hides (it hides **immediately**
-      on macOS — window-ready detection is a deferred follow-up).
+- [ ] Settings → Game → "When a game starts" → **Hide to tray**. On the next
+      launch the launcher hides (**immediately** on macOS — window-ready
+      detection is a deferred follow-up).
+- [ ] The same with **Minimise**: the launcher minimises to the Dock at launch.
+- [ ] With the launcher minimised or hidden, click Lucerna's **Dock icon**: the
+      window comes back.
 - [ ] On game exit the launcher restores.
 - [ ] Theme picker (light / dark / system), under Settings → Appearance,
       follows macOS appearance.

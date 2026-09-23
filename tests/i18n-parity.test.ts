@@ -70,6 +70,8 @@ describe('i18n locale parity (en vs ru)', () => {
   // for nothing, and a key that comes back is a key someone will read.
   it('carries none of the keys retired by the Settings a11y pass', () => {
     const retired = [
+      // Batch 12d: the tray checkbox became the 'When a game starts' choice.
+      'settings.general.playing.trayLabel',
       'settings.closeBackdropLabel', // no reference anywhere in src/ (dead since the shared Modal)
       'settings.about.openRepoLabel', // the GitHub button is named by its visible text
       'settings.changelog.openReleaseLabel', // the version button is named by the version

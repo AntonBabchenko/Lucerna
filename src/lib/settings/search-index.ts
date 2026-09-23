@@ -112,7 +112,13 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     tab: 'game',
     labelKey: 'settings.search.labels.game.tray',
     keywordsKey: 'settings.search.keywords.game.tray',
-    visibleKeys: ['settings.general.playing.title', 'settings.general.playing.trayLabel'],
+    visibleKeys: [
+      'settings.general.playing.title',
+      'settings.general.playing.startWindowLabel',
+      'settings.general.playing.keep',
+      'settings.general.playing.minimise',
+      'settings.general.playing.hideToTray',
+    ],
   },
   'game.serverPing': {
     anchor: 'game.serverPing',

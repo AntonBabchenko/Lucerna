@@ -203,8 +203,8 @@ impl AskState {
         }
     }
 
-    /// Whether any ask is open — the scheduled hide-to-tray must not hide an
-    /// open question along with the window.
+    /// Whether any ask is open — the game-start window action (minimise or hide
+    /// to tray) must not take an open question away with the window.
     pub fn pending(&self) -> bool {
         self.current.is_some()
     }
@@ -347,8 +347,8 @@ fn asks() -> MutexGuard<'static, AskState> {
     ASK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Whether a close question is open. The scheduled hide-to-tray checks this
-/// so it does not hide an open question along with the window.
+/// Whether a close question is open. The game-start window action (minimise or
+/// hide to tray) checks this so it does not take an open question with it.
 pub fn ask_pending() -> bool {
     asks().pending()
 }
@@ -452,15 +452,19 @@ pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) 
 async fn ask(app: &AppHandle, losses: CloseLosses) {
     // A dialog painted in a minimized or hidden window is invisible. Posted to
     // the same FIFO as the emit below, so the window is up before the dialog.
+    // The question is registered FIRST: a game-start minimise or hide queued on
+    // the main thread checks `ask_pending()`, and must see this question even if
+    // it runs between the restore and the emit.
+    let generation = asks().begin();
     let restore_app = app.clone();
     if let Err(e) = app.run_on_main_thread(move || {
         crate::tray::restore_or_log(&restore_app, "close ask");
     }) {
         // No event loop means the process is already on its way out.
         crate::diag!("close: cannot ask — the event loop is gone: {e}");
+        asks().finish(generation);
         return;
     }
-    let generation = asks().begin();
     if let Err(e) = (CloseConfirmNeeded { generation, losses }).emit(app) {
         crate::diag!("close: the in-app ask was not sent ({e}) — asking natively");
     } else {

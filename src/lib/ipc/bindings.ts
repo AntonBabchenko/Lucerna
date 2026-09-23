@@ -668,8 +668,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	appConfirmClose: (generation: number, shown: CloseLosses) => typedError<null, Error>(__TAURI_INVOKE("app_confirm_close", { generation, shown })),
 	/**
-	 *  The user cancelled the close. The question is over, so the scheduled
-	 *  hide-to-tray may hide the window again.
+	 *  The user cancelled the close. The question is over: a LATER game start may
+	 *  minimise or hide the window again (one already skipped for it does not retry).
 	 */
 	appCancelClose: (generation: number) => __TAURI_INVOKE<void>("app_cancel_close", { generation }),
 	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
@@ -1330,7 +1330,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  follows the setting ("Automatic" touches nothing; a change applies or
 	 *  retires — `gpu_pref`), after the lock has dropped.
 	 */
-	appSettingsPatchGeneral: (patch: GeneralSettingsPatch) => typedError<GeneralSettings, Error>(__TAURI_INVOKE("app_settings_patch_general", { patch })),
+	appSettingsPatchGeneral: (patch: GeneralSettingsPatch) => typedError<GeneralSettings_Serialize, Error>(__TAURI_INVOKE("app_settings_patch_general", { patch })),
 	/**
 	 *  Probe GPU-selection capability for the Settings UI, with the mechanism
 	 *  this OS uses so the page can describe it truthfully. Read-only.
@@ -2463,7 +2463,7 @@ export type AppFile = AppFile_Serialize | AppFile_Deserialize;
 export type AppFile_Deserialize = {
 	active_instance?: string | null,
 	onboarding?: OnboardingState_Deserialize,
-	general?: GeneralSettings,
+	general?: GeneralSettings_Deserialize,
 	/**
 	 *  The latest version the user explicitly dismissed from the
 	 *  update toast. Suppresses re-notifying for that same version; a
@@ -2482,7 +2482,7 @@ export type AppFile_Deserialize = {
 export type AppFile_Serialize = {
 	active_instance?: string | null,
 	onboarding: OnboardingState_Serialize,
-	general: GeneralSettings,
+	general: GeneralSettings_Serialize,
 	/**
 	 *  The latest version the user explicitly dismissed from the
 	 *  update toast. Suppresses re-notifying for that same version; a
@@ -3935,13 +3935,60 @@ export type GalleryImage = {
 	title: string | null,
 };
 
-export type GeneralSettings = {
+/**
+ *  What the launcher window does when a game starts (Settings → Game). Only the
+ *  first running game triggers it; the window comes back when a game closes.
+ */
+export type GameStartWindow = 
+/**  The window stays as it is. */
+"keep" | 
+/**  The window is minimised (some Linux desktops ignore this). */
+"minimise" | 
+/**  The window hides and a tray icon appears (needs a system tray). */
+"hide_to_tray";
+
+export type GeneralSettings = GeneralSettings_Serialize | GeneralSettings_Deserialize;
+
+/**
+ *  A field-level change to `GeneralSettings`: every field optional (specta
+ *  emits `field?: T | null` from the field-level `default`), unknown fields
+ *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
+ *  `GeneralSettings` field without a counterpart here a red test.
+ */
+export type GeneralSettingsPatch = {
+	hide_to_tray_during_game?: boolean | null,
+	game_start_window?: GameStartWindow | null,
+	theme?: ThemePreference | null,
+	check_updates_on_startup?: boolean | null,
+	language?: string | null,
+	explanation_level?: ExplanationLevel | null,
+	compact_mode?: boolean | null,
+	gpu_preference?: GpuPreference | null,
+	log_retention?: LogRetentionPolicy | null,
+	mod_metadata_ttl_days?: number | null,
+	sftp_upload_concurrency?: number | null,
+	hidden_sidebar_buttons?: string[] | null,
+	allow_server_ping?: boolean | null,
+	register_url_scheme?: boolean | null,
+	allow_ai_translation?: boolean | null,
+	ai_provider?: AiProvider | null,
+	ai_model?: string | null,
+	ai_local_port?: number | null,
+};
+
+export type GeneralSettings_Deserialize = {
 	/**
-	 *  When true, the launcher window hides to a system-tray icon on
-	 *  MC spawn and auto-restores on MC exit. Default false — opt-in
-	 *  via Settings → General.
+	 *  LEGACY (≤0.24's checkbox). `game_start_window` decides now; this is kept
+	 *  in step with it (true ⇔ HideToTray) so a downgrade keeps the user's
+	 *  choice, and it is what an older file's `None` window resolves from.
 	 */
 	hide_to_tray_during_game?: boolean,
+	/**
+	 *  What the window does when a game starts. `None` only between parsing a
+	 *  file that predates it (or holds a variant this build does not know) and
+	 *  `resolved()` — `read_app_json` resolves it, so no reader sees `None`.
+	 */
+	game_start_window?: GameStartWindow | null,
 	/**
 	 *  UI theme preference: system (follow OS), light, or dark.
 	 *  Default system — user can override via Settings → General.
@@ -4048,30 +4095,123 @@ export type GeneralSettings = {
 	ai_local_port?: number,
 };
 
-/**
- *  A field-level change to `GeneralSettings`: every field optional (specta
- *  emits `field?: T | null` from the field-level `default`), unknown fields
- *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
- *  `GeneralSettings` field without a counterpart here a red test.
- */
-export type GeneralSettingsPatch = {
-	hide_to_tray_during_game?: boolean | null,
-	theme?: ThemePreference | null,
-	check_updates_on_startup?: boolean | null,
-	language?: string | null,
-	explanation_level?: ExplanationLevel | null,
-	compact_mode?: boolean | null,
-	gpu_preference?: GpuPreference | null,
-	log_retention?: LogRetentionPolicy | null,
-	mod_metadata_ttl_days?: number | null,
-	sftp_upload_concurrency?: number | null,
-	hidden_sidebar_buttons?: string[] | null,
-	allow_server_ping?: boolean | null,
-	register_url_scheme?: boolean | null,
-	allow_ai_translation?: boolean | null,
-	ai_provider?: AiProvider | null,
-	ai_model?: string | null,
-	ai_local_port?: number | null,
+export type GeneralSettings_Serialize = {
+	/**
+	 *  LEGACY (≤0.24's checkbox). `game_start_window` decides now; this is kept
+	 *  in step with it (true ⇔ HideToTray) so a downgrade keeps the user's
+	 *  choice, and it is what an older file's `None` window resolves from.
+	 */
+	hide_to_tray_during_game: boolean,
+	/**
+	 *  What the window does when a game starts. `None` only between parsing a
+	 *  file that predates it (or holds a variant this build does not know) and
+	 *  `resolved()` — `read_app_json` resolves it, so no reader sees `None`.
+	 */
+	game_start_window: GameStartWindow | null,
+	/**
+	 *  UI theme preference: system (follow OS), light, or dark.
+	 *  Default system — user can override via Settings → General.
+	 */
+	theme: ThemePreference,
+	/**
+	 *  When true (default), the launcher checks GitHub Releases on
+	 *  startup and shows a sticky toast if a newer version exists. The
+	 *  install is always an explicit click — this only gates the check
+	 *  and the notification. Opt-out via Settings → General.
+	 */
+	check_updates_on_startup: boolean,
+	/**
+	 *  UI language preference. `"system"` (follow OS) or a BCP-47 code
+	 *  such as `"en"` / `"ru"`. Stored as an opaque string so community
+	 *  translations need no Rust change — the frontend validates and
+	 *  falls back. Default `"system"`.
+	 */
+	language: string,
+	/**
+	 *  Verbosity of onboarding/help copy. `#[serde(default)]` → existing
+	 *  app.json files (written before this field existed) deserialize to
+	 *  `Basic`, matching the chosen default for upgraders.
+	 */
+	explanation_level: ExplanationLevel,
+	/**
+	 *  When true, the launcher starts in (and is currently in) compact /
+	 *  mini launch-pad mode: the right content column is hidden and the OS
+	 *  window is shrunk to the sidebar strip. Default false. Updated on
+	 *  every compact/expand toggle.
+	 */
+	compact_mode: boolean,
+	/**
+	 *  Preferred GPU for the Minecraft process. `#[serde(default)]` →
+	 *  app.json written before this field deserializes to `Auto`.
+	 */
+	gpu_preference: GpuPreference,
+	/**
+	 *  Opt-in old-log auto-cleanup. `#[serde(default)]` → app.json
+	 *  written before this field deserializes to a disabled policy.
+	 */
+	log_retention: LogRetentionPolicy,
+	/**
+	 *  How long (days) a cached mod summary (name / icon / slug) stays fresh
+	 *  before the installed list and dependency graph re-fetch it. `0` = never
+	 *  expire. `#[serde(default)]` → app.json written before this field
+	 *  deserializes to the 7-day default.
+	 */
+	mod_metadata_ttl_days: number,
+	/**
+	 *  How many files an SFTP server upload transfers in parallel over the one
+	 *  shared SFTP session. `#[serde(default)]` → app.json written before this
+	 *  field deserializes to the 4-stream default. Clamped to 1..=16 at use.
+	 */
+	sftp_upload_concurrency: number,
+	/**
+	 *  IDs of sidebar buttons the user has hidden (opaque strings owned by the
+	 *  frontend registry in `src/lib/layout/sidebar-buttons.ts`). Empty = all
+	 *  visible — the default for app.json written before this field existed.
+	 *  Unknown IDs are ignored on the frontend, so buttons added or removed in
+	 *  later versions stay forward/backward compatible.
+	 */
+	hidden_sidebar_buttons: string[],
+	/**
+	 *  Opt-in permission to send a Server List Ping to the user's OWN saved
+	 *  multiplayer servers so their status / player count can be shown.
+	 *  `#[serde(default)]` → every app.json written before this field existed
+	 *  deserializes to "off", which is also the default for new installs.
+	 *  Enforced in `network::consent`: nothing in the launcher can dial a
+	 *  user-supplied host while this is false.
+	 */
+	allow_server_ping: boolean,
+	/**
+	 *  LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
+	 *  registration of the `lucerna://` link scheme; that toggle was retired.
+	 *  The only reader is `url_scheme_retire`, which uses it to decide whether a
+	 *  leftover registry key is ours to remove, and then clears it. Nothing
+	 *  sets it to `true` any more. Safe to delete together with
+	 *  `url_scheme_retire` once enough releases have passed (see ROADMAP).
+	 */
+	register_url_scheme: boolean,
+	/**
+	 *  Opt-in permission for the AI translation pre-fill to reach a model
+	 *  provider. Enforced in `network::consent`: while false, neither the
+	 *  cloud client nor the loopback client can be constructed.
+	 *  `#[serde(default)]` → off for every app.json written before this field.
+	 */
+	allow_ai_translation: boolean,
+	/**
+	 *  Which model backend the pre-fill talks to. `#[serde(default)]` →
+	 *  `Anthropic` for app.json written before this field existed; irrelevant
+	 *  until `allow_ai_translation` is turned on.
+	 */
+	ai_provider: AiProvider,
+	/**
+	 *  Empty means "use the provider's default model". Free text, because
+	 *  nothing can enumerate a provider's model list offline.
+	 */
+	ai_model: string,
+	/**
+	 *  Port of the local OpenAI-compatible server. Host is always 127.0.0.1 —
+	 *  see `network::loopback`, which takes the port and nothing else.
+	 */
+	ai_local_port: number,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */

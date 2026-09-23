@@ -43,7 +43,14 @@ pub fn write_instance_json(path: &Path, value: &InstanceFile) -> Result<()> {
 /// treat it as "no migration yet"). Malformed → `Err`.
 pub fn read_app_json(path: &Path) -> Result<AppFile> {
     match std::fs::read_to_string(path) {
-        Ok(raw) => serde_json::from_str(&raw)
+        // Resolved here, the one read path: a file that predates the
+        // game-start window setting reads as what its old checkbox meant, so
+        // no reader — the settings page, a launch, a writer — ever sees None.
+        Ok(raw) => serde_json::from_str::<AppFile>(&raw)
+            .map(|file| AppFile {
+                general: file.general.resolved(),
+                ..file
+            })
             .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AppFile::default()),
         Err(e) => Err(Error::io(path.display().to_string(), e)),
@@ -115,6 +122,20 @@ mod tests {
     use super::*;
     use crate::instances::schema::LoaderKind;
     use tempfile::tempdir;
+
+    #[test]
+    fn a_file_from_before_the_window_setting_reads_as_its_old_checkbox() {
+        use crate::instances::schema::GameStartWindow;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        std::fs::write(&path, r#"{"general":{"hide_to_tray_during_game":true}}"#).unwrap();
+        let file = read_app_json(&path).unwrap();
+        assert_eq!(
+            file.general.game_start_window,
+            Some(GameStartWindow::HideToTray)
+        );
+        assert!(file.general.hide_to_tray_during_game);
+    }
 
     #[test]
     fn update_reads_defaults_when_absent_and_writes_only_on_write() {
