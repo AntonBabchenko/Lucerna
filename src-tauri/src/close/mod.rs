@@ -10,6 +10,13 @@
 //! without an `AppHandle`; the impure flow that drives them lives beside them.
 
 use crate::data_root::blockers::CloseLosses;
+use crate::data_root::state::RelocationStatus;
+use crate::error::{Error, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
 /// The backend asks the frontend to show the close dialog. `generation`
 /// identifies this ask: the frontend acknowledges it once its modal is up, and
@@ -19,7 +26,6 @@ pub struct CloseConfirmNeeded {
     pub generation: u32,
     pub losses: CloseLosses,
 }
-use crate::data_root::state::RelocationStatus;
 
 // ---------------------------------------------------------------------------
 // The gate every path that can end the process passes
@@ -280,6 +286,321 @@ pub fn native_dialog(losses: &CloseLosses, labels: &CloseLabels) -> (String, Str
     } else {
         let english = default_close_labels();
         (body, pick(&english), english.cancel)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The impure flow: the window's ×, the tray's Quit, and the two answers
+// ---------------------------------------------------------------------------
+
+/// How long the close waits for "what would be lost" before it asks anyway.
+/// The probe reads PID files under the data root, which can sit on a dead
+/// network share; past this the answer is `unchecked`, never "nothing".
+const OBSERVE_BUDGET: Duration = Duration::from_secs(5);
+
+/// How long the in-app dialog has to say it is on screen before the native
+/// dialog asks instead. `emit` succeeding proves nothing: it returns Ok with no
+/// listener at all (a crashed or still-loading page).
+const ACK_BUDGET: Duration = Duration::from_secs(3);
+
+/// One close check at a time, shared by the × and the tray's Quit. A second
+/// press while one is in flight is dropped: the close stays prevented and the
+/// running check answers.
+static CLOSE_CHECK: AtomicBool = AtomicBool::new(false);
+
+/// Holding this is holding the single-flight flag. Dropped on every path —
+/// return, early exit or unwind — so a check that fails cannot leave the app
+/// unable to close.
+struct CheckGuard;
+
+impl Drop for CheckGuard {
+    fn drop(&mut self) {
+        CLOSE_CHECK.store(false, Ordering::Release);
+    }
+}
+
+fn try_begin_check() -> Option<CheckGuard> {
+    CLOSE_CHECK
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| CheckGuard)
+}
+
+static ASK: Mutex<AskState> = Mutex::new(AskState {
+    next: 0,
+    current: None,
+});
+
+fn asks() -> MutexGuard<'static, AskState> {
+    // Two plain fields with no invariant spanning a panic: a poisoned lock is
+    // read through rather than turned into a second panic on the path that
+    // decides whether the app may close.
+    ASK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Whether a close question is open. The scheduled hide-to-tray checks this
+/// so it does not hide an open question along with the window.
+pub fn ask_pending() -> bool {
+    asks().pending()
+}
+
+// Process-wide; `close_set_labels` writes it whenever the page loads or the
+// language changes. Absent → the English set, never blank.
+static LABELS: Mutex<Option<CloseLabels>> = Mutex::new(None);
+
+pub fn set_labels(labels: CloseLabels) {
+    *LABELS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(labels);
+}
+
+fn labels_or_default() -> CloseLabels {
+    LABELS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_else(default_close_labels)
+}
+
+fn current_gate() -> CloseGate {
+    close_gate(&crate::data_root::state::global().status())
+}
+
+/// The last step of every path that ends the process: the gate again, because
+/// a data move can start while a dialog is open, and `app.exit` never passes
+/// through the window's close handler.
+fn exit_if_gate_allows(app: &AppHandle, why: &str) -> Result<()> {
+    match current_gate() {
+        CloseGate::Prevent => {
+            crate::diag!("close: not exiting ({why}) — a data move started meanwhile");
+            Err(Error::DataRelocationInProgress {
+                restart_required: false,
+            })
+        }
+        CloseGate::Allow | CloseGate::Check => {
+            app.exit(0);
+            Ok(())
+        }
+    }
+}
+
+/// `observe_losses`, bounded in time and panic-safe. A poisoned registry lock
+/// panics inside the blocking task; that becomes a join error, which becomes
+/// `unchecked` — an ask, not a crash and not a silent exit.
+async fn observe_budgeted(app: &AppHandle) -> CloseLosses {
+    let probe_app = app.clone();
+    let probe = tauri::async_runtime::spawn_blocking(move || {
+        crate::data_root::blockers::observe_losses(&probe_app)
+    });
+    match tokio::time::timeout(OBSERVE_BUDGET, probe).await {
+        Ok(Ok(losses)) => losses,
+        Ok(Err(e)) => {
+            crate::diag!("close: the check failed ({e}) — asking as unchecked");
+            CloseLosses::unchecked()
+        }
+        Err(_) => {
+            crate::diag!(
+                "close: the check took longer than {OBSERVE_BUDGET:?} — asking as unchecked"
+            );
+            CloseLosses::unchecked()
+        }
+    }
+}
+
+/// The window's close handler (×, Alt+F4, taskbar Close). Runs on the main
+/// thread, and `prevent_close()` counts only if sent before it returns — so the
+/// decision to hold the close is made here, synchronously, and everything slow
+/// happens afterwards on a task that never sees `api`.
+pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    match current_gate() {
+        CloseGate::Prevent => api.prevent_close(),
+        CloseGate::Allow => {}
+        CloseGate::Check => {
+            api.prevent_close();
+            let Some(guard) = try_begin_check() else {
+                return;
+            };
+            let app = window.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let _guard = guard;
+                let losses = observe_budgeted(&app).await;
+                match close_verdict(&losses) {
+                    CloseVerdict::Exit => {
+                        if let Err(e) = exit_if_gate_allows(&app, "window close") {
+                            crate::diag!("close: {e}");
+                        }
+                    }
+                    CloseVerdict::Ask(losses) => ask(&app, losses).await,
+                }
+            });
+        }
+    }
+}
+
+/// Bring the window forward, show the question, and make sure SOMEONE saw it:
+/// the in-app dialog if it says so within `ACK_BUDGET`, the native dialog
+/// otherwise.
+async fn ask(app: &AppHandle, losses: CloseLosses) {
+    // A dialog painted in a minimized or hidden window is invisible. Posted to
+    // the same FIFO as the emit below, so the window is up before the dialog.
+    let restore_app = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        crate::tray::restore_or_log(&restore_app, "close ask");
+    }) {
+        // No event loop means the process is already on its way out.
+        crate::diag!("close: cannot ask — the event loop is gone: {e}");
+        return;
+    }
+    let generation = asks().begin();
+    if let Err(e) = (CloseConfirmNeeded { generation, losses }).emit(app) {
+        crate::diag!("close: the in-app ask was not sent ({e}) — asking natively");
+    } else {
+        tokio::time::sleep(ACK_BUDGET).await;
+    }
+    if asks().expire(generation) {
+        crate::diag!("close: the in-app ask was not confirmed on screen — asking natively");
+        native_ask(app, generation, losses);
+    }
+}
+
+/// The same question through the OS, for when the page cannot show it.
+/// `show(callback)`, never `blocking_show`: the latter unwraps a receive that
+/// fails when the post is dropped.
+fn native_ask(app: &AppHandle, generation: u32, losses: CloseLosses) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let labels = labels_or_default();
+    let (body, confirm_label, cancel_label) = native_dialog(&losses, &labels);
+    let title = if labels.title.is_empty() {
+        default_close_labels().title
+    } else {
+        labels.title
+    };
+    let mut dialog = app
+        .dialog()
+        .message(body)
+        .title(title)
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            confirm_label,
+            cancel_label,
+        ));
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.parent(&window);
+    }
+    let answer_app = app.clone();
+    dialog.show(move |confirmed| {
+        if !confirmed {
+            asks().finish(generation);
+            return;
+        }
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = confirm(&answer_app, generation, losses).await {
+                crate::diag!("close: the native confirm did not close: {e}");
+            }
+        });
+    });
+}
+
+/// The user answered Cancel: the question is over.
+pub fn cancel(generation: u32) {
+    asks().finish(generation);
+}
+
+/// The in-app dialog is on screen. False = superseded, or the native dialog
+/// already took over; the page closes its copy.
+pub fn ask_shown(generation: u32) -> bool {
+    asks().ack(generation)
+}
+
+/// The user chose to close, having seen `shown`. Both dialogs end here.
+///
+/// The world may have changed while the dialog was open, so this looks again:
+/// it exits only if every kind of loss seen now was named; otherwise it asks
+/// again, naming the union.
+pub async fn confirm(app: &AppHandle, generation: u32, shown: CloseLosses) -> Result<()> {
+    match current_gate() {
+        CloseGate::Prevent => {
+            asks().finish(generation);
+            return Err(Error::DataRelocationInProgress {
+                restart_required: false,
+            });
+        }
+        CloseGate::Allow => {
+            asks().finish(generation);
+            return exit_if_gate_allows(app, "confirmed close");
+        }
+        CloseGate::Check => {}
+    }
+    let now = observe_budgeted(app).await;
+    match confirm_verdict(&shown, &now) {
+        ConfirmVerdict::Exit => {
+            asks().finish(generation);
+            exit_if_gate_allows(app, "confirmed close")
+        }
+        ConfirmVerdict::Reprompt(union) => {
+            // Its own task: the caller's promise settles now, and the new ask
+            // replaces the dialog the caller is showing.
+            let reask_app = app.clone();
+            tauri::async_runtime::spawn(async move { ask(&reask_app, union).await });
+            Ok(())
+        }
+    }
+}
+
+/// The tray's Quit. The window is hidden, so there is nothing to ask on: it
+/// keeps REFUSING when something runs (the maintainer's call in 11b), but now
+/// passes the same gate and the same single-flight flag as the ×, and looks
+/// off the main thread.
+pub fn tray_quit(app: &AppHandle) {
+    use crate::data_root::blockers::RestartBlock;
+    match current_gate() {
+        // A data move is an operation in flight; the move's own dialog is
+        // what the restored window shows.
+        CloseGate::Prevent => crate::tray::refuse_quit(app, RestartBlock::Busy),
+        CloseGate::Allow => app.exit(0),
+        CloseGate::Check => {
+            let Some(guard) = try_begin_check() else {
+                return;
+            };
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _guard = guard;
+                let block = observe_block_budgeted(&app).await;
+                match crate::tray::quit_verdict(block) {
+                    crate::tray::QuitVerdict::Exit => {
+                        if let Err(e) = exit_if_gate_allows(&app, "tray quit") {
+                            crate::diag!("close: {e}");
+                            crate::tray::refuse_quit(&app, RestartBlock::Busy);
+                        }
+                    }
+                    crate::tray::QuitVerdict::Refuse(block) => {
+                        crate::tray::refuse_quit(&app, block)
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// `observe()` under the same budget; a panic or a timeout is `Unknown`, which
+/// refuses.
+async fn observe_block_budgeted(app: &AppHandle) -> crate::data_root::blockers::RestartBlock {
+    use crate::data_root::blockers::RestartBlock;
+    let probe_app = app.clone();
+    let probe = tauri::async_runtime::spawn_blocking(move || {
+        crate::data_root::blockers::observe(&probe_app)
+    });
+    match tokio::time::timeout(OBSERVE_BUDGET, probe).await {
+        Ok(Ok(block)) => block,
+        Ok(Err(e)) => {
+            crate::diag!("tray: the quit check failed ({e}) — refusing");
+            RestartBlock::Unknown
+        }
+        Err(_) => {
+            crate::diag!("tray: the quit check took longer than {OBSERVE_BUDGET:?} — refusing");
+            RestartBlock::Unknown
+        }
     }
 }
 

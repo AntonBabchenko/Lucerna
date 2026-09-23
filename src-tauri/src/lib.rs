@@ -176,6 +176,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::close_set_labels,
             commands::app_close_ask_shown,
             commands::app_confirm_close,
+            commands::app_cancel_close,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
@@ -579,17 +580,13 @@ pub fn run() {
             }
             slot
         })
-        .on_window_event(|_window, event| {
-            // Closing the window mid-move would kill the copy with no cleanup.
-            // After the switch (`RestartRequired`) closing is fine: the next
-            // start lands on the new root.
+        .on_window_event(|window, event| {
+            // Closing the last window ends the process, and the exit hook below
+            // force-kills every tracked game and server. So the close passes a
+            // gate: a data move copying → no; one waiting for restart → yes;
+            // otherwise ask what closing would lose (`close`).
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if matches!(
-                    crate::data_root::state::global().status(),
-                    crate::data_root::state::RelocationStatus::Running { .. }
-                ) {
-                    api.prevent_close();
-                }
+                crate::close::on_close_requested(window, api);
             }
         })
         .setup(move |app| {

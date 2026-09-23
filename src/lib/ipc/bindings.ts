@@ -660,6 +660,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  while the dialog was open is named in a new ask rather than killed unseen.
 	 */
 	appConfirmClose: (generation: number, shown: CloseLosses) => typedError<null, Error>(__TAURI_INVOKE("app_confirm_close", { generation, shown })),
+	/**
+	 *  The user cancelled the close. The question is over, so the scheduled
+	 *  hide-to-tray may hide the window again.
+	 */
+	appCancelClose: (generation: number) => __TAURI_INVOKE<void>("app_cancel_close", { generation }),
 	modsSearch: (query: ModSearchQuery_Deserialize) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	/**

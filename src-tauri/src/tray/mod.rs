@@ -122,12 +122,27 @@ pub struct TrayQuitRefused {
 }
 
 /// Bring the window back, and say so in the log if that failed. Every path
-/// into here is a recovery path — the user asked for the window, or asked to
-/// quit and was refused — so a failure must not vanish: with the window still
-/// hidden and the tray about to be gone, nothing on screen would explain it.
-fn restore_or_log(app: &AppHandle, why: &str) {
+/// into here is a recovery path — the user asked for the window, asked to quit
+/// and was refused, or is about to be asked whether to close — so a failure
+/// must not vanish. Main thread only (see `restore_from_tray`).
+pub(crate) fn restore_or_log(app: &AppHandle, why: &str) {
     if let Err(e) = restore_from_tray(app) {
         crate::diag!("tray: could not restore the window ({why}): {e}");
+    }
+}
+
+/// A tray Quit was refused: bring the window back, then say why. Callable from
+/// any thread — the restore is posted to the main thread, and the notice is
+/// emitted after it, in the same FIFO, so it lands in a visible window.
+pub(crate) fn refuse_quit(app: &AppHandle, block: RestartBlock) {
+    let restore_app = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || restore_or_log(&restore_app, "quit refused")) {
+        crate::diag!("tray: quit refused ({block:?}) but the window could not be restored: {e}");
+    }
+    if let Err(e) = (TrayQuitRefused { block }).emit(app) {
+        // The window is back, so the user is not stranded; what is lost is
+        // the sentence saying why.
+        crate::diag!("tray: quit refused ({block:?}) but the notice was not sent: {e}");
     }
 }
 
@@ -179,24 +194,11 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray-open" => restore_or_log(app, "open"),
-            "tray-quit" => {
-                // Exiting runs the exit hook, which force-kills every tracked
-                // game and server (lib.rs, RunEvent::ExitRequested). So look
-                // first, with the same observer "Update now" uses.
-                match quit_verdict(crate::data_root::blockers::observe(app)) {
-                    QuitVerdict::Exit => app.exit(0),
-                    QuitVerdict::Refuse(block) => {
-                        restore_or_log(app, "quit refused");
-                        if let Err(e) = (TrayQuitRefused { block }).emit(app) {
-                            // The window is back, so the user is not stranded;
-                            // what is lost is the sentence saying why.
-                            crate::diag!(
-                                "tray: quit refused ({block:?}) but the notice was not sent: {e}"
-                            );
-                        }
-                    }
-                }
-            }
+            // Exiting runs the exit hook, which force-kills every tracked game
+            // and server (lib.rs, RunEvent::ExitRequested). The close module
+            // looks first — off this thread, through the same gate and the
+            // same single-flight flag as the window's ×.
+            "tray-quit" => crate::close::tray_quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -220,8 +222,16 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
-/// Remove the tray icon and bring the main window back to the front.
-/// No-op if no tray icon exists.
+/// Bring the main window back to the front, then remove the tray icon.
+///
+/// The window comes first: the tray is the only way back to a hidden window,
+/// so it goes only once the window is up. No window, or a failed show → `Err`
+/// with the tray KEPT, so Open can be retried. Unminimize and focus are
+/// cosmetic next to that and are logged, not fatal.
+///
+/// Main thread only: on Windows the icon teardown (`Shell_NotifyIcon`) must
+/// run on the thread that created it. Every caller runs there or posts through
+/// `run_on_main_thread`.
 ///
 /// Removal goes through `AppHandle::remove_tray_by_id`, which calls
 /// `TrayIcon::close()` — the only thing that actually tears the icon out
@@ -229,15 +239,25 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
 /// earlier buggy run (which could stack multiple icons under the same id)
 /// are all cleared in one restore.
 pub fn restore_from_tray(app: &AppHandle) -> Result<()> {
-    while app.remove_tray_by_id(TRAY_ID).is_some() {}
-
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| Error::TrayIo {
-            details: format!("show window: {e}"),
-        })?;
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    let window = app.get_webview_window("main");
+    let window = match (crate::close::restore_plan(window.is_some()), window) {
+        (crate::close::RestorePlan::ShowThenRemove, Some(window)) => window,
+        _ => {
+            return Err(Error::TrayIo {
+                details: "no main window to show; the tray stays".into(),
+            })
+        }
+    };
+    window.show().map_err(|e| Error::TrayIo {
+        details: format!("show window: {e}"),
+    })?;
+    if let Err(e) = window.unminimize() {
+        crate::diag!("tray: the window is shown but could not be unminimized: {e}");
     }
+    if let Err(e) = window.set_focus() {
+        crate::diag!("tray: the window is shown but could not take focus: {e}");
+    }
+    while app.remove_tray_by_id(TRAY_ID).is_some() {}
     Ok(())
 }
 
