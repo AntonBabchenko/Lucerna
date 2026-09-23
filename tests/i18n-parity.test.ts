@@ -76,4 +76,37 @@ describe('i18n locale parity (en vs ru)', () => {
     ];
     expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
   });
+
+  // Batch 11a fixed one vocabulary for two concepts: the guided walkthrough is
+  // "Tour" / «Тур», and the detail level is "Explanations" / «Объяснения».
+  // The old names are kept ON PURPOSE as search keywords — someone who learned
+  // "onboarding" must still find the row — so the sweep covers every OTHER
+  // string. Without this, a rename that misses the tour's own Skip button
+  // ships a vocabulary that is one word per thing everywhere except on the
+  // thing itself.
+  it('uses one name for the tour in every string a user can read', () => {
+    const LEGACY_KEYWORD_PREFIX = 'settings.search.keywords.';
+    const BANNED = [
+      { re: /onboarding/i, what: 'en "onboarding"' },
+      { re: /welcome tour/i, what: 'en "welcome tour"' },
+      { re: /guided tips/i, what: 'en "guided tips"' },
+      { re: /обучени/i, what: 'ru «обучение»' },
+      { re: /знакомств/i, what: 'ru «знакомство»' },
+      { re: /вводный тур/i, what: 'ru «вводный тур»' },
+    ];
+    const offenders: string[] = [];
+    for (const [flat, locale] of [
+      [flatEn, 'en'],
+      [flatRu, 'ru'],
+    ] as const) {
+      for (const [key, value] of Object.entries(flat)) {
+        if (key.startsWith(LEGACY_KEYWORD_PREFIX)) continue;
+        if (typeof value !== 'string') continue;
+        for (const { re, what } of BANNED) {
+          if (re.test(value)) offenders.push(`${locale}:${key} still says ${what}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
