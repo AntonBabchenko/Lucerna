@@ -203,18 +203,14 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     keywordsKey: 'settings.search.keywords.help.replayTours',
     visibleKeys: ['settings.general.onboarding.title', 'settings.general.onboarding.replayBtn'],
   },
-  // The support block. Its visible words are the bug link and its hint — NOT
-  // the log button, which has its own entry below.
+  // The support block's bug link. The log button has its own entry below; the
+  // security line sits outside this field and is reached by keyword.
   'help.support': {
     anchor: 'help.support',
     tab: 'help',
     labelKey: 'settings.search.labels.help.support',
     keywordsKey: 'settings.search.keywords.help.support',
-    visibleKeys: [
-      'settings.help.support.title',
-      'settings.help.support.reportBug',
-      'settings.help.support.securityPolicy',
-    ],
+    visibleKeys: ['settings.help.support.title', 'settings.help.support.reportBug'],
   },
   'help.logFolder': {
     anchor: 'help.logFolder',
