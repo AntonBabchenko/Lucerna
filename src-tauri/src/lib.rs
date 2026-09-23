@@ -256,6 +256,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::update_check,
             commands::update_install,
             commands::update_dismiss,
+            commands::update_clear_dismissed,
+            commands::update_skipped_version,
             // Post-update "What's new":
             commands::app_version,
             commands::app_build_info,

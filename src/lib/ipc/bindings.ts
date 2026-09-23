@@ -1355,11 +1355,23 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	updateInstall: () => typedError<null, Error>(__TAURI_INVOKE("update_install")),
 	/**
-	 *  Persist that the user dismissed the update toast for `version`, so it
-	 *  is not shown again until a newer release appears. Read-modify-write
-	 *  of app.json — leaves everything else untouched.
+	 *  "Skip this version": persist `version` so the startup check does not offer it
+	 *  again until a newer release appears. Read-modify-write of app.json — leaves
+	 *  everything else untouched. Returns the skip as it now stands (see
+	 *  `effective_skip`), so the page shows what was persisted, not what it asked for.
 	 */
-	updateDismiss: (version: string) => typedError<null, Error>(__TAURI_INVOKE("update_dismiss", { version })),
+	updateDismiss: (version: string) => typedError<string | null, Error>(__TAURI_INVOKE("update_dismiss", { version })),
+	/**
+	 *  "Stop skipping": forget the skipped version, so the startup check offers it
+	 *  again. Returns the skip as it now stands.
+	 */
+	updateClearDismissed: () => typedError<string | null, Error>(__TAURI_INVOKE("update_clear_dismissed")),
+	/**
+	 *  The skipped version worth mentioning: the stored one, but only while it is
+	 *  newer than what is running. Updating past a skipped version makes the skip
+	 *  meaningless, and the page stops mentioning it without a write.
+	 */
+	updateSkippedVersion: () => typedError<string | null, Error>(__TAURI_INVOKE("update_skipped_version")),
 	/**
 	 *  The running launcher version (compile-time `CARGO_PKG_VERSION`), the same
 	 *  source the updater and the CHANGELOG headings use. Infallible.
