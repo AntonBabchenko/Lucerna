@@ -1883,6 +1883,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	dataRootSizeBytes: () => typedError<number | null, Error>(__TAURI_INVOKE("data_root_size_bytes")),
 	/**
+	 *  Free space on the drive holding the effective data folder, in bytes. Refused
+	 *  in a recovery session and during a move; the folder must still be the data
+	 *  folder; bounded in time (a stalled network share answers "unknown").
+	 */
+	dataRootFreeBytes: () => typedError<number | null, Error>(__TAURI_INVOKE("data_root_free_bytes")),
+	/**
+	 *  Show the effective data folder in the OS file manager. Checks first that it
+	 *  is really there and still the data folder — on macOS and Linux the opener
+	 *  reports success even when nothing opens, so its result proves nothing.
+	 */
+	openDataFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_data_folder")),
+	/**
 	 *  Relocate the data root to `new_path`, or back to the OS default when
 	 *  `None`. See `data_root::relocate` for the pipeline and its guarantees.
 	 * 
@@ -3578,6 +3590,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "data_location_unavailable" } | 
 /**
+ *  The data folder could not be opened or measured: it is not there, not a
+ *  folder, no longer the data folder (an unmounted mount point), or could
+ *  not be checked. The page says which.
+ */
+{ kind: "data_root_unreachable"; path: string; problem: FolderProblem } | 
+/**
  *  A world's `level.dat` could not be read or rewritten. `reason` is a raw
  *  NBT/gzip library message — Opaque on the TS side.
  */
@@ -3811,6 +3829,23 @@ export type FitsRow = {
 	sha1: string,
 	name: string,
 };
+
+/**
+ *  Why the data folder can't be opened or measured right now. Travels inside
+ *  `Error::DataRootUnreachable`, so the page can say which it is.
+ */
+export type FolderProblem = 
+/**  Nothing is there (a drive unplugged, a folder removed). */
+{ kind: "missing" } | 
+/**  Something is there, but it is not a folder. */
+{ kind: "not_a_folder" } | 
+/**
+ *  A folder is there, but it is not this data folder any more — an unmounted
+ *  mount point is an empty directory of the parent filesystem.
+ */
+{ kind: "not_a_data_root" } | 
+/**  It could not be checked; `details` is the OS's own words. */
+{ kind: "unreadable"; details: string };
 
 /**
  *  Normalized foreign instance — the contract between readers and the

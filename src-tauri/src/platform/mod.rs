@@ -550,6 +550,16 @@ pub fn free_disk_bytes_nearest(path: &Path) -> Option<u64> {
     free_disk_mb(existing).map(|mb| mb.saturating_mul(1024 * 1024))
 }
 
+/// Free space, in bytes, available to the caller on the filesystem holding the
+/// directory `dir` ITSELF. No walk to a parent or an ancestor: an unplugged
+/// drive's folder must not be answered with the system disk's figure (that is
+/// what `free_disk_mb` / `free_disk_bytes_nearest` do, for a move TARGET that may
+/// not exist yet). `Err` keeps NotFound apart from every other failure.
+pub fn free_disk_bytes_at(_dir: &Path) -> std::io::Result<u64> {
+    // STUB (red).
+    Ok(0)
+}
+
 /// Block until the spawned process has created its top-level window (input
 /// message queue ready), or a 30-second cap elapses. Used to delay
 /// hide-to-tray until Minecraft is actually on screen.
@@ -632,6 +642,24 @@ mod modrinth_root_tests {
             roots.iter().any(|p| p.ends_with("ModrinthApp/profiles")),
             "missing %APPDATA%/ModrinthApp/profiles; got: {roots:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod free_space_tests {
+    use super::free_disk_bytes_at;
+
+    #[test]
+    fn an_existing_folder_has_its_drive_s_free_space() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let free = free_disk_bytes_at(dir.path()).expect("free space of a real folder");
+        assert!(free > 0, "a writable temp drive has free space");
+    }
+
+    #[test]
+    fn a_missing_folder_is_an_error_not_its_parent_s_figure() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(free_disk_bytes_at(&dir.path().join("unplugged")).is_err());
     }
 }
 

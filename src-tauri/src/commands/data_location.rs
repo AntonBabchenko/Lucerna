@@ -192,6 +192,28 @@ pub async fn data_root_size_bytes(app: AppHandle) -> Result<f64> {
     Ok(size as f64)
 }
 
+/// Show the effective data folder in the OS file manager. Checks first that it
+/// is really there and still the data folder — on macOS and Linux the opener
+/// reports success even when nothing opens, so its result proves nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_data_folder(app: AppHandle) -> Result<()> {
+    let _ = app;
+    // STUB (red).
+    Ok(())
+}
+
+/// Free space on the drive holding the effective data folder, in bytes. Refused
+/// in a recovery session and during a move; the folder must still be the data
+/// folder; bounded in time (a stalled network share answers "unknown").
+#[tauri::command]
+#[specta::specta]
+pub async fn data_root_free_bytes(app: AppHandle) -> Result<f64> {
+    let _ = app;
+    // STUB (red).
+    Ok(0.0)
+}
+
 /// Classify a picked directory into adopt / migrate / already-current, and —
 /// for a migration — refuse a tree with links up front and report the size it
 /// needs and the space the target volume has. Read-only; commit-time

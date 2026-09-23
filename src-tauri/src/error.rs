@@ -723,6 +723,15 @@ pub enum Error {
     )]
     DataLocationUnavailable,
 
+    /// The data folder could not be opened or measured: it is not there, not a
+    /// folder, no longer the data folder (an unmounted mount point), or could
+    /// not be checked. The page says which.
+    #[error("the data folder cannot be used: {path}")]
+    DataRootUnreachable {
+        path: String,
+        problem: crate::data_root::FolderProblem,
+    },
+
     /// A world's `level.dat` could not be read or rewritten. `reason` is a raw
     /// NBT/gzip library message — Opaque on the TS side.
     #[error("level.dat could not be parsed: {reason}")]
@@ -1514,6 +1523,19 @@ mod tests {
             "got: {json}"
         );
         assert!(json.contains(r#""restart_required":true"#), "got: {json}");
+    }
+
+    #[test]
+    fn data_root_unreachable_names_the_path_and_the_problem() {
+        let e = Error::DataRootUnreachable {
+            path: "/media/usb/Lucerna".into(),
+            problem: crate::data_root::FolderProblem::Missing,
+        };
+        let json = serde_json::to_string(&e).expect("serialize");
+        assert_eq!(
+            json,
+            r#"{"kind":"data_root_unreachable","path":"/media/usb/Lucerna","problem":{"kind":"missing"}}"#
+        );
     }
 
     #[test]

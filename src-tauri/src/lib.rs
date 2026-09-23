@@ -372,6 +372,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Data-root location:
             commands::get_data_location,
             commands::data_root_size_bytes,
+            commands::data_root_free_bytes,
+            commands::open_data_folder,
             commands::set_data_location,
             commands::plan_data_location_change,
             commands::adopt_data_location,

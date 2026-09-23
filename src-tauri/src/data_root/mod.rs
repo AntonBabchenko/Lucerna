@@ -294,6 +294,148 @@ pub fn reject_if_root_unusable(app: &tauri::AppHandle) -> crate::error::Result<(
     state::global().check_usable()
 }
 
+/// Why the data folder can't be opened or measured right now. Travels inside
+/// `Error::DataRootUnreachable`, so the page can say which it is.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FolderProblem {
+    /// Nothing is there (a drive unplugged, a folder removed).
+    Missing,
+    /// Something is there, but it is not a folder.
+    NotAFolder,
+    /// A folder is there, but it is not this data folder any more — an unmounted
+    /// mount point is an empty directory of the parent filesystem.
+    NotADataRoot,
+    /// It could not be checked; `details` is the OS's own words.
+    Unreadable { details: String },
+}
+
+/// Pure: what a stat of the root and the data-root shape check say. "Could not
+/// tell" (`Unreadable`) is kept apart from "not there" (`Missing`).
+pub fn data_folder_check(
+    _is_dir: std::io::Result<bool>,
+    _looks_like_root: bool,
+) -> Result<(), FolderProblem> {
+    // STUB (red).
+    Ok(())
+}
+
+/// The real check of the root, for the commands that open or measure it. A
+/// path that answers is not enough: it must still be the data folder.
+pub fn check_root_reachable(root: &Path) -> Result<(), FolderProblem> {
+    let is_dir = std::fs::metadata(root).map(|m| m.is_dir());
+    let looks = matches!(is_dir, Ok(true)) && looks_like_data_root(root);
+    data_folder_check(is_dir, looks)
+}
+
+/// How to show a folder in the OS file manager.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenStrategy {
+    /// Open the folder itself.
+    Open,
+    /// Select it in its parent folder.
+    Reveal,
+}
+
+/// macOS treats a directory named `*.app` as an application bundle: `open`
+/// tries to launch it, fails, and still reports success. The default macOS data
+/// folder is `…/Application Support/com.lucerna.app`, so there it is revealed.
+pub fn folder_open_strategy(_path: &Path, _os: &str) -> OpenStrategy {
+    // STUB (red).
+    OpenStrategy::Open
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::*;
+    use std::io::{Error as IoError, ErrorKind};
+
+    #[test]
+    fn nothing_there_is_missing() {
+        assert_eq!(
+            data_folder_check(Err(IoError::from(ErrorKind::NotFound)), false),
+            Err(FolderProblem::Missing)
+        );
+    }
+
+    #[test]
+    fn a_stat_that_failed_otherwise_is_could_not_tell_with_the_os_words() {
+        let r = data_folder_check(
+            Err(IoError::new(ErrorKind::PermissionDenied, "denied!")),
+            false,
+        );
+        assert!(
+            matches!(r, Err(FolderProblem::Unreadable { ref details }) if details.contains("denied!"))
+        );
+    }
+
+    #[test]
+    fn a_file_is_not_a_folder() {
+        assert_eq!(
+            data_folder_check(Ok(false), false),
+            Err(FolderProblem::NotAFolder)
+        );
+    }
+
+    #[test]
+    fn an_empty_mount_point_is_not_the_data_folder() {
+        assert_eq!(
+            data_folder_check(Ok(true), false),
+            Err(FolderProblem::NotADataRoot)
+        );
+    }
+
+    #[test]
+    fn the_data_folder_is_reachable() {
+        assert_eq!(data_folder_check(Ok(true), true), Ok(()));
+    }
+
+    #[test]
+    fn check_root_reachable_reads_the_real_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert_eq!(
+            check_root_reachable(&dir.path().join("gone")),
+            Err(FolderProblem::Missing)
+        );
+        assert_eq!(
+            check_root_reachable(dir.path()),
+            Err(FolderProblem::NotADataRoot)
+        );
+        std::fs::create_dir(dir.path().join("instances")).expect("instances");
+        std::fs::write(dir.path().join("app.json"), "{}").expect("app.json");
+        assert_eq!(check_root_reachable(dir.path()), Ok(()));
+    }
+
+    #[test]
+    fn a_macos_app_named_folder_is_revealed_not_opened() {
+        let root = Path::new("/Users/u/Library/Application Support/com.lucerna.app");
+        assert_eq!(folder_open_strategy(root, "macos"), OpenStrategy::Reveal);
+        assert_eq!(
+            folder_open_strategy(Path::new("/Volumes/X/Lucerna.APP"), "macos"),
+            OpenStrategy::Reveal
+        );
+    }
+
+    #[test]
+    fn every_other_folder_is_opened() {
+        assert_eq!(
+            folder_open_strategy(Path::new("/Volumes/X/LucernaData"), "macos"),
+            OpenStrategy::Open
+        );
+        assert_eq!(
+            folder_open_strategy(
+                Path::new(r"C:\Users\u\AppData\Roaming\com.lucerna.app"),
+                "windows"
+            ),
+            OpenStrategy::Open
+        );
+        assert_eq!(
+            folder_open_strategy(Path::new("/home/u/.local/share/com.lucerna.app"), "linux"),
+            OpenStrategy::Open
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
