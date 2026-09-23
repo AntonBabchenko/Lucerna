@@ -25,11 +25,12 @@ import { join } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
+import AiTranslationSection from '$lib/settings/AiTranslationSection.svelte';
+import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 // Static import on purpose: a dynamic `await import()` of a .svelte module
 // inside a test body never resolves under this vitest setup. `vi.mock` is
 // hoisted above imports anyway, so the panel still sees the mocked bindings.
-import AiTranslationSection from '$lib/settings/AiTranslationSection.svelte';
-import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
+import { describedText } from './test-utils/aria';
 
 async function mount() {
   __resetAppSettingsForTest();
@@ -420,5 +421,44 @@ describe('Settings → Integrations: AI translation', () => {
     expect(scope).toMatch(/Patchouli/i);
     expect(scope).toMatch(/FTB Quests/i);
     expect(scope).toMatch(/config/i);
+  });
+
+  it('the consent checkbox is named by its title and described by its three sentences', async () => {
+    await mount();
+    const cb = await waitFor(() =>
+      screen.getByRole('checkbox', { name: 'Let Lucerna send mod text to an AI provider' }),
+    );
+    const desc = describedText(cb);
+    expect(desc).toContain('no translation request leaves this computer');
+    expect(desc).toContain('bill your own account');
+    expect(desc).toContain("subject to that provider's terms");
+  });
+
+  it('names the model field by its label alone; the hint is its description', async () => {
+    await mount();
+    // The <label> wrapped the hint too, so the name was "Model Leave this empty…" —
+    // the same defect as the checkbox rows, on the one row that is not a checkbox.
+    const model = await waitFor(() => screen.getByTestId('ai-model-input'));
+    expect(screen.getByRole('textbox', { name: 'Model' })).toBe(model);
+  });
+
+  it('links the gated note to the provider and model controls only while it renders', async () => {
+    await mount();
+    const note = await waitFor(() => screen.getByTestId('ai-gated-note'));
+    expect(note.id).toBeTruthy();
+    const provider = screen.getByTestId('ai-provider-select');
+    const model = screen.getByTestId('ai-model-input');
+    expect(provider.getAttribute('aria-describedby')?.split(/\s+/)).toContain(note.id);
+    expect(model.getAttribute('aria-describedby')?.split(/\s+/)).toContain(note.id);
+    // The model hint is linked regardless of the gate.
+    expect(describedText(model)).toContain('Leave this empty');
+
+    await fireEvent.click(screen.getByTestId('ai-translation-toggle'));
+    await waitFor(() => expect(screen.queryByTestId('ai-gated-note')).toBeNull());
+    // Nothing points at the id that just left the DOM (L3): a dangling
+    // aria-describedby is announced as nothing.
+    expect(provider.getAttribute('aria-describedby') ?? '').not.toContain(note.id);
+    expect(model.getAttribute('aria-describedby')?.split(/\s+/)).not.toContain(note.id);
+    describedText(model); // still resolves every id it names
   });
 });
