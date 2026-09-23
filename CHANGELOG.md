@@ -47,6 +47,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Closing the window while a game or server runs asks first.** The window's
+  close button, Alt+F4 and the taskbar's close used to end Lucerna and
+  force-close every running game and server with it, without a word. Now
+  Lucerna names what would stop — a game, servers, an operation in progress —
+  and closes only if you confirm; with nothing running it closes as before. A
+  minimized or hidden launcher comes forward to ask, and if the window cannot
+  show the question, the system asks instead.
 - **Quitting from the tray no longer closes your game.** Quit used to exit
   Lucerna and force-close any running game or server along with it; it now
   refuses and says what is still running. The tray menu follows the interface
