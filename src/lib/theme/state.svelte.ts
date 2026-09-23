@@ -16,8 +16,9 @@ import { patchGeneral } from '$lib/settings/app-settings.svelte';
 
 const STORAGE_KEY = 'theme';
 
-function readSystemPrefersDark(): boolean {
-  if (typeof window === 'undefined') return false;
+/** The OS dark-mode preference, or null when it cannot be read. */
+function readSystemPrefersDark(): boolean | null {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return null;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
@@ -46,6 +47,19 @@ export const themeState = $state<{
 
 export function resolvedTheme(): 'light' | 'dark' {
   return resolve(themeState.pref, themeState.systemDark);
+}
+
+/**
+ * What "System" resolves to right now, or null when the OS preference could
+ * not be read. resolvedTheme() must always answer — the painter has to paint
+ * something — so it treats "unreadable" as light. A LABEL must not repeat that
+ * guess as a fact: "System — currently light" would tell the user their OS is
+ * light when Lucerna could not find out.
+ */
+export function resolvedThemeOrNull(): 'light' | 'dark' | null {
+  if (themeState.pref !== 'system') return resolve(themeState.pref, themeState.systemDark);
+  if (themeState.systemDark === null) return null;
+  return themeState.systemDark ? 'dark' : 'light';
 }
 
 /**

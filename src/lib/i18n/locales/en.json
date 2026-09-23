@@ -2642,7 +2642,10 @@
         },
         "theme": "Theme",
         "themeHint": "System follows your operating system's light or dark setting.",
-        "effectsTitle": "Effects"
+        "effectsTitle": "Effects",
+        "systemResolved": "{system} — currently {value}",
+        "currentlyLight": "Currently light.",
+        "currentlyDark": "Currently dark."
       },
       "playing": {
         "title": "Playing",

@@ -7,10 +7,11 @@
   // heading's text and described by the hint under it.
   import { type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
+  import { getOsLang, resolveLocale } from '$lib/i18n/resolve';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
-  import { themeState, setThemePref } from '$lib/theme/state.svelte';
+  import { resolvedThemeOrNull, setThemePref, themeState } from '$lib/theme/state.svelte';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
   import { SIDEBAR_BUTTONS } from '$lib/layout/sidebar-buttons';
@@ -21,8 +22,37 @@
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
 
+  // "System" names what it resolves to. The language rule is deliberate, not a
+  // guess — Russian if the OS language is Russian, English otherwise — so the
+  // result is always true to name, EXCEPT when the OS language could not be
+  // read at all (''), where saying "currently English" would imply Lucerna
+  // found out the OS is English.
+  const systemLanguageLabel = $derived.by(() => {
+    const base = $t('settings.general.appearance.languageSystem');
+    const os = getOsLang();
+    if (os === '') return base;
+    const code = resolveLocale('system', AVAILABLE_LOCALES, os);
+    return $t('settings.general.appearance.systemResolved', {
+      system: base,
+      value: LOCALE_LABELS[code] ?? code,
+    });
+  });
+
+  // Same shape for the theme hint, which carries the suffix instead of the
+  // option label (the segmented control's option names stay one word each).
+  const themeResolvedSuffix = $derived.by(() => {
+    if (themeState.pref !== 'system') return null;
+    const r = resolvedThemeOrNull();
+    if (r === null) return null;
+    return $t(
+      r === 'dark'
+        ? 'settings.general.appearance.currentlyDark'
+        : 'settings.general.appearance.currentlyLight',
+    );
+  });
+
   const languageOptions = $derived([
-    { value: 'system', label: $t('settings.general.appearance.languageSystem') },
+    { value: 'system', label: systemLanguageLabel },
     ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
   ]);
 
@@ -53,6 +83,7 @@
       />
       <p id="appearance-theme-hint" class="text-xs text-muted">
         {$t('settings.general.appearance.themeHint')}
+        {#if themeResolvedSuffix}{themeResolvedSuffix}{/if}
       </p>
       <!-- A refused save snaps the pick back; this line says why, here. -->
       <div data-testid="save-failure-theme">

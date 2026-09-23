@@ -2642,7 +2642,10 @@
         },
         "theme": "Тема",
         "themeHint": "Системная — как в настройках вашей операционной системы.",
-        "effectsTitle": "Эффекты"
+        "effectsTitle": "Эффекты",
+        "systemResolved": "{system} — сейчас {value}",
+        "currentlyLight": "Сейчас светлая.",
+        "currentlyDark": "Сейчас тёмная."
       },
       "playing": {
         "title": "Во время игры",
