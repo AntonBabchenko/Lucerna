@@ -5,6 +5,7 @@ import { explanationState } from '../src/lib/onboarding/explanation-level.svelte
 import { tourState } from '../src/lib/onboarding/state.svelte';
 import HelpPanel from '../src/lib/settings/HelpPanel.svelte';
 import { settingsOpen, settingsSearchFocus } from '../src/lib/settings/state.svelte';
+import { describedText } from './test-utils/aria';
 
 beforeEach(() => {
   tourState.active = false;
@@ -71,5 +72,16 @@ describe('HelpPanel', () => {
     expect(column.className).toContain('flex-col');
     expect(column.contains(desc)).toBe(true);
     expect(btn.compareDocumentPosition(desc) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  test('the tip-level group and the Replay button are described by their helper lines', () => {
+    render(HelpPanel);
+    // The tips hint follows the selection (10a); either sentence is the link's target.
+    expect(describedText(screen.getByTestId('tip-level-select'))).toMatch(
+      /simple and clear|technical details/,
+    );
+    expect(
+      describedText(screen.getByRole('button', { name: /replay onboarding tour/i })),
+    ).toContain('welcome tour');
   });
 });

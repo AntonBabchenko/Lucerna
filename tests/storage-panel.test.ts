@@ -83,6 +83,7 @@ import { commands } from '$lib/ipc/bindings';
 import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
+import { describedText } from './test-utils/aria';
 
 describe('StoragePanel', () => {
   it('shows size, clears cache, pushes a success toast, and disables Clear once empty', async () => {
@@ -192,6 +193,14 @@ describe('StoragePanel — log retention', () => {
     expect(container.querySelector('[data-testid="log-retention-toggle"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="log-retention-max-files"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="log-retention-max-mb"]')).not.toBeNull();
+  });
+
+  it('the enable checkbox is named by its title and described by its sentence; the TTL field by its hint', () => {
+    render(StoragePanel);
+    const cb = screen.getByRole('checkbox', { name: 'Automatically delete old logs' });
+    expect(describedText(cb)).toContain('latest.log');
+    // The TTL hint is linked by NumberField (10a); pinned here at the consumer.
+    expect(describedText(screen.getByTestId('mod-metadata-ttl-days'))).toContain('never expire');
   });
 });
 
