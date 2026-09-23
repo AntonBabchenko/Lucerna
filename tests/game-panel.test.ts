@@ -1,5 +1,5 @@
 // tests/game-panel.test.ts
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const appSettingsGet = vi.fn().mockResolvedValue({
@@ -7,6 +7,7 @@ const appSettingsGet = vi.fn().mockResolvedValue({
   data: {
     general: {
       hide_to_tray_during_game: false,
+      game_start_window: 'minimise',
       theme: 'system',
       check_updates_on_startup: true,
       gpu_preference: 'auto',
@@ -18,12 +19,21 @@ const appSettingsPatchGeneral = vi.fn().mockImplementation(async (p: object) => 
   status: 'ok',
   data: { gpu_preference: 'auto', ...p },
 }));
+const appBuildInfo = vi.fn().mockResolvedValue({
+  version: '0.25.0',
+  build: { kind: 'local' },
+  commit: null,
+  fork: null,
+  os: 'windows',
+  arch: 'x86_64',
+});
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: (...a: unknown[]) => appSettingsGet(...a),
     appSettingsSetGeneral: (...a: unknown[]) => appSettingsSetGeneral(...a),
     appSettingsPatchGeneral: (...a: unknown[]) => appSettingsPatchGeneral(...a),
+    appBuildInfo: () => appBuildInfo(),
     gpuCapability: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { mechanism: 'none', capability: { kind: 'unsupported' } },
@@ -50,28 +60,50 @@ beforeEach(() => {
 });
 
 describe('GamePanel', () => {
-  test('renders the tray toggle', async () => {
-    const { container } = await mount();
-    const cb = container.querySelector('[data-testid="tray-toggle"]');
-    expect(cb).not.toBeNull();
-    expect(cb?.getAttribute('type')).toBe('checkbox');
+  const group = () => screen.getByRole('group', { name: 'When a game starts' });
+
+  test('offers what the window does when a game starts, with the current choice pressed', async () => {
+    await mount();
+    const g = group();
+    expect(within(g).getByRole('button', { name: 'Minimise' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(within(g).getByRole('button', { name: 'Keep open' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+    expect(within(g).getByRole('button', { name: 'Hide to tray' })).toBeTruthy();
   });
 
-  test('toggling tray patches only the toggled field', async () => {
+  test('picking a choice patches only the window field', async () => {
     await mount();
-    await fireEvent.click(screen.getByTestId('tray-toggle'));
+    await fireEvent.click(within(group()).getByRole('button', { name: 'Hide to tray' }));
     await vi.waitFor(() => expect(appSettingsPatchGeneral).toHaveBeenCalled());
     // One field, nothing else: a sibling panel's field can never be clobbered.
-    expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ hide_to_tray_during_game: true });
+    expect(appSettingsPatchGeneral).toHaveBeenCalledWith({ game_start_window: 'hide_to_tray' });
   });
 
-  test('the tray checkbox is named by its title and described by its sentence', async () => {
+  test('the tray caveat is readable before Hide to tray is chosen', async () => {
     await mount();
-    // Today the <label> wraps title AND sentence, so the name is the whole paragraph.
-    const cb = screen.getByRole('checkbox', {
-      name: 'Hide launcher to tray when Minecraft starts',
+    // The consequence is read BEFORE committing: activation follows focus.
+    expect(describedText(group())).toContain('system tray');
+  });
+
+  test('the Linux minimise note shows only on Linux', async () => {
+    await mount();
+    await vi.waitFor(() => expect(appBuildInfo).toHaveBeenCalled());
+    expect(screen.queryByText(/On some Linux desktops/)).toBeNull();
+  });
+
+  test('on Linux, it says the launcher may not come back by itself', async () => {
+    appBuildInfo.mockResolvedValueOnce({
+      version: '0.25.0',
+      build: { kind: 'local' },
+      commit: null,
+      fork: null,
+      os: 'linux',
+      arch: 'x86_64',
     });
-    expect(cb.getAttribute('data-testid')).toBe('tray-toggle');
-    expect(describedText(cb)).toContain('system tray');
+    await mount();
+    expect(await screen.findByText(/On some Linux desktops/)).toBeTruthy();
   });
 });

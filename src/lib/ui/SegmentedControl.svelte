@@ -20,9 +20,11 @@
     ariaLabel,
     dataTestid,
     describedby,
+    disabled = false,
   }: {
     options: Option[];
-    value: string;
+    /** null = no value to show (a setting still loading or unreadable). */
+    value: string | null;
     onChange: (v: string) => void;
     variant: 'boxed' | 'inline';
     ariaLabel: string;
@@ -30,7 +32,11 @@
     dataTestid?: string;
     /** Forwarded as `aria-describedby` on the group (a hint line under the control). */
     describedby?: string;
+    /** Every option disabled and arrows ignored (pending / failed settings). */
+    disabled?: boolean;
   } = $props();
+  // STUB (red): disabled and the no-value tab stop are not applied yet.
+  void disabled;
 
   // DOM-ordered button refs so arrow keys can move focus to a sibling.
   let btnEls = $state<(HTMLButtonElement | null)[]>([]);
