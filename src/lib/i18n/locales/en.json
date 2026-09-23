@@ -3001,7 +3001,7 @@
         "verifying": "Verifying…",
         "launching": "Starting the installer…"
       },
-      "dismissFailed": "Couldn't remember that you dismissed this update — it may be offered again next launch"
+      "dismissFailed": "Couldn't remember that you skipped this version — it may be offered again next launch"
     },
     "whatsNew": {
       "toast": "Updated to {version} — see what's new",

@@ -8,19 +8,25 @@
   // running game and server — so the action sits behind the same gate as the
   // data-folder move (`createRestartGate`), says what it will do, and follows
   // the real stage instead of saying "Installing…" during a download.
+  import { onMount } from 'svelte';
+  import pkg from '../../../package.json' with { type: 'json' };
   import { commands } from '$lib/ipc/bindings';
   import { describeStoreError, formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import {
     runUpdate,
+    skipUpdate,
+    stopSkipping,
     updateInstalling,
     updatePhase,
     type UpdatePhase,
     updateState,
   } from '$lib/update/state.svelte';
+  import { openExternalHttps } from '$lib/ui/safe-open';
   import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
@@ -52,13 +58,59 @@
   type CheckResult =
     | { kind: 'idle' }
     | { kind: 'uptodate'; current: string }
-    | { kind: 'available'; version: string }
+    | { kind: 'available'; version: string; current: string; releaseUrl: string | null }
     // `framed`: whether the "Couldn't check:" wrapper still has to supply the
     // headline. update_check_failed formats to "Couldn't check for updates: …"
     // on its own; a network failure, a refused host or a thrown Error does not.
     | { kind: 'error'; message: string; framed: boolean };
   let checking = $state(false);
-  let checkResult = $state<CheckResult>({ kind: 'idle' });
+  // UPD-03: what the startup check already found is on the page the moment it
+  // opens — the toast is gone after a few seconds, this page is the durable place.
+  function offerOf(info: typeof updateState.value): CheckResult {
+    return info?.available
+      ? {
+          kind: 'available',
+          version: info.latest,
+          current: info.current,
+          releaseUrl: info.release_url || null,
+        }
+      : { kind: 'idle' };
+  }
+  let checkResult = $state<CheckResult>(offerOf(updateState.value));
+
+  // UPD-04: skipping is an explicit choice, and the page shows a skip that is
+  // in force. The backend says which skip is worth mentioning (only one newer
+  // than what runs), so the page never compares versions or trusts a stale copy.
+  // Could not tell → nothing is claimed; skipping again is harmless.
+  let skipped = $state<string | null>(null);
+  let skipError = $state<string | null>(null);
+  let skipBusy = $state(false);
+  onMount(() => {
+    void (async () => {
+      try {
+        const r = await commands.updateSkippedVersion();
+        if (r.status === 'ok') skipped = r.data;
+      } catch {
+        // Not known: show no skip line. The Skip button still works.
+      }
+    })();
+  });
+  async function skip(version: string) {
+    skipBusy = true;
+    skipError = null;
+    const r = await skipUpdate(version);
+    skipBusy = false;
+    if (r.ok) skipped = r.skipped;
+    else skipError = $t('settings.general.updates.skipFailed', { error: r.error });
+  }
+  async function unskip() {
+    skipBusy = true;
+    skipError = null;
+    const r = await stopSkipping();
+    skipBusy = false;
+    if (r.ok) skipped = r.skipped;
+    else skipError = $t('settings.general.updates.stopSkippingFailed', { error: r.error });
+  }
 
   // On platforms without in-app install (macOS, .deb / .rpm) the backend returns
   // a null installer and runUpdate() opens the release page instead of
@@ -82,8 +134,10 @@
       }
       if (r.data.available) {
         updateState.value = r.data;
-        checkResult = { kind: 'available', version: r.data.latest };
+        checkResult = offerOf(r.data);
       } else {
+        // A stale offer from an earlier check must not come back on the next open.
+        updateState.value = null;
         checkResult = { kind: 'uptodate', current: r.data.current };
       }
     } catch (e) {
@@ -223,6 +277,9 @@
         </div>
       {/if}
       {#if checkResult.kind === 'available'}
+        <p class="basis-full text-xs text-muted" data-testid="update-you-have">
+          {$t('settings.general.updates.youHave', { version: checkResult.current })}
+        </p>
         <BusyButton
           type="button"
           class="btn-primary btn-sm"
@@ -233,6 +290,29 @@
         >
           {actionLabel}
         </BusyButton>
+        {#if checkResult.releaseUrl}
+          {@const notes = checkResult.releaseUrl}
+          <button
+            type="button"
+            class="btn-link btn-sm inline-flex items-center gap-1"
+            use:tooltip={notes}
+            onclick={() => void openExternalHttps(notes)}
+          >
+            {$t('settings.general.updates.releaseNotes')}
+            <Icon name="externalLink" size={12} />
+          </button>
+        {/if}
+        {#if skipped !== checkResult.version}
+          {@const offered = checkResult.version}
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            disabled={skipBusy}
+            onclick={() => void skip(offered)}
+          >
+            {$t('settings.general.updates.skip')}
+          </button>
+        {/if}
         {#if notifyOnly}
           <p class="basis-full text-xs text-muted" data-testid="update-manual-hint">
             {$t('settings.general.updates.manualHint')}
@@ -240,6 +320,9 @@
         {:else}
           <p class="basis-full text-xs text-muted" data-testid="update-explain">
             {$t('settings.general.updates.explain')}
+          </p>
+          <p class="basis-full text-xs text-muted" data-testid="update-verification">
+            {$t('settings.general.updates.verification')}
           </p>
           {#if block !== 'none' && block !== 'checking'}
             <button
@@ -260,12 +343,31 @@
         {/if}
       {/if}
     </div>
+    {#if skipped}
+      <div class="flex flex-wrap items-center gap-2" data-testid="update-skipped">
+        <p class="text-xs text-muted">
+          {$t('settings.general.updates.skipped', { version: skipped })}
+        </p>
+        <button
+          type="button"
+          class="btn-tertiary btn-sm"
+          disabled={skipBusy}
+          onclick={() => void unskip()}
+        >
+          {$t('settings.general.updates.stopSkipping')}
+        </button>
+      </div>
+    {/if}
+    <StatusMessage message={skipError} tone="danger" />
   </div>
 
   <SettingsField anchor="updates.changelog">
     <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.changelog.title')}</h3>
-      <ChangelogPanel entries={CHANGELOG} />
+      <p class="text-xs text-muted">
+        {$t('settings.changelog.intro', { version: pkg.version })}
+      </p>
+      <ChangelogPanel entries={CHANGELOG} collapseOlder={pkg.version} />
     </div>
   </SettingsField>
 </section>

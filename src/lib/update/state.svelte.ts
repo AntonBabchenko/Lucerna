@@ -190,26 +190,52 @@ export type SkipOutcome = { ok: true; skipped: string | null } | { ok: false; er
 
 /** "Skip this version": the startup check stops offering `version`. Returns
  *  the skip as the backend persisted it. */
-export async function skipUpdate(_version: string): Promise<SkipOutcome> {
-  // STUB (red).
-  return { ok: true, skipped: null };
+export async function skipUpdate(version: string): Promise<SkipOutcome> {
+  // The offer stays: a skipped version is still available — only the startup
+  // notice stops. Settings → Updates keeps showing it, with Stop skipping.
+  try {
+    const r = await commands.updateDismiss(version);
+    return r.status === 'ok'
+      ? { ok: true, skipped: r.data }
+      : { ok: false, error: formatError(r.error) };
+  } catch (e) {
+    return { ok: false, error: describeStoreError(e) };
+  }
 }
 
 /** "Stop skipping": the startup check offers the skipped version again. */
 export async function stopSkipping(): Promise<SkipOutcome> {
-  // STUB (red).
-  return { ok: true, skipped: null };
+  try {
+    const r = await commands.updateClearDismissed();
+    return r.status === 'ok'
+      ? { ok: true, skipped: r.data }
+      : { ok: false, error: formatError(r.error) };
+  } catch (e) {
+    return { ok: false, error: describeStoreError(e) };
+  }
 }
 
 /** The startup notice for an available update: Update now, and a readable
  *  Skip this version. The × and the auto-hide only close it. */
 export function showUpdateToast(info: UpdateInfo): number {
-  // STUB (red): no skip action, no timer.
   const tr = get(t);
+  const version = info.latest;
   return pushActionToast(
     'info',
-    tr('page.update.available', { version: info.latest }),
+    tr('page.update.available', { version }),
     { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
     [tr('page.update.currentVersion', { version: info.current })],
+    {
+      secondary: {
+        label: tr('settings.general.updates.skip'),
+        run: () => {
+          void skipUpdate(version).then((r) => {
+            // The toast is already gone; the failure must still be said.
+            if (!r.ok) pushWarning(get(t)('page.update.dismissFailed'), [r.error]);
+          });
+        },
+      },
+      ttlMs: UPDATE_TOAST_TTL_MS,
+    },
   );
 }
