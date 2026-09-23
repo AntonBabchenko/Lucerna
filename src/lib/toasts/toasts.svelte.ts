@@ -93,26 +93,58 @@ export function pushActionToast(
   title: string,
   action: ToastAction,
   lines: string[] = [],
-  _opts: ActionToastOptions = {},
+  opts: ActionToastOptions = {},
 ): number {
-  // STUB (red): the options are accepted but ignored.
   const id = nextId++;
-  store.toasts = [...store.toasts, { id, kind, title, lines, action }];
+  store.toasts = [
+    ...store.toasts,
+    { id, kind, title, lines, action, ...(opts.secondary ? { secondary: opts.secondary } : {}) },
+  ];
+  if (opts.ttlMs !== undefined) {
+    timers.set(id, { remaining: opts.ttlMs, startedAt: 0, handle: null, paused: 0 });
+    resumeToastTimer(id);
+  }
   return id;
 }
 
+// Auto-hide countdowns of timed toasts, by id. `paused` counts reasons to wait
+// (pointer over the toast, focus inside it) so leaving with the pointer while
+// focus stays inside does not restart the countdown.
+type Timer = {
+  remaining: number;
+  startedAt: number;
+  handle: ReturnType<typeof setTimeout> | null;
+  paused: number;
+};
+const timers = new Map<number, Timer>();
+
 /** The pointer or focus is on the toast: stop its auto-hide countdown. */
-export function pauseToastTimer(_id: number): void {
-  // STUB (red).
+export function pauseToastTimer(id: number): void {
+  const timer = timers.get(id);
+  if (!timer) return;
+  timer.paused += 1;
+  if (timer.handle !== null) {
+    clearTimeout(timer.handle);
+    timer.handle = null;
+    timer.remaining = Math.max(0, timer.remaining - (Date.now() - timer.startedAt));
+  }
 }
 
-/** The pointer and focus left: continue the countdown with the time left. */
-export function resumeToastTimer(_id: number): void {
-  // STUB (red).
+/** The pointer or focus left: continue the countdown with the time that was left. */
+export function resumeToastTimer(id: number): void {
+  const timer = timers.get(id);
+  if (!timer) return;
+  timer.paused = Math.max(0, timer.paused - 1);
+  if (timer.paused > 0 || timer.handle !== null) return;
+  timer.startedAt = Date.now();
+  timer.handle = setTimeout(() => dismiss(id), timer.remaining);
 }
 
-/** Remove a toast by id — the × button, or the success auto-dismiss timer. */
+/** Remove a toast by id — the × button, or an auto-dismiss timer. */
 export function dismiss(id: number): void {
+  const timer = timers.get(id);
+  if (timer?.handle) clearTimeout(timer.handle);
+  timers.delete(id);
   store.toasts = store.toasts.filter((t) => t.id !== id);
 }
 

@@ -2,7 +2,13 @@
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
   import { events } from '$lib/ipc/bindings';
-  import { dismiss, toastList, pushSuccess } from '$lib/toasts/toasts.svelte';
+  import {
+    dismiss,
+    pauseToastTimer,
+    pushSuccess,
+    resumeToastTimer,
+    toastList,
+  } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { modalDepth } from '$lib/ui/Modal.svelte';
 
@@ -29,6 +35,30 @@
   // corner is free, so the stack moves to the bottom centre, newest nearest
   // the edge (flex-col-reverse): footers are justify-end / justify-between,
   // which leaves the middle clear, and a header's × is untouched.
+  // A timed toast waits while someone is reading it: its countdown pauses
+  // while the pointer is over it or focus is inside it, and resumes with the
+  // time that was left. Listeners, not ARIA: the card is not a widget.
+  function holdWhileEngaged(node: HTMLElement, id: number) {
+    const enter = () => pauseToastTimer(id);
+    const leave = () => resumeToastTimer(id);
+    const focusOut = (e: FocusEvent) => {
+      // Focus moving between the toast's own buttons is not leaving it.
+      if (!node.contains(e.relatedTarget as Node | null)) resumeToastTimer(id);
+    };
+    node.addEventListener('pointerenter', enter);
+    node.addEventListener('pointerleave', leave);
+    node.addEventListener('focusin', enter);
+    node.addEventListener('focusout', focusOut);
+    return {
+      destroy() {
+        node.removeEventListener('pointerenter', enter);
+        node.removeEventListener('pointerleave', leave);
+        node.removeEventListener('focusin', enter);
+        node.removeEventListener('focusout', focusOut);
+      },
+    };
+  }
+
   const toasts = $derived(toastList());
   const dismissLabel = $derived($t('common.dismissNotification'));
   const placement = $derived(
@@ -60,6 +90,7 @@
             ? 'bg-accent-soft border-accent text-accent'
             : 'bg-surface border-border-emphasis text-primary'}"
       data-testid={`toast-${t.kind}`}
+      use:holdWhileEngaged={t.id}
     >
       <div class="flex items-start gap-2">
         <span class="min-w-0 flex-1 break-words font-medium">{t.title}</span>
@@ -108,6 +139,19 @@
         >
           {t.action.label}
         </button>
+        {#if t.secondary}
+          <button
+            type="button"
+            class="btn-ghost btn-sm mt-2 ml-1"
+            data-testid="toast-secondary-action"
+            onclick={() => {
+              t.secondary?.run();
+              dismiss(t.id);
+            }}
+          >
+            {t.secondary.label}
+          </button>
+        {/if}
       {/if}
     </div>
   {/each}
