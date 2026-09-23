@@ -41,8 +41,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   value they would have to change and say what is accepted (the newest-logs
   limit can no longer be set to 0, which deleted every old log), the theme and
   tip-level choices are segmented controls with a hint, the Storage page leads
-  with the data folder, and links open through one helper that says when a
-  link was refused or the browser could not be opened.
+  with the data folder, a cache size that could not be measured says so instead
+  of showing the one measured before, and links open through one helper that
+  says when a link was refused or the browser could not be opened.
 
 ### Fixed
 

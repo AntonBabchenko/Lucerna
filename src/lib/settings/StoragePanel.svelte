@@ -44,7 +44,12 @@
   import DataLocationConfirmDialog from '$lib/settings/DataLocationConfirmDialog.svelte';
   import SettingsField from './SettingsField.svelte';
 
+  // Three states for the cache size, like the data-root row below: measuring, a measured
+  // number, and "could not measure" (null + its own error line). `error` stays the CLEAR's
+  // outcome — refresh() runs as clear()'s recovery step and must not speak for it.
   let bytes = $state<number | null>(null);
+  let cacheSizeLoading = $state(true);
+  let cacheSizeError = $state<string | null>(null);
   let clearing = $state(false);
   let error = $state<string | null>(null);
 
@@ -132,13 +137,20 @@
 
   async function refresh() {
     const result = await commands.modsCacheSizeBytes();
+    cacheSizeLoading = false;
     if (result.status === 'ok') {
-      // The IPC contract types this as `number | null`. Treat null as
-      // "unknown" so the UI still has a sensible fallback rather than
-      // rendering "null B".
-      bytes = result.data ?? 0;
+      // The IPC contract types this as `number | null`. A null answer is
+      // "could not tell", not "0 B" — it renders as unknown, never as a size.
+      bytes = bytesOrNull(result.data);
+      cacheSizeError = null;
     } else {
-      error = formatError(result.error);
+      // This also runs as clear()'s recovery step (STOR-22). It reports in its
+      // own line and drops the pre-clear number: writing `error` here would
+      // replace the reason the CLEAR failed with the reason the re-measure did,
+      // and keeping `bytes` would show a measurement taken before the clear as
+      // the size now.
+      bytes = null;
+      cacheSizeError = formatError(result.error);
     }
   }
 
@@ -553,12 +565,20 @@
       <h3 class="font-medium text-sm text-primary">{$t('settings.storage.cacheTitle')}</h3>
       <div class="text-sm">
         {$t('settings.storage.cacheLabel')}
-        <span class="font-medium"
-          >{bytes === null ? '…' : formatSize($t, bytes) || $t('format.size.bytes', { n: 0 })}</span
-        >
+        {#if cacheSizeLoading}
+          <span class="font-medium">…</span>
+        {:else if bytes === null}
+          <span class="text-warning-text">{$t('settings.storage.cacheSizeUnknown')}</span>
+        {:else}
+          <span class="font-medium"
+            >{formatSize($t, bytes) || $t('format.size.bytes', { n: 0 })}</span
+          >
+        {/if}
       </div>
       <p class="text-xs text-muted">{$t('settings.storage.cacheDescription')}</p>
+      <!-- Two outcomes, two lines: what the clear did, and what the measurement did. -->
       <StatusMessage message={error} tone="danger" />
+      <StatusMessage message={cacheSizeError} tone="danger" />
       <div>
         <BusyButton
           type="button"

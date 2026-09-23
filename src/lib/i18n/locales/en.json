@@ -2736,6 +2736,7 @@
     },
     "storage": {
       "cacheLabel": "Size:",
+      "cacheSizeUnknown": "couldn't be measured",
       "cacheTitle": "Mod download cache",
       "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
       "clearBtn": "Clear cache",

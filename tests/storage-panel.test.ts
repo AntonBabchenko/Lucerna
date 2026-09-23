@@ -709,6 +709,28 @@ describe('StoragePanel — one vocabulary (batch 10a)', () => {
     expect(commands.modsCacheSizeBytes).toHaveBeenCalledTimes(2);
   });
 
+  it('a re-measure that also fails keeps the clear reason and stops claiming a size', async () => {
+    mock(commands.modsCacheSizeBytes)
+      .mockResolvedValueOnce({ status: 'ok', data: 2048 })
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { kind: 'mods_cache_io', details: 'drive disconnected' },
+      });
+    mock(commands.modsClearCache).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_cache_io', details: 'locked' },
+    });
+    await mountPanel();
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear cache' }));
+    await settled();
+    // The recovery step's own failure must not overwrite the reason the clear failed.
+    expect(screen.getByText(/locked/)).toBeTruthy();
+    expect(screen.getByText(/drive disconnected/)).toBeTruthy();
+    // And the size measured BEFORE the clear is no longer presented as the size now.
+    expect(screen.queryByText(/2\.0 KB/)).toBeNull();
+    expect(screen.getByText("couldn't be measured")).toBeTruthy();
+  });
+
   it('the size error is announced (role=alert)', async () => {
     mock(commands.dataRootSizeBytes).mockResolvedValue({
       status: 'error',

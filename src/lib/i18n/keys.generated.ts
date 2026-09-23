@@ -2715,6 +2715,7 @@ export type TranslationKey =
   | 'settings.sections.updates'
   | 'settings.storage.cacheDescription'
   | 'settings.storage.cacheLabel'
+  | 'settings.storage.cacheSizeUnknown'
   | 'settings.storage.cacheTitle'
   | 'settings.storage.clearBtn'
   | 'settings.storage.cleared'
