@@ -85,6 +85,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Updating a data pack on a server that has never been started no longer
+  stops it from starting.** The update used to write a stand-in world file
+  holding nothing but the data pack list, and the server then refused to load
+  the world. A server's world is now left for the server to create, and it
+  picks up the new version of the pack when it does.
+- **Re-importing a modpack's files no longer overwrites worlds you have
+  played.** When a pack ships worlds of its own, re-importing its files used to
+  write the pack's copies over yours and revert parts of them. A world you
+  already have is now left exactly as it is; only a shipped world that is
+  missing is restored.
 - **Closing the window while a game or server runs asks first.** The window's
   close button, Alt+F4 and the taskbar's close used to end Lucerna and
   force-close every running game and server with it, without a word. Now
