@@ -265,9 +265,11 @@
         </button>
       </div>
     {/if}
-    <div data-testid="save-failure-check_updates_on_startup">
-      <StatusMessage message={saveFailure('check_updates_on_startup')} tone="danger" />
-    </div>
+    <StatusMessage
+      dataTestid="save-failure-check_updates_on_startup"
+      message={saveFailure('check_updates_on_startup')}
+      tone="danger"
+    />
     <div class="flex items-center gap-3 flex-wrap">
       <BusyButton
         type="button"
@@ -283,12 +285,11 @@
       <!-- The wrapper renders only once a check has settled, so
            `findByTestId('update-status')` still waits for the result. -->
       {#if checkResult.kind !== 'idle'}
-        <div data-testid="update-status">
-          <StatusMessage
-            message={checkText}
-            tone={checkResult.kind === 'error' ? 'danger' : 'info'}
-          />
-        </div>
+        <StatusMessage
+          dataTestid="update-status"
+          message={checkText}
+          tone={checkResult.kind === 'error' ? 'danger' : 'info'}
+        />
       {/if}
       {#if checkResult.kind === 'available'}
         <p class="basis-full text-xs text-muted" data-testid="update-you-have">

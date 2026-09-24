@@ -173,25 +173,23 @@
         {/if}
       </dl>
       {#if lowSpace}
-        <div data-testid="data-move-low-space">
-          <StatusMessage
-            message={$t('settings.storage.dataLocation.confirm.lowSpace', {
-              required: sizeText,
-              free: freeText,
-            })}
-            tone="warning"
-            withIcon
-          />
-        </div>
+        <StatusMessage
+          dataTestid="data-move-low-space"
+          message={$t('settings.storage.dataLocation.confirm.lowSpace', {
+            required: sizeText,
+            free: freeText,
+          })}
+          tone="warning"
+          withIcon
+        />
       {/if}
       {#if freeBytes === null}
-        <div data-testid="data-move-free-unknown">
-          <StatusMessage
-            message={$t('settings.storage.dataLocation.confirm.freeUnknown')}
-            tone="warning"
-            withIcon
-          />
-        </div>
+        <StatusMessage
+          dataTestid="data-move-free-unknown"
+          message={$t('settings.storage.dataLocation.confirm.freeUnknown')}
+          tone="warning"
+          withIcon
+        />
       {/if}
       <p class="text-sm text-secondary font-medium">
         {$t('settings.storage.dataLocation.confirm.cancelNote')}

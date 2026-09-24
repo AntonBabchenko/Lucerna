@@ -8,6 +8,10 @@
   --bg-surface: 255 255 255; /* white */
   --bg-subtle: 245 245 245; /* neutral-100 */
   --bg-muted: 229 229 229; /* neutral-200 */
+  /* Segmented control: a recessed track and the chosen segment's raised thumb.
+     Named, because no existing pair is recessed-then-raised in both themes. */
+  --control-track: 229 229 229; /* neutral-200 */
+  --control-thumb: 255 255 255; /* white */
   /* Text */
   --text-primary: 23 23 23; /* neutral-900 */
   --text-secondary: 64 64 64; /* neutral-700 */
@@ -114,6 +118,8 @@
   --bg-surface: 38 38 38; /* neutral-800 — was 23 23 23 */
   --bg-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
   --bg-muted: 82 82 91; /* zinc-600 — was 64 64 64 */
+  --control-track: 23 23 23; /* neutral-900 — sunk below the 38 surface */
+  --control-thumb: 64 64 64; /* neutral-700 — raised above the track */
   /* Text — slightly desaturated whites read gentler on dark grey */
   --text-primary: 245 245 245;
   --text-secondary: 212 212 212;

@@ -219,9 +219,11 @@
           onChange={(v) => void set('game_start_window', v as GameStartWindow)}
         />
         <!-- A failed save sits right under the control that failed. -->
-        <div data-testid="save-failure-game_start_window">
-          <StatusMessage message={saveFailure('game_start_window')} tone="danger" />
-        </div>
+        <StatusMessage
+          dataTestid="save-failure-game_start_window"
+          message={saveFailure('game_start_window')}
+          tone="danger"
+        />
         <!-- The chosen action's own line, then the tray note ALWAYS — named for its option:
              activation follows focus, so Hide to tray's consequence is read before it is picked. -->
         {#if startHint}
@@ -265,9 +267,11 @@
           {$t('settings.general.serverPing.privacy')}
         </p>
       </div>
-      <div data-testid="save-failure-allow_server_ping">
-        <StatusMessage message={pingFailure} tone="danger" />
-      </div>
+      <StatusMessage
+        dataTestid="save-failure-allow_server_ping"
+        message={pingFailure}
+        tone="danger"
+      />
     </div>
   </SettingsField>
 
@@ -291,9 +295,11 @@
           />
           <span id="game-gpu-note" class="text-xs text-muted" data-testid="gpu-note">{gpuNote}</span
           >
-          <div data-testid="save-failure-gpu_preference">
-            <StatusMessage message={saveFailure('gpu_preference')} tone="danger" />
-          </div>
+          <StatusMessage
+            dataTestid="save-failure-gpu_preference"
+            message={saveFailure('gpu_preference')}
+            tone="danger"
+          />
         </div>
       </div>
     </SettingsField>
@@ -312,9 +318,11 @@
           >
             {$t('settings.general.gpu.resetBtn')}
           </button>
-          <div data-testid="save-failure-gpu_preference">
-            <StatusMessage message={saveFailure('gpu_preference')} tone="danger" />
-          </div>
+          <StatusMessage
+            dataTestid="save-failure-gpu_preference"
+            message={saveFailure('gpu_preference')}
+            tone="danger"
+          />
         {/if}
       </div>
     </SettingsField>

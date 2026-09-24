@@ -1353,9 +1353,12 @@
           </div>
         </div>
 
-        <div bind:this={errorRegionEl} class="shrink-0 px-4">
-          <StatusMessage tone="danger" message={modalError} class="mb-3" />
-        </div>
+        <StatusMessage
+          bind:element={errorRegionEl}
+          tone="danger"
+          message={modalError}
+          class="mb-3 px-4"
+        />
         {#if selected && !createMode}
           <div
             class="shrink-0 flex items-center justify-between border-t px-4 py-3"
