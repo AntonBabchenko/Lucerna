@@ -52,14 +52,22 @@ function openDisclosures(target: HTMLElement, root: HTMLElement): void {
   }
 }
 
-/** The control to focus: a marked one, else the first usable focusable. */
+/**
+ * The control to focus: a marked one, else the first usable focusable, else
+ * the first disabled one — to wait for. A field whose controls are all
+ * disabled (their settings still loading) must still hold focus: the link that
+ * asked for it may have unmounted, and with no target focus would fall to
+ * <body>, outside any dialog.
+ */
 function focusTargetIn(node: HTMLElement): HTMLElement | null {
   const preferred = node.querySelector<HTMLElement>('[data-flash-focus]');
   if (preferred) return preferred;
+  let firstDisabled: HTMLElement | null = null;
   for (const el of node.querySelectorAll<HTMLElement>(FOCUSABLE)) {
     if (!isDisabled(el)) return el;
+    firstDisabled ??= el;
   }
-  return null;
+  return firstDisabled;
 }
 
 /**

@@ -16,6 +16,7 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import SettingsField from './SettingsField.svelte';
+  import { jumpInSettings } from './state.svelte';
   import { buildLine, versionInfoBlock } from './version-info';
 
   const version = pkg.version;
@@ -101,6 +102,13 @@
         >
           {$t('settings.about.privacyPolicy')}
           <Icon name="externalLink" size={12} />
+        </button>
+        <button
+          type="button"
+          class="btn-tertiary text-xs"
+          onclick={() => jumpInSettings('privacy.overview')}
+        >
+          {$t('settings.about.privacyPointer')}
         </button>
       </div>
     </SettingsField>

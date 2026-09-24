@@ -4,12 +4,13 @@
   // is a vertical WAI-ARIA tablist with roving tabindex (ArrowUp/Down +
   // Home/End). Deep-links arrive via the shared `settingsOpen` rune:
   // `settingsOpen.value = { tab }` snaps to that section.
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import AppearancePanel from './AppearancePanel.svelte';
   import GamePanel from './GamePanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import AiTranslationSection from './AiTranslationSection.svelte';
   import StoragePanel from './StoragePanel.svelte';
+  import PrivacyPanel from './PrivacyPanel.svelte';
   import UpdatesPanel from './UpdatesPanel.svelte';
   import HelpPanel from './HelpPanel.svelte';
   import AboutPanel from './AboutPanel.svelte';
@@ -18,11 +19,12 @@
   import { dataLocation } from './data-location.svelte';
   import {
     closeSettings,
+    settingsJumpFocus,
     settingsOpen,
     settingsSearchFocus,
     type SettingsTab,
   } from './state.svelte';
-  import type { SettingsSearchEntry } from './search-index';
+  import { SETTINGS_SEARCH, type SettingsSearchEntry } from './search-index';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -32,6 +34,7 @@
     { id: 'appearance', labelKey: 'settings.sections.appearance' },
     { id: 'game', labelKey: 'settings.sections.game' },
     { id: 'integrations', labelKey: 'settings.sections.integrations' },
+    { id: 'privacy', labelKey: 'settings.sections.privacy' },
     { id: 'storage', labelKey: 'settings.sections.storage' },
     { id: 'updates', labelKey: 'settings.sections.updates' },
     { id: 'help', labelKey: 'settings.sections.help' },
@@ -52,14 +55,26 @@
     active = entry.tab;
     await tick();
     settingsSearchFocus.value = entry.anchor;
-    announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
+    const label = $t(entry.labelKey);
+    const section = $t(`settings.sections.${entry.tab}` as TranslationKey);
+    // A page-level anchor's label is its tab's name: say it once.
+    announce = `${$t('settings.search.jumpedTo')} ${label === section ? label : `${label}, ${section}`}`;
   }
+
+  // A jump asked for from inside the modal (jumpInSettings) takes the same
+  // path; its rune stays set until the target field has taken focus.
+  $effect(() => {
+    const anchor = settingsJumpFocus.value;
+    if (anchor === null) return;
+    untrack(() => void selectResult(SETTINGS_SEARCH[anchor]));
+  });
 
   // A tab change by the user drops a jump that was never delivered (its tab
   // never mounted): the user has moved on. selectResult and openSettingsAt
   // set the rune only AFTER their own tab switch, so this never eats theirs.
   function selectTab(id: SettingsTab) {
     settingsSearchFocus.value = null;
+    settingsJumpFocus.value = null;
     active = id;
   }
 
@@ -165,6 +180,8 @@
               </SettingsField>
             </div>
           </div>
+        {:else if active === 'privacy'}
+          <PrivacyPanel />
         {:else if active === 'storage'}
           <StoragePanel />
         {:else if active === 'updates'}

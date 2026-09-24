@@ -190,7 +190,7 @@ describe('SettingsModal — all tabs have aria-selected', () => {
     settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(7);
+    expect(tabs).toHaveLength(8);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }

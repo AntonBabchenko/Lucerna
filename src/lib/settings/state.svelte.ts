@@ -15,6 +15,7 @@ export type SettingsTab =
   | 'appearance'
   | 'game'
   | 'integrations'
+  | 'privacy'
   | 'storage'
   | 'updates'
   | 'help'
@@ -47,11 +48,29 @@ export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
 }
 
 /**
+ * A jump asked for from INSIDE the open Settings modal (a Change on the Privacy
+ * page, the About pointer). SettingsModal answers it like a search result — tab,
+ * flash, "Jumped to …" — and the anchor's SettingsField also takes keyboard
+ * focus: the link that asked unmounts with its panel, so focus would otherwise
+ * drop to <body>. Consumed on delivery; dropped by a tab change and by close.
+ */
+export const settingsJumpFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
+
+/**
+ * Jump to a setting from inside the open Settings modal. `openSettingsAt` is
+ * for callers outside it (they have no focus to lose).
+ */
+export function jumpInSettings(anchor: SettingsAnchor): void {
+  settingsJumpFocus.value = anchor;
+}
+
+/**
  * The one way to close Settings. Clears any pending jump with it: a stale
  * anchor would flash on the next open for no reason.
  */
 export function closeSettings(): void {
   settingsSearchFocus.value = null;
+  settingsJumpFocus.value = null;
   settingsOpen.value = null;
 }
 

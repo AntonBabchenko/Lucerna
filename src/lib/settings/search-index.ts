@@ -19,6 +19,7 @@ export type SettingsAnchor =
   | 'game.gpu'
   | 'integrations.curseforgeKey'
   | 'integrations.aiTranslation'
+  | 'privacy.overview'
   | 'storage.cache'
   | 'storage.logRetention'
   | 'storage.modMetadataCache'
@@ -147,6 +148,13 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     labelKey: 'settings.search.labels.integrations.aiTranslation',
     keywordsKey: 'settings.search.keywords.integrations.aiTranslation',
     visibleKeys: ['settings.aiTranslation.title'],
+  },
+  'privacy.overview': {
+    anchor: 'privacy.overview',
+    tab: 'privacy',
+    labelKey: 'settings.search.labels.privacy.overview',
+    keywordsKey: 'settings.search.keywords.privacy.overview',
+    visibleKeys: ['settings.sections.privacy', 'settings.privacy.title'],
   },
   'storage.dataLocation': {
     anchor: 'storage.dataLocation',

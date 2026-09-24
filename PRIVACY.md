@@ -16,6 +16,10 @@ GitHub Releases check for launcher updates, and — only if you turn it
 on and supply your own API key — an AI provider that drafts mod
 translations for you. Section 3 lists every host individually.
 
+Settings → Privacy & network lists the connections that are yours to
+allow — saved-server status, AI translation and the update check on
+startup — with what each one sends, where, and whether it is on.
+
 ## 2. What data is stored on your machine
 
 Everything below lives under the launcher's **data root**. On a fresh
