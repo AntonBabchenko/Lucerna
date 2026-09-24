@@ -62,13 +62,33 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
         }
         let world_dir = entry.path();
         let on_disk = world_link::list_on_disk_entries(&world_dir.join("datapacks")).await;
-        // Could not tell, or could not read: unknown, never guessed. Neither
-        // file: not a world to the game, which loads nothing from it, so
-        // there is no state to report (`lists_of` answers `None`).
-        let level_dat = presence::of(&world_dir).ok();
-        let lists = level_dat
-            .and_then(|p| presence::lists_of(&world_dir, p).ok())
-            .flatten();
+        // Could not tell, or could not read: unknown, never guessed, and
+        // logged, because the view itself only shows "unknown". Neither file:
+        // not a world to the game, which loads nothing from it, so there is
+        // no state to report (`lists_of` answers `None`).
+        let level_dat = match presence::of(&world_dir) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                crate::diag!(
+                    "datapacks: library view shows {} with no state: could not tell whether it                      has a level.dat: {e}",
+                    world_dir.display()
+                );
+                None
+            }
+        };
+        let lists = match level_dat {
+            Some(p) => match presence::lists_of(&world_dir, p) {
+                Ok(lists) => lists,
+                Err(e) => {
+                    crate::diag!(
+                        "datapacks: library view shows {} with no state: could not read its                          data pack lists: {e}",
+                        world_dir.display()
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
         out.push(WorldFacts {
             world,
             level_dat,

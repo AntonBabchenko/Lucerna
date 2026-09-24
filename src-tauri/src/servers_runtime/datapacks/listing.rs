@@ -82,10 +82,29 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
     // two empty lists are a real answer (the first boot enables every present
     // pack). A presence that cannot be told, or a file that does not parse,
     // degrades every state to unknown with the listing intact (§0.2 I2).
-    let level_dat = presence::of(world_dir).ok();
+    // Both failures are logged: the pane itself only shows "unknown".
+    let level_dat = match presence::of(world_dir) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            crate::diag!(
+                "server datapacks: listing {} with unknown states: could not tell whether it                  has a level.dat: {e}",
+                world_dir.display()
+            );
+            None
+        }
+    };
     let lists = match level_dat {
         Some(LevelDatPresence::Absent) => Some((Vec::new(), Vec::new())),
-        Some(p) => presence::lists_of(world_dir, p).ok().flatten(),
+        Some(p) => match presence::lists_of(world_dir, p) {
+            Ok(lists) => lists,
+            Err(e) => {
+                crate::diag!(
+                    "server datapacks: listing {} with unknown states: could not read its data                      pack lists: {e}",
+                    world_dir.display()
+                );
+                None
+            }
+        },
         None => None,
     };
     // `file/` is stripped with `filter_map`, which DROPS every entry lacking
