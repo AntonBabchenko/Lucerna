@@ -284,7 +284,8 @@ async fn removing_from_the_library_does_not_break_a_world_using_it() {
 
     let listed = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].filename, "vm.zip");
     assert!(
@@ -377,7 +378,8 @@ async fn an_orphan_is_repairable_end_to_end() {
 
     let listed = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].filename, "vm.zip");
     assert_eq!(listed[0].state, WorldPackState::Orphaned);
@@ -398,7 +400,8 @@ async fn an_orphan_is_repairable_end_to_end() {
 
     let listed_after = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed_after.len(), 1);
     assert_eq!(listed_after[0].filename, "vm.zip");
     assert_eq!(listed_after[0].state, WorldPackState::NotAdded);

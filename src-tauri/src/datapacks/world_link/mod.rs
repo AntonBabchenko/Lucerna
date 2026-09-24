@@ -42,32 +42,21 @@ use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::error::{Error, Result};
 
 /// Resolve a world's own directory and its `datapacks/` subdirectory,
-/// validating `world` exactly once (via `world_datapacks_dir_at`, which
-/// rejects a path separator or traversal). Existence is deliberately NOT
-/// checked here: the listing reports a folder with no level file as having no
-/// packs (`presence::of` → `Absent`) instead of failing.
+/// requiring the world folder to already exist on disk. Every entry point
+/// that is handed a world by name — the writers and the read-only listing —
+/// resolves it here.
 ///
-/// LENIENT lookup: reserved for [`list_for_world_at`], the one caller that
-/// must not fail just because a world hasn't been played yet. Every WRITE
-/// path uses [`world_dirs_checked`] instead — see its doc for why.
-fn world_dirs(instance_root: &Path, world: &str) -> Result<(PathBuf, PathBuf)> {
-    let dp_dir = crate::datapacks::world_datapacks_dir_at(instance_root, world)?;
-    let world_dir = dp_dir
-        .parent()
-        // `world_datapacks_dir_at` always joins
-        // `.../.minecraft/saves/<world>/datapacks`, which always has a parent.
-        .expect("world_datapacks_dir_at always returns a path with a parent")
-        .to_path_buf();
-    Ok((world_dir, dp_dir))
-}
-
-/// Resolve a world's own directory and its `datapacks/` subdirectory for a
-/// WRITE path, requiring the world to already exist on disk.
+/// A stale or mistyped `world` must fail with `WorldNotFound` rather than be
+/// read as a folder that merely lacks a `level.dat`:
+///   * a WRITE would otherwise create `saves/<world>/` — and
+///     `worlds::list_worlds` treats any directory under `saves/` as a real
+///     world, so a phantom created by a typo would immediately show up in the
+///     worlds list as a real, unopenable world;
+///   * the LISTING would otherwise report a world that is simply gone (deleted
+///     while its tab was open) as `Absent` — "not a world" — since
+///     `presence::of` reads a missing directory as `Absent`, which is right
+///     only for a server that has never booted.
 ///
-/// Unlike [`world_dirs`], a stale or mistyped `world` here must fail rather
-/// than silently create `saves/<world>/` — `worlds::list_worlds` treats any
-/// directory under `saves/` as a real world, so a phantom created by a typo
-/// would immediately show up in the worlds list as a real, unopenable world.
 /// `crate::worlds::world_dir_at` is the existing validate → join → `is_dir`
 /// helper every other world-mutating path already uses for exactly this
 /// reason.

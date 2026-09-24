@@ -95,6 +95,19 @@ pub struct WorldDatapack {
     pub compat: PackCompat,
 }
 
+/// What `datapacks_list_for_world` returns: the world's `level.dat`
+/// presence, and the rows the game would load (§3 L.6).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct WorldDatapackListing {
+    /// `Present` is the only state Lucerna edits. `OnlyOld`: `packs` shows
+    /// what `level.dat_old` holds — the copy the game opens the world from
+    /// and restores `level.dat` out of — and every change is refused until
+    /// `level.dat` is back. `Absent`: the game does not list the folder as a
+    /// world and loads nothing from it, so `packs` is empty.
+    pub level_dat: presence::LevelDatPresence,
+    pub packs: Vec<WorldDatapack>,
+}
+
 /// One world's view of one library pack.
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 pub struct DatapackPlacementView {

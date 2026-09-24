@@ -611,7 +611,8 @@ mod tests {
         assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), before);
         let listed = crate::datapacks::world_link::list_for_world_at(td.path(), "Old", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
         assert_eq!(listed.len(), 1);
         assert_eq!(
             listed[0].state,

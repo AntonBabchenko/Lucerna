@@ -105,15 +105,17 @@ pub async fn datapacks_remove_from_library(
 
 /// List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
 /// names), with each entry's enabled/disabled/orphaned state and pack_format
-/// compatibility against the instance's installed Minecraft. Unguarded —
-/// read-only.
+/// compatibility against the instance's installed Minecraft, plus the
+/// world's `level.dat` presence: a world with only `level.dat_old` lists the
+/// backup's states, and a folder with neither file lists nothing.
+/// Unguarded — read-only.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_list_for_world(
     app: tauri::AppHandle,
     instance_id: String,
     world: String,
-) -> Result<Vec<crate::datapacks::WorldDatapack>, crate::error::Error> {
+) -> Result<crate::datapacks::WorldDatapackListing, crate::error::Error> {
     let expected = expected_pack_format(&app, &instance_id).await;
     crate::datapacks::world_link::list_for_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,

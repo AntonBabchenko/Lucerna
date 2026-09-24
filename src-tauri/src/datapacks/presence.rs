@@ -18,6 +18,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::datapacks::level_dat;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
@@ -50,6 +51,28 @@ pub fn of(world_dir: &Path) -> Result<LevelDatPresence> {
         return Ok(LevelDatPresence::OnlyOld);
     }
     Ok(LevelDatPresence::Absent)
+}
+
+/// The two `DataPacks` lists the game loads for a world whose `level.dat`
+/// is in `state`: `level.dat`'s own for [`LevelDatPresence::Present`], and
+/// `level.dat_old`'s for [`LevelDatPresence::OnlyOld`] — the copy the game
+/// reads and restores `level.dat` from (§3 L.1). `Ok(None)` for
+/// [`LevelDatPresence::Absent`]: there is nothing to read, and what that
+/// means differs by side (a client folder the game does not list as a
+/// world; a server world not generated yet), so each listing decides.
+///
+/// Listings only. Every writer refuses `OnlyOld` before reading anything,
+/// so `level.dat_old` never feeds a write.
+pub fn lists_of(
+    world_dir: &Path,
+    state: LevelDatPresence,
+) -> Result<Option<(Vec<String>, Vec<String>)>> {
+    let root = match state {
+        LevelDatPresence::Present => level_dat::read_at(world_dir)?.0,
+        LevelDatPresence::OnlyOld => level_dat::read_old_at(world_dir)?,
+        LevelDatPresence::Absent => return Ok(None),
+    };
+    Ok(Some(level_dat::lists(&root)))
 }
 
 /// `Ok(true)` for a regular file and `Ok(false)` only for `NotFound`. A
@@ -132,5 +155,45 @@ mod tests {
         std::os::unix::fs::symlink(td.path().join("gone"), td.path().join("level.dat")).unwrap();
         file(&td.path().join("level.dat_old"));
         assert_eq!(of(td.path()).unwrap(), LevelDatPresence::OnlyOld);
+    }
+
+    /// The game opens a world with only `level.dat_old` from that copy, so
+    /// the lists the listings show are the copy's.
+    #[test]
+    fn lists_of_reads_level_dat_old_for_an_only_old_world() {
+        let td = tempfile::tempdir().unwrap();
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &["file/a.zip"]);
+
+        let lists = lists_of(td.path(), LevelDatPresence::OnlyOld).unwrap();
+
+        assert_eq!(
+            lists,
+            Some((vec!["vanilla".to_string()], vec!["file/a.zip".to_string()])),
+            "the game loads level.dat_old's lists, so the listings must too"
+        );
+    }
+
+    #[test]
+    fn lists_of_reads_level_dat_for_a_present_world() {
+        let td = tempfile::tempdir().unwrap();
+        crate::datapacks::level_dat::test_support::seed(td.path(), &["file/a.zip"], &[]);
+        // A stale backup holding other lists must not be what is read.
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &["file/a.zip"]);
+
+        let lists = lists_of(td.path(), LevelDatPresence::Present).unwrap();
+
+        assert_eq!(
+            lists,
+            Some((
+                vec!["vanilla".to_string(), "file/a.zip".to_string()],
+                Vec::new()
+            ))
+        );
+    }
+
+    #[test]
+    fn lists_of_reads_nothing_for_an_absent_level_dat() {
+        let td = tempfile::tempdir().unwrap();
+        assert_eq!(lists_of(td.path(), LevelDatPresence::Absent).unwrap(), None);
     }
 }

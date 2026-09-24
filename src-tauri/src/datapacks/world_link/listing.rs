@@ -5,13 +5,13 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
-    level_dat, level_dat_entry, registry, state, InstalledDatapack, PackCompat, WorldDatapack,
+    level_dat_entry, presence, registry, state, InstalledDatapack, PackCompat, WorldDatapack,
+    WorldDatapackListing,
 };
 use crate::error::Result;
 
-use super::{contains_ci, world_dirs};
+use super::{contains_ci, world_dirs_checked};
 
 /// The `.zip` files and directories Minecraft's own `datapacks/` scanner
 /// would load out of one world's folder: any directory, regardless of what
@@ -85,37 +85,45 @@ fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) ->
 }
 
 /// List every datapack relevant to one world: the union of the library's
-/// filenames, the `.zip` files actually present in the world's `datapacks/`
+/// filenames, the entries actually present in the world's `datapacks/`
 /// folder, and the names level.dat references (its own `file/` prefix
 /// stripped). Sorted case-insensitively by filename, deduplicated
 /// case-insensitively too — see [`union_names`] for why.
+///
+/// The lists are the ones the game would load (D2): `level.dat`'s, or
+/// `level.dat_old`'s when only the backup is left — the game opens the
+/// world from it and restores `level.dat`. A folder with neither file is
+/// not a world to the game: its listing is empty, and neither the registry
+/// nor the folder is read. A presence that cannot be told, or a read error
+/// on either file, fails the listing, so the world tab shows its load error
+/// rather than rows that guess.
+///
+/// A world folder that does not exist at all fails with `WorldNotFound`,
+/// as every writer does: it is not a folder without `level.dat`, and
+/// reporting it `Absent` would call a world that is simply gone "not a
+/// world".
 ///
 /// `compat` is computed from the pack_format the REGISTRY recorded at
 /// install time, never by opening a zip here — listing a world must cost no
 /// zip reads. A world file with no registry entry (e.g. hand-dropped
 /// straight into the world folder, or imported with a world) reports
 /// `Unknown` deliberately, rather than opening every zip on every render.
-///
-/// A world with only `level.dat_old` is read from that backup. A folder with
-/// neither file lists no packs, and neither the registry nor a level file is
-/// read for it. "Could not tell" fails the command, as a `read_at` failure
-/// does.
 pub async fn list_for_world_at(
     instance_root: &Path,
     world: &str,
     expected: Option<u32>,
-) -> Result<Vec<WorldDatapack>> {
-    let (world_dir, dp_dir) = world_dirs(instance_root, world)?;
+) -> Result<WorldDatapackListing> {
+    let (world_dir, dp_dir) = world_dirs_checked(instance_root, world)?;
 
     // What the game will load decides the rows (spec §3 L.6). This check
     // comes before the registry is read, because a folder with neither level
     // file is not a world to the game, loads nothing, and has no rows at all.
-    let (enabled, disabled) = match presence::of(&world_dir)? {
-        LevelDatPresence::Present => level_dat::lists(&level_dat::read_at(&world_dir)?.0),
-        // The game opens such a world from its backup, so the backup's lists
-        // are the state it will load.
-        LevelDatPresence::OnlyOld => level_dat::lists(&level_dat::read_old_at(&world_dir)?),
-        LevelDatPresence::Absent => return Ok(Vec::new()),
+    let level_dat = presence::of(&world_dir)?;
+    let Some((enabled, disabled)) = presence::lists_of(&world_dir, level_dat)? else {
+        return Ok(WorldDatapackListing {
+            level_dat,
+            packs: Vec::new(),
+        });
     };
 
     let registry_entries: Vec<InstalledDatapack> = registry::list(instance_root).await?;
@@ -132,7 +140,7 @@ pub async fn list_for_world_at(
         .collect();
     let names = union_names(&registry_names, &on_disk, &level_dat_names);
 
-    let out = names
+    let packs = names
         .into_iter()
         .map(|filename| {
             let file_present = on_disk.contains(&filename);
@@ -156,7 +164,7 @@ pub async fn list_for_world_at(
         })
         .collect();
 
-    Ok(out)
+    Ok(WorldDatapackListing { level_dat, packs })
 }
 
 /// Compare a pack's own `pack_format` against what the instance's Minecraft
@@ -180,6 +188,7 @@ fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::presence::LevelDatPresence;
     use crate::datapacks::world_link::test_util::*;
     use crate::datapacks::{level_dat, WorldPackState};
 
@@ -191,7 +200,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "ghost.zip");
@@ -207,7 +217,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "vm.zip");
@@ -231,7 +242,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1, "one physical pack must be one row");
         assert_eq!(
@@ -258,7 +270,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "veinminer.zip");
@@ -295,7 +308,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", Some(10))
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(
@@ -319,25 +333,43 @@ mod tests {
         assert_eq!(compat_of(None, None), PackCompat::Unknown);
     }
 
+    /// D2 / §3 L.1: the game lists a `saves/` folder as a world only if it
+    /// holds `level.dat` or `level.dat_old`, and loads nothing from one that
+    /// holds neither. The listing is empty — and it does not even read the
+    /// registry, whose reconcile would adopt a hand-dropped library file and
+    /// persist `installed-datapacks.json`.
     #[tokio::test]
     async fn a_folder_without_level_dat_lists_no_packs() {
-        // Neither level file: not a world to the game, which loads nothing
-        // from this folder (spec §3 L.6).
         let td = tempfile::tempdir().unwrap();
-        seed_library(td.path(), "vm.zip", 48).await;
-        let wd = world_dir(td.path(), "Loose");
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), datapack_zip(48)).unwrap();
+        let wd = world_dir(td.path(), "NotAWorld");
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
-        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+        std::fs::write(wd.join("datapacks").join("stray.zip"), datapack_zip(48)).unwrap();
 
-        let listed = list_for_world_at(td.path(), "Loose", None).await.unwrap();
+        let listed = list_for_world_at(td.path(), "NotAWorld", None)
+            .await
+            .unwrap();
 
-        assert!(listed.is_empty(), "got {listed:?}");
+        assert_eq!(listed.level_dat, LevelDatPresence::Absent);
+        assert!(listed.packs.is_empty(), "{:?}", listed.packs);
+        assert!(
+            !crate::datapacks::registry_path_at(td.path()).exists(),
+            "an absent world must not read (and so reconcile) the registry"
+        );
+        assert!(
+            !wd.join("level.dat").exists(),
+            "a listing never writes level.dat"
+        );
     }
 
+    /// D2 / §3 L.6: a world that lost `level.dat` but kept `level.dat_old`
+    /// is opened by the game from the backup, so its rows are the backup's
+    /// lists. Reading the missing `level.dat` as "no lists" reports a pack the
+    /// backup keeps disabled as Enabled.
     #[tokio::test]
     async fn an_only_old_world_lists_the_states_level_dat_old_holds() {
-        // The game opens this world from level.dat_old, so those lists are the
-        // state it will load.
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Restoring");
         level_dat::test_support::seed_old(&wd, &[], &["file/vm.zip"]);
@@ -348,9 +380,60 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].filename, "vm.zip");
-        assert_eq!(listed[0].state, WorldPackState::Disabled);
+        assert_eq!(listed.level_dat, LevelDatPresence::OnlyOld);
+        assert_eq!(listed.packs.len(), 1, "{:?}", listed.packs);
+        assert_eq!(listed.packs[0].filename, "vm.zip");
+        assert_eq!(
+            listed.packs[0].state,
+            WorldPackState::Disabled,
+            "the game loads level.dat_old's lists, where the pack is disabled"
+        );
+    }
+
+    /// A present world reports `Present`, the one state Lucerna edits.
+    #[tokio::test]
+    async fn a_played_world_reports_level_dat_present() {
+        let td = tempfile::tempdir().unwrap();
+        game_world(td.path(), "Survival");
+
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap();
+
+        assert_eq!(listed.level_dat, LevelDatPresence::Present);
+    }
+
+    /// §3 L.3/L.6: "could not tell" is not "absent". A `level.dat` the game
+    /// cannot read either (here a directory) fails the listing with an IO
+    /// error, rather than an empty world or a false "quit Minecraft".
+    #[tokio::test]
+    async fn a_level_dat_that_cannot_be_checked_fails_the_listing() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Odd");
+        std::fs::create_dir_all(wd.join("level.dat")).unwrap();
+
+        let err = list_for_world_at(td.path(), "Odd", None).await.unwrap_err();
+
+        assert!(matches!(err, crate::error::Error::Io { .. }), "got {err:?}");
+    }
+
+    /// A world folder that is not there at all (deleted while its tab was
+    /// open, or a stale name) is not a folder "without level.dat": reporting
+    /// it `Absent` would show the "not a world" banner for a world that simply
+    /// is gone. It fails the listing with `WorldNotFound`, as every writer does.
+    #[tokio::test]
+    async fn a_world_folder_that_does_not_exist_is_world_not_found() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft").join("saves")).unwrap();
+
+        let err = list_for_world_at(td.path(), "Gone", None)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, crate::error::Error::WorldNotFound { folder_name, .. } if folder_name == "Gone"),
+            "got {err:?}"
+        );
     }
 
     #[tokio::test]
@@ -366,7 +449,8 @@ mod tests {
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
-            .unwrap();
+            .unwrap()
+            .packs;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "MyFolderPack");
