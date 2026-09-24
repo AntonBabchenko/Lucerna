@@ -5,12 +5,13 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
     level_dat, level_dat_entry, registry, state, InstalledDatapack, PackCompat, WorldDatapack,
 };
 use crate::error::Result;
 
-use super::{contains_ci, read_level_dat_or_empty, world_dirs};
+use super::{contains_ci, world_dirs};
 
 /// The `.zip` files and directories Minecraft's own `datapacks/` scanner
 /// would load out of one world's folder: any directory, regardless of what
@@ -19,8 +20,8 @@ use super::{contains_ci, read_level_dat_or_empty, world_dirs};
 /// which `state::derive` then turns into a false `Orphaned`.
 ///
 /// A directory that cannot be read (missing `datapacks/` folder, a world
-/// that has never had a pack added) yields an empty list, never an error —
-/// mirrors `read_level_dat_or_empty`'s "absent is a supported state" policy.
+/// that has never had a pack added) yields an empty list, never an error: a
+/// missing `datapacks/` folder is an ordinary state.
 pub(crate) async fn list_on_disk_entries(dp_dir: &Path) -> Vec<String> {
     let mut on_disk = Vec::new();
     let Ok(mut rd) = tokio::fs::read_dir(dp_dir).await else {
@@ -94,6 +95,11 @@ fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) ->
 /// zip reads. A world file with no registry entry (e.g. hand-dropped
 /// straight into the world folder, or imported with a world) reports
 /// `Unknown` deliberately, rather than opening every zip on every render.
+///
+/// A world with only `level.dat_old` is read from that backup. A folder with
+/// neither file lists no packs, and neither the registry nor a level file is
+/// read for it. "Could not tell" fails the command, as a `read_at` failure
+/// does.
 pub async fn list_for_world_at(
     instance_root: &Path,
     world: &str,
@@ -101,9 +107,18 @@ pub async fn list_for_world_at(
 ) -> Result<Vec<WorldDatapack>> {
     let (world_dir, dp_dir) = world_dirs(instance_root, world)?;
 
+    // What the game will load decides the rows (spec §3 L.6). This check
+    // comes before the registry is read, because a folder with neither level
+    // file is not a world to the game, loads nothing, and has no rows at all.
+    let (enabled, disabled) = match presence::of(&world_dir)? {
+        LevelDatPresence::Present => level_dat::lists(&level_dat::read_at(&world_dir)?.0),
+        // The game opens such a world from its backup, so the backup's lists
+        // are the state it will load.
+        LevelDatPresence::OnlyOld => level_dat::lists(&level_dat::read_old_at(&world_dir)?),
+        LevelDatPresence::Absent => return Ok(Vec::new()),
+    };
+
     let registry_entries: Vec<InstalledDatapack> = registry::list(instance_root).await?;
-    let (root, _framing) = read_level_dat_or_empty(&world_dir)?;
-    let (enabled, disabled) = level_dat::lists(&root);
     let on_disk = list_on_disk_entries(&dp_dir).await;
 
     let registry_names: Vec<String> = registry_entries
@@ -302,6 +317,40 @@ mod tests {
         assert_eq!(compat_of(None, Some(48)), PackCompat::Unknown);
         assert_eq!(compat_of(Some(48), None), PackCompat::Unknown);
         assert_eq!(compat_of(None, None), PackCompat::Unknown);
+    }
+
+    #[tokio::test]
+    async fn a_folder_without_level_dat_lists_no_packs() {
+        // Neither level file: not a world to the game, which loads nothing
+        // from this folder (spec §3 L.6).
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = world_dir(td.path(), "Loose");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+
+        let listed = list_for_world_at(td.path(), "Loose", None).await.unwrap();
+
+        assert!(listed.is_empty(), "got {listed:?}");
+    }
+
+    #[tokio::test]
+    async fn an_only_old_world_lists_the_states_level_dat_old_holds() {
+        // The game opens this world from level.dat_old, so those lists are the
+        // state it will load.
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Restoring");
+        level_dat::test_support::seed_old(&wd, &[], &["file/vm.zip"]);
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+
+        let listed = list_for_world_at(td.path(), "Restoring", None)
+            .await
+            .unwrap();
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "vm.zip");
+        assert_eq!(listed[0].state, WorldPackState::Disabled);
     }
 
     #[tokio::test]

@@ -35,21 +35,17 @@ pub(crate) use mutate::remove_for_cascade_at;
 pub use mutate::{add_to_world_at, remove_from_world_at, set_enabled_in_world_at};
 pub(crate) use placements::{placements_of, refresh_placements};
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use fastnbt::Value;
-
-use crate::datapacks::level_dat;
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::error::{Error, Result};
 
 /// Resolve a world's own directory and its `datapacks/` subdirectory,
 /// validating `world` exactly once (via `world_datapacks_dir_at`, which
 /// rejects a path separator or traversal). Existence is deliberately NOT
-/// checked here — see `read_level_dat_or_empty` for why a world with no
-/// on-disk level.dat yet is a supported, non-error state.
+/// checked here: the listing reports a folder with no level file as having no
+/// packs (`presence::of` → `Absent`) instead of failing.
 ///
 /// LENIENT lookup: reserved for [`list_for_world_at`], the one caller that
 /// must not fail just because a world hasn't been played yet. Every WRITE
@@ -107,8 +103,8 @@ fn level_dat_missing(world: &str) -> Error {
     }
 }
 
-/// Serializes the three level.dat mutations below against each other and
-/// against themselves.
+/// Serializes every level.dat mutation in this module tree against the others
+/// and against itself.
 ///
 /// Tauri runs each command as its own task on a multi-threaded runtime, so
 /// (for example) `set_enabled_in_world_at` disabling pack A and
@@ -127,32 +123,18 @@ fn level_dat_missing(world: &str) -> Error {
 /// note on POSIX rename semantics.
 ///
 /// A `tokio::sync::Mutex`, not `std::sync::Mutex`: the critical section spans
-/// `.await` points (`materialize`, `read_level_dat_or_empty`'s NOT being
-/// async is incidental — `level_dat::write_at` is), and holding a std mutex
-/// guard across an `.await` does not compile (the guard is not `Send`).
+/// `.await` points (`materialize`, `level_dat::write_at`), and holding a std
+/// mutex guard across an `.await` does not compile (the guard is not `Send`).
 ///
-/// Only the three public entry points below take this lock; every helper
-/// they call (`world_dirs_checked`, `read_level_dat_or_empty`) stays
-/// lock-free, and none of the three ever calls into `registry::*` (which
-/// takes its OWN, separate lock — see `registry::registry_lock`'s doc) — so
-/// the two locks are never nested and cannot deadlock each other.
+/// Only the entry points of this module tree take this lock; every helper
+/// they call (`world_dirs_checked`, `require_level_dat`, `presence::of`,
+/// `level_dat::read_at`) stays lock-free, and none of them ever calls into
+/// `registry::*` (which takes its OWN, separate lock — see
+/// `registry::registry_lock`'s doc) — so the two locks are never nested and
+/// cannot deadlock each other.
 fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-/// `level_dat::read_at`, except a world that has never been loaded (or was
-/// imported without a level.dat) reads as an empty root in `Gzip` framing —
-/// the framing every real level.dat uses — rather than erroring. Every
-/// caller here only needs the DataPacks lists, which are simply absent on
-/// such a world; `write_at` already treats "no pre-existing file" as the one
-/// case where it skips the backup, so writing this empty root back out (when
-/// an edit actually changes something) is exactly as safe as it looks.
-pub(crate) fn read_level_dat_or_empty(world_dir: &Path) -> Result<(Value, level_dat::Framing)> {
-    if !world_dir.join("level.dat").exists() {
-        return Ok((Value::Compound(HashMap::new()), level_dat::Framing::Gzip));
-    }
-    level_dat::read_at(world_dir)
 }
 
 /// Maps a failed directory- or file-removal to the friendly typed

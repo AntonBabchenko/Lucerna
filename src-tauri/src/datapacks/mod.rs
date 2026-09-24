@@ -99,10 +99,11 @@ pub struct WorldDatapack {
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 pub struct DatapackPlacementView {
     pub world: String,
-    /// `None` when this world's `level.dat` could not be read, so the
-    /// enabled/disabled answer is genuinely unknown rather than guessed. A
-    /// missing level.dat is NOT this case — an unplayed world reads as two
-    /// empty lists, which is a real answer.
+    /// `None` when this world has no state to report: its `level.dat` (or,
+    /// when only the backup survives, `level.dat_old`) could not be read,
+    /// whether either exists could not be told, or the folder has neither.
+    /// Minecraft does not treat such a folder as a world and loads nothing
+    /// from it. Never guessed.
     pub state: Option<WorldPackState>,
 }
 

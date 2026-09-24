@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
     level_dat, level_dat_entry, registry, state, world_link, DatapackLibraryEntry,
     DatapackLibraryView, DatapackPlacementView, InstalledDatapack, PackCompat,
@@ -21,7 +22,9 @@ use crate::error::Result;
 
 /// What one world contributes: the names physically present in its
 /// `datapacks/` folder, plus its two level.dat lists. `lists` is `None` when
-/// level.dat could not be read at all.
+/// there is no state to report: the folder has neither level file,
+/// `level.dat` (or, when only it survives, `level.dat_old`) could not be
+/// read, or presence could not be told.
 struct WorldFacts {
     world: String,
     on_disk: Vec<String>,
@@ -54,9 +57,18 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
         }
         let world_dir = entry.path();
         let on_disk = world_link::list_on_disk_entries(&world_dir.join("datapacks")).await;
-        let lists = world_link::read_level_dat_or_empty(&world_dir)
-            .ok()
-            .map(|(root, _framing)| level_dat::lists(&root));
+        let lists = match presence::of(&world_dir) {
+            Ok(LevelDatPresence::Present) => level_dat::read_at(&world_dir)
+                .ok()
+                .map(|(root, _framing)| level_dat::lists(&root)),
+            // What the game will load: it opens such a world from its backup.
+            Ok(LevelDatPresence::OnlyOld) => level_dat::read_old_at(&world_dir)
+                .ok()
+                .map(|root| level_dat::lists(&root)),
+            // Neither file: not a world to the game, which loads nothing from
+            // it, so there is no state to report. Could not tell: unknown.
+            Ok(LevelDatPresence::Absent) | Err(_) => None,
+        };
         out.push(WorldFacts {
             world,
             on_disk,
@@ -309,6 +321,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_pack_in_a_folder_without_level_dat_has_no_state() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let dp = td.path().join(".minecraft/saves/Loose/datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::write(dp.join("vm.zip"), datapack_zip(48)).unwrap();
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        assert_eq!(
+            entry_for(&view, "vm.zip").placements,
+            vec![DatapackPlacementView {
+                world: "Loose".into(),
+                state: None
+            }],
+            "the game loads nothing from this folder, so no state is claimed"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_only_old_world_reports_level_dat_old_state() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let wd = td.path().join(".minecraft/saves/Restoring");
+        crate::datapacks::level_dat::test_support::seed_old(&wd, &[], &["file/vm.zip"]);
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        assert_eq!(
+            entry_for(&view, "vm.zip").placements,
+            vec![DatapackPlacementView {
+                world: "Restoring".into(),
+                state: Some(WorldPackState::Disabled)
+            }]
+        );
+    }
+
+    #[tokio::test]
     async fn an_unreadable_level_dat_reports_unknown_without_blanking_the_listing() {
         let _lock = crate::test_env_lock();
         let td = tempfile::tempdir().unwrap();
@@ -321,8 +373,8 @@ mod tests {
         world_link::add_to_world_at(td.path(), "Broken", "vm.zip")
             .await
             .unwrap();
-        // Corrupt Broken's level.dat: present but unparseable, which is NOT the
-        // same as absent (absent reads as two empty lists, a real answer).
+        // Corrupt Broken's level.dat: it is present but unparseable, so its
+        // state is unknown and never guessed.
         let broken = td
             .path()
             .join(".minecraft")

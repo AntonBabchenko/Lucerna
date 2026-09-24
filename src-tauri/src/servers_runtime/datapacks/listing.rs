@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{level_dat, state, world_link};
 use crate::servers_runtime::installed::ServerInstalledRecord;
 
@@ -66,11 +67,21 @@ pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
     let on_disk = on_disk_entries(&dp_dir);
     let records = sidecar::reconcile(world_dir);
 
-    // ABSENT ⇒ empty lists (a real answer: a never-booted world holds no
-    // enabled/disabled state). UNREADABLE ⇒ `None` states, listing intact.
-    let lists = world_link::read_level_dat_or_empty(world_dir)
-        .ok()
-        .map(|(root, _)| level_dat::lists(&root));
+    // ABSENT means empty lists: a real answer, because a never-booted world
+    // holds no enabled/disabled state. ONLY-OLD means the lists level.dat_old
+    // holds, which is what the server loads when it restores from that copy.
+    // A read failure, or a presence that could not be told, means `None`
+    // states with the listing intact.
+    let lists = match presence::of(world_dir) {
+        Ok(LevelDatPresence::Present) => level_dat::read_at(world_dir)
+            .ok()
+            .map(|(root, _)| level_dat::lists(&root)),
+        Ok(LevelDatPresence::OnlyOld) => level_dat::read_old_at(world_dir)
+            .ok()
+            .map(|root| level_dat::lists(&root)),
+        Ok(LevelDatPresence::Absent) => Some((Vec::new(), Vec::new())),
+        Err(_) => None,
+    };
     // `file/` is stripped with `filter_map`, which DROPS every entry lacking
     // the prefix — `vanilla` and the feature-flag packs every world carries.
     let strip = |v: &[String]| -> Vec<String> {
@@ -248,6 +259,19 @@ mod tests {
         let td = world(&[]);
         level_dat::test_support::seed(td.path(), &[], &[]);
         assert!(entries(td.path()).is_empty());
+    }
+
+    #[test]
+    fn an_only_old_world_reports_level_dat_old_states() {
+        // The next start restores level.dat from this copy, so its lists are
+        // what the server will load.
+        let td = world(&["vm.zip"]);
+        level_dat::test_support::seed_old(td.path(), &[], &["file/vm.zip"]);
+        assert_eq!(
+            find(&entries(td.path()), "vm.zip").state,
+            Some(WorldPackState::Disabled)
+        );
+        assert!(!td.path().join("level.dat").exists());
     }
 
     #[test]

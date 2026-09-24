@@ -115,10 +115,12 @@ pub struct ServerDatapackEntry {
     /// ghost whose file is gone. Two of the three carry an empty `sha1` —
     /// which is why the UI keys rows on the filename.
     pub record: crate::servers_runtime::installed::ServerInstalledRecord,
-    /// `None` ⟹ `level.dat` exists but could not be read, so enabled-ness is
-    /// genuinely unknown rather than guessed. An ABSENT `level.dat` is NOT
-    /// this case: a world that has never booted reads as two empty lists,
-    /// which is a real answer.
+    /// `None` ⟹ enabled-ness is genuinely unknown rather than guessed:
+    /// `level.dat` (or, when only Minecraft's backup survives,
+    /// `level.dat_old`) exists but could not be read, or whether either
+    /// exists could not be told. An ABSENT `level.dat` (a world that has
+    /// never booted) is NOT this case: it reads as two empty lists, which is
+    /// a real answer.
     pub state: Option<crate::datapacks::WorldPackState>,
     /// Something is on disk under this name. Independent of `state`, which
     /// can be `None` for a pack that is plainly present.
