@@ -284,22 +284,40 @@
   // the world picker needs the worlds a pack is not in yet.
   let installedDatapackWorlds = $state<DatapackWorldView[]>([]);
 
-  async function refreshInstalledDatapacks() {
+  // The warning for a library listing that could not be read. Replaced, not
+  // stacked: one action refreshes twice (its own await, then the
+  // datapacksChanged effect), and both reads fail the same way.
+  let datapackListWarning: number | null = null;
+
+  /**
+   * Reload the library listing. `true` only when `installedDatapacks` and
+   * `installedDatapackWorlds` now hold this instance's current listing. A
+   * failed read leaves the previous listing in place for the badges and says
+   * so; a caller about to act on the listing must not use it.
+   */
+  async function refreshInstalledDatapacks(): Promise<boolean> {
     if (!isDatapack) {
       installedDatapacks = [];
       installedDatapackWorlds = [];
-      return;
+      return false;
     }
     const reqId = instanceId;
     if (!reqId) {
       installedDatapacks = [];
       installedDatapackWorlds = [];
-      return;
+      return false;
     }
     const r = await commands.datapacksListLibrary(reqId);
-    if (instanceId !== reqId || r.status !== 'ok') return;
+    // Superseded by an instance switch: that instance's own refresh answers.
+    if (instanceId !== reqId) return false;
+    if (r.status === 'error') {
+      if (datapackListWarning !== null) dismiss(datapackListWarning);
+      datapackListWarning = pushWarning(formatError(r.error));
+      return false;
+    }
     installedDatapacks = r.data.entries;
     installedDatapackWorlds = r.data.worlds;
+    return true;
   }
 
   async function refreshInstalled() {
@@ -950,8 +968,12 @@
         );
       }
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
-      await refreshInstalledDatapacks();
+      const fresh = await refreshInstalledDatapacks();
       datapacksChanged.value++;
+      // No picker on a snapshot whose refresh failed: its placements and
+      // worlds predate this install. The failure is already on screen, and
+      // the pack is in the library, which can place it once the read works.
+      if (!fresh) return;
       const entry = installedDatapacks.find(
         (e) => e.pack.filename === installed.data.pack.filename,
       );

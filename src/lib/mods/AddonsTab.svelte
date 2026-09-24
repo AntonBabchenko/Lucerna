@@ -442,14 +442,19 @@
         // route a present-but-disabled world through add (which re-enables)
         // instead of the explicit toggle.
         const lib = await commands.datapacksListLibrary(instanceId);
-        const entry =
-          lib.status === 'ok'
-            ? lib.data.entries.find((e) => e.pack.filename === last.filename)
-            : undefined;
+        if (lib.status === 'error') {
+          // No picker on a listing we could not read: empty placements would
+          // route a present-but-disabled world through add, and empty worlds
+          // would show every world's level.dat as unknown. The pack is in the
+          // library, so the library screen can place it once the read works.
+          pushWarning(formatError(lib.error));
+          return;
+        }
+        const entry = lib.data.entries.find((e) => e.pack.filename === last.filename);
         datapackPickerTarget = {
           ...last,
           placements: entry?.placements ?? [],
-          worlds: lib.status === 'ok' ? lib.data.worlds : [],
+          worlds: lib.data.worlds,
         };
       }
     }
