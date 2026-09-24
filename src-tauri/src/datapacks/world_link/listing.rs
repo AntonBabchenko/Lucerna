@@ -392,7 +392,7 @@ mod tests {
 
     /// A present world reports `Present`, the one state Lucerna edits.
     #[tokio::test]
-    async fn a_played_world_reports_level_dat_present() {
+    async fn a_played_world_reports_its_level_dat_as_present() {
         let td = tempfile::tempdir().unwrap();
         game_world(td.path(), "Survival");
 
