@@ -112,12 +112,24 @@ pub struct WorldDatapackListing {
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 pub struct DatapackPlacementView {
     pub world: String,
-    /// `None` when this world has no state to report: its `level.dat` (or,
-    /// when only the backup survives, `level.dat_old`) could not be read,
-    /// whether either exists could not be told, or the folder has neither.
-    /// Minecraft does not treat such a folder as a world and loads nothing
-    /// from it. Never guessed.
+    /// The state the game would load: from `level.dat`, or from
+    /// `level.dat_old` when only the backup is left. `None` when those
+    /// lists could not be read, or when the folder holds neither file (see
+    /// `level_dat`) — unknown, or no world to hold a state, rather than
+    /// guessed.
     pub state: Option<WorldPackState>,
+    /// This world's `level.dat` presence; `None` when it could not be told.
+    /// Anything but `Some(Present)` means Lucerna changes nothing there.
+    pub level_dat: Option<presence::LevelDatPresence>,
+}
+
+/// One world folder the library view saw, whether or not it holds any
+/// pack — the world picker needs the worlds a pack is NOT in yet.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+pub struct DatapackWorldView {
+    pub world: String,
+    /// `None` when the presence could not be told.
+    pub level_dat: Option<presence::LevelDatPresence>,
 }
 
 /// One row of the instance-level library screen.
@@ -146,6 +158,9 @@ pub struct DatapackLibraryView {
     /// does, and the frontend cannot compute it.
     pub expected_pack_format: Option<u32>,
     pub entries: Vec<DatapackLibraryEntry>,
+    /// Every folder under `saves/`, sorted case-insensitively, each with
+    /// its `level.dat` presence — including worlds no pack is in.
+    pub worlds: Vec<DatapackWorldView>,
 }
 
 /// Where a catalog-installed datapack came from. `None` at every local-install

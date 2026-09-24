@@ -15,29 +15,34 @@ use std::path::Path;
 
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
-    level_dat, level_dat_entry, registry, state, world_link, DatapackLibraryEntry,
-    DatapackLibraryView, DatapackPlacementView, InstalledDatapack, PackCompat,
+    level_dat_entry, registry, state, world_link, DatapackLibraryEntry, DatapackLibraryView,
+    DatapackPlacementView, DatapackWorldView, InstalledDatapack, PackCompat,
 };
 use crate::error::Result;
 
 /// What one world contributes: the names physically present in its
-/// `datapacks/` folder, plus its two level.dat lists. `lists` is `None` when
-/// there is no state to report: the folder has neither level file,
-/// `level.dat` (or, when only it survives, `level.dat_old`) could not be
-/// read, or presence could not be told.
+/// `datapacks/` folder, its `level.dat` presence, and the two lists the
+/// game would load.
 struct WorldFacts {
     world: String,
+    /// `None` when whether the folder holds `level.dat` could not be told.
+    level_dat: Option<LevelDatPresence>,
     on_disk: Vec<String>,
+    /// `level.dat`'s lists, or `level.dat_old`'s for an only-old world.
+    /// `None` when they could not be read, when the presence could not be
+    /// told, or for a folder with neither file — no world, no state.
     lists: Option<(Vec<String>, Vec<String>)>,
 }
 
-/// Gather every world's facts with ONE `level.dat` read and ONE `read_dir` per
-/// world — not one per (pack, world) pair.
+/// Gather every world's facts with ONE presence stat, ONE list read and ONE
+/// `read_dir` per world — not one per (pack, world) pair.
 ///
-/// A world whose `level.dat` cannot be read does NOT fail the listing: reading
-/// N worlds instead of one multiplies the chance of hitting a locked file
-/// (`WorldInUse` is what a running Minecraft produces), and one locked world
-/// must not blank the whole screen. Its packs report `state: None` instead.
+/// A world whose presence or lists cannot be read does NOT fail the
+/// listing: reading N worlds instead of one multiplies the chance of hitting
+/// a locked file (`WorldInUse` is what a running Minecraft produces), and
+/// one locked world must not blank the whole screen. Its packs report
+/// `state: None` instead, and the folder still appears in `worlds` — with
+/// `level_dat: None` when it was the presence that could not be told.
 async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
     let saves_dir = instance_root.join(".minecraft").join("saves");
     let Ok(rd) = std::fs::read_dir(&saves_dir) else {
@@ -57,20 +62,16 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
         }
         let world_dir = entry.path();
         let on_disk = world_link::list_on_disk_entries(&world_dir.join("datapacks")).await;
-        let lists = match presence::of(&world_dir) {
-            Ok(LevelDatPresence::Present) => level_dat::read_at(&world_dir)
-                .ok()
-                .map(|(root, _framing)| level_dat::lists(&root)),
-            // What the game will load: it opens such a world from its backup.
-            Ok(LevelDatPresence::OnlyOld) => level_dat::read_old_at(&world_dir)
-                .ok()
-                .map(|root| level_dat::lists(&root)),
-            // Neither file: not a world to the game, which loads nothing from
-            // it, so there is no state to report. Could not tell: unknown.
-            Ok(LevelDatPresence::Absent) | Err(_) => None,
-        };
+        // Could not tell, or could not read: unknown, never guessed. Neither
+        // file: not a world to the game, which loads nothing from it, so
+        // there is no state to report (`lists_of` answers `None`).
+        let level_dat = presence::of(&world_dir).ok();
+        let lists = level_dat
+            .and_then(|p| presence::lists_of(&world_dir, p).ok())
+            .flatten();
         out.push(WorldFacts {
             world,
+            level_dat,
             on_disk,
             lists,
         });
@@ -146,6 +147,7 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
                 .map(|f| DatapackPlacementView {
                     world: f.world.clone(),
                     state: state_in(f, &filename),
+                    level_dat: f.level_dat,
                 })
                 .collect();
 
@@ -161,6 +163,13 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
     Ok(DatapackLibraryView {
         expected_pack_format: expected,
         entries,
+        worlds: worlds
+            .iter()
+            .map(|f| DatapackWorldView {
+                world: f.world.clone(),
+                level_dat: f.level_dat,
+            })
+            .collect(),
     })
 }
 
@@ -261,11 +270,13 @@ mod tests {
             vec![
                 DatapackPlacementView {
                     world: "Alpha".into(),
-                    state: Some(WorldPackState::Enabled)
+                    state: Some(WorldPackState::Enabled),
+                    level_dat: Some(LevelDatPresence::Present),
                 },
                 DatapackPlacementView {
                     world: "Beta".into(),
-                    state: Some(WorldPackState::Disabled)
+                    state: Some(WorldPackState::Disabled),
+                    level_dat: Some(LevelDatPresence::Present),
                 },
             ],
             "a world that never received the pack contributes no placement"
@@ -315,11 +326,15 @@ mod tests {
             e.placements,
             vec![DatapackPlacementView {
                 world: "Alpha".into(),
-                state: Some(WorldPackState::Enabled)
+                state: Some(WorldPackState::Enabled),
+                level_dat: Some(LevelDatPresence::Present),
             }]
         );
     }
 
+    /// §3 L.6: the game loads nothing from a `saves/` folder with neither
+    /// `level.dat` nor `level.dat_old`. A pack file sitting there has no state;
+    /// reading the folder as "two empty lists" made it a false Enabled.
     #[tokio::test]
     async fn a_pack_in_a_folder_without_level_dat_has_no_state() {
         let td = tempfile::tempdir().unwrap();
@@ -334,12 +349,16 @@ mod tests {
             entry_for(&view, "vm.zip").placements,
             vec![DatapackPlacementView {
                 world: "Loose".into(),
-                state: None
+                state: None,
+                level_dat: Some(LevelDatPresence::Absent),
             }],
             "the game loads nothing from this folder, so no state is claimed"
         );
     }
 
+    /// §3 L.6 / §0.5 A2: an only-old world's placement keeps the state
+    /// `level.dat_old` holds — the one the game will load — and carries the
+    /// presence that explains why it cannot be changed.
     #[tokio::test]
     async fn an_only_old_world_reports_level_dat_old_state() {
         let td = tempfile::tempdir().unwrap();
@@ -355,7 +374,8 @@ mod tests {
             entry_for(&view, "vm.zip").placements,
             vec![DatapackPlacementView {
                 world: "Restoring".into(),
-                state: Some(WorldPackState::Disabled)
+                state: Some(WorldPackState::Disabled),
+                level_dat: Some(LevelDatPresence::OnlyOld),
             }]
         );
     }
@@ -373,8 +393,10 @@ mod tests {
         world_link::add_to_world_at(td.path(), "Broken", "vm.zip")
             .await
             .unwrap();
-        // Corrupt Broken's level.dat: it is present but unparseable, so its
-        // state is unknown and never guessed.
+        // Corrupt Broken's level.dat: present but unparseable. Its presence is
+        // `Present` and its state unknown — unlike a folder with no level.dat,
+        // which is `Absent` with no state
+        // (`a_pack_in_a_folder_without_level_dat_has_no_state`).
         let broken = td
             .path()
             .join(".minecraft")
@@ -395,6 +417,50 @@ mod tests {
         assert_eq!(alpha.state, Some(WorldPackState::Enabled));
         let bad = e.placements.iter().find(|p| p.world == "Broken").unwrap();
         assert_eq!(bad.state, None, "unknown, not guessed");
+        assert_eq!(
+            bad.level_dat,
+            Some(LevelDatPresence::Present),
+            "the file is there; only its contents are unknown"
+        );
+    }
+
+    /// §0.5 A13 / §3 L.6: `worlds` names every folder `gather` saw — with or
+    /// without the pack — each with its presence; one whose presence cannot be
+    /// told is `None`, not `Absent`.
+    #[tokio::test]
+    async fn worlds_lists_every_world_folder_including_ones_without_the_pack() {
+        let td = tempfile::tempdir().unwrap();
+        let saves = td.path().join(".minecraft").join("saves");
+        world_link::test_util::game_world(td.path(), "alpha");
+        crate::datapacks::level_dat::test_support::seed_old(&saves.join("Beta"), &[], &[]);
+        std::fs::create_dir_all(saves.join("Loose")).unwrap();
+        std::fs::create_dir_all(saves.join("Odd").join("level.dat")).unwrap();
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        assert_eq!(
+            view.worlds,
+            vec![
+                DatapackWorldView {
+                    world: "alpha".into(),
+                    level_dat: Some(LevelDatPresence::Present),
+                },
+                DatapackWorldView {
+                    world: "Beta".into(),
+                    level_dat: Some(LevelDatPresence::OnlyOld),
+                },
+                DatapackWorldView {
+                    world: "Loose".into(),
+                    level_dat: Some(LevelDatPresence::Absent),
+                },
+                DatapackWorldView {
+                    world: "Odd".into(),
+                    level_dat: None,
+                },
+            ],
+            "one row per folder, sorted case-insensitively, pack or no pack"
+        );
+        assert!(view.entries.is_empty());
     }
 
     #[tokio::test]

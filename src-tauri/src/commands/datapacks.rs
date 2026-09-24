@@ -49,7 +49,8 @@ async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Opti
 
 /// The instance-level library view: every datapack Lucerna knows about —
 /// the registry UNION the packs still linked in worlds — each with its state
-/// in every world and one per-instance compat verdict. Unguarded — read-only.
+/// in every world and one per-instance compat verdict, plus every world
+/// folder with its `level.dat` presence. Unguarded — read-only.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_list_library(
