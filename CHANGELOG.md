@@ -97,6 +97,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Updating a data pack on a server that has never been started no longer
+  stops it from starting.** The update used to write a stand-in world file
+  holding nothing but the data pack list, and the server then refused to load
+  the world. A server's world is now left for the server to create, and it
+  picks up the new version of the pack when it does.
+- **Re-importing a modpack's files no longer overwrites worlds you have
+  played.** When a pack ships worlds of its own, re-importing its files used to
+  write the pack's copies over yours and revert parts of them. A world you
+  already have is now left exactly as it is; only a shipped world that is
+  missing is restored.
 - **No more stray gaps under settings.** An empty line reserved for a status or
   error message took up room even when there was nothing to say, so some rows
   sat twice as far apart as their neighbours — for example between "Add

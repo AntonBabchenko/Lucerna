@@ -1126,13 +1126,17 @@ pub async fn modpack_reimport_overrides(
             path: temp_path.clone(),
             details: e.to_string(),
         })?;
-    let outcome = crate::mods::modpack::overrides::extract(&bytes, &inst_root, |c, t| {
-        let _ = on_progress.send(ModpackProgress::ExtractingOverrides {
-            current: c,
-            total: t,
-        });
-    })
-    .await?;
+    // Worlds the player already has are never written. Taken before the
+    // extraction — this command writes nothing else first.
+    let protected = crate::mods::modpack::overrides::ProtectedWorlds::snapshot(&bytes, &inst_root)?;
+    let outcome =
+        crate::mods::modpack::overrides::extract(&bytes, &inst_root, &protected, |c, t| {
+            let _ = on_progress.send(ModpackProgress::ExtractingOverrides {
+                current: c,
+                total: t,
+            });
+        })
+        .await?;
     // Persist, don't just announce. The drawer's "Bundled files skipped" and
     // "Files that won't load" sections read `pack_origin`, not this event — so
     // reporting the fresh lists only here left the persisted ones stale after a

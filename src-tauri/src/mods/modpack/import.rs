@@ -1091,6 +1091,15 @@ pub async fn install_resolved_pack(
         path: "<app_dir>".into(),
         details: e.to_string(),
     })?;
+    // Which shipped worlds already exist, decided before this import writes
+    // anything: the index's files are installed first and may land in
+    // saves/<world>/, which a later check would mistake for the player's.
+    let protected_worlds = match archive_bytes {
+        Some(bytes) if apply_overrides => {
+            overrides::ProtectedWorlds::snapshot(bytes, &instance_root)?
+        }
+        _ => overrides::ProtectedWorlds::default(),
+    };
 
     let selected: Vec<&ModpackFile> = summary
         .files
@@ -1148,13 +1157,14 @@ pub async fn install_resolved_pack(
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         if let Some(bytes) = archive_bytes {
             let bytes_clone = bytes.to_vec();
-            let outcome = overrides::extract(&bytes_clone, &instance_root, |c, t| {
-                on_progress(ModpackProgress::ExtractingOverrides {
-                    current: c,
-                    total: t,
-                });
-            })
-            .await?;
+            let outcome =
+                overrides::extract(&bytes_clone, &instance_root, &protected_worlds, |c, t| {
+                    on_progress(ModpackProgress::ExtractingOverrides {
+                        current: c,
+                        total: t,
+                    });
+                })
+                .await?;
             bundled_assets = outcome.extracted;
             skipped_overrides = outcome.skipped;
         }

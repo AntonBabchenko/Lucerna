@@ -1,8 +1,9 @@
 //! Extract `overrides/` and (Modrinth-only) `client-overrides/` from a
 //! modpack zip into `{instance_root}/.minecraft/`. Zip-slip-safe.
 
+use std::collections::HashSet;
 use std::io::{Cursor, Read};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use sha1::{Digest, Sha1};
 use tokio::fs;
@@ -33,6 +34,9 @@ enum EntryKind {
     /// Over the per-file cap — recorded as skipped and NOT read into
     /// memory (so a zip-bomb's declared size never forces an allocation).
     Oversized(u64),
+    /// Belongs to a world the instance already has — see
+    /// [`ProtectedWorlds`]. Nothing is read or written.
+    KeptWorld,
 }
 
 /// A file the extractor placed under a tracked directory (`mods/`,
@@ -70,28 +74,124 @@ fn is_tracked_bundled_path(rel: &str) -> bool {
     false
 }
 
-pub async fn extract<F: FnMut(u32, u32)>(
-    bytes: &[u8],
-    instance_root: &Path,
-    mut on_progress: F,
-) -> Result<ExtractOutcome, Error> {
-    let mc_dir = instance_root.join(".minecraft");
-    fs::create_dir_all(&mc_dir).await.map_err(|e| Error::Io {
-        path: mc_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
-    let mc_dir_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::Io {
-        path: mc_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
+/// Whether an archive path's first component names the game's `saves/`
+/// folder, compared the way the filesystem will resolve the write: ASCII
+/// case-insensitively (Windows and macOS fold `Saves`), and on Windows
+/// without the trailing dots and spaces Win32 strips (`saves.` is `saves`).
+fn names_saves(component: &str) -> bool {
+    let name = if cfg!(windows) {
+        component.trim_end_matches(['.', ' '])
+    } else {
+        component
+    };
+    name.eq_ignore_ascii_case("saves")
+}
 
-    let mut zip =
-        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
-            details: e.to_string(),
-        })?;
+/// The `(saves, world)` components of a world-scoped override path, as the
+/// archive spells them, or `None`. Read from path components rather than
+/// split on `/`, so `saves//W/level.dat` is world `W` — exactly where the
+/// write lands.
+fn world_key(rel: &str) -> Option<(String, String)> {
+    let mut parts = Path::new(rel).components().map_while(|c| match c {
+        Component::Normal(s) => s.to_str(),
+        _ => None,
+    });
+    let first = parts.next()?;
+    let world = parts.next()?;
+    names_saves(first).then(|| (first.to_string(), world.to_string()))
+}
 
+/// The shipped worlds an extraction must not write into: those that already
+/// held something when the operation began. A played world is the player's,
+/// not the pack's — writing the pack's `level.dat` and regions over it
+/// reverts part of it and leaves a mixed world — so such a world is skipped
+/// whole, while a missing one is restored in full.
+///
+/// The CALLER takes it, before the operation's first write, and hands it to
+/// [`extract`]: a first import installs the index's files (which may land in
+/// `saves/<world>/`) before it extracts the overrides, and a check made at
+/// extraction time would mistake the world that import just started for the
+/// player's. `Default` protects nothing.
+#[derive(Debug, Default)]
+pub struct ProtectedWorlds(HashSet<(String, String)>);
+
+impl ProtectedWorlds {
+    /// Which of the archive's shipped worlds already hold something under the
+    /// instance's `.minecraft/`. An empty folder counts as missing: it holds
+    /// nothing of the player's, and a failed earlier extraction can leave
+    /// one behind. "Could not tell" protects the world — the restrictive
+    /// answer — and the log says it was not checked.
+    pub fn snapshot(bytes: &[u8], instance_root: &Path) -> Result<Self, Error> {
+        let mut zip = open_archive(bytes)?;
+        let mc_dir = instance_root.join(".minecraft");
+        let mut seen = HashSet::new();
+        let mut protected = HashSet::new();
+        let mut kept: Vec<String> = vec![];
+        for (_, rel) in work_list(&mut zip)? {
+            let Some(key) = world_key(&rel) else {
+                continue;
+            };
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            let dir = mc_dir.join(&key.0).join(&key.1);
+            match holds_something(&dir) {
+                Ok(false) => {}
+                Ok(true) => {
+                    kept.push(format!("{}/{}", key.0, key.1));
+                    protected.insert(key);
+                }
+                Err(e) => {
+                    crate::diag!(
+                        "[modpack::overrides] could not check {} ({e}); that world is left untouched",
+                        dir.display()
+                    );
+                    protected.insert(key);
+                }
+            }
+        }
+        if !kept.is_empty() {
+            kept.sort_unstable();
+            crate::diag!(
+                "[modpack::overrides] these worlds already exist and are left as they are: {}",
+                kept.join(", ")
+            );
+        }
+        Ok(Self(protected))
+    }
+
+    fn covers(&self, rel: &str) -> bool {
+        world_key(rel).is_some_and(|key| self.0.contains(&key))
+    }
+}
+
+/// Whether `path` exists and is not an empty directory. `NotFound` is a real
+/// "no"; any other failure is returned, never folded into either answer.
+fn holds_something(path: &Path) -> std::io::Result<bool> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_dir() {
+        return Ok(true);
+    }
+    // An unreadable first entry still counts as something: restrictive.
+    Ok(std::fs::read_dir(path)?.next().is_some())
+}
+
+fn open_archive(bytes: &[u8]) -> Result<zip::ZipArchive<Cursor<&[u8]>>, Error> {
+    zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
+        details: e.to_string(),
+    })
+}
+
+/// Every `client-overrides/` then `overrides/` entry, as `(index, path
+/// relative to .minecraft)`. An `overrides/` entry that a `client-overrides/`
+/// entry also names is dropped, so the client one wins.
+fn work_list(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Vec<(usize, String)>, Error> {
     let mut work: Vec<(usize, String)> = vec![];
-    let mut client_paths: std::collections::HashSet<String> = Default::default();
+    let mut client_paths: HashSet<String> = Default::default();
     for i in 0..zip.len() {
         let entry = zip.by_index(i).map_err(|e| Error::ModpackInvalidArchive {
             details: e.to_string(),
@@ -118,6 +218,30 @@ pub async fn extract<F: FnMut(u32, u32)>(
         }
     }
     work.extend(overrides_work);
+    Ok(work)
+}
+
+/// Extract the archive's overrides into `instance_root/.minecraft/`, never
+/// writing into a world `protected` names — take it with
+/// [`ProtectedWorlds::snapshot`] before the operation's first write.
+pub async fn extract<F: FnMut(u32, u32)>(
+    bytes: &[u8],
+    instance_root: &Path,
+    protected: &ProtectedWorlds,
+    mut on_progress: F,
+) -> Result<ExtractOutcome, Error> {
+    let mc_dir = instance_root.join(".minecraft");
+    fs::create_dir_all(&mc_dir).await.map_err(|e| Error::Io {
+        path: mc_dir.display().to_string(),
+        details: e.to_string(),
+    })?;
+    let mc_dir_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::Io {
+        path: mc_dir.display().to_string(),
+        details: e.to_string(),
+    })?;
+
+    let mut zip = open_archive(bytes)?;
+    let work = work_list(&mut zip)?;
 
     let total = work.len() as u32;
     on_progress(0, total);
@@ -148,7 +272,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
                 return Err(Error::ModpackOverridesPathEscape { entry: rel });
             }
 
-            if entry.is_dir() {
+            if protected.covers(&rel) {
+                EntryKind::KeptWorld
+            } else if entry.is_dir() {
                 EntryKind::Dir
             } else {
                 // The declared `entry.size()` is attacker-controlled (central
@@ -201,6 +327,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
 
         let target = mc_dir.join(&rel);
         match kind {
+            // Nothing written: the world is the player's — see
+            // `ProtectedWorlds`.
+            EntryKind::KeptWorld => {}
             EntryKind::Oversized(size) => {
                 // Nothing written. Record it so the import surfaces a
                 // non-fatal "skipped" note instead of failing.
@@ -285,7 +414,9 @@ mod tests {
     async fn extracts_normal_file() {
         let zip = make_zip(&[("overrides/config/foo.toml", b"k=v")]);
         let inst = TempDir::new().unwrap();
-        extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
+            .await
+            .unwrap();
         let target = inst.path().join(".minecraft/config/foo.toml");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"k=v");
     }
@@ -294,7 +425,7 @@ mod tests {
     async fn rejects_path_traversal() {
         let zip = make_zip(&[("overrides/../escape.txt", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), |_, _| {}).await;
+        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -302,7 +433,7 @@ mod tests {
     async fn rejects_absolute_path() {
         let zip = make_zip(&[("overrides//etc/passwd", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), |_, _| {}).await;
+        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -310,7 +441,7 @@ mod tests {
     async fn rejects_drive_letter() {
         let zip = make_zip(&[("overrides/C:/windows/system32.txt", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), |_, _| {}).await;
+        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -321,7 +452,9 @@ mod tests {
             ("client-overrides/options.txt", b"from-client"),
         ]);
         let inst = TempDir::new().unwrap();
-        extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
+            .await
+            .unwrap();
         let bytes = tokio::fs::read(inst.path().join(".minecraft/options.txt"))
             .await
             .unwrap();
@@ -333,9 +466,11 @@ mod tests {
         let zip = make_zip(&[("overrides/a.txt", b"a"), ("overrides/b.txt", b"b")]);
         let inst = TempDir::new().unwrap();
         let calls = std::sync::Mutex::new(vec![]);
-        extract(&zip, inst.path(), |c, t| calls.lock().unwrap().push((c, t)))
-            .await
-            .unwrap();
+        extract(&zip, inst.path(), &ProtectedWorlds::default(), |c, t| {
+            calls.lock().unwrap().push((c, t))
+        })
+        .await
+        .unwrap();
         let calls = calls.into_inner().unwrap();
         assert_eq!(calls[0], (0, 2));
         assert!(calls.iter().any(|p| *p == (1, 2)));
@@ -378,7 +513,9 @@ mod tests {
             ("overrides/resourcepacks/readme.txt", b"notes" as &[u8]),
         ]);
         let inst = TempDir::new().unwrap();
-        let out = extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        let out = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
+            .await
+            .unwrap();
         let paths: std::collections::HashSet<&str> = out
             .extracted
             .iter()
@@ -415,7 +552,9 @@ mod tests {
             w.finish().unwrap();
         }
         let inst = TempDir::new().unwrap();
-        let out = extract(&buf, inst.path(), |_, _| {}).await.unwrap();
+        let out = extract(&buf, inst.path(), &ProtectedWorlds::default(), |_, _| {})
+            .await
+            .unwrap();
 
         // Normal jar extracted to disk and surfaced as a bundled asset.
         assert_eq!(
@@ -437,5 +576,153 @@ mod tests {
             !inst.path().join(".minecraft/mods/mods.rar").exists(),
             "oversized override must not be written"
         );
+    }
+
+    /// A played world `W` under the instance, holding `level.dat = USER`.
+    fn played_world(inst: &TempDir) -> std::path::PathBuf {
+        let world = inst.path().join(".minecraft/saves/W");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), b"USER").unwrap();
+        world
+    }
+
+    /// Snapshot, then extract — the order both real callers use.
+    async fn snapshot_and_extract(zip: &[u8], inst: &TempDir) -> Result<ExtractOutcome, Error> {
+        let protected = ProtectedWorlds::snapshot(zip, inst.path()).unwrap();
+        extract(zip, inst.path(), &protected, |_, _| {}).await
+    }
+
+    #[tokio::test]
+    async fn an_existing_world_is_never_written() {
+        // "Re-import pack files" extracts into an instance the user has
+        // played. A pack shipping saves/W/ used to overwrite the player's
+        // level.dat and the regions it shipped, reverting part of the world.
+        let inst = TempDir::new().unwrap();
+        let world = played_world(&inst);
+        let zip = make_zip(&[
+            ("overrides/saves/W/level.dat", b"PACK" as &[u8]),
+            (
+                "overrides/saves/W/region/r.0.0.mca",
+                b"PACK-REGION" as &[u8],
+            ),
+            ("overrides/config/a.toml", b"k=v" as &[u8]),
+        ]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"USER");
+        assert!(
+            !world.join("region").exists(),
+            "no part of the shipped world may be mixed into the player's"
+        );
+        assert_eq!(
+            std::fs::read(inst.path().join(".minecraft/config/a.toml")).unwrap(),
+            b"k=v",
+            "files outside saves/ are still restored"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_world_is_restored_whole() {
+        // The existence check is taken once, before anything is written: a
+        // per-file check would see the folder this extraction just created
+        // and drop the rest of the shipped world.
+        let inst = TempDir::new().unwrap();
+        let zip = make_zip(&[
+            ("overrides/saves/N/level.dat", b"PACK" as &[u8]),
+            (
+                "overrides/saves/N/region/r.0.0.mca",
+                b"PACK-REGION" as &[u8],
+            ),
+        ]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        let world = inst.path().join(".minecraft/saves/N");
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"PACK");
+        assert_eq!(
+            std::fs::read(world.join("region/r.0.0.mca")).unwrap(),
+            b"PACK-REGION"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_world_the_same_import_started_is_still_written() {
+        // A first import installs the index's files BEFORE it extracts the
+        // overrides, and an index file may land in saves/W/. The snapshot
+        // is taken before that write, so W is still the pack's to fill.
+        let inst = TempDir::new().unwrap();
+        let zip = make_zip(&[("overrides/saves/W/level.dat", b"PACK" as &[u8])]);
+        let protected = ProtectedWorlds::snapshot(&zip, inst.path()).unwrap();
+        let from_index = inst.path().join(".minecraft/saves/W/datapacks");
+        std::fs::create_dir_all(&from_index).unwrap();
+        std::fs::write(from_index.join("dp.zip"), b"index file").unwrap();
+
+        extract(&zip, inst.path(), &protected, |_, _| {})
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(inst.path().join(".minecraft/saves/W/level.dat")).unwrap(),
+            b"PACK"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_world_folder_counts_as_missing() {
+        // A failed earlier extraction can leave saves/W/ behind with nothing
+        // in it. Nothing of the player's is there, so the world is restored.
+        let inst = TempDir::new().unwrap();
+        std::fs::create_dir_all(inst.path().join(".minecraft/saves/W")).unwrap();
+        let zip = make_zip(&[("overrides/saves/W/level.dat", b"PACK" as &[u8])]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        assert_eq!(
+            std::fs::read(inst.path().join(".minecraft/saves/W/level.dat")).unwrap(),
+            b"PACK"
+        );
+    }
+
+    #[tokio::test]
+    async fn other_spellings_of_a_played_world_are_kept_too() {
+        // client-overrides/ and a doubled separator both land in saves/W/;
+        // the world is recognised by where the write resolves, not by how
+        // the archive happens to spell it.
+        let inst = TempDir::new().unwrap();
+        let world = played_world(&inst);
+        let zip = make_zip(&[
+            ("overrides/saves//W/level.dat", b"PACK" as &[u8]),
+            ("client-overrides/saves/W/icon.png", b"PACK-ICON" as &[u8]),
+        ]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"USER");
+        assert!(!world.join("icon.png").exists());
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[tokio::test]
+    async fn a_case_variant_of_saves_is_kept_where_the_filesystem_folds_case() {
+        let inst = TempDir::new().unwrap();
+        let world = played_world(&inst);
+        let zip = make_zip(&[("overrides/Saves/W/level.dat", b"PACK" as &[u8])]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"USER");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_trailing_dot_spelling_of_saves_is_kept_on_windows() {
+        // Win32 strips a trailing dot from a path segment: saves./W is saves/W.
+        let inst = TempDir::new().unwrap();
+        let world = played_world(&inst);
+        let zip = make_zip(&[("overrides/saves./W/level.dat", b"PACK" as &[u8])]);
+        snapshot_and_extract(&zip, &inst).await.unwrap();
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"USER");
+    }
+
+    #[tokio::test]
+    async fn a_path_escape_inside_a_kept_world_is_still_rejected() {
+        // Skipping a kept world must not skip the safety check: a hostile
+        // entry is an error, not a silently ignored file.
+        let inst = TempDir::new().unwrap();
+        played_world(&inst);
+        let zip = make_zip(&[("overrides/saves/W/../../../escape.txt", b"!" as &[u8])]);
+        let r = snapshot_and_extract(&zip, &inst).await;
+        assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 }
