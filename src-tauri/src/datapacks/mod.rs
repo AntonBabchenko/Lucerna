@@ -101,9 +101,10 @@ pub struct WorldDatapack {
 pub struct WorldDatapackListing {
     /// `Present` is the only state Lucerna edits. `OnlyOld`: `packs` shows
     /// what `level.dat_old` holds — the copy the game opens the world from
-    /// and restores `level.dat` out of — and every change is refused until
-    /// `level.dat` is back. `Absent`: the game does not list the folder as a
-    /// world and loads nothing from it, so `packs` is empty.
+    /// and restores `level.dat` out of — and every add, toggle and removal is
+    /// refused until `level.dat` is back (the same-name refresh is the
+    /// documented exception, §0.2 I7). `Absent`: the game does not list the
+    /// folder as a world and loads nothing from it, so `packs` is empty.
     pub level_dat: presence::LevelDatPresence,
     pub packs: Vec<WorldDatapack>,
 }
@@ -119,7 +120,11 @@ pub struct DatapackPlacementView {
     /// guessed.
     pub state: Option<WorldPackState>,
     /// This world's `level.dat` presence; `None` when it could not be told.
-    /// Anything but `Some(Present)` means Lucerna changes nothing there.
+    /// Anything but `Some(Present)` means Lucerna adds, toggles or removes
+    /// nothing in this world. A library-wide cascade removal or renamed update
+    /// still unlinks or relinks the file in an `Absent` folder without
+    /// touching `level.dat` (§0.5 A3), and a same-name refresh is not gated
+    /// (§0.2 I7).
     pub level_dat: Option<presence::LevelDatPresence>,
 }
 
@@ -158,8 +163,11 @@ pub struct DatapackLibraryView {
     /// does, and the frontend cannot compute it.
     pub expected_pack_format: Option<u32>,
     pub entries: Vec<DatapackLibraryEntry>,
-    /// Every folder under `saves/`, sorted case-insensitively, each with
-    /// its `level.dat` presence — including worlds no pack is in.
+    /// Every world folder the listing accepts under `saves/`, sorted
+    /// case-insensitively, each with its `level.dat` presence — including
+    /// worlds no pack is in. A folder whose metadata cannot be read, or whose
+    /// name is not a usable world folder name, is left out, and the world
+    /// picker then shows it as unknown.
     pub worlds: Vec<DatapackWorldView>,
 }
 

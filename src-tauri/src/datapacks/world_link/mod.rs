@@ -59,7 +59,9 @@ use crate::error::{Error, Result};
 ///
 /// `crate::worlds::world_dir_at` is the existing validate → join → `is_dir`
 /// helper every other world-mutating path already uses for exactly this
-/// reason.
+/// reason. A failed stat of the world folder is currently also reported as
+/// `WorldNotFound` (`world_dir_at` uses `is_dir`): a known limitation,
+/// tracked separately.
 fn world_dirs_checked(instance_root: &Path, world: &str) -> Result<(PathBuf, PathBuf)> {
     let saves_dir = instance_root.join(".minecraft").join("saves");
     let world_dir = crate::worlds::world_dir_at(&saves_dir, world)?;

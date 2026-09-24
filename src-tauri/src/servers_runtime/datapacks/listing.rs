@@ -60,10 +60,12 @@ fn union_names(level_dat_names: &[String], sidecar: &[String], on_disk: &[String
 ///
 /// The lists are the ones the server would load: `level.dat`'s,
 /// `level.dat_old`'s when only the backup is left, or two empty lists for a
-/// world not generated yet. `Result` so that a folder scan that fails can
-/// become the pane's load error (§0.5 A4); a `level.dat` problem never fails
-/// it — it degrades the states to unknown and sets `level_dat: None` when
-/// the presence itself could not be told.
+/// world not generated yet. A `level.dat` problem never fails the listing:
+/// it degrades the states to unknown, and sets `level_dat: None` when the
+/// presence itself could not be told.
+///
+/// `Result` is reserved for the folder scan, whose failure is to become the
+/// pane's load error (§0.5 A4); nothing returns `Err` yet.
 ///
 /// `world_dir` is `runtime/<level>/`; its `datapacks/` child holds the packs.
 ///
