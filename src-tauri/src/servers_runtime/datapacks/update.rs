@@ -6,7 +6,9 @@ use crate::datapacks::{level_dat, level_dat_entry, world_link, DatapackProvenanc
 use crate::error::{Error, Result};
 use crate::servers_runtime::installed;
 
-use super::{level_dat_lock, level_dat_present, mutate, sidecar, ServerDatapackUpdateOutcome};
+use crate::datapacks::presence::{self, LevelDatPresence};
+
+use super::{level_dat_lock, mutate, refuse_only_old, sidecar, ServerDatapackUpdateOutcome};
 
 /// Apply one resolved update. `bytes` is the target's verified content; the
 /// caller owns download, size caps and verification.
@@ -26,6 +28,11 @@ pub async fn update_one(
             filename: old_filename.to_string(),
         });
     }
+    // D2 for both branches, before either one's `sidecar::reconcile` (which
+    // persists) and before any file is placed. A world that lost its level.dat
+    // and kept level.dat_old is left for the next start to restore. A
+    // never-generated world (`Absent`) keeps the #454 behaviour below.
+    refuse_only_old(world_dir)?;
     let dp_dir = world_dir.join("datapacks");
 
     // FULL Unicode folding, not `eq_ignore_ascii_case`: NTFS's $UpCase covers
@@ -133,7 +140,10 @@ pub async fn update_one(
 
     let was_enabled = {
         let _guard = level_dat_lock().lock().await;
-        if !level_dat_present(world_dir)? {
+        match presence::of(world_dir)? {
+            LevelDatPresence::Present => {
+                Some(carry_state(world_dir, old_filename, new_filename).await?)
+            }
             // No level.dat — normally a world the server has never
             // generated — and it must not be given one: a level.dat holding
             // nothing but Data.DataPacks is not a world, and the server
@@ -142,9 +152,13 @@ pub async fn update_one(
             // install, and the state is not claimed (`None`): this path
             // reads no list, and server.properties' initial-disabled-packs,
             // which the game applies at generation, is not consulted here.
-            None
-        } else {
-            Some(carry_state(world_dir, old_filename, new_filename).await?)
+            LevelDatPresence::Absent => None,
+            // Checked at the top, so this is reachable only if something outside
+            // Lucerna deleted level.dat since then (`guard::gate` excludes a
+            // running server). It is the one refusal that comes after a write:
+            // the new file is present and unlisted, the old file and both
+            // sidecar rows are kept, and a retry converges once level.dat is back.
+            LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
         }
     };
 
@@ -686,5 +700,64 @@ mod tests {
             Some("v2"),
             "the sidecar must carry the TARGET's version, not None from the orphan adoption"
         );
+    }
+
+    #[tokio::test]
+    async fn an_update_on_an_only_old_world_refuses_before_touching_anything() {
+        // Installed before the first boot (Absent); later the world lost its
+        // level.dat and kept level.dat_old.
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        crate::servers_runtime::datapacks::mutate::install_bytes(
+            td.path(),
+            "vm-1.0.zip",
+            &datapack_zip(b"v1"),
+            Some(&prov("v1")),
+        )
+        .await
+        .unwrap();
+        // A hand-dropped zip with no row: any `sidecar::reconcile` would adopt
+        // it and persist, so an unchanged sidecar proves the refusal came first.
+        std::fs::write(
+            td.path().join("datapacks").join("extra.zip"),
+            datapack_zip(b"extra"),
+        )
+        .unwrap();
+        level_dat::test_support::seed_old(td.path(), &[], &[]);
+        let sidecar = td.path().join(".lucerna-installed.json");
+        let sidecar_before = std::fs::read(&sidecar).unwrap();
+        let old_before = std::fs::read(td.path().join("datapacks").join("vm-1.0.zip")).unwrap();
+
+        // The same-name branch, then the renamed one.
+        for new_name in ["vm-1.0.zip", "vm-2.0.zip"] {
+            let err = update_one(
+                td.path(),
+                "vm-1.0.zip",
+                new_name,
+                &datapack_zip(b"v2"),
+                &prov("v2"),
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                matches!(err, Error::ServerWorldOnlyOld),
+                "{new_name}: got {err:?}"
+            );
+            assert_eq!(
+                std::fs::read(&sidecar).unwrap(),
+                sidecar_before,
+                "{new_name}: sidecar touched"
+            );
+            assert_eq!(
+                std::fs::read(td.path().join("datapacks").join("vm-1.0.zip")).unwrap(),
+                old_before,
+                "{new_name}: old pack touched"
+            );
+            assert!(
+                !td.path().join("datapacks").join("vm-2.0.zip").exists(),
+                "{new_name}"
+            );
+            assert!(!td.path().join("level.dat").exists(), "{new_name}");
+        }
     }
 }

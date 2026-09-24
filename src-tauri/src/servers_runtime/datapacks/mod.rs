@@ -6,6 +6,7 @@
 //! only installs zips). Pure-of-network; I/O around a plain directory,
 //! mirroring [`super::quarantine`]'s style.
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 
@@ -32,24 +33,20 @@ pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-/// Whether the world's `level.dat` exists — `Err` when that cannot be told.
+/// D2 for the server writers that proceed on a never-generated world. A
+/// world that lost its `level.dat` and kept `level.dat_old` is refused with
+/// [`Error::ServerWorldOnlyOld`]: the next start restores `level.dat` from
+/// the backup, and a file written here first would switch that recovery off.
+/// The other two states come back for the caller to act on. `Err` means the
+/// state could not be told, and the writers refuse on it too.
 ///
-/// Absent is a real state — normally a world the server has never
-/// generated — and every caller acts on it: the update and the removal leave
-/// `level.dat` alone, the toggle refuses. `Path::exists` folds a failed stat
-/// into "absent", which would let those callers act on a guess: the toggle
-/// would say the world was never created, and an update would skip carrying a
-/// disabled pack's state, so the game would switch the new file back on.
-///
-/// Not distinguished yet: a generated world whose `level.dat` was lost while
-/// `level.dat_old` survives (the game recovers from the latter). It reads as
-/// absent here.
-pub(super) fn level_dat_present(world_dir: &Path) -> Result<bool> {
-    let path = world_dir.join("level.dat");
-    match std::fs::symlink_metadata(&path) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(Error::io(path.display().to_string(), e)),
+/// `pub(crate)`: `commands::vanillatweaks::vt_install_to_server` checks it
+/// once, before downloading anything.
+pub(crate) fn refuse_only_old(world_dir: &Path) -> Result<LevelDatPresence> {
+    match presence::of(world_dir)? {
+        LevelDatPresence::Present => Ok(LevelDatPresence::Present),
+        LevelDatPresence::Absent => Ok(LevelDatPresence::Absent),
+        LevelDatPresence::OnlyOld => Err(Error::ServerWorldOnlyOld),
     }
 }
 

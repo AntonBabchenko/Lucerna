@@ -135,6 +135,11 @@ pub async fn vt_install_to_server(
     let family = family_for(&file.mc_version).ok_or_else(|| Error::VanillaTweaksUnavailable {
         mc_version: file.mc_version.clone(),
     })?;
+    // D2 for the whole call, before the bundle is downloaded. An only-old
+    // world would refuse every pack, and each refusal would reach the report
+    // as an untranslated `e.to_string()`. After the version gate above, per
+    // the spec's check order (§0.5 A7).
+    crate::servers_runtime::datapacks::refuse_only_old(&world)?;
 
     let packs = crate::network::throttle::with_interactive(vanillatweaks::build_selection(
         &family, &selection,

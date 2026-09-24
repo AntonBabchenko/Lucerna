@@ -2,11 +2,12 @@
 
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance};
 use crate::error::{DatapackRejection, Error, Result};
 use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 
-use super::{level_dat_lock, level_dat_present};
+use super::{level_dat_lock, refuse_only_old};
 
 /// Enable or disable one pack in the world's `level.dat`. The file itself is
 /// never touched — this is the game's own mechanism, so what the launcher
@@ -14,7 +15,8 @@ use super::{level_dat_lock, level_dat_present};
 ///
 /// Works for folder packs too: `level.dat` does not distinguish them.
 ///
-/// Refuses when `level.dat` is absent — see [`Error::ServerWorldNotCreated`].
+/// Refuses when `level.dat` is absent — see [`Error::ServerWorldNotCreated`] —
+/// and when only `level.dat_old` survives — see [`Error::ServerWorldOnlyOld`].
 pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
@@ -22,8 +24,12 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
         });
     }
     let _guard = level_dat_lock().lock().await;
-    if !level_dat_present(world_dir)? {
-        return Err(Error::ServerWorldNotCreated);
+    match presence::of(world_dir)? {
+        LevelDatPresence::Present => {}
+        // The next start restores level.dat from level.dat_old; a file
+        // written here first would switch that recovery off.
+        LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
+        LevelDatPresence::Absent => return Err(Error::ServerWorldNotCreated),
     }
     let (mut root, framing) = level_dat::read_at(world_dir)?;
     if level_dat::set_enabled(&mut root, &level_dat_entry(filename), enabled)? {
@@ -43,6 +49,9 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
 /// Tolerates an absent `level.dat`: a pack installed before the server's
 /// first boot has no level.dat half to clear, and failing here would make it
 /// unremovable. (The toggle takes the opposite call — see [`set_enabled`].)
+///
+/// Refuses a world with only `level.dat_old` ([`Error::ServerWorldOnlyOld`])
+/// before touching anything.
 pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
@@ -62,24 +71,35 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
         });
     }
 
-    match std::fs::metadata(&path) {
-        Ok(m) if m.is_dir() => {
-            std::fs::remove_dir_all(&path).map_err(|e| Error::io(path.display().to_string(), e))?
-        }
-        Ok(_) => {
-            std::fs::remove_file(&path).map_err(|e| Error::io(path.display().to_string(), e))?
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(Error::io(path.display().to_string(), e)),
-    }
-
+    // One lock around the whole removal, and one presence reading. D2 comes
+    // before anything is deleted, and the level.dat edit is computed before
+    // the file goes, so an unreadable level.dat refuses with the pack in place.
     {
         let _guard = level_dat_lock().lock().await;
-        if level_dat_present(world_dir)? {
-            let (mut root, framing) = level_dat::read_at(world_dir)?;
-            if level_dat::forget_ci(&mut root, &level_dat_entry(filename))? {
-                level_dat::write_at(world_dir, &root, framing).await?;
+        let edit = match presence::of(world_dir)? {
+            LevelDatPresence::Present => {
+                let (mut root, framing) = level_dat::read_at(world_dir)?;
+                level_dat::forget_ci(&mut root, &level_dat_entry(filename))?
+                    .then_some((root, framing))
             }
+            LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
+            // Never generated: a pack installed before the first boot has no
+            // level.dat half to clear, and refusing would make it unremovable.
+            LevelDatPresence::Absent => None,
+        };
+
+        match std::fs::metadata(&path) {
+            Ok(m) if m.is_dir() => std::fs::remove_dir_all(&path)
+                .map_err(|e| Error::io(path.display().to_string(), e))?,
+            Ok(_) => {
+                std::fs::remove_file(&path).map_err(|e| Error::io(path.display().to_string(), e))?
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::io(path.display().to_string(), e)),
+        }
+
+        if let Some((root, framing)) = edit {
+            level_dat::write_at(world_dir, &root, framing).await?;
         }
     }
 
@@ -104,6 +124,8 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 /// No `level.dat` write: a fresh pack lands present-and-unlisted, which the
 /// game auto-enables on boot — the honest server-side default, and exactly
 /// why `state::derive`'s `(true, _, false)` arm exists.
+///
+/// Refuses a world with only `level.dat_old` ([`Error::ServerWorldOnlyOld`]).
 pub async fn install_bytes(
     world_dir: &Path,
     filename: &str,
@@ -132,6 +154,12 @@ pub async fn install_bytes(
             limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
         });
     }
+    // D2: a world that lost its level.dat but kept level.dat_old gets no
+    // data-pack change; the next start restores level.dat from the backup.
+    // This comes after the input validation above (§0.5 A7) and before the
+    // first write, which is the provenance block's `sidecar::reconcile` (it
+    // persists). A never-generated world (`Absent`) installs as before.
+    refuse_only_old(world_dir)?;
 
     // Classification and hashing each walk the whole archive; a catalog
     // install is an automated path where a large pack would stall the async
@@ -623,5 +651,75 @@ mod tests {
             .unwrap();
         assert!(!td.path().join("level.dat").exists());
         assert_eq!(state_of(td.path(), "p.zip"), Some(WorldPackState::Enabled));
+    }
+
+    #[tokio::test]
+    async fn install_refuses_an_only_old_world_and_writes_nothing() {
+        // A hand-dropped zip under the target name with no sidecar row: the
+        // provenance block's `sidecar::reconcile` would adopt it and PERSIST
+        // the sidecar, so a refusal that came after the reconcile would leave
+        // the sidecar file behind.
+        let td = world(&["t.zip"]);
+        let theirs = std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap();
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let err = install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"new"),
+            Some(&prov("terralith", "v1")),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap(),
+            theirs
+        );
+        assert!(
+            !td.path().join(".lucerna-installed.json").exists(),
+            "no sidecar may be written"
+        );
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn removal_refuses_an_only_old_world_and_keeps_the_file() {
+        let td = world(&["p.zip"]);
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &["file/p.zip"]);
+
+        let err = remove(td.path(), "p.zip").await.unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert!(td.path().join("datapacks").join("p.zip").exists());
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn the_toggle_on_an_only_old_world_says_only_old_not_not_created() {
+        // `ServerWorldNotCreated` would tell the admin the world does not exist.
+        // It does, and the next start restores its level.dat from the backup.
+        let td = world(&["p.zip"]);
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let err = set_enabled(td.path(), "p.zip", false).await.unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn removal_refuses_an_unparseable_level_dat_and_keeps_the_file() {
+        let td = world(&["p.zip"]);
+        std::fs::write(td.path().join("level.dat"), b"not nbt at all").unwrap();
+
+        let err = remove(td.path(), "p.zip").await.unwrap_err();
+
+        assert!(matches!(err, Error::LevelDatParse { .. }), "got {err:?}");
+        assert!(
+            td.path().join("datapacks").join("p.zip").exists(),
+            "the file must not go before level.dat can follow"
+        );
     }
 }
