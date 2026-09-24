@@ -183,6 +183,21 @@ describe('fieldFlash', () => {
     expect(document.activeElement).toBe(input);
   });
 
+  it('with only disabled controls, parks on the wrapper and hands focus to the first once it enables', async () => {
+    // A jump whose link unmounted must not leave focus on <body>: the settings
+    // behind the control may still be loading.
+    const host = document.createElement('div');
+    host.innerHTML = '<input type="checkbox" disabled /><button disabled>b</button>';
+    document.body.appendChild(host);
+    const box = host.querySelector('input') as HTMLInputElement;
+    fieldFlash(host, { active: true, focus: true });
+    expect(document.activeElement).toBe(host);
+    box.disabled = false;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(box);
+  });
+
   it('does not steal focus on enable when something else claimed it meanwhile', async () => {
     const host = document.createElement('div');
     host.innerHTML = '<input data-flash-focus disabled />';

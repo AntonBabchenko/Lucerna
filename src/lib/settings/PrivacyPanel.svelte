@@ -38,9 +38,11 @@
     if (general !== null && value !== undefined) {
       return { state: $t(value ? on : off), tone: 'known' as const };
     }
-    return loadError !== null
-      ? { state: $t('settings.privacy.state.unknown'), tone: 'unknown' as const }
-      : { state: $t('settings.privacy.state.checking'), tone: 'checking' as const };
+    // Still reading → say so. A failed read, or a finished one without the
+    // value, is "could not tell" — never a read in progress forever.
+    return appSettings.loaded.kind === 'pending'
+      ? { state: $t('settings.privacy.state.checking'), tone: 'checking' as const }
+      : { state: $t('settings.privacy.state.unknown'), tone: 'unknown' as const };
   }
 
   /** Where AI translation sends the text: nowhere off this computer for the

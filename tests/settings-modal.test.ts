@@ -55,6 +55,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import { __resetAppSettingsForTest, loadAppSettings } from '$lib/settings/app-settings.svelte';
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import {
@@ -185,7 +186,7 @@ describe('SettingsModal', () => {
   it('the About pointer opens the Privacy page with focus on its heading', async () => {
     settingsOpen.value = { tab: 'about' };
     render(SettingsModal);
-    await fireEvent.click(screen.getByRole('button', { name: 'See what Lucerna contacts' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'See the connections you control' }));
     await vi.waitFor(() =>
       expect(
         screen.getByRole('tab', { name: 'Privacy & network' }).getAttribute('aria-selected'),
@@ -193,8 +194,36 @@ describe('SettingsModal', () => {
     );
     await vi.waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole('heading', { name: 'What Lucerna contacts' }),
+        screen.getByRole('heading', { name: 'Connections you control' }),
       ),
+    );
+    // The page's label IS the tab's name: say it once.
+    const live = document.querySelector('.sr-only[role="status"]');
+    expect(live?.textContent).toBe('Opened setting: Privacy & network');
+  });
+
+  it('a jump while the settings are still being read keeps focus in the dialog, then hands it to the control', async () => {
+    type Read = Awaited<ReturnType<typeof commands.appSettingsGet>>;
+    let answer: (v: Read) => void = () => {};
+    vi.mocked(commands.appSettingsGet).mockReturnValueOnce(
+      new Promise<Read>((r) => {
+        answer = r;
+      }),
+    );
+    __resetAppSettingsForTest();
+    void loadAppSettings();
+    settingsOpen.value = { tab: 'privacy' };
+    render(SettingsModal);
+    const row = screen.getByTestId('privacy-row-serverPing');
+    await fireEvent.click(within(row).getByRole('button', { name: 'Change' }));
+    await vi.waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Game' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    const wrapper = document.querySelector('[data-search-anchor="game.serverPing"]');
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper));
+    answer({ status: 'ok', data: { general: { allow_server_ping: false } } } as Read);
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId('server-ping-toggle')),
     );
   });
 

@@ -55,7 +55,10 @@
     active = entry.tab;
     await tick();
     settingsSearchFocus.value = entry.anchor;
-    announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
+    const label = $t(entry.labelKey);
+    const section = $t(`settings.sections.${entry.tab}` as TranslationKey);
+    // A page-level anchor's label is its tab's name: say it once.
+    announce = `${$t('settings.search.jumpedTo')} ${label === section ? label : `${label}, ${section}`}`;
   }
 
   // A jump asked for from inside the modal (jumpInSettings) takes the same

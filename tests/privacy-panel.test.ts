@@ -73,7 +73,7 @@ describe('Privacy & network', () => {
   it('says a local AI sends nothing out, and names where a hosted one sends the text', async () => {
     await load({ ...GENERAL, allow_ai_translation: true, ai_provider: 'local' });
     const first = render(PrivacyPanel);
-    expect(row('ai').textContent).toContain('Runs on this computer');
+    expect(row('ai').textContent).toContain('only to the model server on this computer');
     first.unmount();
     await load({ ...GENERAL, allow_ai_translation: true, ai_provider: 'gemini' });
     render(PrivacyPanel);
@@ -91,7 +91,7 @@ describe('Privacy & network', () => {
       expect(row(id).textContent).not.toMatch(/Allowed|Not allowed|\bOn\b|\bOff\b/);
     }
     // Where the text would go depends on a provider nobody has read yet.
-    expect(row('ai').textContent).not.toContain('Runs on this computer');
+    expect(row('ai').textContent).not.toContain('model server on this computer');
     expect(row('ai').textContent).not.toContain('Gemini');
   });
 
@@ -105,6 +105,18 @@ describe('Privacy & network', () => {
     await loadAppSettings();
     render(PrivacyPanel);
     expect(row('ai').textContent).toContain("Couldn't read");
+  });
+
+  it("a finished read with nothing in it says it couldn't read, not that it is still checking", async () => {
+    h.get.mockResolvedValue({ status: 'ok', data: {} });
+    h.getDataLocation.mockResolvedValue(status(false));
+    __resetAppSettingsForTest();
+    await loadAppSettings();
+    render(PrivacyPanel);
+    for (const id of ['serverPing', 'ai', 'updates']) {
+      expect(row(id).textContent).toContain("Couldn't read");
+      expect(row(id).textContent).not.toContain('Checking…');
+    }
   });
 
   it('says the update check is paused in a temporary session', async () => {

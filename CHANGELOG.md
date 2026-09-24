@@ -23,7 +23,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
-- **A Privacy & network page says what Lucerna contacts.** Settings lists the
+- **A Privacy & network page shows the connections you control.** Settings lists the
   connections that are yours to allow — saved-server status, AI translation and
   the update check at startup — with what each one sends, where, and whether it
   is on. Change takes you to the setting itself, with the keyboard focus on it,
